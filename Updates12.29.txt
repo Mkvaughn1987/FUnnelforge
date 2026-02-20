@@ -1,0 +1,22 @@
+
+
+When I "preview sequence" - I would like it to include the timezone that it is sending it in. THis timezone issue s fucking bullshit and holding me up. It's also going to hold up everyone else so we need to figure this out ASAP. Most important. P
+
+I need 5 recommendations on how this should be completed. 
+
+
+When you refresh, I need EMail 1 to be set to immediate, email 2 to next day, email 3 to 2 days after email 2 and email 4 to 3 days after email 3. This should be the default when you refresh or load up FF.  
+
+
+How can we make it so you dont have to put it in a new email everytime for preview emails? 
+
+I need more professional headlines for each section. Can you please send 5 for each.I have attached all the headlines. (ATTACH FULL GUI) 
+
+
+
+I would like to tie in a notification that let's users know when a campaign email is sent - I am thinking an email sent to yourself.
+
+I really need a way to be able to close out Email 1,2,3,4,5 etc from the Campaign section - There's a way, and we will find it. 
+
+For the "official contacts file" - Let's just make that a button in between import contacts and final contacts list. "open contacts" 
+

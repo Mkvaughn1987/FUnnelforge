@@ -1,0 +1,24 @@
+{
+  "subjects": [
+    "Quick Touchpoint ",
+    "Following up",
+    "Per my VM ",
+    "Let's Stay in touch "
+  ],
+  "bodies": [
+    "Hi {FirstName},\n\nI will keep this quick.\n\nMy team at Arena Recruiting is running recruitment for the STARGATE Project in Abilene, TX, and we have built a strong pipeline of mission critical PMs and Superintendents tied to hyperscale data centers, high voltage power distribution, heavy MEP scopes, and large civil infrastructure programs. I wanted to share a group of candidates I have in my pipeline that would be a good fit. \n\nAll 3 well versed in data center ground up builds.  All profiles are lightly redacted and attached. If any are worth a conversation, I am happy to walk you through them or connect with the right person on your team.\n\nMichael Vaughn  \nArena Construction Recruitment  \nSr. Search Consultant  \nC: 443-791-0026  \nhttps://www.linkedin.com/in/mkvaughn/",
+    "Hi {FirstName},\n\nI wanted to follow up briefly.\n\nAs mentioned, my team at ARENA is running recruitment for the STARGATE Project in Abilene, TX, and maintaining a strong pipeline of mission critical PMs and Superintendents who have supported large scale data center, high voltage, heavy MEP, and civil infrastructure programs. I have attached 3 of them for your review. \n\nDo you typically handle staffing for roles like this at {Company}, or is there someone else I should connect with? I reattached the profiles again for convenience.\n\nMichael Vaughn  \nArena Construction Recruitment  \nSr. Search Consultant  \nC: 443-791-0026  \nhttps://www.linkedin.com/in/mkvaughn/",
+    "Hi {FirstName},\n\nI just recently left you a VM and wanted to follow up again via VM. Let me know if it's not the right time. The mission critical PM and Superintendent candidates I shared are still available. \n\nI reattached their profiles in case it is easier to review when you have time. If these are not the exact fit and you are looking for something more specific, feel free to let me know. With our work on STARGATE, we stay close to this market and can usually match project type, technical scope, and availability quickly.\n\nMichael Vaughn  \nArena Construction Recruitment  \nSr. Search Consultant  \nC: 443-791-0026  \nhttps://www.linkedin.com/in/mkvaughn/",
+    "Hi {FirstName},\n\nI wanted to close the loop so I am not filling your inbox. I assume your team is all set and doesn't need any external help. \n\nIf priorities shift, my team at ARENA will continue supporting mission critical hiring and maintain a strong pipeline of PMs, Superintendents, and technical field leaders who have delivered data center, industrial, high voltage, semiconductor, and large civil programs across the U.S.\n\nAlso, If you are ever on the market, feel free to reach out to me as well. I focus in exec level recruitment. \n\nI will stay in touch periodically and share relevant candidates when it makes sense. Thank you for the time either way.\n\nMichael Vaughn  \nArena Construction Recruitment  \nSr. Search Consultant  \nC: 443-791-0026  \nhttps://www.linkedin.com/in/mkvaughn/"
+  ],
+  "contacts_path": "C:/Users/mkvau/OneDrive/Documents/Sales/Python/4DrIP/contacts.csv",
+  "attachments_dir": "C:/Users/mkvau/OneDrive/Documents/Sales/Python/4DrIP/attachments",
+  "touch_days": [
+    2,
+    5,
+    8
+  ],
+  "send_hour": 9,
+  "preview_only": true,
+  "test_email": "mkvaughn1987@gmail.com"
+}

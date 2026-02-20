@@ -1,0 +1,24 @@
+dist/
+build/
+.venv/
+__pycache__/
+logs/
+*.log
+
+# Large binaries — never commit these
+installer/
+Output/
+*.exe
+
+# Sensitive data / user files
+attachments/
+Resumes/
+Contacts/
+CONTACT LIST/
+*.csv
+funnelforge_config.json
+
+# Next.js (funnel-forge subfolder)
+funnel-forge/node_modules/
+funnel-forge/.next/
+funnel-forge/.env*

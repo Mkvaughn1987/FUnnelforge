@@ -1,0 +1,24 @@
+{
+  "python.defaultInterpreterPath": ".venv\\Scripts\\python.exe",
+  "git.ignoreLimitWarning": true,
+
+  "files.exclude": {
+    "**/dist": true,
+    "**/build": true,
+    "**/__pycache__": true,
+    "**/.venv": true,
+    "**/venv": true,
+    "**/.git": true,
+    "**/logs": true,
+    "**/installers": true
+  },
+  "search.exclude": {
+    "**/dist": true,
+    "**/build": true,
+    "**/.venv": true,
+    "**/venv": true,
+    "**/__pycache__": true,
+    "**/logs": true,
+    "**/installers": true
+  }
+}

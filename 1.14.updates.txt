@@ -1,0 +1,36 @@
+1.14.updates
+
+
+Let's work with the logo. I am thinking we take the current one and instead of 2 F's next to eachother we do them both in the middle, connecting and upside down. I will snd you a drawing on where my head is: 
+
+See FF-Newlogo-Rec's in FF pictures
+
+
+
+**When pulling contacts, if a work email or viable email cannot be located, do not add that contact. 
+
+When a list is changed in "Manage Contacts" - It should automitcally update so when a user goes to "choose contacts" it will be completely up to date. 
+ 
+***Let's add a "Update" button to the Manage contacts tab. Move the "delete List" all the way to the right. Replace it with "Update Lists" and when that button is hit, it should automically update all the lists so when a user goes to "Choose Contacts", it will be updated. 
+
+
+Let's fix the Dashboard and the email, contacts section. Right now it's 7 emails - 3 contacts"  I would like it to have something like "# Email Sequence" (Or whatever number emails the user created" "# Contacts". In addition, I would like to track replies. Add "# replies" 
+
+For the replies we will have to make sure they aren't out of office replies (Maybe replies within 5 minutes of email sent, need to spitball ideas). 
+
+
+**************If the Autobuild schedule is changed, aka - a day is added or deleted, it is not automitcally updating he schedule******************************
+
+
+**Autobuild needs to be moved above the email sequence box****
+
+
+
+Let's change up the Sequece and attachments - The headline stays but under it, instead of "Set send dates/times and manage attachments for each email" - Change it to "Start with Autobuild to set your timeline and change the dates/times after" (USE CHAT GPT TO HELP WITH WORDING" 
+
+
+*************WE need to move "Manage Contacts" on the left hand side right under dashboard and before "create a campaign"**************
+
+
+
+

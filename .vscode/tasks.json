@@ -1,0 +1,11 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Run FunnelForge EXE",
+      "type": "shell",
+      "command": "${workspaceFolder}\\dist\\FunnelForge\\FunnelForge.exe",
+      "problemMatcher": []
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+BUILDING THE .EXE 
+
+1.	Clean and Rebuild: 
+
+Remove-Item -Recurse -Force .\build, .\dist -ErrorAction SilentlyContinue
+py -m PyInstaller .\FunnelForge.spec
+.\dist\FunnelForge\FunnelForge.exe
+
+
+2.	Confirm you got the new build
+
+Run:
+
+dir .\dist
+dir .\dist\FunnelForge
+
+
+3. In PowerShell, from your FunnelForge folder to COmpile inno 
+
+& "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" .\funnelforge_installer.iss
+
+
+That’s it.
