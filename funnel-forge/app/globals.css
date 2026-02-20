@@ -17,11 +17,9 @@ body {
   background: var(--color-bg);
   color: var(--color-text-primary);
   font-family: var(--font-body), sans-serif;
-  position: relative;
-  overflow: hidden;
 }
 
-/* Animated wavy background */
+/* Animated gradient background */
 body::before,
 body::after {
   content: "";
@@ -45,53 +43,24 @@ body::after {
   animation: wave-drift-reverse 14s ease-in-out infinite alternate;
 }
 
-body > * {
-  position: relative;
-  z-index: 1;
-}
-
 @keyframes wave-drift {
-  0% {
-    transform: translateX(-8%) scaleY(1);
-  }
-  50% {
-    transform: translateX(4%) scaleY(1.08);
-  }
-  100% {
-    transform: translateX(8%) scaleY(1);
-  }
+  0% { transform: translateX(-8%) scaleY(1); }
+  50% { transform: translateX(4%) scaleY(1.08); }
+  100% { transform: translateX(8%) scaleY(1); }
 }
 
 @keyframes wave-drift-reverse {
-  0% {
-    transform: translateX(6%) scaleY(1.05);
-  }
-  50% {
-    transform: translateX(-3%) scaleY(0.95);
-  }
-  100% {
-    transform: translateX(-6%) scaleY(1.05);
-  }
+  0% { transform: translateX(6%) scaleY(1.05); }
+  50% { transform: translateX(-3%) scaleY(0.95); }
+  100% { transform: translateX(-6%) scaleY(1.05); }
 }
 
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-heading), serif;
 }
 
-/* Scrollbar styling */
-::-webkit-scrollbar {
-  width: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: var(--color-bg);
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-secondary);
-}
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--color-bg); }
+::-webkit-scrollbar-thumb { background: var(--color-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-secondary); }

@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
-
 const SYSTEM_PROMPT = `You are an expert email marketing strategist for FlowDrop, an email sequencer app for sales teams. Your job is to help users create effective email campaign sequences.
 
 When a user describes their campaign goals, audience, and tone:
@@ -17,15 +13,25 @@ When a user describes their campaign goals, audience, and tone:
 Format your email sequences clearly with headers for each email step.`;
 
 export async function POST(req: NextRequest) {
+  const apiKey = process.env.OPENAI_API_KEY;
+
+  if (!apiKey) {
+    return NextResponse.json(
+      { message: "AI campaign generation requires an OpenAI API key. Add OPENAI_API_KEY to your .env.local file to enable this feature." },
+    );
+  }
+
   try {
     const { messages } = await req.json();
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json(
         { error: "Messages array is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
+
+    const openai = new OpenAI({ apiKey });
 
     const completion = await openai.chat.completions.create({
       model: "gpt-4o-mini",
@@ -41,14 +47,10 @@ export async function POST(req: NextRequest) {
     });
 
     const message = completion.choices[0]?.message?.content || "No response generated.";
-
     return NextResponse.json({ message });
   } catch (error: unknown) {
     console.error("OpenAI API error:", error);
     const errorMessage = error instanceof Error ? error.message : "Failed to generate response";
-    return NextResponse.json(
-      { error: errorMessage },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }

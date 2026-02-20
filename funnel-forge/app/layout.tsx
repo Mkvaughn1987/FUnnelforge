@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Geist, Nunito } from "next/font/google";
 import "./globals.css";
 import Sidebar from "@/components/Sidebar";
-import AnimatedBackground from "@/components/AnimatedBackground";
 
 const geist = Geist({
   variable: "--font-geist",
@@ -29,7 +28,6 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${geist.variable} ${nunito.variable} antialiased`}>
-        <AnimatedBackground />
         <div className="flex h-screen overflow-hidden relative z-[1]">
           <Sidebar />
           <main className="flex-1 overflow-y-auto p-8">
