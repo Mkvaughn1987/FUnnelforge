@@ -24789,6 +24789,33 @@ def _render_aicb_quick_start(s, rf):
 _AICB_CAND_LETTERS = ["A", "B", "C", "D", "E", "F"]
 
 
+def _render_aicb_candidate_cards(s, rf):
+    """Render aicb_cand_cards as a 2-col grid with edit/re-roll/remove
+    controls. Full implementation in task 9."""
+    cards = s.aicb_cand_cards or []
+    if not cards:
+        return
+    with ui.element("div").style(
+            "display:grid;grid-template-columns:repeat(2, 1fr);gap:12px;margin-top:12px;"):
+        for c in cards:
+            with ui.element("div").style(
+                    f"padding:12px;background:{C['surface']};"
+                    f"border:1px solid {C['border']};border-radius:8px;"):
+                ui.label(c.get("label", "")).style(
+                    f"font-size:13px;font-weight:700;color:{C['text_l']};")
+                if c.get("role"):
+                    ui.label(c["role"]).style(
+                        f"font-size:11px;color:{C['muted']};margin-top:2px;")
+                for b in c.get("bullets", []):
+                    ui.label(f"• {b}").style(
+                        f"font-size:12px;color:{C['text_l']};line-height:1.5;")
+
+
+def _render_aicb_pool_picker(s, rf):
+    """Pool picker stub — full implementation in task 10."""
+    ui.label("(pool picker coming next)").style(f"font-size:12px;color:{C['muted']};")
+
+
 def _aicb_cards_from_text(text: str) -> list:
     """Parse the plain-text candidate block produced by
     _aicb_auto_generate_candidates into a list of dicts:
@@ -25811,9 +25838,11 @@ def p_ai_campaign(s: AppState, rf):
         # Legacy hide-token names retained for diff stability. Mapping
         # after the 2026-04-26 Candidates insert:
         #   _step1_hide → Target Details panel (Step 2)
+        #   _step_cand_hide → Candidates panel (Step 3 — NEW)
         #   _step2_hide → Campaign Style panel (Step 4 — was 3)
         #   _step3_hide → Review + Generate panel (Step 5 — was 4)
         _step1_hide = "" if _show_step2 else "display:none;"
+        _step_cand_hide = "" if _show_step3 else "display:none;"
         _step2_hide = "" if _show_step4 else "display:none;"
         # Form panels in wizard mode explicitly go in grid-column 2 so
         # they all stack vertically in the right column and the guidance
@@ -26342,7 +26371,167 @@ def p_ai_campaign(s: AppState, rf):
                     "Target roles and candidates are picked on the next step."
                 ).classes("fd-sub").style(f"color:{C['muted']};margin-bottom:8px;")
 
-            # ═══ Campaign Type panel — Step 2 in wizard mode ═══
+            # ═══ Candidates panel — Step 3 in wizard mode (NEW 2026-04-26) ═══
+            with ui.element("div").style(f"{_step_cand_hide}{_col2}"):
+                ui.label("Pick candidates to feature").style(
+                    f"font-size:16px;font-weight:700;color:{C['text_l']};"
+                    f"font-family:'Nunito',sans-serif;margin-bottom:6px;")
+                ui.label(
+                    "Choose how candidates show up in your emails. Pool uses "
+                    "your saved candidates, Auto-generate creates anonymous "
+                    "archetypes via web search, and Skip ships a market-only "
+                    "campaign with no candidate references."
+                ).classes("fd-sub").style(f"color:{C['muted']};margin-bottom:18px;")
+
+                # ── Section A: Roles (required) ──────────────────────
+                ui.label("Target Roles *").classes("fd-fl")
+                roles_csv = ", ".join(s.aicb_sel_roles or [])
+                _roles_inp_step3 = ui.input(
+                    value=roles_csv,
+                    placeholder="e.g. CNC Machinist, Mill Operator",
+                ).classes("fd-input").style("width:100%;margin-bottom:6px;")
+
+                def _on_roles_change(e):
+                    raw = (e.value or "").split(",")
+                    cleaned: list = []
+                    for r in raw:
+                        r = r.strip()
+                        if r and r not in cleaned:
+                            cleaned.append(r)
+                    s.aicb_sel_roles = cleaned
+
+                _roles_inp_step3.on(
+                    "blur",
+                    lambda: setattr(s, "aicb_sel_roles",
+                        [r.strip() for r in (_roles_inp_step3.value or "").split(",") if r.strip()]),
+                )
+
+                def _suggest_titles_click():
+                    # Commit any pending input first
+                    s.aicb_sel_roles = [
+                        r.strip() for r in (_roles_inp_step3.value or "").split(",")
+                        if r.strip()
+                    ]
+                    _aicb_suggest_role_titles(s, rf)
+
+                with ui.element("div").style(
+                        "display:flex;align-items:center;gap:10px;margin-bottom:18px;"):
+                    if getattr(s, "_aicb_titles_generating", False):
+                        ui.spinner("dots", size="sm")
+                        ui.label("Searching career page…").style(
+                            f"font-size:12px;color:{C['muted']};")
+                    else:
+                        with ui.element("button").classes("fd-pb").style(
+                                "padding:6px 14px;font-size:12px;border-radius:6px;"
+                                ).on("click", _suggest_titles_click):
+                            ui.label("✨ Suggest titles")
+                        if getattr(s, "_aicb_titles_err", ""):
+                            ui.label(f"⚠ {s._aicb_titles_err}").style(
+                                f"font-size:11px;color:{C['warn']};")
+
+                # ── Section B: Source picker (3 cards) ───────────────
+                ui.label("Candidate source").classes("fd-fl").style("margin-top:10px;")
+
+                def _set_source(src):
+                    if s.aicb_cand_cards and src != s.aicb_cand_source:
+                        ui.notify(
+                            f"Switched source — previous candidates discarded.",
+                            type="info"
+                        )
+                        s.aicb_cand_cards = []
+                        s._aicb_cand_text = ""
+                    s.aicb_cand_source = src
+                    if src == "skip":
+                        s.aicb_cand_cards = []
+                        s._aicb_cand_text = ""
+                    rf()
+
+                with ui.element("div").style(
+                        "display:flex;gap:12px;margin-bottom:18px;flex-wrap:wrap;"):
+                    for src_key, src_icon, src_title, src_desc in [
+                        ("pool", "📋", "From Pool",
+                         "Pick from saved candidates matching your roles"),
+                        ("autogen", "✨", "Auto-generate",
+                         "AI invents anonymous archetypes (Candidate A/B/C…)"),
+                        ("skip", "⏭", "Skip",
+                         "No candidates this campaign — market-only"),
+                    ]:
+                        is_active = (s.aicb_cand_source == src_key)
+                        bg = C.get("teal", "#1AE3D9") + "15" if is_active else "transparent"
+                        border = C.get("teal", "#1AE3D9") if is_active else C["border"]
+                        with ui.element("button").style(
+                                f"flex:1;min-width:180px;padding:14px;text-align:left;"
+                                f"background:{bg};border:2px solid {border};"
+                                f"border-radius:10px;cursor:pointer;font-family:inherit;"
+                                ).on("click", lambda src=src_key: _set_source(src)):
+                            ui.label(f"{src_icon} {src_title}").style(
+                                f"font-size:14px;font-weight:700;color:{C['text_l']};")
+                            ui.label(src_desc).style(
+                                f"font-size:11px;color:{C['muted']};margin-top:4px;")
+
+                # ── Section C: Source-specific UI ────────────────────
+                if s.aicb_cand_source == "autogen":
+                    with ui.element("div").style(
+                            f"display:flex;align-items:center;gap:12px;margin-bottom:14px;"
+                            f"padding:12px;background:{C['surface']};border-radius:8px;"):
+                        ui.label("Number of candidates:").style(
+                            f"font-size:12px;color:{C['muted']};")
+                        ui.number(
+                            value=s.aicb_cand_count, min=1, max=6, step=1,
+                        ).style("width:80px;").bind_value(s, 'aicb_cand_count')
+
+                        def _gen_click():
+                            n = max(1, min(6, int(s.aicb_cand_count or 3)))
+                            if getattr(s, "_aicb_cand_generating", False):
+                                return
+                            s.aicb_cand_cards = []
+                            s._aicb_cand_text = ""
+                            def _on_done():
+                                if s._aicb_cand_text:
+                                    s.aicb_cand_cards = _aicb_cards_from_text(s._aicb_cand_text)
+                                rf()
+                            _aicb_auto_generate_candidates(s, _on_done, count=n)
+
+                        if getattr(s, "_aicb_cand_generating", False):
+                            ui.spinner("dots", size="md")
+                            ui.label("Generating candidates…").style(
+                                f"font-size:12px;color:{C['muted']};")
+                        else:
+                            with ui.element("button").classes("fd-pb").style(
+                                    "padding:8px 18px;font-size:13px;").on("click", _gen_click):
+                                ui.label("Generate")
+
+                    if s.aicb_cand_cards:
+                        _render_aicb_candidate_cards(s, rf)
+                        def _reroll_all():
+                            n = max(1, min(6, int(s.aicb_cand_count or 3)))
+                            s.aicb_cand_cards = []
+                            s._aicb_cand_text = ""
+                            def _on_done():
+                                if s._aicb_cand_text:
+                                    s.aicb_cand_cards = _aicb_cards_from_text(s._aicb_cand_text)
+                                rf()
+                            _aicb_auto_generate_candidates(s, _on_done, count=n)
+                        with ui.element("div").style("margin-top:12px;text-align:center;"):
+                            with ui.element("button").classes("fd-gb").style(
+                                    "padding:8px 18px;font-size:12px;").on(
+                                    "click", _reroll_all):
+                                ui.label("🔄 Re-roll all")
+                    if getattr(s, "_aicb_cand_err", ""):
+                        ui.label(f"⚠ {s._aicb_cand_err}").style(
+                            f"font-size:11px;color:{C['warn']};margin-top:6px;")
+
+                elif s.aicb_cand_source == "pool":
+                    _render_aicb_pool_picker(s, rf)
+
+                elif s.aicb_cand_source == "skip":
+                    ui.label(
+                        "✓ Candidates skipped — campaign will reference roles + "
+                        "locations only."
+                    ).style(
+                        f"font-size:13px;color:{C['good']};margin-top:8px;")
+
+            # ═══ Campaign Type panel — Step 4 in wizard mode (was Step 2) ═══
             with ui.element("div").style(f"{_step2_hide}{_col2}"):
                 ui.label("Choose Campaign Style").style(
                     f"font-size:14px;font-weight:700;color:{C['text_l']};"
