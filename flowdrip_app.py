@@ -4101,6 +4101,29 @@ def add_responded(email, name, campaign, touch, subject, reply_body=""):
                      followed_up=False))
     save_responded(r)
 
+def _atomic_write_text(path, text: str, encoding: str = "utf-8") -> None:
+    """Atomic file write: write to <path>.tmp then os.replace().
+    Crash mid-write leaves the destination untouched. Caller is
+    expected to ensure the parent dir exists.
+
+    Raises on failure — callers that previously swallowed errors
+    silently (e.g. save_outcomes) must keep their try/except.
+    """
+    from pathlib import Path
+    p = Path(path)
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    try:
+        tmp.write_text(text, encoding=encoding)
+        os.replace(str(tmp), str(p))
+    finally:
+        # Best-effort cleanup if replace failed
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
 def load_outcomes() -> dict:
     """Load persisted task outcomes from disk."""
     _outcomes = _user_outcomes_path()
