@@ -4142,11 +4142,11 @@ def load_outcomes() -> dict:
     return {}
 
 def save_outcomes(outcomes: dict):
-    """Persist task outcomes to disk."""
+    """Persist task outcomes to disk atomically."""
     _outcomes = _user_outcomes_path()
     try:
         _outcomes.parent.mkdir(parents=True, exist_ok=True)
-        _outcomes.write_text(json.dumps(outcomes, indent=2), encoding="utf-8")
+        _atomic_write_text(_outcomes, json.dumps(outcomes, indent=2))
     except Exception:
         pass
 
