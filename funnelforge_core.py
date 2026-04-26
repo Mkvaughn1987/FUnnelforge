@@ -332,10 +332,26 @@ def normalize_text(text: Optional[str]) -> str:
     return "".join(ch for ch in text if ord(ch) <= 127)
 
 
+_TOKEN_PATTERN = re.compile(r"\{([A-Za-z][A-Za-z0-9_]*)\}")
+
+
 def merge_tokens(template: str, tokens: Dict[str, Any]) -> str:
+    """Substitute {Token} patterns with values from the tokens dict.
+
+    Hard-fails (ValueError) on any unresolved {Token} in the result so
+    typo'd or removed fields can't reach the recipient as literal text.
+    Brace patterns that don't look like an identifier (e.g. JSON
+    snippets like {"a":1}) are ignored.
+    """
     out = template
     for k, v in tokens.items():
         out = out.replace("{" + k + "}", str(v) if v is not None else "")
+    leftovers = _TOKEN_PATTERN.findall(out)
+    if leftovers:
+        unique = sorted(set(leftovers))
+        raise ValueError(
+            f"Unresolved merge token(s) in template: {', '.join('{' + t + '}' for t in unique)}"
+        )
     return out
 
 
