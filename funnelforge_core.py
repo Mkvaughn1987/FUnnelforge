@@ -3,420 +3,339 @@ funnelforge_core.py
 
 Core logic for Funnel Forge:
 - Reads contacts from CSV
-- Builds and schedules Outlook emails based on a sequence
-- Handles explicit dates + times (from GUI)
-- Also supports older offset_days/days schedules (backward compatible)
-- Accepts either 'Work Email' OR 'Email' in the contacts CSV
-- Logs crashes to %LOCALAPPDATA%\\Funnel Forge\\logs
+- Queues emails internally (no Outlook DeferredDeliveryTime)
+- Background scheduler thread fires emails at the right time via Outlook
+- Emails are sent IMMEDIATELY when due — nothing sits in the Outbox
 
-IMPORTANT:
-- Uses LOCAL MACHINE TIME ONLY for scheduling.
-- Exposes both run_funnelforge(...) and run_4drip(...) for GUI compatibility.
+HOW IT WORKS:
+  Instead of setting DeferredDeliveryTime on Outlook items and letting Outlook
+  hold them, FunnelForge manages its own queue (saved to disk). A daemon thread
+  wakes every 60 seconds, checks for due emails, and sends them on the spot.
+  Outlook receives a fresh item with NO deferred time → sends immediately.
+
+REQUIREMENTS:
+  - FunnelForge must be running when emails are scheduled to fire.
+  - Outlook must be open and online at send time.
+  - Both were already required with the old deferred approach.
+
+CHANGELOG:
+  v3.0 — Replaced DeferredDeliveryTime with internal scheduler queue.
+         Emails now fire directly from FunnelForge at scheduled time.
+         Queue persists across app restarts in scheduled_queue.json.
 """
 
 import csv
+import json
 import os
 import random
 import re
 import shutil
 import sys
 import tempfile
+import threading
 import time as _time
 import traceback
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
+
 # ---------------------------
-# Outlook COM
+# Outlook COM (DYNAMIC DISPATCH ONLY)
 # ---------------------------
 try:
-    import pythoncom  # type: ignore
-    import pywintypes  # type: ignore  # For COM-compatible datetime
-    import win32com.client  # type: ignore
-    from win32com.client import gencache
+    import pythoncom   # type: ignore
+    import pywintypes  # type: ignore
+    import win32com.client          # type: ignore
+    import win32com.client.dynamic  # type: ignore
     HAVE_OUTLOOK = True
 except ImportError:
-    pythoncom = None
+    pythoncom  = None
     pywintypes = None
-    win32com = None
-    gencache = None
+    win32com   = None
     HAVE_OUTLOOK = False
-
-
-# ---------------------------
-# Configuration
-# ---------------------------
-
-# Enable automatic timezone compensation for Outlook deferred delivery.
-# When True, the app will detect if Outlook shifts the deferred time (e.g., by 7 hours)
-# and automatically compensate so the final stored time matches user intent.
-# Set to False if your Outlook/Exchange does not exhibit this behavior.
-ENABLE_OUTLOOK_TIME_COMPENSATION = True
-
-
-# ---------------------------
-# Outlook helper (gen_py cache recovery)
-# ---------------------------
-
-def _clear_gen_py_cache():
-    try:
-        gen_py = os.path.join(tempfile.gettempdir(), "gen_py")
-        if os.path.isdir(gen_py):
-            shutil.rmtree(gen_py, ignore_errors=True)
-    except Exception:
-        pass
-
-def get_outlook_app():
-    try:
-        return win32com.client.Dispatch("Outlook.Application")
-    except AttributeError:
-        # Recover from corrupted gen_py cache (CLSIDToClassMap error)
-        _clear_gen_py_cache()
-        try:
-            gencache.is_readonly = False
-            gencache.Rebuild()
-        except Exception:
-            pass
-        # Retry once
-        return win32com.client.Dispatch("Outlook.Application")
-
-
-def _is_outlook_offline(outlook) -> bool:
-    """Check if Outlook is in offline mode. Returns True if offline."""
-    try:
-        # Check if the default store is offline
-        namespace = outlook.GetNamespace("MAPI")
-        # ExchangeConnectionMode: 0 = disconnected/offline
-        # We check if we can access the Inbox as a proxy for connectivity
-        if hasattr(namespace, "Offline"):
-            return namespace.Offline
-        return False
-    except Exception:
-        return False  # Assume online if we can't detect
-
-
-def _set_sending_account(outlook, mail, target_smtp: Optional[str] = None):
-    """
-    Force the sending account on a MailItem.
-
-    In multi-account Outlook profiles, Send() can succeed but the item may not
-    be submitted reliably without explicitly binding to an account.
-
-    Args:
-        outlook: Outlook.Application COM object
-        mail: MailItem to configure
-        target_smtp: Optional specific SMTP address to use
-
-    Returns:
-        The chosen Account object, or None if no account found
-    """
-    try:
-        session = outlook.Session
-        accounts = session.Accounts
-        chosen = None
-
-        # Prefer exact SMTP match if provided
-        if target_smtp:
-            target_smtp_lower = target_smtp.lower()
-            for i in range(1, accounts.Count + 1):
-                acct = accounts.Item(i)
-                try:
-                    if acct.SmtpAddress and acct.SmtpAddress.lower() == target_smtp_lower:
-                        chosen = acct
-                        break
-                except Exception:
-                    continue
-
-        # Fallback: first account in the session
-        if chosen is None and accounts.Count > 0:
-            chosen = accounts.Item(1)
-
-        if chosen is not None:
-            mail.SendUsingAccount = chosen
-            return chosen
-
-    except Exception:
-        pass  # Best effort; don't fail the send
-
-    return None
 
 
 # ---------------------------
 # Paths & logging
 # ---------------------------
 
-
 def _app_dir() -> Path:
-    """Return the directory where the app is running from (handles frozen EXE)."""
     if getattr(sys, "frozen", False):
         return Path(sys.executable).parent
     return Path(__file__).resolve().parent
 
-
 APP_DIR = _app_dir()
-LOG_DIR = Path(os.getenv("LOCALAPPDATA", str(APP_DIR))) / "Funnel Forge" / "logs"
+LOG_DIR = Path(os.getenv("LOCALAPPDATA", str(APP_DIR))) / "DripDrop" / "logs"
+_QUEUE_NEW = Path(os.getenv("LOCALAPPDATA", str(APP_DIR))) / "DripDrop" / "scheduled_queue.json"
+_QUEUE_LEGACY = Path(os.getenv("LOCALAPPDATA", str(APP_DIR))) / "Funnel Forge" / "scheduled_queue.json"
+QUEUE_PATH = _QUEUE_NEW if _QUEUE_NEW.exists() else _QUEUE_LEGACY
 
+# ---------------------------
+# Configuration
+# ---------------------------
+SCHEDULER_INTERVAL_SECONDS = 60   # How often the background thread wakes up
+INTER_EMAIL_PAUSE           = 1    # Seconds between emails in a batch send
+MAX_SEND_RETRY              = 2    # Retry attempts per email on failure
+SEND_RECEIVE_BATCH_SIZE     = 30   # Trigger SendAndReceive every N sends
+SEND_RECEIVE_COOLDOWN       = 10   # Seconds to wait after SendAndReceive
+
+
+# ---------------------------
+# Logging helpers
+# ---------------------------
+
+_EMAIL_LOG_PATH: Optional[Path] = None
 
 def _ensure_log_dir() -> Path:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     return LOG_DIR
 
-
-def log_exception() -> Path:
-    """
-    Write the current exception traceback to a timestamped log file
-    and return its path.
-    """
-    _ensure_log_dir()
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_path = LOG_DIR / f"core_crash_{ts}.log"
-    with log_path.open("w", encoding="utf-8") as f:
-        traceback.print_exc(file=f)
-    return log_path
-
-
-# ---------------------------
-# Email scheduling diagnostic log
-# ---------------------------
-
-_EMAIL_LOG_PATH: Optional[Path] = None
-
-
 def _init_email_log() -> Path:
-    """Initialize a new email scheduling log file for this session."""
     global _EMAIL_LOG_PATH
     _ensure_log_dir()
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     _EMAIL_LOG_PATH = LOG_DIR / f"email_schedule_{ts}.log"
-
-    # Write header
     with _EMAIL_LOG_PATH.open("w", encoding="utf-8") as f:
         f.write("=" * 80 + "\n")
-        f.write(f"Funnel Forge Email Scheduling Log\n")
+        f.write("Funnel Forge Email Schedule Log — v3.0 Scheduler Build\n")
         f.write(f"Session started: {datetime.now().isoformat()}\n")
-        f.write(f"System timezone offset: UTC{_get_local_tz_offset()}\n")
+        f.write("Mode: Internal scheduler (no DeferredDeliveryTime)\n")
         f.write("=" * 80 + "\n\n")
-
     return _EMAIL_LOG_PATH
 
-
 def _get_local_tz_offset() -> str:
-    """Get local timezone offset as string like '+05:00' or '-07:00'."""
     import time
-    offset_seconds = -time.timezone if time.daylight == 0 else -time.altzone
-    offset_hours = offset_seconds // 3600
-    offset_minutes = abs(offset_seconds % 3600) // 60
-    sign = "+" if offset_hours >= 0 else "-"
-    return f"{sign}{abs(offset_hours):02d}:{offset_minutes:02d}"
+    offset_seconds = -time.timezone if not time.daylight else -time.altzone
+    h = offset_seconds // 3600
+    m = abs(offset_seconds % 3600) // 60
+    sign = "+" if h >= 0 else "-"
+    return f"{sign}{abs(h):02d}:{m:02d}"
 
-
-def _log_email_schedule(
-    recipient: str,
-    subject: str,
-    email_index: int,
-    raw_date: str,
-    raw_time: str,
-    parsed_send_dt: Optional[datetime],
-    final_deferred_dt: Optional[datetime],
-    send_called: bool,
-    sending_account: Optional[str] = None,
-    entry_id: Optional[str] = None,
-    error: Optional[str] = None,
-) -> None:
-    """Log diagnostic info for a scheduled email."""
-    global _EMAIL_LOG_PATH
-    if _EMAIL_LOG_PATH is None:
-        _init_email_log()
-
-    now = datetime.now()
-
-    lines = [
-        f"--- Email #{email_index} ---",
-        f"Logged at: {now.isoformat()}",
-        f"Recipient: {recipient}",
-        f"Subject: {subject[:50]}{'...' if len(subject) > 50 else ''}",
-        f"Sending account: {sending_account or 'N/A'}",
-        f"Raw UI date: '{raw_date}'",
-        f"Raw UI time: '{raw_time}'",
-        f"Parsed send_dt: {repr(parsed_send_dt)}",
-        f"Final naive local datetime: {repr(final_deferred_dt)}",
-        f"System local time: {now.isoformat()}",
-        f"System TZ offset: UTC{_get_local_tz_offset()}",
-        f"Send() called: {send_called}",
-    ]
-
-    if entry_id:
-        lines.append(f"EntryID: {entry_id}")
-    if error:
-        lines.append(f"ERROR: {error}")
-
-    lines.append("")  # blank line between entries
-
-    with _EMAIL_LOG_PATH.open("a", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
-
-
-# ---------------------------
-# Outlook Deferred Delivery Time Compensation
-# ---------------------------
-
-def _set_deferred_with_compensation(mail, desired_dt: datetime) -> dict:
-    """
-    Set DeferredDeliveryTime with automatic timezone compensation.
-
-    Outlook/Exchange sometimes shifts the deferred time (e.g., by 7 hours due to
-    UTC conversion). This function detects the shift and compensates automatically
-    so the final stored time matches the user's intended local time.
-
-    Returns a dict with diagnostic info for logging.
-    """
-    result = {
-        "desired_dt": desired_dt,
-        "first_readback": None,
-        "shift": None,
-        "corrected_dt": None,
-        "final_readback": None,
-        "compensation_applied": False,
-        "error": None,
-    }
-
-    try:
-        # Ensure naive local datetime
-        desired = desired_dt.replace(tzinfo=None)
-        result["desired_dt"] = desired
-
-        # First attempt: set to desired time
-        com_time = pywintypes.Time(desired)
-        mail.DeferredDeliveryTime = com_time
-
-        # Read back what Outlook actually stored
-        rb = mail.DeferredDeliveryTime
-        result["first_readback"] = rb
-
-        # Normalize readback to naive datetime for comparison
-        # pywintypes.datetime may have tzinfo; strip it for delta calculation
-        if hasattr(rb, "replace"):
-            rb_naive = rb.replace(tzinfo=None)
-        elif hasattr(rb, "timetuple"):
-            # Convert to datetime if needed
-            rb_naive = datetime(*rb.timetuple()[:6])
-        else:
-            # Can't compare, skip compensation
-            result["error"] = f"Cannot normalize readback type: {type(rb)}"
-            return result
-
-        # Calculate shift
-        shift = rb_naive - desired
-        result["shift"] = shift
-
-        # Only compensate if shift is within a sane window (timezone-like shift)
-        # and greater than 1 minute (to avoid floating point noise)
-        if not ENABLE_OUTLOOK_TIME_COMPENSATION:
-            # Compensation disabled
-            return result
-
-        if abs(shift) >= timedelta(minutes=1) and abs(shift) <= timedelta(hours=12):
-            # Apply compensation: subtract the shift so Outlook's conversion lands on desired
-            corrected = (desired - shift).replace(tzinfo=None)
-            result["corrected_dt"] = corrected
-
-            # Set again with corrected time
-            mail.DeferredDeliveryTime = pywintypes.Time(corrected)
-
-            # Read back final value
-            rb2 = mail.DeferredDeliveryTime
-            result["final_readback"] = rb2
-            result["compensation_applied"] = True
-
-    except Exception as e:
-        result["error"] = f"{type(e).__name__}: {e}"
-
-    return result
-
-
-def _log_compensation_result(comp_result: dict) -> None:
-    """Log the compensation result to the email schedule log."""
+def _log_raw(text: str) -> None:
     global _EMAIL_LOG_PATH
     if _EMAIL_LOG_PATH is None:
         return
+    try:
+        with _EMAIL_LOG_PATH.open("a", encoding="utf-8") as f:
+            f.write(text + "\n")
+    except Exception:
+        pass
 
-    lines = [
-        "  [Timezone Compensation]",
-        f"    Desired local time: {repr(comp_result.get('desired_dt'))}",
-        f"    First readback: {repr(comp_result.get('first_readback'))}",
-        f"    Detected shift: {comp_result.get('shift')}",
-        f"    Compensation applied: {comp_result.get('compensation_applied')}",
-    ]
+def log_exception() -> Path:
+    _ensure_log_dir()
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    p = LOG_DIR / f"core_crash_{ts}.log"
+    with p.open("w", encoding="utf-8") as f:
+        traceback.print_exc(file=f)
+    return p
 
-    if comp_result.get("compensation_applied"):
-        lines.append(f"    Corrected datetime: {repr(comp_result.get('corrected_dt'))}")
-        lines.append(f"    Final readback: {repr(comp_result.get('final_readback'))}")
 
-    if comp_result.get("error"):
-        lines.append(f"    ERROR: {comp_result.get('error')}")
+# ---------------------------
+# Persistent Queue
+# ---------------------------
 
-    with _EMAIL_LOG_PATH.open("a", encoding="utf-8") as f:
-        f.write("\n".join(lines) + "\n")
+_queue_lock = threading.Lock()
+
+
+def _load_queue() -> List[Dict]:
+    """Load the persisted email queue from disk."""
+    try:
+        if QUEUE_PATH.exists():
+            with QUEUE_PATH.open("r", encoding="utf-8") as f:
+                data = json.load(f)
+                queue = data if isinstance(data, list) else []
+                # Backfill any items that have blank campaign names
+                dirty = False
+                for item in queue:
+                    if not item.get("campaign"):
+                        item["campaign"] = "Untitled Campaign"
+                        dirty = True
+                if dirty:
+                    _save_queue(queue)
+                return queue
+    except Exception:
+        pass
+    return []
+
+
+def _save_queue(queue: List[Dict]) -> None:
+    """Save the email queue to disk atomically."""
+    try:
+        QUEUE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = QUEUE_PATH.with_suffix(".tmp")
+        with tmp.open("w", encoding="utf-8") as f:
+            json.dump(queue, f, indent=2, default=str)
+        tmp.replace(QUEUE_PATH)
+    except Exception as e:
+        _log_raw(f"[Queue] Save failed: {e}")
+
+
+def add_to_queue(items: List[Dict]) -> None:
+    """Add a list of email dicts to the persistent queue."""
+    with _queue_lock:
+        queue = _load_queue()
+        queue.extend(items)
+        _save_queue(queue)
+    _log_raw(f"[Queue] Added {len(items)} item(s). Total pending: {sum(1 for q in queue if q.get('status') == 'pending')}")
+
+
+def get_queue() -> List[Dict]:
+    """Return a copy of the current queue."""
+    with _queue_lock:
+        return list(_load_queue())
+
+
+def cancel_queue_items(ids: List[str]) -> int:
+    """Cancel queue items by ID. Returns count cancelled."""
+    cancelled = 0
+    with _queue_lock:
+        queue = _load_queue()
+        for item in queue:
+            if item.get("id") in ids and item.get("status") == "pending":
+                item["status"] = "cancelled"
+                cancelled += 1
+        _save_queue(queue)
+    return cancelled
+
+
+def cancel_all_pending() -> int:
+    """Cancel every pending item in the queue. Returns count cancelled."""
+    with _queue_lock:
+        queue = _load_queue()
+        count = 0
+        for item in queue:
+            if item.get("status") == "pending":
+                item["status"] = "cancelled"
+                count += 1
+        _save_queue(queue)
+    return count
+
+
+def get_pending_count() -> int:
+    """Return number of pending emails in queue."""
+    return sum(1 for q in get_queue() if q.get("status") == "pending")
+
+
+def get_pending_for_campaign(campaign_name: str) -> List[Dict]:
+    """Return pending items for a specific campaign."""
+    return [q for q in get_queue()
+            if q.get("status") == "pending" and q.get("campaign") == campaign_name]
+
+
+# ---------------------------
+# Outlook helpers
+# ---------------------------
+
+def get_outlook_app():
+    """Get Outlook COM object using DYNAMIC DISPATCH."""
+    return win32com.client.dynamic.Dispatch("Outlook.Application")
+
+
+def _is_outlook_offline(outlook) -> bool:
+    try:
+        ns = outlook.GetNamespace("MAPI")
+        return bool(getattr(ns, "Offline", False))
+    except Exception:
+        return False
+
+
+def _set_sending_account(outlook, mail, target_smtp: Optional[str] = None):
+    try:
+        session   = outlook.Session
+        accounts  = session.Accounts
+        chosen    = None
+        if target_smtp:
+            for i in range(1, accounts.Count + 1):
+                acct = accounts.Item(i)
+                try:
+                    if acct.SmtpAddress and acct.SmtpAddress.lower() == target_smtp.lower():
+                        chosen = acct
+                        break
+                except Exception:
+                    continue
+        if chosen is None and accounts.Count > 0:
+            chosen = accounts.Item(1)
+        if chosen is not None:
+            mail.SendUsingAccount = chosen
+            return chosen
+    except Exception:
+        pass
+    return None
+
+
+def _get_outbox_count(outlook) -> int:
+    try:
+        ns = outlook.GetNamespace("MAPI")
+        return ns.GetDefaultFolder(4).Items.Count
+    except Exception:
+        return 0
+
+
+def _flush_send_receive(outlook, reason: str = "") -> None:
+    try:
+        outlook.Session.SendAndReceive(True)
+        _log_raw(f"  [SendAndReceive] {reason}")
+    except Exception as e:
+        _log_raw(f"  [SendAndReceive] Failed ({reason}): {e}")
 
 
 # ---------------------------
 # Text helpers
 # ---------------------------
 
-
 def _is_html(body: str) -> bool:
-    """Check if body string contains HTML formatting tags."""
     if not body:
         return False
     return bool(re.search(r'<(b|i|u|ul|ol|li|a |br|p[ >]|span |div |/b>|/i>|/u>|/span>|/ol>)[> /]', body))
 
 
-def _wrap_html_for_email(html_body: str) -> str:
-    """Wrap HTML body content in a full HTML email document."""
-    # Tighten list spacing for email clients (Outlook adds large default margins)
+def _wrap_html_for_email(html_body: str, unsubscribe_email: Optional[str] = None,
+                          company_address: Optional[str] = None) -> str:
+    """Wrap an email body with a CAN-SPAM compliant footer.
+
+    The footer is now ALWAYS included (not gated on unsubscribe_email) because
+    every commercial email must carry an opt-out mechanism + physical address
+    per CAN-SPAM. The unsubscribe_email arg is kept for backwards compat but
+    no longer toggles visibility.
+    """
     if "<ul>" in html_body or "<ol>" in html_body:
-        html_body = html_body.replace(
-            "<ul>", '<ul style="margin:0; padding-left:28px;">'
-        ).replace(
-            "<ol>", '<ol style="margin:0; padding-left:28px;">'
-        ).replace(
-            "<li>", '<li style="margin:0; padding:0;">'
-        )
+        html_body = html_body.replace("<ul>", '<ul style="margin:0; padding-left:28px;">') \
+                             .replace("<ol>", '<ol style="margin:0; padding-left:28px;">') \
+                             .replace("<li>", '<li style="margin:0; padding:0;">')
+
+    _addr_line = ""
+    if company_address and str(company_address).strip():
+        _addr_line = f'<br>{str(company_address).strip()}'
+    unsub = (
+        '<br><br>'
+        '<div style="border-top:1px solid #E2E8F0; margin-top:24px; padding-top:10px;'
+        ' font-size:8.5pt; color:#94A3B8; font-family:Calibri,Arial,sans-serif;">'
+        'If you would like to unsubscribe, please reply &ldquo;UNSUBSCRIBE&rdquo; and you will be removed.'
+        f'{_addr_line}'
+        '</div>'
+    )
     return (
         '<html><head><meta charset="utf-8"></head>'
-        '<body style="font-family: Calibri, Arial, sans-serif; '
-        'font-size: 11pt; color: #1E293B;">\n'
-        f'{html_body}\n'
-        '</body></html>'
+        '<body style="font-family: Calibri, Arial, sans-serif; font-size: 11pt; color: #1E293B;">\n'
+        f'{html_body}\n{unsub}\n</body></html>'
     )
 
 
 def normalize_text(text: Optional[str]) -> str:
-    """Clean smart quotes/dashes and strip non-ASCII characters."""
     if text is None:
         return ""
-    replacements = {
-        "“": '"',
-        "”": '"',
-        "‘": "'",
-        "’": "'",
-        "—": "-",
-        "–": "-",
-    }
-    for src, tgt in replacements.items():
+    for src, tgt in {"\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'",
+                     "\u2014": "-", "\u2013": "-"}.items():
         text = text.replace(src, tgt)
     return "".join(ch for ch in text if ord(ch) <= 127)
 
 
 def merge_tokens(template: str, tokens: Dict[str, Any]) -> str:
-    """
-    Replace {FirstName}, {Company}, {Work Email}, {Email}, etc. in the template.
-    """
     out = template
     for k, v in tokens.items():
-        placeholder = "{" + k + "}"
-        out = out.replace(placeholder, str(v) if v is not None else "")
+        out = out.replace("{" + k + "}", str(v) if v is not None else "")
     return out
 
 
@@ -424,438 +343,479 @@ def merge_tokens(template: str, tokens: Dict[str, Any]) -> str:
 # CSV helpers
 # ---------------------------
 
-
 def _read_contacts(contacts_path: Path) -> List[Dict[str, Any]]:
-    """
-    Read contacts from CSV into a list of dicts.
-
-    REQUIRED: either a 'Work Email' column OR an 'Email' column.
-    Rows with no usable email are skipped.
-    """
     if not contacts_path.exists():
         raise FileNotFoundError(f"Contacts file not found: {contacts_path}")
-
     rows: List[Dict[str, Any]] = []
     with contacts_path.open("r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
-        headers = [h.strip() for h in (reader.fieldnames or []) if h is not None]
-
-        has_work_email = "Work Email" in headers
-        has_email = "Email" in headers
-
-        if not has_work_email and not has_email:
-            raise ValueError(
-                "Contacts CSV must include either a 'Work Email' or 'Email' column. "
-                f"Found columns: {headers}"
-            )
-
+        headers = [h.strip() for h in (reader.fieldnames or []) if h]
+        if "Work Email" not in headers and "Email" not in headers:
+            raise ValueError(f"Contacts CSV needs 'Work Email' or 'Email'. Found: {headers}")
         for row in reader:
             cleaned = {(k or "").strip(): (v or "").strip() for k, v in row.items()}
-
             email = cleaned.get("Work Email") or cleaned.get("Email") or ""
             if not email:
                 continue
-
-            # Normalize to both keys so templates can use either
             cleaned["Work Email"] = email
             if "Email" not in cleaned:
                 cleaned["Email"] = email
-
             rows.append(cleaned)
-
     if not rows:
-        raise ValueError(
-            "No valid contacts found in CSV (all rows missing 'Work Email' or 'Email')."
-        )
-
+        raise ValueError("No valid contacts found in CSV.")
     return rows
 
 
 # ---------------------------
-# Time helpers (local time only)
+# Time helpers
 # ---------------------------
 
-
-def _parse_send_datetime_to_naive(
-    date_str: str,
-    time_str: str,
-) -> Optional[datetime]:
-    """
-    Parse explicit date ('YYYY-MM-DD') + time string into a naive datetime
-    in LOCAL MACHINE TIME.
-
-    Returns None if:
-      - date is blank/unparseable, or
-      - time is blank/'Immediately' (caller sends immediately).
-    """
+def _parse_send_datetime(date_str: str, time_str: str) -> Optional[datetime]:
     date_str = (date_str or "").strip()
     time_str = (time_str or "").strip()
-
     if not date_str:
         return None
-
     if not time_str or time_str.lower().startswith("immed"):
         return None
-
     try:
         send_date = datetime.strptime(date_str, "%Y-%m-%d").date()
     except ValueError:
         return None
-
     for fmt in ("%I:%M %p", "%H:%M"):
         try:
             t = datetime.strptime(time_str, fmt).time()
             return datetime.combine(send_date, t)
         except ValueError:
             continue
-
     return None
 
 
-def _parse_send_datetime_with_offset(
-    base_now: datetime,
-    day_offset: int,
-    send_time_str: str,
-) -> Optional[datetime]:
-    """
-    Older style: base_now + N days + send_time_str, using LOCAL MACHINE TIME.
-    """
-    send_time_str = (send_time_str or "").strip()
-
-    if not send_time_str:
+def _parse_send_datetime_offset(base_now: datetime, day_offset: int, time_str: str) -> Optional[datetime]:
+    time_str = (time_str or "").strip()
+    if not time_str or time_str.lower().startswith("immed"):
         return None
-    if send_time_str.lower().startswith("immed"):
-        return None
-
     for fmt in ("%I:%M %p", "%H:%M"):
         try:
-            t = datetime.strptime(send_time_str, fmt).time()
-            send_date = base_now.date() + timedelta(days=day_offset)
-            return datetime.combine(send_date, t)
+            t = datetime.strptime(time_str, fmt).time()
+            return datetime.combine(base_now.date() + timedelta(days=day_offset), t)
         except ValueError:
             continue
-
     return None
 
 
 # ---------------------------
-# Outlook sending
+# Immediate Outlook send (NO DeferredDeliveryTime)
 # ---------------------------
 
-
-def _ensure_outlook():
+def _send_one_email(outlook, item: Dict) -> bool:
     """
-    Outlook COM initialization using DYNAMIC DISPATCH.
-    This completely bypasses pywin32 gencache and gen_py.
+    Send a single queued email. Tries SendGrid first (server), falls back to Outlook (desktop).
+    Returns True on success.
     """
-    if not HAVE_OUTLOOK:
-        raise RuntimeError("pywin32 is not installed")
+    to      = item.get("to", "")
+    subject = item.get("subject", "")
+    body    = item.get("body", "")
+    html    = item.get("is_html", False)
+    attachments = item.get("attachments") or []
+    unsubscribe = item.get("unsubscribe_email")
+    company_address = item.get("company_address", "") or ""
+    sender_smtp = item.get("sender_smtp", "")
 
-    pythoncom.CoInitialize()  # type: ignore
+    if not to:
+        return False
+
+    if not html:
+        body = body.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        body = body.replace("\n", "<br>")
+
+    # Build the List-Unsubscribe mailto header value. Points to the sender's
+    # own address with subject UNSUBSCRIBE — the existing reply monitor
+    # picks these up via _is_opt_out() and auto-adds to the DNC list.
+    _unsub_to = sender_smtp or ""
+    _list_unsub_mailto = f"mailto:{_unsub_to}?subject=UNSUBSCRIBE" if _unsub_to else ""
+
+    # Try SMTP first (works on server)
     try:
-        outlook = get_outlook_app()
-        return outlook
-    except Exception:
-        pythoncom.CoUninitialize()  # type: ignore
-        raise
-
-
-def _send_sequence_for_contact(
-    outlook: Any,
-    contact: Dict[str, Any],
-    schedule: Iterable[Dict[str, Any]],
-    send_emails: bool,
-    send_window_minutes: int = 0,
-) -> int:
-    """
-    Send (or create) all scheduled emails for a single contact.
-
-    If send_window_minutes > 0, each email's send time is offset by a
-    random number of minutes (0..send_window_minutes) to distribute
-    sends across a window for deliverability.
-
-    Returns the number of emails created/sent.
-    """
-    email = (contact.get("Work Email") or contact.get("Email") or "").strip()
-    if not email:
-        return 0
-
-    tokens: Dict[str, Any] = {
-        "FirstName": contact.get("FirstName", contact.get("First Name", "")),
-        "LastName": contact.get("LastName", contact.get("Last Name", "")),
-        "Company": contact.get("Company", ""),
-        "Work Email": email,
-        "Email": email,
-        "Title": contact.get("Title", contact.get("JobTitle", "")),
-        "JobTitle": contact.get("JobTitle", contact.get("Title", "")),
-        "City": contact.get("City", ""),
-        "State": contact.get("State", ""),
-    }
-
-    now = datetime.now()
-    count = 0
-    email_index = 0
-
-    for item in schedule:
-        if not isinstance(item, dict):
-            continue
-
-        email_index += 1
-        subject_template = item.get("subject") or item.get("Subject") or ""
-        body_template = item.get("body") or item.get("Body") or ""
-
-        if not subject_template.strip() and not body_template.strip():
-            continue
-
-        # New style (GUI): explicit date + time
-        date_str = (item.get("date") or "").strip()
-        time_str = (item.get("time") or item.get("send_time") or "").strip()
-
-        send_dt: Optional[datetime] = None
-
-        if date_str:
-            send_dt = _parse_send_datetime_to_naive(date_str, time_str)
-        else:
-            # Backwards compat: offset_days / days (assumed local machine time)
-            day_offset = int(item.get("offset_days") or item.get("days") or 0)
-            send_dt = _parse_send_datetime_with_offset(now, day_offset, time_str)
-
-        # Send window randomization: offset send time by random minutes
-        if send_dt is not None and send_window_minutes > 0:
-            offset = random.randint(0, send_window_minutes)
-            send_dt = send_dt + timedelta(minutes=offset)
-
-        # CRITICAL: Ensure send_dt is NAIVE (no timezone info).
-        # Outlook COM expects naive local datetime for DeferredDeliveryTime.
-        # If tzinfo is present, Outlook may misinterpret and shift the time.
-        final_deferred_dt: Optional[datetime] = None
-        if send_dt is not None:
-            # Strip any timezone info to ensure naive local time
-            final_deferred_dt = send_dt.replace(tzinfo=None)
-
-        # Attachments: may be list[str] or comma-separated string
-        raw_attachments = item.get("attachments") or item.get("attachment_paths") or []
-        if isinstance(raw_attachments, str):
-            attachment_paths = [p.strip() for p in raw_attachments.split(",") if p.strip()]
-        else:
-            attachment_paths = list(raw_attachments)
-
-        subject = merge_tokens(normalize_text(subject_template), tokens)
-
-        if _is_html(body_template):
-            # HTML body: fix smart quotes but preserve tags (skip normalize_text)
-            body_clean = body_template
-            for src, tgt in {"\u201c": '"', "\u201d": '"', "\u2018": "'", "\u2019": "'", "\u2014": "-", "\u2013": "-"}.items():
-                body_clean = body_clean.replace(src, tgt)
-            body = merge_tokens(body_clean, tokens)
-        else:
-            body = merge_tokens(normalize_text(body_template), tokens)
-
-        mail = outlook.CreateItem(0)  # olMailItem
-        mail.To = email
-        mail.Subject = subject
-        if _is_html(body):
-            mail.HTMLBody = _wrap_html_for_email(body)
-        else:
-            mail.Body = body
-
-        # CRITICAL: Force sending account binding for reliable submission
-        # In multi-account profiles, this ensures the mail is properly routed
-        sending_acct = _set_sending_account(outlook, mail)
-        acct_smtp = None
-        try:
-            acct_smtp = getattr(sending_acct, "SmtpAddress", None) if sending_acct else None
-        except Exception:
-            pass
-
-        if attachment_paths:
-            for p in attachment_paths:
-                try:
-                    path_obj = Path(p)
-                    if path_obj.exists():
-                        mail.Attachments.Add(str(path_obj))
-                except Exception:
-                    # Best effort; skip bad attachment
-                    continue
-
-        # Track for logging
-        send_called = False
-        entry_id = None
-        warning_msg = None  # Non-fatal warnings (e.g., compensation issues)
-        fatal_error = None  # Fatal errors that should stop processing
-        comp_result = None
-        is_deferred = False
-
-        if send_emails:
-            # Build message fully → set DeferredDeliveryTime with compensation → Save → Send
-            # Save before Send commits all properties reliably (especially for deferred delivery)
-            # Do NOT modify the mail item after Send().
+        import email_sender as _cloud
+        _cfg_path = Path(os.getenv("DRIPDROP_DATA_DIR", os.getenv("LOCALAPPDATA", "."))) / "DripDrop" / "dripdrop_config.json"
+        _from = sender_smtp or ""
+        _name = ""
+        _pass = ""
+        _host = ""
+        _port = 587
+        if _cfg_path.exists():
             try:
-                if final_deferred_dt and final_deferred_dt > datetime.now():
-                    is_deferred = True
-                    # Use timezone compensation to handle Outlook's time shifting behavior.
-                    # This detects any shift and auto-corrects so the final stored time
-                    # matches the user's intended local time.
-                    comp_result = _set_deferred_with_compensation(mail, final_deferred_dt)
+                _c = json.loads(_cfg_path.read_text(encoding="utf-8"))
+                _from = _from or _c.get("smtp_email", "")
+                _name = _c.get("smtp_from_name", "")
+                _pass = _c.get("smtp_password", "")
+                _host = _c.get("smtp_host", "")
+                _port = int(_c.get("smtp_port", 587) or 587)
+                if not _list_unsub_mailto and _from:
+                    _list_unsub_mailto = f"mailto:{_from}?subject=UNSUBSCRIBE"
+            except Exception:
+                pass
+        if _from and _pass:
+            ok, err = _cloud.send_email(
+                to=to, subject=subject,
+                html_body=_wrap_html_for_email(body, unsubscribe_email=unsubscribe,
+                                               company_address=company_address),
+                from_email=_from, from_name=_name, password=_pass,
+                smtp_host=_host, smtp_port=_port, attachments=attachments,
+                list_unsubscribe_mailto=_list_unsub_mailto,
+            )
+            if ok:
+                return True
+            _log_raw(f"  [SMTP] Failed: {err} — falling back to Outlook")
+    except ImportError:
+        pass
 
-                    # Log compensation details
-                    _log_compensation_result(comp_result)
+    # Fallback: Outlook COM (Windows only)
+    if not HAVE_OUTLOOK or outlook is None:
+        _log_raw(f"  [SEND FAIL] No email service available for {to}")
+        return False
 
-                    # If compensation encountered an error, log as warning but continue
-                    if comp_result.get("error"):
-                        warning_msg = f"Compensation warning: {comp_result['error']}"
+    try:
+        mail = outlook.CreateItem(0)  # olMailItem
+        mail.To      = to
+        mail.Subject = subject
+        mail.HTMLBody = _wrap_html_for_email(body, unsubscribe_email=unsubscribe,
+                                             company_address=company_address)
 
-                # For deferred emails: Save before Send commits all properties reliably
-                # This ensures DeferredDeliveryTime, account binding, and attachments are committed
-                if is_deferred:
-                    mail.Save()
+        acct = _set_sending_account(outlook, mail, target_smtp=sender_smtp if sender_smtp else None)
 
-                mail.Send()
-                send_called = True
+        if sender_smtp and acct:
+            try:
+                actual = acct.SmtpAddress.lower() if acct.SmtpAddress else ""
+                if actual and actual != sender_smtp.lower():
+                    _log_raw(f"  [SKIP] Sender mismatch: queued by {sender_smtp}, current account {actual}")
+                    return False
+            except Exception:
+                pass
 
-                # Try to get EntryID (may not be available immediately after Send)
-                try:
-                    entry_id = getattr(mail, "EntryID", None)
-                except Exception:
-                    pass
+        for p in attachments:
+            try:
+                if p and Path(p).exists():
+                    mail.Attachments.Add(str(p))
+            except Exception:
+                pass
 
+        mail.Send()
+        return True
+
+    except Exception as e:
+        _log_raw(f"  [SEND FAIL] {to} — {subject[:40]}: {e}")
+        return False
+
+
+# ---------------------------
+# Background Scheduler Thread
+# ---------------------------
+
+class _SchedulerThread(threading.Thread):
+    """
+    Daemon thread that wakes every SCHEDULER_INTERVAL_SECONDS,
+    checks the queue for due emails, and sends them immediately via Outlook.
+    """
+
+    def __init__(self):
+        super().__init__(name="FunnelForgeScheduler", daemon=True)
+        self._stop_event = threading.Event()
+        self._outlook    = None
+        self._send_count = 0  # Tracks sends since last SendAndReceive
+
+    def stop(self):
+        self._stop_event.set()
+
+    def run(self):
+        _log_raw(f"[Scheduler] Started — checking every {SCHEDULER_INTERVAL_SECONDS}s")
+        while not self._stop_event.is_set():
+            try:
+                self._tick()
             except Exception as e:
-                fatal_error = f"{type(e).__name__}: {e}"
-                # Still try to log the error
-        else:
-            # Just save as draft (not scheduled for send)
-            mail.Save()
+                _log_raw(f"[Scheduler] Tick error: {e}")
+            self._stop_event.wait(SCHEDULER_INTERVAL_SECONDS)
+        _log_raw("[Scheduler] Stopped.")
 
-        # Log diagnostic info for every email
-        _log_email_schedule(
-            recipient=email,
-            subject=subject,
-            email_index=email_index,
-            raw_date=date_str,
-            raw_time=time_str,
-            parsed_send_dt=send_dt,
-            final_deferred_dt=final_deferred_dt,
-            sending_account=acct_smtp,
-            send_called=send_called,
-            entry_id=entry_id,
-            error=fatal_error or warning_msg,
-        )
+    def _get_outlook(self):
+        """Get or re-connect the Outlook COM object."""
+        if not HAVE_OUTLOOK:
+            return None
+        try:
+            if self._outlook is None:
+                pythoncom.CoInitialize()
+                self._outlook = get_outlook_app()
+            # Quick health check
+            _ = self._outlook.Session
+            return self._outlook
+        except Exception:
+            # COM object stale — reconnect
+            self._outlook = None
+            try:
+                self._outlook = get_outlook_app()
+                return self._outlook
+            except Exception:
+                return None
 
-        if fatal_error:
-            # Re-raise so caller knows something failed
-            raise RuntimeError(f"Failed to send email #{email_index}: {fatal_error}")
+    def _tick(self):
+        """One scheduler tick: find due emails and send them."""
+        now = datetime.now()
 
-        count += 1
+        with _queue_lock:
+            queue = _load_queue()
+            due = [
+                (i, item) for i, item in enumerate(queue)
+                if item.get("status") == "pending"
+                and item.get("send_dt")
+                and datetime.fromisoformat(item["send_dt"]) <= now
+            ]
 
-    return count
+        if not due:
+            return
+
+        _log_raw(f"[Scheduler] {now.isoformat()} — {len(due)} email(s) due")
+
+        outlook = self._get_outlook()
+        if outlook is None:
+            _log_raw("[Scheduler] Outlook unavailable — will retry next tick")
+            return
+
+        if _is_outlook_offline(outlook):
+            _log_raw("[Scheduler] Outlook is offline — will retry next tick")
+            return
+
+        sent_ids   = []
+        failed_ids = []
+
+        for _, item in due:
+            success = False
+            for attempt in range(1, MAX_SEND_RETRY + 1):
+                if _send_one_email(outlook, item):
+                    success = True
+                    break
+                _log_raw(f"  [Scheduler] Retry {attempt}/{MAX_SEND_RETRY} for {item.get('to')}")
+                _time.sleep(2)
+
+            if success:
+                sent_ids.append(item["id"])
+                self._send_count += 1
+                _log_raw(f"  ✓ Sent: {item.get('to')} — {item.get('subject', '')[:50]}")
+            else:
+                failed_ids.append(item["id"])
+                _log_raw(f"  ✗ Failed: {item.get('to')} — {item.get('subject', '')[:50]}")
+
+            _time.sleep(INTER_EMAIL_PAUSE)
+
+            # Periodic SendAndReceive to keep exchange flowing
+            if self._send_count > 0 and self._send_count % SEND_RECEIVE_BATCH_SIZE == 0:
+                _flush_send_receive(outlook, reason=f"batch after {self._send_count} sends")
+                _time.sleep(SEND_RECEIVE_COOLDOWN)
+
+        # Update statuses
+        with _queue_lock:
+            queue = _load_queue()
+            for item in queue:
+                if item["id"] in sent_ids:
+                    item["status"] = "sent"
+                    item["sent_at"] = datetime.now().isoformat()
+                elif item["id"] in failed_ids:
+                    item["status"] = "failed"
+                    item["failed_at"] = datetime.now().isoformat()
+            _save_queue(queue)
+
+        _log_raw(f"[Scheduler] Tick complete — sent: {len(sent_ids)}, failed: {len(failed_ids)}")
+
+
+# Module-level scheduler singleton
+_scheduler: Optional[_SchedulerThread] = None
+_scheduler_lock = threading.Lock()
+
+
+def start_scheduler() -> None:
+    """Start the background scheduler (call once on app startup)."""
+    global _scheduler
+    with _scheduler_lock:
+        if _scheduler is None or not _scheduler.is_alive():
+            if _EMAIL_LOG_PATH is None:
+                _init_email_log()
+            _scheduler = _SchedulerThread()
+            _scheduler.start()
+
+
+def stop_scheduler() -> None:
+    """Stop the background scheduler (call on app exit)."""
+    global _scheduler
+    with _scheduler_lock:
+        if _scheduler and _scheduler.is_alive():
+            _scheduler.stop()
+            _scheduler.join(timeout=5)
+            _scheduler = None
+
+
+def scheduler_is_running() -> bool:
+    """Check if the scheduler thread is alive."""
+    return _scheduler is not None and _scheduler.is_alive()
+
+
+# ---------------------------
+# Build queue items from schedule + contacts
+# ---------------------------
+
+def _build_queue_items(
+    schedule: List[Dict],
+    contacts: List[Dict],
+    send_window_minutes: int = 0,
+    campaign_name: str = "",
+    unsubscribe_email: Optional[str] = None,
+) -> List[Dict]:
+    """
+    Build queue items (one per contact × email) from a schedule + contacts list.
+    Applies token substitution and send-window jitter here so items are ready to fire.
+    """
+    items = []
+    now   = datetime.now()
+
+    for contact in contacts:
+        email = (contact.get("Work Email") or contact.get("Email") or "").strip()
+        if not email:
+            continue
+
+        tokens: Dict[str, Any] = {
+            "FirstName": contact.get("FirstName", contact.get("First Name", "")),
+            "LastName":  contact.get("LastName",  contact.get("Last Name",  "")),
+            "Company":   contact.get("Company",   ""),
+            "Work Email": email,
+            "Email":      email,
+            "Title":      contact.get("Title",    contact.get("JobTitle", "")),
+            "JobTitle":   contact.get("JobTitle", contact.get("Title",    "")),
+            "City":       contact.get("City",     ""),
+            "State":      contact.get("State",    ""),
+        }
+
+        for step_idx, step in enumerate(schedule):
+            if not isinstance(step, dict):
+                continue
+
+            subject_tmpl = step.get("subject") or step.get("Subject") or ""
+            body_tmpl    = step.get("body")    or step.get("Body")    or ""
+            if not subject_tmpl.strip() and not body_tmpl.strip():
+                continue
+
+            date_str = (step.get("date") or "").strip()
+            time_str = (step.get("time") or step.get("send_time") or "").strip()
+
+            if date_str:
+                send_dt = _parse_send_datetime(date_str, time_str)
+            else:
+                day_offset = int(step.get("offset_days") or step.get("days") or 0)
+                send_dt = _parse_send_datetime_offset(now, day_offset, time_str)
+
+            # Apply send window jitter
+            if send_dt is not None and send_window_minutes > 0:
+                offset  = random.randint(-send_window_minutes, send_window_minutes)
+                send_dt = send_dt + timedelta(minutes=offset)
+                # Never schedule in the past
+                send_dt = max(send_dt, now + timedelta(minutes=1))
+
+            # Token substitution
+            subject = merge_tokens(normalize_text(subject_tmpl), tokens)
+            if _is_html(body_tmpl):
+                body_clean = body_tmpl
+                for src, tgt in {"\u201c": '"', "\u201d": '"', "\u2018": "'",
+                                  "\u2019": "'", "\u2014": "-", "\u2013": "-"}.items():
+                    body_clean = body_clean.replace(src, tgt)
+                body = merge_tokens(body_clean, tokens)
+            else:
+                body = merge_tokens(normalize_text(body_tmpl), tokens)
+
+            raw_att = step.get("attachments") or step.get("attachment_paths") or []
+            if isinstance(raw_att, str):
+                att_list = [p.strip() for p in raw_att.split(",") if p.strip()]
+            else:
+                att_list = list(raw_att)
+
+            items.append({
+                "id":               str(uuid.uuid4()),
+                "status":           "pending",
+                "send_dt":          send_dt.isoformat() if send_dt else None,
+                "to":               email,
+                "subject":          subject,
+                "body":             body,
+                "is_html":          _is_html(body),
+                "attachments":      att_list,
+                "campaign":         campaign_name or "Untitled Campaign",
+                "step_index":       step_idx,
+                "email_name":       step.get("name", f"Email {step_idx + 1}"),
+                "unsubscribe_email": unsubscribe_email,
+                "queued_at":        now.isoformat(),
+                "contact_name":     tokens.get("FirstName", "") + (" " + tokens.get("LastName", "")).rstrip(),
+                "contact_company":  tokens.get("Company", ""),
+            })
+
+    return items
 
 
 # ---------------------------
 # Public API
 # ---------------------------
 
-
 def run_funnelforge(
     schedule: Iterable[Dict[str, Any]],
     contacts_path: str,
-    attachments_path: Optional[str] = None,  # kept for backwards compatibility (ignored)
-    timezone: Optional[str] = None,          # ignored; kept for backwards compatibility
+    attachments_path: Optional[str] = None,   # kept for backwards compat (ignored)
+    timezone: Optional[str] = None,            # kept for backwards compat (ignored)
     send_emails: bool = True,
     send_window_minutes: int = 0,
+    unsubscribe_email: Optional[str] = None,
+    campaign_name: str = "",
 ) -> None:
     """
     Main entry point called by the Funnel Forge GUI.
 
-    Parameters
-    ----------
-    schedule:
-        Iterable of dicts describing each email step.
-        Expected keys per item (case-insensitive, best-effort):
-          - 'subject' or 'Subject'
-          - 'body' or 'Body'
-          - EITHER:
-                - 'date' (YYYY-MM-DD from the GUI) + 'time'/'send_time'
-            OR  - 'offset_days'/'days' + 'time'/'send_time'
-          - 'attachments' or 'attachment_paths' (optional list[str] or csv string)
+    Queues all emails in the internal scheduler queue.
+    The background scheduler thread fires each email at its scheduled time
+    directly via Outlook — no DeferredDeliveryTime, nothing waiting in Outbox.
 
-    contacts_path:
-        Path to CSV with at least 'Work Email' or 'Email' column.
-        Rows without an email address are skipped.
-
-    attachments_path:
-        (Ignored) kept only so older GUIs don't crash.
-
-    timezone:
-        (Ignored) kept only so older GUIs don't crash.
-
-    send_emails:
-        If True, emails are sent (or deferred) via Outlook.
-        If False, emails are created as drafts only.
+    If send_emails=False, items are queued as 'draft' status (not sent).
     """
-    contacts_file = Path(contacts_path)
-    outlook = None
-
-    # Initialize email scheduling log for this session
     log_path = _init_email_log()
-    print(f"Email scheduling log: {log_path}")
+    print(f"Email schedule log: {log_path}")
+
+    contacts_file  = Path(contacts_path)
+    schedule_list  = list(schedule)
 
     try:
         contacts = _read_contacts(contacts_file)
         if not contacts:
             raise ValueError("No contacts to send to.")
 
-        outlook = _ensure_outlook()
+        _log_raw(f"Building queue: {len(contacts)} contacts × {len(schedule_list)} emails")
+        _log_raw(f"Send window: ±{send_window_minutes} min")
+        _log_raw("")
 
-        # Preflight: Check if Outlook is offline
-        if send_emails and _is_outlook_offline(outlook):
-            raise RuntimeError(
-                "Outlook is in offline mode. Emails cannot be sent reliably. "
-                "Please go online (File → Work Offline to toggle) and try again."
-            )
+        items = _build_queue_items(
+            schedule=schedule_list,
+            contacts=contacts,
+            send_window_minutes=send_window_minutes,
+            campaign_name=campaign_name,
+            unsubscribe_email=unsubscribe_email,
+        )
 
-        total_emails = 0
-        for ci, contact in enumerate(contacts):
-            total_emails += _send_sequence_for_contact(
-                outlook=outlook,
-                contact=contact,
-                schedule=schedule,
-                send_emails=send_emails,
-                send_window_minutes=send_window_minutes,
-            )
-            # Throttle: max 20 emails/minute → 3-second pause between contacts
-            if send_emails and send_window_minutes > 0 and ci < len(contacts) - 1:
-                _time.sleep(3)
+        if not send_emails:
+            for item in items:
+                item["status"] = "draft"
 
-        # Kick Send/Receive to process the queue immediately
-        # This helps Outlook process deferred items reliably
-        if send_emails and total_emails > 0:
-            try:
-                outlook.Session.SendAndReceive(True)
-            except Exception:
-                pass  # Best effort; don't fail if this doesn't work
+        add_to_queue(items)
 
-        # Log summary
-        with log_path.open("a", encoding="utf-8") as f:
-            f.write("\n" + "=" * 80 + "\n")
-            f.write(f"Session completed: {datetime.now().isoformat()}\n")
-            f.write(f"Total emails processed: {total_emails}\n")
-            f.write(f"SendAndReceive triggered: {send_emails and total_emails > 0}\n")
-            f.write("=" * 80 + "\n")
+        # Ensure scheduler is running
+        start_scheduler()
 
-        return
+        _log_raw(f"Queued {len(items)} email(s). Scheduler will fire them at scheduled times.")
+        _log_raw(f"Scheduler running: {scheduler_is_running()}")
 
     except Exception:
-        crash_log = log_exception()
-        print(f"Core failed. Crash log: {crash_log}", file=sys.stderr)
+        log_exception()
         raise
-
-    finally:
-        # CRITICAL: Cleanup COM properly
-        if outlook is not None:
-            try:
-                pythoncom.CoUninitialize()  # type: ignore
-            except Exception:
-                pass
 
 
 def run_4drip(
@@ -865,10 +825,10 @@ def run_4drip(
     timezone: Optional[str] = None,
     send_emails: bool = True,
     send_window_minutes: int = 0,
+    unsubscribe_email: Optional[str] = None,
+    campaign_name: str = "",
 ) -> None:
-    """
-    Backward-compatible wrapper so older GUIs can keep calling run_4drip(...).
-    """
+    """Backward-compatible wrapper — calls run_funnelforge."""
     return run_funnelforge(
         schedule=schedule,
         contacts_path=contacts_path,
@@ -876,4 +836,6 @@ def run_4drip(
         timezone=timezone,
         send_emails=send_emails,
         send_window_minutes=send_window_minutes,
-    ) 
+        unsubscribe_email=unsubscribe_email,
+        campaign_name=campaign_name,
+    )
