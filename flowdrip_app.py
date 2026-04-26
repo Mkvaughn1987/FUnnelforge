@@ -25143,6 +25143,17 @@ def _render_aicb_pool_picker(s, rf):
                 })
         s.aicb_cand_cards = new_cards
         s._aicb_cand_text = _aicb_cards_to_text(new_cards)
+        # Roles input was removed from step 3 (2026-04-26). Derive roles
+        # from the picked candidates' target_role so the campaign-build
+        # prompt has something to anchor on. Dedup against any existing
+        # entries.
+        existing_roles = list(s.aicb_sel_roles or [])
+        for cand in matches:
+            if cand.get("id") in sel_ids:
+                tr = (cand.get("target_role") or "").strip()
+                if tr and tr not in existing_roles:
+                    existing_roles.append(tr)
+        s.aicb_sel_roles = existing_roles
         rf()
 
     ui.label(
@@ -25427,12 +25438,38 @@ def _aicb_auto_fill_target_details(s, rf):
 
 
 def _aicb_auto_generate_candidates(s, rf, count: int = 3):
-    """Use AI to invent anonymous candidate archetypes (Candidate A/B/C/...).
-    count: 1-6 (clamped). Letters A-F. No real names — keeps it clearly
-    hypothetical."""
+    """Background-thread wrapper around _aicb_generate_candidates_run.
+    Sets the spinner flag, calls rf() before/after, and dispatches a
+    daemon thread. Tests can call _aicb_generate_candidates_run directly
+    for synchronous behavior."""
     import threading as _thr
-    # Lazy-init state fields so callers (including unit tests that don't
-    # render the page first) can invoke this safely.
+    if not hasattr(s, '_aicb_cand_text'):
+        s._aicb_cand_text = ""
+    if not hasattr(s, '_aicb_cand_generating'):
+        s._aicb_cand_generating = False
+    if not hasattr(s, '_aicb_cand_err'):
+        s._aicb_cand_err = ""
+    s._aicb_cand_generating = True
+    s._aicb_cand_err = ""
+    try: rf()
+    except Exception: pass
+
+    def _bg():
+        try:
+            _aicb_generate_candidates_run(s, count=count)
+        finally:
+            s._aicb_cand_generating = False
+            try: rf()
+            except Exception: pass
+    _thr.Thread(target=_bg, daemon=True).start()
+
+
+def _aicb_generate_candidates_run(s, count: int = 3):
+    """Synchronous worker — invents anonymous candidate archetypes
+    (Candidate A/B/C/...). Writes to s._aicb_cand_text. count clamped 1-6.
+    Used standalone (combined title+candidate flow) and via the
+    background-thread wrapper above. Lazy-init's spinner state fields so
+    direct callers (tests, combined helpers) don't crash."""
     if not hasattr(s, '_aicb_cand_text'):
         s._aicb_cand_text = ""
     if not hasattr(s, '_aicb_cand_generating'):
@@ -25446,172 +25483,198 @@ def _aicb_auto_generate_candidates(s, rf, count: int = 3):
     _letters_used = _AICB_CAND_LETTERS[:count]
     _letters_str = ", ".join(f"Candidate {l}" for l in _letters_used)
 
-    def _run():
-        try:
-            import anthropic as _anth
-            client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
-            _primary_loc = _loc or "a major metro in the target market"
-            # Build per-candidate format blocks dynamically so 1..6 cards
-            # all get a valid format example.
-            _format_blocks = []
-            for i, L in enumerate(_letters_used):
-                ord_word = ["specific", "different", "third", "fourth", "fifth", "sixth"][i]
-                _format_blocks.append(
-                    f"Candidate {L}: Role Title, X yrs at [Real Competitor Firm]\n"
-                    f"• Location: [{ord_word} city in {_primary_loc} metro], [state]\n"
-                    f"• Experience: [years + specific industries/verticals they worked in]\n"
-                    f"• Skills: [3-5 role-specific hard skills, comma or semicolon separated]\n"
-                    f"• Proficiencies: [specific software + tool/machine/brand names  -  at least 5-8 named items]\n"
-                    f"• Certifications / Additional: [certs, education, or one standout achievement]\n"
-                    f"• Target Salary: $XX-YYK base OR $XX/hr (realistic for role + market)"
-                )
-            _format_str = "\n\n".join(_format_blocks)
-
-            prompt = (
-                f"Generate {count} anonymous candidate archetypes a recruiter could pitch "
-                f"to {_co} for {_roles}"
-                + (f" in {_loc}" if _loc else "") + ".\n\n"
-                f"STEP 1: Use web search to identify 3-5 REAL direct competitor companies "
-                f"of {_co}  -  same industry, similar clients, similar scale. "
-                f"DO NOT include {_co} itself.\n\n"
-                f"STEP 2: For each candidate, name-drop ONE real competitor firm as the "
-                f"employer. Use a DIFFERENT competitor for each candidate.\n\n"
-                "These are HYPOTHETICAL profiles  -  do NOT invent real person names. "
-                f"Label them {_letters_str}.\n\n"
-                f"OUTPUT FORMAT  -  follow this EXACTLY. Start your response with "
-                f"'Candidate A' as the very first characters. NO preamble, NO intro, "
-                f"NO 'Based on my research' or 'Here are' or any header text. "
-                f"If you include anything before 'Candidate A' you have failed.\n\n"
-                "Each candidate is a RICH multi-bullet block  -  headline + 6 labeled bullets. "
-                "Make every bullet SPECIFIC to the role with real brand names, software, "
-                "tool names, and industry terms. Generic bullets are a failure.\n\n"
-                "For reference, this is the level of depth required:\n\n"
-                "EXAMPLE (Manufacturing  -  CNC Machinist):\n"
-                "Candidate X: CNC Mill/Lathe Machinist, 10+ yrs at Sandvik Coromant\n"
-                "• Location: Grand Rapids, MI\n"
-                "• Experience: 10+ years in manual/CNC machining across Aerospace, Defense, & Aviation\n"
-                "• Skills: Operation and setup of vertical/horizontal mills and lathes (3-11 axis); fixture design; tight-tolerance production\n"
-                "• Proficiencies: AutoCAD, SolidWorks, GibbsCAM, Mastercam; Hurco, Doosan, Haas, Mazak Mazatrol, Mori Seiki, Fanuc, Okuma controls\n"
-                "• Additional Skills: Blueprint reading, GD&T, program editing (G&M codes)\n"
-                "• Target Salary: $26/hr\n\n"
-                "EXAMPLE (Construction  -  Superintendent):\n"
-                "Candidate X: Senior Superintendent, 15+ yrs at Turner Construction\n"
-                "• Location: San Diego, CA\n"
-                "• Experience: 15+ years running OSHPD healthcare, K-12, and Class A commercial builds ($20M-$200M)\n"
-                "• Skills: Preconstruction scope reviews, subcontractor coordination, schedule recovery, safety program enforcement\n"
-                "• Proficiencies: Procore, Bluebeam Revu, MS Project, P6 Primavera; IOR coordination; DSA/OSHPD permit closeout\n"
-                "• Certifications: OSHA 30, STSC, SWPPP QSD/QSP, First Aid/CPR\n"
-                "• Target Salary: $180-210K base\n\n"
-                f"NOW GENERATE {count} candidate blocks for {_co} / {_roles}.\n\n"
-                f"LOCATION RULE  -  CRITICAL: Every candidate MUST be based IN the target "
-                f"market ({_primary_loc}), not near their prior employer. These are "
-                f"candidates the recruiter is pitching LOCALLY. Use a specific city "
-                f"within the {_primary_loc} metro area (suburbs are fine). "
-                f"NEVER write '(near X)' or '(near the metro)'  -  just the actual city, state. "
-                f"Example: if target is 'Denver, CO', valid locations are 'Denver, CO' / "
-                f"'Aurora, CO' / 'Lakewood, CO' / 'Boulder, CO'  -  NOT 'Baton Rouge, LA (near Denver)'. "
-                f"The competitor firm is where they WORKED; the location is where they LIVE NOW.\n\n"
-                f"Use this EXACT format:\n\n"
-                f"{_format_str}\n\n"
-                f"CRITICAL: Never use '{_co}' as any candidate's firm  -  only competitors. "
-                f"Return only the {count} candidate blocks. Nothing else."
+    try:
+        import anthropic as _anth
+        client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
+        _primary_loc = _loc or "a major metro in the target market"
+        # Build per-candidate format blocks dynamically so 1..6 cards
+        # all get a valid format example.
+        _format_blocks = []
+        for i, L in enumerate(_letters_used):
+            ord_word = ["specific", "different", "third", "fourth", "fifth", "sixth"][i]
+            _format_blocks.append(
+                f"Candidate {L}: Role Title, X yrs at [Real Competitor Firm]\n"
+                f"• Location: [{ord_word} city in {_primary_loc} metro], [state]\n"
+                f"• Experience: [years + specific industries/verticals they worked in]\n"
+                f"• Skills: [3-5 role-specific hard skills, comma or semicolon separated]\n"
+                f"• Proficiencies: [specific software + tool/machine/brand names  -  at least 5-8 named items]\n"
+                f"• Certifications / Additional: [certs, education, or one standout achievement]\n"
+                f"• Target Salary: $XX-YYK base OR $XX/hr (realistic for role + market)"
             )
-            msg = _claude_create_with_retry(client,
-                model="claude-haiku-4-5-20251001",
-                max_tokens=1800,
-                tools=[{
-                    "type": "web_search_20250305",
-                    "name": "web_search",
-                    "max_uses": 2,
-                }],
-                messages=[{"role": "user", "content": prompt}])
-            text = "".join(b.text for b in msg.content if hasattr(b, "text")).strip()
-            # Strip web-search cite tags that sometimes wrap brand names
-            text = re.sub(r'</?cite[^>]*>', '', text)
+        _format_str = "\n\n".join(_format_blocks)
 
-            # Hard-trim any preamble before the first "Candidate A" occurrence.
-            # Models sometimes prepend "Based on my research..." despite the
-            # prompt telling them not to  -  we cut everything before the real
-            # first candidate header.
-            _first_match = re.search(r'(?im)^\s*Candidate\s+A\b', text)
-            if _first_match:
-                text = text[_first_match.start():]
+        prompt = (
+            f"Generate {count} anonymous candidate archetypes a recruiter could pitch "
+            f"to {_co} for {_roles}"
+            + (f" in {_loc}" if _loc else "") + ".\n\n"
+            f"STEP 1: Use web search to identify 3-5 REAL direct competitor companies "
+            f"of {_co}  -  same industry, similar clients, similar scale. "
+            f"DO NOT include {_co} itself.\n\n"
+            f"STEP 2: For each candidate, name-drop ONE real competitor firm as the "
+            f"employer. Use a DIFFERENT competitor for each candidate.\n\n"
+            "These are HYPOTHETICAL profiles  -  do NOT invent real person names. "
+            f"Label them {_letters_str}.\n\n"
+            f"OUTPUT FORMAT  -  follow this EXACTLY. Start your response with "
+            f"'Candidate A' as the very first characters. NO preamble, NO intro, "
+            f"NO 'Based on my research' or 'Here are' or any header text. "
+            f"If you include anything before 'Candidate A' you have failed.\n\n"
+            "Each candidate is a RICH multi-bullet block  -  headline + 6 labeled bullets. "
+            "Make every bullet SPECIFIC to the role with real brand names, software, "
+            "tool names, and industry terms. Generic bullets are a failure.\n\n"
+            "For reference, this is the level of depth required:\n\n"
+            "EXAMPLE (Manufacturing  -  CNC Machinist):\n"
+            "Candidate X: CNC Mill/Lathe Machinist, 10+ yrs at Sandvik Coromant\n"
+            "• Location: Grand Rapids, MI\n"
+            "• Experience: 10+ years in manual/CNC machining across Aerospace, Defense, & Aviation\n"
+            "• Skills: Operation and setup of vertical/horizontal mills and lathes (3-11 axis); fixture design; tight-tolerance production\n"
+            "• Proficiencies: AutoCAD, SolidWorks, GibbsCAM, Mastercam; Hurco, Doosan, Haas, Mazak Mazatrol, Mori Seiki, Fanuc, Okuma controls\n"
+            "• Additional Skills: Blueprint reading, GD&T, program editing (G&M codes)\n"
+            "• Target Salary: $26/hr\n\n"
+            "EXAMPLE (Construction  -  Superintendent):\n"
+            "Candidate X: Senior Superintendent, 15+ yrs at Turner Construction\n"
+            "• Location: San Diego, CA\n"
+            "• Experience: 15+ years running OSHPD healthcare, K-12, and Class A commercial builds ($20M-$200M)\n"
+            "• Skills: Preconstruction scope reviews, subcontractor coordination, schedule recovery, safety program enforcement\n"
+            "• Proficiencies: Procore, Bluebeam Revu, MS Project, P6 Primavera; IOR coordination; DSA/OSHPD permit closeout\n"
+            "• Certifications: OSHA 30, STSC, SWPPP QSD/QSP, First Aid/CPR\n"
+            "• Target Salary: $180-210K base\n\n"
+            f"NOW GENERATE {count} candidate blocks for {_co} / {_roles}.\n\n"
+            f"LOCATION RULE  -  CRITICAL: Every candidate MUST be based IN the target "
+            f"market ({_primary_loc}), not near their prior employer. These are "
+            f"candidates the recruiter is pitching LOCALLY. Use a specific city "
+            f"within the {_primary_loc} metro area (suburbs are fine). "
+            f"NEVER write '(near X)' or '(near the metro)'  -  just the actual city, state. "
+            f"Example: if target is 'Denver, CO', valid locations are 'Denver, CO' / "
+            f"'Aurora, CO' / 'Lakewood, CO' / 'Boulder, CO'  -  NOT 'Baton Rouge, LA (near Denver)'. "
+            f"The competitor firm is where they WORKED; the location is where they LIVE NOW.\n\n"
+            f"Use this EXACT format:\n\n"
+            f"{_format_str}\n\n"
+            f"CRITICAL: Never use '{_co}' as any candidate's firm  -  only competitors. "
+            f"Return only the {count} candidate blocks. Nothing else."
+        )
+        msg = _claude_create_with_retry(client,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1800,
+            tools=[{
+                "type": "web_search_20250305",
+                "name": "web_search",
+                "max_uses": 2,
+            }],
+            messages=[{"role": "user", "content": prompt}])
+        text = "".join(b.text for b in msg.content if hasattr(b, "text")).strip()
+        # Strip web-search cite tags that sometimes wrap brand names
+        text = re.sub(r'</?cite[^>]*>', '', text)
 
-            # Parse into candidate blocks: each block = headline + bullets.
-            _letters = _AICB_CAND_LETTERS  # A..F
-            _co_clean = (_co or "").strip()
-            raw_lines = text.split("\n")
-            _blocks = []  # list of lists of lines
-            _current = None
-            for ln in raw_lines:
-                stripped = ln.strip()
-                if not stripped:
-                    continue
-                # New candidate block starts at "Candidate X  - " or "Candidate X:"
-                if re.match(r'^Candidate\s+[A-F]\b', stripped, re.IGNORECASE):
-                    if _current is not None:
-                        _blocks.append(_current)
-                    _current = [stripped]
-                elif _current is not None:
-                    # Must be a bullet/sub-line  -  only accept if it looks like
-                    # a bullet (starts with •, -, *, or a "Label:" prefix).
-                    if re.match(r'^[\u2022\-\*]\s*', stripped) or re.match(r'^(Location|Experience|Salary|Target\s*Salary|Comp|Pay|Base|Credential|Key\s*Skills?|Skills?|Proficiencies|Proficiency|Tools|Tech|Certifications?|Additional|Additional\s*Skills?|Education|Leadership|Projects|Preferred\s*Shift|Shift)\s*[:\-]', stripped, re.IGNORECASE):
-                        # Normalize bullet prefix to "• "
-                        stripped = re.sub(r'^[\u2022\-\*]\s*', '', stripped)
-                        _current.append(f"• {stripped}")
-            if _current is not None:
-                _blocks.append(_current)
+        # Hard-trim any preamble before the first "Candidate A" occurrence.
+        # Models sometimes prepend "Based on my research..." despite the
+        # prompt telling them not to  -  we cut everything before the real
+        # first candidate header.
+        _first_match = re.search(r'(?im)^\s*Candidate\s+A\b', text)
+        if _first_match:
+            text = text[_first_match.start():]
 
-            # Keep only first `count` blocks, enforce letter labels.
-            _cleaned_blocks = []
-            for i, block in enumerate(_blocks[:count]):
-                if not block:
-                    continue
-                head = block[0]
-                # Force "Candidate X" prefix regardless of what AI wrote
-                head = re.sub(r'^Candidate\s+[A-F]\b', f"Candidate {_letters[i]}",
-                              head, flags=re.IGNORECASE)
-                # Scrub target company name from the headline
-                if _co_clean and len(_co_clean) > 2:
-                    head = re.sub(
-                        rf'\bat\s+{re.escape(_co_clean)}\b',
-                        'at a direct competitor',
-                        head, flags=re.IGNORECASE,
-                    )
-                bullets = block[1:7]  # cap at 6 bullets
-                # Scrub target company from bullets too
-                if _co_clean and len(_co_clean) > 2:
-                    bullets = [
-                        re.sub(rf'\b{re.escape(_co_clean)}\b', 'a competitor',
-                               b, flags=re.IGNORECASE)
-                        for b in bullets
-                    ]
-                # Strip "(near X)" parentheticals the AI sometimes adds to
-                # location lines  -  locations must be the actual city, no
-                # proximity hedging.
+        # Parse into candidate blocks: each block = headline + bullets.
+        _letters = _AICB_CAND_LETTERS  # A..F
+        _co_clean = (_co or "").strip()
+        raw_lines = text.split("\n")
+        _blocks = []  # list of lists of lines
+        _current = None
+        for ln in raw_lines:
+            stripped = ln.strip()
+            if not stripped:
+                continue
+            # New candidate block starts at "Candidate X  - " or "Candidate X:"
+            if re.match(r'^Candidate\s+[A-F]\b', stripped, re.IGNORECASE):
+                if _current is not None:
+                    _blocks.append(_current)
+                _current = [stripped]
+            elif _current is not None:
+                # Must be a bullet/sub-line  -  only accept if it looks like
+                # a bullet (starts with •, -, *, or a "Label:" prefix).
+                if re.match(r'^[\u2022\-\*]\s*', stripped) or re.match(r'^(Location|Experience|Salary|Target\s*Salary|Comp|Pay|Base|Credential|Key\s*Skills?|Skills?|Proficiencies|Proficiency|Tools|Tech|Certifications?|Additional|Additional\s*Skills?|Education|Leadership|Projects|Preferred\s*Shift|Shift)\s*[:\-]', stripped, re.IGNORECASE):
+                    # Normalize bullet prefix to "• "
+                    stripped = re.sub(r'^[\u2022\-\*]\s*', '', stripped)
+                    _current.append(f"• {stripped}")
+        if _current is not None:
+            _blocks.append(_current)
+
+        # Keep only first `count` blocks, enforce letter labels.
+        _cleaned_blocks = []
+        for i, block in enumerate(_blocks[:count]):
+            if not block:
+                continue
+            head = block[0]
+            # Force "Candidate X" prefix regardless of what AI wrote
+            head = re.sub(r'^Candidate\s+[A-F]\b', f"Candidate {_letters[i]}",
+                          head, flags=re.IGNORECASE)
+            # Scrub target company name from the headline
+            if _co_clean and len(_co_clean) > 2:
+                head = re.sub(
+                    rf'\bat\s+{re.escape(_co_clean)}\b',
+                    'at a direct competitor',
+                    head, flags=re.IGNORECASE,
+                )
+            bullets = block[1:7]  # cap at 6 bullets
+            # Scrub target company from bullets too
+            if _co_clean and len(_co_clean) > 2:
                 bullets = [
-                    re.sub(r'\s*\((?:near|in|adjacent to|close to|outside|outside of)\b[^)]*\)',
-                           '', b, flags=re.IGNORECASE)
+                    re.sub(rf'\b{re.escape(_co_clean)}\b', 'a competitor',
+                           b, flags=re.IGNORECASE)
                     for b in bullets
                 ]
-                _cleaned_blocks.append([head] + bullets)
+            # Strip "(near X)" parentheticals the AI sometimes adds to
+            # location lines  -  locations must be the actual city, no
+            # proximity hedging.
+            bullets = [
+                re.sub(r'\s*\((?:near|in|adjacent to|close to|outside|outside of)\b[^)]*\)',
+                       '', b, flags=re.IGNORECASE)
+                for b in bullets
+            ]
+            _cleaned_blocks.append([head] + bullets)
 
-            # Join blocks with blank lines between
-            s._aicb_cand_text = "\n\n".join(
-                "\n".join(blk) for blk in _cleaned_blocks
-            )
-            s._aicb_cand_err = ""
-        except Exception as e:
-            s._aicb_cand_err = _friendly_ai_error(e)
+        # Join blocks with blank lines between
+        s._aicb_cand_text = "\n\n".join(
+            "\n".join(blk) for blk in _cleaned_blocks
+        )
+        s._aicb_cand_err = ""
+    except Exception as e:
+        s._aicb_cand_err = _friendly_ai_error(e)
+
+
+def _aicb_combined_titles_and_candidates(s, rf, count: int = 3):
+    """Combined task for the new step-3 'Auto-generate' flow: if no
+    target roles are set yet, web-search the company for job titles
+    first, then generate candidates against those titles. One thread,
+    one spinner, one user click. (2026-04-26 user feedback — 'get rid
+    of the manual add for titles and if the user chooses autogenerate,
+    have it run the task and create the jobs?')"""
+    import threading as _thr
+    if getattr(s, "_aicb_cand_generating", False):
+        return
+    s._aicb_cand_generating = True
+    s._aicb_cand_err = ""
+    s._aicb_titles_err = ""
+    try: rf()
+    except Exception: pass
+
+    def _bg():
+        try:
+            # 1. Auto-fetch titles if none set and we have a company.
+            #    For Market mode (no company) just skip — _aicb_generate_
+            #    candidates_run handles empty roles by using "the target
+            #    roles" as a generic fallback in its prompt.
+            if not s.aicb_sel_roles and (s.aicb_company or "").strip():
+                _aicb_suggest_titles_run(s)
+            # 2. Generate the candidates.
+            _aicb_generate_candidates_run(s, count=count)
+            # 3. Parse text into editable cards for the UI.
+            if s._aicb_cand_text:
+                s.aicb_cand_cards = _aicb_cards_from_text(s._aicb_cand_text)
         finally:
             s._aicb_cand_generating = False
             try: rf()
             except Exception: pass
-
-    s._aicb_cand_generating = True
-    s._aicb_cand_err = ""
-    rf()
-    _thr.Thread(target=_run, daemon=True).start()
+    _thr.Thread(target=_bg, daemon=True).start()
 
 
 def p_ai_campaign(s: AppState, rf):
@@ -25809,7 +25872,11 @@ def p_ai_campaign(s: AppState, rf):
         if _wiz_mode not in ("wizard", "expanded"):
             _wiz_mode = "wizard"
         _wiz_step = int(getattr(s, "aicb_wizard_step", 1) or 1)
-        if _wiz_step not in (1, 2, 3, 4):
+        # 5-step wizard since 2026-04-26 (Candidates inserted at step 3).
+        # Earlier code clamped to (1,2,3,4) which silently kicked anyone
+        # advancing to step 5 (Review + generate) back to step 1, making
+        # the wizard appear to "loop" right when they hit Generate.
+        if _wiz_step not in (1, 2, 3, 4, 5):
             _wiz_step = 1
 
         # Title + top-right Next button. The Next button is a discoverable
@@ -25830,9 +25897,11 @@ def p_ai_campaign(s: AppState, rf):
             _top_target_filled = bool((s.aicb_company or "").strip()) if _top_mode == "company" else bool((s.aicb_niche or "").strip())
             _top_next_ok = _top_target_filled
         elif _wiz_mode == "wizard" and _wiz_step == 3:
-            # Step 3 (Candidates): roles required, plus a candidate source
-            # picked. Skip is a valid source — it just means "no candidates".
-            _top_next_ok = bool(s.aicb_sel_roles) and bool(getattr(s, "aicb_cand_source", ""))
+            # Step 3 (Candidates): just need a source picked. Roles are
+            # auto-fetched by the Auto-generate flow and derived from
+            # picks in the Pool flow; manual entry was removed
+            # 2026-04-26.
+            _top_next_ok = bool(getattr(s, "aicb_cand_source", ""))
         elif _wiz_mode == "wizard" and _wiz_step == 4:
             _top_next_ok = bool((getattr(s, "aicb_camp_type", "") or "").strip())
         else:
@@ -25850,9 +25919,6 @@ def p_ai_campaign(s: AppState, rf):
                     ui.notify(f"Enter a {_tgt_word}.", type="warning")
                     return
             elif _wiz_step == 3:
-                if not s.aicb_sel_roles:
-                    ui.notify("Add at least one role before continuing.", type="warning")
-                    return
                 if not getattr(s, "aicb_cand_source", ""):
                     ui.notify("Pick a candidate source (Pool, Auto-generate, or Skip).", type="warning")
                     return
@@ -26608,51 +26674,26 @@ def p_ai_campaign(s: AppState, rf):
                     "campaign with no candidate references."
                 ).classes("fd-sub").style(f"color:{C['muted']};margin-bottom:18px;")
 
-                # ── Section A: Roles (required) ──────────────────────
-                ui.label("Target Roles *").classes("fd-fl")
-                roles_csv = ", ".join(s.aicb_sel_roles or [])
-                _roles_inp_step3 = ui.input(
-                    value=roles_csv,
-                    placeholder="e.g. CNC Machinist, Mill Operator",
-                ).classes("fd-input").style("width:100%;margin-bottom:6px;")
-
-                def _on_roles_change(e):
-                    raw = (e.value or "").split(",")
-                    cleaned: list = []
-                    for r in raw:
-                        r = r.strip()
-                        if r and r not in cleaned:
-                            cleaned.append(r)
-                    s.aicb_sel_roles = cleaned
-
-                _roles_inp_step3.on(
-                    "blur",
-                    lambda: setattr(s, "aicb_sel_roles",
-                        [r.strip() for r in (_roles_inp_step3.value or "").split(",") if r.strip()]),
-                )
-
-                def _suggest_titles_click():
-                    # Commit any pending input first
-                    s.aicb_sel_roles = [
-                        r.strip() for r in (_roles_inp_step3.value or "").split(",")
-                        if r.strip()
-                    ]
-                    _aicb_suggest_role_titles(s, rf)
-
-                with ui.element("div").style(
-                        "display:flex;align-items:center;gap:10px;margin-bottom:18px;"):
-                    if getattr(s, "_aicb_titles_generating", False):
-                        ui.spinner("dots", size="sm")
-                        ui.label("Searching career page…").style(
-                            f"font-size:12px;color:{C['muted']};")
-                    else:
-                        with ui.element("button").classes("fd-pb").style(
-                                "padding:6px 14px;font-size:12px;border-radius:6px;"
-                                ).on("click", _suggest_titles_click):
-                            ui.label("✨ Suggest titles")
-                        if getattr(s, "_aicb_titles_err", ""):
-                            ui.label(f"⚠ {s._aicb_titles_err}").style(
-                                f"font-size:11px;color:{C['warn']};")
+                # Manual roles entry + ✨ Suggest titles button removed
+                # 2026-04-26 per user feedback. The Auto-generate flow now
+                # auto-fetches titles before creating candidates (combined
+                # _aicb_combined_titles_and_candidates), and Pool selection
+                # derives roles from the picked candidates' target_role.
+                # Skip just leaves roles empty — _do_research handles that.
+                if s.aicb_sel_roles:
+                    # Show the current chips read-only so users can see what
+                    # roles drive the candidate / campaign generation.
+                    with ui.element("div").style(
+                            f"margin-bottom:14px;padding:10px 14px;"
+                            f"background:{C['surface']};border-radius:8px;"
+                            f"display:flex;flex-wrap:wrap;align-items:center;gap:6px;"):
+                        ui.label("Roles:").style(
+                            f"font-size:11px;color:{C['muted']};white-space:nowrap;")
+                        for _r in s.aicb_sel_roles[:8]:
+                            ui.label(_r).style(
+                                f"font-size:11px;padding:3px 9px;border-radius:99px;"
+                                f"background:{C.get('teal_dim', '#1AE3D920')};"
+                                f"color:{C.get('teal', '#1AE3D9')};")
 
                 # ── Section B: Source picker (3 cards) ───────────────
                 ui.label("Candidate source").classes("fd-fl").style("margin-top:10px;")
@@ -26729,11 +26770,9 @@ def p_ai_campaign(s: AppState, rf):
                                 return
                             s.aicb_cand_cards = []
                             s._aicb_cand_text = ""
-                            def _on_done():
-                                if s._aicb_cand_text:
-                                    s.aicb_cand_cards = _aicb_cards_from_text(s._aicb_cand_text)
-                                rf()
-                            _aicb_auto_generate_candidates(s, _on_done, count=n)
+                            # Combined: auto-fetch titles (if empty) +
+                            # generate candidates in one thread.
+                            _aicb_combined_titles_and_candidates(s, rf, count=n)
 
                         if getattr(s, "_aicb_cand_generating", False):
                             ui.spinner("dots", size="md")
@@ -26750,6 +26789,8 @@ def p_ai_campaign(s: AppState, rf):
                             n = max(1, min(6, int(s.aicb_cand_count or 3)))
                             s.aicb_cand_cards = []
                             s._aicb_cand_text = ""
+                            # Re-roll just regenerates candidates against
+                            # the existing roles — don't re-fetch titles.
                             def _on_done():
                                 if s._aicb_cand_text:
                                     s.aicb_cand_cards = _aicb_cards_from_text(s._aicb_cand_text)
@@ -26976,10 +27017,9 @@ def p_ai_campaign(s: AppState, rf):
                 # written to s.aicb_sel_roles / s._aicb_cand_text by the
                 # time we land on step 4 or 5. Don't read from roles_inp /
                 # cand_inp — they're None on the new step 2 (2026-04-26).
-                if not s.aicb_sel_roles:
-                    ui.notify("Add at least one target role on the Candidates step.",
-                              type="warning")
-                    return
+                # Empty roles is allowed (Skip-source campaigns) — the
+                # generation prompt falls back to a generic "the target
+                # roles" placeholder.
                 # Save inputs — only the active mode's target field is
                 # written; the other stays in AppState untouched so a
                 # later toggle-back restores prior text.
@@ -27440,7 +27480,7 @@ def p_ai_campaign(s: AppState, rf):
                     _step2_ok = bool((s.aicb_company or "").strip())
                 else:
                     _step2_ok = bool((s.aicb_niche or "").strip())
-                _step3_ok = bool(s.aicb_sel_roles) and bool(getattr(s, "aicb_cand_source", ""))
+                _step3_ok = bool(getattr(s, "aicb_cand_source", ""))
                 _step4_ok = bool((s.aicb_camp_type or "").strip())
 
                 def _wiz_next():
