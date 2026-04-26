@@ -24789,6 +24789,82 @@ def _render_aicb_quick_start(s, rf):
 _AICB_CAND_LETTERS = ["A", "B", "C", "D", "E", "F"]
 
 
+def _extract_listed_items(text: str, section_header: str = None) -> list:
+    """Tolerant list-extraction for AI responses. Handles:
+      - Bullet lists: '- Foo', '• Foo', '* Foo'
+      - Numbered lists: '1. Foo', '2) Foo', '(3) Foo'
+      - Markdown bold: '**Foo**' or '- **Foo**'
+      - Plain text lines: 'Foo' (each non-blank line that looks like a label)
+
+    If `section_header` is provided (e.g. 'TITLES' or 'LOCATIONS'), only
+    consider lines AFTER a header matching that prefix. Otherwise the
+    whole text is scanned.
+
+    Returns a deduplicated, order-preserving list. Used by both
+    _aicb_suggest_titles_run and _aicb_auto_fill_run because Claude with
+    web search returns inconsistent formats (sometimes preamble, sometimes
+    numbered, sometimes plain).
+    """
+    if not text:
+        return []
+
+    lines = text.split("\n")
+    if section_header:
+        # Locate the header and trim everything before it.
+        header_re = re.compile(
+            rf'^\s*{re.escape(section_header)}\s*[:\-]?\s*$',
+            re.IGNORECASE,
+        )
+        idx = -1
+        for i, ln in enumerate(lines):
+            # Strip markdown emphasis around the header (e.g. **TITLES:**)
+            cleaned = re.sub(r'^\*+|\*+$', '', ln.strip()).strip()
+            if header_re.match(cleaned):
+                idx = i
+                break
+        if idx >= 0:
+            lines = lines[idx + 1:]
+        # If no header found, fall through and scan the whole text — the
+        # AI may have skipped the header but returned a list anyway.
+
+    out: list = []
+    seen: set = set()
+    for raw in lines:
+        line = raw.strip()
+        if not line:
+            continue
+        # Stop at a NEW header line (e.g. when scanning TITLES, hit LOCATIONS).
+        if re.match(r'^[A-Z][A-Z ]{2,30}\s*:\s*$', line) and section_header:
+            break
+        # Strip leading bullet / number markers
+        line = re.sub(r'^\s*(?:[-•*]|\(?\d+[\.\)])\s+', '', line)
+        # Strip surrounding markdown emphasis
+        line = re.sub(r'^\*\*(.+?)\*\*$', r'\1', line)
+        line = re.sub(r'^_(.+?)_$', r'\1', line)
+        # Strip trailing parenthetical descriptors that often follow titles:
+        # "CNC Machinist (5+ years experience)" → "CNC Machinist"
+        line = re.sub(r'\s*\([^)]{1,80}\)\s*$', '', line)
+        # Strip a trailing em-dash description ("Title — does X")
+        line = re.split(r'\s+[—–]\s+', line, maxsplit=1)[0].strip()
+        # Skip lines that look like prose, not labels.
+        # Heuristic: real titles are short (under 60 chars) and don't end
+        # with a period (full sentences typically do).
+        if not line or len(line) > 60:
+            continue
+        if line.endswith(".") and len(line.split()) > 6:
+            continue
+        # Strip wrapping quotes
+        line = line.strip('"\'')
+        if not line:
+            continue
+        key = line.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(line)
+    return out
+
+
 def _render_aicb_candidate_cards(s, rf):
     """Render aicb_cand_cards as a 2-col grid. Each card has Edit /
     Re-roll / Remove controls. Re-roll only shown for autogen-sourced
@@ -25114,28 +25190,19 @@ def _aicb_auto_fill_run(s):
         text = "".join(b.text for b in msg.content if hasattr(b, "text")).strip()
         text = re.sub(r'</?cite[^>]*>', '', text)
 
-        industries: list = []
-        locations: list = []
-        section = None
-        for ln in text.split("\n"):
-            stripped = ln.strip()
-            if not stripped:
-                continue
-            if re.match(r'^INDUSTRIES?\s*:?\s*$', stripped, re.IGNORECASE):
-                section = "ind"; continue
-            if re.match(r'^LOCATIONS?\s*:?\s*$', stripped, re.IGNORECASE):
-                section = "loc"; continue
-            if stripped.startswith(("-", "•", "*")):
-                val = re.sub(r'^[-•*]\s*', '', stripped).strip()
-                if not val:
-                    continue
-                if section == "ind":
-                    industries.append(val)
-                elif section == "loc":
-                    locations.append(val)
+        # Use the tolerant section parser. INDUSTRIES first, LOCATIONS
+        # second — both are extracted independently. Falls back to a
+        # whole-text scan if section headers were dropped by the AI.
+        industries = _extract_listed_items(text, section_header="INDUSTRIES")
+        locations = _extract_listed_items(text, section_header="LOCATIONS")
+        if not industries and not locations:
+            # Worst case: AI returned a flat unstructured response. Pull
+            # whatever bullets/numbers are present and treat them as
+            # locations (industries are typically a single phrase the AI
+            # leads with, not bulleted).
+            locations = _extract_listed_items(text)
 
         if industries:
-            # Pick primary; user can edit after
             s.aicb_industry = industries[0]
         # Append + dedup; cap at 5
         existing = list(s.aicb_sel_locations or [])
@@ -25145,7 +25212,15 @@ def _aicb_auto_fill_run(s):
             if len(existing) >= 5:
                 break
         s.aicb_sel_locations = existing[:5]
-        s._aicb_autofill_err = ""
+
+        if not industries and not locations:
+            s._aicb_autofill_err = (
+                "AI couldn't pull industries/locations from that website. "
+                "Fill them in manually."
+            )
+            print(f"[AutoFill] Empty parse. Raw response:\n{text[:600]}", flush=True)
+        else:
+            s._aicb_autofill_err = ""
     except Exception as e:
         s._aicb_autofill_err = _friendly_ai_error(e)
 
@@ -25183,19 +25258,29 @@ def _aicb_suggest_titles_run(s):
         )
         text = "".join(b.text for b in msg.content if hasattr(b, "text")).strip()
         text = re.sub(r'</?cite[^>]*>', '', text)
-        titles: list = []
-        for ln in text.split("\n"):
-            stripped = ln.strip()
-            if stripped.startswith(("-", "•", "*")):
-                val = re.sub(r'^[-•*]\s*', '', stripped).strip()
-                if val:
-                    titles.append(val)
+        # Try the structured "TITLES:" section first; fall back to whole-
+        # text scan if the AI skipped the header (web_search responses
+        # can be chatty).
+        titles = _extract_listed_items(text, section_header="TITLES")
+        if not titles:
+            titles = _extract_listed_items(text)
         existing = list(s.aicb_sel_roles or [])
+        added = 0
         for t in titles:
             if t and t not in existing:
                 existing.append(t)
+                added += 1
         s.aicb_sel_roles = existing
-        s._aicb_titles_err = ""
+        if added == 0:
+            # Surface a clear message — silent failure was the reason
+            # users thought the button was broken (2026-04-26 report).
+            s._aicb_titles_err = (
+                "AI didn't return parseable titles for that company. "
+                "Try a different website, or just type the titles manually."
+            )
+            print(f"[SuggestTitles] Empty parse. Raw response:\n{text[:600]}", flush=True)
+        else:
+            s._aicb_titles_err = ""
     except Exception as e:
         s._aicb_titles_err = _friendly_ai_error(e)
 
