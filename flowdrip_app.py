@@ -25479,22 +25479,28 @@ def _aicb_generate_candidates_run(s, count: int = 3):
     count = max(1, min(6, int(count or 3)))
     _co = s.aicb_company or s.aicb_niche or "the target market"
     _roles = ", ".join(s.aicb_sel_roles) if s.aicb_sel_roles else "the target roles"
-    _loc = ", ".join(s.aicb_sel_locations) if s.aicb_sel_locations else ""
+    # ONE primary location for ALL candidates. The user is recruiting for
+    # a specific geography — even if the company has offices in multiple
+    # cities (auto-fill grabs all of them), candidates must be local to
+    # the recruiter's market. Take the FIRST entry as the canonical city.
+    _primary_loc = (
+        (s.aicb_sel_locations[0] if s.aicb_sel_locations else "").strip()
+        or "the target metro"
+    )
     _letters_used = _AICB_CAND_LETTERS[:count]
     _letters_str = ", ".join(f"Candidate {l}" for l in _letters_used)
 
     try:
         import anthropic as _anth
         client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
-        _primary_loc = _loc or "a major metro in the target market"
-        # Build per-candidate format blocks dynamically so 1..6 cards
-        # all get a valid format example.
+        # Build per-candidate format blocks. Every candidate's location
+        # is the SAME _primary_loc (or its immediate suburbs) — this is
+        # a single-geography candidate set.
         _format_blocks = []
         for i, L in enumerate(_letters_used):
-            ord_word = ["specific", "different", "third", "fourth", "fifth", "sixth"][i]
             _format_blocks.append(
                 f"Candidate {L}: Role Title, X yrs at [Real Competitor Firm]\n"
-                f"• Location: [{ord_word} city in {_primary_loc} metro], [state]\n"
+                f"• Location: {_primary_loc} (or immediate suburb of {_primary_loc})\n"
                 f"• Experience: [years + specific industries/verticals they worked in]\n"
                 f"• Skills: [3-5 role-specific hard skills, comma or semicolon separated]\n"
                 f"• Proficiencies: [specific software + tool/machine/brand names  -  at least 5-8 named items]\n"
@@ -25505,8 +25511,7 @@ def _aicb_generate_candidates_run(s, count: int = 3):
 
         prompt = (
             f"Generate {count} anonymous candidate archetypes a recruiter could pitch "
-            f"to {_co} for {_roles}"
-            + (f" in {_loc}" if _loc else "") + ".\n\n"
+            f"to {_co} for {_roles} in {_primary_loc}.\n\n"
             f"STEP 1: Use web search to identify 3-5 REAL direct competitor companies "
             f"of {_co}  -  same industry, similar clients, similar scale. "
             f"DO NOT include {_co} itself.\n\n"
@@ -25530,24 +25535,19 @@ def _aicb_generate_candidates_run(s, count: int = 3):
             "• Proficiencies: AutoCAD, SolidWorks, GibbsCAM, Mastercam; Hurco, Doosan, Haas, Mazak Mazatrol, Mori Seiki, Fanuc, Okuma controls\n"
             "• Additional Skills: Blueprint reading, GD&T, program editing (G&M codes)\n"
             "• Target Salary: $26/hr\n\n"
-            "EXAMPLE (Construction  -  Superintendent):\n"
-            "Candidate X: Senior Superintendent, 15+ yrs at Turner Construction\n"
-            "• Location: San Diego, CA\n"
-            "• Experience: 15+ years running OSHPD healthcare, K-12, and Class A commercial builds ($20M-$200M)\n"
-            "• Skills: Preconstruction scope reviews, subcontractor coordination, schedule recovery, safety program enforcement\n"
-            "• Proficiencies: Procore, Bluebeam Revu, MS Project, P6 Primavera; IOR coordination; DSA/OSHPD permit closeout\n"
-            "• Certifications: OSHA 30, STSC, SWPPP QSD/QSP, First Aid/CPR\n"
-            "• Target Salary: $180-210K base\n\n"
-            f"NOW GENERATE {count} candidate blocks for {_co} / {_roles}.\n\n"
-            f"LOCATION RULE  -  CRITICAL: Every candidate MUST be based IN the target "
-            f"market ({_primary_loc}), not near their prior employer. These are "
-            f"candidates the recruiter is pitching LOCALLY. Use a specific city "
-            f"within the {_primary_loc} metro area (suburbs are fine). "
+            f"NOW GENERATE {count} candidate blocks for {_co} / {_roles} based in {_primary_loc}.\n\n"
+            f"LOCATION RULE  -  CRITICAL: ALL {count} candidates MUST live in "
+            f"{_primary_loc} or its immediate suburbs. SAME metro for every "
+            f"candidate. Do NOT distribute candidates across different cities, "
+            f"states, or regions — even if {_co} has offices in multiple "
+            f"locations. The recruiter is pitching the {_primary_loc} hire "
+            f"specifically. Every Location: line in your output should be "
+            f"{_primary_loc} or an obvious suburb (same metro, same state). "
             f"NEVER write '(near X)' or '(near the metro)'  -  just the actual city, state. "
-            f"Example: if target is 'Denver, CO', valid locations are 'Denver, CO' / "
-            f"'Aurora, CO' / 'Lakewood, CO' / 'Boulder, CO'  -  NOT 'Baton Rouge, LA (near Denver)'. "
-            f"The competitor firm is where they WORKED; the location is where they LIVE NOW.\n\n"
-            f"Use this EXACT format:\n\n"
+            f"NEVER place a candidate in a different state than {_primary_loc}. "
+            f"The competitor firm is where they WORKED (could be remote/elsewhere); "
+            f"the location is where they LIVE NOW (must be {_primary_loc}).\n\n"
+            f"Use this EXACT format (notice how every Location is {_primary_loc}):\n\n"
             f"{_format_str}\n\n"
             f"CRITICAL: Never use '{_co}' as any candidate's firm  -  only competitors. "
             f"Return only the {count} candidate blocks. Nothing else."
@@ -27173,21 +27173,49 @@ def p_ai_campaign(s: AppState, rf):
                         _cand_block = ""
                         _resume_pdfs = []  # redacted PDFs to attach
 
-                        # Manual candidate highlights (free-text from the Target Details panel)
+                        # Candidate highlights — populated by step 3 (Pool
+                        # selection or Auto-generate) into _aicb_cand_text.
+                        # n_cands = the actual number of candidate cards
+                        # the user generated/picked. The campaign-build
+                        # prompt now tells the AI to feature ALL of them
+                        # in every candidate-bearing email, and to use
+                        # the actual number ("6 profiles", "4 candidates")
+                        # in subjects + body — no hardcoded "Three".
                         _cand_text = getattr(s, '_aicb_cand_text', '').strip()
+                        n_cands = len(getattr(s, 'aicb_cand_cards', []) or []) or 0
+                        if _cand_text and n_cands == 0:
+                            # Best-effort count from the text format
+                            n_cands = max(1, _cand_text.count("Candidate "))
                         if _cand_text:
                             _cand_block = (
-                                f'\nCANDIDATE HIGHLIGHTS  -  user provided this raw info:\n'
+                                f'\nCANDIDATE HIGHLIGHTS — you have {n_cands} '
+                                f'candidate(s) to feature:\n'
                                 f'{_cand_text}\n\n'
-                                f'IMPORTANT: Polish this into professional candidate profiles with bullet points. '
-                                f'Weave candidates into EVERY OTHER email starting from Email 2 (NOT Email 1). '
-                                f'Each time you include candidates, use a DIFFERENT angle:\n'
-                                f'  - Email 2: Experience & qualifications (3 bullet points per candidate)\n'
-                                f'  - Email 4: Why they fit THIS company specifically\n'
+                                f'IMPORTANT: Include ALL {n_cands} candidates '
+                                f'(in the order they appear above) in every '
+                                f'email that features candidates. Do NOT pick '
+                                f'a subset, do NOT drop any. Polish each into '
+                                f'a clean candidate profile with 3 bullet '
+                                f'points.\n'
+                                f'Weave candidates into EVERY OTHER email '
+                                f'starting from Email 2 (NOT Email 1). Each '
+                                f'time you feature them, use a DIFFERENT angle:\n'
+                                f'  - Email 2: Experience & qualifications — 3 bullets per candidate\n'
+                                f'  - Email 4: Why they fit THIS company — 3 bullets per candidate\n'
                                 f'  - Email 6+: Availability & urgency (competing interest, closing window)\n'
-                                f'Emails WITHOUT candidates (1, 3, 5, etc.) should focus on market insights, '
-                                f'value props, or data  -  do NOT mention candidates in those emails.\n'
-                                f'Use their REAL names. If info is sparse, infer realistic details from their role/industry.\n\n'
+                                f'Emails WITHOUT candidates (1, 3, 5, etc.) — '
+                                f'focus on market insights, value props, or '
+                                f'data only.\n'
+                                f'When email subjects or body text references '
+                                f'the count, use "{n_cands} profiles" or '
+                                f'"{n_cands} candidates" (or the spelled-out '
+                                f'word for that number) — NEVER hardcode '
+                                f'"Three" / "3" if {n_cands} is not 3. The '
+                                f'subject of the candidate-intro email should '
+                                f'lead with the count.\n'
+                                f'Use the candidate labels exactly as they '
+                                f'appear above (Candidate A/B/C..., or real '
+                                f'names if the user provided them).\n\n'
                             )
 
                         elif s.aicb_resumes and any(r.get("candidate") for r in s.aicb_resumes):
