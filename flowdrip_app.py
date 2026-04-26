@@ -8676,7 +8676,7 @@ PAGE_HELP = {
             ("Task Types", "Each task has a colored badge:\n- Call (amber): Phone call with script + talking points.\n- LinkedIn (indigo): Connection request or DM.\n- Task (gray): General action item.\n- Slow Drip (purple): Task from an evergreen campaign."),
             ("Completing Tasks", "Click a task to expand. Use the action buttons to mark it done, skip, or log an outcome."),
             ("Overdue Tab", "Tasks from past days that weren't completed show with a red indicator."),
-            ("Tomorrow's Drop", "Preview what's coming tomorrow so you can plan ahead."),
+            ("Tomorrow", "Preview what's coming tomorrow so you can plan ahead."),
         ]
     },
     "start_seq": {
@@ -9641,7 +9641,7 @@ def p_today_combined(s: AppState, rf):
     with ui.element("div").classes("fd-drip-pills").style("display:flex;align-items:center;gap:12px;margin-bottom:4px;"):
         _show_page_help(s, rf, "drip")
         with ui.element("div").style(f"display:inline-flex;gap:4px;background:{C['surface']};border-radius:10px;padding:4px;"):
-            pills = [("today", "Today's Drip"), ("tomorrow", "Tomorrow's Drop")]
+            pills = [("today", "Today"), ("tomorrow", "Tomorrow")]
             if overdue_count:
                 pills.append(("overdue", f"Overdue ({overdue_count})"))
             for key, label in pills:
@@ -19776,8 +19776,8 @@ def p_dashboard(s: AppState, rf):
         # None = no pre-selection; the user clicks one to jump to that view.
         drip_tab = getattr(s, "dash_drip_tab", None)
         for key, label, _col in [
-            ("today",    f"Today's Drip ({len(pending_today)})", C["teal"]),
-            ("tomorrow", f"Tomorrow's Drop ({len(pending_tomorrow)})", C["teal"]),
+            ("today",    f"Today ({len(pending_today)})", C["teal"]),
+            ("tomorrow", f"Tomorrow ({len(pending_tomorrow)})", C["teal"]),
             ("overdue",  f"Overdue ({len(overdue_tasks)})", C["danger"]),
         ]:
             on = drip_tab == key
@@ -19938,7 +19938,7 @@ def p_dashboard(s: AppState, rf):
                     with ui.element("button").style(
                             f"font-size:10px;color:{C['teal']};background:transparent;border:none;"
                             f"cursor:pointer;font-family:inherit;").on("click", _go_drip):
-                        ui.label("Today's Drip")
+                        ui.label("Today")
                 if pending_today:
                     for _t in pending_today[:4]:
                         ui.label(f"{_t['name']}  -  {_t['sequence']}").style(
