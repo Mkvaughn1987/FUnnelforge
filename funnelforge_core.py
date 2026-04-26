@@ -68,9 +68,9 @@ def _app_dir() -> Path:
 
 APP_DIR = _app_dir()
 LOG_DIR = Path(os.getenv("LOCALAPPDATA", str(APP_DIR))) / "DripDrop" / "logs"
-_QUEUE_NEW = Path(os.getenv("LOCALAPPDATA", str(APP_DIR))) / "DripDrop" / "scheduled_queue.json"
-_QUEUE_LEGACY = Path(os.getenv("LOCALAPPDATA", str(APP_DIR))) / "Funnel Forge" / "scheduled_queue.json"
-QUEUE_PATH = _QUEUE_NEW if _QUEUE_NEW.exists() else _QUEUE_LEGACY
+# C12: removed module-level QUEUE_PATH (shared-state cross-user leak vector).
+# Every queue function now takes an explicit queue_path argument; the caller
+# (per-user resolver in flowdrip_app) supplies the right path.
 
 # ---------------------------
 # Configuration
@@ -139,11 +139,15 @@ def log_exception() -> Path:
 _queue_lock = threading.Lock()
 
 
-def _load_queue() -> List[Dict]:
-    """Load the persisted email queue from disk."""
+def _load_queue(queue_path: Path) -> List[Dict]:
+    """Load the persisted email queue from disk.
+
+    C12: queue_path is REQUIRED. Caller must pass the per-user queue path
+    so a stray default never points at a shared file across users.
+    """
     try:
-        if QUEUE_PATH.exists():
-            with QUEUE_PATH.open("r", encoding="utf-8") as f:
+        if queue_path.exists():
+            with queue_path.open("r", encoding="utf-8") as f:
                 data = json.load(f)
                 queue = data if isinstance(data, list) else []
                 # Backfill any items that have blank campaign names
@@ -153,74 +157,95 @@ def _load_queue() -> List[Dict]:
                         item["campaign"] = "Untitled Campaign"
                         dirty = True
                 if dirty:
-                    _save_queue(queue)
+                    _save_queue(queue, queue_path)
                 return queue
     except Exception:
         pass
     return []
 
 
-def _save_queue(queue: List[Dict]) -> None:
-    """Save the email queue to disk atomically."""
+def _save_queue(queue: List[Dict], queue_path: Path) -> None:
+    """Save the email queue to disk atomically.
+
+    C12: queue_path is REQUIRED.
+    """
     try:
-        QUEUE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        tmp = QUEUE_PATH.with_suffix(".tmp")
+        queue_path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = queue_path.with_suffix(".tmp")
         with tmp.open("w", encoding="utf-8") as f:
             json.dump(queue, f, indent=2, default=str)
-        tmp.replace(QUEUE_PATH)
+        tmp.replace(queue_path)
     except Exception as e:
         _log_raw(f"[Queue] Save failed: {e}")
 
 
-def add_to_queue(items: List[Dict]) -> None:
-    """Add a list of email dicts to the persistent queue."""
+def add_to_queue(items: List[Dict], queue_path: Path) -> None:
+    """Add a list of email dicts to the persistent queue.
+
+    C12: queue_path is REQUIRED.
+    """
     with _queue_lock:
-        queue = _load_queue()
+        queue = _load_queue(queue_path)
         queue.extend(items)
-        _save_queue(queue)
+        _save_queue(queue, queue_path)
     _log_raw(f"[Queue] Added {len(items)} item(s). Total pending: {sum(1 for q in queue if q.get('status') == 'pending')}")
 
 
-def get_queue() -> List[Dict]:
-    """Return a copy of the current queue."""
+def get_queue(queue_path: Path) -> List[Dict]:
+    """Return a copy of the current queue.
+
+    C12: queue_path is REQUIRED.
+    """
     with _queue_lock:
-        return list(_load_queue())
+        return list(_load_queue(queue_path))
 
 
-def cancel_queue_items(ids: List[str]) -> int:
-    """Cancel queue items by ID. Returns count cancelled."""
+def cancel_queue_items(ids: List[str], queue_path: Path) -> int:
+    """Cancel queue items by ID. Returns count cancelled.
+
+    C12: queue_path is REQUIRED.
+    """
     cancelled = 0
     with _queue_lock:
-        queue = _load_queue()
+        queue = _load_queue(queue_path)
         for item in queue:
             if item.get("id") in ids and item.get("status") == "pending":
                 item["status"] = "cancelled"
                 cancelled += 1
-        _save_queue(queue)
+        _save_queue(queue, queue_path)
     return cancelled
 
 
-def cancel_all_pending() -> int:
-    """Cancel every pending item in the queue. Returns count cancelled."""
+def cancel_all_pending(queue_path: Path) -> int:
+    """Cancel every pending item in the queue. Returns count cancelled.
+
+    C12: queue_path is REQUIRED.
+    """
     with _queue_lock:
-        queue = _load_queue()
+        queue = _load_queue(queue_path)
         count = 0
         for item in queue:
             if item.get("status") == "pending":
                 item["status"] = "cancelled"
                 count += 1
-        _save_queue(queue)
+        _save_queue(queue, queue_path)
     return count
 
 
-def get_pending_count() -> int:
-    """Return number of pending emails in queue."""
-    return sum(1 for q in get_queue() if q.get("status") == "pending")
+def get_pending_count(queue_path: Path) -> int:
+    """Return number of pending emails in queue.
+
+    C12: queue_path is REQUIRED.
+    """
+    return sum(1 for q in get_queue(queue_path) if q.get("status") == "pending")
 
 
-def get_pending_for_campaign(campaign_name: str) -> List[Dict]:
-    """Return pending items for a specific campaign."""
-    return [q for q in get_queue()
+def get_pending_for_campaign(campaign_name: str, queue_path: Path) -> List[Dict]:
+    """Return pending items for a specific campaign.
+
+    C12: queue_path is REQUIRED.
+    """
+    return [q for q in get_queue(queue_path)
             if q.get("status") == "pending" and q.get("campaign") == campaign_name]
 
 
@@ -539,6 +564,9 @@ class _SchedulerThread(threading.Thread):
         self._stop_event = threading.Event()
         self._outlook    = None
         self._send_count = 0  # Tracks sends since last SendAndReceive
+        # C12: per-user queue path; populated by start_scheduler().
+        # Desktop is single-user, so a single path is correct here.
+        self._queue_path: Optional[Path] = None
 
     def stop(self):
         self._stop_event.set()
@@ -577,8 +605,13 @@ class _SchedulerThread(threading.Thread):
         """One scheduler tick: find due emails and send them."""
         now = datetime.now()
 
+        # C12: scheduler must have a queue path. start_scheduler() sets it.
+        if self._queue_path is None:
+            _log_raw("[Scheduler] No queue_path set on thread — skipping tick")
+            return
+
         with _queue_lock:
-            queue = _load_queue()
+            queue = _load_queue(self._queue_path)
             due = [
                 (i, item) for i, item in enumerate(queue)
                 if item.get("status") == "pending"
@@ -629,7 +662,7 @@ class _SchedulerThread(threading.Thread):
 
         # Update statuses
         with _queue_lock:
-            queue = _load_queue()
+            queue = _load_queue(self._queue_path)
             for item in queue:
                 if item["id"] in sent_ids:
                     item["status"] = "sent"
@@ -637,7 +670,7 @@ class _SchedulerThread(threading.Thread):
                 elif item["id"] in failed_ids:
                     item["status"] = "failed"
                     item["failed_at"] = datetime.now().isoformat()
-            _save_queue(queue)
+            _save_queue(queue, self._queue_path)
 
         _log_raw(f"[Scheduler] Tick complete — sent: {len(sent_ids)}, failed: {len(failed_ids)}")
 
@@ -647,14 +680,20 @@ _scheduler: Optional[_SchedulerThread] = None
 _scheduler_lock = threading.Lock()
 
 
-def start_scheduler() -> None:
-    """Start the background scheduler (call once on app startup)."""
+def start_scheduler(queue_path: Path) -> None:
+    """Start the background scheduler (call once on app startup).
+
+    C12: queue_path is REQUIRED. The scheduler thread stores it and uses
+    it on every tick, so there's no shared module-level path. Desktop is
+    single-user, so a single path on the singleton thread is correct.
+    """
     global _scheduler
     with _scheduler_lock:
         if _scheduler is None or not _scheduler.is_alive():
             if _EMAIL_LOG_PATH is None:
                 _init_email_log()
             _scheduler = _SchedulerThread()
+            _scheduler._queue_path = queue_path
             _scheduler.start()
 
 
@@ -778,6 +817,7 @@ def _build_queue_items(
 def run_funnelforge(
     schedule: Iterable[Dict[str, Any]],
     contacts_path: str,
+    queue_path: Path,
     attachments_path: Optional[str] = None,   # kept for backwards compat (ignored)
     timezone: Optional[str] = None,            # kept for backwards compat (ignored)
     send_emails: bool = True,
@@ -793,6 +833,8 @@ def run_funnelforge(
     directly via Outlook — no DeferredDeliveryTime, nothing waiting in Outbox.
 
     If send_emails=False, items are queued as 'draft' status (not sent).
+
+    C12: queue_path is REQUIRED — it's the per-user scheduled_queue.json path.
     """
     log_path = _init_email_log()
     print(f"Email schedule log: {log_path}")
@@ -821,10 +863,10 @@ def run_funnelforge(
             for item in items:
                 item["status"] = "draft"
 
-        add_to_queue(items)
+        add_to_queue(items, queue_path)
 
         # Ensure scheduler is running
-        start_scheduler()
+        start_scheduler(queue_path)
 
         _log_raw(f"Queued {len(items)} email(s). Scheduler will fire them at scheduled times.")
         _log_raw(f"Scheduler running: {scheduler_is_running()}")
@@ -837,6 +879,7 @@ def run_funnelforge(
 def run_4drip(
     schedule: Iterable[Dict[str, Any]],
     contacts_path: str,
+    queue_path: Path,
     attachments_path: Optional[str] = None,
     timezone: Optional[str] = None,
     send_emails: bool = True,
@@ -848,6 +891,7 @@ def run_4drip(
     return run_funnelforge(
         schedule=schedule,
         contacts_path=contacts_path,
+        queue_path=queue_path,
         attachments_path=attachments_path,
         timezone=timezone,
         send_emails=send_emails,

@@ -9,8 +9,10 @@ def test_queue_items_unsubscribe_email_is_string_or_none(isolated_appdata, with_
 
     captured = {}
     class _StubFFC:
-        def add_to_queue(self, items):
+        # C12: add_to_queue now takes (items, queue_path)
+        def add_to_queue(self, items, queue_path=None):
             captured["items"] = items
+            captured["queue_path"] = queue_path
     monkeypatch.setattr(fa, "_FUNNELFORGE_OK", True)
     monkeypatch.setattr(fa, "_ffc", _StubFFC())
 

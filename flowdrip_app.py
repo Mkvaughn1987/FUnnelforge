@@ -3664,13 +3664,13 @@ def cancel_campaign_queue(camp_name: str) -> int:
     # Try funnelforge_core first
     if _FUNNELFORGE_OK and _ffc is not None:
         try:
-            queue = _ffc.get_queue()
+            queue = _ffc.get_queue(_user_queue_path())
             ids_to_cancel = [
                 q["id"] for q in queue
                 if q.get("campaign") == camp_name and q.get("status") == "pending"
             ]
             if ids_to_cancel:
-                cancelled = _ffc.cancel_queue_items(ids_to_cancel)
+                cancelled = _ffc.cancel_queue_items(ids_to_cancel, _user_queue_path())
                 _cache_queue.invalidate()
                 return cancelled
             return 0
@@ -3741,7 +3741,7 @@ def remove_contact_from_campaign(camp: dict, email: str) -> int:
     # Try funnelforge_core first
     if _FUNNELFORGE_OK and _ffc is not None:
         try:
-            queue = _ffc.get_queue()
+            queue = _ffc.get_queue(_user_queue_path())
             ids_to_cancel = [
                 q["id"] for q in queue
                 if q.get("campaign") == camp_name
@@ -3749,7 +3749,7 @@ def remove_contact_from_campaign(camp: dict, email: str) -> int:
                 and q.get("status") == "pending"
             ]
             if ids_to_cancel:
-                _ffc.cancel_queue_items(ids_to_cancel)
+                _ffc.cancel_queue_items(ids_to_cancel, _user_queue_path())
                 _cache_queue.invalidate()
         except Exception:
             pass
@@ -3787,7 +3787,7 @@ def retry_failed_sends(camp_name: str) -> int:
     # Try funnelforge_core first
     if _FUNNELFORGE_OK and _ffc is not None:
         try:
-            queue = _ffc.get_queue()
+            queue = _ffc.get_queue(_user_queue_path())
             ids_to_retry = [
                 q["id"] for q in queue
                 if q.get("campaign") == camp_name and q.get("status") == "failed"
@@ -4712,13 +4712,13 @@ def _cancel_pending_for_email_in_campaign(email_addr: str, campaign_name: str) -
     cancelled = 0
     if _FUNNELFORGE_OK and _ffc is not None:
         try:
-            queue = _ffc.get_queue()
+            queue = _ffc.get_queue(_user_queue_path())
             ids_to_cancel = [q["id"] for q in queue
                              if q.get("status") == "pending"
                              and q.get("to", "").lower().strip() == email_addr
                              and _norm(q.get("campaign", "")) == target_camp]
             if ids_to_cancel:
-                cancelled = _ffc.cancel_queue_items(ids_to_cancel)
+                cancelled = _ffc.cancel_queue_items(ids_to_cancel, _user_queue_path())
                 _cache_queue.invalidate()
                 return cancelled
         except Exception:
@@ -4747,12 +4747,12 @@ def _cancel_pending_for_email(email_addr: str) -> int:
     cancelled = 0
     if _FUNNELFORGE_OK and _ffc is not None:
         try:
-            queue = _ffc.get_queue()
+            queue = _ffc.get_queue(_user_queue_path())
             ids_to_cancel = [q["id"] for q in queue
                              if q.get("status") == "pending"
                              and q.get("to", "").lower().strip() == email_addr]
             if ids_to_cancel:
-                cancelled = _ffc.cancel_queue_items(ids_to_cancel)
+                cancelled = _ffc.cancel_queue_items(ids_to_cancel, _user_queue_path())
                 _cache_queue.invalidate()
                 return cancelled
         except Exception:
@@ -6179,7 +6179,7 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
     # Try funnelforge_core first (use pre-checked module ref  -  no repeated import exceptions)
     if _FUNNELFORGE_OK and _ffc is not None:
         try:
-            _ffc.add_to_queue(queue_items)
+            _ffc.add_to_queue(queue_items, _user_queue_path())
             _cache_queue.invalidate()
             return len(queue_items)
         except Exception:
@@ -19425,20 +19425,16 @@ def _load_queue():
     hit, val = _cache_queue.get()
     if hit:
         return val
+    qp = _user_queue_path()
     # Use pre-checked module reference - no repeated import exception overhead
     if _FUNNELFORGE_OK and _ffc is not None:
         try:
-            return _cache_queue.set(_ffc.get_queue())
+            return _cache_queue.set(_ffc.get_queue(qp))
         except Exception:
             pass
-    # Fallback: read queue JSON directly via async-safe path. Only fall
-    # through to the legacy QUEUE_PATH on desktop — on the Linux server
-    # that path resolves to a relative dir shared across every user (it
-    # was a cross-user leak vector for brand-new users with no per-user
-    # queue file yet).
-    qp = _user_queue_path()
-    if not qp.exists() and not _SERVER_MODE:
-        qp = QUEUE_PATH
+    # Fallback: read queue JSON directly via async-safe path.
+    # No module-level QUEUE_PATH fallback (C12); a missing per-user
+    # queue file simply means an empty queue.
     if qp.exists():
         try:
             return _cache_queue.set(json.loads(qp.read_text(encoding="utf-8")))
@@ -19473,10 +19469,8 @@ def archive_old_queue_entries(days: int = 30) -> int:
     archivable_statuses = {"sent", "cancelled", "failed"}
 
     qp = _user_queue_path()
-    # Only fall through to the legacy shared QUEUE_PATH on desktop —
-    # on the server it's a relative path shared across users.
-    if not qp.exists() and not _SERVER_MODE:
-        qp = QUEUE_PATH
+    # No module-level QUEUE_PATH fallback (C12); a missing per-user
+    # queue file simply means an empty queue (nothing to archive).
     if not qp.exists():
         return 0
 
@@ -22473,7 +22467,7 @@ def p_queue(s, rf):
         cancelled = 0
         try:
             if _FUNNELFORGE_OK and _ffc is not None:
-                cancelled = _ffc.cancel_queue_items([qid])
+                cancelled = _ffc.cancel_queue_items([qid], _user_queue_path())
         except Exception as e:
             print(f"[queue_cancel] ffc error: {e}", flush=True)
             cancelled = 0
@@ -40056,8 +40050,10 @@ if __name__ in {"__main__", "__mp_main__"}:
         # Server: poll inboxes for replies from campaign contacts
         _start_server_reply_monitor()
     elif _FUNNELFORGE_OK and _ffc is not None:
-        # Desktop: use funnelforge_core's Outlook COM scheduler
-        _ffc.start_scheduler()
+        # Desktop: use funnelforge_core's Outlook COM scheduler.
+        # C12: pass the per-user queue path explicitly; the scheduler
+        # thread stores it and uses it on every tick.
+        _ffc.start_scheduler(_user_queue_path())
     _port = int(os.getenv("DRIPDROP_PORT", "8080"))
     ui.run(
         title="DripDrop",
