@@ -39079,13 +39079,18 @@ def index():
     # Attach to s so module-level page functions can call s._register_qeditor()
     s._register_qeditor = _register_qeditor
 
-    @ui.on('dd_qeditor_change')
     def _on_qeditor_change(e):
         eid = (getattr(e, 'args', None) or {}).get('editor_id') or ''
         html = (getattr(e, 'args', None) or {}).get('html') or ''
         ed = _qeditor_registry.get(eid)
         if ed is not None:
             ed.set_value(html)
+
+    # NiceGUI 3.x: ui.on takes (type, handler) as positional args. Using it
+    # as a decorator (@ui.on('name')) silently returns None and crashes the
+    # page with "'NoneType' object is not callable" — root cause of the
+    # 2026-04-26 signup outage.
+    ui.on('dd_qeditor_change', _on_qeditor_change)
 
     # Honor a pending page hand-off (e.g. from /setup → Email & AI Setup).
     # This overrides any saved page because it's an explicit one-time
