@@ -13170,7 +13170,7 @@ def _sq_pick(s, rf):
              "order you want, write each message yourself, and set your own cadence. No AI — "
              "you're in full control.",
              "Hand-crafted outreach · personal voice · non-standard cadences"),
-            ("saved",         "Saved Campaigns",  "📂", "#60A5FA",
+            ("saved",         "Saved Sequences",  "📂", "#60A5FA",
              "Your library",
              "Load a sequence you've saved from a previous campaign. "
              "Re-use what worked  -  just upload a new contact list and run.",
@@ -13229,7 +13229,7 @@ def _sq_pick(s, rf):
     # ── INSIDE A TAB  -  back button + tab label ──────────────────────────────
     label_map = {
         "custom":    "Build from scratch",
-        "saved":     "Saved Campaigns",
+        "saved":     "Saved Sequences",
         "community": "Community",
         "templates": "Templates",
     }
