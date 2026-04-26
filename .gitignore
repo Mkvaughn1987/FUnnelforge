@@ -5,6 +5,9 @@ __pycache__/
 logs/
 *.log
 
+# Brainstorming mockups (visual companion)
+.superpowers/
+
 # Large binaries — never commit these
 installer/
 Output/
