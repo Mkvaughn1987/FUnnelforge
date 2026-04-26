@@ -8375,6 +8375,20 @@ class AppState:
         self.aicb_resumes: list = []              # list of dicts: {filename, raw_text, candidate, redacted_path}
         self.aicb_resume_processing = False       # True while AI is parsing resumes
 
+        # ── Step 3 Candidates (2026-04-26 wizard restructure) ──
+        self.aicb_cand_count: int = 3             # stepper value 1-6
+        self.aicb_cand_source: str = ""           # "pool" | "autogen" | "skip" | ""
+        self.aicb_cand_cards: list = []           # list of {label, role, bullets:[str]}
+        self._aicb_cand_text: str = ""            # serialized form for _cand_block consumer
+        self._aicb_cand_generating: bool = False  # spinner flag for auto-gen
+        self._aicb_cand_err: str = ""             # last auto-gen error message
+        # Step-2 Auto-fill (industries + locations)
+        self._aicb_autofill_generating: bool = False
+        self._aicb_autofill_err: str = ""
+        # Step-3 Suggest titles
+        self._aicb_titles_generating: bool = False
+        self._aicb_titles_err: str = ""
+
         # Job Match state
         self.cf_tab = "pool"           # "pool", "search", or "match_jd"
         # ── Match JD → Candidates (reverse search) ──
@@ -8476,6 +8490,11 @@ _WIZ_BACK_CLEARED_FIELDS = (
     "aicb_docs",
     "aicb_generating",
     "aicb_gen_steps",
+    # New step-3 candidate state (2026-04-26 spec)
+    "_aicb_cand_text",
+    "aicb_cand_count",
+    "aicb_cand_source",
+    "aicb_cand_cards",
 )
 
 
