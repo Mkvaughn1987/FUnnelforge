@@ -8047,24 +8047,22 @@ SALES_NAV = [
     # ── Home ─────────────────────────────────────
     (None, "HOME",              None),
     ("⬡",  "Dashboard",        "dashboard"),
-    ("◎",  "Campaign Radar",   "responses"),
-    # ── Campaigns ────────────────────────────────
-    (None, "CAMPAIGNS",         None),
-    ("▷",  "Start a Campaign", "start_seq"),
-    ("≡",  "Contact Lists",     "contacts"),
+    ("◎",  "Replies",           "responses"),
+    # ── Sequences ────────────────────────────────
+    (None, "SEQUENCES",         None),
+    ("▷",  "Sequences",         "start_seq"),
+    ("≡",  "Contacts",          "contacts"),
     ("🚫", "Opt-Out List",     "dnc"),
-    ("🛡", "Active Clients",   "active_clients"),
+    ("🛡", "Existing Customers", "active_clients"),
     # ── Content & Tools ──────────────────────────
     (None, "CONTENT & TOOLS",   None),
-    ("📊", "PDF Generator",    "pdf_gen"),
-    ("🔍", "Candidate Pool",   "candidate_finder"),
+    ("📊", "Reports",           "pdf_gen"),
+    ("🔍", "Candidates",        "candidate_finder"),
     # ── Settings ─────────────────────────────────
-    # Timezone removed from the sidebar — it now lives as a tab inside
-    # My Profile so it's grouped with the other personal settings.
     (None, "SETTINGS",          None),
     ("◆",  "My Profile",       "company_profile"),
-    ("👥", "Team Settings",    "team_settings"),
-    ("✦",  "Email & AI Setup", "ai_settings"),
+    ("👥", "Team",              "team_settings"),
+    ("✦",  "Settings",          "ai_settings"),
 ]
 # Email Sequencer sidebar  -  campaign building lives in Sales Hub.
 # This hub is kept for the legacy wizard flow until full merge.
