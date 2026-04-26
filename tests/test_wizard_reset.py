@@ -57,3 +57,40 @@ def test_reset_wizard_state_keeps_unrelated_state(isolated_appdata):
     assert s.hub == "sales"
     assert s.sp == "today"
     assert s._nav_history == [{"snapshot": "preserve me"}]
+
+
+def test_reset_wizard_state_clears_all_rc_fields(isolated_appdata):
+    """Regression: rc_* fields must all reset, not just rc_step and
+    rc_custom_steps. Recruiting flow contamination found post-merge."""
+    import flowdrip_app as fa
+
+    s = fa.AppState()
+    fresh = fa.AppState()
+
+    # Pollute every rc_* field with stale Campaign A data
+    rc_fields = [k for k in vars(fresh) if k.startswith("rc_")]
+    assert len(rc_fields) >= 5, f"AppState should have several rc_* fields; found {rc_fields}"
+    for name in rc_fields:
+        cur = getattr(fresh, name)
+        if isinstance(cur, str):
+            setattr(s, name, "STALE_VALUE")
+        elif isinstance(cur, list):
+            setattr(s, name, ["STALE"])
+        elif isinstance(cur, dict):
+            setattr(s, name, {"stale": True})
+        elif isinstance(cur, bool):
+            setattr(s, name, not cur)
+        elif isinstance(cur, int):
+            setattr(s, name, 999999)
+        else:
+            setattr(s, name, "STALE")
+
+    fa._reset_wizard_state(s)
+
+    for name in rc_fields:
+        expected = getattr(fresh, name)
+        actual = getattr(s, name)
+        assert actual == expected, (
+            f"rc_* field '{name}' was not reset: "
+            f"expected {expected!r}, got {actual!r}"
+        )

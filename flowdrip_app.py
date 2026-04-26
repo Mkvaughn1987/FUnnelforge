@@ -8223,47 +8223,22 @@ def _reset_wizard_state(s: "AppState") -> None:
     """Reset all wizard inputs to their defaults so a freshly-picked
     flow doesn't inherit Campaign A's research, locations, or steps.
 
-    This MUST be called whenever the user picks a new flow type or
-    clicks Back-to-Picker. See C2/C3 in the critical-bug-triage design
-    doc for the failure mode (cross-campaign data contamination).
+    Auto-discovers fields by prefix (aicb_*, custom_*, rc_*) from a
+    fresh AppState instance, so newly-added wizard fields are reset
+    automatically. See C2/C3 in
+    docs/superpowers/specs/2026-04-26-dripdrop-critical-bug-triage-design.md
+    for the failure mode (cross-campaign data contamination).
     """
-    # Derive defaults from a fresh AppState so this stays in sync
-    # automatically if AppState.__init__ ever changes.
-    fresh = AppState.__new__(AppState)
-    AppState.__init__(fresh)
-    # AI campaign builder inputs
-    s.aicb_company = fresh.aicb_company
-    s.aicb_website = fresh.aicb_website
-    s.aicb_industry = fresh.aicb_industry
-    s.aicb_niche = fresh.aicb_niche
-    s.aicb_sel_locations = list(fresh.aicb_sel_locations) if isinstance(fresh.aicb_sel_locations, list) else []
-    s.aicb_sel_roles = list(fresh.aicb_sel_roles) if isinstance(fresh.aicb_sel_roles, list) else []
-    s.aicb_docs = dict(fresh.aicb_docs) if isinstance(fresh.aicb_docs, dict) else {}
-    s.aicb_research = fresh.aicb_research
-    s.aicb_campaign = type(fresh.aicb_campaign)() if fresh.aicb_campaign is not None else None
-    s.aicb_step = 1
-    s.aicb_wizard_step = 1
-    s.aicb_type_picked = False
-    s.aicb_contacts = []
-    s.aicb_analysis = {}
-    s.aicb_toggles = dict(fresh.aicb_toggles)
-    s.aicb_tone = fresh.aicb_tone
-    s.aicb_target_mode = fresh.aicb_target_mode
-    s.aicb_wizard_mode = fresh.aicb_wizard_mode
-    s.aicb_camp_type = fresh.aicb_camp_type
-    s.aicb_byos_desc = fresh.aicb_byos_desc
-    s.aicb_generating = False
-    s.aicb_gen_steps = []
-    # Custom builder inputs
-    s.custom_editing_idx = -1
-    s.custom_steps = []
-    s.custom_name = ""
-    s.custom_selected_type = ""
-    s.custom_preset_picked = False
-    s.custom_editing = False
-    # Recruiting builder inputs
-    s.rc_step = 0
-    s.rc_custom_steps = []
+    fresh = AppState()
+    import copy as _copy
+    for name, default in vars(fresh).items():
+        if name.startswith(("aicb_", "custom_", "rc_")):
+            # deep-copy so mutating the fresh default later doesn't
+            # leak back into s (relevant when the default is a list/dict)
+            try:
+                setattr(s, name, _copy.deepcopy(default))
+            except Exception:
+                setattr(s, name, default)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
