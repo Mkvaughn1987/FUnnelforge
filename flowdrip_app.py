@@ -4702,8 +4702,13 @@ def _is_opt_out(item) -> bool:
 
 
 def _cancel_pending_for_email_in_campaign(email_addr: str, campaign_name: str) -> int:
-    """Cancel pending queue items for a given email in a specific campaign only."""
+    """Cancel pending queue items for a given email in a specific campaign only.
+    Both email and campaign name are normalized (casefold + whitespace
+    collapse) so that 'My Campaign' matches 'my  campaign '."""
     email_addr = email_addr.lower().strip()
+    def _norm(name: str) -> str:
+        return " ".join((name or "").split()).casefold()
+    target_camp = _norm(campaign_name)
     cancelled = 0
     if _FUNNELFORGE_OK and _ffc is not None:
         try:
@@ -4711,7 +4716,7 @@ def _cancel_pending_for_email_in_campaign(email_addr: str, campaign_name: str) -
             ids_to_cancel = [q["id"] for q in queue
                              if q.get("status") == "pending"
                              and q.get("to", "").lower().strip() == email_addr
-                             and q.get("campaign", "") == campaign_name]
+                             and _norm(q.get("campaign", "")) == target_camp]
             if ids_to_cancel:
                 cancelled = _ffc.cancel_queue_items(ids_to_cancel)
                 _cache_queue.invalidate()
@@ -4725,13 +4730,11 @@ def _cancel_pending_for_email_in_campaign(email_addr: str, campaign_name: str) -
             for q in queue:
                 if (q.get("status") == "pending"
                         and q.get("to", "").lower().strip() == email_addr
-                        and q.get("campaign", "") == campaign_name):
+                        and _norm(q.get("campaign", "")) == target_camp):
                     q["status"] = "cancelled"
                     cancelled += 1
             if cancelled:
-                tmp = qp.with_suffix(".tmp")
-                tmp.write_text(json.dumps(queue, indent=2, default=str), encoding="utf-8")
-                tmp.replace(qp)
+                _atomic_write_text(qp, json.dumps(queue, indent=2, default=str))
                 _cache_queue.invalidate()
     except Exception:
         pass
