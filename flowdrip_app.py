@@ -25845,13 +25845,15 @@ def p_ai_campaign(s: AppState, rf):
                         "click", (lambda: None) if not _top_next_ok else _top_wiz_next):
                     ui.label("Next →")
 
-        # Progress bar — only in wizard mode
+        # Progress bar — only in wizard mode (5 steps after 2026-04-26
+        # Candidates insert)
         if _wiz_mode == "wizard":
             _steps = [
                 (1, "Target type"),
                 (2, "Target details"),
-                (3, "Campaign style"),
-                (4, "Review & generate"),
+                (3, "Candidates"),
+                (4, "Campaign style"),
+                (5, "Review & generate"),
             ]
             def _go_to_step(n):
                 # Only allow jumping back to earlier steps (forward requires
@@ -26030,8 +26032,9 @@ def p_ai_campaign(s: AppState, rf):
                     _guide_title = {
                         1: "Pick who you're targeting",
                         2: "Fill in the details",
-                        3: "Pick a cadence",
-                        4: "One click from live",
+                        3: "Pick candidates",
+                        4: "Pick a cadence",
+                        5: "One click from live",
                     }.get(_wiz_step, "Guidance")
                     _guide_bullets = {
                         1: [
@@ -26055,16 +26058,39 @@ def p_ai_campaign(s: AppState, rf):
                              "your mind on step 2, the mode toggle stays there."),
                         ],
                         2: [
-                            ("Industry, Location, Target Roles",
+                            ("Industry + Location",
                              "These appear on every PDF you attach (Market Pulse, "
                              "Salary Guide, Scorecard, Interview Guide, Tenure Snapshot) "
-                             "AND inside every campaign email, so fill them out even in "
-                             "Market mode."),
-                            ("Candidate Highlights",
-                             "Optional. Use this to weave specific candidates into "
-                             "your outreach. AI rewrites resumes into clean bullets."),
+                             "AND inside every campaign email."),
+                            ("✨ Auto-fill from website",
+                             "Enter the company name + URL and click the button — "
+                             "AI web-searches the site and pre-fills Industry and "
+                             "Locations for you. Edit anything you want after."),
+                            ("Roles come next",
+                             "Target roles moved to the next step so they live with "
+                             "the candidate picker."),
                         ],
                         3: [
+                            ("Target Roles",
+                             "List the job titles you want emails to reference. "
+                             "Comma-separated. Click ✨ Suggest titles to have AI "
+                             "look at the company's career page and propose 5-8 "
+                             "specific titles."),
+                            ("From Pool",
+                             "Pick from candidates you've already saved. The list "
+                             "is auto-filtered to ones whose role matches your "
+                             "chips. Cap of 3 per campaign."),
+                            ("Auto-generate",
+                             "AI invents anonymous archetypes (Candidate A/B/C…) "
+                             "with role, location, skills, and salary — the kind "
+                             "of bullet block you'd put in a recruiting email. "
+                             "Pick how many (1-6), edit any card, re-roll one or "
+                             "all."),
+                            ("Skip",
+                             "Ship a market-only campaign with no candidate "
+                             "references. Roles still drive the AI's positioning."),
+                        ],
+                        4: [
                             ("Free Flow",
                              "Describe what you want in plain English and AI "
                              "writes a fully custom sequence to match."),
@@ -26079,7 +26105,7 @@ def p_ai_campaign(s: AppState, rf):
                              "The card expands to show the exact step sequence "
                              "(days + channels) before you commit."),
                         ],
-                        4: [
+                        5: [
                             ("Review",
                              "The summary on the right shows exactly what's "
                              "going into the AI. Everything there will appear "
