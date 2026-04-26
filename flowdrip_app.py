@@ -24923,8 +24923,111 @@ def _render_single_aicb_card(s, rf, idx, card, can_reroll: bool):
 
 
 def _render_aicb_pool_picker(s, rf):
-    """Pool picker stub — full implementation in task 10."""
-    ui.label("(pool picker coming next)").style(f"font-size:12px;color:{C['muted']};")
+    """Pick from the candidate pool, auto-filtered by aicb_sel_roles
+    (bidirectional substring match). Multi-select cap 3. Selected cards
+    appear in the same grid as auto-gen output."""
+    pool = load_candidate_pool() or []
+    pool = [c for c in pool if c.get("status", "active") == "active"]
+    role_chips = [r.lower() for r in (s.aicb_sel_roles or [])]
+
+    def _matches(cand: dict) -> bool:
+        if not role_chips:
+            return True
+        cr = (cand.get("target_role") or "").lower()
+        if not cr:
+            return False
+        for chip in role_chips:
+            if chip in cr or cr in chip:
+                return True
+        return False
+
+    matches = [c for c in pool if _matches(c)]
+
+    if not matches:
+        with ui.element("div").style(
+                f"padding:18px;background:{C['surface']};border-radius:8px;"
+                f"text-align:center;color:{C['muted']};font-size:13px;"):
+            ui.label(
+                "No candidates match yet — try Auto-generate, or add candidates "
+                "from the Candidate Pool page."
+            )
+        return
+
+    sel_ids = {
+        c.get("_pool_id") for c in (s.aicb_cand_cards or [])
+        if c.get("_pool_id")
+    }
+
+    def _toggle(cid):
+        nonlocal sel_ids
+        if cid in sel_ids:
+            sel_ids.discard(cid)
+        else:
+            if len(sel_ids) >= 3:
+                ui.notify("Pool selection capped at 3.", type="warning")
+                return
+            sel_ids.add(cid)
+        # Rebuild aicb_cand_cards from current selection
+        new_cards: list = []
+        for cand in matches:
+            if cand.get("id") in sel_ids:
+                new_cards.append({
+                    "label": cand.get("name") or "Candidate",
+                    "role": cand.get("target_role") or "",
+                    "bullets": _aicb_pool_candidate_bullets(cand),
+                    "_pool_id": cand.get("id"),
+                })
+        s.aicb_cand_cards = new_cards
+        s._aicb_cand_text = _aicb_cards_to_text(new_cards)
+        rf()
+
+    ui.label(
+        f"Showing {len(matches)} candidate(s) matching your roles. Pick up to 3."
+    ).style(f"font-size:11px;color:{C['muted']};margin-bottom:8px;")
+
+    with ui.element("div").style(
+            "display:grid;grid-template-columns:repeat(2, 1fr);gap:10px;"):
+        for cand in matches:
+            cid = cand.get("id")
+            is_sel = cid in sel_ids
+            bg = C.get("teal", "#1AE3D9") + "15" if is_sel else "transparent"
+            border = C.get("teal", "#1AE3D9") if is_sel else C["border"]
+            with ui.element("button").style(
+                    f"padding:12px;text-align:left;background:{bg};"
+                    f"border:2px solid {border};border-radius:8px;cursor:pointer;"
+                    f"font-family:inherit;display:flex;flex-direction:column;gap:4px;"
+                    ).on("click", lambda c=cid: _toggle(c)):
+                ui.label(cand.get("name") or "Candidate").style(
+                    f"font-size:13px;font-weight:700;color:{C['text_l']};")
+                ui.label(cand.get("target_role") or "").style(
+                    f"font-size:11px;color:{C['muted']};")
+                if cand.get("location"):
+                    ui.label(cand["location"]).style(
+                        f"font-size:11px;color:{C['muted']};")
+
+    if s.aicb_cand_cards:
+        ui.label("Selected candidates:").classes("fd-fl").style("margin-top:14px;")
+        _render_aicb_candidate_cards(s, rf)
+
+
+def _aicb_pool_candidate_bullets(cand: dict) -> list:
+    """Convert a candidate-pool dict to bullet lines for the card UI.
+    Mirrors the bullet shape produced by the auto-gen prompt so the
+    card layout reads consistently regardless of source."""
+    bullets: list = []
+    if cand.get("location"):
+        bullets.append(f"Location: {cand['location']}")
+    if cand.get("target_role"):
+        bullets.append(f"Target role: {cand['target_role']}")
+    summary = (cand.get("summary") or "").strip()
+    if summary:
+        # Trim to a single descriptive sentence so the card stays compact.
+        first = summary.split("\n")[0].split(".")[0][:140]
+        if first:
+            bullets.append(first)
+    if cand.get("salary"):
+        bullets.append(f"Target salary: {cand['salary']}")
+    return bullets
 
 
 def _aicb_cards_from_text(text: str) -> list:
