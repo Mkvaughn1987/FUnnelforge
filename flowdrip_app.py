@@ -8219,6 +8219,53 @@ class AppState:
         self.mi_results_tab = "scan1"      # which scan tab to show
         self._mi_error = ""
 
+def _reset_wizard_state(s: "AppState") -> None:
+    """Reset all wizard inputs to their defaults so a freshly-picked
+    flow doesn't inherit Campaign A's research, locations, or steps.
+
+    This MUST be called whenever the user picks a new flow type or
+    clicks Back-to-Picker. See C2/C3 in the critical-bug-triage design
+    doc for the failure mode (cross-campaign data contamination).
+    """
+    # Derive defaults from a fresh AppState so this stays in sync
+    # automatically if AppState.__init__ ever changes.
+    fresh = AppState.__new__(AppState)
+    AppState.__init__(fresh)
+    # AI campaign builder inputs
+    s.aicb_company = fresh.aicb_company
+    s.aicb_website = fresh.aicb_website
+    s.aicb_industry = fresh.aicb_industry
+    s.aicb_niche = fresh.aicb_niche
+    s.aicb_sel_locations = list(fresh.aicb_sel_locations) if isinstance(fresh.aicb_sel_locations, list) else []
+    s.aicb_sel_roles = list(fresh.aicb_sel_roles) if isinstance(fresh.aicb_sel_roles, list) else []
+    s.aicb_docs = dict(fresh.aicb_docs) if isinstance(fresh.aicb_docs, dict) else {}
+    s.aicb_research = fresh.aicb_research
+    s.aicb_campaign = type(fresh.aicb_campaign)() if fresh.aicb_campaign is not None else None
+    s.aicb_step = 1
+    s.aicb_wizard_step = 1
+    s.aicb_type_picked = False
+    s.aicb_contacts = []
+    s.aicb_analysis = {}
+    s.aicb_toggles = dict(fresh.aicb_toggles)
+    s.aicb_tone = fresh.aicb_tone
+    s.aicb_target_mode = fresh.aicb_target_mode
+    s.aicb_wizard_mode = fresh.aicb_wizard_mode
+    s.aicb_camp_type = fresh.aicb_camp_type
+    s.aicb_byos_desc = fresh.aicb_byos_desc
+    s.aicb_generating = False
+    s.aicb_gen_steps = []
+    # Custom builder inputs
+    s.custom_editing_idx = -1
+    s.custom_steps = []
+    s.custom_name = ""
+    s.custom_selected_type = ""
+    s.custom_preset_picked = False
+    s.custom_editing = False
+    # Recruiting builder inputs
+    s.rc_step = 0
+    s.rc_custom_steps = []
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  NAVIGATION HELPERS
 # ═══════════════════════════════════════════════════════════════════════════
@@ -13118,17 +13165,20 @@ def _sq_pick(s, rf):
                 def _pick(k=tab_key):
                     if k == "recruiting":
                         s._nav_history.append(_nav_snapshot(s))
+                        _reset_wizard_state(s)
                         s.sp = "recruiting"
                         s.rc_step = 0
                         s.rc_custom_steps = []
                     elif k == "ai_campaign":
                         s._nav_history.append(_nav_snapshot(s))
+                        _reset_wizard_state(s)
                         s.sp = "ai_campaign"
                         s.aicb_step = 1  # land on wizard
                         s.aicb_wizard_step = 1  # fresh wizard start
                         s.aicb_type_picked = False
                         s.aicb_contacts = []
                     else:
+                        _reset_wizard_state(s)
                         s._tab = k
                     rf()
                 with ui.element("div").style(
@@ -13168,8 +13218,9 @@ def _sq_pick(s, rf):
     }
     with ui.element("div").style("display:flex;align-items:center;gap:12px;margin-bottom:20px;"):
         def _back_to_picker():
-            s._tab = ""; s.stpl = None; s.custom_editing = False
-            s.custom_name = ""; s.custom_steps = []; s.custom_preset_picked = False
+            _reset_wizard_state(s)
+            s._tab = ""
+            s.stpl = None
             rf()
         with ui.element("button").classes("fd-pb").style(
                 "padding:9px 20px;font-size:13px;font-weight:700;"
