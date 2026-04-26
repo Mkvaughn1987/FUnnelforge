@@ -9053,7 +9053,7 @@ def topbar(s: AppState, rf):
         with ui.element("button").classes("fd-hub" + (" on" if _on_camp_mgr else "")).on("click", _camp_mgr):
             ui.label("Manage Campaigns")
         with ui.element("button").classes("fd-hub" + (" on" if _on_evergreen else "")).on("click", _evergreen):
-            ui.label("Slow Drip")
+            ui.label("Always-On Sequence")
         def _cf():
             s._nav_history.clear()
             s.hub = "sales"; s.sp = "candidate_finder"; rf()
@@ -9732,7 +9732,7 @@ def p_today_combined(s: AppState, rf):
                             ui.label(camp_name).style(
                                 f"font-size:14px;font-weight:600;color:{C['text_l']};font-family:'Nunito',sans-serif;")
                             if _any_eg:
-                                ui.label("Slow Drip").style(
+                                ui.label("Always-On Sequence").style(
                                     f"font-size:9px;padding:2px 8px;border-radius:99px;font-weight:700;"
                                     f"background:{C['indigo']}15;color:{C['indigo']};"
                                     f"text-transform:uppercase;letter-spacing:.05em;")
@@ -19867,7 +19867,7 @@ def p_dashboard(s: AppState, rf):
                     for camp in _regular:
                         _render_camp_card(camp, C["teal"])
                 if _slow_drip:
-                    _group_header("Slow Drip", len(_slow_drip), C["indigo"])
+                    _group_header("Always-On Sequence", len(_slow_drip), C["indigo"])
                     for camp in _slow_drip:
                         _render_camp_card(camp, C["indigo"])
 
@@ -21587,7 +21587,7 @@ def p_seq_mgr(s, rf):
                                     f"grid-template-columns:1fr 120px 110px 80px 80px 100px;"
                                     f"padding:8px 14px;background:{C['card']};"
                                     f"border-bottom:1px solid {C['border']};"):
-                                for _hdr in ["Contact", "Company", "Progress", "Status", "Remove", "Slow Drip"]:
+                                for _hdr in ["Contact", "Company", "Progress", "Status", "Remove", "Always-On"]:
                                     ui.label(_hdr).style(
                                         f"font-size:10px;font-weight:700;color:{C['muted']};"
                                         f"text-transform:uppercase;letter-spacing:.06em;")
