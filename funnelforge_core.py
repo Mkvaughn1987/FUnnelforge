@@ -516,6 +516,7 @@ def _send_one_email(outlook, item: Dict) -> bool:
         _log_raw(f"  [SEND FAIL] No email service available for {to}")
         return False
 
+    mail = None
     try:
         mail = outlook.CreateItem(0)  # olMailItem
         mail.To      = to
@@ -547,6 +548,14 @@ def _send_one_email(outlook, item: Dict) -> bool:
     except Exception as e:
         _log_raw(f"  [SEND FAIL] {to} — {subject[:40]}: {e}")
         return False
+    finally:
+        # Explicitly drop the COM ref so Outlook can release the
+        # underlying handle (per-email leak — C13c).
+        try:
+            if mail is not None:
+                del mail
+        except Exception:
+            pass
 
 
 # ---------------------------
@@ -564,12 +573,19 @@ class _SchedulerThread(threading.Thread):
         self._stop_event = threading.Event()
         self._outlook    = None
         self._send_count = 0  # Tracks sends since last SendAndReceive
+        self._co_initialized = False
         # C12: per-user queue path; populated by start_scheduler().
         # Desktop is single-user, so a single path is correct here.
         self._queue_path: Optional[Path] = None
 
     def stop(self):
         self._stop_event.set()
+        if self._co_initialized:
+            try:
+                pythoncom.CoUninitialize()
+            except Exception:
+                pass
+            self._co_initialized = False
 
     def run(self):
         _log_raw(f"[Scheduler] Started — checking every {SCHEDULER_INTERVAL_SECONDS}s")
@@ -587,7 +603,9 @@ class _SchedulerThread(threading.Thread):
             return None
         try:
             if self._outlook is None:
-                pythoncom.CoInitialize()
+                if not self._co_initialized:
+                    pythoncom.CoInitialize()
+                    self._co_initialized = True
                 self._outlook = get_outlook_app()
             # Quick health check
             _ = self._outlook.Session

@@ -4813,9 +4813,11 @@ class OutlookMonitor:
             time.sleep(REPLY_POLL_SEC)
 
     def _scan(self):
+        co_initialized = False
         try:
             import pythoncom, win32com.client.dynamic
             pythoncom.CoInitialize()
+            co_initialized = True
         except ImportError:
             self.last_scan = datetime.now()
             return
@@ -4901,11 +4903,11 @@ class OutlookMonitor:
                     except Exception:
                         continue
         finally:
-            try:
-                import pythoncom
-                pythoncom.CoUninitialize()
-            except Exception:
-                pass
+            if co_initialized:
+                try:
+                    pythoncom.CoUninitialize()
+                except Exception:
+                    pass
         self.last_scan = datetime.now()
 
 
