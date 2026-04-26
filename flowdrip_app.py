@@ -3601,8 +3601,11 @@ def load_campaigns():
                     by_name[name] = d
             else:
                 by_name[name] = d
-        except Exception:
-            pass
+        except Exception as e:
+            # H10: log so corrupted campaign files don't silently
+            # disappear from the user's list. Path lets support find
+            # and recover the file.
+            print(f"[Campaigns] Skipping unreadable file {p.name}: {e}", flush=True)
     camps = list(by_name.values())
     return _cache_campaigns.set(camps)
 
@@ -4137,8 +4140,10 @@ def load_outcomes() -> dict:
                 if (isinstance(v, dict) and v.get("date", "9999") >= cutoff)
                 or (isinstance(v, str))  # legacy string-format outcomes kept
             }
-    except Exception:
-        pass
+    except Exception as e:
+        # H9: don't silently degrade to {} — log so corruption is
+        # diagnosable instead of looking like the user has no outcomes.
+        print(f"[Outcomes] Failed to load {_outcomes.name}: {e}", flush=True)
     return {}
 
 def save_outcomes(outcomes: dict):
@@ -4147,8 +4152,10 @@ def save_outcomes(outcomes: dict):
     try:
         _outcomes.parent.mkdir(parents=True, exist_ok=True)
         _atomic_write_text(_outcomes, json.dumps(outcomes, indent=2))
-    except Exception:
-        pass
+    except Exception as e:
+        # H9: surface save failures so the user (or support) knows the
+        # outcome write was lost.
+        print(f"[Outcomes] Failed to save {_outcomes.name}: {e}", flush=True)
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  CANDIDATE POOL
@@ -4483,15 +4490,34 @@ def _norm_header(h: str) -> str:
     return re.sub(r"[\s\-_]+", " ", (h or "").strip().lower())
 
 def safe_read_csv_rows(path):
-    with open(path, newline="", encoding="utf-8-sig") as f:
-        reader = csv.DictReader(f)
-        raw_headers = reader.fieldnames or []
-        headers = [str(h) for h in raw_headers if h is not None]
-        rows = []
-        for raw_row in reader:
-            clean = {str(k): ("" if v is None else str(v)) for k, v in raw_row.items() if k is not None}
-            rows.append(clean)
-    return rows, headers
+    """Read a CSV and return (rows, headers).
+
+    H12: tolerate non-UTF8 files. The happy path is utf-8-sig (handles
+    BOM correctly). If that fails, retry with cp1252 (Windows ANSI,
+    common for Excel exports), and finally with latin-1 + replace as a
+    last-resort lossy decode so the user gets their data instead of a
+    crash.
+    """
+    encodings = ("utf-8-sig", "cp1252", "latin-1")
+    last_err = None
+    for enc in encodings:
+        try:
+            errors = "replace" if enc == "latin-1" else "strict"
+            with open(path, newline="", encoding=enc, errors=errors) as f:
+                reader = csv.DictReader(f)
+                raw_headers = reader.fieldnames or []
+                headers = [str(h) for h in raw_headers if h is not None]
+                rows = []
+                for raw_row in reader:
+                    clean = {str(k): ("" if v is None else str(v)) for k, v in raw_row.items() if k is not None}
+                    rows.append(clean)
+            return rows, headers
+        except UnicodeDecodeError as e:
+            last_err = e
+            continue
+    # Should be unreachable since latin-1 with replace cannot fail to decode,
+    # but raise the original error if it somehow does.
+    raise last_err if last_err else UnicodeDecodeError("utf-8", b"", 0, 0, "unknown")
 
 def normalize_csv(src_path: str, dest_path: str):
     """Read any CSV (ZoomInfo, LinkedIn, custom) and write standardized contacts CSV.
@@ -4540,12 +4566,14 @@ def normalize_csv(src_path: str, dest_path: str):
 
     Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
     written = 0
+    skipped_invalid: list = []  # H13: track rows dropped for invalid email
     with open(dest_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=CONTACT_FIELDS)
         writer.writeheader()
         for r in rows:
             email_val = (r.get(h_email, "") or "").strip() if h_email else ""
             if email_val and not EMAIL_RE.match(email_val):
+                skipped_invalid.append(email_val)
                 continue
             writer.writerow({
                 "Email": email_val,
@@ -4560,6 +4588,17 @@ def normalize_csv(src_path: str, dest_path: str):
                 "State":    (r.get(h_state, "") if h_state else "").strip(),
             })
             written += 1
+
+    # H13: surface dropped rows so the user knows their import didn't
+    # silently lose contacts.
+    if skipped_invalid:
+        examples = ", ".join(skipped_invalid[:3])
+        more = "" if len(skipped_invalid) <= 3 else f" (+{len(skipped_invalid) - 3} more)"
+        warnings.append(
+            f"Skipped {len(skipped_invalid)} row(s) with invalid email "
+            f"addresses: {examples}{more}"
+        )
+
     return written, warnings
 
 
@@ -4665,10 +4704,16 @@ def _get_sender_smtp(item) -> str:
 
 
 def _is_ooo_reply(item) -> bool:
-    """Detect out-of-office / automatic replies."""
+    """Detect out-of-office / automatic replies.
+
+    H4: scan up to 8000 chars of body (was 500). Real OOO replies often
+    have a forwarded thread or long signature ahead of the actual OOO
+    marker. 8000 covers virtually all real cases without scanning
+    arbitrarily long mail threads.
+    """
     try:
         subj = (item.Subject or "").lower()
-        body = (item.Body or "")[:500].lower()
+        body = (item.Body or "")[:8000].lower()
         combined = subj + " " + body
         for kw in _OOO_KEYWORDS:
             if kw in combined:
@@ -4887,16 +4932,29 @@ class OutlookMonitor:
                                     _cancel_pending_for_email_in_campaign(sender, camp_name)
                                     _add_responder_to_campaign(sender, camp_name)
 
-                            # Log the response
+                            # Log a single global "responded" record (the
+                            # function dedups by email — see add_responded).
                             add_responded(sender, first_info["name"], first_info["campaign"],
                                           " - ", item.Subject or "", reply_body)
 
+                            # H6: queue an in-memory notification per
+                            # enrolled campaign so the responses page
+                            # shows the reply against each affected
+                            # campaign, not just the first.
                             with self._lock:
-                                self._new.append(dict(
-                                    email=sender, name=first_info["name"],
-                                    subject=item.Subject or "",
-                                    reply_body=reply_body,
-                                    campaign=first_info["campaign"]))
+                                for info in infos:
+                                    self._new.append(dict(
+                                        email=sender, name=info["name"],
+                                        subject=item.Subject or "",
+                                        reply_body=reply_body,
+                                        campaign=info["campaign"]))
+
+                            # H7: update the local responded set so a
+                            # second reply from the same sender within
+                            # this scan window is filtered out.
+                            # add_responded() above writes to disk but
+                            # doesn't update this local snapshot.
+                            responded.add(sender)
                         count += 1
                         if count > 200:
                             break
@@ -5216,6 +5274,67 @@ def _parse_time_str(time_str: str) -> tuple:
         return (9, 0)
 
 
+def _roll_past_send_forward(send_date, hour: int, minute: int, tz_name: str):
+    """If (send_date, hour, minute) in tz_name is in the past, roll forward
+    one business day at a time until it's in the future. If the timezone
+    lookup fails (zoneinfo missing, bad name, ContextVar unset), fall back
+    to a naive (no-tz) comparison so the queue NEVER silently ships an
+    obviously past send time.
+
+    H1: previously the past-time guard logged the tz error and fell
+    through, letting the email fire at the past moment. The naive
+    fallback prevents that.
+
+    Returns:
+        (rolled_date, message) — message is non-None if a roll happened
+        or an error was hit; caller is expected to log it.
+    """
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo(tz_name)
+        user_now = datetime.now(tz)
+        candidate = datetime(send_date.year, send_date.month, send_date.day,
+                             hour, minute, tzinfo=tz)
+        if candidate >= user_now:
+            return send_date, None
+        orig_date = send_date
+        bumps = 0
+        while candidate < user_now and bumps < 30:
+            send_date = _add_business_days(send_date, 1)
+            candidate = datetime(send_date.year, send_date.month, send_date.day,
+                                 hour, minute, tzinfo=tz)
+            bumps += 1
+        return send_date, (
+            f"send time was past — rolled {orig_date.isoformat()} "
+            f"→ {send_date.isoformat()} ({tz_name})"
+        )
+    except Exception as ex:
+        # Tz-aware guard failed. Naive fallback so we never queue a date
+        # whose time is obviously in the past.
+        try:
+            naive_now = datetime.now()
+            naive_candidate = datetime(send_date.year, send_date.month, send_date.day,
+                                       hour, minute)
+            if naive_candidate >= naive_now:
+                return send_date, f"tz error ({ex}); naive check ok, no roll"
+            orig_date = send_date
+            bumps = 0
+            while naive_candidate < naive_now and bumps < 30:
+                send_date = _add_business_days(send_date, 1)
+                naive_candidate = datetime(send_date.year, send_date.month,
+                                           send_date.day, hour, minute)
+                bumps += 1
+            return send_date, (
+                f"tz error ({ex}); naive fallback rolled "
+                f"{orig_date.isoformat()} → {send_date.isoformat()}"
+            )
+        except Exception as naive_ex:
+            return send_date, (
+                f"tz error ({ex}) and naive fallback failed ({naive_ex}); "
+                "not rolling — caller should treat send_date as suspect"
+            )
+
+
 def _is_overloaded_error(e: Exception) -> bool:
     """Check if an exception is a Claude API overload (529) error."""
     s = str(e).lower()
@@ -5380,8 +5499,11 @@ def _load_signature_text() -> str:
             sig = _sig.read_text(encoding="utf-8").strip()
             if sig:
                 return "\n\n" + sig
-    except Exception:
-        pass
+    except Exception as e:
+        # H3: file exists but couldn't be read (locked, permission denied,
+        # encoding error). Log so the user notices instead of silently
+        # sending mail without a signature.
+        print(f"[Signature] Failed to read {_sig.name}: {e}", flush=True)
     return ""
 
 
@@ -6064,36 +6186,26 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
         # Elizabeth's James Fisher campaign on 2026-04-25 (campaign
         # launched at 7:24 PM, step 0 had time=2:30 PM, all 7 emails
         # fired one minute later).
-        try:
-            from zoneinfo import ZoneInfo as _ZI_pg
-            _tz = _ZI_pg(_camp_tz_name)
-            _user_now = datetime.now(_tz)
-            _candidate = datetime(send_date.year, send_date.month, send_date.day,
-                                  hour, minute, tzinfo=_tz)
-            if _candidate < _user_now:
-                _orig_date = send_date
-                _bumps = 0
-                while _candidate < _user_now and _bumps < 30:
-                    send_date = _add_business_days(send_date, 1)
-                    _candidate = datetime(send_date.year, send_date.month, send_date.day,
-                                          hour, minute, tzinfo=_tz)
-                    _bumps += 1
-                print(f"[Queue] step {step_idx} ({step.get('name','')!r}) "
-                      f"send time was past — rolled {_orig_date.isoformat()} "
-                      f"→ {send_date.isoformat()} ({_camp_tz_name})", flush=True)
-                try:
-                    ui.notify(
-                        f"Step {step_idx + 1} was scheduled for a time already "
-                        f"past — rolled to {send_date.strftime('%a %b %d')} "
-                        f"at {time_str}.",
-                        type="warning", timeout=8000,
-                    )
-                except Exception:
-                    # ui.notify needs a request context; schedulers / threads skip.
-                    pass
-        except Exception as _pg_ex:
-            print(f"[Queue] past-time guard error (continuing without roll): "
-                  f"{_pg_ex}", flush=True)
+        # H1: helper handles the tz-error fallback so we never silently
+        # ship a past send time even when zoneinfo is unhappy.
+        _orig_date = send_date
+        send_date, _guard_msg = _roll_past_send_forward(
+            send_date, hour, minute, _camp_tz_name
+        )
+        if _guard_msg:
+            print(f"[Queue] step {step_idx} ({step.get('name','')!r}) "
+                  f"{_guard_msg}", flush=True)
+        if send_date != _orig_date:
+            try:
+                ui.notify(
+                    f"Step {step_idx + 1} was scheduled for a time already "
+                    f"past — rolled to {send_date.strftime('%a %b %d')} "
+                    f"at {time_str}.",
+                    type="warning", timeout=8000,
+                )
+            except Exception:
+                # ui.notify needs a request context; schedulers / threads skip.
+                pass
 
         for ci, contact in enumerate(contacts):
             email_addr = contact.get("email", "")
@@ -8278,6 +8390,34 @@ def _reset_wizard_state(s: "AppState") -> None:
                 setattr(s, name, _copy.deepcopy(default))
             except Exception:
                 setattr(s, name, default)
+
+
+# H16: clearing computed outputs when stepping back through the AI
+# campaign wizard. Without this, stale aicb_research from an earlier
+# forward pass leaks into a later forward pass even when the user has
+# changed inputs (e.g. typed a new company). User inputs are preserved.
+_WIZ_BACK_CLEARED_FIELDS = (
+    "aicb_research",
+    "aicb_campaign",
+    "aicb_docs",
+    "aicb_generating",
+    "aicb_gen_steps",
+)
+
+
+def _wiz_back_clear_outputs(s: "AppState") -> None:
+    """Reset computed wizard outputs to their AppState defaults so a
+    fresh forward pass regenerates instead of replaying stale data.
+    Inputs (company, website, niche, industry, locations, roles,
+    camp_type) are intentionally NOT cleared."""
+    fresh = AppState()
+    import copy as _copy
+    for name in _WIZ_BACK_CLEARED_FIELDS:
+        if hasattr(fresh, name):
+            try:
+                setattr(s, name, _copy.deepcopy(getattr(fresh, name)))
+            except Exception:
+                setattr(s, name, getattr(fresh, name))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -20133,13 +20273,22 @@ def p_emails_build(s: AppState, rf):
             "display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;"):
         ui.label("Write Your Emails").classes("fd-h1").style("margin-bottom:0;")
         def _go_sequence():
-            # Save subject and body before navigating away
+            # Save subject and body before navigating away. subj_inp and
+            # body_area are bound later in this function (L20240, L20263)
+            # but late-binding closures resolve them at call time, so by
+            # the time the user clicks Set Sequence they exist. Wrap in
+            # try/except as a defensive guard for the unlikely case where
+            # the page rendered partially before the click landed.
             if emails and active < len(emails):
                 em2 = emails[active]
-                if 'subj_inp' in locals() and subj_inp is not None:
+                try:
                     em2["subject"] = subj_inp.value or ""
-                if 'body_area' in locals() and body_area is not None:
+                except (NameError, AttributeError):
+                    pass
+                try:
                     em2["body"] = body_area.value or ""
+                except (NameError, AttributeError):
+                    pass
             s.ep = "sequence"; rf()
         with ui.element("button").classes("fd-pb").style(
                 "padding:8px 20px;font-size:13px;font-weight:700;white-space:nowrap;").on(
@@ -26504,6 +26653,10 @@ def p_ai_campaign(s: AppState, rf):
                     s.aicb_wizard_step = min(4, _wiz_step + 1); rf()
 
                 def _wiz_back():
+                    # H16: clear computed outputs (research, generated
+                    # campaign, generated docs) so a forward re-run
+                    # regenerates from current inputs. Inputs preserved.
+                    _wiz_back_clear_outputs(s)
                     s.aicb_wizard_step = max(1, _wiz_step - 1); rf()
 
                 with ui.element("div").style(
