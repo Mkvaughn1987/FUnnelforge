@@ -19795,7 +19795,7 @@ def p_dashboard(s: AppState, rf):
         # ── LEFT: Recent Campaigns ────────────────────────────────────────
         with ui.element("div"):
             with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;"):
-                ui.label("Active Campaigns").style(
+                ui.label("Active Sequences").style(
                     f"font-size:15px;font-weight:700;color:{C['text_l']};"
                     f"font-family:'Nunito',sans-serif;")
                 def _go_mgr():
