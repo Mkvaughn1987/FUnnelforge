@@ -7755,7 +7755,18 @@ function ddInsert(v) {
             // value in sync (C1 fix).
             try {
                 if (window.emitEvent) {
-                    var editorId = ce.getAttribute('data-dd-editor-id') || '';
+                    // editor.props('data-dd-editor-id=...') puts the
+                    // attribute on the QEditor wrapper, not on the
+                    // contenteditable child. Walk up to find it.
+                    var editorId = '';
+                    var node = ce;
+                    while (node) {
+                        if (node.getAttribute && node.getAttribute('data-dd-editor-id')) {
+                            editorId = node.getAttribute('data-dd-editor-id');
+                            break;
+                        }
+                        node = node.parentNode;
+                    }
                     window.emitEvent('dd_qeditor_change', {
                         editor_id: editorId,
                         html: ce.innerHTML
