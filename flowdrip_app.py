@@ -24769,6 +24769,103 @@ def _render_aicb_quick_start(s, rf):
 _AICB_CAND_LETTERS = ["A", "B", "C", "D", "E", "F"]
 
 
+def _aicb_auto_fill_run(s):
+    """Synchronous worker — web-search the company's website + recent news,
+    extract primary industry and operating locations, write to state.
+    Used by `_aicb_auto_fill_target_details` (background-thread wrapper)
+    and called directly by tests."""
+    try:
+        import anthropic as _anth
+        client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
+        _co = (s.aicb_company or "").strip()
+        _site = (s.aicb_website or "").strip()
+        prompt = (
+            f"Visit the website {_site} for {_co} and identify:\n"
+            f"  1. Their PRIMARY industry / sub-industry (e.g. "
+            f"'Precision Manufacturing', 'Industrial Automation', "
+            f"'Aerospace Components').\n"
+            f"  2. Up to 5 cities/states where they OPERATE or have "
+            f"offices/plants. Use 'City, ST' format.\n\n"
+            f"Output format — follow this EXACTLY:\n\n"
+            f"INDUSTRIES:\n"
+            f"- Primary industry name\n"
+            f"- (optional) secondary industry\n\n"
+            f"LOCATIONS:\n"
+            f"- City, ST\n"
+            f"- City, ST\n"
+            f"\nNothing else. No preamble."
+        )
+        msg = _claude_create_with_retry(
+            client,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=600,
+            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 2}],
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = "".join(b.text for b in msg.content if hasattr(b, "text")).strip()
+        text = re.sub(r'</?cite[^>]*>', '', text)
+
+        industries: list = []
+        locations: list = []
+        section = None
+        for ln in text.split("\n"):
+            stripped = ln.strip()
+            if not stripped:
+                continue
+            if re.match(r'^INDUSTRIES?\s*:?\s*$', stripped, re.IGNORECASE):
+                section = "ind"; continue
+            if re.match(r'^LOCATIONS?\s*:?\s*$', stripped, re.IGNORECASE):
+                section = "loc"; continue
+            if stripped.startswith(("-", "•", "*")):
+                val = re.sub(r'^[-•*]\s*', '', stripped).strip()
+                if not val:
+                    continue
+                if section == "ind":
+                    industries.append(val)
+                elif section == "loc":
+                    locations.append(val)
+
+        if industries:
+            # Pick primary; user can edit after
+            s.aicb_industry = industries[0]
+        # Append + dedup; cap at 5
+        existing = list(s.aicb_sel_locations or [])
+        for loc in locations:
+            if loc and loc not in existing:
+                existing.append(loc)
+            if len(existing) >= 5:
+                break
+        s.aicb_sel_locations = existing[:5]
+        s._aicb_autofill_err = ""
+    except Exception as e:
+        s._aicb_autofill_err = _friendly_ai_error(e)
+
+
+def _aicb_auto_fill_target_details(s, rf):
+    """Background-thread wrapper around _aicb_auto_fill_run. Sets a
+    spinner state flag while running and calls rf() on completion."""
+    import threading as _thr
+    _co = (s.aicb_company or "").strip()
+    _site = (s.aicb_website or "").strip()
+    if not _co or not _site:
+        s._aicb_autofill_err = "Need both company name and website."
+        try: rf()
+        except Exception: pass
+        return
+    s._aicb_autofill_generating = True
+    s._aicb_autofill_err = ""
+    try: rf()
+    except Exception: pass
+    def _bg():
+        try:
+            _aicb_auto_fill_run(s)
+        finally:
+            s._aicb_autofill_generating = False
+            try: rf()
+            except Exception: pass
+    _thr.Thread(target=_bg, daemon=True).start()
+
+
 def _aicb_auto_generate_candidates(s, rf, count: int = 3):
     """Use AI to invent anonymous candidate archetypes (Candidate A/B/C/...).
     count: 1-6 (clamped). Letters A-F. No real names — keeps it clearly
