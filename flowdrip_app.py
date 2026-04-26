@@ -3152,8 +3152,10 @@ AICB_CAMPAIGN_TYPES = [
      "Hot leads - urgent roles - time-sensitive fills",
      "Step 1 - Cold Intro email with candidate summary (delay_days:0, step_type:email_auto) - "
      "Open with a brief intro, then include a candidate snapshot: 3 bullet points about a strong candidate "
-     "you have available (role, years of experience, key strength). Use placeholders [CANDIDATE NAME], "
-     "[ROLE], [EXPERIENCE], [KEY STRENGTH] for the user to fill in. End with a CTA.\n"
+     "you have available (role, years of experience, key strength). USE THE ACTUAL CANDIDATE NAME AND "
+     "DETAILS from CANDIDATE HIGHLIGHTS above; if highlights are sparse, infer realistic specifics from "
+     "the candidate's role/industry. Do NOT use bracketed placeholders like [CANDIDATE NAME], [ROLE], "
+     "[EXPERIENCE], or [KEY STRENGTH] — those go out to recipients as raw text and look broken. End with a CTA.\n"
      "Step 2 - LinkedIn Connect (delay_days:1, step_type:linkedin) - connection message under 300 characters: "
      "'Sent you an email  -  wanted to connect here as well. Always sharing industry insights and market data in your space.'\n"
      "Step 3 - Follow-up Call (delay_days:1, step_type:call) - Reference the candidate you sent. "
@@ -3172,7 +3174,8 @@ AICB_CAMPAIGN_TYPES = [
      "Step 1 - Candidate intro email WITH CANDIDATE SUMMARIES (delay_days:0, step_type:email_auto) - "
      "Open with the user's candidate profiles. Include 3 bullet points per candidate: "
      "role/experience, key certification or skill, and a standout achievement. "
-     "Use placeholders [CANDIDATE A NAME], [CANDIDATE B NAME], [CANDIDATE C NAME] for the user to fill in.\n"
+     "USE THE ACTUAL CANDIDATE NAMES AND DETAILS from CANDIDATE HIGHLIGHTS above. "
+     "Do NOT use bracketed placeholders like [CANDIDATE A NAME] — those ship to recipients as raw text.\n"
      "Step 2 - LinkedIn Connect (delay_days:1, step_type:linkedin) - "
      "Connection message under 300 characters: 'Sent you an email about a few candidates in your space  -  wanted to connect here as well.'\n"
      "Step 3 - Market pulse follow-up email NO CANDIDATES (delay_days:2, step_type:email_auto) - "
@@ -3181,7 +3184,8 @@ AICB_CAMPAIGN_TYPES = [
      "Step 4 - Scorecard email WITH CANDIDATE SUMMARIES (delay_days:2, step_type:email_auto) - "
      "Include a DIFFERENT angle on the candidates  -  this time focus on"
      "why each candidate fits THIS company specifically. 3 bullet points per candidate: availability, "
-     "culture/environment fit, and a unique differentiator. Use placeholders for user to fill in.\n"
+     "culture/environment fit, and a unique differentiator. "
+     "USE THE ACTUAL CANDIDATE NAMES from CANDIDATE HIGHLIGHTS above; do NOT use bracketed placeholders.\n"
      "Step 5 - Phone call (delay_days:1, step_type:call) - "
      "Reference the candidates and emails you sent. Ask if they had a chance to look at the profiles. "
      "Quick qualify: are they hiring or planning to? Keep it conversational, not pushy.\n"
@@ -4125,6 +4129,43 @@ def _atomic_write_text(path, text: str, encoding: str = "utf-8") -> None:
                 tmp.unlink()
             except OSError:
                 pass
+
+
+# Detects bracketed UPPERCASE placeholders the AI may have left in an
+# email body/subject — e.g. [CANDIDATE NAME], [EXPERIENCE], [KEY STRENGTH],
+# [ROLE]. These are AI scaffolding the user is "supposed to fill in", but
+# they ship to recipients as raw text and look broken (Elizabeth Simonov
+# preview incident, 2026-04-26).
+#
+# Pattern matches:
+#   - All-caps with spaces/dashes/slashes: [CANDIDATE NAME], [KEY STRENGTH]
+#   - Single all-caps word: [EXPERIENCE], [ROLE]
+# Pattern intentionally does NOT match:
+#   - Lowercase or mixed-case brackets (legitimate text often has these)
+#   - Brackets with digits (likely dates, URLs, numbered refs)
+_UNFILLED_PLACEHOLDER_RE = re.compile(
+    r'\[[A-Z][A-Z\s\-/,]{1,80}[A-Z]\]|\[[A-Z]{2,15}\]'
+)
+
+
+def _detect_unfilled_placeholders(text: str) -> list:
+    """Return a de-duplicated list of bracketed UPPERCASE placeholders
+    found in `text`. Empty list means the text is clean enough to send.
+
+    Used as a guard BEFORE queueing or sending email body/subject so the
+    user (and recipient) never see "[CANDIDATE NAME]" in a delivered
+    email.
+    """
+    if not text:
+        return []
+    matches = _UNFILLED_PLACEHOLDER_RE.findall(text)
+    seen: set = set()
+    out: list = []
+    for m in matches:
+        if m not in seen:
+            seen.add(m)
+            out.append(m)
+    return out
 
 
 def load_outcomes() -> dict:
@@ -6084,6 +6125,36 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
         start_dt = date.fromisoformat(start_str)
     except Exception:
         start_dt = date.today()
+
+    # ── Guard: refuse to queue if any email step still contains
+    # bracketed UPPERCASE placeholders the AI was supposed to fill in.
+    # These come from contradictory prompt instructions (the campaign
+    # template said "Use placeholders [CANDIDATE NAME]..." despite the
+    # candidate-data block telling the AI to use real names). Catching
+    # here means recipients never see "[CANDIDATE NAME]" in a real send.
+    # Surfaced via Elizabeth Simonov preview, 2026-04-26.
+    _ph_problems: dict = {}
+    for _i, _step in enumerate(steps, 1):
+        if (_step.get("step_type") or "").startswith("email") or not _step.get("step_type"):
+            for _field, _val in (("subject", _step.get("subject", "")),
+                                  ("body", _step.get("body", ""))):
+                for _ph in _detect_unfilled_placeholders(_val):
+                    _ph_problems.setdefault(_ph, []).append(f"Step {_i} {_field}")
+    if _ph_problems:
+        _examples = ", ".join(list(_ph_problems.keys())[:4])
+        _msg = (
+            f"Campaign '{camp_name}' has {len(_ph_problems)} unfilled "
+            f"placeholder(s): {_examples}. Fix the email body or "
+            "regenerate the campaign before launching."
+        )
+        print(f"[Queue] BLOCKED: {_msg}", flush=True)
+        try:
+            ui.notify(_msg, type="negative", timeout=12000)
+        except Exception:
+            # No request context (background thread). The print above is
+            # the diagnostic trail.
+            pass
+        raise ValueError(_msg)
 
     # ── Defensive guardrail: detect the "all emails queued for same day"
     # pattern that bit us when the Sequence Wizard's delay/time inputs
@@ -12583,6 +12654,25 @@ def _sq_loaded_campaign(s: AppState, rf):
                     to_addr = email_inp.value.strip()
                     if not to_addr or "@" not in to_addr:
                         ui.notify("Please enter a valid email address.", type="warning")
+                        return
+                    # Guard: catch unfilled [PLACEHOLDER] tokens BEFORE
+                    # sending so the user fixes them instead of shipping
+                    # "[CANDIDATE NAME]" to a real recipient (Elizabeth
+                    # Simonov preview incident, 2026-04-26).
+                    _all_problems: dict = {}
+                    for i, step in enumerate(email_steps, 1):
+                        for field, val in (("subject", step.get("subject", "")),
+                                            ("body", step.get("body", ""))):
+                            for ph in _detect_unfilled_placeholders(val):
+                                _all_problems.setdefault(ph, []).append(f"Step {i} {field}")
+                    if _all_problems:
+                        _examples = ", ".join(list(_all_problems.keys())[:4])
+                        ui.notify(
+                            f"Can't send preview — {len(_all_problems)} unfilled "
+                            f"placeholder(s) in your campaign: {_examples}. "
+                            "Fill them in (or regenerate) and try again.",
+                            type="negative", timeout=10000,
+                        )
                         return
                     dlg.close()
                     _snap = list(email_steps)
