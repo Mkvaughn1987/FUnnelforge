@@ -15971,17 +15971,19 @@ def p_contacts(s, rf):
         ui.label("Import, manage, and browse your contact lists.").classes("fd-sub")
 
     def _save_contacts_to_csv(contact_list):
-        """Write contacts back to the active CSV."""
+        """Write contacts back to the active CSV atomically (write tmp, replace)."""
         import csv as csv_mod
-        with open(str(_user_contacts_csv_path()), "w", newline="", encoding="utf-8") as f:
-            w = csv_mod.DictWriter(f, fieldnames=CONTACT_FIELDS)
-            w.writeheader()
-            for c in contact_list:
-                w.writerow({"Email": c.get("email", ""), "FirstName": c.get("first_name", ""),
-                            "LastName": c.get("last_name", ""), "Company": c.get("company", ""),
-                            "JobTitle": c.get("title", ""), "MobilePhone": c.get("phone_mobile", ""),
-                            "WorkPhone": c.get("phone_office", ""), "LinkedInPage": c.get("linkedin", ""),
-                            "City": c.get("city", ""), "State": c.get("state", "")})
+        import io as _io
+        buf = _io.StringIO()
+        w = csv_mod.DictWriter(buf, fieldnames=CONTACT_FIELDS)
+        w.writeheader()
+        for c in contact_list:
+            w.writerow({"Email": c.get("email", ""), "FirstName": c.get("first_name", ""),
+                        "LastName": c.get("last_name", ""), "Company": c.get("company", ""),
+                        "JobTitle": c.get("title", ""), "MobilePhone": c.get("phone_mobile", ""),
+                        "WorkPhone": c.get("phone_office", ""), "LinkedInPage": c.get("linkedin", ""),
+                        "City": c.get("city", ""), "State": c.get("state", "")})
+        _atomic_write_text(_user_contacts_csv_path(), buf.getvalue())
 
     with ui.element("div").style("display:grid;grid-template-columns:260px 1fr;gap:20px;"):
         # ── LEFT: Import + Saved Lists ──────────────────────────────────────
