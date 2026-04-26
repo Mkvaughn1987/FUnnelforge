@@ -26180,12 +26180,39 @@ def p_ai_campaign(s: AppState, rf):
                     web_inp = ui.input(value=s.aicb_website, placeholder="e.g. acmecorp.com").classes("fd-input").style("margin-bottom:10px;width:100%;")
                     web_inp.on("blur", lambda: setattr(s, "aicb_website", (web_inp.value or "").strip()))
 
-                    # Autofill removed (2026-04-25) — caused too many wrong
-                    # research hits / mismatches. Users now fill Industry,
-                    # Location, and Target Roles manually below. Company +
-                    # Website are still captured (used in PDF research +
-                    # email personalization) but no AI extraction runs at
-                    # this step.
+                    # ✨ Auto-fill industries + locations from website
+                    # (2026-04-26 — replaces the prior brittle autofill).
+                    # Uses _aicb_auto_fill_target_details which web-searches
+                    # the company's site + recent news, then pre-fills
+                    # aicb_industry and aicb_sel_locations. User can edit
+                    # any field after.
+                    def _af_click():
+                        # Commit pending input values first (the on_blur
+                        # handlers haven't fired yet if user hits the button
+                        # while still focused).
+                        s.aicb_company = (co_inp.value or "").strip()
+                        s.aicb_website = (web_inp.value or "").strip()
+                        if not s.aicb_company or not s.aicb_website:
+                            ui.notify("Enter both company name and website first.",
+                                      type="warning")
+                            return
+                        _aicb_auto_fill_target_details(s, rf)
+
+                    with ui.element("div").style("margin:4px 0 14px;"):
+                        if getattr(s, "_aicb_autofill_generating", False):
+                            with ui.element("div").style(
+                                    "display:flex;align-items:center;gap:8px;"):
+                                ui.spinner("dots", size="sm")
+                                ui.label("Searching the website…").style(
+                                    f"font-size:12px;color:{C['muted']};")
+                        else:
+                            with ui.element("button").classes("fd-pb").style(
+                                    "padding:7px 14px;font-size:12px;border-radius:6px;"
+                                    ).on("click", _af_click):
+                                ui.label("✨ Auto-fill industries + locations from website")
+                            if getattr(s, "_aicb_autofill_err", ""):
+                                ui.label(f"⚠ {s._aicb_autofill_err}").style(
+                                    f"font-size:11px;color:{C['warn']};margin-top:4px;")
 
                 # ── Industry picker (Primary + Secondary) ────────────
                 # Replaces the legacy single-Industry dropdown. Primary
@@ -26290,15 +26317,15 @@ def p_ai_campaign(s: AppState, rf):
                                     ).on("click", _commit_loc_other):
                                 ui.label("Add")
 
-                ui.label("Target Roles").classes("fd-fl")
-                roles_inp = ui.input(
-                    value=", ".join(s.aicb_sel_roles[:3]) if s.aicb_sel_roles else "",
-                    placeholder="e.g. Plant Manager, Director of Operations").classes("fd-input").style("margin-bottom:12px;")
-                roles_inp.on("blur", lambda: setattr(s, "aicb_sel_roles",
-                    [r.strip() for r in (roles_inp.value or "").split(",") if r.strip()]))
-
-                # ── Candidate Highlights (three modes) ───────────────────
-                cand_inp = _render_aicb_candidate_highlights(s, rf)
+                # Target Roles + Candidates moved to step 3 (2026-04-26 —
+                # see the candidates wizard step spec). Step 2 stays focused
+                # on company + market identity. roles_inp / cand_inp set to
+                # None so any downstream `getattr` checks degrade gracefully.
+                roles_inp = None
+                cand_inp = None
+                ui.label(
+                    "Target roles and candidates are picked on the next step."
+                ).classes("fd-sub").style(f"color:{C['muted']};margin-bottom:8px;")
 
             # ═══ Campaign Type panel — Step 2 in wizard mode ═══
             with ui.element("div").style(f"{_step2_hide}{_col2}"):
