@@ -10416,7 +10416,7 @@ def p_responses(s, rf):
     _draft_timer_scheduled = [False]
 
     with ui.element("div").style("display:flex;align-items:center;"):
-        ui.label("Campaign Radar").classes("fd-h1")
+        ui.label("Replies").classes("fd-h1")
         _show_page_help(s, rf, "responses")
     ui.label("Active campaigns and replies - your campaign command center.").classes("fd-sub")
 
@@ -13097,7 +13097,7 @@ def p_seq(s: AppState, rf):
     _page_decor(variant=1)  # Flowing Ribbon  -  the main Start a Campaign picker
 
     with ui.element("div").style("display:flex;align-items:center;"):
-        ui.label("Start a Campaign").classes("fd-h1")
+        ui.label("Sequences").classes("fd-h1")
         _show_page_help(s, rf, "start_seq")
 
     # ── Wizard header ────────────────────────────────────────────────────
@@ -16049,7 +16049,7 @@ def p_contacts(s, rf):
                     ui.label("🚀 Preview & Launch →")
     else:
         with ui.element("div").style("display:flex;align-items:center;"):
-            ui.label("Contact Lists").classes("fd-h1")
+            ui.label("Contacts").classes("fd-h1")
             _show_page_help(s, rf, "contacts")
         ui.label("Import, manage, and browse your contact lists.").classes("fd-sub")
 
@@ -16316,7 +16316,7 @@ def p_active_camps(s, rf):
     completed = [c for c in camps if camp_q.get(c.get("name", ""), {}).get("pending", 0) == 0
                  and camp_q.get(c.get("name", ""), {}).get("sent", 0) > 0]
 
-    ui.label("Active Campaigns").classes("fd-h1")
+    ui.label("Active Sequences").classes("fd-h1")
     ui.label(f"{len(active)} running with emails in queue · {len(completed)} finished").classes("fd-sub")
 
     with ui.element("div").classes("fd-stat-strip"):
@@ -20841,7 +20841,7 @@ def p_seq_mgr(s, rf):
                       or len(c.get("contacts", [])) > 0)]
 
     with ui.element("div").style("display:flex;align-items:center;"):
-        ui.label("Manage Campaigns").classes("fd-h1")
+        ui.label("Sequences").classes("fd-h1")
         _show_page_help(s, rf, "seq_mgr")
     ui.label(f"{len(active)} active · {len(completed)} completed").classes("fd-sub")
 
@@ -21964,7 +21964,7 @@ def p_active_clients(s, rf):
             "display:flex;align-items:flex-start;justify-content:space-between;"
             "gap:16px;margin-bottom:6px;"):
         with ui.element("div").style("flex:1;min-width:0;"):
-            ui.label("Active Clients").classes("fd-h1")
+            ui.label("Existing Customers").classes("fd-h1")
             ui.label(
                 "Contacts at these domains get flagged before sending — so we don't "
                 "accidentally recruit from our own clients. "
@@ -27415,7 +27415,7 @@ def p_pdf_gen(s: AppState, rf):
     """PDF Generator  -  create branded Market Pulse, Scorecard, and Tenure PDFs on demand."""
 
     with ui.element("div").style("display:flex;align-items:center;"):
-        ui.label("PDF Generator").classes("fd-h1")
+        ui.label("Reports").classes("fd-h1")
         _show_page_help(s, rf, "pdf_gen")
     ui.label("Create branded PDFs to attach to your outreach emails.").classes("fd-sub")
 
@@ -29581,7 +29581,7 @@ def p_candidate_finder(s: AppState, rf):
         return
 
     with ui.element("div").style("display:flex;align-items:center;"):
-        ui.label("Candidate Pool").classes("fd-h1")
+        ui.label("Candidates").classes("fd-h1")
         _show_page_help(s, rf, "candidate_finder")
 
     _pool = load_candidate_pool()
@@ -30036,7 +30036,7 @@ def p_candidate_finder(s: AppState, rf):
 
     # ── Step 1: Processing ─────────────────────────────────────────────────
     if s.cf_step == 1 and s.cf_generating:
-        ui.label("Candidate Pool").classes("fd-h1")
+        ui.label("Candidates").classes("fd-h1")
         with ui.element("div").style(
                 f"background:{C['teal_dim']};border:1px solid {C['teal']}40;"
                 f"border-radius:10px;padding:32px;text-align:center;max-width:500px;margin:40px auto;"):
@@ -30056,7 +30056,7 @@ def p_candidate_finder(s: AppState, rf):
     # ── Step 2: Results ────────────────────────────────────────────────────
     if s.cf_step == 2 or (s.cf_step == 1 and not s.cf_generating):
         s.cf_step = 2
-        ui.label("Candidate Pool").classes("fd-h1")
+        ui.label("Candidates").classes("fd-h1")
 
         # Error
         if s._cf_error:
@@ -30445,7 +30445,7 @@ def p_timezone(s, rf):
 def p_ai_settings(s, rf):
     global ANTHROPIC_API_KEY
     with ui.element("div").style("display:flex;align-items:center;"):
-        ui.label("Email & AI Setup").classes("fd-h1")
+        ui.label("Settings").classes("fd-h1")
         _show_page_help(s, rf, "ai_settings")
     ui.label("Connect your email and add your AI key. Both are required to send campaigns.").classes("fd-sub")
 
@@ -36540,7 +36540,7 @@ def p_team_settings(s: AppState, rf):
 
     with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;gap:16px;"):
         with ui.element("div"):
-            ui.label("Team Settings").classes("fd-h1")
+            ui.label("Team").classes("fd-h1")
             ui.label(
                 f"Branding and members for the {_team_label} team."
                 if _team_label else
