@@ -13150,7 +13150,7 @@ def _sq_pick(s, rf):
         ui.label("Pick the right cadence for your outreach  -  each one is tuned for a different scenario.").style(
             f"font-size:13px;color:{C['muted']};margin-bottom:24px;")
 
-        # "Custom Campaign" renamed to "Build My Own Campaign" — the card
+        # "Custom Campaign" renamed to "Build from scratch" — the card
         # key stays "custom" so saved campaigns and downstream code keep
         # working. This flow is fully manual (no AI).
         SEQ_CARDS = [
@@ -13164,7 +13164,7 @@ def _sq_pick(s, rf):
              "Paste a job description or describe the role in your own words. AI builds a "
              "candidate-outreach sequence tuned to the brief. Client names stay confidential.",
              "Filling specific roles · candidate outreach · confidential client search"),
-            ("custom",        "Build My Own Campaign",  "✏️", "#F59E0B",
+            ("custom",        "Build from scratch",  "✏️", "#F59E0B",
              "You write every email",
              "Start with a blank slate. Add emails, calls, LinkedIn touches, and tasks in any "
              "order you want, write each message yourself, and set your own cadence. No AI — "
@@ -13228,7 +13228,7 @@ def _sq_pick(s, rf):
 
     # ── INSIDE A TAB  -  back button + tab label ──────────────────────────────
     label_map = {
-        "custom":    "Build My Own Campaign",
+        "custom":    "Build from scratch",
         "saved":     "Saved Campaigns",
         "community": "Community",
         "templates": "Templates",
@@ -13802,7 +13802,7 @@ def _sq_custom_builder(s, rf):
         ui.label("Build your own campaign or pick a pre-built template to get started.").style(
             f"font-size:13px;color:{C['muted']};margin-bottom:20px;")
 
-        # ── Primary option: Build My Own Campaign (full-width, prominent) ──
+        # ── Primary option: Build from scratch (full-width, prominent) ──
         def _from_scratch():
             s.custom_preset_picked = True; rf()
         with ui.element("div").style(
@@ -13817,7 +13817,7 @@ def _sq_custom_builder(s, rf):
                     f"justify-content:center;font-size:24px;"):
                 ui.label("+")
             with ui.element("div").style("flex:1;min-width:0;"):
-                ui.label("Build My Own Campaign").style(
+                ui.label("Build from scratch").style(
                     f"font-size:18px;font-weight:700;color:{C['teal']};"
                     f"font-family:'Nunito',sans-serif;margin-bottom:2px;")
                 ui.label("Start with a blank slate. Add emails, calls, LinkedIn, and tasks in any order you want.").style(
@@ -14331,7 +14331,7 @@ def _sq_custom_builder(s, rf):
                             ui.label("📎 Add Attachment")
 
                     # AI "Generate PDF" inline buttons removed from this
-                    # flow — "Build My Own Campaign" is fully manual.
+                    # flow — "Build from scratch" is fully manual.
                     # Users who want AI-generated PDFs can still attach
                     # one built via the PDF Generator sidebar page.
 
