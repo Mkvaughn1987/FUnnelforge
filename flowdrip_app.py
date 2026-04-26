@@ -10099,7 +10099,7 @@ def _connected_dialog(t, s: AppState, rf):
                     sel_name = eg_select.value
                     target = next((c for c in eg_camps if c.get("name") == sel_name), None)
                     if not target:
-                        ui.notify("Select a Slow Drip campaign.", type="warning"); return
+                        ui.notify("Select a Slow Drip sequence.", type="warning"); return
                     # Remove from current campaign
                     _remove_contact_from_campaign_by_name(email, campaign_name)
                     _cancel_pending_for_email_in_campaign(email, campaign_name)
@@ -10372,7 +10372,7 @@ def _drip_done_card(t, s: AppState, rf):
                 if email:
                     removed = remove_from_all_campaigns(email)
                     add_responded(email, x["name"], x.get("sequence", ""), x.get("touch", ""), "Connected  -  removed")
-                    ui.notify(f"Removed {x['name']} from {removed} campaign(s)", type="positive")
+                    ui.notify(f"Removed {x['name']} from {removed} sequence(s)", type="positive")
                     rf()
             with ui.element("button").style(
                     f"font-size:10px;padding:2px 8px;border-radius:99px;"
@@ -12771,7 +12771,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                 # Store owner email (str|None) so downstream builds a proper mailto header.
                 camp["unsubscribe_email"] = camp.get("_owner_email") or None
                 save_campaign(camp)
-                ui.notify(f"✓ Campaign '{camp_name}' saved!", type="positive")
+                ui.notify(f"✓ Sequence '{camp_name}' saved!", type="positive")
             with ui.element("button").classes("fd-gb").style(
                     f"border-color:{C['email_col']}40;padding:10px 22px;").on("click", _save_camp):
                 ui.label("💾 Save Campaign")
@@ -12861,7 +12861,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                         def _confirm_launch():
                             new_name = launch_name_inp.value.strip()
                             if not new_name:
-                                ui.notify("Enter a campaign name.", type="warning")
+                                ui.notify("Enter a sequence name.", type="warning")
                                 return
                             # Validate the picked start date — accept ISO,
                             # refuse past dates so the user can't accidentally
@@ -14459,7 +14459,7 @@ def _sq_custom_builder(s, rf):
             s.loaded_camp = camp
             s.loaded_view = "sequence"
             s.loaded_tab = 0
-            ui.notify(f"Campaign '{name}' saved  -  now set your sequence.", type="positive")
+            ui.notify(f"Sequence '{name}' saved  -  now set your sequence.", type="positive")
             rf()
 
         with ui.element("div").style(
@@ -15685,7 +15685,7 @@ def _sq_review_split(s: AppState, rf):
                 # campaign should start with a fresh state.
                 s._ac_choice = ""
                 s._ac_choice_hash = ""
-                ui.notify("Campaign launched!", type="positive"); rf()
+                ui.notify("Sequence launched!", type="positive"); rf()
 
             def _launch():
                 # Compute impact for the confirmation copy.
@@ -16461,7 +16461,7 @@ def p_active_camps(s, rf):
                                     step["completed"] = False
                                 c_copy.pop("_path", None)
                                 save_campaign(c_copy)
-                                ui.notify("Campaign restarted!", type="positive"); rf()
+                                ui.notify("Sequence restarted!", type="positive"); rf()
                             with ui.element("button").classes("fd-gb").style(
                                     "padding:4px 10px;font-size:11px;").on("click", _reuse):
                                 ui.label("Reuse")
@@ -16792,7 +16792,7 @@ def p_launch(s, rf):
                     # Save button
                     def _save(c=camp):
                         save_campaign(c)
-                        ui.notify("Campaign saved!", type="positive")
+                        ui.notify("Sequence saved!", type="positive")
                     with ui.element("button").classes("fd-gb").style(
                             f"width:100%;margin-bottom:8px;border-color:{C['email_col']}40;").on("click", _save):
                         ui.label("💾 Save Campaign")
@@ -16817,7 +16817,7 @@ def p_launch(s, rf):
                     # Delete campaign
                     def _delete(c=camp):
                         delete_campaign(c.get("_path", ""))
-                        ui.notify("Campaign deleted.", type="warning")
+                        ui.notify("Sequence deleted.", type="warning")
                         rf()
                     with ui.element("button").classes("fd-db").style("width:100%;margin-top:12px;").on("click", _delete):
                         ui.label("🗑 Delete Campaign")
@@ -17146,7 +17146,7 @@ def _placement_dialog(camp, s, rf):
             # Check duplicate
             existing = {c.get("email","").lower().strip() for c in camp.get("contacts",[])}
             if rcpt_email.lower().strip() in existing:
-                ui.notify("This contact is already in this campaign.", type="warning"); return
+                ui.notify("This contact is already in this sequence.", type="warning"); return
 
             # Add contact to the master campaign
             camp.setdefault("contacts", []).append(contact)
@@ -17425,10 +17425,10 @@ def _offer_slow_drip_enroll(to_email: str, name: str, rf):
             def _do_enroll():
                 pick = _radio.value
                 if not pick:
-                    ui.notify("Pick a campaign first.", type="warning"); return
+                    ui.notify("Pick a sequence first.", type="warning"); return
                 target = next((c for c in _eg_camps if c.get("name") == pick), None)
                 if not target:
-                    ui.notify("Campaign not found.", type="warning"); return
+                    ui.notify("Sequence not found.", type="warning"); return
                 result = enroll_contact_in_evergreen(_contact, target)
                 if result == "enrolled":
                     ui.notify(f"✓ Added {name or to_email} to '{pick}'",
@@ -17438,7 +17438,7 @@ def _offer_slow_drip_enroll(to_email: str, name: str, rf):
                 elif result == "skipped_removed":
                     ui.notify("Contact is on the Opt-Out list.", type="warning")
                 elif result == "skipped_completed":
-                    ui.notify(f"Campaign '{pick}' is already complete.", type="info")
+                    ui.notify(f"Sequence '{pick}' is already complete.", type="info")
                 else:
                     ui.notify(f"Enroll result: {result}", type="info")
                 _dlg.close()
@@ -19414,7 +19414,7 @@ def p_evergreen_create(s, rf):
         )
         save_campaign(camp)
         _cache_campaigns.invalidate()
-        ui.notify(f"Slow Drip campaign '{camp_name}' saved!", type="positive", timeout=3000)
+        ui.notify(f"Slow Drip sequence '{camp_name}' saved!", type="positive", timeout=3000)
         nav_back(s, rf)
 
     with ui.element("div").style("display:flex;gap:10px;"):
@@ -20061,7 +20061,7 @@ def p_create_camp(s: AppState, rf):
                 s.es_emails = [{"name": "Email 1", "subject": "", "body": "",
                                 "delay_days": 0, "time": "9:00 AM", "attachments": []}]
                 s.es_active_tab = 0
-                ui.notify("Campaign cleared", type="info", timeout=1500)
+                ui.notify("Sequence cleared", type="info", timeout=1500)
                 rf()
 
         with ui.element("button").classes("fd-gb").style(
@@ -20733,7 +20733,7 @@ def p_prev_launch(s: AppState, rf):
             def _save_camp():
                 camp = _build_camp_dict()
                 save_campaign(camp)
-                ui.notify(f"Campaign '{camp['name']}' saved!", type="positive")
+                ui.notify(f"Sequence '{camp['name']}' saved!", type="positive")
 
             with ui.element("button").classes("fd-gb").style(
                     f"width:100%;margin-bottom:8px;border-color:{C['email_col']}40;").on("click", _save_camp):
@@ -21862,7 +21862,7 @@ def p_dnc(s, rf):
             if not dom or "." not in dom:
                 ui.notify("Enter a valid domain (e.g. company.com)", type="warning"); return
             count = add_domain_to_dnc(dom, _domain_co.value.strip())
-            ui.notify(f"@{dom} blocked  -  {count} pending emails cancelled across all campaigns.",
+            ui.notify(f"@{dom} blocked  -  {count} pending emails cancelled across all sequences.",
                       type="positive", timeout=5000)
             _domain_inp.set_value(""); _domain_co.set_value("")
             rf()
@@ -25133,7 +25133,7 @@ def p_ai_campaign(s: AppState, rf):
                     return
             elif _wiz_step == 3:
                 if not (getattr(s, "aicb_camp_type", "") or "").strip():
-                    ui.notify("Pick a campaign style.", type="warning")
+                    ui.notify("Pick a sequence style.", type="warning")
                     return
             s.aicb_wizard_step = min(4, _wiz_step + 1)
             rf()
@@ -26498,7 +26498,7 @@ def p_ai_campaign(s: AppState, rf):
                                           type="warning"); return
                         elif _wiz_step == 3:
                             if not _step3_ok:
-                                ui.notify("Pick a campaign style.", type="warning"); return
+                                ui.notify("Pick a sequence style.", type="warning"); return
                     except Exception as ex:
                         print(f"[AICBWizard] next error: {ex}", flush=True)
                     s.aicb_wizard_step = min(4, _wiz_step + 1); rf()
@@ -26579,7 +26579,7 @@ def p_ai_campaign(s: AppState, rf):
                             _styles.append(_new)
                             _save_my_campaign_styles(_styles)
                             s._aicb_selected_my_style_id = _new["id"]
-                            ui.notify(f"Saved \"{_nm}\"  -  available in My Campaign Styles.",
+                            ui.notify(f"Saved \"{_nm}\"  -  available in My Sequence Styles.",
                                       type="positive", timeout=4000)
                             _save_dlg.close()
                         with ui.element("button").classes("fd-pb").style(
@@ -26685,7 +26685,7 @@ def p_ai_campaign(s: AppState, rf):
                 s._nav_history.append(_nav_snapshot(s))
                 s.loaded_camp = camp; s.loaded_view = "emails"; s.loaded_tab = 0
                 s.sp = "start_seq"; s._tab = "custom"
-                ui.notify(f"Campaign imported! {len(steps_list)} emails ready to edit.", type="positive")
+                ui.notify(f"Sequence imported! {len(steps_list)} emails ready to edit.", type="positive")
                 rf()
 
             # PDF generation gate: the AICB PDF worker runs in a background
@@ -26773,7 +26773,7 @@ def p_ai_campaign(s: AppState, rf):
                                         _styles.append(_new)
                                         _save_my_campaign_styles(_styles)
                                         s._aicb_selected_my_style_id = _new["id"]
-                                        ui.notify(f"Saved \"{_nm}\"  -  available in My Campaign Styles.",
+                                        ui.notify(f"Saved \"{_nm}\"  -  available in My Sequence Styles.",
                                                   type="positive", timeout=4000)
                                         _dlg.close()
                                         rf()
@@ -28276,7 +28276,7 @@ def p_candidate_campaign(s: AppState, rf):
                 camp_to_save = copy.deepcopy(s.cpc_campaign)
                 camp_to_save["status"] = "draft"
                 save_campaign(camp_to_save)
-                ui.notify(f"Campaign saved: {camp_to_save['name']}", type="positive")
+                ui.notify(f"Sequence saved: {camp_to_save['name']}", type="positive")
             with ui.element("button").classes("fd-pb").style(
                     "padding:12px 24px;font-size:13px;flex:1;justify-content:center;display:flex;"
                     ).on("click", _save_camp):
@@ -39206,7 +39206,7 @@ def index():
                 new = outlook_monitor.pop()
                 if new:
                     for r in new:
-                        ui.notify(f"{r['name']} replied - removed from all campaigns", type="positive", timeout=8000)
+                        ui.notify(f"{r['name']} replied - removed from all sequences", type="positive", timeout=8000)
                 rf()
         except Exception:
             pass  # client disconnected
