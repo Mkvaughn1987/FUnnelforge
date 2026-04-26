@@ -6192,10 +6192,10 @@ def load_config() -> dict:
 
 
 def save_config(cfg: dict):
-    """Save DripDrop config. Uses the async-safe per-user path accessor."""
+    """Save DripDrop config atomically. Uses the async-safe per-user path accessor."""
     cp = _user_config_path()
     cp.parent.mkdir(parents=True, exist_ok=True)
-    cp.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+    _atomic_write_text(cp, json.dumps(cfg, indent=2))
 
 
 # ── Timezone handling ──────────────────────────────────────────────────────
