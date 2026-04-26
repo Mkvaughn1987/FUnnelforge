@@ -24788,6 +24788,54 @@ def _render_aicb_quick_start(s, rf):
 _AICB_CAND_LETTERS = ["A", "B", "C", "D", "E", "F"]
 
 
+def _aicb_cards_from_text(text: str) -> list:
+    """Parse the plain-text candidate block produced by
+    _aicb_auto_generate_candidates into a list of dicts:
+    [{label, role, bullets:[str]}]. Round-trips with _aicb_cards_to_text."""
+    if not text:
+        return []
+    cards: list = []
+    current = None
+    for raw in text.split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        m = re.match(r'^(Candidate\s+[A-F])\s*[:\-]\s*(.+)$', line, re.IGNORECASE)
+        if m:
+            if current is not None:
+                cards.append(current)
+            current = {
+                "label": m.group(1).strip(),
+                "role": m.group(2).strip(),
+                "bullets": [],
+            }
+            continue
+        if current is None:
+            continue
+        bullet = re.sub(r'^[•\-\*]\s*', '', line)
+        if bullet:
+            current["bullets"].append(bullet)
+    if current is not None:
+        cards.append(current)
+    return cards
+
+
+def _aicb_cards_to_text(cards: list) -> str:
+    """Serialize a list of card dicts back to the plain-text format
+    that _cand_block consumes."""
+    if not cards:
+        return ""
+    blocks = []
+    for c in cards:
+        label = c.get("label", "Candidate")
+        role = c.get("role", "")
+        bullets = c.get("bullets", [])
+        head = f"{label}: {role}" if role else label
+        body = "\n".join(f"• {b}" for b in bullets)
+        blocks.append(f"{head}\n{body}" if body else head)
+    return "\n\n".join(blocks)
+
+
 def _aicb_auto_fill_run(s):
     """Synchronous worker — web-search the company's website + recent news,
     extract primary industry and operating locations, write to state.
