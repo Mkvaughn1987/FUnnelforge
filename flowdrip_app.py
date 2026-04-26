@@ -6161,7 +6161,9 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
                 sender_smtp=_sender_smtp,
                 attachments=[str(_user_pdf_dir() / a) if not os.path.isabs(a) else a
                             for a in (step.get("attachments", []) if step_idx > 0 else [])],
-                unsubscribe_email=True,
+                # Pass the owner's email so downstream can build a proper List-Unsubscribe
+                # mailto header. Must be str or None — never bool.
+                unsubscribe_email=(_owner or None),
                 company_address=(_load_company_profile() or {}).get("company_address", ""),
             ))
 
@@ -12731,7 +12733,8 @@ def _sq_loaded_campaign(s: AppState, rf):
         with ui.element("div").style("display:flex;gap:12px;flex-wrap:wrap;align-items:center;"):
             def _save_camp():
                 # Opt-out footer is always on now  -  flag kept for backwards compat.
-                camp["unsubscribe_email"] = True
+                # Store owner email (str|None) so downstream builds a proper mailto header.
+                camp["unsubscribe_email"] = camp.get("_owner_email") or None
                 save_campaign(camp)
                 ui.notify(f"✓ Campaign '{camp_name}' saved!", type="positive")
             with ui.element("button").classes("fd-gb").style(
@@ -12844,8 +12847,9 @@ def _sq_loaded_campaign(s: AppState, rf):
                             camp["name"] = new_name
                             camp["status"] = "active"
                             camp["start_date"] = _picked_dt.isoformat()
-                            # Always-on opt-out footer (CAN-SPAM).
-                            camp["unsubscribe_email"] = True
+                            # Always-on opt-out footer (CAN-SPAM). Store owner email
+                            # (str|None) so downstream builds a proper mailto header.
+                            camp["unsubscribe_email"] = camp.get("_owner_email") or None
                             save_campaign(camp)
                             # Auto-generate PDFs and attach to matching steps
                             try:
