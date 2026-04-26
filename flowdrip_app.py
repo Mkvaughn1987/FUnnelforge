@@ -7747,6 +7747,19 @@ function ddInsert(v) {
             sel.addRange(_ddLastRange);
             _ddLastRange = sel.getRangeAt(0).cloneRange();
             ce.dispatchEvent(new Event('input', {bubbles: true}));
+            // Push the new HTML back to Python. The Python side listens
+            // for 'dd_qeditor_change' and calls editor.set_value(html)
+            // on the matching editor instance, keeping NiceGUI's bound
+            // value in sync (C1 fix).
+            try {
+                if (window.emitEvent) {
+                    var editorId = ce.getAttribute('data-dd-editor-id') || '';
+                    window.emitEvent('dd_qeditor_change', {
+                        editor_id: editorId,
+                        html: ce.innerHTML
+                    });
+                }
+            } catch (err) { /* non-fatal */ }
         }
     }
 }
@@ -8229,6 +8242,10 @@ class AppState:
         self.mi_results: dict = {}         # keyed by watch name → {scan1:[], scan2:[], scan3:[], ts:""}
         self.mi_results_tab = "scan1"      # which scan tab to show
         self._mi_error = ""
+
+        # C1 fix: per-session QEditor registry. Overwritten by index() with the
+        # real implementation; no-op default prevents AttributeErrors in tests.
+        self._register_qeditor = lambda editor, eid: editor
 
 def _reset_wizard_state(s: "AppState") -> None:
     """Reset all wizard inputs to their defaults so a freshly-picked
@@ -11483,6 +11500,7 @@ def _sq_loaded_campaign(s: AppState, rf):
             if body_val and "<" not in body_val:
                 body_val = body_val.replace("\n", "<br>")
             body_area = _apply_editor_props(ui.editor(value=body_val), _TOOLBAR_FULL).style("min-height:500px;border-radius:6px;")
+            s._register_qeditor(body_area, f"loaded_camp_body_{active}")
 
             # Attachments display (clickable PDFs)
             # RULE: Never allow attachments on the first email  -  causes spam/blocking
@@ -14374,6 +14392,7 @@ def _sq_custom_builder(s, rf):
                     if init_body and "<" not in init_body:
                         init_body = init_body.replace("\n", "<br>")
                     body_area = _apply_editor_props(ui.editor(value=init_body), _TOOLBAR_FULL).style("min-height:500px;border-radius:6px;")
+                    s._register_qeditor(body_area, f"custom_builder_body_{s.custom_editing_idx}")
                     _body_ref["el"] = body_area
 
                     # "Rewrite with AI" button removed — this flow is
@@ -14540,6 +14559,7 @@ def _sq_custom_editor(s, rf):
                     if body_val_c and "<" not in body_val_c:
                         body_val_c = body_val_c.replace("\n", "<br>")
                     b_area = _apply_editor_props(ui.editor(value=body_val_c), _TOOLBAR_FULL).style("min-height:400px;border-radius:6px;")
+                    s._register_qeditor(b_area, f"custom_builder_expanded_body_{i}")
 
                     # Signature preview for email steps
                     sig_text = ""
@@ -19104,6 +19124,7 @@ def p_evergreen(s, rf):
                             ui.label("🖼 Upload your own")
 
                     _body_area = _apply_editor_props(ui.editor(value=_body), _TOOLBAR_FULL).style("min-height:400px;margin-bottom:12px;")
+                    s._register_qeditor(_body_area, "evergreen_market_body")
 
                     with ui.element("div").style("display:flex;gap:10px;"):
                         def _save_market():
@@ -19318,6 +19339,7 @@ def p_evergreen_create(s, rf):
                     if body_val and "<" not in body_val:
                         body_val = body_val.replace("\n", "<br>")
                     body_area = _apply_editor_props(ui.editor(value=body_val), _TOOLBAR_FULL).style("min-height:250px;border-radius:6px;")
+                    s._register_qeditor(body_area, f"evergreen_create_body_{i}")
 
                     # Single row of merge variable buttons - inserts into subject or body
                     _var_btn = (f"font-size:10px;padding:2px 8px;border-radius:99px;"
@@ -20234,6 +20256,7 @@ def p_emails_build(s: AppState, rf):
         if body_val and "<" not in body_val:
             body_val = body_val.replace("\n", "<br>")
         body_area = _apply_editor_props(ui.editor(value=body_val), _TOOLBAR_FULL).style("min-height:380px;border-radius:6px;")
+        s._register_qeditor(body_area, f"emails_build_body_{active}")
 
         # Signature preview
         sig_text = ""
@@ -34185,6 +34208,7 @@ def p_newsletter(s: AppState, rf):
                 _a_body = _apply_editor_props(
                     ui.editor(value=d.get("article_body", "")), _TOOLBAR_SMALL
                 ).style("min-height:140px;border-radius:6px;")
+                s._register_qeditor(_a_body, "newsletter_article_body")
                 _a_body.on("blur", lambda: (d.update({"article_body": _a_body.value}), rf()))
 
             # ── Candidate Spotlights  -  up to 3 candidates ───────────────
@@ -34276,6 +34300,7 @@ def p_newsletter(s: AppState, rf):
                 _mu = _apply_editor_props(
                     ui.editor(value=d.get("market_update", "")), _TOOLBAR_SMALL
                 ).style("min-height:120px;border-radius:6px;")
+                s._register_qeditor(_mu, "newsletter_market_update")
                 _mu.on("blur", lambda: (d.update({"market_update": _mu.value}), rf()))
 
             # ── Open Roles editor removed per product decision ──────────
@@ -39030,6 +39055,31 @@ def index():
     s = AppState()
     s._user_email = _user_email
     s._user_name = app.storage.user.get("name", "")
+
+    # Registry of QEditors that participate in the merge-field round-trip.
+    # Populated by helper `_register_qeditor` below (stored on `s` so module-
+    # level page functions can access it); consumed by the 'dd_qeditor_change'
+    # event that ddInsert emits (C1 fix).
+    _qeditor_registry = {}
+
+    def _register_qeditor(editor, eid: str):
+        """Tag a QEditor with a stable id so JS can target it after a
+        merge-field insert, and Python can reflect HTML back into it."""
+        _qeditor_registry[eid] = editor
+        editor.props(f'data-dd-editor-id={eid}')
+        return editor
+
+    # Attach to s so module-level page functions can call s._register_qeditor()
+    s._register_qeditor = _register_qeditor
+
+    @ui.on('dd_qeditor_change')
+    def _on_qeditor_change(e):
+        eid = (getattr(e, 'args', None) or {}).get('editor_id') or ''
+        html = (getattr(e, 'args', None) or {}).get('html') or ''
+        ed = _qeditor_registry.get(eid)
+        if ed is not None:
+            ed.set_value(html)
+
     # Honor a pending page hand-off (e.g. from /setup → Email & AI Setup).
     # This overrides any saved page because it's an explicit one-time
     # intent from another flow.
