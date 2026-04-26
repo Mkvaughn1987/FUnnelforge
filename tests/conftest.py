@@ -63,7 +63,8 @@ def with_user(isolated_appdata, monkeypatch):
     monkeypatch.setattr(fa, "CANDIDATE_POOL_PATH", new_base / "candidate_pool.json")
     monkeypatch.setattr(fa, "USERS_DB_PATH", new_base / "users.json")
 
-    user_root = fa._resolve_user_root("tester@example.com")
+    user_root = new_base / "users" / "tester_at_example_com"
+    user_root.mkdir(parents=True, exist_ok=True)
 
     yield user_root
 
