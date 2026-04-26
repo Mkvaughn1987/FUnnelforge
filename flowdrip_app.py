@@ -24790,25 +24790,136 @@ _AICB_CAND_LETTERS = ["A", "B", "C", "D", "E", "F"]
 
 
 def _render_aicb_candidate_cards(s, rf):
-    """Render aicb_cand_cards as a 2-col grid with edit/re-roll/remove
-    controls. Full implementation in task 9."""
+    """Render aicb_cand_cards as a 2-col grid. Each card has Edit /
+    Re-roll / Remove controls. Re-roll only shown for autogen-sourced
+    cards (re-rolling a real pool candidate doesn't make sense)."""
     cards = s.aicb_cand_cards or []
     if not cards:
         return
+    can_reroll = (s.aicb_cand_source == "autogen")
+
     with ui.element("div").style(
-            "display:grid;grid-template-columns:repeat(2, 1fr);gap:12px;margin-top:12px;"):
-        for c in cards:
-            with ui.element("div").style(
-                    f"padding:12px;background:{C['surface']};"
-                    f"border:1px solid {C['border']};border-radius:8px;"):
-                ui.label(c.get("label", "")).style(
-                    f"font-size:13px;font-weight:700;color:{C['text_l']};")
-                if c.get("role"):
-                    ui.label(c["role"]).style(
-                        f"font-size:11px;color:{C['muted']};margin-top:2px;")
-                for b in c.get("bullets", []):
-                    ui.label(f"• {b}").style(
-                        f"font-size:12px;color:{C['text_l']};line-height:1.5;")
+            "display:grid;grid-template-columns:repeat(2, 1fr);"
+            "gap:12px;margin-top:12px;"):
+        for idx, card in enumerate(cards):
+            _render_single_aicb_card(s, rf, idx, card, can_reroll)
+
+
+def _render_single_aicb_card(s, rf, idx, card, can_reroll: bool):
+    """One card. Top-right has ✏️ ✕ 🔄. Body lists role + bullets.
+    Edit mode swaps labels for inputs and shows a save 💾 icon."""
+    label = card.get("label", f"Candidate {idx+1}")
+    role = card.get("role", "")
+    bullets = card.get("bullets", [])
+    is_editing = bool(card.get("_editing", False))
+
+    with ui.element("div").style(
+            f"padding:14px;background:{C['surface']};"
+            f"border:1px solid {C['border']};border-radius:10px;"
+            f"display:flex;flex-direction:column;gap:8px;"):
+        # Header + control icons
+        with ui.element("div").style(
+                "display:flex;align-items:flex-start;justify-content:space-between;"
+                "gap:8px;"):
+            with ui.element("div").style("flex:1;min-width:0;"):
+                if is_editing:
+                    label_inp = ui.input(value=label).classes("fd-input").style(
+                        "font-size:13px;font-weight:700;width:100%;")
+                    role_inp = ui.input(value=role).classes("fd-input").style(
+                        "font-size:11px;width:100%;margin-top:4px;")
+                else:
+                    ui.label(label).style(
+                        f"font-size:13px;font-weight:700;color:{C['text_l']};")
+                    if role:
+                        ui.label(role).style(
+                            f"font-size:11px;color:{C['muted']};margin-top:2px;")
+
+            with ui.element("div").style("display:flex;gap:6px;"):
+                if not is_editing:
+                    def _edit_click(i=idx):
+                        s.aicb_cand_cards[i]["_editing"] = True
+                        rf()
+                    with ui.element("button").style(
+                            f"background:transparent;border:none;cursor:pointer;"
+                            f"color:{C['muted']};font-size:14px;padding:2px 6px;"
+                            ).on("click", _edit_click):
+                        ui.label("✏️")
+                else:
+                    bullet_inputs: list = []
+                    # The bullet input refs are bound below in the bullets
+                    # block (we're rendering before that here, so capture
+                    # by closure). The save button reads the values at
+                    # click time.
+                    def _save_click(i=idx, lbl=label_inp, rl=role_inp):
+                        new_label = (lbl.value or "").strip()
+                        new_role = (rl.value or "").strip()
+                        s.aicb_cand_cards[i]["label"] = new_label or s.aicb_cand_cards[i].get("label", "")
+                        s.aicb_cand_cards[i]["role"] = new_role
+                        s.aicb_cand_cards[i]["_editing"] = False
+                        s._aicb_cand_text = _aicb_cards_to_text(s.aicb_cand_cards)
+                        rf()
+                    with ui.element("button").style(
+                            f"background:transparent;border:none;cursor:pointer;"
+                            f"color:{C.get('good', '#10B981')};font-size:14px;padding:2px 6px;"
+                            ).on("click", _save_click):
+                        ui.label("💾")
+
+                if can_reroll and not is_editing:
+                    def _reroll_click(i=idx):
+                        if getattr(s, "_aicb_cand_generating", False):
+                            return
+                        prior_cards = list(s.aicb_cand_cards)
+                        # Stash the slot label so we can restore it after
+                        # the AI returns 1 fresh candidate (which the
+                        # parser will label "Candidate A").
+                        preserved_label = prior_cards[i].get(
+                            "label", f"Candidate {chr(65 + i)}"
+                        )
+                        s._aicb_cand_text = ""
+                        def _on_done(_pri=prior_cards, _pl=preserved_label, _idx=i):
+                            new_cards = _aicb_cards_from_text(s._aicb_cand_text or "")
+                            merged = list(_pri)
+                            if new_cards:
+                                new_card = new_cards[0]
+                                new_card["label"] = _pl
+                                merged[_idx] = new_card
+                            s.aicb_cand_cards = merged
+                            s._aicb_cand_text = _aicb_cards_to_text(merged)
+                            rf()
+                        _aicb_auto_generate_candidates(s, _on_done, count=1)
+                    with ui.element("button").style(
+                            f"background:transparent;border:none;cursor:pointer;"
+                            f"color:{C.get('indigo', '#6366F1')};font-size:14px;padding:2px 6px;"
+                            ).on("click", _reroll_click):
+                        ui.label("🔄")
+
+                if not is_editing:
+                    def _remove_click(i=idx):
+                        s.aicb_cand_cards.pop(i)
+                        # Re-letter remaining (A, B, C…) so labels stay tidy.
+                        for j, c in enumerate(s.aicb_cand_cards):
+                            old_label = c.get("label", "")
+                            if re.match(r'^Candidate\s+[A-F]\b', old_label, re.IGNORECASE):
+                                c["label"] = f"Candidate {chr(65 + j)}"
+                        s._aicb_cand_text = _aicb_cards_to_text(s.aicb_cand_cards)
+                        rf()
+                    with ui.element("button").style(
+                            f"background:transparent;border:none;cursor:pointer;"
+                            f"color:{C['muted']};font-size:14px;padding:2px 6px;"
+                            ).on("click", _remove_click):
+                        ui.label("✕")
+
+        # Bullets — editable in edit mode, read-only otherwise.
+        if is_editing:
+            for bi, b in enumerate(bullets):
+                def _on_bullet_change(e, i=idx, bidx=bi):
+                    s.aicb_cand_cards[i]["bullets"][bidx] = (e.value or "").strip()
+                ui.input(value=b, on_change=_on_bullet_change).classes("fd-input").style(
+                    "width:100%;font-size:12px;")
+        else:
+            for b in bullets:
+                ui.label(f"• {b}").style(
+                    f"font-size:12px;color:{C['text_l']};line-height:1.5;")
 
 
 def _render_aicb_pool_picker(s, rf):
