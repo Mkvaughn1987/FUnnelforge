@@ -4441,20 +4441,33 @@ def copy_community_to_local(camp: dict) -> dict:
     local["created_date"] = date.today().isoformat()
     # Save to local campaigns dir
     safe = re.sub(r"[^\w\-]", "_", local.get("name", "campaign"))[:60]
-    p = _user_campaigns_dir() / f"{safe}.json"
+    base = _user_campaigns_dir() / f"{safe}.json"
+    p = base
+    n = 2
+    while p.exists():
+        p = base.with_name(f"{safe} ({n}).json")
+        n += 1
     local["_path"] = str(p)
     local_clean = {k: v for k, v in local.items() if not k.startswith("_")}
-    p.write_text(json.dumps(local_clean, indent=2), encoding="utf-8")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_text(p, json.dumps(local_clean, indent=2))
     _cache_campaigns.invalidate()
     return local
 
 
 def save_to_community(camp: dict):
-    """Save a campaign to the shared community folder."""
+    """Save a campaign to the shared community folder atomically.
+    On filename collision, append a timestamp suffix instead of
+    overwriting the existing template."""
     safe = re.sub(r"[^\w\-]", "_", camp.get("name", "campaign"))[:60]
     p = COMMUNITY_DIR / f"{safe}.json"
+    if p.exists():
+        from datetime import datetime as _dt
+        ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+        p = COMMUNITY_DIR / f"{safe}_{ts}.json"
     camp_copy = {k: v for k, v in camp.items() if not k.startswith("_")}
-    p.write_text(json.dumps(camp_copy, indent=2), encoding="utf-8")
+    p.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_text(p, json.dumps(camp_copy, indent=2))
     return p
 
 
