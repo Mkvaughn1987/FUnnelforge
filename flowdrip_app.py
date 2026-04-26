@@ -24766,21 +24766,52 @@ def _render_aicb_quick_start(s, rf):
                             f"background:{C['teal_dim']};color:{C['teal']};")
 
 
-def _aicb_auto_generate_candidates(s, rf):
-    """Use AI to invent anonymous candidate archetypes (Candidate A/B/C)
-    based on company+roles. No real names  -  keeps it clearly hypothetical."""
+_AICB_CAND_LETTERS = ["A", "B", "C", "D", "E", "F"]
+
+
+def _aicb_auto_generate_candidates(s, rf, count: int = 3):
+    """Use AI to invent anonymous candidate archetypes (Candidate A/B/C/...).
+    count: 1-6 (clamped). Letters A-F. No real names — keeps it clearly
+    hypothetical."""
     import threading as _thr
+    # Lazy-init state fields so callers (including unit tests that don't
+    # render the page first) can invoke this safely.
+    if not hasattr(s, '_aicb_cand_text'):
+        s._aicb_cand_text = ""
+    if not hasattr(s, '_aicb_cand_generating'):
+        s._aicb_cand_generating = False
+    if not hasattr(s, '_aicb_cand_err'):
+        s._aicb_cand_err = ""
+    count = max(1, min(6, int(count or 3)))
     _co = s.aicb_company or s.aicb_niche or "the target market"
     _roles = ", ".join(s.aicb_sel_roles) if s.aicb_sel_roles else "the target roles"
     _loc = ", ".join(s.aicb_sel_locations) if s.aicb_sel_locations else ""
+    _letters_used = _AICB_CAND_LETTERS[:count]
+    _letters_str = ", ".join(f"Candidate {l}" for l in _letters_used)
 
     def _run():
         try:
             import anthropic as _anth
             client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
             _primary_loc = _loc or "a major metro in the target market"
+            # Build per-candidate format blocks dynamically so 1..6 cards
+            # all get a valid format example.
+            _format_blocks = []
+            for i, L in enumerate(_letters_used):
+                ord_word = ["specific", "different", "third", "fourth", "fifth", "sixth"][i]
+                _format_blocks.append(
+                    f"Candidate {L}: Role Title, X yrs at [Real Competitor Firm]\n"
+                    f"• Location: [{ord_word} city in {_primary_loc} metro], [state]\n"
+                    f"• Experience: [years + specific industries/verticals they worked in]\n"
+                    f"• Skills: [3-5 role-specific hard skills, comma or semicolon separated]\n"
+                    f"• Proficiencies: [specific software + tool/machine/brand names  -  at least 5-8 named items]\n"
+                    f"• Certifications / Additional: [certs, education, or one standout achievement]\n"
+                    f"• Target Salary: $XX-YYK base OR $XX/hr (realistic for role + market)"
+                )
+            _format_str = "\n\n".join(_format_blocks)
+
             prompt = (
-                f"Generate 3 anonymous candidate archetypes a recruiter could pitch "
+                f"Generate {count} anonymous candidate archetypes a recruiter could pitch "
                 f"to {_co} for {_roles}"
                 + (f" in {_loc}" if _loc else "") + ".\n\n"
                 f"STEP 1: Use web search to identify 3-5 REAL direct competitor companies "
@@ -24789,7 +24820,7 @@ def _aicb_auto_generate_candidates(s, rf):
                 f"STEP 2: For each candidate, name-drop ONE real competitor firm as the "
                 f"employer. Use a DIFFERENT competitor for each candidate.\n\n"
                 "These are HYPOTHETICAL profiles  -  do NOT invent real person names. "
-                "Label them Candidate A, Candidate B, Candidate C.\n\n"
+                f"Label them {_letters_str}.\n\n"
                 f"OUTPUT FORMAT  -  follow this EXACTLY. Start your response with "
                 f"'Candidate A' as the very first characters. NO preamble, NO intro, "
                 f"NO 'Based on my research' or 'Here are' or any header text. "
@@ -24814,7 +24845,7 @@ def _aicb_auto_generate_candidates(s, rf):
                 "• Proficiencies: Procore, Bluebeam Revu, MS Project, P6 Primavera; IOR coordination; DSA/OSHPD permit closeout\n"
                 "• Certifications: OSHA 30, STSC, SWPPP QSD/QSP, First Aid/CPR\n"
                 "• Target Salary: $180-210K base\n\n"
-                f"NOW GENERATE 3 candidate blocks for {_co} / {_roles}.\n\n"
+                f"NOW GENERATE {count} candidate blocks for {_co} / {_roles}.\n\n"
                 f"LOCATION RULE  -  CRITICAL: Every candidate MUST be based IN the target "
                 f"market ({_primary_loc}), not near their prior employer. These are "
                 f"candidates the recruiter is pitching LOCALLY. Use a specific city "
@@ -24824,29 +24855,9 @@ def _aicb_auto_generate_candidates(s, rf):
                 f"'Aurora, CO' / 'Lakewood, CO' / 'Boulder, CO'  -  NOT 'Baton Rouge, LA (near Denver)'. "
                 f"The competitor firm is where they WORKED; the location is where they LIVE NOW.\n\n"
                 f"Use this EXACT format:\n\n"
-                f"Candidate A: Role Title, X yrs at [Real Competitor Firm]\n"
-                f"• Location: [specific city in {_primary_loc} metro], [state]\n"
-                f"• Experience: [years + specific industries/verticals they worked in]\n"
-                f"• Skills: [3-5 role-specific hard skills, comma or semicolon separated]\n"
-                f"• Proficiencies: [specific software + tool/machine/brand names  -  at least 5-8 named items]\n"
-                f"• Certifications / Additional: [certs, education, or one standout achievement]\n"
-                f"• Target Salary: $XX-YYK base OR $XX/hr (realistic for role + market)\n\n"
-                f"Candidate B: Role Title, X yrs at [Different Real Competitor Firm]\n"
-                f"• Location: [different city in {_primary_loc} metro], [state]\n"
-                f"• Experience: [...]\n"
-                f"• Skills: [...]\n"
-                f"• Proficiencies: [...]\n"
-                f"• Certifications / Additional: [...]\n"
-                f"• Target Salary: [...]\n\n"
-                f"Candidate C: Role Title, X yrs at [Third Real Competitor Firm]\n"
-                f"• Location: [another city in {_primary_loc} metro], [state]\n"
-                f"• Experience: [...]\n"
-                f"• Skills: [...]\n"
-                f"• Proficiencies: [...]\n"
-                f"• Certifications / Additional: [...]\n"
-                f"• Target Salary: [...]\n\n"
+                f"{_format_str}\n\n"
                 f"CRITICAL: Never use '{_co}' as any candidate's firm  -  only competitors. "
-                "Return only the 3 candidate blocks. Nothing else."
+                f"Return only the {count} candidate blocks. Nothing else."
             )
             msg = _claude_create_with_retry(client,
                 model="claude-haiku-4-5-20251001",
@@ -24869,8 +24880,8 @@ def _aicb_auto_generate_candidates(s, rf):
             if _first_match:
                 text = text[_first_match.start():]
 
-            # Parse into candidate blocks: each block = headline + 3 bullets.
-            _letters = ["A", "B", "C", "D"]
+            # Parse into candidate blocks: each block = headline + bullets.
+            _letters = _AICB_CAND_LETTERS  # A..F
             _co_clean = (_co or "").strip()
             raw_lines = text.split("\n")
             _blocks = []  # list of lists of lines
@@ -24880,7 +24891,7 @@ def _aicb_auto_generate_candidates(s, rf):
                 if not stripped:
                     continue
                 # New candidate block starts at "Candidate X  - " or "Candidate X:"
-                if re.match(r'^Candidate\s+[A-D]\b', stripped, re.IGNORECASE):
+                if re.match(r'^Candidate\s+[A-F]\b', stripped, re.IGNORECASE):
                     if _current is not None:
                         _blocks.append(_current)
                     _current = [stripped]
@@ -24894,14 +24905,14 @@ def _aicb_auto_generate_candidates(s, rf):
             if _current is not None:
                 _blocks.append(_current)
 
-            # Keep only the first 3 blocks, enforce letter labels and cap at 3 bullets
+            # Keep only first `count` blocks, enforce letter labels.
             _cleaned_blocks = []
-            for i, block in enumerate(_blocks[:3]):
+            for i, block in enumerate(_blocks[:count]):
                 if not block:
                     continue
                 head = block[0]
                 # Force "Candidate X" prefix regardless of what AI wrote
-                head = re.sub(r'^Candidate\s+[A-D]\b', f"Candidate {_letters[i]}",
+                head = re.sub(r'^Candidate\s+[A-F]\b', f"Candidate {_letters[i]}",
                               head, flags=re.IGNORECASE)
                 # Scrub target company name from the headline
                 if _co_clean and len(_co_clean) > 2:
