@@ -24115,72 +24115,40 @@ def _aicb_replace_pdf_placeholder(campaign_data, human_label, filename, appstate
         print(f"[AICB] placeholder swap (disk) error: {ex}", flush=True)
 
 
-def _aicb_generate_pdfs(client, brief, roles_str, location_str, company, sig_name, campaign_data, appstate=None):
-    """Generate Market Pulse, Scorecard, Tenure, Salary Guide, and Interview
-    Guide PDFs for the AI Campaign Builder. All routed through build_custom_pdf
-    with the rich per-kind outline templates so every PDF is full-page content
-    sourced from the campaign's Company / Primary Industry / Secondary
-    Industries / Positions."""
-    # Background-thread safety: this function runs from a daemon thread
-    # spawned in p_ai_campaign, so the ContextVar that _user_pdf_dir()
-    # reads is unset and the function falls back to the legacy global
-    # /opt/dripdrop/data/PDFs/ path. PDFs land there, but the /pdfs/
-    # web route only serves from the per-user dir → 404s when the user
-    # tries to open the attachment. Rebind the ContextVar from the
-    # passed-in AppState so every downstream _user_pdf_dir() in this
-    # thread resolves to the right per-user PDFs directory.
-    # See project_signature_leak_incident.md for the prior occurrence.
+def _aicb_generate_pdf_data(client, roles_str, location_str, company,
+                             primary_industry: str = "", secondary_industries: list = None,
+                             exp_level: str = "", appstate=None) -> dict:
+    """Phase 1: AI calls to generate per-PDF content. Independent of
+    email-generation output, so this can run in parallel with the email
+    AI call. Returns a dict keyed by PDF kind ('market_pulse', 'scorecard',
+    'tenure', 'salary_guide', 'interview_guide'). Each value is the rich
+    structured data the build phase consumes.
+
+    appstate is required to rebind the per-user ContextVar inside the
+    daemon thread (PDFs land in the wrong dir without it — see the
+    2026-04-20 signature-leak incident)."""
     try:
         if appstate is not None and getattr(appstate, "_user_email", ""):
             _CURRENT_USER_EMAIL.set(appstate._user_email)
     except Exception as _ex:
         print(f"[AICB] ContextVar rebind failed: {_ex}", flush=True)
-    try:
-        import sys as _sys
-        _sys.path.insert(0, str(Path(__file__).resolve().parent / "funnel_forge"))
-        import importlib, arena_pdfs as _ap; importlib.reload(_ap)
-        from arena_pdfs import build_custom_pdf
-    except ImportError:
-        print("[AICB] reportlab not installed - skipping PDF generation")
-        return
 
-    dt = date.today().strftime("%B %d, %Y")
-
-    # Determine niche/vertical for the prompts. Resolution order:
-    #   1. New PrimaryIndustry + SecondaryIndustries from campaign vars
-    #      (joined into a richer "Construction · Healthcare Construction,
-    #      Data Centers" string)
-    #   2. Legacy Vertical variable (joined string for old campaigns)
-    #   3. User's company profile industry (fallback for AICB which may
-    #      not have campaign variables yet)
-    #   4. Empty (each PDF prompt handles this with "infer from research")
+    secondary_industries = list(secondary_industries or [])
     _cfg = load_config()
-    _vars = campaign_data.get("variables", {}) if isinstance(campaign_data, dict) else {}
-    _new_prim = (_vars.get("PrimaryIndustry") or "").strip()
-    _new_secs = list(_vars.get("SecondaryIndustries", []) or [])
-    if _new_prim:
-        _niche_for_prompts = _industry_to_vertical_string(_new_prim, _new_secs)
+    if primary_industry:
+        _niche_for_prompts = _industry_to_vertical_string(primary_industry, secondary_industries)
     else:
-        _niche_for_prompts = (
-            (_vars.get("Vertical") or "").strip()
-            or _cfg.get("company_industry", "")
-            or ""
-        ).strip()
+        _niche_for_prompts = (_cfg.get("company_industry", "") or "").strip()
 
-    # Generate per-PDF data via the rich pipeline (build_custom_pdf), one
-    # model call per kind. Pulls Company / Primary / Secondary / Positions
-    # straight from the campaign variables so every PDF mirrors what the
-    # user typed in the wizard.
-    _exp_level_aicb = (_vars.get("ExpLevel") or "").strip()
     _ctx_aicb = {
         "company": company,
-        "primary_industry": _new_prim or _niche_for_prompts,
-        "secondary_industries": _new_secs,
+        "primary_industry": primary_industry or _niche_for_prompts,
+        "secondary_industries": secondary_industries,
         "positions": roles_str,
         "location": location_str,
-        "exp_level": _exp_level_aicb,
+        "exp_level": (exp_level or "").strip(),
     }
-    pdf_data = {}
+    pdf_data: dict = {}
     for _kind, _key in [
         ("market_pulse",    "market_pulse"),
         ("scorecard",       "scorecard"),
@@ -24200,27 +24168,41 @@ def _aicb_generate_pdfs(client, brief, roles_str, location_str, company, sig_nam
             _data = {}
         pdf_data[_key] = _data or {}
         print(f"[AICB] {_kind}: {'ok' if _data else 'fallback to defaults'}", flush=True)
+    return pdf_data
 
+
+def _aicb_attach_pdfs(pdf_data: dict, campaign_data: dict, company: str,
+                      appstate=None) -> int:
+    """Phase 2: build PDF files from the pre-generated pdf_data and
+    attach them to the campaign's email steps. Fast (file writes only)
+    so it runs after both email gen and PDF data gen have completed.
+    Returns count of PDFs attached. campaign_data["emails"] must be
+    populated."""
+    try:
+        if appstate is not None and getattr(appstate, "_user_email", ""):
+            _CURRENT_USER_EMAIL.set(appstate._user_email)
+    except Exception as _ex:
+        print(f"[AICB] ContextVar rebind failed (attach): {_ex}", flush=True)
+
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parent / "funnel_forge"))
+        import importlib, arena_pdfs as _ap; importlib.reload(_ap)
+        from arena_pdfs import build_custom_pdf
+    except ImportError:
+        print("[AICB] reportlab not installed - skipping PDF build/attach")
+        return 0
+
+    _cfg = load_config()
+    dt = date.today().strftime("%B %d, %Y")
     prep = _cfg.get("sig_name", _get_company_name()) or _get_company_name()
     prep_email = _cfg.get("sig_email", "")
-    pdfs_generated = []
+    pdfs_generated: list = []
 
-    # Build each PDF and attach it to the next eligible email step
-    # (skip first email, skip non-email steps, one PDF per step). The
-    # user is gated on the review screen until this whole loop finishes,
-    # so by the time they click Import, every email that should carry a
-    # PDF already does. Progress counter is bumped after each one so the
-    # review screen can show "Generating PDFs (X/5)…".
     for _idx, (_kind_id, _slug_prefix, _human_label, _intro_tpl) in enumerate(_AICB_PDF_KINDS):
         try:
             _data_key = "tenure" if _kind_id == "tenure_snapshot" else _kind_id
             data = pdf_data.get(_data_key, {}) or {}
-            # If AI generation failed (sections empty), SKIP this PDF entirely
-            # rather than writing a blank-bodied file. The earlier silent
-            # behavior produced blank Salary Guide PDFs (see Elizabeth's
-            # James Fisher campaign on 2026-04-25). Better to attach nothing
-            # than a broken one — the user can use the new ↻ Regenerate
-            # button on the campaign editor to retry.
             if not (data.get("sections") or []):
                 print(f"[AICB] SKIP {_kind_id} — no sections (AI generation failed)",
                       flush=True)
@@ -24243,13 +24225,6 @@ def _aicb_generate_pdfs(client, brief, roles_str, location_str, company, sig_nam
             _publish_pdf(fpath)
             pdfs_generated.append(_fname)
             print(f"[AICB] Generated {_fname}")
-
-            # Attach this PDF to the next eligible email step. The body
-            # is left untouched — the AI already writes an organic intro
-            # for each email's theme, so prepending our own intro line
-            # produced a duplicate ("Here's a market snapshot..." right
-            # before the AI's "I wanted to share a market snapshot...").
-            # Trust the AI's body; just attach the file.
             try:
                 if campaign_data and campaign_data.get("emails"):
                     for ei, em in enumerate(campaign_data["emails"]):
@@ -24266,8 +24241,6 @@ def _aicb_generate_pdfs(client, brief, roles_str, location_str, company, sig_nam
         except Exception as e:
             print(f"[AICB] {_kind_id} build error: {e}")
         finally:
-            # Bump the done-counter regardless so the review-screen
-            # progress display advances even if a single PDF fails.
             try:
                 if appstate is not None:
                     appstate._aicb_pdfs_done = _idx + 1
@@ -24275,6 +24248,45 @@ def _aicb_generate_pdfs(client, brief, roles_str, location_str, company, sig_nam
                 pass
 
     print(f"[AICB] PDF generation complete: {len(pdfs_generated)} PDFs created")
+    return len(pdfs_generated)
+
+
+def _aicb_generate_pdfs(client, brief, roles_str, location_str, company, sig_name, campaign_data, appstate=None):
+    """Backward-compat wrapper: runs Phase 1 (AI data gen) then Phase 2
+    (build + attach) sequentially. Used by callers that don't need the
+    parallel split. The new parallel path in p_ai_campaign calls the two
+    phases independently.
+
+    All bullets in this function were the previous monolithic body,
+    refactored 2026-04-26 to support running PDF AI calls in parallel
+    with email generation."""
+    try:
+        if appstate is not None and getattr(appstate, "_user_email", ""):
+            _CURRENT_USER_EMAIL.set(appstate._user_email)
+    except Exception as _ex:
+        print(f"[AICB] ContextVar rebind failed: {_ex}", flush=True)
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parent / "funnel_forge"))
+        import importlib, arena_pdfs as _ap; importlib.reload(_ap)
+        from arena_pdfs import build_custom_pdf  # noqa: F401  (presence check)
+    except ImportError:
+        print("[AICB] reportlab not installed - skipping PDF generation")
+        return
+
+    # Pull the picker fields the new split functions take as explicit args.
+    _vars = campaign_data.get("variables", {}) if isinstance(campaign_data, dict) else {}
+    _new_prim = (_vars.get("PrimaryIndustry") or "").strip()
+    _new_secs = list(_vars.get("SecondaryIndustries", []) or [])
+    _exp_level = (_vars.get("ExpLevel") or "").strip()
+
+    pdf_data = _aicb_generate_pdf_data(
+        client, roles_str, location_str, company,
+        primary_industry=_new_prim, secondary_industries=_new_secs,
+        exp_level=_exp_level, appstate=appstate,
+    )
+    _aicb_attach_pdfs(pdf_data, campaign_data, company, appstate=appstate)
+    return
 
 
 def _extract_resume_text(file_path: str) -> str:
@@ -25939,11 +25951,11 @@ def p_ai_campaign(s: AppState, rf):
                 "display:flex;align-items:center;justify-content:space-between;"
                 "gap:12px;margin-bottom:6px;flex-wrap:wrap;"):
             ui.label("Create a Campaign").classes("fd-h1").style("margin:0;")
-            # Top Next visible on steps 1-3. Step 4 (Campaign style) uses
-            # the inline "✦ Generate Campaign →" button on each style card
-            # as the single forward action — having a separate Next here
-            # would let users advance without picking a style and then
-            # crash _do_research on step 5. Step 5 has no Next either.
+            # Top Next visible on steps 1-3. Step 4 (Campaign style) shows
+            # a top-right "✦ Generate Campaign →" instead of Next so users
+            # always have a forward action visible regardless of which
+            # style card they've expanded. Step 5 has no top button at all
+            # (Generate happens in the spinner block).
             if _wiz_mode == "wizard" and _wiz_step < 4:
                 _top_next_style = (
                     "padding:9px 22px;font-size:13px;"
@@ -25952,6 +25964,29 @@ def p_ai_campaign(s: AppState, rf):
                 with ui.element("button").classes("fd-pb").style(_top_next_style).on(
                         "click", (lambda: None) if not _top_next_ok else _top_wiz_next):
                     ui.label("Next →")
+            elif _wiz_mode == "wizard" and _wiz_step == 4:
+                # Top-right Generate button (mirrors the inline ones on
+                # each campaign-style card). Reads byos_desc from state
+                # — the textarea has an on_blur handler that syncs.
+                _top_gen_ok = bool((getattr(s, "aicb_camp_type", "") or "").strip())
+                _top_gen_style = (
+                    "padding:9px 22px;font-size:13px;font-weight:700;"
+                    + ("opacity:0.45;cursor:not-allowed;" if not _top_gen_ok else "")
+                )
+                def _top_generate():
+                    _camp = (getattr(s, "aicb_camp_type", "") or "").strip()
+                    if not _camp:
+                        ui.notify("Pick a sequence style first.", type="warning")
+                        return
+                    if _camp == "byos" and not (getattr(s, "aicb_byos_desc", "") or "").strip():
+                        ui.notify("Describe your custom Free Flow sequence first.",
+                                  type="warning")
+                        return
+                    s.aicb_wizard_step = 5
+                    _do_research()
+                with ui.element("button").classes("fd-pb").style(_top_gen_style).on(
+                        "click", (lambda: None) if not _top_gen_ok else _top_generate):
+                    ui.label("✦ Generate Campaign →")
 
         # Progress bar — only in wizard mode (5 steps after 2026-04-26
         # Candidates insert)
@@ -27069,6 +27104,41 @@ def p_ai_campaign(s: AppState, rf):
                     except Exception:
                         pass
 
+                    # Resolve PDF target now so the PDF thread can start in
+                    # parallel with the email thread (2026-04-26 user request:
+                    # "create the PDFs and emails at the same time").
+                    _pdf_target_early = (
+                        s.aicb_company.strip()
+                        or (
+                            f"{location_str} {s.aicb_niche.strip()}"
+                            if s.aicb_niche and location_str != "their primary markets"
+                            else (s.aicb_niche.strip() or location_str or "Market")
+                        )
+                    )
+                    s._aicb_pdfs_in_progress = True
+                    s._aicb_pdfs_total = len(_AICB_PDF_KINDS)
+                    s._aicb_pdfs_done = 0
+                    _pdf_data_holder: dict = {}
+                    import threading as _thr_pdf
+                    _pdf_data_event = _thr_pdf.Event()
+
+                    def _pdf_data_worker():
+                        try:
+                            _pdf_data_holder["data"] = _aicb_generate_pdf_data(
+                                client, roles_str, location_str, _pdf_target_early,
+                                primary_industry=getattr(s, "aicb_primary_industry", "") or "",
+                                secondary_industries=getattr(s, "aicb_secondary_industries", []) or [],
+                                exp_level="",
+                                appstate=s,
+                            )
+                        except Exception as _ex:
+                            print(f"[AICB] PDF data gen error: {_ex}", flush=True)
+                            _pdf_data_holder["data"] = {}
+                        finally:
+                            _pdf_data_event.set()
+
+                    _thr_pdf.Thread(target=_pdf_data_worker, daemon=True).start()
+
                     try:
                         # Step 1: Research (use Haiku for speed + lower token cost).
                         # All these fields come from user input  -  wrap them
@@ -27350,44 +27420,32 @@ def p_ai_campaign(s: AppState, rf):
                             s.aicb_docs["brief"] = brief
                             s.aicb_docs["synopsis"] = campaign_data.get("synopsis", "")
 
-                            # Step 3: Generate PDFs OFF THE CRITICAL PATH.
-                            # PDF generation is 5 sequential Claude calls
-                            # (~85s) + builder time. Moving it to its own
-                            # background thread lets the user see the
-                            # campaign in ~60-90s instead of waiting 2-3
-                            # minutes for everything. PDFs replace the
-                            # "_pending:Kind" placeholders we attach now.
-                            if company:
-                                pdf_target = company
-                            elif niche_str and location_str and location_str != "their primary markets":
-                                pdf_target = f"{location_str} {niche_str}"
-                            elif niche_str:
-                                pdf_target = niche_str
-                            else:
-                                pdf_target = location_str if location_str != "their primary markets" else "Market"
+                            # Step 3: PDFs (data already generating in
+                            # parallel above). Wait for the AI calls to
+                            # finish, then attach to the email steps. This
+                            # block runs from the email thread, so the
+                            # waits below add up to max(email_time,
+                            # pdf_data_time) — both phases ran concurrently.
+                            # 2026-04-26 user request: "create the PDFs and
+                            # emails at the same time so when it generates
+                            # the user sees everything instead of having
+                            # to wait."
+                            pdf_target = _pdf_target_early or company
 
-                            # Track PDF generation progress so the review
-                            # screen can show "Generating PDFs (X/5)..." and
-                            # gate the Import button until every PDF is
-                            # built and attached to its email step. By the
-                            # time the user clicks Import, the campaign
-                            # data already carries the real PDF filenames
-                            # so the saved campaign opens with PDFs ready.
-                            s._aicb_pdfs_in_progress = True
-                            s._aicb_pdfs_total = len(_AICB_PDF_KINDS)
-                            s._aicb_pdfs_done = 0
-
-                            def _pdf_worker(_client=client, _brief=brief, _roles=roles_str,
-                                            _loc=location_str, _tgt=pdf_target, _sig=sig_name,
-                                            _camp=campaign_data, _s=s):
+                            def _pdf_attach_worker():
                                 try:
-                                    _aicb_generate_pdfs(_client, _brief, _roles, _loc,
-                                                        _tgt, _sig, _camp, appstate=_s)
+                                    # Wait for the parallel PDF AI thread
+                                    # (started at the top of _run) to finish.
+                                    _pdf_data_event.wait(timeout=240)
+                                    _pdf_data = _pdf_data_holder.get("data") or {}
+                                    if _pdf_data:
+                                        _aicb_attach_pdfs(_pdf_data, campaign_data,
+                                                          pdf_target, appstate=s)
                                 except Exception as pdf_err:
-                                    print(f"[AICB] PDF generation error (non-fatal): {pdf_err}")
+                                    print(f"[AICB] PDF attach error (non-fatal): {pdf_err}")
                                 finally:
-                                    _s._aicb_pdfs_in_progress = False
-                            threading.Thread(target=_pdf_worker, daemon=True).start()
+                                    s._aicb_pdfs_in_progress = False
+                            threading.Thread(target=_pdf_attach_worker, daemon=True).start()
 
                             # Attach redacted resume PDFs to early email steps
                             if _resume_pdfs and campaign_data.get("emails"):
@@ -27402,6 +27460,31 @@ def p_ai_campaign(s: AppState, rf):
                                         # attach remaining to 3rd email
                                         em.setdefault("attachments", []).append(_resume_pdfs[ri])
                                         ri += 1
+
+                            # Wait for the PDF AI thread to finish before
+                            # advancing to the results page. PDFs ran in
+                            # parallel with email gen, so the wait is
+                            # usually 0-30s after email completion. User
+                            # sees one spinner, results page opens with
+                            # everything ready and attached. (2026-04-26
+                            # request: "see's everything instead of
+                            # having to wait".)
+                            try:
+                                _pdf_data_event.wait(timeout=240)
+                            except Exception as _w_ex:
+                                print(f"[AICB] wait error: {_w_ex}", flush=True)
+                            _pdf_data_payload = _pdf_data_holder.get("data") or {}
+                            if _pdf_data_payload:
+                                try:
+                                    _aicb_attach_pdfs(_pdf_data_payload, campaign_data,
+                                                      pdf_target, appstate=s)
+                                except Exception as _att_ex:
+                                    print(f"[AICB] sync attach error: {_att_ex}", flush=True)
+                            # The bg _pdf_attach_worker may also fire — its
+                            # finally clears _aicb_pdfs_in_progress. Set it
+                            # here too so the results page is in the right
+                            # state immediately.
+                            s._aicb_pdfs_in_progress = False
 
                             s.aicb_step = 2
                             # Trigger "save as style?" popup for fresh Free Flow
@@ -27480,11 +27563,20 @@ def p_ai_campaign(s: AppState, rf):
                             f"background:{C['teal_dim']};border:1px solid {C['teal']}40;"
                             f"border-radius:10px;padding:32px;text-align:center;"):
                         ui.spinner("dots", size="48px", color=C["teal"])
-                        ui.label("Researching company and generating campaign...").style(
+                        ui.label("Generating your campaign + PDFs...").style(
                             f"font-size:15px;font-weight:600;color:{C['teal']};margin-top:12px;")
-                        ui.label("AI is searching the web, analyzing the company, and writing personalized emails.").style(
-                            f"font-size:12px;color:{C['muted']};margin-top:4px;")
-                        ui.label("This takes about 60-90 seconds. PDFs (Market Pulse, Salary Guide, etc.) keep generating in the background after the campaign opens.").style(
+                        ui.label(
+                            "AI is researching the company, writing personalized "
+                            "emails, AND building your market PDFs (Market Pulse, "
+                            "Salary Guide, Scorecard, Tenure Snapshot, Interview "
+                            "Guide) — all in parallel."
+                        ).style(
+                            f"font-size:12px;color:{C['muted']};margin-top:6px;line-height:1.5;")
+                        ui.label(
+                            "Total wait is about 90 seconds. When it finishes "
+                            "your campaign opens with every PDF already attached "
+                            "to the right email step. Don't close the tab."
+                        ).style(
                             f"font-size:11px;color:{C['muted']};margin-top:8px;line-height:1.5;")
                     # Auto-poll for completion every 3 seconds
                     async def _poll():
