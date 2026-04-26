@@ -105,3 +105,72 @@ def test_extract_returns_empty_for_empty_input():
     import flowdrip_app as fa
     assert fa._extract_listed_items("") == []
     assert fa._extract_listed_items(None) == []
+
+
+def test_extract_rejects_colon_lines():
+    """Real titles don't contain colons; instructional text often does
+    (e.g. '**LinkedIn Recruiter**: Filter by company and posting date').
+    Lines with colons must be rejected so they don't pollute the
+    Suggest Titles output."""
+    import flowdrip_app as fa
+    text = (
+        "TITLES:\n"
+        "- LinkedIn Recruiter: Filter by company and posting date\n"
+        "- CNC Machinist\n"
+        "- Note: search the careers page for openings"
+    )
+    out = fa._extract_listed_items(text, section_header="TITLES")
+    assert out == ["CNC Machinist"]
+
+
+def test_extract_rejects_instruction_phrases():
+    import flowdrip_app as fa
+    text = (
+        "TITLES:\n"
+        "- Filter by company name\n"
+        "- Search for engineering roles\n"
+        "- CNC Machinist\n"
+        "- Click the careers link\n"
+        "- Mill Operator"
+    )
+    out = fa._extract_listed_items(text, section_header="TITLES")
+    assert "CNC Machinist" in out
+    assert "Mill Operator" in out
+    assert all("filter" not in t.lower() for t in out)
+    assert all("click" not in t.lower() for t in out)
+
+
+# ── _parse_string_list_from_ai (JSON-first) ──
+
+def test_parse_string_list_json_array():
+    import flowdrip_app as fa
+    text = '["CNC Machinist", "Mill Operator", "Production Lead"]'
+    assert fa._parse_string_list_from_ai(text) == [
+        "CNC Machinist", "Mill Operator", "Production Lead"
+    ]
+
+
+def test_parse_string_list_json_with_preamble():
+    """Claude often wraps JSON in prose. Parser must extract it."""
+    import flowdrip_app as fa
+    text = (
+        "Based on my research, here are the titles:\n\n"
+        '["CNC Machinist", "Mill Operator"]\n\n'
+        "Let me know if you need more."
+    )
+    assert fa._parse_string_list_from_ai(text) == ["CNC Machinist", "Mill Operator"]
+
+
+def test_parse_string_list_falls_back_to_text():
+    """If no JSON array found, fall back to bullet/numbered parser."""
+    import flowdrip_app as fa
+    text = "TITLES:\n- CNC Machinist\n- Mill Operator"
+    assert fa._parse_string_list_from_ai(text) == ["CNC Machinist", "Mill Operator"]
+
+
+def test_parse_string_list_dedup_case_insensitive():
+    import flowdrip_app as fa
+    text = '["CNC Machinist", "cnc machinist", "Mill Operator"]'
+    out = fa._parse_string_list_from_ai(text)
+    assert len(out) == 2
+    assert "CNC Machinist" in out

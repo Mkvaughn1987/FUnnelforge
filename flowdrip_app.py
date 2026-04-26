@@ -24838,9 +24838,16 @@ def _extract_listed_items(text: str, section_header: str = None) -> list:
             break
         # Strip leading bullet / number markers
         line = re.sub(r'^\s*(?:[-•*]|\(?\d+[\.\)])\s+', '', line)
-        # Strip surrounding markdown emphasis
+        # Strip surrounding markdown emphasis (handles **bold**, *italic*,
+        # _emphasis_, AND a leading "**bold prefix**: description" pattern).
         line = re.sub(r'^\*\*(.+?)\*\*$', r'\1', line)
         line = re.sub(r'^_(.+?)_$', r'\1', line)
+        # Reject "Header: description" lines — when Claude responds with
+        # narrative ("**LinkedIn Recruiter**: Filter by company and date"),
+        # the markdown-strip leaves a colon, which signals instruction
+        # rather than a label. Real titles almost never contain a colon.
+        if ":" in line:
+            continue
         # Strip trailing parenthetical descriptors that often follow titles:
         # "CNC Machinist (5+ years experience)" → "CNC Machinist"
         line = re.sub(r'\s*\([^)]{1,80}\)\s*$', '', line)
@@ -24853,6 +24860,16 @@ def _extract_listed_items(text: str, section_header: str = None) -> list:
             continue
         if line.endswith(".") and len(line.split()) > 6:
             continue
+        # Skip instructional/narrative lines. Common verbs/phrases the AI
+        # uses when explaining how to search rather than listing titles.
+        _INSTRUCT_PATTERNS = (
+            "filter by", "search for", "look for", "navigate",
+            "click ", "select ", "browse ", "go to ", "use the ",
+            "based on", "according to", "i found", "you can ",
+        )
+        _lower = line.lower()
+        if any(p in _lower for p in _INSTRUCT_PATTERNS):
+            continue
         # Strip wrapping quotes
         line = line.strip('"\'')
         if not line:
@@ -24863,6 +24880,46 @@ def _extract_listed_items(text: str, section_header: str = None) -> list:
         seen.add(key)
         out.append(line)
     return out
+
+
+def _parse_string_list_from_ai(text: str) -> list:
+    """Extract a list of strings from an AI response. Tries JSON array
+    first (the prompts now ask for JSON output for reliability), falls
+    back to the bullet/numbered/markdown text parser if JSON parsing
+    fails.
+
+    Used by the Suggest Titles helper. Returns a deduplicated, length-
+    capped list of plain string entries.
+    """
+    if not text:
+        return []
+    # 1. Pull a JSON array out of the response — Claude often wraps it
+    #    in a ```json fence or surrounds it with text. Greedy match for
+    #    the outermost array brackets.
+    try:
+        m = re.search(r'\[\s*(?:"[^"]*"\s*,?\s*)*\]', text, re.DOTALL)
+        if m:
+            arr = json.loads(m.group(0))
+            if isinstance(arr, list):
+                cleaned = []
+                seen = set()
+                for item in arr:
+                    if not isinstance(item, str):
+                        continue
+                    val = item.strip().strip('"\'')
+                    if not val or len(val) > 60:
+                        continue
+                    key = val.lower()
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    cleaned.append(val)
+                if cleaned:
+                    return cleaned
+    except (ValueError, json.JSONDecodeError):
+        pass
+    # 2. Fall back to the tolerant text parser.
+    return _extract_listed_items(text)
 
 
 def _render_aicb_candidate_cards(s, rf):
@@ -25165,20 +25222,16 @@ def _aicb_auto_fill_run(s):
         _co = (s.aicb_company or "").strip()
         _site = (s.aicb_website or "").strip()
         prompt = (
-            f"Visit the website {_site} for {_co} and identify:\n"
-            f"  1. Their PRIMARY industry / sub-industry (e.g. "
-            f"'Precision Manufacturing', 'Industrial Automation', "
-            f"'Aerospace Components').\n"
+            f"Visit {_site} for {_co} and identify:\n"
+            f"  1. Their PRIMARY industry (one short phrase, e.g. "
+            f"'Precision Manufacturing', 'Industrial Automation').\n"
             f"  2. Up to 5 cities/states where they OPERATE or have "
             f"offices/plants. Use 'City, ST' format.\n\n"
-            f"Output format — follow this EXACTLY:\n\n"
-            f"INDUSTRIES:\n"
-            f"- Primary industry name\n"
-            f"- (optional) secondary industry\n\n"
-            f"LOCATIONS:\n"
-            f"- City, ST\n"
-            f"- City, ST\n"
-            f"\nNothing else. No preamble."
+            f"CRITICAL: Return ONLY a JSON object with exactly two keys, "
+            f"'industries' and 'locations', each a list of strings. "
+            f"No commentary, no markdown, no preamble.\n\n"
+            f'Example: {{"industries": ["Precision Manufacturing", "Aerospace"], '
+            f'"locations": ["Fort Collins, CO", "Denver, CO"]}}'
         )
         msg = _claude_create_with_retry(
             client,
@@ -25190,16 +25243,32 @@ def _aicb_auto_fill_run(s):
         text = "".join(b.text for b in msg.content if hasattr(b, "text")).strip()
         text = re.sub(r'</?cite[^>]*>', '', text)
 
-        # Use the tolerant section parser. INDUSTRIES first, LOCATIONS
-        # second — both are extracted independently. Falls back to a
-        # whole-text scan if section headers were dropped by the AI.
-        industries = _extract_listed_items(text, section_header="INDUSTRIES")
-        locations = _extract_listed_items(text, section_header="LOCATIONS")
+        industries: list = []
+        locations: list = []
+
+        # Try JSON object first.
+        try:
+            m = re.search(r'\{[\s\S]*?\}', text)
+            if m:
+                obj = json.loads(m.group(0))
+                if isinstance(obj, dict):
+                    industries = [
+                        x.strip() for x in obj.get("industries", [])
+                        if isinstance(x, str) and x.strip()
+                    ]
+                    locations = [
+                        x.strip() for x in obj.get("locations", [])
+                        if isinstance(x, str) and x.strip()
+                    ]
+        except (ValueError, json.JSONDecodeError):
+            pass
+
+        # Fallback: section headers, then whole-text scan.
+        if not industries:
+            industries = _extract_listed_items(text, section_header="INDUSTRIES")
+        if not locations:
+            locations = _extract_listed_items(text, section_header="LOCATIONS")
         if not industries and not locations:
-            # Worst case: AI returned a flat unstructured response. Pull
-            # whatever bullets/numbers are present and treat them as
-            # locations (industries are typically a single phrase the AI
-            # leads with, not bulleted).
             locations = _extract_listed_items(text)
 
         if industries:
@@ -25218,7 +25287,7 @@ def _aicb_auto_fill_run(s):
                 "AI couldn't pull industries/locations from that website. "
                 "Fill them in manually."
             )
-            print(f"[AutoFill] Empty parse. Raw response:\n{text[:600]}", flush=True)
+            print(f"[AutoFill] Empty parse. Raw response:\n{text[:800]}", flush=True)
         else:
             s._aicb_autofill_err = ""
     except Exception as e:
@@ -25236,18 +25305,17 @@ def _aicb_suggest_titles_run(s):
         _site = (s.aicb_website or "").strip()
         _ind = (s.aicb_industry or "").strip()
         prompt = (
-            f"Look at the career page of {_co} ({_site}) and recent job "
-            f"postings on LinkedIn. They operate in {_ind or 'their industry'}.\n\n"
-            f"Return 5-8 SPECIFIC, recruiter-friendly job titles they're "
-            f"hiring for or have hired for in the last 12 months. Skip "
-            f"corporate roles (HR, Finance) unless those are the focus. "
-            f"Prefer the operational/technical roles a staffing agency would "
-            f"actually pitch candidates against.\n\n"
-            f"Output format — follow this EXACTLY:\n\n"
-            f"TITLES:\n"
-            f"- Title One\n"
-            f"- Title Two\n"
-            f"\nNothing else. No preamble."
+            f"List 5-8 specific job titles that {_co} is hiring for. "
+            f"Use their careers page at {_site} and recent LinkedIn job "
+            f"postings in {_ind or 'their industry'}.\n\n"
+            f"Prefer the operational/technical roles a staffing agency "
+            f"would pitch candidates against. Skip corporate roles (HR, "
+            f"Finance) unless those are the focus.\n\n"
+            f"CRITICAL: Return ONLY a JSON array of strings. No commentary, "
+            f"no instructions, no explanations, no markdown. Each item is "
+            f"a single job title (e.g. 'CNC Machinist', 'Production "
+            f"Supervisor'). If you can't find specific titles, return [].\n\n"
+            f'Example output: ["CNC Machinist", "Mill Operator", "Production Supervisor"]'
         )
         msg = _claude_create_with_retry(
             client,
@@ -25258,12 +25326,7 @@ def _aicb_suggest_titles_run(s):
         )
         text = "".join(b.text for b in msg.content if hasattr(b, "text")).strip()
         text = re.sub(r'</?cite[^>]*>', '', text)
-        # Try the structured "TITLES:" section first; fall back to whole-
-        # text scan if the AI skipped the header (web_search responses
-        # can be chatty).
-        titles = _extract_listed_items(text, section_header="TITLES")
-        if not titles:
-            titles = _extract_listed_items(text)
+        titles = _parse_string_list_from_ai(text)
         existing = list(s.aicb_sel_roles or [])
         added = 0
         for t in titles:
@@ -25278,7 +25341,7 @@ def _aicb_suggest_titles_run(s):
                 "AI didn't return parseable titles for that company. "
                 "Try a different website, or just type the titles manually."
             )
-            print(f"[SuggestTitles] Empty parse. Raw response:\n{text[:600]}", flush=True)
+            print(f"[SuggestTitles] Empty parse. Raw response:\n{text[:800]}", flush=True)
         else:
             s._aicb_titles_err = ""
     except Exception as e:
@@ -26573,12 +26636,30 @@ def p_ai_campaign(s: AppState, rf):
                 if s.aicb_cand_source == "autogen":
                     with ui.element("div").style(
                             f"display:flex;align-items:center;gap:12px;margin-bottom:14px;"
-                            f"padding:12px;background:{C['surface']};border-radius:8px;"):
-                        ui.label("Number of candidates:").style(
-                            f"font-size:12px;color:{C['muted']};")
-                        ui.number(
-                            value=s.aicb_cand_count, min=1, max=6, step=1,
-                        ).style("width:80px;").bind_value(s, 'aicb_cand_count')
+                            f"padding:10px 14px;background:{C['surface']};border-radius:8px;"
+                            f"flex-wrap:wrap;"):
+                        ui.label("Candidates:").style(
+                            f"font-size:12px;color:{C['muted']};white-space:nowrap;")
+                        # Pill buttons 1-6 — replaces the wide ui.number
+                        # spinner whose width style was being ignored by
+                        # Quasar (2026-04-26 user report — "long and clunky").
+                        with ui.element("div").style("display:flex;gap:4px;"):
+                            for _n in [1, 2, 3, 4, 5, 6]:
+                                _is_sel = (int(s.aicb_cand_count or 3) == _n)
+                                _bg = C.get("teal", "#1AE3D9") if _is_sel else "transparent"
+                                _color = "#0a1620" if _is_sel else C['text_l']
+                                _border = C.get("teal", "#1AE3D9") if _is_sel else C['border']
+                                def _pick_n(num=_n):
+                                    s.aicb_cand_count = num
+                                    rf()
+                                with ui.element("button").style(
+                                        f"width:30px;height:30px;border-radius:6px;"
+                                        f"background:{_bg};border:1px solid {_border};"
+                                        f"color:{_color};font-family:inherit;"
+                                        f"font-size:13px;font-weight:700;cursor:pointer;"
+                                        f"padding:0;"
+                                        ).on("click", _pick_n):
+                                    ui.label(str(_n))
 
                         def _gen_click():
                             n = max(1, min(6, int(s.aicb_cand_count or 3)))
