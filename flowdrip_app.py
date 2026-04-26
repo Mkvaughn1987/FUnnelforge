@@ -5448,22 +5448,28 @@ def _strip_signature_from_body(body: str) -> str:
         if idx > 0:
             return body[:idx].rstrip()
 
-    # Try finding the first sig line directly in body
+    # Conservative fallback: only strip if the sig name follows a known
+    # closer (Thanks,/Best,/etc.). A bare match against the user's name
+    # mid-body would truncate self-introductions like "this is
+    # Michael Vaughn from..." (C4 in audit 2026-04-26).
+    closers = ["Thanks,", "Thank you,", "Best,", "Best regards,",
+               "Enjoy this great weather!", "Hope to hear from you soon!",
+               "Hope to hear from you!", "Looking forward to connecting."]
     idx = body.find(sig_first)
-    if idx > 30:
+    while idx > 30:
         before = body[:idx].rstrip()
-        # Clean up trailing closers
-        for closer in ["Thanks,", "Thank you,", "Best,", "Best regards,",
-                        "Enjoy this great weather!", "Hope to hear from you soon!",
-                        "Hope to hear from you!", "Looking forward to connecting."]:
-            if before.rstrip().endswith(closer):
-                break
-            # Also check last 2 lines
-            lines = before.rstrip().split("\n")
-            if len(lines) >= 2 and lines[-1].strip() == "" and lines[-2].strip() == closer:
-                before = "\n".join(lines[:-2]).rstrip()
-                break
-        return before
+        # Only strip if `before` ends with a known closer (optionally with
+        # a blank line between closer and name).
+        for closer in closers:
+            if before.endswith(closer):
+                return before[: -len(closer)].rstrip()
+            lines = before.split("\n")
+            if (len(lines) >= 2 and lines[-1].strip() == ""
+                    and lines[-2].strip() == closer):
+                return "\n".join(lines[:-2]).rstrip()
+        # Not a real sig boundary; look for next occurrence (in case the
+        # name appears later as part of an actual sig).
+        idx = body.find(sig_first, idx + 1)
 
     # Try HTML version  -  look for sig in HTML content
     for pattern in [f"<br>{sig_first}", f"<br/>{sig_first}", f"<br />{sig_first}",
