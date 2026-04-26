@@ -8348,8 +8348,9 @@ class AppState:
         # generation time; the inactive field is ignored so stale text can't
         # leak into prompts or PDFs.
         self.aicb_target_mode = "company"
-        # Create-a-Campaign wizard:
-        #   aicb_wizard_step: 1=target details, 2=campaign style, 3=review+generate
+        # Create-a-Campaign wizard (5 steps after 2026-04-26 restructure):
+        #   aicb_wizard_step: 1=target type, 2=target details, 3=candidates,
+        #                     4=campaign style, 5=review+generate
         #   aicb_wizard_mode: "wizard" (guided) or "expanded" (legacy all-at-once)
         # Users default to the guided wizard. Power users can flip to
         # expanded via a toggle link and the site remembers the choice
@@ -25599,12 +25600,19 @@ def p_ai_campaign(s: AppState, rf):
         _top_mode = getattr(s, "aicb_target_mode", "company") or "company"
         if _top_mode not in ("company", "market"):
             _top_mode = "company"
+        # 5-step wizard (2026-04-26 — Candidates inserted at step 3):
+        #   1 = target type, 2 = target details, 3 = candidates,
+        #   4 = campaign style, 5 = review + generate.
         if _wiz_mode == "wizard" and _wiz_step == 1:
             _top_next_ok = True  # default mode = company, always valid
         elif _wiz_mode == "wizard" and _wiz_step == 2:
             _top_target_filled = bool((s.aicb_company or "").strip()) if _top_mode == "company" else bool((s.aicb_niche or "").strip())
-            _top_next_ok = _top_target_filled and bool(s.aicb_sel_roles)
+            _top_next_ok = _top_target_filled
         elif _wiz_mode == "wizard" and _wiz_step == 3:
+            # Step 3 (Candidates): roles required, plus a candidate source
+            # picked. Skip is a valid source — it just means "no candidates".
+            _top_next_ok = bool(s.aicb_sel_roles) and bool(getattr(s, "aicb_cand_source", ""))
+        elif _wiz_mode == "wizard" and _wiz_step == 4:
             _top_next_ok = bool((getattr(s, "aicb_camp_type", "") or "").strip())
         else:
             _top_next_ok = False
@@ -25616,22 +25624,29 @@ def p_ai_campaign(s: AppState, rf):
                 pass  # always valid
             elif _wiz_step == 2:
                 _tgt_filled = bool((s.aicb_company or "").strip()) if _top_mode == "company" else bool((s.aicb_niche or "").strip())
-                if not (_tgt_filled and s.aicb_sel_roles):
+                if not _tgt_filled:
                     _tgt_word = "company" if _top_mode == "company" else "market / niche"
-                    ui.notify(f"Enter a {_tgt_word} and at least one target role.", type="warning")
+                    ui.notify(f"Enter a {_tgt_word}.", type="warning")
                     return
             elif _wiz_step == 3:
+                if not s.aicb_sel_roles:
+                    ui.notify("Add at least one role before continuing.", type="warning")
+                    return
+                if not getattr(s, "aicb_cand_source", ""):
+                    ui.notify("Pick a candidate source (Pool, Auto-generate, or Skip).", type="warning")
+                    return
+            elif _wiz_step == 4:
                 if not (getattr(s, "aicb_camp_type", "") or "").strip():
                     ui.notify("Pick a sequence style.", type="warning")
                     return
-            s.aicb_wizard_step = min(4, _wiz_step + 1)
+            s.aicb_wizard_step = min(5, _wiz_step + 1)
             rf()
 
         with ui.element("div").style(
                 "display:flex;align-items:center;justify-content:space-between;"
                 "gap:12px;margin-bottom:6px;flex-wrap:wrap;"):
             ui.label("Create a Campaign").classes("fd-h1").style("margin:0;")
-            if _wiz_mode == "wizard" and _wiz_step < 4:
+            if _wiz_mode == "wizard" and _wiz_step < 5:
                 _top_next_style = (
                     "padding:9px 22px;font-size:13px;"
                     + ("opacity:0.45;cursor:not-allowed;" if not _top_next_ok else "")
@@ -25687,12 +25702,12 @@ def p_ai_campaign(s: AppState, rf):
         # Visibility helpers used further down to gate the existing panels.
         # In wizard mode, each panel is only shown on its step. In expanded
         # mode, everything renders together (legacy behavior).
-        # Step visibility. 4 steps total; existing panels shifted +1 so
-        # a pure "pick your target type" screen is now Step 1.
+        # Step visibility. 5 steps total (2026-04-26 — Candidates added at 3).
         _show_step1 = _wiz_mode == "expanded" or _wiz_step == 1  # target type chooser
         _show_step2 = _wiz_mode == "expanded" or _wiz_step == 2  # target details form
-        _show_step3 = _wiz_mode == "expanded" or _wiz_step == 3  # campaign style
-        _show_step4 = _wiz_mode == "expanded" or _wiz_step == 4  # review + generate
+        _show_step3 = _wiz_mode == "expanded" or _wiz_step == 3  # candidates (NEW)
+        _show_step4 = _wiz_mode == "expanded" or _wiz_step == 4  # campaign style
+        _show_step5 = _wiz_mode == "expanded" or _wiz_step == 5  # review + generate
 
         # ═══════════════════════════════════════════════════════════════
         # Quick Start panel was removed — users were confused by three
@@ -25793,13 +25808,13 @@ def p_ai_campaign(s: AppState, rf):
         # not on the current step via display:none so their widgets
         # stay bound to state (switching steps is free — no re-render
         # of inputs means no lost in-progress text).
-        # These hide tokens are for the legacy panels that shifted +1
-        # when the new Step 1 chooser was added. They're now:
-        #   _step1_hide → Target Details (now Step 2)
-        #   _step2_hide → Campaign Style (now Step 3)
-        #   _step3_hide → Review + Generate (now Step 4)
+        # Legacy hide-token names retained for diff stability. Mapping
+        # after the 2026-04-26 Candidates insert:
+        #   _step1_hide → Target Details panel (Step 2)
+        #   _step2_hide → Campaign Style panel (Step 4 — was 3)
+        #   _step3_hide → Review + Generate panel (Step 5 — was 4)
         _step1_hide = "" if _show_step2 else "display:none;"
-        _step2_hide = "" if _show_step3 else "display:none;"
+        _step2_hide = "" if _show_step4 else "display:none;"
         # Form panels in wizard mode explicitly go in grid-column 2 so
         # they all stack vertically in the right column and the guidance
         # panel stays in column 1.
@@ -26430,7 +26445,8 @@ def p_ai_campaign(s: AppState, rf):
                                             return
                                         s.aicb_byos_desc = _desc
                                     s.aicb_camp_type = k
-                                    s.aicb_wizard_step = 4
+                                    # 2026-04-26: review is step 5 (was 4)
+                                    s.aicb_wizard_step = 5
                                     rf()
                                 with ui.element("div").style(
                                         "display:flex;justify-content:flex-end;"
@@ -26896,17 +26912,18 @@ def p_ai_campaign(s: AppState, rf):
 
                 threading.Thread(target=_run, daemon=True).start()
 
-            # Review + Generate wrapper — now Step 4 in wizard mode. In
-            # expanded mode (_step3_hide == "") it always shows, preserving
-            # the legacy "everything on one page" experience. display:none
-            # keeps the widget bindings alive so the button still works
-            # when the user arrives at Step 4.
-            _step3_hide = "" if _show_step4 else "display:none;"
+            # Review + Generate wrapper — now Step 5 in wizard mode (was 4
+            # before the 2026-04-26 Candidates insert). In expanded mode
+            # (_step3_hide == "") it always shows, preserving the legacy
+            # "everything on one page" experience. display:none keeps the
+            # widget bindings alive so the button still works when the
+            # user arrives at the review step.
+            _step3_hide = "" if _show_step5 else "display:none;"
             with ui.element("div").style(f"{_step3_hide}{_col2}"):
                 # Review summary — only visible in wizard mode at the
                 # final step, giving the user a "here's what we're about
                 # to generate" checkpoint before they hit the big button.
-                if _wiz_mode == "wizard" and _wiz_step == 4:
+                if _wiz_mode == "wizard" and _wiz_step == 5:
                     _eff = _effective_target(s)
                     _tgt_word = "Company" if _eff["mode"] == "company" else "Market / Niche"
                     _tgt_val  = _eff["company"] or _eff["niche"] or "—"
@@ -26981,17 +26998,19 @@ def p_ai_campaign(s: AppState, rf):
             # required fields are filled, so users can't skip ahead with
             # an empty target or no campaign style picked.
             if _wiz_mode == "wizard":
-                # Required-field gating, per step.
+                # Required-field gating, per step (5-step wizard, 2026-04-26):
                 #   Step 1 (target type) — always OK, mode defaults to "company"
-                #   Step 2 (target details) — target field + at least one role
-                #   Step 3 (campaign style) — style picked
-                #   Step 4 (review) — no Next, Generate button is the forward action
+                #   Step 2 (target details) — target field only (roles moved to step 3)
+                #   Step 3 (candidates) — at least one role + a candidate source
+                #   Step 4 (campaign style) — style picked
+                #   Step 5 (review) — no Next, Generate button is the forward action
                 _step1_ok = True  # always valid (default mode = company)
                 if _mode == "company":
-                    _step2_ok = bool((s.aicb_company or "").strip()) and bool(s.aicb_sel_roles)
+                    _step2_ok = bool((s.aicb_company or "").strip())
                 else:
-                    _step2_ok = bool((s.aicb_niche or "").strip()) and bool(s.aicb_sel_roles)
-                _step3_ok = bool((s.aicb_camp_type or "").strip())
+                    _step2_ok = bool((s.aicb_niche or "").strip())
+                _step3_ok = bool(s.aicb_sel_roles) and bool(getattr(s, "aicb_cand_source", ""))
+                _step4_ok = bool((s.aicb_camp_type or "").strip())
 
                 def _wiz_next():
                     # Persist what's typed before advancing so the Review
@@ -27006,23 +27025,31 @@ def p_ai_campaign(s: AppState, rf):
                                     s.aicb_website = (web_inp.value or "").strip()
                             elif _mode == "market" and niche_inp is not None:
                                 s.aicb_niche = (niche_inp.value or "").strip()
-                            if roles_inp is not None:
-                                s.aicb_sel_roles = [r.strip() for r in (roles_inp.value or "").split(",") if r.strip()]
                             if not _step2_ok:
                                 _tgt_word = "company" if _mode == "company" else "market / niche"
-                                ui.notify(f"Enter a {_tgt_word} and at least one target role.",
-                                          type="warning"); return
+                                ui.notify(f"Enter a {_tgt_word}.", type="warning"); return
                         elif _wiz_step == 3:
                             if not _step3_ok:
+                                if not s.aicb_sel_roles:
+                                    ui.notify("Add at least one role before continuing.",
+                                              type="warning"); return
+                                ui.notify("Pick a candidate source (Pool, Auto-generate, or Skip).",
+                                          type="warning"); return
+                            # Serialize cards to text for _cand_block consumer
+                            if s.aicb_cand_cards:
+                                s._aicb_cand_text = _aicb_cards_to_text(s.aicb_cand_cards)
+                        elif _wiz_step == 4:
+                            if not _step4_ok:
                                 ui.notify("Pick a sequence style.", type="warning"); return
                     except Exception as ex:
                         print(f"[AICBWizard] next error: {ex}", flush=True)
-                    s.aicb_wizard_step = min(4, _wiz_step + 1); rf()
+                    s.aicb_wizard_step = min(5, _wiz_step + 1); rf()
 
                 def _wiz_back():
                     # H16: clear computed outputs (research, generated
-                    # campaign, generated docs) so a forward re-run
-                    # regenerates from current inputs. Inputs preserved.
+                    # campaign, generated docs, candidate cards) so a
+                    # forward re-run regenerates from current inputs.
+                    # Inputs preserved.
                     _wiz_back_clear_outputs(s)
                     s.aicb_wizard_step = max(1, _wiz_step - 1); rf()
 
@@ -27039,12 +27066,13 @@ def p_ai_campaign(s: AppState, rf):
                     else:
                         ui.element("div")  # spacer to keep Next right-aligned
 
-                    # Next — shown on steps 1-3. Step 4's forward action is Generate.
-                    if _wiz_step < 4:
+                    # Next — shown on steps 1-4. Step 5's forward action is Generate.
+                    if _wiz_step < 5:
                         _next_disabled = not (
                             _step1_ok if _wiz_step == 1 else
                             _step2_ok if _wiz_step == 2 else
-                            _step3_ok)
+                            _step3_ok if _wiz_step == 3 else
+                            _step4_ok)
                         _next_style = (
                             "padding:9px 22px;font-size:13px;"
                             + ("opacity:0.45;cursor:not-allowed;" if _next_disabled else "")
