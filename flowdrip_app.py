@@ -8670,7 +8670,7 @@ PAGE_HELP = {
         ]
     },
     "drip": {
-        "title": "Today's Drip",
+        "title": "Today",
         "sections": [
             ("What is this?", "Your daily to-do list for sales outreach  -  every call, LinkedIn touch, and task that needs to happen today, grouped by campaign."),
             ("Task Types", "Each task has a colored badge:\n- Call (amber): Phone call with script + talking points.\n- LinkedIn (indigo): Connection request or DM.\n- Task (gray): General action item.\n- Slow Drip (purple): Task from an evergreen campaign."),
@@ -8680,7 +8680,7 @@ PAGE_HELP = {
         ]
     },
     "start_seq": {
-        "title": "Start a Campaign",
+        "title": "Sequences",
         "sections": [
             ("What is this?", "Build and launch email campaigns step by step. Use a preset or build from scratch."),
             ("Campaign Types", "Pick a preset (Blitz, Steady Flow, etc.) or build a Free Flow  -  any mix of emails, calls, and LinkedIn touches. First-time Free Flows get offered as saved templates for reuse."),
@@ -8691,7 +8691,7 @@ PAGE_HELP = {
         ]
     },
     "seq_mgr": {
-        "title": "Manage Campaigns",
+        "title": "Sequences",
         "sections": [
             ("What is this?", "Manage running campaigns. Progress, emails, contacts, sent/pending status."),
             ("Campaign Cards", "Progress bar + contact count + sent/pending. Click to expand."),
@@ -8700,7 +8700,7 @@ PAGE_HELP = {
         ]
     },
     "evergreen": {
-        "title": "Slow Drip Campaigns",
+        "title": "Always-On Sequence",
         "sections": [
             ("What is this?", "Long-running campaigns on a fixed schedule. Enroll anytime  -  contacts pick up at the next upcoming email."),
             ("How It Works", "Regular campaigns start from Day 1 per contact. Slow Drips use fixed dates or rolling schedules. Contacts enrolled mid-sequence skip past emails."),
@@ -8712,7 +8712,7 @@ PAGE_HELP = {
         ]
     },
     "candidate_finder": {
-        "title": "Candidate Pool",
+        "title": "Candidates",
         "sections": [
             ("What is this?", "Your roster of active candidates, grouped by industry. Bulk-import resumes, match them to a JD, and build submittals in minutes."),
             ("Candidate Pool Tab", "Candidates grouped by industry (Construction, Manufacturing, Sales, etc.). Click any row to expand for AI-generated highlights, View Resume, Search Jobs, Start Campaign, or status changes."),
@@ -8724,7 +8724,7 @@ PAGE_HELP = {
         ]
     },
     "contacts": {
-        "title": "Contact Lists",
+        "title": "Contacts",
         "sections": [
             ("What is this?", "Your master contact database. Upload CSV files to build outreach lists, then use them in campaigns."),
             ("Importing", "Click '＋ Import New List' at the top. Headers auto-normalize (FirstName, LastName, Email, Company, JobTitle, City, State, etc.). Duplicates are dropped."),
@@ -8733,7 +8733,7 @@ PAGE_HELP = {
         ]
     },
     "pdf_gen": {
-        "title": "PDF Generator",
+        "title": "Reports",
         "sections": [
             ("What is this?", "Create branded PDFs to attach to outreach emails. AI-generated with real market data + your brand color and logo."),
             ("How to Use", "1. Enter a company name or market, location, and target role.\n2. Click one of the 6 PDF types.\n3. 'View PDF' to open.\n4. 'Clear / New PDF' to start another."),
@@ -8766,7 +8766,7 @@ PAGE_HELP = {
         ]
     },
     "ai_settings": {
-        "title": "Email & AI Setup",
+        "title": "Settings",
         "sections": [
             ("What is this?", "Connect your email (so DripDrop can send) and add your AI key (so DripDrop can generate content). Both are required end-to-end."),
             ("Email Sending", "Three options:\n- Microsoft: one-click OAuth for Outlook / Office 365.\n- Gmail: OAuth via Google.\n- SMTP / SendGrid / Brevo: any provider via SMTP or HTTP API  -  works from the server when SMTP is blocked."),
@@ -8775,7 +8775,7 @@ PAGE_HELP = {
         ]
     },
     "responses": {
-        "title": "Campaign Radar",
+        "title": "Replies",
         "sections": [
             ("What is this?", "Your campaign command center. See active campaigns and replies  -  all in one place."),
             ("Campaign Health", "Cards at the top show each active campaign's sent, pending, and reply counts at a glance."),
