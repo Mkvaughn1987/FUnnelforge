@@ -174,3 +174,52 @@ def test_parse_string_list_dedup_case_insensitive():
     out = fa._parse_string_list_from_ai(text)
     assert len(out) == 2
     assert "CNC Machinist" in out
+
+
+# ── Stratom screenshot regression: reject [], URLs, "visit"
+
+def test_extract_rejects_empty_json_fragment():
+    import flowdrip_app as fa
+    text = "TITLES:\n[]\n- CNC Machinist"
+    out = fa._extract_listed_items(text, section_header="TITLES")
+    assert out == ["CNC Machinist"]
+    assert "[]" not in out
+
+
+def test_extract_rejects_url_lines():
+    import flowdrip_app as fa
+    text = (
+        "TITLES:\n"
+        "- Visit Stratom.com/careers directly\n"
+        "- See https://example.com/jobs\n"
+        "- CNC Machinist"
+    )
+    out = fa._extract_listed_items(text, section_header="TITLES")
+    assert out == ["CNC Machinist"]
+
+
+def test_extract_rejects_visit_instruction():
+    import flowdrip_app as fa
+    text = "TITLES:\n- Visit the careers page\n- CNC Machinist"
+    out = fa._extract_listed_items(text, section_header="TITLES")
+    assert out == ["CNC Machinist"]
+
+
+def test_parse_string_list_rejects_url_inside_json():
+    """If the AI returns a JSON array with URL strings, those must be
+    filtered out the same as the text-fallback path filters."""
+    import flowdrip_app as fa
+    text = '["Visit Stratom.com/careers directly", "[]", "CNC Machinist"]'
+    out = fa._parse_string_list_from_ai(text)
+    assert out == ["CNC Machinist"]
+
+
+def test_extract_rejects_lowercase_only_lines():
+    """Real titles are Title Case. Fully-lowercase noise lines are
+    likely instructions, not titles."""
+    import flowdrip_app as fa
+    text = "TITLES:\n- cnc operator role\n- Mill Operator"
+    out = fa._extract_listed_items(text, section_header="TITLES")
+    assert "Mill Operator" in out
+    # The fully-lowercase line is rejected (no capitalized word)
+    assert "cnc operator role" not in out

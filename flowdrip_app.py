@@ -24836,6 +24836,11 @@ def _extract_listed_items(text: str, section_header: str = None) -> list:
         # Stop at a NEW header line (e.g. when scanning TITLES, hit LOCATIONS).
         if re.match(r'^[A-Z][A-Z ]{2,30}\s*:\s*$', line) and section_header:
             break
+        # Reject lines that ARE JSON fragments — the regex-based JSON
+        # extraction in _parse_string_list_from_ai sometimes fails open
+        # and we end up here with literal "[]", "{}", or partial arrays.
+        if re.match(r'^[\[\{][\s\S]*[\]\}]$', line) or line in ("[]", "{}", "[", "]", "{", "}"):
+            continue
         # Strip leading bullet / number markers
         line = re.sub(r'^\s*(?:[-•*]|\(?\d+[\.\)])\s+', '', line)
         # Strip surrounding markdown emphasis (handles **bold**, *italic*,
@@ -24847,6 +24852,10 @@ def _extract_listed_items(text: str, section_header: str = None) -> list:
         # the markdown-strip leaves a colon, which signals instruction
         # rather than a label. Real titles almost never contain a colon.
         if ":" in line:
+            continue
+        # Reject lines that contain URLs or domain-looking content. Real
+        # job titles don't have slashes, .com, or http(s).
+        if re.search(r'https?://|www\.|\.com|\.net|\.org|\.io|/', line):
             continue
         # Strip trailing parenthetical descriptors that often follow titles:
         # "CNC Machinist (5+ years experience)" → "CNC Machinist"
@@ -24866,9 +24875,17 @@ def _extract_listed_items(text: str, section_header: str = None) -> list:
             "filter by", "search for", "look for", "navigate",
             "click ", "select ", "browse ", "go to ", "use the ",
             "based on", "according to", "i found", "you can ",
+            "visit ",
         )
         _lower = line.lower()
         if any(p in _lower for p in _INSTRUCT_PATTERNS):
+            continue
+        # Reject lines that don't look like a title. Titles are 1-6 words
+        # with at least one capital letter (proper noun convention).
+        words = line.split()
+        if len(words) > 8:
+            continue
+        if not any(w[0].isupper() for w in words if w):
             continue
         # Strip wrapping quotes
         line = line.strip('"\'')
@@ -24908,6 +24925,20 @@ def _parse_string_list_from_ai(text: str) -> list:
                         continue
                     val = item.strip().strip('"\'')
                     if not val or len(val) > 60:
+                        continue
+                    # Apply the same gate as the text fallback so a JSON
+                    # response like ["Visit example.com", "[]"] doesn't
+                    # ship URL noise as titles.
+                    if re.search(r'https?://|www\.|\.com|\.net|\.org|\.io|/', val):
+                        continue
+                    if val in ("[]", "{}", "[", "]", "{", "}"):
+                        continue
+                    if ":" in val:
+                        continue
+                    words = val.split()
+                    if len(words) > 8:
+                        continue
+                    if not any(w[0].isupper() for w in words if w):
                         continue
                     key = val.lower()
                     if key in seen:
@@ -25836,7 +25867,12 @@ def p_ai_campaign(s: AppState, rf):
                 "display:flex;align-items:center;justify-content:space-between;"
                 "gap:12px;margin-bottom:6px;flex-wrap:wrap;"):
             ui.label("Create a Campaign").classes("fd-h1").style("margin:0;")
-            if _wiz_mode == "wizard" and _wiz_step < 5:
+            # Top Next visible on steps 1-3. Step 4 (Campaign style) uses
+            # the inline "✦ Generate Campaign →" button on each style card
+            # as the single forward action — having a separate Next here
+            # would let users advance without picking a style and then
+            # crash _do_research on step 5. Step 5 has no Next either.
+            if _wiz_mode == "wizard" and _wiz_step < 4:
                 _top_next_style = (
                     "padding:9px 22px;font-size:13px;"
                     + ("opacity:0.45;cursor:not-allowed;" if not _top_next_ok else "")
@@ -26827,9 +26863,15 @@ def p_ai_campaign(s: AppState, rf):
                                 # so the card-level click doesn't double-fire.
                                 # For Free Flow (byos), validates that the
                                 # description is non-empty before advancing.
-                                def _style_next(k=ckey, _b=byos_inp):
+                                # Inline "Generate Campaign" button — picking
+                                # a style is the same gesture as committing to
+                                # generate. Advances to step 5 (review) AND
+                                # kicks off _do_research so the spinner shows
+                                # immediately. (2026-04-26 user feedback —
+                                # "should just have a Generate button instead
+                                # of next; review shows while generating".)
+                                def _style_generate(k=ckey, _b=byos_inp):
                                     if k == "byos":
-                                        # Read live textarea value, fall back to state
                                         _desc = (
                                             (_b.value if _b is not None else "")
                                             or s.aicb_byos_desc or ""
@@ -26841,17 +26883,19 @@ def p_ai_campaign(s: AppState, rf):
                                             return
                                         s.aicb_byos_desc = _desc
                                     s.aicb_camp_type = k
-                                    # 2026-04-26: review is step 5 (was 4)
                                     s.aicb_wizard_step = 5
-                                    rf()
+                                    # Kick off generation; the spinner block
+                                    # at step 5 picks up s.aicb_generating.
+                                    _do_research()
                                 with ui.element("div").style(
                                         "display:flex;justify-content:flex-end;"
                                         "margin-top:12px;"):
                                     with ui.element("button").classes("fd-pb").props(
                                             "@click.stop").style(
-                                            "padding:7px 16px;font-size:12px;"
-                                            ).on("click", _style_next):
-                                        ui.label("Next →")
+                                            "padding:9px 20px;font-size:13px;"
+                                            "font-weight:700;"
+                                            ).on("click", _style_generate):
+                                        ui.label("✦ Generate Campaign →")
 
                 # ── "My Campaign Styles"  -  saved Free Flow variants ──────────
                 _my_styles = _load_my_campaign_styles()
@@ -26928,9 +26972,13 @@ def p_ai_campaign(s: AppState, rf):
                 if _mode == "market" and not niche:
                     ui.notify("Pick an industry and at least one sub-niche (or switch to Company mode).", type="warning")
                     return
-                roles_text = roles_inp.value.strip()
-                if not roles_text:
-                    ui.notify("Enter at least one target position.", type="warning")
+                # Roles + candidates now live on step 3 and are already
+                # written to s.aicb_sel_roles / s._aicb_cand_text by the
+                # time we land on step 4 or 5. Don't read from roles_inp /
+                # cand_inp — they're None on the new step 2 (2026-04-26).
+                if not s.aicb_sel_roles:
+                    ui.notify("Add at least one target role on the Candidates step.",
+                              type="warning")
                     return
                 # Save inputs — only the active mode's target field is
                 # written; the other stays in AppState untouched so a
@@ -26940,13 +26988,6 @@ def p_ai_campaign(s: AppState, rf):
                     s.aicb_website = (web_inp.value.strip() if web_inp is not None else "")
                 # In market mode s.aicb_niche is already populated from
                 # the picker — no extra write needed.
-                # s.aicb_industry and s.aicb_sel_locations are written
-                # directly to state by their dedicated pickers
-                # (_render_industry_picker, _render_region_picker) — no
-                # widget refs to read here. The legacy ind_sel/loc_inp
-                # variables no longer exist; reading them crashed the
-                # click handler silently.
-                s.aicb_sel_roles = [r.strip() for r in roles_text.split(",") if r.strip()]
                 if s.aicb_camp_type == "byos":
                     try:
                         s.aicb_byos_desc = byos_inp.value.strip()
@@ -26955,12 +26996,6 @@ def p_ai_campaign(s: AppState, rf):
                     if not s.aicb_byos_desc:
                         ui.notify("Describe your custom sequence.", type="warning")
                         return
-                # Save candidate text (blur may not have fired yet)
-                try:
-                    if cand_inp is not None:
-                        s._aicb_cand_text = cand_inp.value or ""
-                except Exception:
-                    pass
                 s.aicb_generating = True
                 s._aicb_error = ""
                 rf()
@@ -27463,7 +27498,10 @@ def p_ai_campaign(s: AppState, rf):
                         ui.element("div")  # spacer to keep Next right-aligned
 
                     # Next — shown on steps 1-4. Step 5's forward action is Generate.
-                    if _wiz_step < 5:
+                    # Bottom Next visible on steps 1-3 only. Step 4 uses
+                    # the inline "✦ Generate Campaign →" on each style
+                    # card as the forward action; step 5 has no Next.
+                    if _wiz_step < 4:
                         _next_disabled = not (
                             _step1_ok if _wiz_step == 1 else
                             _step2_ok if _wiz_step == 2 else
