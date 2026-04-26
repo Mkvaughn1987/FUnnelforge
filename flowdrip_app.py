@@ -8362,6 +8362,12 @@ class AppState:
         self.aicb_website = ""
         self.aicb_industry = ""
         self.aicb_niche = ""
+        # Industry picker (Primary + Secondary). Initialized here so
+        # render-time reads (`s.aicb_primary_industry or ""`) don't
+        # AttributeError on a fresh session before the picker has been
+        # rendered. Crashed the AI Campaign page on first load 2026-04-26.
+        self.aicb_primary_industry = ""
+        self.aicb_secondary_industries: list = []
         self.aicb_research = None                 # parsed research dict
         self.aicb_sel_locations: list = []
         self.aicb_sel_roles: list = []
@@ -26571,8 +26577,13 @@ def p_ai_campaign(s: AppState, rf):
                 )
                 # Keep the legacy s.aicb_industry (key form) in sync so
                 # downstream code that still references it (PDF prompts,
-                # campaign generation) keeps working.
-                _new_pkey = _industry_key_for_label_or_key(s.aicb_primary_industry or "")
+                # campaign generation) keeps working. Use getattr — the
+                # picker may not have been rendered yet on a fresh wizard
+                # session, so aicb_primary_industry isn't guaranteed to
+                # exist as an attribute. Crashed the AI Campaign page on
+                # a fresh start before this guard was added (2026-04-26).
+                _primary_ind = getattr(s, "aicb_primary_industry", "") or ""
+                _new_pkey = _industry_key_for_label_or_key(_primary_ind)
                 if _new_pkey and _new_pkey != s.aicb_industry:
                     s.aicb_industry = _new_pkey
                 # Auto-derive aicb_niche from the picker now that the
@@ -26585,8 +26596,8 @@ def p_ai_campaign(s: AppState, rf):
                 _sec_list = getattr(s, "aicb_secondary_industries", []) or []
                 if _sec_list:
                     s.aicb_niche = ", ".join(str(x).strip() for x in _sec_list if str(x).strip())
-                elif (s.aicb_primary_industry or "").strip():
-                    s.aicb_niche = s.aicb_primary_industry.strip()
+                elif _primary_ind.strip():
+                    s.aicb_niche = _primary_ind.strip()
 
                 # Location single-select — writes DIRECTLY to
                 # aicb_sel_locations (a list with 0 or 1 entry). The
