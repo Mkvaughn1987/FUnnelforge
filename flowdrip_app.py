@@ -26497,22 +26497,12 @@ def p_ai_campaign(s: AppState, rf):
                                     f"padding-top:10px;border-top:1px solid {C['border']};"
                                     f"line-height:1.5;")
 
-                                # Inline Next button — picks this card's mode
-                                # and advances to step 2 in one click. Stops
-                                # event propagation so the card-level click
-                                # (which only sets the mode) doesn't also fire.
-                                def _pick_and_advance(mk=_mk):
-                                    s.aicb_target_mode = mk
-                                    s.aicb_wizard_step = 2
-                                    rf()
-                                with ui.element("div").style(
-                                        "display:flex;justify-content:flex-end;"
-                                        "margin-top:14px;"):
-                                    with ui.element("button").classes("fd-pb").props(
-                                            "@click.stop").style(
-                                            "padding:8px 18px;font-size:12px;"
-                                            ).on("click", _pick_and_advance):
-                                        ui.label("Next →")
+                                # Inline Next button removed 2026-04-26 per
+                                # user feedback ("too many buttons") — the
+                                # top-right Next is the single forward
+                                # action on this step. Card click still
+                                # selects the mode (handler bound on the
+                                # card div above).
 
             # ═══ Target Details panel — Step 2 in wizard mode ═══
             _step2_hide_details = "" if _show_step2 else "display:none;"
@@ -27748,23 +27738,10 @@ def p_ai_campaign(s: AppState, rf):
                     else:
                         ui.element("div")  # spacer to keep Next right-aligned
 
-                    # Next — shown on steps 1-4. Step 5's forward action is Generate.
-                    # Bottom Next visible on steps 1-3 only. Step 4 uses
-                    # the inline "✦ Generate Campaign →" on each style
-                    # card as the forward action; step 5 has no Next.
-                    if _wiz_step < 4:
-                        _next_disabled = not (
-                            _step1_ok if _wiz_step == 1 else
-                            _step2_ok if _wiz_step == 2 else
-                            _step3_ok if _wiz_step == 3 else
-                            _step4_ok)
-                        _next_style = (
-                            "padding:9px 22px;font-size:13px;"
-                            + ("opacity:0.45;cursor:not-allowed;" if _next_disabled else "")
-                        )
-                        with ui.element("button").classes("fd-pb").style(_next_style).on(
-                                "click", (lambda: None) if _next_disabled else _wiz_next):
-                            ui.label("Next →")
+                    # Bottom Next removed 2026-04-26 per user feedback
+                    # ("too many buttons"). The top-right Next is the
+                    # single forward control across the whole wizard;
+                    # bottom row keeps Back only.
 
     # ── Phase 2: Results ───────────────────────────────────────────────────
     elif s.aicb_step == 2:
