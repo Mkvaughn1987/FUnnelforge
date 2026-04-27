@@ -8236,7 +8236,7 @@ SALES_NAV = [
     ("◎",  "Replies",           "responses"),
     # ── Sequences ────────────────────────────────
     (None, "SEQUENCES",         None),
-    ("▷",  "Sequences",         "start_seq"),
+    ("▷",  "Start a Sequence",  "start_seq"),
     ("≡",  "Contacts",          "contacts"),
     ("🚫", "Opt-Out List",     "dnc"),
     ("🛡", "Existing Customers", "active_clients"),
@@ -8920,7 +8920,7 @@ PAGE_HELP = {
         ]
     },
     "start_seq": {
-        "title": "Sequences",
+        "title": "Start a Sequence",
         "sections": [
             ("What is this?", "Build and launch email campaigns step by step. Use a preset or build from scratch."),
             ("Campaign Types", "Pick a preset (Blitz, Steady Flow, etc.) or build a Free Flow  -  any mix of emails, calls, and LinkedIn touches. First-time Free Flows get offered as saved templates for reuse."),
@@ -8940,7 +8940,7 @@ PAGE_HELP = {
         ]
     },
     "evergreen": {
-        "title": "Always-On Sequence",
+        "title": "SlowDrip Sequence",
         "sections": [
             ("What is this?", "Long-running campaigns on a fixed schedule. Enroll anytime  -  contacts pick up at the next upcoming email."),
             ("How It Works", "Regular campaigns start from Day 1 per contact. Slow Drips use fixed dates or rolling schedules. Contacts enrolled mid-sequence skip past emails."),
@@ -9293,7 +9293,7 @@ def topbar(s: AppState, rf):
         with ui.element("button").classes("fd-hub" + (" on" if _on_camp_mgr else "")).on("click", _camp_mgr):
             ui.label("Manage Campaigns")
         with ui.element("button").classes("fd-hub" + (" on" if _on_evergreen else "")).on("click", _evergreen):
-            ui.label("Always-On Sequence")
+            ui.label("SlowDrip Sequence")
         def _cf():
             s._nav_history.clear()
             s.hub = "sales"; s.sp = "candidate_finder"; rf()
@@ -9972,7 +9972,7 @@ def p_today_combined(s: AppState, rf):
                             ui.label(camp_name).style(
                                 f"font-size:14px;font-weight:600;color:{C['text_l']};font-family:'Nunito',sans-serif;")
                             if _any_eg:
-                                ui.label("Always-On Sequence").style(
+                                ui.label("SlowDrip Sequence").style(
                                     f"font-size:9px;padding:2px 8px;border-radius:99px;font-weight:700;"
                                     f"background:{C['indigo']}15;color:{C['indigo']};"
                                     f"text-transform:uppercase;letter-spacing:.05em;")
@@ -13391,7 +13391,7 @@ def p_seq(s: AppState, rf):
     _page_decor(variant=1)  # Flowing Ribbon  -  the main Start a Campaign picker
 
     with ui.element("div").style("display:flex;align-items:center;"):
-        ui.label("Sequences").classes("fd-h1")
+        ui.label("Start a Sequence").classes("fd-h1")
         _show_page_help(s, rf, "start_seq")
 
     # ── Wizard header ────────────────────────────────────────────────────
@@ -20175,7 +20175,7 @@ def p_dashboard(s: AppState, rf):
                     for camp in _regular:
                         _render_camp_card(camp, C["teal"])
                 if _slow_drip:
-                    _group_header("Always-On Sequence", len(_slow_drip), C["indigo"])
+                    _group_header("SlowDrip Sequence", len(_slow_drip), C["indigo"])
                     for camp in _slow_drip:
                         _render_camp_card(camp, C["indigo"])
 
