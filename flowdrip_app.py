@@ -19,6 +19,31 @@ load_dotenv()
 import uvicorn.logging
 from nicegui import ui, app
 
+# Suppress the noisy "Event listeners changed after initial definition.
+# Re-rendering affected elements." warnings that NiceGUI's client-side
+# JS forwards to the server logger any time a button's click handler
+# closure is re-bound on rerender. We rerender often; with our render
+# style each tick fires this dozens of times. The warning is purely
+# cosmetic — Quasar correctly re-renders the affected elements — but
+# it floods journalctl which makes debugging real issues painful.
+# 2026-04-26: deep-diag report; 28+ in a single second.
+import logging as _logging
+
+
+class _NiceGUIClientWarningFilter(_logging.Filter):
+    def filter(self, record: _logging.LogRecord) -> bool:
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        if "Event listeners changed after initial definition" in msg:
+            return False
+        return True
+
+
+_logging.getLogger("nicegui").addFilter(_NiceGUIClientWarningFilter())
+
+
 # ── Auth secret for NiceGUI session storage ───────────────────────────────
 # In production this MUST come from the DRIPDROP_SECRET env var. The fallback
 # is only used for local desktop dev. If the dev fallback is ever active in
@@ -27490,20 +27515,17 @@ def p_ai_campaign(s: AppState, rf):
                             # to wait."
                             pdf_target = _pdf_target_early or company
 
-                            def _pdf_attach_worker():
-                                try:
-                                    # Wait for the parallel PDF AI thread
-                                    # (started at the top of _run) to finish.
-                                    _pdf_data_event.wait(timeout=240)
-                                    _pdf_data = _pdf_data_holder.get("data") or {}
-                                    if _pdf_data:
-                                        _aicb_attach_pdfs(_pdf_data, campaign_data,
-                                                          pdf_target, appstate=s)
-                                except Exception as pdf_err:
-                                    print(f"[AICB] PDF attach error (non-fatal): {pdf_err}")
-                                finally:
-                                    s._aicb_pdfs_in_progress = False
-                            threading.Thread(target=_pdf_attach_worker, daemon=True).start()
+                            # Attach is done SYNCHRONOUSLY a few lines below
+                            # (after _pdf_data_event.wait) so we don't race
+                            # with a background-thread version of the same
+                            # call. Earlier this block also launched a
+                            # _pdf_attach_worker thread "as a fallback" —
+                            # the result was each PDF getting attached
+                            # twice (once by the bg thread, once by the
+                            # sync path) to two different email steps when
+                            # the campaign had more steps than PDF kinds.
+                            # 2026-04-26 user report: "PDF creation keeps
+                            # adding 2 of each when I only asked for 1".
 
                             # Attach redacted resume PDFs to early email steps
                             if _resume_pdfs and campaign_data.get("emails"):
@@ -27538,10 +27560,10 @@ def p_ai_campaign(s: AppState, rf):
                                                       pdf_target, appstate=s)
                                 except Exception as _att_ex:
                                     print(f"[AICB] sync attach error: {_att_ex}", flush=True)
-                            # The bg _pdf_attach_worker may also fire — its
-                            # finally clears _aicb_pdfs_in_progress. Set it
-                            # here too so the results page is in the right
-                            # state immediately.
+                            # PDFs are attached at this point (single
+                            # synchronous call above; no background fallback
+                            # any more — see comment about the duplicate-
+                            # attach bug 2026-04-26).
                             s._aicb_pdfs_in_progress = False
 
                             s.aicb_step = 2
