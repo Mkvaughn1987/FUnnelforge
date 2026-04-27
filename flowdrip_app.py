@@ -3641,6 +3641,27 @@ def load_campaigns():
     camps = list(by_name.values())
     return _cache_campaigns.set(camps)
 
+
+def _camp_recency_ts(c) -> float:
+    """Float timestamp for sorting campaigns most-recent-first across the
+    dashboard, sequence manager, etc. Prefers explicit created_* fields
+    on the campaign dict, falls back to file mtime via _path."""
+    _ts = (c.get("created_at") or c.get("created_date")
+           or c.get("created") or "")
+    if _ts:
+        try:
+            return datetime.fromisoformat(_ts).timestamp()
+        except Exception:
+            pass
+    _p = c.get("_path", "")
+    if _p:
+        try:
+            return float(Path(_p).stat().st_mtime)
+        except Exception:
+            return 0.0
+    return 0.0
+
+
 def save_campaign(camp):
     raw_name = (camp.get("name") or "").strip() or f"Campaign_{datetime.now().strftime('%m%d%H%M%S')}"
     camp["name"] = raw_name  # ensure name is never empty in saved dict
@@ -10154,7 +10175,14 @@ def p_today_combined(s: AppState, rf):
                       f"font-size:12px;color:{C['muted']};padding:12px 0;")
               else:
                   shown_camps = set()
-                  for cname, info in auto_camps.items():
+                  # Most-recently-added first so new sequences surface at
+                  # the top instead of being buried alphabetically.
+                  _sorted_auto = sorted(
+                      auto_camps.items(),
+                      key=lambda kv: _camp_recency_ts(kv[1]["camp"]),
+                      reverse=True,
+                  )
+                  for cname, info in _sorted_auto:
                       queued = queue_by_camp.get(cname, 0)
                       # Skip templates  -  only show campaigns with contacts loaded or emails queued
                       if info["contact_count"] == 0 and queued == 0:
@@ -16631,9 +16659,13 @@ def p_active_camps(s, rf):
             if sdt and (cq["next_dt"] is None or sdt < cq["next_dt"]):
                 cq["next_dt"] = sdt
 
-    active = [c for c in camps if camp_q.get(c.get("name", ""), {}).get("pending", 0) > 0]
-    completed = [c for c in camps if camp_q.get(c.get("name", ""), {}).get("pending", 0) == 0
-                 and camp_q.get(c.get("name", ""), {}).get("sent", 0) > 0]
+    active = sorted(
+        [c for c in camps if camp_q.get(c.get("name", ""), {}).get("pending", 0) > 0],
+        key=_camp_recency_ts, reverse=True)
+    completed = sorted(
+        [c for c in camps if camp_q.get(c.get("name", ""), {}).get("pending", 0) == 0
+         and camp_q.get(c.get("name", ""), {}).get("sent", 0) > 0],
+        key=_camp_recency_ts, reverse=True)
 
     ui.label("Active Sequences").classes("fd-h1")
     ui.label(f"{len(active)} running with emails in queue · {len(completed)} finished").classes("fd-sub")
@@ -16659,6 +16691,9 @@ def p_active_camps(s, rf):
     for c in queue_completed:
         if c.get("name") not in completed_names:
             completed.append(c)
+    # Re-sort after merge so the appended queue_completed entries land in
+    # recency order alongside the file-based completed campaigns.
+    completed.sort(key=_camp_recency_ts, reverse=True)
 
     if not active and not completed:
         with ui.element("div").classes("fd-empty"):
@@ -20139,9 +20174,15 @@ def p_dashboard(s: AppState, rf):
                     ui.label("View all")
 
             # Split into regular Active vs Slow Drip (evergreen) to match
-            # the Manage Campaigns grouping.
-            _regular = [c for c in active_camps if not c.get("evergreen_only")]
-            _slow_drip = [c for c in active_camps if c.get("evergreen_only")]
+            # the Manage Campaigns grouping. Sort each group most-recent
+            # first so newly-created sequences surface at the top of the
+            # dashboard instead of getting buried at the bottom.
+            _regular = sorted(
+                [c for c in active_camps if not c.get("evergreen_only")],
+                key=_camp_recency_ts, reverse=True)
+            _slow_drip = sorted(
+                [c for c in active_camps if c.get("evergreen_only")],
+                key=_camp_recency_ts, reverse=True)
 
             if not active_camps:
                 with ui.element("div").style(
