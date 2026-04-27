@@ -11981,6 +11981,16 @@ def _sq_loaded_campaign(s: AppState, rf):
 
                 def _gen_pdf_inline(pid, plabel, step_idx):
                     """Generate a single PDF type using campaign context, attach it to the step."""
+                    # Toast BEFORE the rerender — rf() destroys the click's
+                    # parent slot, so any ui.notify() after it raises
+                    # RuntimeError("parent slot deleted"), which kills the
+                    # websocket and shows 'Reconnecting to DripDrop...' on
+                    # the user's screen. Wrapped defensively in case the
+                    # context was already torn down.
+                    try:
+                        ui.notify(f"Generating {plabel}...", type="info", timeout=3000)
+                    except Exception:
+                        pass
                     s._pdf_generating = pid; rf()
                     def _run():
                         # Background-thread safety: rebind the user-email
@@ -12072,7 +12082,9 @@ def _sq_loaded_campaign(s: AppState, rf):
                         finally:
                             s._pdf_generating = ""
                     threading.Thread(target=_run, daemon=True).start()
-                    ui.notify(f"Generating {plabel}...", type="info", timeout=3000)
+                    # (The pre-rerender toast above is the user-facing
+                    # feedback. The spinner block below also renders
+                    # "Generating ..." once rf() rebuilds the page.)
 
                 if s._pdf_generating:
                     with ui.element("div").style("display:flex;align-items:center;gap:8px;margin-top:12px;"):
@@ -13173,7 +13185,30 @@ def _sq_loaded_campaign(s: AppState, rf):
                                     save_campaign(camp)
                             except Exception:
                                 pass  # non-fatal
-                            count = queue_campaign_emails(camp)
+                            # queue_campaign_emails can raise ValueError if
+                            # the placeholder guard finds unfilled tokens
+                            # ([CANDIDATE NAME] etc.) in any email body.
+                            # Surface it as a notify instead of letting the
+                            # exception bubble up (NiceGUI propagates
+                            # unhandled handler errors and that disconnects
+                            # the websocket — user sees 'Reconnecting to
+                            # DripDrop...' instead of a useful message).
+                            try:
+                                count = queue_campaign_emails(camp)
+                            except ValueError as _ve:
+                                try:
+                                    ui.notify(str(_ve)[:300], type="negative", timeout=10000)
+                                except Exception:
+                                    pass
+                                return
+                            except Exception as _le:
+                                print(f"[Launch] queue_campaign_emails failed: {_le}", flush=True)
+                                try:
+                                    ui.notify(f"Launch failed: {str(_le)[:200]}",
+                                              type="negative", timeout=10000)
+                                except Exception:
+                                    pass
+                                return
                             # Enroll into all selected evergreen campaigns
                             if _eg_selected:
                                 all_eg = load_campaigns()
