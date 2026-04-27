@@ -24245,13 +24245,115 @@ def _aicb_generate_pdf_data(client, roles_str, location_str, company,
     return pdf_data
 
 
+# Keywords per PDF kind. Drives the attach phase: each email step is
+# scored against every kind's keywords; the highest-scoring kind wins.
+# An email with no keyword hits gets no PDF — addresses the user
+# complaint "it's tying in the pdf's to the incorrect email" + "it
+# should only include a pdf if the pdf is asked for" (2026-04-26).
+_PDF_KIND_KEYWORDS = {
+    "salary_guide": [
+        "salary guide", "comp snapshot", "compensation", "salary",
+        "comp range", "pay range", "wage range", " comp ", " comps ",
+        "what they pay", "what's they're paying", "comp talk",
+    ],
+    "scorecard": [
+        "scorecard", "evaluation criteria", "competenc", "rubric",
+        "90-day outcome", "what we look for", "scoring", "benchmark",
+    ],
+    "tenure_snapshot": [
+        "tenure snapshot", "tenure", "median tenure", "retention",
+        "stay rate", "turnover", "how long they stay",
+    ],
+    "interview_guide": [
+        "interview guide", "interview framework", "interview question",
+        "must-ask question", "screening question", "interview",
+        "vetting", "screening framework",
+    ],
+    "market_pulse": [
+        "market pulse", "market snapshot", "market data",
+        "market intelligence", "demand trend", "what's moving",
+        "timeline compressed", "market trend", "talent window",
+        "supply and demand",
+    ],
+}
+
+
+def _extract_requested_pdf_kinds(template_text: str) -> set:
+    """Parse a Free Flow / 'byos' template description and return the
+    set of PDF kinds the user explicitly asked for. Empty set = no
+    PDFs at all. Used to gate the attach phase so Free Flow campaigns
+    only get PDFs the user mentioned in their template (2026-04-26).
+
+    Returns None when the input is empty/None — callers treat that as
+    'no restriction' so preset-style campaigns (Splash, Talent Drop,
+    etc.) still attach via plain topic-match."""
+    if not template_text:
+        return None
+    text = " " + template_text.lower() + " "
+    triggers = {
+        "salary_guide": [
+            "salary guide", "comp snapshot", "salary snapshot",
+            "compensation guide", "comp guide", "salary report",
+            "comp report",
+        ],
+        "scorecard": [
+            "scorecard", "role scorecard", "evaluation rubric",
+            "competency scorecard",
+        ],
+        "tenure_snapshot": [
+            "tenure snapshot", "tenure data", "retention snapshot",
+            "tenure report",
+        ],
+        "interview_guide": [
+            "interview guide", "interview framework", "interview kit",
+            "interview playbook",
+        ],
+        "market_pulse": [
+            "market pulse", "market snapshot", "market data",
+            "market intel", "market report", "market analysis",
+        ],
+    }
+    requested = set()
+    for kind, phrases in triggers.items():
+        for phrase in phrases:
+            if phrase in text:
+                requested.add(kind)
+                break
+    return requested
+
+
+def _match_pdf_kind_for_email(subject: str, body: str) -> str:
+    """Score an email's subject+body against every PDF kind's keywords.
+    Return the kind with the highest score, or '' if no keywords match.
+
+    A '' return is the signal to NOT attach any PDF to this email — it's
+    a regular check-in / candidate-summary / breakup mail without a
+    market deliverable hook."""
+    text = (" " + (subject or "") + " " + (body or "") + " ").lower()
+    best_kind, best_score = "", 0
+    for kind, kws in _PDF_KIND_KEYWORDS.items():
+        score = sum(1 for kw in kws if kw in text)
+        if score > best_score:
+            best_kind, best_score = kind, score
+    return best_kind
+
+
 def _aicb_attach_pdfs(pdf_data: dict, campaign_data: dict, company: str,
-                      appstate=None) -> int:
+                      appstate=None, restrict_kinds: set = None) -> int:
     """Phase 2: build PDF files from the pre-generated pdf_data and
-    attach them to the campaign's email steps. Fast (file writes only)
-    so it runs after both email gen and PDF data gen have completed.
-    Returns count of PDFs attached. campaign_data["emails"] must be
-    populated."""
+    attach them to the campaign's email steps by TOPIC-matching the
+    email body/subject to the right PDF kind. An email that doesn't
+    reference a relevant topic gets no PDF.
+
+    restrict_kinds: optional set of allowed kind ids. When provided
+    (Free Flow / byos campaigns where the user typed a template), only
+    attaches PDFs whose kind appears in the set. None = no restriction
+    (preset campaigns where every preset already lists PDFs in its
+    touch_sequence). Empty set = explicit 'no PDFs' (Free Flow user
+    didn't mention any).
+
+    Returns count of PDFs ATTACHED (not built — we still build all
+    five so they're available for manual attach on the editor)."""
     try:
         if appstate is not None and getattr(appstate, "_user_email", ""):
             _CURRENT_USER_EMAIL.set(appstate._user_email)
@@ -24271,8 +24373,10 @@ def _aicb_attach_pdfs(pdf_data: dict, campaign_data: dict, company: str,
     dt = date.today().strftime("%B %d, %Y")
     prep = _cfg.get("sig_name", _get_company_name()) or _get_company_name()
     prep_email = _cfg.get("sig_email", "")
-    pdfs_generated: list = []
 
+    # ── Phase 2a: build every PDF whose AI data came back. Track the
+    # built filename per kind so the topic-match pass can wire them up.
+    built_by_kind: dict = {}
     for _idx, (_kind_id, _slug_prefix, _human_label, _intro_tpl) in enumerate(_AICB_PDF_KINDS):
         try:
             _data_key = "tenure" if _kind_id == "tenure_snapshot" else _kind_id
@@ -24297,21 +24401,8 @@ def _aicb_attach_pdfs(pdf_data: dict, campaign_data: dict, company: str,
             build_custom_pdf(fpath, _aicb_build_dict)
             _save_pdf_sidecar(fpath, _aicb_build_dict)
             _publish_pdf(fpath)
-            pdfs_generated.append(_fname)
+            built_by_kind[_kind_id] = _fname
             print(f"[AICB] Generated {_fname}")
-            try:
-                if campaign_data and campaign_data.get("emails"):
-                    for ei, em in enumerate(campaign_data["emails"]):
-                        if ei == 0:
-                            continue
-                        if em.get("step_type", "") not in ("email_auto", "email"):
-                            continue
-                        if em.get("attachments"):
-                            continue
-                        em["attachments"] = [_fname]
-                        break
-            except Exception as ex:
-                print(f"[AICB] attach error for {_fname}: {ex}", flush=True)
         except Exception as e:
             print(f"[AICB] {_kind_id} build error: {e}")
         finally:
@@ -24321,8 +24412,59 @@ def _aicb_attach_pdfs(pdf_data: dict, campaign_data: dict, company: str,
             except Exception:
                 pass
 
-    print(f"[AICB] PDF generation complete: {len(pdfs_generated)} PDFs created")
-    return len(pdfs_generated)
+    # ── Phase 2b: topic-match emails to PDFs. Each PDF kind attaches
+    # to AT MOST one email (whichever scored highest for that kind).
+    # Emails that don't reference any market topic get no PDF.
+    # If restrict_kinds is a set, ONLY those kinds are eligible — used
+    # for Free Flow where the user told us which PDFs they want.
+    attached_count = 0
+    if campaign_data and campaign_data.get("emails"):
+        emails = campaign_data["emails"]
+        # Filter built_by_kind by restrict_kinds (Free Flow gate).
+        if restrict_kinds is not None:
+            eligible_kinds = {k: v for k, v in built_by_kind.items()
+                              if k in restrict_kinds}
+            print(f"[AICB] Free Flow restrict: attaching only "
+                  f"{sorted(restrict_kinds)} (built {sorted(built_by_kind)})",
+                  flush=True)
+        else:
+            eligible_kinds = dict(built_by_kind)
+        # First pass: score every (email, kind) pair.
+        scores: list = []  # (email_idx, kind, score)
+        for ei, em in enumerate(emails):
+            if ei == 0:
+                continue  # intro email never gets a PDF
+            if em.get("step_type", "") not in ("email_auto", "email"):
+                continue
+            if em.get("attachments"):
+                continue  # already has something attached (e.g. resume)
+            text = (" " + (em.get("subject") or "")
+                    + " " + (em.get("body") or "") + " ").lower()
+            for kind in eligible_kinds:
+                score = sum(1 for kw in _PDF_KIND_KEYWORDS[kind] if kw in text)
+                if score > 0:
+                    scores.append((ei, kind, score))
+        # Greedy assign: highest-scoring (email, kind) pair wins, then
+        # remove that email and that kind, repeat. So each kind attaches
+        # to its best email and each email gets at most one PDF.
+        scores.sort(key=lambda t: -t[2])
+        used_emails: set = set()
+        used_kinds: set = set()
+        for ei, kind, _score in scores:
+            if ei in used_emails or kind in used_kinds:
+                continue
+            fname = eligible_kinds.get(kind)
+            if not fname:
+                continue
+            emails[ei]["attachments"] = [fname]
+            used_emails.add(ei)
+            used_kinds.add(kind)
+            attached_count += 1
+            print(f"[AICB] Attached {fname} to email {ei + 1} (score={_score})", flush=True)
+
+    print(f"[AICB] PDF build complete: {len(built_by_kind)} built, "
+          f"{attached_count} attached by topic-match")
+    return attached_count
 
 
 def _aicb_generate_pdfs(client, brief, roles_str, location_str, company, sig_name, campaign_data, appstate=None):
@@ -25983,11 +26125,28 @@ def p_ai_campaign(s: AppState, rf):
         # 5-step wizard (2026-04-26 — Candidates inserted at step 3):
         #   1 = target type, 2 = target details, 3 = candidates,
         #   4 = campaign style, 5 = review + generate.
+        # Validation closures read state at CLICK time so they don't get
+        # tripped up by render-order quirks (e.g. s.aicb_niche is derived
+        # from the industry picker LATER in the render than this top-of-
+        # page validation runs — using a fresh-read closure means the
+        # click handler sees the up-to-date state regardless).
+        def _step2_target_filled():
+            _m = getattr(s, "aicb_target_mode", "company") or "company"
+            if _m == "company":
+                return bool((s.aicb_company or "").strip())
+            # Market mode: niche is derived from the industry picker. To
+            # avoid the render-order race we ALSO accept the picker fields
+            # directly — if the user has set a primary or any secondary
+            # industry, they've effectively answered the market question.
+            return bool(
+                (s.aicb_niche or "").strip()
+                or getattr(s, "aicb_secondary_industries", []) or []
+                or (getattr(s, "aicb_primary_industry", "") or "").strip()
+            )
         if _wiz_mode == "wizard" and _wiz_step == 1:
             _top_next_ok = True  # default mode = company, always valid
         elif _wiz_mode == "wizard" and _wiz_step == 2:
-            _top_target_filled = bool((s.aicb_company or "").strip()) if _top_mode == "company" else bool((s.aicb_niche or "").strip())
-            _top_next_ok = _top_target_filled
+            _top_next_ok = _step2_target_filled()
         elif _wiz_mode == "wizard" and _wiz_step == 3:
             # Step 3 (Candidates): just need a source picked. Roles are
             # auto-fetched by the Auto-generate flow and derived from
@@ -26005,9 +26164,9 @@ def p_ai_campaign(s: AppState, rf):
             if _wiz_step == 1:
                 pass  # always valid
             elif _wiz_step == 2:
-                _tgt_filled = bool((s.aicb_company or "").strip()) if _top_mode == "company" else bool((s.aicb_niche or "").strip())
-                if not _tgt_filled:
-                    _tgt_word = "company" if _top_mode == "company" else "market / niche"
+                if not _step2_target_filled():
+                    _m = getattr(s, "aicb_target_mode", "company") or "company"
+                    _tgt_word = "company" if _m == "company" else "market / niche"
                     ui.notify(f"Enter a {_tgt_word}.", type="warning")
                     return
             elif _wiz_step == 3:
@@ -27545,9 +27704,24 @@ def p_ai_campaign(s: AppState, rf):
                                 print(f"[AICB] wait error: {_w_ex}", flush=True)
                             _pdf_data_payload = _pdf_data_holder.get("data") or {}
                             if _pdf_data_payload:
+                                # Free Flow ('byos'): restrict PDF attach
+                                # to only the kinds the user named in
+                                # their template description. Other
+                                # campaign types (Splash, Talent Drop,
+                                # etc.) keep the existing topic-match
+                                # behavior since their preset already
+                                # lists PDFs in its sequence.
+                                _restrict = None
+                                if (s.aicb_camp_type or "").strip() == "byos":
+                                    _restrict = _extract_requested_pdf_kinds(
+                                        s.aicb_byos_desc or ""
+                                    )
+                                    if _restrict is None:
+                                        _restrict = set()  # empty desc = no PDFs
                                 try:
                                     _aicb_attach_pdfs(_pdf_data_payload, campaign_data,
-                                                      pdf_target, appstate=s)
+                                                      pdf_target, appstate=s,
+                                                      restrict_kinds=_restrict)
                                 except Exception as _att_ex:
                                     print(f"[AICB] sync attach error: {_att_ex}", flush=True)
                             # PDFs are attached at this point (single
