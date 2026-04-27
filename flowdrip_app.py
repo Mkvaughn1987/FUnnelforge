@@ -19002,6 +19002,20 @@ def p_evergreen(s, rf):
 
                 # Run AI generation in background thread
                 def _run_generation():
+                    # Bg-thread ContextVar rebind. Without this, every
+                    # _get_company_name() / _user_config_path() call
+                    # resolves with no email bound — load_config()
+                    # returns {} and _load_tenant_profile() falls back
+                    # to the unknown-tenant dir. Result: 'Your Company'
+                    # instead of the user's actual brand. Same fix as
+                    # _aicb_generate_pdfs (2026-04-26 user report —
+                    # 'why isn't the slowdrip pulling my arena company
+                    # and profile pictures?').
+                    try:
+                        if getattr(s, "_user_email", ""):
+                            _CURRENT_USER_EMAIL.set(s._user_email)
+                    except Exception as _ex:
+                        print(f"[Newsletter] ContextVar rebind failed: {_ex}", flush=True)
                     try:
                         from anthropic import Anthropic
                         client = Anthropic()
