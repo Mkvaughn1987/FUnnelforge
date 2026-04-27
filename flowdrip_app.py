@@ -27237,9 +27237,18 @@ def p_ai_campaign(s: AppState, rf):
                         touch_sequence = camp_type_def[6]  # the sequence string
                         n_touches = touch_sequence.count("Step") if touch_sequence else 0
 
-                        # Campaign name varies by mode
+                        # Campaign name varies by mode. Roles can now be
+                        # empty (Skip-source candidates leave the list
+                        # empty, and the manual roles input was removed
+                        # 2026-04-26). Guard the [0] index so empty-role
+                        # campaigns don't crash with IndexError before
+                        # the email-gen call ever runs.
                         target_label = company if company else (niche_str or "Campaign")
-                        camp_name_suggestion = f"{target_label} - {s.aicb_sel_roles[0]} Campaign"
+                        _first_role = s.aicb_sel_roles[0] if s.aicb_sel_roles else ""
+                        camp_name_suggestion = (
+                            f"{target_label} - {_first_role} Campaign"
+                            if _first_role else f"{target_label} Campaign"
+                        )
 
                         # Niche mode: position as market specialist; Company mode: reference their details
                         style_note = (
