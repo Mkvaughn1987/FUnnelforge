@@ -8722,6 +8722,18 @@ def _restore_page_if_recent(s: AppState, ttl_hours: int = 24) -> bool:
                        "campaign_manager", "prev_launch"}
         if _sp in _needs_camp:
             _sp = "active_camps"
+        # Browse/list pages should NOT be restored on a fresh open — the
+        # user wants the dashboard as the home base, not whatever list
+        # they happened to be looking at last session. Only deep
+        # workflow pages (wizards, editors, settings) restore so that
+        # reconnects mid-task don't lose the user's place.
+        _list_pages = {"dashboard", "seq_mgr", "active_camps", "drip",
+                       "tasks", "responses", "e_responses", "contacts",
+                       "e_contacts", "queue", "dnc", "active_clients",
+                       "evergreen", "emails_home"}
+        if _sp in _list_pages:
+            _sp = "dashboard"
+            _hub = "sales"
         s.hub = _hub; s.sp = _sp; s.ep = _ep
         return True
     except Exception:
