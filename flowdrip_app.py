@@ -8470,6 +8470,14 @@ class AppState:
         self._aicb_titles_generating: bool = False
         self._aicb_titles_err: str = ""
 
+        # Today/Drip page — campaign-level shared message templates
+        # (2026-05-01 user request: "one AI message at the top users
+        # can refer to" instead of clicking per-card). Keyed by
+        # f"{campaign_name}::{channel}" so each campaign group renders
+        # one template per channel (LinkedIn / Call / Task).
+        self._ai_camp_templates: dict = {}
+        self._ai_camp_templates_started: dict = {}
+
         # Job Match state
         self.cf_tab = "pool"           # "pool", "search", or "match_jd"
         # ── Match JD → Candidates (reverse search) ──
@@ -10235,10 +10243,27 @@ def p_today_combined(s: AppState, rf):
                                     f"border:1px solid {C['border']};font-family:inherit;").on("click", _mark_all_camp):
                                 ui.label(f"✓ Mark All {len(camp_tasks)} Done")
 
-                    with ui.element("div").style(
-                            "display:grid;grid-template-columns:1fr 1fr;gap:0 10px;"):
-                        for t in camp_tasks:
-                            _drip_card_detail(t, s, rf)
+                    # 2026-05-01 user request: shared message templates
+                    # at the top of each campaign group (one per channel
+                    # actually present), instead of a per-card AI button.
+                    # Render in priority order: LinkedIn → Call → Task.
+                    _channels_present = []
+                    for _ch in ("li", "call", "task"):
+                        if any(_t.get("channel") == _ch for _t in camp_tasks):
+                            _channels_present.append(_ch)
+                    for _ch in _channels_present:
+                        _drip_render_camp_template(s, rf, camp_name, _ch, camp_tasks)
+
+                    # Skinny single-column card stack; numbering resets
+                    # per (campaign, channel) pair, starting at 01.
+                    # Cards group by channel order so users see all
+                    # LinkedIn together, then calls, then tasks.
+                    with ui.element("div").style("display:flex;flex-direction:column;gap:0;"):
+                        for _ch in _channels_present:
+                            _ch_tasks = [_t for _t in camp_tasks if _t.get("channel") == _ch]
+                            _ch_total = len(_ch_tasks)
+                            for _i, _t in enumerate(_ch_tasks, start=1):
+                                _drip_card_detail(_t, s, rf, idx=_i, total=_ch_total)
 
         # Completed today
         if done:
@@ -10250,8 +10275,8 @@ def p_today_combined(s: AppState, rf):
                     ui.label(f"+{hidden_done} more").style(
                         f"font-size:11px;font-weight:600;padding:2px 8px;border-radius:99px;"
                         f"background:{C['teal_dim']};color:{C['teal']};")
-            with ui.element("div").style(
-                    "display:grid;grid-template-columns:1fr 1fr;gap:0 10px;"):
+            # Single-column to match the pending stack layout above.
+            with ui.element("div").style("display:flex;flex-direction:column;gap:0;"):
                 for t in shown_done:
                     _drip_done_card(t, s, rf)
 
@@ -10564,229 +10589,339 @@ def _connected_dialog(t, s: AppState, rf):
     dlg.open()
 
 
-def _drip_card_detail(t, s: AppState, rf):
-    """Detailed drip card with full contact info, LinkedIn link, phones, script, VM/Connected."""
+def _drip_camp_template_key(camp_name: str, channel: str) -> str:
+    """Composite key for per-campaign-per-channel shared templates."""
+    return f"{camp_name}::{channel}"
+
+
+def _drip_camp_template_default(camp_tasks: list, channel: str) -> str:
+    """If the campaign already has a script defined at the touch level
+    for this channel, return it as the default template. Otherwise
+    return empty string (user can click Generate to AI-fill)."""
+    for t in camp_tasks:
+        if t.get("channel") == channel:
+            sc = (t.get("script", "") or "").strip()
+            if sc:
+                return sc
+    return ""
+
+
+def _drip_gen_camp_template(s: AppState, rf, camp_name: str, channel: str,
+                             camp_tasks: list):
+    """Generate ONE shared template for a (campaign, channel) pair.
+    Replaces the old per-card AI script approach — N contacts in the
+    same campaign all reference one template at the top of the group,
+    so users only ever click Generate once per channel per campaign.
+
+    Template uses {first_name}, {company}, {role} merge tokens which
+    the user mentally substitutes per contact (or copies + edits in
+    LinkedIn / their dialer)."""
+    if not hasattr(s, "_ai_camp_templates"):
+        s._ai_camp_templates = {}
+    if not hasattr(s, "_ai_camp_templates_started"):
+        s._ai_camp_templates_started = {}
+    key = _drip_camp_template_key(camp_name, channel)
+    s._ai_camp_templates[key] = "Generating..."
+    s._ai_camp_templates_started[key] = time.time()
+    try: rf()
+    except Exception: pass
+
+    def _run():
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+            sig_name = "Mike"
+            try:
+                if _user_sig_path().exists():
+                    sig_lines = _user_sig_path().read_text(encoding="utf-8").strip().split("\n")
+                    if sig_lines and sig_lines[0].strip().split():
+                        sig_name = sig_lines[0].strip().split()[0]
+            except Exception:
+                pass
+            # Pull campaign-level metadata from the first task in the
+            # group — they all share the same campaign / sequence / etc.
+            sample = camp_tasks[0] if camp_tasks else {}
+            _campaign = sample.get("sequence", "") or camp_name
+            _touch = sample.get("touch", "")
+            _base = sample.get("script", "") or sample.get("note", "")
+
+            _meta_block = (
+                _wrap_untrusted("campaign", _campaign, max_chars=300) + "\n"
+                + _wrap_untrusted("touch", str(_touch), max_chars=100) + "\n"
+                + _wrap_untrusted("base_script_notes", _base, max_chars=2000)
+            )
+            if channel == "call":
+                prompt = (
+                    f"You are {sig_name} from {_get_company_name()}, calling "
+                    f"prospects on the {_campaign} campaign.\n\n"
+                    f"CAMPAIGN DETAILS:\n{_meta_block}\n\n"
+                    f"Write ONE call SCRIPT TEMPLATE that will be used for "
+                    f"every contact in this campaign. Use these merge tokens "
+                    f"that the recruiter will mentally swap per call: "
+                    f"{{first_name}}, {{role}}, {{company}}.\n\n"
+                    f"Format:\n"
+                    f"1. Opening line  -  reference {{company}} or {{role}} specifically\n"
+                    f"2. Reason for calling  -  tied to the campaign theme\n"
+                    f"3. 2-3 diagnostic questions\n"
+                    f"4. Value proposition  -  specific to the industry\n"
+                    f"5. Close  -  clear next step\n"
+                    f"6. Voicemail (15 seconds, if no answer)\n\n"
+                    f"Conversational, not robotic. Plain text with dashes "
+                    f"for bullets. No markdown. Keep tokens visible — do "
+                    f"NOT make up a real name or company.\n"
+                    + _style_guide_prompt()
+                )
+            elif channel == "li":
+                prompt = (
+                    f"You are {sig_name} from {_get_company_name()}.\n\n"
+                    f"CAMPAIGN DETAILS:\n{_meta_block}\n\n"
+                    f"Write ONE LinkedIn connection-request TEMPLATE that "
+                    f"will be used for every contact in this campaign. Use "
+                    f"these merge tokens: {{first_name}}, {{role}}, {{company}}.\n\n"
+                    f"MUST be under 300 characters. Reference {{company}} or "
+                    f"{{role}}. Genuine, not salesy.\n\n"
+                    f"Return ONLY the template text — no 'Connection request:' "
+                    f"prefix, no headers, no markdown. Keep tokens visible "
+                    f"— do NOT substitute real names or companies.\n"
+                    + _style_guide_prompt()
+                )
+            else:  # task
+                prompt = (
+                    f"CAMPAIGN DETAILS:\n{_meta_block}\n\n"
+                    f"Write ONE short task GUIDANCE TEMPLATE describing what "
+                    f"the recruiter should do for every contact in this "
+                    f"campaign. Use {{first_name}}, {{role}}, {{company}} as "
+                    f"merge tokens. Plain text, 2-4 lines.\n"
+                    + _style_guide_prompt()
+                )
+            msg = _claude_create_with_retry(
+                client,
+                model="claude-haiku-4-5-20251001",
+                max_tokens=800,
+                system=_INJECTION_GUARD,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            s._ai_camp_templates[key] = msg.content[0].text.strip()
+        except Exception as ex:
+            s._ai_camp_templates[key] = f"Error: {_friendly_ai_error(ex)}"
+        finally:
+            try: rf()
+            except Exception: pass
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _drip_render_camp_template(s: AppState, rf, camp_name: str,
+                                channel: str, camp_tasks: list):
+    """Render ONE per-(campaign, channel) shared template panel above
+    the cards grid. Shows the campaign's existing script if defined,
+    otherwise a Generate button. Editable inline; Regenerate available
+    at any time."""
+    if not hasattr(s, "_ai_camp_templates"):
+        s._ai_camp_templates = {}
+    key = _drip_camp_template_key(camp_name, channel)
+    cached = s._ai_camp_templates.get(key, "")
+    default = _drip_camp_template_default(camp_tasks, channel)
+    text = cached or default
+    is_generating = (cached == "Generating...")
+    is_error = isinstance(cached, str) and cached.startswith("Error:")
+
+    _ch_label = (
+        "LinkedIn Message" if channel == "li"
+        else "Call Script" if channel == "call"
+        else "Task Notes"
+    )
+    _ch_color = (
+        C.get("indigo", "#7B68EE") if channel == "li"
+        else C.get("call_col", "#EF9F27") if channel == "call"
+        else C.get("teal", "#1AE3D9")
+    )
+
+    with ui.element("div").style(
+            f"background:{C['card']};border:1px solid {_ch_color}30;"
+            f"border-left:3px solid {_ch_color};border-radius:0 10px 10px 0;"
+            f"padding:10px 14px;margin-bottom:10px;"):
+        with ui.element("div").style(
+                "display:flex;align-items:center;justify-content:space-between;"
+                "gap:10px;margin-bottom:6px;"):
+            ui.label(f"✦ {_ch_label} Template").style(
+                f"font-size:10px;font-weight:800;color:{_ch_color};"
+                f"text-transform:uppercase;letter-spacing:.08em;"
+                f"font-family:'Nunito',sans-serif;")
+            with ui.element("div").style("display:flex;gap:6px;align-items:center;"):
+                if not is_generating and ANTHROPIC_API_KEY:
+                    def _gen(c=channel, ct=camp_tasks, cn=camp_name):
+                        _drip_gen_camp_template(s, rf, cn, c, ct)
+                    _btn_label = "✦ Regenerate" if text else "✦ Generate"
+                    with ui.element("button").style(
+                            f"padding:4px 10px;font-size:10px;border-radius:6px;"
+                            f"background:{_ch_color}15;color:{_ch_color};"
+                            f"border:1px solid {_ch_color}40;cursor:pointer;"
+                            f"font-family:inherit;font-weight:600;"
+                            ).on("click", _gen):
+                        ui.label(_btn_label)
+                if text and not is_generating:
+                    def _copy(t2=text):
+                        ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(t2)})")
+                        ui.notify("Copied!", type="positive", timeout=1500)
+                    with ui.element("button").style(
+                            f"padding:4px 10px;font-size:10px;border-radius:6px;"
+                            f"background:transparent;color:{C['muted']};"
+                            f"border:1px solid {C['border']};cursor:pointer;"
+                            f"font-family:inherit;").on("click", _copy):
+                        ui.label("Copy")
+        if is_generating:
+            with ui.element("div").style("display:flex;align-items:center;gap:8px;"):
+                ui.spinner("dots", size="18px", color=_ch_color)
+                ui.label("Generating template…").style(
+                    f"font-size:11px;color:{C['muted']};")
+            # Auto-poll until ready (4s tick).
+            ui.timer(4.0, rf, once=True)
+        elif text:
+            _txt = ui.textarea(value=text).props("autogrow dense outlined").style(
+                f"width:100%;font-size:12px;font-family:'DM Sans',Calibri,Arial,sans-serif;"
+                f"line-height:1.5;color:{C['text_l']};")
+            def _save_edit(k=key):
+                s._ai_camp_templates[k] = (_txt.value or "").strip()
+            _txt.on("blur", _save_edit)
+            ui.label("Tokens like {first_name}, {company}, {role} are placeholders — substitute per contact when you copy.").style(
+                f"font-size:10px;color:{C['muted']};margin-top:4px;display:block;")
+        else:
+            ui.label(
+                "No template yet — click ✦ Generate to have AI write one "
+                "based on the campaign, or just type your own and it'll save."
+            ).style(f"font-size:11px;color:{C['muted']};font-style:italic;")
+            # Empty editable textarea so users can write their own.
+            _txt = ui.textarea(value="").props("autogrow dense outlined").style(
+                f"width:100%;font-size:12px;margin-top:6px;color:{C['text_l']};")
+            def _save_empty_edit(k=key):
+                v = (_txt.value or "").strip()
+                if v:
+                    s._ai_camp_templates[k] = v
+            _txt.on("blur", _save_empty_edit)
+
+
+def _drip_action_label(channel: str) -> tuple:
+    """Per-channel (primary title, secondary helper text) pair shown on
+    each numbered card. Replaces the old "click ✦ AI X" affordance —
+    users now reference the campaign-level template above."""
+    if channel == "li":
+        return ("LinkedIn Message",
+                "Send connection request with the message above.")
+    if channel == "call":
+        return ("Cold Call",
+                "Use the call script above. Mark VM if no answer, "
+                "Connected if you reach them.")
+    return ("Manual Task",
+            "Read the note above and mark done when complete.")
+
+
+def _drip_card_detail(t, s: AppState, rf, idx: int = 0, total: int = 0):
+    """Skinny single-row task card. Layout (left-to-right):
+        [01.]  [LinkedIn Message]  [Name · Role · Company]
+        [in ↗ ☎ email]  [helper text]   [✓ Done]
+    All vertical info collapses into one horizontal flow per the
+    user's 2026-05-01 request — no per-card AI script button (the
+    campaign-level template above replaces it), no per-card script
+    expander (redundant with the template)."""
     tid = t["id"]
     ch = t["channel"]
     od = t.get("overdue")
     border_col = C["indigo"] if ch == "li" else (C["call_col"] if ch == "call" else C["teal"])
+    primary, helper = _drip_action_label(ch)
 
     with ui.element("div").style(
             f"background:{C['card']};border:1px solid {C['border']};border-left:3px solid {border_col};"
-            f"border-radius:0 10px 10px 0;padding:7px 12px;margin:0 0 3px 4px;"):
-        # Top row: avatar + info + actions  -  all vertically centered
-        with ui.element("div").style("display:flex;align-items:center;gap:10px;"):
-            with ui.element("div").classes("fd-av").style("width:28px;height:28px;font-size:10px;flex-shrink:0;"):
-                ui.label(initials(t["name"]))
-            with ui.element("div").style("flex:1;min-width:0;"):
-                # Name · role · company on one line
-                parts = [t["name"]]
-                if t.get("role"):     parts.append(t["role"])
-                if t.get("company"):  parts.append(t["company"])
-                ui.label("  ·  ".join(parts)).style(
-                    f"font-size:13px;font-weight:600;color:{C['text_l']};"
-                    f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
+            f"border-radius:0 8px 8px 0;padding:8px 12px;margin:0 0 4px 4px;"
+            f"display:flex;align-items:center;gap:14px;flex-wrap:wrap;"):
+        # ── Number badge ──
+        if idx > 0:
+            _num = f"{idx:02d}."
+            ui.label(_num).style(
+                f"font-size:13px;font-weight:800;color:{border_col};"
+                f"font-family:'Nunito',sans-serif;flex-shrink:0;"
+                f"min-width:30px;letter-spacing:.02em;")
 
-                # Contact + touch row
-                with ui.element("div").style("display:flex;gap:5px;flex-wrap:wrap;margin-top:3px;align-items:center;"):
-                    # LinkedIn link
-                    li_url = t.get("linkedin", "")
-                    if li_url and ("linkedin.com" in li_url or li_url.startswith("http")):
-                        clean_url = li_url if li_url.startswith("http") else f"https://{li_url}"
-                        ui.html(f'<a href="{esc(clean_url)}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;'
-                                f'padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;'
-                                f'background:{C["indigo_dim"]};color:{C["indigo"]};border:1px solid {C["indigo"]}60;'
-                                f'text-decoration:none;cursor:pointer;">in ↗</a>')
-                    elif ch == "li":
-                        search_name = esc(f"{t['name']} {t.get('company', '')}".strip())
-                        search_url = f"https://www.linkedin.com/search/results/people/?keywords={search_name.replace(' ', '%20')}"
-                        ui.html(f'<a href="{search_url}" target="_blank" style="display:inline-flex;align-items:center;gap:3px;'
-                                f'padding:2px 8px;border-radius:99px;font-size:11px;font-weight:500;'
-                                f'background:{C["warn"]}15;color:{C["warn"]};border:1px solid {C["warn"]}40;'
-                                f'text-decoration:none;cursor:pointer;">🔍 Search LinkedIn</a>')
+        # ── Action title ──
+        ui.label(primary).style(
+            f"font-size:12px;font-weight:700;color:{border_col};"
+            f"font-family:'Nunito',sans-serif;flex-shrink:0;"
+            f"text-transform:uppercase;letter-spacing:.04em;min-width:120px;")
 
-                    # Phone numbers
-                    for ph in t.get("phones", []):
-                        ui.html(f'<a href="tel:{esc(ph["number"])}" style="display:inline-flex;align-items:center;gap:3px;'
-                                f'padding:2px 8px;border-radius:99px;font-size:11px;'
-                                f'background:rgba(239,159,39,.08);color:{C["call_col"]};border:1px solid {C["call_col"]}40;'
-                                f'text-decoration:none;">☎ {esc(ph["number"])}</a>')
+        # ── Contact (name · role · company) ──
+        parts = [t["name"]]
+        if t.get("role"):    parts.append(t["role"])
+        if t.get("company"): parts.append(t["company"])
+        ui.label("  ·  ".join(parts)).style(
+            f"font-size:12px;font-weight:600;color:{C['text_l']};"
+            f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+            f"flex:1 1 220px;min-width:0;")
 
-                    # Email
-                    if t.get("email"):
-                        ui.label(t["email"]).style(f"font-size:11px;color:{C['email_col']};")
+        # ── Contact links (in ↗, phones, email) ──
+        with ui.element("div").style(
+                "display:flex;gap:4px;flex-wrap:wrap;align-items:center;flex-shrink:0;"):
+            li_url = t.get("linkedin", "")
+            if li_url and ("linkedin.com" in li_url or li_url.startswith("http")):
+                clean_url = li_url if li_url.startswith("http") else f"https://{li_url}"
+                ui.html(f'<a href="{esc(clean_url)}" target="_blank" '
+                        f'style="display:inline-flex;align-items:center;gap:3px;'
+                        f'padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;'
+                        f'background:{C["indigo_dim"]};color:{C["indigo"]};border:1px solid {C["indigo"]}60;'
+                        f'text-decoration:none;cursor:pointer;">in ↗</a>')
+            elif ch == "li":
+                search_name = esc(f"{t['name']} {t.get('company', '')}".strip())
+                search_url = f"https://www.linkedin.com/search/results/people/?keywords={search_name.replace(' ', '%20')}"
+                ui.html(f'<a href="{search_url}" target="_blank" '
+                        f'style="display:inline-flex;align-items:center;gap:3px;'
+                        f'padding:2px 8px;border-radius:99px;font-size:11px;font-weight:500;'
+                        f'background:{C["warn"]}15;color:{C["warn"]};border:1px solid {C["warn"]}40;'
+                        f'text-decoration:none;cursor:pointer;">🔍 Find</a>')
+            for ph in t.get("phones", []):
+                ui.html(f'<a href="tel:{esc(ph["number"])}" '
+                        f'style="display:inline-flex;align-items:center;gap:3px;'
+                        f'padding:2px 8px;border-radius:99px;font-size:11px;'
+                        f'background:rgba(239,159,39,.08);color:{C["call_col"]};'
+                        f'border:1px solid {C["call_col"]}40;text-decoration:none;">'
+                        f'☎ {esc(ph["number"])}</a>')
+            if t.get("email"):
+                ui.label(t["email"]).style(f"font-size:11px;color:{C['email_col']};")
+            # Touch indicator + overdue flag inline
+            _col = C["warn"] if od else C["muted"]
+            ui.label(("⚠ " if od else "") + t["touch"]).style(f"font-size:10px;color:{_col};")
 
-                    # Touch indicator inline
-                    col = C["warn"] if od else C["muted"]
-                    ui.label(("⚠ " if od else "") + t["touch"]).style(f"font-size:10px;color:{col};")
+        # ── Action buttons ──
+        with ui.element("div").style("display:flex;gap:4px;flex-shrink:0;"):
+            if ch == "call":
+                def _vm(x=t):
+                    s.outcomes[x["id"]] = {"result": "vm", "date": date.today().isoformat()}
+                    save_outcomes(s.outcomes); rf()
+                def _cn(x=t):
+                    s.outcomes[x["id"]] = {"result": "connected", "date": date.today().isoformat()}
+                    save_outcomes(s.outcomes)
+                    _connected_dialog(x, s, rf)
+                with ui.element("button").classes("fd-p vm").on("click", _vm):
+                    ui.label("VM")
+                with ui.element("button").classes("fd-p conn").on("click", _cn):
+                    ui.label("Connected")
+            elif ch == "li":
+                def _done_li(x=t):
+                    s.outcomes[x["id"]] = {"result": "connected", "date": date.today().isoformat()}
+                    save_outcomes(s.outcomes)
+                    _connected_dialog(x, s, rf)
+                with ui.element("button").classes("fd-p conn").on("click", _done_li):
+                    ui.label("✓ Done")
+            else:
+                def _done_task(x=t):
+                    s.outcomes[x["id"]] = {"result": "done", "date": date.today().isoformat()}
+                    save_outcomes(s.outcomes); rf()
+                with ui.element("button").classes("fd-p conn").on("click", _done_task):
+                    ui.label("✓ Done")
 
-                # Task description / script notes
-                _task_note = t.get("note", "") or t.get("script", "")
-                if _task_note:
-                    ui.label(_task_note).style(
-                        f"font-size:11px;color:{C['text']};line-height:1.5;"
-                        f"margin-top:4px;padding:6px 10px;background:{C['surface']};"
-                        f"border-left:2px solid {border_col};border-radius:0 6px 6px 0;"
-                        f"white-space:pre-wrap;")
-
-
-            # Action buttons (right side)
-            with ui.element("div").style("display:flex;flex-direction:column;gap:4px;flex-shrink:0;"):
-                if ch == "call":
-                    def _vm(x=t):
-                        s.outcomes[x["id"]] = {"result": "vm", "date": date.today().isoformat()}
-                        save_outcomes(s.outcomes); rf()
-                    def _cn(x=t):
-                        s.outcomes[x["id"]] = {"result": "connected", "date": date.today().isoformat()}
-                        save_outcomes(s.outcomes)
-                        _connected_dialog(x, s, rf)
-                    with ui.element("button").classes("fd-p vm").on("click", _vm):
-                        ui.label("VM")
-                    with ui.element("button").classes("fd-p conn").on("click", _cn):
-                        ui.label("Connected")
-                elif ch == "li":
-                    def _done_li(x=t):
-                        s.outcomes[x["id"]] = {"result": "connected", "date": date.today().isoformat()}
-                        save_outcomes(s.outcomes)
-                        _connected_dialog(x, s, rf)
-                    with ui.element("button").classes("fd-p conn").on("click", _done_li):
-                        ui.label("✓ Done")
-                else:
-                    def _done_task(x=t):
-                        s.outcomes[x["id"]] = {"result": "done", "date": date.today().isoformat()}
-                        save_outcomes(s.outcomes); rf()
-                    with ui.element("button").classes("fd-p conn").on("click", _done_task):
-                        ui.label("✓ Done")
-
-        # Script (expandable)
-        sc = t.get("script", "")
-        if sc:
-            is_open = tid in s.expanded
-            def _tog(x=t):
-                s.expanded.symmetric_difference_update({x["id"]}); rf()
-            with ui.element("div").style("margin-top:8px;"):
-                with ui.element("button").classes("fd-p sc" + (" open" if is_open else "")).on("click", _tog):
-                    ui.label("Hide script" if is_open else "Show script")
-                if is_open:
-                    with ui.element("div").classes("fd-scr").style("margin-left:0;margin-top:6px;"):
-                        ui.label(sc)
-
-        # AI-powered personalized script generator
-        if ANTHROPIC_API_KEY and ch in ("call", "li"):
-            _ai_key = f"ai_script_{tid}"
-            _ai_open = _ai_key in s.expanded
-            if not hasattr(s, '_ai_scripts'):
-                s._ai_scripts = {}
-            _has_script = tid in s._ai_scripts
-
-            def _gen_ai_script(x=t, ak=_ai_key):
-                s.expanded.add(ak)
-                s._ai_scripts[x["id"]] = "Generating..."
-                if not hasattr(s, "_ai_scripts_started_at"):
-                    s._ai_scripts_started_at = {}
-                s._ai_scripts_started_at[x["id"]] = time.time()
-                rf()
-                def _run():
-                    try:
-                        import anthropic
-                        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-                        sig_name = "Mike"
-                        try:
-                            if _user_sig_path().exists():
-                                sig_lines = _user_sig_path().read_text(encoding="utf-8").strip().split("\n")
-                                if sig_lines and sig_lines[0].strip().split(): sig_name = sig_lines[0].strip().split()[0]
-                        except Exception: pass
-                        _name = x.get("name", "")
-                        _company = x.get("company", "")
-                        _role = x.get("role", "")
-                        _campaign = x.get("sequence", "")
-                        _touch = x.get("touch", "")
-                        _base_script = x.get("script", "") or x.get("note", "")
-                        _is_call = x["channel"] == "call"
-
-                        _contact_block = (
-                            _wrap_untrusted("contact_name", _name, max_chars=200) + "\n"
-                            + _wrap_untrusted("company", _company, max_chars=300) + "\n"
-                            + _wrap_untrusted("role_title", _role, max_chars=200) + "\n"
-                            + _wrap_untrusted("campaign", _campaign, max_chars=300) + "\n"
-                            + _wrap_untrusted("touch", str(_touch), max_chars=100) + "\n"
-                            + _wrap_untrusted("base_script_notes", _base_script, max_chars=2000)
-                        )
-                        if _is_call:
-                            prompt = (
-                                f"You are {sig_name} from {_get_company_name()}, calling a prospect.\n\n"
-                                f"CONTACT DETAILS:\n{_contact_block}\n\n"
-                                f"Write a personalized CALL SCRIPT for this specific contact:\n"
-                                f"1. Opening line  -  reference their company or role specifically\n"
-                                f"2. Reason for calling  -  tied to the campaign theme\n"
-                                f"3. Key questions to ask (2-3 diagnostic questions)\n"
-                                f"4. Value proposition  -  specific to their company/industry\n"
-                                f"5. Close  -  clear next step (meeting, send info, etc.)\n"
-                                f"6. Voicemail script (15-second version if no answer)\n\n"
-                                f"Keep it conversational, not robotic. Write as bullet points.\n"
-                                f"Do NOT use asterisks or markdown. Plain text with dashes for bullets.\n"
-                                + _style_guide_prompt()
-                            )
-                        else:
-                            prompt = (
-                                f"You are {sig_name} from {_get_company_name()}.\n\n"
-                                f"CONTACT DETAILS:\n{_contact_block}\n\n"
-                                f"Write a single personalized LinkedIn connection request note for this contact.\n"
-                                f"MUST be under 300 characters. Reference their company or role. Be genuine, not salesy.\n"
-                                f"Return ONLY the connection request text, nothing else. No headers, no labels, no 'Connection request:' prefix.\n"
-                                f"Do NOT use asterisks or markdown. Plain text only.\n"
-                                + _style_guide_prompt()
-                            )
-                        msg = _claude_create_with_retry(client,
-                            model="claude-haiku-4-5-20251001", max_tokens=800,
-                            system=_INJECTION_GUARD,
-                            messages=[{"role": "user", "content": prompt}])
-                        s._ai_scripts[x["id"]] = msg.content[0].text.strip()
-                    except Exception as ex:
-                        s._ai_scripts[x["id"]] = f"Error: {_friendly_ai_error(ex)}"
-                threading.Thread(target=_run, daemon=True).start()
-
-            _script_label = "✦ AI Call Script" if ch == "call" else "✦ AI LinkedIn Message"
-            with ui.element("div").style("margin-top:6px;"):
-                if not _has_script:
-                    with ui.element("button").style(
-                            f"padding:6px 14px;border-radius:6px;cursor:pointer;"
-                            f"background:{C['teal']}15;border:1px solid {C['teal']}30;"
-                            f"color:{C['teal']};font-size:11px;font-family:inherit;"
-                            ).on("click", _gen_ai_script):
-                        ui.label(_script_label)
-                else:
-                    _ai_text = s._ai_scripts.get(tid, "")
-                    _loading = _ai_text == "Generating..."
-                    with ui.element("div").style(
-                            f"padding:10px 14px;"
-                            f"background:{C['teal']}08;border:1px solid {C['teal']}25;"
-                            f"border-left:3px solid {C['teal']};border-radius:0 8px 8px 0;"):
-                        ui.label("AI " + ("Call Script" if ch == "call" else "LinkedIn Message")).style(
-                            f"font-size:10px;font-weight:700;color:{C['teal']};text-transform:uppercase;"
-                            f"letter-spacing:.06em;margin-bottom:6px;")
-                        if _loading:
-                            ui.spinner("dots", size="20px", color=C["teal"])
-                            if not _ai_script_timer_scheduled[0]:
-                                _ai_script_timer_scheduled[0] = True
-                                ui.timer(4.0, rf, once=True)
-                        else:
-                            ui.label(_ai_text).style(
-                                f"font-size:12px;color:{C['text_l']};line-height:1.6;"
-                                f"white-space:pre-wrap;font-family:DM Sans,Calibri,Arial,sans-serif;")
-                            with ui.element("div").style("display:flex;gap:6px;margin-top:8px;"):
-                                def _copy_ai(t2=_ai_text):
-                                    ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(t2)})")
-                                    ui.notify("Copied!", type="positive")
-                                with ui.element("button").classes("fd-pb").style(
-                                        "padding:4px 12px;font-size:10px;").on("click", _copy_ai):
-                                    ui.label("Copy")
-                                def _regen_ai(x=t):
-                                    del s._ai_scripts[x["id"]]
-                                    _gen_ai_script(x)
-                                with ui.element("button").classes("fd-gb").style(
-                                        "padding:4px 12px;font-size:10px;").on("click", _regen_ai):
-                                    ui.label("Regenerate")
+        # ── Helper text on its own line below (full-width sub-row) ──
+        # Wrapped in a 100%-flex-basis spacer so it drops under the row.
+        with ui.element("div").style(
+                "flex-basis:100%;font-size:10px;color:" + C["muted"] + ";"
+                "padding:2px 0 0 30px;line-height:1.4;"):
+            ui.label(helper)
 
 
 def _drip_done_card(t, s: AppState, rf):
