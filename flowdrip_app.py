@@ -19549,6 +19549,10 @@ def p_evergreen(s, rf):
                         s._market_refresh_body = "<b>Error:</b> Could not connect to Claude API. Check your API key."
                         s._market_refresh_subject = _rstep.get("subject", "")
                         s._market_refresh_step = "review"
+                        # One-shot flag: render-time scroll JS picks
+                        # this up and scrolls the page down to the
+                        # review panel so the user sees the result.
+                        s._market_just_entered_review = True
                         return
 
                     spot_mode = getattr(s, "_market_spotlight_mode", "fictional")
@@ -19801,6 +19805,11 @@ def p_evergreen(s, rf):
                         s._market_refresh_subject = _rstep.get("subject", "")
 
                     s._market_refresh_step = "review"
+                    # 2026-05-02 user fix: tell the next render to
+                    # scroll the page down to the review panel so the
+                    # user sees the generated email instead of staring
+                    # at a stale top-of-page banner.
+                    s._market_just_entered_review = True
 
                 # Guard: only spawn one generation thread + one poll loop per
                 # refresh. Without this, every re-render (e.g. from background
@@ -19828,12 +19837,30 @@ def p_evergreen(s, rf):
                 _body = getattr(s, "_market_refresh_body", "")
                 _subj = getattr(s, "_market_refresh_subject", "")
 
-                with ui.element("div").style(
+                _review_panel = ui.element("div").style(
                         f"background:{C['card']};border:1px solid {C['teal']}40;"
-                        f"border-radius:10px;padding:20px 24px;margin-bottom:12px;"):
+                        f"border-radius:10px;padding:20px 24px;margin-bottom:12px;")
+                # Stable anchor so the one-shot scroll JS below can
+                # find this panel via document.querySelector.
+                _review_panel.props('data-id="dd-newsletter-review"')
+                with _review_panel:
                     ui.label(f"Review: {_rcamp.get('name','')}  -  {_rstep.get('name','')}").style(
                         f"font-size:15px;font-weight:700;color:{C['teal']};"
                         f"font-family:'Nunito',sans-serif;margin-bottom:12px;")
+
+                # 2026-05-02: when the bg thread just transitioned
+                # generation → review, scroll the page down to this
+                # panel so the user sees the result instead of the
+                # stale "generating…" banner at the top. One-shot via
+                # _market_just_entered_review flag.
+                if getattr(s, "_market_just_entered_review", False):
+                    s._market_just_entered_review = False
+                    ui.run_javascript(
+                        'setTimeout(function(){'
+                        'var el=document.querySelector(\'[data-id="dd-newsletter-review"]\');'
+                        'if(el){el.scrollIntoView({behavior:"smooth",block:"start"});}'
+                        '},150)'
+                    )
 
                     ui.label("Subject").classes("fd-fl")
                     _subj_inp = ui.input(value=_subj).classes("fd-input").style("margin-bottom:12px;")
