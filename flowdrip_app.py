@@ -26297,18 +26297,21 @@ def _aicb_generate_candidates_run(s, count: int = 3):
     try:
         import anthropic as _anth
         client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
-        # Build per-candidate format blocks. Every candidate's location
-        # is the SAME _primary_loc (or its immediate suburbs) — this is
-        # a single-geography candidate set. Headline format is
-        # "Title, X+ yrs experience" (NOT "X yrs at [single firm]") —
-        # user-reported issue 2026-05-01: anchoring all years at one
-        # employer is a recruiter red flag and reads like a lifer profile.
+        # Build per-candidate format blocks. Each candidate lives in a
+        # DIFFERENT nearby suburb of the {_primary_loc} metro — same
+        # commutable area, different town — so the set doesn't read as
+        # templated (user-reported 2026-05-02: "all the locations are
+        # the same — these should be in different towns close to the
+        # business so it's not too obvious").
+        # Headline format is "Title, X+ yrs experience" (NOT "X yrs at
+        # [single firm]") — user-reported issue 2026-05-01: anchoring
+        # all years at one employer reads like a lifer profile.
         _format_blocks = []
         for i, L in enumerate(_letters_used):
             _hd_title = (_per_letter_title.get(L) or "Role Title")
             _format_blocks.append(
                 f"Candidate {L}: {_hd_title}, X+ yrs experience\n"
-                f"• Location: {_primary_loc} (or immediate suburb of {_primary_loc})\n"
+                f"• Location: [a DIFFERENT nearby suburb/town in the {_primary_loc} metro — pick one that's distinct from the other candidates]\n"
                 f"• Experience: [years total; spread across 2-3 firms; you may name "
                 f"ONE firm (e.g. 'most recently at [Competitor]') but DO NOT anchor "
                 f"all the years at a single employer]\n"
@@ -26370,19 +26373,20 @@ def _aicb_generate_candidates_run(s, count: int = 3):
             "• Proficiencies: AutoCAD, SolidWorks, GibbsCAM, Mastercam; Hurco, Doosan, Haas, Mazak Mazatrol, Mori Seiki, Fanuc, Okuma controls\n"
             "• Additional Skills: Blueprint reading, GD&T, program editing (G&M codes)\n"
             "• Target Salary: $26/hr\n\n"
-            f"NOW GENERATE {count} candidate blocks for {_co} / {_roles} based in {_primary_loc}.\n\n"
-            f"LOCATION RULE  -  CRITICAL: ALL {count} candidates MUST live in "
-            f"{_primary_loc} or its immediate suburbs. SAME metro for every "
-            f"candidate. Do NOT distribute candidates across different cities, "
-            f"states, or regions — even if {_co} has offices in multiple "
-            f"locations. The recruiter is pitching the {_primary_loc} hire "
-            f"specifically. Every Location: line in your output should be "
-            f"{_primary_loc} or an obvious suburb (same metro, same state). "
-            f"NEVER write '(near X)' or '(near the metro)'  -  just the actual city, state. "
-            f"NEVER place a candidate in a different state than {_primary_loc}. "
+            f"NOW GENERATE {count} candidate blocks for {_co} / {_roles} based in the {_primary_loc} metro.\n\n"
+            f"LOCATION RULE  -  CRITICAL: each candidate lives in a "
+            f"DIFFERENT nearby suburb/town within the {_primary_loc} metro — "
+            f"same commutable area, but DIFFERENT specific town for each candidate. "
+            f"Examples for a Denver, CO market: Lakewood, Aurora, Westminster, "
+            f"Centennial, Englewood, Arvada, Thornton, Wheat Ridge, Boulder, Golden, "
+            f"Highlands Ranch, Littleton, Parker. Pick a different one for each "
+            f"candidate. NEVER repeat the same town across two candidates in the same set. "
+            f"All towns must be in the same state and within ~30 minutes of {_primary_loc}. "
+            f"Do NOT distribute across different metros/states. NEVER write "
+            f"'(near X)' or '(near the metro)'  -  just the actual city, state. "
             f"The competitor firm is where they WORKED (could be remote/elsewhere); "
-            f"the location is where they LIVE NOW (must be {_primary_loc}).\n\n"
-            f"Use this EXACT format (notice how every Location is {_primary_loc}):\n\n"
+            f"the location is where they LIVE NOW (must be a suburb of {_primary_loc}).\n\n"
+            f"Use this EXACT format (each Location is a DIFFERENT suburb of {_primary_loc}):\n\n"
             f"{_format_str}\n\n"
             f"CRITICAL: Never use '{_co}' as any candidate's firm  -  only competitors. "
             f"Return only the {count} candidate blocks. Nothing else."
