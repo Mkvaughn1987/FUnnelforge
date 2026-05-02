@@ -18587,6 +18587,211 @@ def _create_newsletter_dialog(s, rf):
     dlg.open()
 
 
+def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
+    """Centered modal for editing one auto-refreshed newsletter issue.
+    Replaces the old inline panel that lived at the bottom of `p_evergreen`
+    and was hard to find.
+
+    Layout:
+      Header:   'Edit: {name} — {issue}'                    X
+      Subject (editable input)
+      Body    (editable rich-text editor, scrolls inside modal)
+      Upload custom photo button (replaces hero, regenerates on next render)
+      Footer:  [ Cancel ]              [ ✓ Save changes ]
+
+    Saving stamps `confirmed: true` on the step so the 6-hour auto-refresh
+    sweep won't overwrite the user's edits.
+    """
+    steps = camp.get("emails", []) or []
+    if step_idx < 0 or step_idx >= len(steps):
+        ui.notify("Step not found.", type="warning")
+        return
+    step = steps[step_idx]
+    issue_label = step.get("name") or f"Issue {step_idx + 1}"
+    nl_name = camp.get("newsletter_name") or camp.get("name", "")
+
+    state: dict = {
+        "subject": step.get("subject", "") or "",
+        "body": step.get("body", "") or "",
+    }
+
+    with ui.dialog() as dlg, ui.card().style(
+            f"background:{C['bg']};border:1px solid {C['border']};"
+            f"border-radius:14px;padding:0;width:780px;max-width:96vw;"
+            f"max-height:92vh;display:flex;flex-direction:column;"):
+
+        # ── Header bar ──────────────────────────────────────────────
+        with ui.element("div").style(
+                f"display:flex;align-items:center;justify-content:space-between;"
+                f"padding:16px 20px;border-bottom:1px solid {C['border']};"):
+            ui.label(f"Edit: {nl_name} — {issue_label}").style(
+                f"font-size:15px;font-weight:700;color:{C['teal']};"
+                f"font-family:'Nunito',sans-serif;")
+            with ui.element("button").style(
+                    "background:transparent;border:none;cursor:pointer;"
+                    f"color:{C['muted']};font-size:18px;").on("click", dlg.close):
+                ui.label("✕").style("pointer-events:none;")
+
+        # ── Body region (scrolls inside modal) ──────────────────────
+        with ui.element("div").style(
+                "padding:16px 20px;overflow-y:auto;flex:1 1 auto;"):
+
+            # Subject input
+            ui.label("Subject").classes("fd-fl")
+            _subj_inp = ui.input(value=state["subject"]).style(
+                f"width:100%;background:{C['surface']};border:1px solid {C['border']};"
+                f"border-radius:6px;padding:8px 10px;color:{C['text_l']};"
+                f"font-family:inherit;margin-bottom:14px;")
+
+            # Hero photo controls (upload). The auto-refresh sweep
+            # rotates `_hero_variant = step_idx % 5` so each monthly
+            # issue uses a different cached photo automatically — no
+            # in-modal carousel needed for the common case.
+            def _hero_city_state():
+                """Resolve slug + city + state from the campaign region."""
+                _loc = (camp.get("market_region") or "").strip()
+                _parts = [p.strip() for p in _loc.split(",")]
+                _city = _parts[0] if _parts else ""
+                _st = _parts[1][:2].upper() if len(_parts) > 1 else ""
+                _slug = re.sub(r'[^A-Za-z0-9]+', '_',
+                               f"{_city}_{_st}").strip('_').lower()
+                return (_slug, _city, _st)
+
+            def _on_hero_upload(e):
+                _slug, _city, _st = _hero_city_state()
+                if not _slug:
+                    ui.notify("No location set on this newsletter — can't save photo.",
+                              type="warning")
+                    return
+                raw = e.content.read() if hasattr(e.content, "read") else e.content
+                if not raw:
+                    ui.notify("Upload was empty.", type="warning")
+                    return
+                try:
+                    from PIL import Image
+                    from io import BytesIO
+                    with Image.open(BytesIO(raw)) as im:
+                        im = im.convert("RGB")
+                        tw, th = 640, 180
+                        sw, sh = im.size
+                        scale = max(tw / sw, th / sh)
+                        nw, nh = int(sw * scale), int(sh * scale)
+                        im = im.resize((nw, nh), Image.LANCZOS)
+                        left = (nw - tw) // 2
+                        top = (nh - th) // 2
+                        im = im.crop((left, top, left + tw, top + th))
+                        buf = BytesIO()
+                        im.save(buf, format="JPEG", quality=82, optimize=True)
+                        cache_dir = _BASE_DATA_DIR / "city_images"
+                        cache_dir.mkdir(parents=True, exist_ok=True)
+                        # Land at the Wikipedia hero path so the existing
+                        # fallback chain picks up the user's upload first.
+                        (cache_dir / f"{_slug}.hero.jpg").write_bytes(buf.getvalue())
+                        # Clear unsplash cache so the new upload wins on
+                        # the next render.
+                        for fp in [cache_dir / f"{_slug}.unsplash.meta.json"]:
+                            if fp.exists():
+                                try: fp.unlink()
+                                except Exception: pass
+                        for i in range(10):
+                            fp = cache_dir / f"{_slug}.unsplash.{i}.hero.jpg"
+                            if fp.exists():
+                                try: fp.unlink()
+                                except Exception: pass
+                    ui.notify(
+                        "Photo updated. The next auto-refresh (or a manual "
+                        "regenerate) will use it.",
+                        type="positive", timeout=4000)
+                except Exception as ex:
+                    ui.notify(f"Image error: {str(ex)[:80]}", type="negative")
+
+            with ui.element("div").style(
+                    "display:flex;align-items:center;gap:8px;margin-bottom:12px;"):
+                ui.label("Hero photo:").style(
+                    f"font-size:11px;color:{C['muted']};")
+                _hero_upload = ui.upload(
+                    on_upload=_on_hero_upload,
+                    auto_upload=True,
+                    max_files=1,
+                ).props('accept="image/*"').style("display:none;")
+                with ui.element("button").classes("fd-gb").style(
+                        "padding:5px 12px;font-size:11px;").on(
+                        "click", lambda: _hero_upload.run_method("pickFiles")):
+                    ui.label("🖼 Upload your own")
+                ui.label("(rotates automatically each month otherwise)").style(
+                    f"font-size:10px;color:{C['muted']};font-style:italic;")
+
+            # Body editor
+            ui.label("Body").classes("fd-fl")
+            _body_editor = _apply_editor_props(
+                ui.editor(value=state["body"]),
+                _TOOLBAR_FULL,
+            ).style(
+                f"min-height:380px;background:{C['surface']};"
+                f"border:1px solid {C['border']};border-radius:6px;"
+                f"color:{C['text_l']};font-family:inherit;")
+            try:
+                s._register_qeditor(_body_editor, f"nl_edit_{step_idx}")
+            except Exception:
+                pass
+
+        # ── Footer (sticky) ─────────────────────────────────────────
+        with ui.element("div").style(
+                f"display:flex;align-items:center;justify-content:space-between;"
+                f"padding:12px 20px;border-top:1px solid {C['border']};"
+                f"background:{C['card']};border-radius:0 0 14px 14px;"):
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:8px 16px;font-size:12px;").on("click", dlg.close):
+                ui.label("Cancel")
+
+            def _save():
+                step["subject"] = _subj_inp.value or state["subject"]
+                step["body"] = _body_editor.value or state["body"]
+                step["confirmed"] = True
+                step["auto_confirmed"] = False
+                save_campaign(camp)
+                # Push the edited copy into any pending queue items so
+                # the scheduler sends the user's version, not the
+                # cached pre-edit version.
+                try:
+                    qp = _user_queue_path()
+                    if qp.exists():
+                        queue = json.loads(qp.read_text(encoding="utf-8"))
+                        if isinstance(queue, list):
+                            n = 0
+                            _step_name = (step.get("name") or "").strip()
+                            for q in queue:
+                                if q.get("campaign") != camp.get("name"):
+                                    continue
+                                if q.get("status") != "pending":
+                                    continue
+                                if _step_name and (q.get("step_name") or "") != _step_name:
+                                    continue
+                                q["subject"] = step["subject"]
+                                q["body"] = step["body"]
+                                n += 1
+                            if n:
+                                qp.write_text(json.dumps(queue, indent=2),
+                                              encoding="utf-8")
+                except Exception as ex:
+                    print(f"[NewsletterEditModal] queue sync warn: {ex}",
+                          flush=True)
+                try:
+                    _cache_campaigns.invalidate()
+                except Exception:
+                    pass
+                ui.notify("Saved. Auto-refresh will leave this issue alone now.",
+                          type="positive")
+                dlg.close()
+                rf()
+
+            with ui.element("button").classes("fd-pb").style(
+                    "padding:8px 22px;font-size:13px;").on("click", _save):
+                ui.label("✓ Save changes")
+
+    dlg.open()
+
+
 def p_evergreen(s, rf):
     # Seed built-in evergreen campaigns if needed
     _seed_evergreen_campaigns()
@@ -18864,27 +19069,18 @@ def p_evergreen(s, rf):
                     _is_newsletter = camp.get("market_analysis", False)
                     with ui.element("div").style(
                             "flex-shrink:0;display:flex;gap:6px;").on("click.stop", lambda: None):
-                        # Refresh button for newsletter campaigns
+                        # Edit button for newsletter campaigns. Refreshing is
+                        # automatic 3 days before send; users only need this
+                        # when they want to tweak an auto-refreshed issue.
                         if _is_newsletter:
                             def _refresh(c=camp):
                                 _next_idx = _find_next_evergreen_step(c)
-                                _steps = c.get("emails", [])
-                                _next_step = _steps[_next_idx] if _next_idx < len(_steps) else None
-                                if _next_step:
-                                    s._market_refresh_camp = c
-                                    s._market_refresh_idx = _next_idx
-                                    # Skip the candidate picker — auto-generate
-                                    # candidates popular in this market/region.
-                                    s._market_refresh_step = "generating"
-                                    s._market_refresh_body = ""
-                                    s._market_refresh_subject = ""
-                                    s._market_spotlight_mode = "auto"
-                                    s._market_spotlight_desc = ""
-                                    s._market_generation_started = False
-                                    ui.run_javascript('window.scrollTo({top:0,behavior:"smooth"})')
-                                    rf()
-                                else:
-                                    ui.notify("All newsletter issues have been sent.", type="info")
+                                _steps = c.get("emails", []) or []
+                                if _next_idx >= len(_steps):
+                                    ui.notify("All newsletter issues have been sent.",
+                                              type="info")
+                                    return
+                                _edit_newsletter_modal(s, rf, c, _next_idx)
                             # Show Preview button only when the next step has
                             # real content (either auto-refreshed or manually
                             # generated)  -  no point previewing a blank template.
@@ -18942,7 +19138,7 @@ def p_evergreen(s, rf):
                                     f"border:1px solid {C['indigo']}60;border-radius:8px;"
                                     f"cursor:pointer;font-family:inherit;"
                                     f"pointer-events:auto;").on("click", _refresh):
-                                ui.label("✦ Refresh").style("pointer-events:none;")
+                                ui.label("✎ Edit").style("pointer-events:none;")
                         # Enroll / New Placement button
                         if _is_placement:
                             def _new_placement(c=camp, _fg=fg):
