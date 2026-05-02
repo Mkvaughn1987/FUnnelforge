@@ -35091,22 +35091,52 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
                 f'</div>'
             )
 
+        # Compute the LEFT-rail holiday block for this issue's send month.
+        # Falls back to today's month if the data dict doesn't carry an
+        # explicit _send_month / _send_year (e.g. ad-hoc previews).
+        from datetime import date as _date_for_hol
+        _send_year = data.get("_send_year") or _date_for_hol.today().year
+        _send_month = data.get("_send_month") or _date_for_hol.today().month
+        try:
+            _hol_overrides = (load_config() or {}).get("holiday_note_overrides") or {}
+        except Exception:
+            _hol_overrides = {}
+        _hol = _holiday_for_month(int(_send_year), int(_send_month), overrides=_hol_overrides)
+        if _hol:
+            _hol_date, _hol_name, _hol_note = _hol
+            _hol_html = (
+                f'<div style="font-family:{_FONT};font-size:10px;font-weight:700;'
+                f'color:{nc["primary"]};text-transform:uppercase;letter-spacing:1.6px;'
+                f'margin:0 0 6px;">📅 {_hol_date}</div>'
+                f'<div style="font-family:{_DISPLAY_FONT};font-size:18px;font-weight:700;'
+                f'color:{nc["primary"]};margin:0 0 8px;">{_hol_name}</div>'
+                f'<div style="font-family:{_FONT};font-size:12px;color:{nc["text"]};'
+                f'line-height:1.5;font-style:italic;">{_hol_note}</div>'
+            )
+        else:
+            _hol_html = "&nbsp;"
+
         sections_html += f'''
-        <tr><td style="padding:18px 40px 10px;background:#FFFFFF;text-align:center;">
+        <tr><td style="padding:18px 40px 10px;background:#FFFFFF;">
           <table cellpadding="0" cellspacing="0" width="100%"
-                 style="border-collapse:collapse;text-align:center;">
-            <tr><td align="center" style="text-align:center;">
-              {_avatar_img}
-              <div style="font-family:{_FONT};font-size:10px;font-weight:700;
-                   color:{nc["primary"]};text-transform:uppercase;
-                   letter-spacing:1.6px;margin:4px 0 6px;">Meet Your Hiring Partner</div>
-              <div style="font-family:{_DISPLAY_FONT};font-size:14px;
-                   color:{nc["text"]};line-height:1.55;font-style:italic;
-                   max-width:460px;margin:0 auto;">
-                {_note_body}
-              </div>
-              {_activity_img}
-            </td></tr>
+                 style="border-collapse:collapse;">
+            <tr>
+              <td valign="top" width="28%" style="padding-right:18px;text-align:left;">
+                {_hol_html}
+              </td>
+              <td valign="top" width="44%" style="text-align:center;">
+                {_avatar_img}
+                <div style="font-family:{_FONT};font-size:10px;font-weight:700;
+                     color:{nc["primary"]};text-transform:uppercase;
+                     letter-spacing:1.6px;margin:4px 0 6px;">Meet Your Hiring Partner</div>
+                <div style="font-family:{_DISPLAY_FONT};font-size:14px;
+                     color:{nc["text"]};line-height:1.55;font-style:italic;">
+                  {_note_body}
+                </div>
+                {_activity_img}
+              </td>
+              <td valign="top" width="28%">&nbsp;</td>
+            </tr>
           </table>
         </td></tr>'''
 
@@ -35253,6 +35283,89 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
     # slipped in (the data-dict scrub at the top only covers incoming data).
     html = _strip_dashes(html)
     return html
+
+
+# ── Monthly holiday block (newsletter footer LEFT rail) ────────────────────
+# Hard-coded curated list. Users can override the note text per month in
+# Settings via `holiday_note_overrides` (dict keyed by zero-padded "MM").
+_HOLIDAYS_BY_MONTH: dict = {
+    1:  ("New Year's Day",     "Wishing you a strong start to the year."),
+    2:  ("Valentine's Day",    "A little appreciation goes a long way."),
+    3:  ("St. Patrick's Day",  "Wishing you a little luck this month."),
+    4:  ("Easter",             "Hope you got time with the people who matter."),
+    5:  ("Memorial Day",       "Honoring those who served. Office closed."),
+    6:  ("Juneteenth",         "Recognizing freedom and progress."),
+    7:  ("Independence Day",   "Wishing you a safe and restful holiday."),
+    8:  ("Summer",             "Enjoying the long days while they last."),
+    9:  ("Labor Day",          "Thank you to everyone keeping the lights on."),
+    10: ("Halloween",          "Hope your week brings more treats than tricks."),
+    11: ("Thanksgiving",       "Grateful for the partners and people we work with."),
+    12: ("Christmas",          "Wishing you peace and rest with your people."),
+}
+
+
+def _holiday_for_month(year: int, month: int, overrides: dict | None = None):
+    """Return (date_str, name, note) for the named month/year. Variable-date
+    holidays (Easter, Labor Day, Thanksgiving) compute the correct date for
+    the given year. `overrides` is the user's `holiday_note_overrides` dict
+    (keys are zero-padded "MM")."""
+    from datetime import date as _date, timedelta as _td
+    if month not in _HOLIDAYS_BY_MONTH:
+        return None
+    name, default_note = _HOLIDAYS_BY_MONTH[month]
+
+    fixed = {1: 1, 2: 14, 3: 17, 5: 25, 6: 19, 7: 4, 10: 31, 12: 25}
+    if month in fixed:
+        d = _date(year, month, fixed[month])
+    elif month == 4:  # Easter (Anonymous Gregorian computus)
+        a = year % 19
+        b = year // 100
+        c = year % 100
+        d_ = b // 4
+        e = b % 4
+        f = (b + 8) // 25
+        g = (b - f + 1) // 3
+        h = (19 * a + b - d_ - g + 15) % 30
+        i = c // 4
+        k = c % 4
+        l = (32 + 2 * e + 2 * i - h - k) % 7
+        m = (a + 11 * h + 22 * l) // 451
+        em_month = (h + l - 7 * m + 114) // 31
+        em_day = ((h + l - 7 * m + 114) % 31) + 1
+        d = _date(year, em_month, em_day)
+        if d.month != 4:
+            # Easter occasionally falls in March; pin to a stable April
+            # anchor for that month's newsletter so the layout never
+            # renders a missing/empty block.
+            d = _date(year, 4, 1)
+    elif month == 8:  # Summer anchor — first Monday of August
+        d = _date(year, 8, 1)
+        while d.weekday() != 0:
+            d += _td(days=1)
+    elif month == 9:  # Labor Day — first Monday
+        d = _date(year, 9, 1)
+        while d.weekday() != 0:
+            d += _td(days=1)
+    elif month == 11:  # Thanksgiving — 4th Thursday
+        d = _date(year, 11, 1)
+        thursdays = 0
+        while True:
+            if d.weekday() == 3:
+                thursdays += 1
+                if thursdays == 4:
+                    break
+            d += _td(days=1)
+    else:
+        return None
+
+    note = default_note
+    if overrides:
+        key = f"{month:02d}"
+        if overrides.get(key):
+            note = overrides[key]
+
+    date_str = f"{d.strftime('%b')} {d.day}"
+    return (date_str, name, note)
 
 
 def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
