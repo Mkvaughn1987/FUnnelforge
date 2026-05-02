@@ -8382,6 +8382,7 @@ SALES_NAV = [
     ("🛡", "Existing Customers", "active_clients"),
     # ── Content & Tools ──────────────────────────
     (None, "CONTENT & TOOLS",   None),
+    ("📰", "Newsletters",       "newsletters"),
     ("📊", "Reports",           "pdf_gen"),
     ("🔍", "Candidates",        "candidate_finder"),
     # ── Settings ─────────────────────────────────
@@ -18790,6 +18791,87 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
                 ui.label("✓ Save changes")
 
     dlg.open()
+
+
+def p_newsletters(s, rf):
+    """Dedicated Newsletters page. Shows ONLY newsletter campaigns —
+    no slow drips, no amber reminder banner. Each card has a hero
+    thumbnail, an Edit button (opens the focused modal), and an
+    'Auto-refreshed' badge if the next pending issue was regenerated
+    by the 6-hour sweep without the user's input."""
+    _seed_evergreen_campaigns()
+    all_camps = load_campaigns()
+    camps = [c for c in all_camps
+             if _is_evergreen(c) and c.get("market_analysis")]
+
+    with ui.element("div").style("display:flex;align-items:center;"):
+        ui.label("Newsletters").classes("fd-h1")
+        try:
+            _show_page_help(s, rf, "evergreen")
+        except Exception:
+            pass
+    ui.label("Auto-refreshed monthly. Edit any issue from the card below.").classes("fd-sub")
+
+    # New newsletter button
+    with ui.element("div").style(
+            "display:flex;align-items:center;gap:10px;margin:12px 0 18px;"):
+        with ui.element("button").classes("fd-pb").style(
+                "padding:8px 18px;font-size:12px;").on(
+                "click", lambda: _create_newsletter_dialog(s, rf)):
+            ui.label("+ New Newsletter")
+
+    if not camps:
+        ui.label("No newsletter campaigns yet.").style(
+            f"font-size:12px;color:{C['muted']};padding:8px 0;")
+        return
+
+    for i, camp in enumerate(camps):
+        bg, fg, border = EVERGREEN_COLORS[i % len(EVERGREEN_COLORS)]
+        steps = camp.get("emails", []) or []
+        contacts = camp.get("contacts", []) or []
+        _next_idx = _find_next_evergreen_step(camp)
+        _next_step = (steps[_next_idx]
+                      if _next_idx < len(steps) else None)
+        _was_auto = bool(_next_step
+                         and _next_step.get("auto_confirmed")
+                         and not _next_step.get("confirmed"))
+
+        with ui.element("div").style(
+                f"background:{bg};border:1px solid {border};border-radius:10px;"
+                f"padding:14px 18px;margin-bottom:10px;display:flex;"
+                f"align-items:center;justify-content:space-between;gap:14px;"):
+            with ui.element("div").style("flex:1;min-width:0;"):
+                ui.label(camp.get("name", "")).style(
+                    f"font-size:14px;font-weight:700;color:{fg};")
+                _meta = (
+                    f"{len(steps)} issues · {len(contacts)} enrolled"
+                    + (f" · next: {_next_step.get('name','')}"
+                       if _next_step else "")
+                )
+                ui.label(_meta).style(
+                    f"font-size:11px;color:{C['muted']};margin-top:2px;")
+                if _was_auto:
+                    ui.label("ⓘ Auto-refreshed").style(
+                        f"font-size:10px;color:{C['muted']};"
+                        f"background:{C['surface']};border:1px solid {C['border']};"
+                        f"border-radius:99px;padding:1px 8px;margin-top:4px;"
+                        f"display:inline-block;")
+
+            # Edit button
+            def _edit(c=camp):
+                _idx = _find_next_evergreen_step(c)
+                _emails = c.get("emails", []) or []
+                if _idx >= len(_emails):
+                    ui.notify("All newsletter issues have been sent.", type="info")
+                    return
+                _edit_newsletter_modal(s, rf, c, _idx)
+            with ui.element("button").style(
+                    f"padding:6px 16px;font-size:12px;font-weight:700;"
+                    f"background:{C['indigo']}18;color:{C['indigo']};"
+                    f"border:1px solid {C['indigo']}60;border-radius:8px;"
+                    f"cursor:pointer;font-family:inherit;flex-shrink:0;").on(
+                    "click", _edit):
+                ui.label("✎ Edit").style("pointer-events:none;")
 
 
 def p_evergreen(s, rf):
@@ -40724,6 +40806,7 @@ def render_page(s: AppState, rf):
             elif page == "preview":      p_preview(s, rf)
             elif page == "launch":       p_launch(s, rf)
             elif page == "evergreen":    p_evergreen(s, rf)
+            elif page == "newsletters":  p_newsletters(s, rf)
             elif page == "evergreen_create": p_evergreen_create(s, rf)
             elif page == "queue":        p_queue(s, rf)
             elif page == "dnc":          p_dnc(s, rf)
