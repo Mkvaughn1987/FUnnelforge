@@ -10454,38 +10454,47 @@ def p_today_combined(s: AppState, rf):
                           # users who actually want to edit.
                           _drip_camp_status_dialog(s, rf, c)
 
+                      # Single-row condensed card layout (2026-05-02
+                      # user request: "why are these so long? It's
+                      # gotta be shorter"). Was 3 stacked rows
+                      # (name+contacts / progress bar / seq+queued
+                      # +next), ~80px tall. Now one horizontal row
+                      # with a thin progress strip on the LEFT-BORDER
+                      # accent, ~40px tall. Click still opens the
+                      # status dialog.
                       with ui.element("div").style(
                               f"background:{C['surface']};border:1px solid {C['border']};"
-                              f"border-radius:10px;padding:14px 16px;margin-bottom:8px;"
-                              f"cursor:pointer;transition:background .15s;").on("click", _go_camp):
-
-                          # Name + contact count
+                              f"border-left:3px solid {C['teal']};"
+                              f"border-radius:0 8px 8px 0;padding:8px 14px;margin-bottom:5px;"
+                              f"cursor:pointer;transition:background .15s;"
+                              f"display:flex;align-items:center;gap:14px;"
+                              ).on("click", _go_camp):
+                          # Name (flex:1)
+                          ui.label(cname).style(
+                              f"font-size:13px;font-weight:600;color:{C['text_l']};"
+                              f"font-family:'Nunito',sans-serif;flex:1;min-width:0;"
+                              f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
+                          # Inline progress bar (slim, 80px wide)
                           with ui.element("div").style(
-                                  "display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;"):
-                              ui.label(cname).style(
-                                  f"font-size:14px;font-weight:600;color:{C['text_l']};"
-                                  f"font-family:'Nunito',sans-serif;"
-                                  f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:65%;")
-                              ui.label(f"{total_c} contacts").style(
-                                  f"font-size:12px;color:{C['muted']};font-weight:500;")
-
-                          # Progress bar (queued / total contacts)
-                          with ui.element("div").classes("fd-progress").style("margin-bottom:6px;"):
-                              ui.element("div").classes("fd-progress-fill").style(
-                                  f"width:{min(pct_camp, 100)}%;")
-
-                          # Footer row: seq info + next send
+                                  f"flex-shrink:0;width:80px;height:4px;"
+                                  f"background:{C['border']};border-radius:99px;overflow:hidden;"):
+                              ui.element("div").style(
+                                  f"width:{min(pct_camp, 100)}%;height:100%;"
+                                  f"background:{C['teal']};")
+                          # Stats — contacts · seq · queued · up-next
                           with ui.element("div").style(
-                                  "display:flex;align-items:center;justify-content:space-between;"):
-                              with ui.element("div").style("display:flex;gap:12px;align-items:center;"):
-                                  ui.label(f"✉ {total_e}-email sequence").style(
-                                      f"font-size:11px;color:{C['muted']};")
-                                  if queued:
-                                      ui.label(f"📬 {queued} queued").style(
-                                          f"font-size:11px;color:{C['warn']};font-weight:600;")
+                                  "display:flex;align-items:center;gap:10px;flex-shrink:0;"):
+                              ui.label(f"{total_c}c").style(
+                                  f"font-size:10px;color:{C['muted']};font-weight:600;")
+                              ui.label(f"✉{total_e}").style(
+                                  f"font-size:10px;color:{C['muted']};")
+                              if queued:
+                                  ui.label(f"📬{queued}").style(
+                                      f"font-size:10px;color:{C['warn']};font-weight:700;")
                               if next_label:
-                                  ui.label(f"Up Next: {next_label}").style(
-                                      f"font-size:11px;color:{C['teal']};font-weight:500;")
+                                  ui.label(next_label).style(
+                                      f"font-size:10px;color:{C['teal']};font-weight:600;"
+                                      f"white-space:nowrap;")
 
                   # Orphaned queue entries (campaign deleted/renamed)  -  hidden
 
@@ -40150,6 +40159,13 @@ def login_page(next: str = "/"):
             app.storage.user["authenticated"] = True
             app.storage.user["email"] = email.lower()
             app.storage.user["name"] = _get_user_name(email)
+            # Fresh login = land on Dashboard, regardless of where the
+            # user was last time. Distinct from mid-session reconnects
+            # (those don't re-auth, so this code path doesn't run and
+            # the previous page is preserved). 2026-05-02 user request.
+            app.storage.user["_last_hub"] = "sales"
+            app.storage.user["_last_sp"]  = "dashboard"
+            app.storage.user["_last_ep"]  = "emails_home"
             ui.navigate.to(_safe_next)
         else:
             _rate_limit_record(_rl_key)
@@ -40270,6 +40286,10 @@ def register_page(next: str = "/setup"):
             app.storage.user["authenticated"] = True
             app.storage.user["email"] = email.lower()
             app.storage.user["name"] = name
+            # Fresh registration = land on Dashboard. Same logic as login.
+            app.storage.user["_last_hub"] = "sales"
+            app.storage.user["_last_sp"]  = "dashboard"
+            app.storage.user["_last_ep"]  = "emails_home"
             ui.navigate.to(_safe_next)
         else:
             ui.notify("An account with this email already exists", type="negative")
