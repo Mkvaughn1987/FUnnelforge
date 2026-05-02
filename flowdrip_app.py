@@ -35465,7 +35465,7 @@ def _auto_refresh_newsletter_tick():
     if not users_dir.exists():
         return
     now_utc = datetime.now(_tz.utc)
-    refresh_window = _td(days=5)
+    refresh_window = _td(days=3)
     cooldown = _td(days=6)
     refreshed_count = 0
 
