@@ -281,6 +281,26 @@ def _serve_avatar(email_key: str):
     return Response(status_code=404)
 
 
+@app.get("/tenant_logo")
+def _serve_tenant_logo():
+    """Serve the requesting user's tenant logo (shared across email
+    domain). Used by the Tenant Branding form to show a live preview
+    of the current logo so admins can confirm what's deployed before
+    replacing it. Reads the user's email from the session cookie and
+    looks up the tenant directory by domain — no caller-provided path,
+    so no traversal vector."""
+    try:
+        email = (app.storage.user.get("email") or "").strip().lower()
+    except Exception:
+        return Response(status_code=404)
+    if not email or "@" not in email:
+        return Response(status_code=404)
+    p = _tenant_logo_path(email)
+    if not p:
+        return Response(status_code=404)
+    return FileResponse(p, headers={"Cache-Control": "private, max-age=30"})
+
+
 # Static asset route  -  strict allowlist of files in the project root that
 # may be served. Replaces the old `add_static_files('/static', _APP_DIR)`
 # which exposed the entire source tree (including flowdrip_app.py) to the
@@ -38795,28 +38815,14 @@ def p_team_settings(s: AppState, rf):
         with ui.element("div").style("margin-top:14px;"):
             ui.label("Team logo").classes("fd-fl")
             _existing = _tenant_logo_path(_focus_email)
-            if _existing:
-                with ui.element("div").style(
-                        f"display:flex;align-items:center;gap:12px;margin-bottom:8px;"
-                        f"padding:8px 12px;background:{C['surface']};"
-                        f"border:1px solid {C['border']};border-radius:8px;"):
-                    ui.label("✓ Logo uploaded").style(
-                        f"font-size:11px;color:{C['good']};font-weight:600;")
-                    ui.label(Path(_existing).name).style(
-                        f"font-size:11px;color:{C['muted']};font-family:monospace;")
+
             async def _on_logo_upload(e, _email=_focus_email):
                 # Mirror the Company Profile logo handler's NiceGUI API:
-                # `e.file` (singular) + `await f.save(str(dest))`. The prior
-                # `e.files[0]` + sync read path was wrong for ui.upload's
-                # event shape — the upload silently failed and nothing
-                # landed on disk. This was the bug Michael hit while
-                # trying to upload the Arena logo via Team Settings.
-                #
+                # `e.file` (singular) + `await f.save(str(dest))`.
                 # Re-entry guard: ui.upload(auto_upload=True) gets re-rendered
                 # by rf() below; if the client still has the file queued,
                 # NiceGUI can re-fire on_upload → rf() → re-render → fire
                 # again, causing an infinite "page keeps refreshing" loop.
-                # The flag short-circuits any duplicate fire within one save.
                 if getattr(s, "_team_logo_uploading", False):
                     print("[LOGO] Re-entry blocked — upload already in flight.", flush=True)
                     return
@@ -38827,14 +38833,11 @@ def p_team_settings(s: AppState, rf):
                     ext = "jpg" if fname.lower().endswith(('.jpg', '.jpeg')) else "png"
                     _troot = _tenant_root_for(_email)
                     _troot.mkdir(parents=True, exist_ok=True)
-                    # Remove any prior logo extensions before writing the new one
                     for _e_ext in ("png", "jpg", "jpeg"):
                         _p = _troot / f"company_logo.{_e_ext}"
                         if _p.exists():
-                            try:
-                                _p.unlink()
-                            except Exception:
-                                pass
+                            try: _p.unlink()
+                            except Exception: pass
                     dest = _troot / f"company_logo.{ext}"
                     print(f"[LOGO] Saving tenant logo {fname} to {dest}", flush=True)
                     await f.save(str(dest))
@@ -38845,15 +38848,72 @@ def p_team_settings(s: AppState, rf):
                     ui.notify(f"Upload failed: {str(ex)[:80]}", type="negative")
                 finally:
                     s._team_logo_uploading = False
-            ui.upload(
-                on_upload=_on_logo_upload,
-                label="↑ Upload Team Logo",
-                auto_upload=True,
-                max_files=1,
-            ).props('flat dense accept=".png,.jpg,.jpeg,image/png,image/jpeg"').style(
-                "font-size:12px;")
+
+            # Logo panel — preview thumbnail of the current logo (so the
+            # user can see what's actually live) + a clearly styled
+            # upload button next to it. The previous `flat dense` props
+            # made the upload widget nearly invisible and users couldn't
+            # tell HOW to change the logo (2026-05-02 user report:
+            # "I needed to be able to actually change the logo itself").
+            with ui.element("div").style(
+                    f"display:flex;align-items:center;gap:14px;flex-wrap:wrap;"
+                    f"padding:12px 14px;background:{C['surface']};"
+                    f"border:1px solid {C['border']};border-radius:8px;"):
+                if _existing:
+                    # Live preview of the current logo so users see
+                    # what's actually deployed (vs. just a filename).
+                    _media_url = f"/tenant_logo?v={int(Path(_existing).stat().st_mtime)}"
+                    with ui.element("div").style(
+                            f"width:80px;height:80px;flex-shrink:0;"
+                            f"background:{C['card']};border:1px solid {C['border']};"
+                            f"border-radius:6px;display:flex;align-items:center;"
+                            f"justify-content:center;overflow:hidden;"):
+                        ui.html(
+                            f'<img src="{esc(_media_url)}" style="max-width:100%;'
+                            f'max-height:100%;object-fit:contain;" '
+                            f'onerror="this.style.display=\'none\';" />'
+                        )
+                    with ui.element("div").style("flex:1;min-width:0;"):
+                        ui.label("Current team logo").style(
+                            f"font-size:11px;font-weight:700;color:{C['text_l']};"
+                            f"font-family:'Nunito',sans-serif;")
+                        ui.label(Path(_existing).name).style(
+                            f"font-size:10px;color:{C['muted']};"
+                            f"font-family:monospace;display:block;margin-top:2px;")
+                else:
+                    with ui.element("div").style(
+                            f"width:80px;height:80px;flex-shrink:0;"
+                            f"background:{C['card']};border:1px dashed {C['border']};"
+                            f"border-radius:6px;display:flex;align-items:center;"
+                            f"justify-content:center;color:{C['muted']};font-size:10px;"):
+                        ui.label("No logo")
+                    with ui.element("div").style("flex:1;min-width:0;"):
+                        ui.label("No team logo set").style(
+                            f"font-size:11px;font-weight:700;color:{C['text_l']};"
+                            f"font-family:'Nunito',sans-serif;")
+                        ui.label("Upload a PNG or JPG to set the team default.").style(
+                            f"font-size:10px;color:{C['muted']};display:block;margin-top:2px;")
+
+                # Prominent upload control. Dropping flat+dense (which
+                # rendered the button invisibly tiny) and styling it as
+                # a primary button so users actually see it.
+                with ui.element("div").style("flex-shrink:0;"):
+                    ui.upload(
+                        on_upload=_on_logo_upload,
+                        label=("↑ Replace Logo" if _existing
+                               else "↑ Upload Team Logo"),
+                        auto_upload=True,
+                        max_files=1,
+                    ).props(
+                        'color=primary accept=".png,.jpg,.jpeg,image/png,image/jpeg"'
+                    ).style(
+                        f"font-size:12px;font-weight:700;"
+                        f"min-width:180px;"
+                    )
+
             ui.label("PNG or JPG, 5 MB max. Replaces any existing team logo.").style(
-                f"font-size:10px;color:{C['muted']};font-style:italic;margin-top:2px;display:block;")
+                f"font-size:10px;color:{C['muted']};font-style:italic;"
+                f"margin-top:6px;display:block;")
 
         def _save_tenant():
             _new = {
