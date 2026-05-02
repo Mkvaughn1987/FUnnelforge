@@ -35550,6 +35550,10 @@ def _auto_refresh_newsletter_tick():
                 continue
 
             step = steps[step_idx]
+            # User-confirmed steps are owned by the user. Never overwrite.
+            # `confirmed: true` is set when the user clicks Save in the Edit modal.
+            if step.get("confirmed"):
+                continue
             # Cooldown: skip if already refreshed recently
             _last = step.get("_auto_refreshed_at", "") or ""
             if _last:
