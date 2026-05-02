@@ -35636,8 +35636,8 @@ def _auto_refresh_newsletter_tick():
                               or _ucfg.get("sig_email", "")
                               or _ucfg.get("smtp_email", "")
                               or _owner_email)
-                    _preview_subj = (f"[Auto-Refresh Preview] {subj}  -  sends "
-                                     f"{send_aware.strftime('%b %d')}")
+                    _preview_subj = (f"Preview: {camp.get('newsletter_name') or camp_name}  -  "
+                                     f"sends {send_aware.strftime('%b %d')}")
                     ok, err = _send_email_universal(
                         to=_inbox,
                         subject=_preview_subj,
