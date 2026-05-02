@@ -9531,6 +9531,31 @@ def topbar(s: AppState, rf):
                 if _avatar_menu_ref["m"]:
                     _avatar_menu_ref["m"].open()
 
+            # Team logo to the left of the avatar (2026-05-02 — moved
+            # here from the sidebar footer + sized up so it's actually
+            # visible). Uses _get_company_logo_path() so per-user
+            # overrides still win when present, otherwise falls through
+            # to the tenant logo. Inlined as base64 so cache busting
+            # comes for free on file change (no /tenant_logo route hit).
+            _co_logo = _get_company_logo_path()
+            if _co_logo:
+                try:
+                    import base64 as _b64
+                    _co_bytes = Path(_co_logo).read_bytes()
+                    _co_ext = "jpg" if _co_logo.lower().endswith((".jpg", ".jpeg")) else "png"
+                    _co_b64 = _b64.b64encode(_co_bytes).decode()
+                    with ui.element("div").style(
+                            "position:absolute;right:210px;top:50%;"
+                            "transform:translateY(-50%);"
+                            "display:flex;align-items:center;"):
+                        ui.html(
+                            f'<img src="data:image/{_co_ext};base64,{_co_b64}" '
+                            f'alt="Team logo" style="max-height:70px;max-width:220px;'
+                            f'display:block;" />'
+                        )
+                except Exception:
+                    pass
+
             with ui.element("div").classes("fd-avatar-wrap").style(
                     "position:absolute;right:150px;top:50%;transform:translateY(-50%);"):
                 # Avatar button  -  image if uploaded, otherwise initials
@@ -10035,27 +10060,10 @@ def sidebar(s: AppState, rf):
                         ui.label("✏  Continue Building")
                 # (No else branch  -  sub-nav stays collapsed until a campaign is in flight)
 
-        # Company logo at the bottom of the sidebar
-        _co_logo = _get_company_logo_path()
-        if _co_logo:
-            try:
-                import base64 as _b64
-                _co_bytes = Path(_co_logo).read_bytes()
-                _co_ext = "jpg" if _co_logo.endswith((".jpg", ".jpeg")) else "png"
-                _co_b64 = _b64.b64encode(_co_bytes).decode()
-                with ui.element("div").style(
-                        f"padding:10px 18px 4px;border-top:1px solid {C['border']};"
-                        f"margin-top:auto;"):
-                    ui.html(
-                        f'<img src="data:image/{_co_ext};base64,{_co_b64}" '
-                        f'alt="Company logo" style="max-height:40px;max-width:140px;'
-                        f'display:block;opacity:0.85;" />'
-                    )
-            except Exception:
-                pass
-        if not _co_logo:
-            # Only show version text when there's no logo filling the space
-            ui.label("v2.0").classes("fd-ver")
+        # Company logo moved out of the sidebar 2026-05-02 — now lives
+        # in the topbar next to the user avatar (see topbar() above).
+        # Sidebar footer just shows the version label.
+        ui.label("v2.0").classes("fd-ver")
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  PAGE: TODAY'S DRIP  -  COMBINED VIEW (landing page)
