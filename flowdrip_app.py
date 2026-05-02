@@ -25765,7 +25765,13 @@ def _aicb_suggest_titles_run(s):
         titles = _parse_string_list_from_ai(text)
         existing = list(s.aicb_sel_roles or [])
         added = 0
+        # Hard cap at 6 total — matches the wizard's TITLE_MAX. The
+        # button is disabled when already-at-6, but if the user had 3
+        # picks and Suggest returned 8, we'd silently overshoot the
+        # one-candidate-per-title contract (a-f letter limit is also 6).
         for t in titles:
+            if len(existing) >= 6:
+                break
             if t and t not in existing:
                 existing.append(t)
                 added += 1
@@ -26647,21 +26653,22 @@ def p_ai_campaign(s: AppState, rf):
                              "the candidate picker."),
                         ],
                         3: [
-                            ("Target Roles",
-                             "List the job titles you want emails to reference. "
-                             "Comma-separated. Click ✨ Suggest titles to have AI "
-                             "look at the company's career page and propose 5-8 "
-                             "specific titles."),
+                            ("Target Titles",
+                             "Pick up to 6 job titles for the emails to reference. "
+                             "Click ✨ Suggest titles to have AI scan the company's "
+                             "career page and propose 5-8 specific titles, or type "
+                             "your own and hit + Add. Remove with the × on each chip."),
                             ("From Pool",
                              "Pick from candidates you've already saved. The list "
                              "is auto-filtered to ones whose role matches your "
-                             "chips. Cap of 3 per campaign."),
+                             "picked titles. Cap of 3 per campaign."),
                             ("Auto-generate",
                              "AI invents anonymous archetypes (Candidate A/B/C…) "
                              "with role, location, skills, and salary — the kind "
                              "of bullet block you'd put in a recruiting email. "
-                             "Pick how many (1-6), edit any card, re-roll one or "
-                             "all."),
+                             "Generates ONE per picked title (or auto-fetches "
+                             "titles if you skip the picker). Edit any card, "
+                             "re-roll one or all."),
                             ("Skip",
                              "Ship a market-only campaign with no candidate "
                              "references. Roles still drive the AI's positioning."),
@@ -27143,30 +27150,124 @@ def p_ai_campaign(s: AppState, rf):
                     "campaign with no candidate references."
                 ).classes("fd-sub").style(f"color:{C['muted']};margin-bottom:18px;")
 
-                # Manual roles entry + ✨ Suggest titles button removed
-                # 2026-04-26 per user feedback. The Auto-generate flow now
-                # auto-fetches titles before creating candidates (combined
-                # _aicb_combined_titles_and_candidates), and Pool selection
-                # derives roles from the picked candidates' target_role.
-                # Skip just leaves roles empty — _do_research handles that.
-                # 2026-05-01: Autogen now has its own editable title picker
-                # — hide this read-only strip in that case to avoid two
-                # roles widgets stacked on top of each other. Pool/Skip
-                # still use the read-only strip.
-                if s.aicb_sel_roles and s.aicb_cand_source != "autogen":
-                    # Show the current chips read-only so users can see what
-                    # roles drive the candidate / campaign generation.
+                # ── Section A: Target Titles (always visible) ────────
+                # Sidebar describes Target Roles as the first thing on
+                # this step; the picker has to live above the source
+                # cards or the help text is lying. Titles also drive
+                # all three source paths (autogen → 1 candidate per
+                # title; pool → filters the pool; skip → still informs
+                # the campaign prompt), so showing it once at the top
+                # is correct regardless of source.
+                TITLE_MAX = 6
+                _picked_titles = list(s.aicb_sel_roles or [])
+
+                with ui.element("div").style(
+                        f"margin-bottom:18px;padding:12px 14px;"
+                        f"background:{C['surface']};border-radius:8px;"):
+                    ui.label("Target Titles").style(
+                        f"font-size:12px;font-weight:700;color:{C['text_l']};"
+                        f"font-family:'Nunito',sans-serif;")
+                    ui.label(
+                        f"Pick up to {TITLE_MAX}. Auto-generate makes one "
+                        f"candidate per title; Pool filters by these; Skip "
+                        f"still uses them to position the campaign. Leave "
+                        f"empty to let AI auto-fetch from the company's "
+                        f"careers page."
+                    ).style(
+                        f"font-size:11px;color:{C['muted']};margin-bottom:10px;display:block;")
+
+                    if _picked_titles:
+                        with ui.element("div").style(
+                                "display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"):
+                            for _idx, _t in enumerate(_picked_titles):
+                                def _rm_title(idx=_idx):
+                                    existing = list(s.aicb_sel_roles or [])
+                                    if 0 <= idx < len(existing):
+                                        existing.pop(idx)
+                                        s.aicb_sel_roles = existing
+                                        s.aicb_cand_cards = []
+                                        s._aicb_cand_text = ""
+                                        rf()
+                                with ui.element("div").style(
+                                        f"display:inline-flex;align-items:center;gap:6px;"
+                                        f"padding:5px 10px 5px 12px;border-radius:99px;"
+                                        f"background:{C.get('teal_dim', '#1AE3D920')};"
+                                        f"color:{C.get('teal', '#1AE3D9')};"
+                                        f"font-size:12px;font-weight:600;"):
+                                    ui.label(_t)
+                                    with ui.element("span").style(
+                                            f"cursor:pointer;font-size:14px;"
+                                            f"line-height:1;color:{C['muted']};"
+                                            ).on("click", _rm_title):
+                                        ui.label("×")
+
                     with ui.element("div").style(
-                            f"margin-bottom:14px;padding:10px 14px;"
-                            f"background:{C['surface']};border-radius:8px;"
-                            f"display:flex;flex-wrap:wrap;align-items:center;gap:6px;"):
-                        ui.label("Roles:").style(
-                            f"font-size:11px;color:{C['muted']};white-space:nowrap;")
-                        for _r in s.aicb_sel_roles[:8]:
-                            ui.label(_r).style(
-                                f"font-size:11px;padding:3px 9px;border-radius:99px;"
-                                f"background:{C.get('teal_dim', '#1AE3D920')};"
-                                f"color:{C.get('teal', '#1AE3D9')};")
+                            "display:flex;flex-wrap:wrap;align-items:center;gap:8px;"):
+                        _at_max = len(_picked_titles) >= TITLE_MAX
+
+                        def _do_suggest():
+                            if _at_max:
+                                ui.notify(f"Already at {TITLE_MAX} titles — remove one to suggest more.",
+                                          type="info"); return
+                            _aicb_suggest_role_titles(s, rf)
+                        _suggest_busy = bool(getattr(s, "_aicb_titles_generating", False))
+                        _suggest_style = (
+                            "padding:6px 12px;font-size:11px;"
+                            + ("opacity:0.5;cursor:not-allowed;" if (_at_max or _suggest_busy) else "")
+                        )
+                        with ui.element("button").classes("fd-gb").style(_suggest_style).on(
+                                "click", (lambda: None) if (_at_max or _suggest_busy) else _do_suggest):
+                            if _suggest_busy:
+                                ui.label("Suggesting…")
+                            else:
+                                ui.label("✨ Suggest titles")
+
+                        def _add_custom():
+                            v = (_custom_in.value or "").strip()
+                            if not v:
+                                ui.notify("Type a title first.", type="warning"); return
+                            existing = list(s.aicb_sel_roles or [])
+                            if v in existing:
+                                ui.notify(f"'{v}' is already on the list.",
+                                          type="info", timeout=2000); return
+                            if len(existing) >= TITLE_MAX:
+                                ui.notify(f"Cap is {TITLE_MAX} — remove one first.",
+                                          type="warning"); return
+                            existing.append(v)
+                            s.aicb_sel_roles = existing
+                            _custom_in.set_value("")
+                            # Clear stale cards: title list changed, the
+                            # generated 3 candidates (or whatever) no longer
+                            # match the new title set, so they're misleading.
+                            s.aicb_cand_cards = []
+                            s._aicb_cand_text = ""
+                            rf()
+
+                        _custom_in = ui.input(
+                            placeholder="Or type a title (e.g. CNC Machinist)",
+                        ).classes("fd-input").style(
+                            "flex:1;min-width:200px;padding:4px 10px;font-size:12px;")
+                        # Enter to submit — typical form muscle memory.
+                        # NiceGUI's `keydown.enter` fires before the value
+                        # is bound from the DOM, so set_value happens via
+                        # the inner closure read on _custom_in.value.
+                        _custom_in.on("keydown.enter",
+                                       (lambda e=None: None) if _at_max
+                                       else (lambda e=None: _add_custom()))
+
+                        with ui.element("button").classes("fd-pb").style(
+                                "padding:6px 14px;font-size:11px;"
+                                + ("opacity:0.5;cursor:not-allowed;" if _at_max else "")
+                                ).on("click", (lambda: None) if _at_max else _add_custom):
+                            ui.label("+ Add")
+
+                        ui.label(f"{len(_picked_titles)} / {TITLE_MAX}").style(
+                            f"font-size:10px;color:{C['muted']};white-space:nowrap;"
+                            f"margin-left:auto;")
+
+                    if getattr(s, "_aicb_titles_err", ""):
+                        ui.label(f"⚠ {s._aicb_titles_err}").style(
+                            f"font-size:11px;color:{C['warn']};margin-top:6px;")
 
                 # ── Section B: Source picker (3 cards) ───────────────
                 ui.label("Candidate source").classes("fd-fl").style("margin-top:10px;")
@@ -27210,113 +27311,8 @@ def p_ai_campaign(s: AppState, rf):
 
                 # ── Section C: Source-specific UI ────────────────────
                 if s.aicb_cand_source == "autogen":
-                    # Title-chip picker (2026-05-01) — replaces the old
-                    # count pills. User picks up to 6 titles; AI generates
-                    # ONE candidate per title. If they don't pick any, the
-                    # combined helper falls back to auto-fetching titles
-                    # from the company's careers page (existing behavior),
-                    # so the autogen path still works zero-config.
-                    TITLE_MAX = 6
-                    _picked_titles = list(s.aicb_sel_roles or [])
-
-                    with ui.element("div").style(
-                            f"margin-bottom:14px;padding:12px 14px;"
-                            f"background:{C['surface']};border-radius:8px;"):
-                        ui.label("Target titles").style(
-                            f"font-size:12px;font-weight:700;color:{C['text_l']};"
-                            f"font-family:'Nunito',sans-serif;")
-                        ui.label(
-                            f"Pick up to {TITLE_MAX} — we'll generate one "
-                            f"candidate per title. Skip to let AI auto-fetch "
-                            f"titles from the company's careers page."
-                        ).style(
-                            f"font-size:11px;color:{C['muted']};margin-bottom:10px;display:block;")
-
-                        # Currently picked titles → removable chips
-                        if _picked_titles:
-                            with ui.element("div").style(
-                                    "display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"):
-                                for _idx, _t in enumerate(_picked_titles):
-                                    def _rm_title(idx=_idx):
-                                        existing = list(s.aicb_sel_roles or [])
-                                        if 0 <= idx < len(existing):
-                                            existing.pop(idx)
-                                            s.aicb_sel_roles = existing
-                                            # Drop stale candidates so a stale 6
-                                            # don't linger after they remove a title.
-                                            s.aicb_cand_cards = []
-                                            s._aicb_cand_text = ""
-                                            rf()
-                                    with ui.element("div").style(
-                                            f"display:inline-flex;align-items:center;gap:6px;"
-                                            f"padding:5px 10px 5px 12px;border-radius:99px;"
-                                            f"background:{C.get('teal_dim', '#1AE3D920')};"
-                                            f"color:{C.get('teal', '#1AE3D9')};"
-                                            f"font-size:12px;font-weight:600;"):
-                                        ui.label(_t)
-                                        with ui.element("span").style(
-                                                f"cursor:pointer;font-size:14px;"
-                                                f"line-height:1;color:{C['muted']};"
-                                                ).on("click", _rm_title):
-                                            ui.label("×")
-
-                        # Suggest + Add custom + counter row
-                        with ui.element("div").style(
-                                "display:flex;flex-wrap:wrap;align-items:center;gap:8px;"):
-                            _at_max = len(_picked_titles) >= TITLE_MAX
-
-                            def _do_suggest():
-                                if _at_max:
-                                    ui.notify(f"Already at {TITLE_MAX} titles — remove one to suggest more.",
-                                              type="info"); return
-                                _aicb_suggest_role_titles(s, rf)
-                            _suggest_busy = bool(getattr(s, "_aicb_titles_generating", False))
-                            _suggest_style = (
-                                "padding:6px 12px;font-size:11px;"
-                                + ("opacity:0.5;cursor:not-allowed;" if (_at_max or _suggest_busy) else "")
-                            )
-                            with ui.element("button").classes("fd-gb").style(_suggest_style).on(
-                                    "click", (lambda: None) if (_at_max or _suggest_busy) else _do_suggest):
-                                if _suggest_busy:
-                                    ui.label("Suggesting…")
-                                else:
-                                    ui.label("✨ Suggest titles")
-
-                            _custom_in = ui.input(
-                                placeholder="Or type a title (e.g. CNC Machinist)",
-                            ).classes("fd-input").style(
-                                "flex:1;min-width:200px;padding:4px 10px;font-size:12px;")
-
-                            def _add_custom():
-                                v = (_custom_in.value or "").strip()
-                                if not v:
-                                    ui.notify("Type a title first.", type="warning"); return
-                                existing = list(s.aicb_sel_roles or [])
-                                if v in existing:
-                                    ui.notify(f"'{v}' is already on the list.",
-                                              type="info", timeout=2000); return
-                                if len(existing) >= TITLE_MAX:
-                                    ui.notify(f"Cap is {TITLE_MAX} — remove one first.",
-                                              type="warning"); return
-                                existing.append(v)
-                                s.aicb_sel_roles = existing
-                                _custom_in.set_value("")
-                                rf()
-                            with ui.element("button").classes("fd-pb").style(
-                                    "padding:6px 14px;font-size:11px;"
-                                    + ("opacity:0.5;cursor:not-allowed;" if _at_max else "")
-                                    ).on("click", (lambda: None) if _at_max else _add_custom):
-                                ui.label("+ Add")
-
-                            ui.label(f"{len(_picked_titles)} / {TITLE_MAX}").style(
-                                f"font-size:10px;color:{C['muted']};white-space:nowrap;"
-                                f"margin-left:auto;")
-
-                        if getattr(s, "_aicb_titles_err", ""):
-                            ui.label(f"⚠ {s._aicb_titles_err}").style(
-                                f"font-size:11px;color:{C['warn']};margin-top:6px;")
-
-                    # Generate row
+                    # Generate row (title picker now lives at the top of
+                    # the step, above the source cards — see Section A).
                     with ui.element("div").style(
                             "display:flex;align-items:center;gap:12px;margin-bottom:14px;"
                             "flex-wrap:wrap;"):
