@@ -18608,6 +18608,33 @@ def p_evergreen(s, rf):
         _show_page_help(s, rf, "evergreen")
     ui.label("Enroll contacts into always-on sequences. They pick up at the next upcoming step.").classes("fd-sub")
 
+    # Top-of-page Refresh status banner (2026-05-02): when a user
+    # clicks Refresh on a newsletter card the actual generation panel
+    # lived at the bottom of the page, off-screen — they'd click and
+    # think nothing happened. Now we mirror the spinner up here so it's
+    # in view immediately. The Refresh click handlers also run a
+    # window.scrollTo({top:0}) so the user lands on this banner.
+    if (getattr(s, "_market_refresh_camp", None) is not None
+            and getattr(s, "_market_refresh_step", "") == "generating"):
+        with ui.element("div").style(
+                f"background:{C['teal']}12;border:1px solid {C['teal']}40;"
+                f"border-left:3px solid {C['teal']};border-radius:8px;"
+                f"padding:12px 16px;margin:8px 0 14px;display:flex;"
+                f"align-items:center;gap:12px;"):
+            ui.spinner("dots", size="22px", color=C["teal"])
+            with ui.element("div").style("flex:1;min-width:0;"):
+                _r_camp_name = (s._market_refresh_camp.get("name", "")
+                                 if isinstance(s._market_refresh_camp, dict) else "")
+                ui.label(
+                    f"Refreshing newsletter content"
+                    + (f" for '{_r_camp_name}'" if _r_camp_name else "")
+                    + "…"
+                ).style(
+                    f"font-size:13px;color:{C['teal']};font-weight:700;"
+                    f"font-family:'Nunito',sans-serif;display:block;")
+                ui.label("Claude is researching and writing the email. Usually 15-30 seconds.").style(
+                    f"font-size:11px;color:{C['muted']};display:block;margin-top:2px;")
+
     # If a newsletter's first issue is generating in the background
     # (triggered from the Create Newsletter dialog), show a live banner
     # and auto-refresh the page when it finishes — so the user sees the
@@ -18755,6 +18782,10 @@ def p_evergreen(s, rf):
                             s._market_spotlight_mode = "auto"
                             s._market_spotlight_desc = ""
                             s._market_generation_started = False
+                            # Scroll to top so user sees the status
+                            # banner that renders at the top of p_evergreen
+                            # while generation runs.
+                            ui.run_javascript('window.scrollTo({top:0,behavior:"smooth"})')
                             rf()
                         with ui.element("div").style("margin-top:10px;"):
                             with ui.element("button").style(
@@ -18859,6 +18890,7 @@ def p_evergreen(s, rf):
                                     s._market_spotlight_mode = "auto"
                                     s._market_spotlight_desc = ""
                                     s._market_generation_started = False
+                                    ui.run_javascript('window.scrollTo({top:0,behavior:"smooth"})')
                                     rf()
                                 else:
                                     ui.notify("All newsletter issues have been sent.", type="info")
@@ -19226,6 +19258,7 @@ def p_evergreen(s, rf):
                                 s._market_spotlight_mode = "auto"
                                 s._market_spotlight_desc = ""
                                 s._market_generation_started = False
+                                ui.run_javascript('window.scrollTo({top:0,behavior:"smooth"})')
                                 rf()
                             else:
                                 ui.notify("All newsletter issues have been sent.", type="info")
