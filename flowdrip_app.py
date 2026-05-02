@@ -35579,6 +35579,10 @@ def _auto_refresh_newsletter_tick():
             steps[step_idx]["body"] = body
             steps[step_idx]["_auto_refreshed_at"] = now_utc.isoformat()
             steps[step_idx]["auto_confirmed"] = True
+            # Default the hero variant to a different photo per issue so
+            # consecutive months don't look identical. User overrides win.
+            if "_hero_variant" not in steps[step_idx]:
+                steps[step_idx]["_hero_variant"] = step_idx % 5
             camp["emails"] = steps
 
             # Persist campaign (drop helper-only keys before writing)
