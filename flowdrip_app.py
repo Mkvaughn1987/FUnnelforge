@@ -26386,23 +26386,48 @@ def p_ai_campaign(s: AppState, rf):
             s.aicb_wizard_step = min(5, _wiz_step + 1)
             rf()
 
-        with ui.element("div").style(
-                "display:flex;align-items:center;justify-content:space-between;"
-                "gap:12px;margin-bottom:6px;flex-wrap:wrap;"):
-            ui.label("Create a Campaign").classes("fd-h1").style("margin:0;")
+        # Title + top-right Next row. In wizard mode we mirror the body
+        # grid (280px sidebar slot + minmax(0,620px) form column, 28px
+        # gap, max-width 980px, centered) so the top Next button lands
+        # at the SAME x-position as the bottom Next button at the form
+        # column's right edge — instead of floating out at the page
+        # margin (user request 2026-05-01).
+        _top_row_style = (
+            "display:grid;grid-template-columns:280px minmax(0,620px);"
+            "gap:28px;max-width:980px;margin:0 auto;"
+            "align-items:center;margin-bottom:6px;"
+            if _wiz_mode == "wizard"
+            else "display:flex;align-items:center;justify-content:space-between;"
+                 "gap:12px;margin-bottom:6px;flex-wrap:wrap;"
+        )
+        with ui.element("div").style(_top_row_style):
+            _title_style = (
+                "margin:0;grid-column:1;"
+                if _wiz_mode == "wizard"
+                else "margin:0;"
+            )
+            ui.label("Create a Campaign").classes("fd-h1").style(_title_style)
             # Top Next visible on steps 1-3. Step 4 (Campaign style) shows
             # a top-right "✦ Generate Campaign →" instead of Next so users
             # always have a forward action visible regardless of which
             # style card they've expanded. Step 5 has no top button at all
             # (Generate happens in the spinner block).
+            # In wizard mode, the button sits in grid column 2 with
+            # justify-self:end so its right edge aligns with the form
+            # column's right edge — matches the bottom Next.
+            _top_btn_wrap_style = (
+                "grid-column:2;justify-self:end;"
+                if _wiz_mode == "wizard" else ""
+            )
             if _wiz_mode == "wizard" and _wiz_step < 4:
                 _top_next_style = (
                     "padding:9px 22px;font-size:13px;"
                     + ("opacity:0.45;cursor:not-allowed;" if not _top_next_ok else "")
                 )
-                with ui.element("button").classes("fd-pb").style(_top_next_style).on(
-                        "click", (lambda: None) if not _top_next_ok else _top_wiz_next):
-                    ui.label("Next →")
+                with ui.element("div").style(_top_btn_wrap_style):
+                    with ui.element("button").classes("fd-pb").style(_top_next_style).on(
+                            "click", (lambda: None) if not _top_next_ok else _top_wiz_next):
+                        ui.label("Next →")
             elif _wiz_mode == "wizard" and _wiz_step == 4:
                 # Top-right Generate button (mirrors the inline ones on
                 # each campaign-style card). Reads byos_desc from state
@@ -26423,9 +26448,10 @@ def p_ai_campaign(s: AppState, rf):
                         return
                     s.aicb_wizard_step = 5
                     _do_research()
-                with ui.element("button").classes("fd-pb").style(_top_gen_style).on(
-                        "click", (lambda: None) if not _top_gen_ok else _top_generate):
-                    ui.label("✦ Generate Campaign →")
+                with ui.element("div").style(_top_btn_wrap_style):
+                    with ui.element("button").classes("fd-pb").style(_top_gen_style).on(
+                            "click", (lambda: None) if not _top_gen_ok else _top_generate):
+                        ui.label("✦ Generate Campaign →")
 
         # Progress bar — only in wizard mode (5 steps after 2026-04-26
         # Candidates insert)
