@@ -18614,6 +18614,8 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
     state: dict = {
         "subject": step.get("subject", "") or "",
         "body": step.get("body", "") or "",
+        "hero_variant": int(step.get("_hero_variant", step_idx % 5) or 0),
+        "hero_total": 5,  # cached batch size; safe default
     }
 
     with ui.dialog() as dlg, ui.card().style(
@@ -18706,21 +18708,83 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
                 except Exception as ex:
                     ui.notify(f"Image error: {str(ex)[:80]}", type="negative")
 
+            # Hero photo controls: ◀ ▶ to cycle through 5 cached
+            # Unsplash variants (swaps the base64 in the rendered body),
+            # plus an Upload-your-own button. Counter shows current
+            # variant. Body editor below auto-updates.
+            _photo_counter_holder = ui.element("div").style("display:inline-block;")
+
+            def _swap_hero_in_body(html_body: str, new_b64: str) -> str:
+                """Find the first 640×180 hero <img> tag and swap its
+                base64 src to the new variant. Returns modified HTML.
+                If no hero img found, returns the body unchanged."""
+                if not new_b64 or not html_body:
+                    return html_body
+                # Pattern: <img src="data:image/jpeg;base64,XXXX" width="640"
+                # The hero is the first 640-wide image in the newsletter.
+                pattern = re.compile(
+                    r'(<img\s+src="data:image/jpeg;base64,)([^"]+)("\s+width="640")',
+                    re.IGNORECASE,
+                )
+                return pattern.sub(rf'\g<1>{new_b64}\g<3>', html_body, count=1)
+
+            def _render_photo_counter():
+                _photo_counter_holder.clear()
+                with _photo_counter_holder:
+                    ui.label(
+                        f"Photo {state['hero_variant'] + 1} of {state['hero_total']}"
+                    ).style(
+                        f"font-size:11px;font-weight:600;color:{C['teal']};"
+                        f"padding:0 8px;")
+
+            def _cycle_hero(direction: int):
+                """direction = +1 for next, -1 for prev."""
+                state["hero_variant"] = (
+                    state["hero_variant"] + direction
+                ) % max(1, state["hero_total"])
+                new_b64 = _load_hero_variant_b64_for_camp(camp, state["hero_variant"])
+                if not new_b64:
+                    ui.notify(
+                        f"Photo {state['hero_variant'] + 1} not cached yet — "
+                        f"showing current. The next auto-refresh will fetch it.",
+                        type="info", timeout=2500)
+                    _render_photo_counter()
+                    return
+                # Update body editor in place
+                try:
+                    current = _body_editor.value or state["body"]
+                    new_body = _swap_hero_in_body(current, new_b64)
+                    state["body"] = new_body
+                    _body_editor.set_value(new_body)
+                except Exception as ex:
+                    print(f"[NewsletterEditModal] hero swap failed: {ex}", flush=True)
+                    ui.notify(f"Couldn't swap photo: {str(ex)[:60]}", type="warning")
+                    return
+                _render_photo_counter()
+
             with ui.element("div").style(
-                    "display:flex;align-items:center;gap:8px;margin-bottom:12px;"):
+                    "display:flex;align-items:center;gap:6px;margin-bottom:12px;"
+                    "flex-wrap:wrap;"):
                 ui.label("Hero photo:").style(
-                    f"font-size:11px;color:{C['muted']};")
+                    f"font-size:11px;color:{C['muted']};margin-right:4px;")
+                with ui.element("button").classes("fd-gb").style(
+                        "padding:5px 10px;font-size:13px;line-height:1;").on(
+                        "click", lambda: _cycle_hero(-1)):
+                    ui.label("◀").style("pointer-events:none;")
+                _render_photo_counter()
+                with ui.element("button").classes("fd-gb").style(
+                        "padding:5px 10px;font-size:13px;line-height:1;").on(
+                        "click", lambda: _cycle_hero(1)):
+                    ui.label("▶").style("pointer-events:none;")
                 _hero_upload = ui.upload(
                     on_upload=_on_hero_upload,
                     auto_upload=True,
                     max_files=1,
                 ).props('accept="image/*"').style("display:none;")
                 with ui.element("button").classes("fd-gb").style(
-                        "padding:5px 12px;font-size:11px;").on(
+                        "padding:5px 12px;font-size:11px;margin-left:8px;").on(
                         "click", lambda: _hero_upload.run_method("pickFiles")):
                     ui.label("🖼 Upload your own")
-                ui.label("(rotates automatically each month otherwise)").style(
-                    f"font-size:10px;color:{C['muted']};font-style:italic;")
 
             # Body editor
             ui.label("Body").classes("fd-fl")
@@ -18746,6 +18810,7 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
             def _save():
                 step["subject"] = _subj_inp.value or state["subject"]
                 step["body"] = _body_editor.value or state["body"]
+                step["_hero_variant"] = state["hero_variant"]
                 step["confirmed"] = True
                 step["auto_confirmed"] = False
                 save_campaign(camp)
@@ -35606,6 +35671,37 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
     # slipped in (the data-dict scrub at the top only covers incoming data).
     html = _strip_dashes(html)
     return html
+
+
+def _load_hero_variant_b64_for_camp(camp: dict, variant_idx: int):
+    """Load a specific Unsplash hero variant from cache as base64.
+    Used by the Edit modal to swap hero photos without re-running AI
+    generation. Returns the base64 string, or None if the variant
+    file isn't cached (caller should leave the body unchanged)."""
+    region = (camp.get("market_region") or camp.get("location") or "").strip()
+    if not region:
+        return None
+    parts = [p.strip() for p in region.split(",")]
+    city = parts[0] if parts else ""
+    state = parts[1][:2].upper() if len(parts) > 1 else ""
+    slug = re.sub(r'[^A-Za-z0-9]+', '_',
+                  f"{city}_{state}").strip('_').lower()
+    cache_dir = _BASE_DATA_DIR / "city_images"
+    variant_path = cache_dir / f"{slug}.unsplash.{variant_idx}.hero.jpg"
+    if not variant_path.exists():
+        # Try to download just-in-time using the existing helper. The
+        # helper is nested inside _render_newsletter_html, so we can't
+        # call it directly — instead re-rendering the body via
+        # _render_newsletter_html with the new variant set on data
+        # would download it, but that's expensive. For now: if the
+        # variant isn't cached, signal failure and the caller falls
+        # back gracefully.
+        return None
+    try:
+        import base64 as _b64
+        return _b64.b64encode(variant_path.read_bytes()).decode()
+    except Exception:
+        return None
 
 
 # ── Monthly holiday block (newsletter footer LEFT rail) ────────────────────
