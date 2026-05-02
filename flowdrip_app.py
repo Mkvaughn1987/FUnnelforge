@@ -8776,69 +8776,46 @@ def _restore_aicb_state(s: AppState) -> None:
         pass
 
 
-# Reconnect window: if the user was active within this many seconds, a
-# fresh AppState build is treated as a websocket-reconnect and the page
-# is preserved verbatim. Beyond it, we treat the visit as a "cold open"
-# and apply the dashboard-default redirect for browse/list pages.
-# Cloudflare's WS idle timeout is ~100s, so 5 min = comfortably wider
-# than any single reconnect cycle but well under "I closed my laptop
-# and came back later".
-_RECONNECT_WINDOW_SECONDS = 300
-
-
 def _restore_page_if_recent(s: AppState, ttl_hours: int = 24) -> bool:
     """Restore saved hub/sp/ep onto a fresh AppState if the save is
-    recent (default: within 24h). Returns True if restored, False if
-    stale / missing / excluded. Pages that require additional state
-    (like a loaded campaign editor) are NOT restored — we fall back to
-    a safe parent page so the user lands somewhere useful.
+    recent (within 24h). Returns True if restored, False if stale or
+    missing.
 
-    Two distinct entry conditions land here, both via the same `/` route:
+    Always preserves the user's last page within the TTL window.
+    Genuinely first-time users (no `_last_page_ts`) get the AppState
+    default of `sp = "dashboard"` — that path is unchanged.
 
-      - Cold open (laptop closed, idle hours, fresh tab): user expects
-        Dashboard as the home base — we redirect list/browse pages to
-        Dashboard, preserve only deep workflow pages (wizards/editors).
+    Earlier versions of this function redirected "list pages" (Active
+    Campaigns, Sequence Manager, Replies, etc.) to Dashboard on any
+    visit older than 5 minutes — the goal was "land on Dashboard on
+    fresh open". That heuristic conflated "reconnect" and "cold open"
+    via timestamp age, which doesn't match user behavior: someone
+    who walks away from their desk for 10 minutes and clicks back in
+    is mid-session, not opening fresh, and being silently bounced to
+    Dashboard read as "the app refreshed itself again."
+    Removed 2026-05-02 per user report.
 
-      - Mid-session websocket reconnect (Cloudflare's ~100s WS idle
-        timeout fires while the user sits on a page): user expects to
-        stay on whatever page they were on. Bouncing them to Dashboard
-        feels like the app "timed them out".
-
-    We disambiguate by the AGE of the last-page timestamp:
-      - Age < _RECONNECT_WINDOW_SECONDS  → reconnect → preserve page.
-      - Age ≥ window (within TTL)        → cold open → list pages to
-                                            Dashboard.
+    The only exception: pages that need transient `s.loaded_camp`
+    state (the campaign editor wizard) can't render coherently
+    without it; fall those back to the safe parent page so users
+    don't land on a half-broken view.
     """
     try:
         ts = app.storage.user.get("_last_page_ts", "")
         if not ts:
             return False
         saved_at = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ")
-        age_secs = (datetime.utcnow() - saved_at).total_seconds()
-        if age_secs > ttl_hours * 3600:
+        if (datetime.utcnow() - saved_at).total_seconds() > ttl_hours * 3600:
             return False
         _hub = app.storage.user.get("_last_hub", "sales") or "sales"
         _sp  = app.storage.user.get("_last_sp",  "dashboard") or "dashboard"
         _ep  = app.storage.user.get("_last_ep",  "emails_home") or "emails_home"
-        # Pages whose render relies on s.loaded_camp / transient state we
-        # don't persist. Fall back to the safe parent for those.
+        # Pages whose render relies on s.loaded_camp / transient state
+        # we don't persist. Fall back to the safe parent for those.
         _needs_camp = {"start_seq", "sequence", "preview", "launch",
                        "campaign_manager", "prev_launch"}
         if _sp in _needs_camp:
             _sp = "active_camps"
-        # Browse/list pages: only redirect to Dashboard on a COLD open.
-        # Within the reconnect window, preserve them — otherwise a 100s
-        # idle timeout while the user reads a page silently bounces them
-        # back to the Dashboard, which feels like "the app logged me
-        # out". (User report 2026-05-01.)
-        is_reconnect = age_secs < _RECONNECT_WINDOW_SECONDS
-        _list_pages = {"dashboard", "seq_mgr", "active_camps", "drip",
-                       "tasks", "responses", "e_responses", "contacts",
-                       "e_contacts", "queue", "dnc", "active_clients",
-                       "evergreen", "emails_home"}
-        if not is_reconnect and _sp in _list_pages:
-            _sp = "dashboard"
-            _hub = "sales"
         s.hub = _hub; s.sp = _sp; s.ep = _ep
         return True
     except Exception:
@@ -10191,10 +10168,27 @@ def p_today_combined(s: AppState, rf):
                                 _li_total = len(li_urls)
                                 _li_remaining = max(0, _li_total - _li_batch_idx)
                                 _li_next = min(_batch_size, _li_remaining)
-                                js_batch = (f"var urls={urls_js}; var start={_li_batch_idx}; var batch=5; "
-                                            f"for(var i=start;i<Math.min(start+batch,urls.length);i++)"
-                                            f"{{setTimeout(function(u){{return function(){{window.open(u,'_blank');}}}}"
-                                            f"(urls[i]),(i-start)*800);}}")
+                                # After opening a batch, scroll the FIRST
+                                # still-unopened card into view so the user's
+                                # eyes naturally land on the next ones to do
+                                # (2026-05-02 user request: "once 5 are
+                                # opened it should move to the next 5"). The
+                                # next-up task id is the one at position
+                                # _li_batch_idx + 5 (or end of list).
+                                _next_up_idx = min(_li_batch_idx + 5, _li_total - 1)
+                                _next_up_tid = (camp_li[_next_up_idx]["id"]
+                                                if camp_li and _next_up_idx < _li_total
+                                                else "")
+                                js_batch = (
+                                    f"var urls={urls_js}; var start={_li_batch_idx}; var batch=5; "
+                                    f"for(var i=start;i<Math.min(start+batch,urls.length);i++)"
+                                    f"{{setTimeout(function(u){{return function(){{window.open(u,'_blank');}}}}"
+                                    f"(urls[i]),(i-start)*800);}}"
+                                    # Smooth-scroll the next-up card into view
+                                    # after the open delay completes.
+                                    f"setTimeout(function(){{var el=document.querySelector('[data-tid={json.dumps(_next_up_tid)}]');"
+                                    f"if(el){{el.scrollIntoView({{behavior:'smooth',block:'start'}});}}}}, {(_li_next * 800) + 200});"
+                                )
                                 def _open_batch(js=js_batch, key=_li_batch_key, total=_li_total):
                                     ui.run_javascript(js)
                                     cur = getattr(s, key, 0)
@@ -10245,12 +10239,23 @@ def p_today_combined(s: AppState, rf):
                         _ch for _ch in ("li", "call", "task")
                         if any(_t.get("channel") == _ch for _t in camp_tasks)
                     ]
+                    # LinkedIn-only opened-count for the dim-already-opened
+                    # treatment on this campaign group (2026-05-02). This
+                    # number is only meaningful for the LinkedIn channel —
+                    # other channels render normally.
+                    _li_opened_for_dim = getattr(s, f"_li_batch_{camp_name}", 0)
                     with ui.element("div").style("display:flex;flex-direction:column;gap:0;"):
                         for _ch in _channels_present:
                             _ch_tasks = [_t for _t in camp_tasks if _t.get("channel") == _ch]
                             _ch_total = len(_ch_tasks)
                             for _i, _t in enumerate(_ch_tasks, start=1):
-                                _drip_card_detail(_t, s, rf, idx=_i, total=_ch_total)
+                                # Card "opened" state — only applies to
+                                # LinkedIn cards within the already-opened
+                                # batch range. Other channels never dim.
+                                _is_opened = (_ch == "li" and _i <= _li_opened_for_dim)
+                                _drip_card_detail(_t, s, rf, idx=_i,
+                                                   total=_ch_total,
+                                                   is_opened=_is_opened)
 
         # Completed today
         if done:
@@ -10376,9 +10381,14 @@ def p_today_combined(s: AppState, rf):
                               pass
 
                       def _go_camp(c=info["camp"]):
-                          s._nav_history.append(_nav_snapshot(s))
-                          s.sp = "start_seq"; s._tab = "custom"
-                          s.loaded_camp = c; s.loaded_view = "emails"; rf()
+                          # Open the campaign-status modal instead of
+                          # dumping straight into the email-template
+                          # editor (2026-05-02 user request — clicks
+                          # on "almost finished" campaigns landed in
+                          # an edit screen they didn't ask for). The
+                          # dialog has an "Edit Campaign" action for
+                          # users who actually want to edit.
+                          _drip_camp_status_dialog(s, rf, c)
 
                       with ui.element("div").style(
                               f"background:{C['surface']};border:1px solid {C['border']};"
@@ -10576,6 +10586,185 @@ def _connected_dialog(t, s: AppState, rf):
     dlg.open()
 
 
+def _drip_camp_status_dialog(s: AppState, rf, camp: dict):
+    """Modal showing in-flight campaign status: progress, next sends,
+    contact list with per-contact send status, and an Edit Campaign
+    action. Replaces the prior behavior of dumping clicks on the
+    Active Campaigns row directly into the email-template editor —
+    users monitoring 'almost finished' campaigns wanted status, not
+    edit (2026-05-02)."""
+    cname = camp.get("name", "")
+    contacts = camp.get("contacts", []) or []
+    queue = _load_queue()
+    responded = {x["email"].lower() for x in load_responded()}
+
+    # Per-contact status from the queue (keyed by email lowercase).
+    contact_status: dict = {}
+    for q in queue:
+        if q.get("campaign") != cname:
+            continue
+        em = (q.get("to", "") or "").lower().strip()
+        if not em:
+            continue
+        cs = contact_status.setdefault(em, {"sent": 0, "pending": 0,
+                                             "total": 0, "next_dt": None})
+        cs["total"] += 1
+        _st = q.get("status", "pending")
+        if _st == "sent":
+            cs["sent"] += 1
+        elif _st == "pending":
+            cs["pending"] += 1
+            sdt = q.get("send_dt", "")
+            if sdt and (cs["next_dt"] is None or sdt < cs["next_dt"]):
+                cs["next_dt"] = sdt
+
+    total_sent = sum(c["sent"] for c in contact_status.values())
+    total_pending = sum(c["pending"] for c in contact_status.values())
+    total_total = sum(c["total"] for c in contact_status.values())
+    pct = round(total_sent / total_total * 100) if total_total else 0
+
+    upcoming = sorted(
+        [q for q in queue
+         if q.get("campaign") == cname
+         and q.get("status", "pending") == "pending"
+         and (q.get("to", "") or "").lower() not in responded],
+        key=lambda x: x.get("send_dt", ""),
+    )[:5]
+    n_responded = sum(
+        1 for c in contacts
+        if (c.get("email", "") or "").lower() in responded
+    )
+
+    with ui.dialog() as dlg, ui.card().style(
+            f"background:{C['card']};border:1px solid {C['border']};"
+            f"min-width:780px;max-width:920px;padding:20px 24px;"):
+        with ui.element("div").style(
+                "display:flex;align-items:center;justify-content:space-between;"
+                "gap:12px;margin-bottom:14px;"):
+            ui.label(cname).style(
+                f"font-size:18px;font-weight:700;color:{C['text_l']};"
+                f"font-family:'Nunito',sans-serif;flex:1;min-width:0;"
+                f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
+            with ui.element("button").style(
+                    f"background:transparent;border:none;color:{C['muted']};"
+                    f"font-size:18px;cursor:pointer;font-family:inherit;"
+                    f"flex-shrink:0;padding:0 4px;").on("click", dlg.close):
+                ui.label("✕")
+
+        with ui.element("div").classes("fd-stat-strip").style("margin-bottom:14px;"):
+            for _val, _lbl, _col in [
+                (str(len(contacts)), "Contacts", C['teal']),
+                (str(total_sent), "Sent", C['good']),
+                (str(total_pending), "Pending", C['warn']),
+                (str(n_responded), "Responded", C['indigo']),
+            ]:
+                with ui.element("div").classes("fd-stat-cell"):
+                    ui.label(_val).classes("fd-sn").style(f"color:{_col};")
+                    ui.label(_lbl).classes("fd-sl")
+
+        with ui.element("div").style("margin-bottom:14px;"):
+            with ui.element("div").style(
+                    "display:flex;justify-content:space-between;margin-bottom:4px;"):
+                ui.label(f"{total_sent} of {total_total} emails sent").style(
+                    f"font-size:11px;color:{C['muted']};")
+                ui.label(f"{pct}%").style(
+                    f"font-size:11px;color:{C['teal']};font-weight:600;")
+            with ui.element("div").classes("fd-progress"):
+                ui.element("div").classes("fd-progress-fill").style(
+                    f"width:{pct}%;"
+                    f"background:{C['good'] if pct == 100 else C['teal']};")
+
+        if upcoming:
+            ui.label("Next 5 sends").style(
+                f"font-size:10px;font-weight:700;color:{C['muted']};"
+                f"text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;")
+            with ui.element("div").style(
+                    f"background:{C['surface']};border:1px solid {C['border']};"
+                    f"border-radius:8px;padding:8px 12px;margin-bottom:14px;"):
+                for q in upcoming:
+                    try:
+                        nd = datetime.fromisoformat(q["send_dt"])
+                        when = nd.strftime("%b %d @ %I:%M %p").replace(" 0", " ")
+                    except Exception:
+                        when = q.get("send_dt", "") or ""
+                    _name = q.get("contact_name") or q.get("to", "") or ""
+                    with ui.element("div").style(
+                            "display:flex;justify-content:space-between;"
+                            "padding:3px 0;font-size:11px;gap:12px;"):
+                        ui.label(_name).style(
+                            f"color:{C['text_l']};"
+                            f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
+                        ui.label(when).style(
+                            f"color:{C['muted']};font-family:monospace;flex-shrink:0;")
+
+        ui.label(f"Contacts ({len(contacts)})").style(
+            f"font-size:10px;font-weight:700;color:{C['muted']};"
+            f"text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;")
+        with ui.element("div").style(
+                f"background:{C['surface']};border:1px solid {C['border']};"
+                f"border-radius:8px;max-height:280px;overflow-y:auto;"):
+            for c in contacts[:100]:
+                em = (c.get("email", "") or "").lower().strip()
+                cs = contact_status.get(em, {"sent": 0, "pending": 0, "total": 0})
+                is_responded = em in responded
+
+                if is_responded:
+                    _pill_text, _pill_col = "Responded", C['indigo']
+                elif cs["pending"] == 0 and cs["sent"] > 0:
+                    _pill_text, _pill_col = "Done", C['good']
+                elif cs["sent"] > 0 and cs["pending"] > 0:
+                    _pill_text, _pill_col = (
+                        f"{cs['sent']}/{cs['sent']+cs['pending']}", C['warn'])
+                elif cs["pending"] > 0:
+                    _pill_text, _pill_col = "Pending", C['warn']
+                else:
+                    _pill_text, _pill_col = "—", C['muted']
+
+                _full = (c.get("first_name", "") + " " + c.get("last_name", "")).strip()
+                _parts = []
+                if _full:                _parts.append(_full)
+                if c.get("title"):       _parts.append(c["title"])
+                if c.get("company"):     _parts.append(c["company"])
+                _label = " · ".join(_parts) if _parts else (em or "—")
+
+                with ui.element("div").style(
+                        f"display:flex;justify-content:space-between;align-items:center;"
+                        f"padding:6px 12px;border-bottom:1px solid {C['border']};"):
+                    ui.label(_label).style(
+                        f"font-size:11px;color:{C['text_l']};"
+                        f"white-space:nowrap;overflow:hidden;"
+                        f"text-overflow:ellipsis;flex:1;min-width:0;")
+                    ui.label(_pill_text).style(
+                        f"font-size:10px;font-weight:700;padding:2px 8px;"
+                        f"border-radius:99px;"
+                        f"background:{_pill_col}20;color:{_pill_col};"
+                        f"flex-shrink:0;margin-left:8px;")
+            if len(contacts) > 100:
+                ui.label(f"+{len(contacts) - 100} more contacts").style(
+                    f"padding:6px 12px;font-size:11px;color:{C['muted']};")
+
+        with ui.element("div").style(
+                "display:flex;justify-content:flex-end;gap:8px;margin-top:16px;"):
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:8px 16px;font-size:12px;").on("click", dlg.close):
+                ui.label("Close")
+
+            def _go_to_editor(c=camp):
+                dlg.close()
+                s._nav_history.append(_nav_snapshot(s))
+                s.sp = "start_seq"
+                s._tab = "custom"
+                s.loaded_camp = c
+                s.loaded_view = "emails"
+                rf()
+
+            with ui.element("button").classes("fd-pb").style(
+                    "padding:8px 18px;font-size:12px;").on("click", _go_to_editor):
+                ui.label("Edit Campaign →")
+
+    dlg.open()
+
+
 def _drip_action_label(channel: str) -> tuple:
     """Per-channel (primary title, secondary helper text) pair shown on
     each numbered card. Helper text deliberately self-contained — does
@@ -10591,24 +10780,39 @@ def _drip_action_label(channel: str) -> tuple:
             "Mark done when complete.")
 
 
-def _drip_card_detail(t, s: AppState, rf, idx: int = 0, total: int = 0):
+def _drip_card_detail(t, s: AppState, rf, idx: int = 0, total: int = 0,
+                       is_opened: bool = False):
     """Skinny single-row task card. Layout (left-to-right):
         [01.]  [LinkedIn Message]  [Name · Role · Company]
         [in ↗ ☎ email]  [helper text]   [✓ Done]
     All vertical info collapses into one horizontal flow per the
     user's 2026-05-01 request — no per-card AI script button (the
     campaign-level template above replaces it), no per-card script
-    expander (redundant with the template)."""
+    expander (redundant with the template).
+
+    is_opened (2026-05-02): when True, render the card with reduced
+    opacity + an inline "✓ Opened" pill so users can visually skip
+    LinkedIn cards they've already opened in browser tabs and focus
+    on the next batch."""
     tid = t["id"]
     ch = t["channel"]
     od = t.get("overdue")
     border_col = C["indigo"] if ch == "li" else (C["call_col"] if ch == "call" else C["teal"])
     primary, helper = _drip_action_label(ch)
 
-    with ui.element("div").style(
+    # Dim opened cards so the next batch stands out as the actionable
+    # ones. Done state already has its own treatment in _drip_done_card.
+    _opacity = "opacity:0.5;" if is_opened else ""
+
+    _card = ui.element("div").style(
             f"background:{C['card']};border:1px solid {C['border']};border-left:3px solid {border_col};"
             f"border-radius:0 8px 8px 0;padding:8px 12px;margin:0 0 4px 4px;"
-            f"display:flex;align-items:center;gap:14px;flex-wrap:wrap;"):
+            f"display:flex;align-items:center;gap:14px;flex-wrap:wrap;"
+            f"{_opacity}transition:opacity .15s;")
+    # data-tid lets the "Open Next 5 LinkedIn" handler scroll the
+    # next-up card into view via document.querySelector.
+    _card.props(f'data-tid={json.dumps(tid)}')
+    with _card:
         # ── Number badge ──
         if idx > 0:
             _num = f"{idx:02d}."
@@ -10622,6 +10826,16 @@ def _drip_card_detail(t, s: AppState, rf, idx: int = 0, total: int = 0):
             f"font-size:12px;font-weight:700;color:{border_col};"
             f"font-family:'Nunito',sans-serif;flex-shrink:0;"
             f"text-transform:uppercase;letter-spacing:.04em;min-width:120px;")
+
+        # ── "Opened" pill (LinkedIn cards in the already-opened batch) ──
+        if is_opened:
+            ui.html(
+                f'<span style="display:inline-flex;align-items:center;'
+                f'padding:2px 8px;border-radius:99px;font-size:10px;'
+                f'font-weight:700;background:{C["good"]}20;color:{C["good"]};'
+                f'border:1px solid {C["good"]}50;letter-spacing:.04em;'
+                f'font-family:Nunito,sans-serif;flex-shrink:0;">✓ Opened</span>'
+            )
 
         # ── Contact (name · role · company) ──
         parts = [t["name"]]

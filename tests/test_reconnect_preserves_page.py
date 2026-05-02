@@ -95,13 +95,19 @@ def test_recent_reconnect_on_responses_preserves_page(isolated_appdata, with_use
     assert s.sp == "responses"
 
 
-# ── 2. OLD timestamp + list page → redirect to Dashboard (cold open) ──
+# ── 2. OLD timestamp + list page → ALSO preserves the page ─────────────
+# (2026-05-02 contract change: dropped the "old visits go to Dashboard"
+# heuristic. Users walking away for 10+ minutes and coming back were
+# being silently bounced to Dashboard, which read as "the app refreshed
+# itself again." Now ALWAYS preserve within the 24h TTL.)
 
-def test_old_open_on_active_camps_redirects_to_dashboard(isolated_appdata, with_user, monkeypatch):
+def test_old_open_on_active_camps_still_preserves_page(isolated_appdata, with_user, monkeypatch):
     """User closed the laptop yesterday on Active Campaigns; opens the
-    app fresh today. Dashboard should be the landing page (the
-    2026-04-27 product decision), NOT the page they happened to be on
-    last."""
+    app today (within 24h TTL). They should land BACK on Active
+    Campaigns, not Dashboard. The 2026-04-27 "Dashboard on fresh open"
+    behavior was reverted 2026-05-02 because it conflated
+    'reconnect after a break' with 'fresh open' and bounced
+    actively-working users."""
     import flowdrip_app as fa
     store = {
         "_last_hub": "sales",
@@ -112,10 +118,12 @@ def test_old_open_on_active_camps_redirects_to_dashboard(isolated_appdata, with_
     _install_fake_storage(monkeypatch, fa, store)
     s = fa.AppState()
     fa._restore_page_if_recent(s)
-    assert s.sp == "dashboard"
+    assert s.sp == "active_camps"
 
 
-def test_old_open_on_seq_mgr_redirects_to_dashboard(isolated_appdata, with_user, monkeypatch):
+def test_old_open_on_seq_mgr_still_preserves_page(isolated_appdata, with_user, monkeypatch):
+    """Same — Sequence Manager (a list page) is preserved within TTL
+    regardless of how long ago the visit was."""
     import flowdrip_app as fa
     store = {
         "_last_hub": "sales",
@@ -126,6 +134,22 @@ def test_old_open_on_seq_mgr_redirects_to_dashboard(isolated_appdata, with_user,
     _install_fake_storage(monkeypatch, fa, store)
     s = fa.AppState()
     fa._restore_page_if_recent(s)
+    assert s.sp == "seq_mgr"
+
+
+def test_first_time_user_no_saved_state_lands_on_dashboard(isolated_appdata, with_user, monkeypatch):
+    """Genuinely first-time user (no _last_page_ts) gets the
+    AppState's default `sp = "dashboard"` because _restore_page_if_recent
+    returns False and doesn't touch s.sp. Ensures we didn't accidentally
+    break the Dashboard-as-default-landing for new users."""
+    import flowdrip_app as fa
+    store = {}  # no _last_page_ts
+    _install_fake_storage(monkeypatch, fa, store)
+    s = fa.AppState()
+    # AppState default is dashboard — proven by reading the field.
+    assert s.sp == "dashboard"
+    ok = fa._restore_page_if_recent(s)
+    assert ok is False
     assert s.sp == "dashboard"
 
 
