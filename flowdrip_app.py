@@ -18624,21 +18624,62 @@ def p_evergreen(s, rf):
                                 f"font-size:11px;font-weight:700;color:{when_col};"
                                 f"flex-shrink:0;min-width:80px;text-align:right;")
 
-                    # Open campaign button
-                    def _goto(cn=camp_name):
-                        s._nav_history.append(_nav_snapshot(s))
-                        s.sel_camp_name = cn
-                        s.hub = "sales"
-                        s.sp = "seq_mgr"
-                        rf()
-                    with ui.element("div").style("margin-top:10px;"):
-                        with ui.element("button").style(
-                                f"padding:5px 16px;border-radius:7px;cursor:pointer;"
-                                f"background:{C['warn']}15;border:1px solid {C['warn']}50;"
-                                f"color:{C['warn']};font-size:12px;font-weight:600;"
-                                f"font-family:inherit;").on("click", _goto):
-                            ui.label("✎ Review & Update Emails →").style(
-                                "pointer-events:none;")
+                    # Action button. For newsletters, trigger the same
+                    # in-place "Refresh & Confirm" flow used by the
+                    # campaign card below (no navigation, generation
+                    # happens on this page, user reviews + confirms in
+                    # the panel that appears). For plain slow drips
+                    # (no AI-generated content), keep the legacy
+                    # "Review & Update" path that opens the editor.
+                    # 2026-05-02 user request: "should be just refresh
+                    # and confirm — not review emails and take you to
+                    # the dashboard."
+                    _camp_obj = next(
+                        (c for c in camps if c.get("name") == camp_name), None)
+                    _is_newsletter_reminder = bool(
+                        _camp_obj and _camp_obj.get("market_analysis"))
+
+                    if _is_newsletter_reminder:
+                        def _refresh_inplace(c=_camp_obj):
+                            _next_idx = _find_next_evergreen_step(c)
+                            _steps = c.get("emails", []) or []
+                            _next_step = (_steps[_next_idx]
+                                           if _next_idx < len(_steps) else None)
+                            if not _next_step:
+                                ui.notify("All newsletter issues have been sent.",
+                                          type="info"); return
+                            s._market_refresh_camp = c
+                            s._market_refresh_idx = _next_idx
+                            s._market_refresh_step = "generating"
+                            s._market_refresh_body = ""
+                            s._market_refresh_subject = ""
+                            s._market_spotlight_mode = "auto"
+                            s._market_spotlight_desc = ""
+                            s._market_generation_started = False
+                            rf()
+                        with ui.element("div").style("margin-top:10px;"):
+                            with ui.element("button").style(
+                                    f"padding:5px 16px;border-radius:7px;cursor:pointer;"
+                                    f"background:{C['warn']}15;border:1px solid {C['warn']}50;"
+                                    f"color:{C['warn']};font-size:12px;font-weight:600;"
+                                    f"font-family:inherit;").on("click", _refresh_inplace):
+                                ui.label("🔄 Refresh & Confirm").style(
+                                    "pointer-events:none;")
+                    else:
+                        def _goto(cn=camp_name):
+                            s._nav_history.append(_nav_snapshot(s))
+                            s.sel_camp_name = cn
+                            s.hub = "sales"
+                            s.sp = "seq_mgr"
+                            rf()
+                        with ui.element("div").style("margin-top:10px;"):
+                            with ui.element("button").style(
+                                    f"padding:5px 16px;border-radius:7px;cursor:pointer;"
+                                    f"background:{C['warn']}15;border:1px solid {C['warn']}50;"
+                                    f"color:{C['warn']};font-size:12px;font-weight:600;"
+                                    f"font-family:inherit;").on("click", _goto):
+                                ui.label("✎ Review & Update Emails →").style(
+                                    "pointer-events:none;")
 
     # Split into slow drips and newsletters
     _slow_drips = [c for c in camps if not c.get("market_analysis")]
@@ -38700,14 +38741,28 @@ def p_team_settings(s: AppState, rf):
      with ui.element("div").style(
             f"background:{C['card']};border:1px solid {C['border']};"
             f"border-radius:12px;padding:18px 22px;margin-top:18px;"):
-        ui.label("Tenant Branding").style(
-            f"font-size:14px;font-weight:700;color:{C['text_l']};"
-            f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
-        ui.label(
-            "Anyone with an @" + _focus_domain_pretty + " email who hasn't "
-            "uploaded their own logo or set their own company name will "
-            "see these defaults in their header and on every PDF."
-        ).style(f"font-size:11px;color:{C['muted']};line-height:1.5;margin-bottom:14px;")
+        # Header row with Save button on the right so it's always visible
+        # without scrolling — user reported missing it 2026-05-02. Mirrors
+        # the wizard's "Next at top AND bottom" pattern: same handler
+        # wired in both places.
+        with ui.element("div").style(
+                "display:flex;align-items:flex-start;justify-content:space-between;"
+                "gap:14px;margin-bottom:4px;"):
+            with ui.element("div").style("flex:1;min-width:0;"):
+                ui.label("Tenant Branding").style(
+                    f"font-size:14px;font-weight:700;color:{C['text_l']};"
+                    f"font-family:'Nunito',sans-serif;")
+                ui.label(
+                    "Anyone with an @" + _focus_domain_pretty + " email who hasn't "
+                    "uploaded their own logo or set their own company name will "
+                    "see these defaults in their header and on every PDF."
+                ).style(
+                    f"font-size:11px;color:{C['muted']};line-height:1.5;"
+                    f"margin-top:2px;margin-bottom:14px;display:block;")
+            with ui.element("button").classes("fd-pb").style(
+                    "padding:8px 18px;font-size:12px;flex-shrink:0;"
+                    ).on("click", lambda: _save_tenant()):
+                ui.label("\U0001F4BE Save")
 
         with ui.element("div").style("display:grid;grid-template-columns:1fr 1fr;gap:12px;"):
             with ui.element("div"):
