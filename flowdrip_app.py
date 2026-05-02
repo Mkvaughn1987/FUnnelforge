@@ -965,6 +965,42 @@ def _save_tenant_profile(profile: dict, email: str = None) -> bool:
         return False
 
 
+def _propagate_tenant_logo_to_users(email: str = None) -> int:
+    """When the tenant logo changes, delete every per-user
+    `company_logo.{png,jpg,jpeg}` file for users in this tenant.
+    `_get_company_logo_path()` checks per-user first, so the delete
+    forces everyone to fall back to the tenant logo via the existing
+    precedence — no code change needed in the resolution path.
+
+    Users who later want their own custom logo can re-upload via
+    Company Profile and the per-user file will take precedence again.
+
+    Returns the count of files deleted (for logging / nofity)."""
+    domain = _safe_domain(email)
+    if not domain:
+        return 0
+    deleted = 0
+    for u in _tenant_users(email):
+        uem = u.get("email", "")
+        if not uem:
+            continue
+        # Match the safe-encoded user dir name: lowercase, @ → _at_, . → _
+        _safe = uem.lower().strip().replace("@", "_at_").replace(".", "_")
+        _udir = _BASE_DATA_DIR / "users" / _safe
+        if not _udir.exists():
+            continue
+        for ext in ("png", "jpg", "jpeg"):
+            _p = _udir / f"company_logo.{ext}"
+            if _p.exists():
+                try:
+                    _p.unlink()
+                    deleted += 1
+                except Exception as ex:
+                    print(f"[tenant-logo-propagate] Could not unlink "
+                          f"{_p}: {ex}", flush=True)
+    return deleted
+
+
 def _tenant_logo_path(email: str = None) -> str:
     """Return the path to the tenant's shared logo, or '' if none."""
     root = _tenant_root_for(email)
@@ -38841,7 +38877,22 @@ def p_team_settings(s: AppState, rf):
                     dest = _troot / f"company_logo.{ext}"
                     print(f"[LOGO] Saving tenant logo {fname} to {dest}", flush=True)
                     await f.save(str(dest))
-                    ui.notify("✓ Team logo uploaded.", type="positive")
+                    # Propagate: delete every per-user company_logo.* in
+                    # this tenant so existing users fall through to the
+                    # new tenant logo via _get_company_logo_path()'s
+                    # precedence chain (per-user first, tenant fallback).
+                    # 2026-05-02 user request: "Once the team logo is
+                    # updated it should update all teammates' personal
+                    # too." Users who want a custom personal logo can
+                    # re-upload via Company Profile after.
+                    _n_propagated = _propagate_tenant_logo_to_users(_email)
+                    if _n_propagated:
+                        ui.notify(
+                            f"✓ Team logo uploaded and applied to "
+                            f"{_n_propagated} teammate{'s' if _n_propagated != 1 else ''}.",
+                            type="positive", timeout=4000)
+                    else:
+                        ui.notify("✓ Team logo uploaded.", type="positive")
                     rf()
                 except Exception as ex:
                     print(f"[LOGO] Tenant upload error: {ex}", flush=True)
