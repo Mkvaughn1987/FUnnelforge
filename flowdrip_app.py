@@ -26841,7 +26841,14 @@ def p_ai_campaign(s: AppState, rf):
                 if _mode not in ("company", "market"):
                     _mode = "company"; s.aicb_target_mode = "company"
 
-                def _set_mode(m):
+                # Renamed from _set_mode → _set_target_mode (2026-05-01) to
+                # avoid a closure-binding collision with the Step 3
+                # candidate-mode picker (which also previously defined a
+                # _set_mode in the same function scope). Python late-binds
+                # free variables in lambdas at call time, so the click
+                # handler here would silently dispatch to Step 3's helper
+                # — making "A Market" appear unclickable on Step 2.
+                def _set_target_mode(m):
                     s.aicb_target_mode = m
                     rf()
 
@@ -26861,7 +26868,7 @@ def p_ai_campaign(s: AppState, rf):
                                 f"border:1px solid {C['teal'] if _active else C['border']};"
                                 f"border-radius:8px;padding:8px 10px;cursor:pointer;"
                                 f"transition:all .12s;text-align:center;"
-                                ).on("click", lambda mk=_mk: _set_mode(mk)):
+                                ).on("click", lambda mk=_mk: _set_target_mode(mk)):
                             ui.label(("● " if _active else "○ ") + _ml).style(
                                 f"font-size:12px;font-weight:700;"
                                 f"color:{C['teal'] if _active else C['text_l']};"
@@ -27185,7 +27192,12 @@ def p_ai_campaign(s: AppState, rf):
                     f"font-size:13px;font-weight:700;color:{C['text_l']};"
                     f"font-family:'Nunito',sans-serif;margin-bottom:10px;")
 
-                def _set_mode(m):
+                # Renamed from _set_mode → _set_cand_mode (2026-05-01) to
+                # avoid a closure-binding collision with Step 2's target
+                # mode toggle. See _set_target_mode comment in the panel
+                # above. Same-named nested defs in one function scope =
+                # silent click misrouting in lambdas.
+                def _set_cand_mode(m):
                     if s.aicb_cand_cards and m != s.aicb_cand_source:
                         ui.notify("Switched approach — previous candidates discarded.",
                                   type="info")
@@ -27218,7 +27230,7 @@ def p_ai_campaign(s: AppState, rf):
                                 f"flex:1;min-width:180px;padding:14px;text-align:left;"
                                 f"background:{bg};border:2px solid {border};"
                                 f"border-radius:10px;cursor:pointer;font-family:inherit;"
-                                ).on("click", lambda src=src_key: _set_mode(src)):
+                                ).on("click", lambda src=src_key: _set_cand_mode(src)):
                             ui.label(f"{src_icon} {src_title}").style(
                                 f"font-size:14px;font-weight:700;color:{C['text_l']};")
                             ui.label(src_desc).style(
@@ -27231,7 +27243,7 @@ def p_ai_campaign(s: AppState, rf):
                             f"cursor:pointer;font-size:11px;"
                             f"color:{C.get('teal', '#1AE3D9') if _skip_active else C['muted']};"
                             f"text-decoration:underline;"
-                            ).on("click", lambda: _set_mode("skip")):
+                            ).on("click", lambda: _set_cand_mode("skip")):
                         if _skip_active:
                             ui.label("✓ Skip selected — market-only campaign")
                         else:
