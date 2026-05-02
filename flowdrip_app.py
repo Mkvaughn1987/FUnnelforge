@@ -40174,12 +40174,13 @@ def login_page(next: str = "/"):
             app.storage.user["email"] = email.lower()
             app.storage.user["name"] = _get_user_name(email)
             # Fresh login = land on Dashboard, regardless of where the
-            # user was last time. Distinct from mid-session reconnects
-            # (those don't re-auth, so this code path doesn't run and
-            # the previous page is preserved). 2026-05-02 user request.
-            app.storage.user["_last_hub"] = "sales"
-            app.storage.user["_last_sp"]  = "dashboard"
-            app.storage.user["_last_ep"]  = "emails_home"
+            # user was last time. Uses the one-shot _pending_page hook
+            # in index() which takes precedence over _restore_page_if_recent.
+            # The earlier _last_sp = "dashboard" approach didn't reliably
+            # take effect across the navigate.to redirect (storage write
+            # vs response-cycle timing). 2026-05-02 user request:
+            # "when a user signs in they see dashboard? not directly to today"
+            app.storage.user["_pending_page"] = "dashboard"
             ui.navigate.to(_safe_next)
         else:
             _rate_limit_record(_rl_key)
@@ -40300,10 +40301,10 @@ def register_page(next: str = "/setup"):
             app.storage.user["authenticated"] = True
             app.storage.user["email"] = email.lower()
             app.storage.user["name"] = name
-            # Fresh registration = land on Dashboard. Same logic as login.
-            app.storage.user["_last_hub"] = "sales"
-            app.storage.user["_last_sp"]  = "dashboard"
-            app.storage.user["_last_ep"]  = "emails_home"
+            # Fresh registration = land on Dashboard. _pending_page is
+            # the same one-shot hook the login handler uses; it pops
+            # itself in index() and takes precedence over saved page.
+            app.storage.user["_pending_page"] = "dashboard"
             ui.navigate.to(_safe_next)
         else:
             ui.notify("An account with this email already exists", type="negative")
