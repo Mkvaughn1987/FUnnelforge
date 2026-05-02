@@ -7735,7 +7735,7 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
 .fd-back-btn:hover{{background:rgba(245,158,11,0.22);color:#FBBF24;box-shadow:0 0 0 3px rgba(245,158,11,0.18);}}
 .fd-back-btn *{{pointer-events:none !important}}
 /* ── Theme toggle button ─────────────────────────────────────────────── */
-.fd-theme-toggle{{position:absolute;right:80px;top:50%;transform:translateY(-50%);background:transparent;border:1px solid {C['border']};border-radius:99px;width:38px;height:38px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;padding:0}}
+.fd-theme-toggle{{position:absolute;right:110px;top:50%;transform:translateY(-50%);background:transparent;border:1px solid {C['border']};border-radius:99px;width:38px;height:38px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;padding:0}}
 .fd-theme-toggle:hover{{border-color:{C['muted']};background:{C['surface']}}}
 .fd-theme-icon{{font-size:17px;position:absolute;transition:opacity .2s,transform .3s}}
 .fd-theme-sun{{opacity:0;transform:rotate(-90deg)}}
@@ -9531,33 +9531,12 @@ def topbar(s: AppState, rf):
                 if _avatar_menu_ref["m"]:
                     _avatar_menu_ref["m"].open()
 
-            # Team logo to the left of the avatar (2026-05-02 — moved
-            # here from the sidebar footer + sized up so it's actually
-            # visible). Uses _get_company_logo_path() so per-user
-            # overrides still win when present, otherwise falls through
-            # to the tenant logo. Inlined as base64 so cache busting
-            # comes for free on file change (no /tenant_logo route hit).
-            _co_logo = _get_company_logo_path()
-            if _co_logo:
-                try:
-                    import base64 as _b64
-                    _co_bytes = Path(_co_logo).read_bytes()
-                    _co_ext = "jpg" if _co_logo.lower().endswith((".jpg", ".jpeg")) else "png"
-                    _co_b64 = _b64.b64encode(_co_bytes).decode()
-                    with ui.element("div").style(
-                            "position:absolute;right:210px;top:50%;"
-                            "transform:translateY(-50%);"
-                            "display:flex;align-items:center;"):
-                        ui.html(
-                            f'<img src="data:image/{_co_ext};base64,{_co_b64}" '
-                            f'alt="Team logo" style="max-height:70px;max-width:220px;'
-                            f'display:block;" />'
-                        )
-                except Exception:
-                    pass
-
+            # 2026-05-02: team logo moved BACK to the sidebar footer
+            # (next to v2.0 label) per user preference. MV avatar
+            # repositioned to right:50px (was 150px) so it has
+            # breathing room from the right edge with the logo gone.
             with ui.element("div").classes("fd-avatar-wrap").style(
-                    "position:absolute;right:150px;top:50%;transform:translateY(-50%);"):
+                    "position:absolute;right:50px;top:50%;transform:translateY(-50%);"):
                 # Avatar button  -  image if uploaded, otherwise initials
                 with ui.element("button").classes("fd-avatar-btn").props('data-tour="avatar"').style(
                         f"width:42px;height:42px;border-radius:50%;"
@@ -10060,10 +10039,31 @@ def sidebar(s: AppState, rf):
                         ui.label("✏  Continue Building")
                 # (No else branch  -  sub-nav stays collapsed until a campaign is in flight)
 
-        # Company logo moved out of the sidebar 2026-05-02 — now lives
-        # in the topbar next to the user avatar (see topbar() above).
-        # Sidebar footer just shows the version label.
-        ui.label("v2.0").classes("fd-ver")
+        # Sidebar footer: team logo + v2.0 label on a single inline row
+        # (2026-05-02 user request to put the logo back in the sidebar
+        # next to the version label). Uses _get_company_logo_path() so
+        # per-user logos override the tenant fallback as before.
+        _co_logo = _get_company_logo_path()
+        with ui.element("div").style(
+                f"display:flex;align-items:center;gap:10px;"
+                f"padding:10px 18px 10px;border-top:1px solid {C['border']};"
+                f"margin-top:auto;"):
+            if _co_logo:
+                try:
+                    import base64 as _b64
+                    _co_bytes = Path(_co_logo).read_bytes()
+                    _co_ext = "jpg" if _co_logo.lower().endswith((".jpg", ".jpeg")) else "png"
+                    _co_b64 = _b64.b64encode(_co_bytes).decode()
+                    ui.html(
+                        f'<img src="data:image/{_co_ext};base64,{_co_b64}" '
+                        f'alt="Team logo" style="max-height:36px;max-width:140px;'
+                        f'display:block;" />'
+                    )
+                except Exception:
+                    pass
+            ui.label("v2.0").style(
+                f"font-size:10px;color:{C['muted']};"
+                f"margin-left:auto;flex-shrink:0;")
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  PAGE: TODAY'S DRIP  -  COMBINED VIEW (landing page)
@@ -26579,7 +26579,7 @@ def p_ai_campaign(s: AppState, rf):
                     return
             elif _wiz_step == 3:
                 if not getattr(s, "aicb_cand_source", ""):
-                    ui.notify("Pick how to add candidates (Auto Gen, Create titles + Auto Gen, Choose from Pool, or Skip).",
+                    ui.notify("Pick how to add candidates first.",
                               type="warning")
                     return
             elif _wiz_step == 4:
@@ -26803,8 +26803,11 @@ def p_ai_campaign(s: AppState, rf):
             # Wizard mode: 2-col grid so a sticky guidance panel sits on
             # the left of every step, explaining what each field means
             # and what the user should do. Form panels go in column 2.
-            else "display:grid;grid-template-columns:280px minmax(0,620px);"
-                 "gap:28px;max-width:980px;margin:0 auto;align-items:start;"
+            # Widened 2026-05-02 (980px → 1200px max, form column
+            # 620 → 892) per user request — cards on Step 3 had been
+            # feeling cramped against the empty right-side space.
+            else "display:grid;grid-template-columns:280px minmax(0,892px);"
+                 "gap:28px;max-width:1200px;margin:0 auto;align-items:start;"
         )
         # Wizard-mode visibility: the Target Details and Campaign Style
         # panels are rendered in a fixed order below; we hide the ones
@@ -26883,24 +26886,24 @@ def p_ai_campaign(s: AppState, rf):
                              "the candidate picker."),
                         ],
                         3: [
-                            ("✨ Auto Gen",
-                             "Fastest path. AI fetches job titles from the "
-                             "company's careers page, then writes anonymous "
-                             "archetypes (Candidate A/B/C…) with role, "
-                             "location, skills, and salary. Pick how many "
-                             "(1-6)."),
-                            ("✏ Create titles + Auto Gen",
-                             "You pick the titles, AI writes one candidate "
-                             "per title. Click ✨ Suggest titles for a head "
-                             "start, or type your own and hit Enter. Cap of 6."),
-                            ("📋 Choose from Pool",
-                             "Pick from candidates you've already saved. "
-                             "Optionally filter by titles to narrow the list. "
-                             "Cap of 3 per campaign."),
-                            ("Or skip",
-                             "Small text link below the cards — ships a "
-                             "market-only campaign with no candidate references. "
-                             "Roles still position the AI's writing."),
+                            ("What's a candidate profile?",
+                             "A short bullet block — name (Candidate A, B, C), "
+                             "job title, location, skills, target salary. "
+                             "Goes inside your emails so prospects see real "
+                             "examples of who you can place."),
+                            ("✨ AI does it for me",
+                             "Fastest. AI looks up what the company is "
+                             "hiring for and writes 1-6 sample profiles. "
+                             "One click. Pick this if you're not sure."),
+                            ("✏ I'll pick the titles",
+                             "You type the titles (\"CNC Machinist\", "
+                             "\"Project Manager\"), AI writes one profile "
+                             "per title. Use when you know which roles "
+                             "to pitch. Cap of 6."),
+                            ("📋 Use my real candidates",
+                             "Pull from your saved Pool — real names, "
+                             "real backgrounds. Filter by title to narrow "
+                             "the list. Cap of 3 per campaign."),
                         ],
                         4: [
                             ("Free Flow",
@@ -26988,40 +26991,10 @@ def p_ai_campaign(s: AppState, rf):
                         f"font-size:13px;color:{C['text']};line-height:1.6;"
                         f"margin-bottom:14px;max-width:840px;")
 
-                    # Secondary guidance — three short bullets that were
-                    # previously hidden in the left sidebar. Kept concise
-                    # so they read as a header, not a wall of text.
-                    with ui.element("div").style(
-                            f"display:grid;grid-template-columns:1fr 1fr 1fr;"
-                            f"gap:14px;margin-bottom:20px;"
-                            f"padding:14px 16px;background:{C['surface']};"
-                            f"border:1px solid {C['border']};border-radius:10px;"):
-                        for _g_head, _g_body in [
-                            ("Company mode = personal",
-                             "AI researches the account (leadership, open "
-                             "roles, projects, size) and every email "
-                             "references those specifics. Best when you "
-                             "have a concrete reason to reach THIS company."),
-                            ("Market mode = positioning",
-                             "No single company name appears anywhere. "
-                             "Emails read as market intelligence (comp "
-                             "trends, supply, regional projects) — safe "
-                             "to blast across a whole vertical."),
-                            ("You can switch later",
-                             "Picking now just sets the direction for "
-                             "Step 2. The mode toggle stays on the next "
-                             "screen — change your mind anytime without "
-                             "losing your typed details."),
-                        ]:
-                            with ui.element("div"):
-                                ui.label(_g_head).style(
-                                    f"font-size:12px;font-weight:800;"
-                                    f"color:{C['text_l']};"
-                                    f"font-family:'Nunito',sans-serif;"
-                                    f"margin-bottom:4px;")
-                                ui.label(_g_body).style(
-                                    f"font-size:11.5px;color:{C['muted']};"
-                                    f"line-height:1.55;")
+                    # Secondary 3-column guidance box removed 2026-05-02
+                    # per user — "users already have an idea and this is
+                    # just mumbo jumbo." The cards below explain the
+                    # choice well enough on their own.
 
                     ui.label("Pick one:").style(
                         f"font-size:11px;font-weight:700;color:{C['muted']};"
@@ -27341,12 +27314,13 @@ def p_ai_campaign(s: AppState, rf):
 
             # ═══ Candidates panel — Step 3 in wizard mode (NEW 2026-04-26) ═══
             with ui.element("div").style(f"{_step_cand_hide}{_col2}"):
-                ui.label("Pick candidates to feature").style(
+                ui.label("Add candidates to your emails").style(
                     f"font-size:16px;font-weight:700;color:{C['text_l']};"
                     f"font-family:'Nunito',sans-serif;margin-bottom:6px;")
                 ui.label(
-                    "Three ways to add candidates: AI generates them, you "
-                    "give it titles to use, or pick from your saved pool."
+                    "Each email can feature 1-6 sample candidate profiles "
+                    "(\"Candidate A,\" \"Candidate B,\" etc.). Pick how you "
+                    "want them created."
                 ).classes("fd-sub").style(f"color:{C['muted']};margin-bottom:18px;")
 
                 # 2026-05-01 restructure: the user found the prior "Target
@@ -27492,15 +27466,19 @@ def p_ai_campaign(s: AppState, rf):
                     rf()
 
                 _CARDS = [
-                    ("autogen_quick", "✨", "Auto Gen",
-                     "AI fetches titles from the careers page and writes "
-                     "anonymous archetypes — fastest path."),
-                    ("autogen_titles", "✏", "Create titles + Auto Gen",
-                     "Pick the titles you want featured. AI writes one "
-                     "candidate per title."),
-                    ("pool", "📋", "Choose from Pool",
-                     "Pick from candidates you've already saved, "
-                     "filtered by your titles."),
+                    ("autogen_quick", "✨", "AI does it for me",
+                     "AI looks up what jobs the company is hiring for, "
+                     "then writes 1-6 sample candidate profiles. "
+                     "Fastest — one click and you're done."),
+                    ("autogen_titles", "✏", "I'll pick the titles",
+                     "You type the job titles you want (e.g. \"CNC "
+                     "Machinist\"). AI writes one sample candidate "
+                     "per title. Use when you know exactly which "
+                     "roles to pitch."),
+                    ("pool", "📋", "Use my real candidates",
+                     "Pull from candidates you've already saved in "
+                     "your Pool. Real names, real backgrounds. Filter "
+                     "by job title to find them faster."),
                 ]
                 with ui.element("div").style(
                         "display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap;"):
@@ -28480,7 +28458,7 @@ def p_ai_campaign(s: AppState, rf):
                                           type="warning"); return
                         elif _wiz_step == 3:
                             if not _step3_ok:
-                                ui.notify("Pick how to add candidates (Auto Gen, Create titles + Auto Gen, Choose from Pool, or Skip).",
+                                ui.notify("Pick how to add candidates first.",
                                           type="warning"); return
                             # Serialize cards to text for _cand_block consumer
                             if s.aicb_cand_cards:
@@ -33647,11 +33625,44 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
     _TITLE_FONT = "'Trebuchet MS','Lucida Sans Unicode','Lucida Grande',Verdana,sans-serif"
 
     logo_img = f'<img src="data:image/png;base64,{logo_b64}" alt="{company}" style="height:40px;display:block;">' if logo_b64 else f'<span style="font-size:18px;font-weight:800;color:{nc["navy"]};letter-spacing:0.5px;font-family:{_FONT};">{company}</span>'
-    # Compact masthead-right logo  -  smaller than the full-width version since
-    # it shares a row with the title content.
+    # Compact masthead-right logo. Outlook ignores CSS `height` on
+    # `<img>` tags, so a height-only constraint causes images to
+    # render at NATIVE pixel size — which for a wide tagline logo
+    # (e.g. "Arena Direct Hire | 10 Years of Constructing Futures
+    # Nationwide" at ~3000×500 source) means the logo blows out the
+    # entire layout. 2026-05-02 fix: detect logo aspect ratio from
+    # the bytes, then set explicit HTML `width=` and `height=`
+    # attributes (which Outlook respects) sized to fit a 220×60
+    # masthead slot.
+    _logo_w_attr = 220
+    _logo_h_attr = 50
+    if logo_b64:
+        try:
+            import base64 as _b64
+            from io import BytesIO as _BytesIO
+            from PIL import Image as _Image
+            _src_bytes = _b64.b64decode(logo_b64)
+            _src_img = _Image.open(_BytesIO(_src_bytes))
+            _src_w, _src_h = _src_img.size
+            if _src_w > 0 and _src_h > 0:
+                # Fit inside 220×60 box, preserving aspect ratio.
+                _ratio = _src_w / _src_h
+                # Try fitting to width first; if too tall, refit to height.
+                _fit_w = 220
+                _fit_h = int(round(220 / _ratio))
+                if _fit_h > 60:
+                    _fit_h = 60
+                    _fit_w = int(round(60 * _ratio))
+                _logo_w_attr = max(40, min(220, _fit_w))
+                _logo_h_attr = max(20, min(60, _fit_h))
+        except Exception:
+            pass
     _compact_logo_img = (
         f'<img src="data:image/png;base64,{logo_b64}" alt="{company}" '
-        f'style="height:34px;display:block;margin-left:auto;">'
+        f'width="{_logo_w_attr}" height="{_logo_h_attr}" '
+        f'style="display:block;margin-left:auto;'
+        f'width:{_logo_w_attr}px;height:{_logo_h_attr}px;'
+        f'max-width:220px;border:0;outline:none;">'
         if logo_b64 else
         f'<span style="font-size:13px;font-weight:800;color:{nc["navy"]};'
         f'letter-spacing:0.4px;font-family:{_FONT};text-align:right;'
@@ -34946,7 +34957,7 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
           <div style="margin:0;font-size:{_title_size}px;font-weight:700;color:{nc["navy"]};font-family:{_TITLE_FONT};letter-spacing:-0.6px;line-height:1.05;white-space:nowrap;overflow:hidden;">{newsletter_name}</div>
           {_tagline_html}
         </td>
-        <td align="right" valign="middle" width="120" style="vertical-align:middle;padding-left:14px;">
+        <td align="right" valign="middle" width="220" style="vertical-align:middle;padding-left:14px;width:220px;">
           {_compact_logo_img}
         </td>
       </tr>
