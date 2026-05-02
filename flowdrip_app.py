@@ -8309,6 +8309,7 @@ SALES_NAV = [
     # ── Home ─────────────────────────────────────
     (None, "HOME",              None),
     ("⬡",  "Dashboard",        "dashboard"),
+    ("☼",  "Today",             "drip"),
     ("◎",  "Replies",           "responses"),
     # ── Sequences ────────────────────────────────
     (None, "SEQUENCES",         None),
@@ -9827,6 +9828,22 @@ def sidebar(s: AppState, rf):
     # & AI Setup nav items, and (b) gating "Start a Campaign" when required
     # setup is incomplete. Evaluated once per render.
     _setup = _setup_status() if _SERVER_MODE else {"email": True, "company": True, "ready": True}
+
+    # Overdue task count for the "Today" nav item badge. Drives a red
+    # pill next to the label so users see when they're behind regardless
+    # of which page they're on. Computed once per sidebar render.
+    # Wrapped so any failure (corrupt campaign, missing outcomes file)
+    # falls through silently and the sidebar still renders.
+    _overdue_count = 0
+    try:
+        _today_tasks = build_drip_tasks(target_date=date.today())
+        _outcomes_now = s.outcomes if hasattr(s, "outcomes") else load_outcomes()
+        _overdue_count = sum(
+            1 for t in _today_tasks
+            if t["id"] not in _outcomes_now and t.get("overdue")
+        )
+    except Exception:
+        _overdue_count = 0
     with ui.element("div").classes("fd-sb"):
         for icon, label, key in nav:
             if key is None:
@@ -9881,6 +9898,22 @@ def sidebar(s: AppState, rf):
             with _ni:
                 ui.label(icon).style("font-size:14px;width:16px;text-align:center;flex-shrink:0")
                 ui.label(label).style("flex:1;")
+                # Red overdue-count pill for the "Today" nav item.
+                # Shown only when there ARE overdue tasks — empty/green
+                # state means "you're caught up", so no badge is the
+                # success signal. Cap displayed count at 99+ so the pill
+                # doesn't grow uncontrollably.
+                if key == "drip" and _overdue_count > 0:
+                    _disp = "99+" if _overdue_count > 99 else str(_overdue_count)
+                    ui.html(
+                        '<span style="display:inline-flex;align-items:center;justify-content:center;'
+                        'margin-left:auto;min-width:20px;padding:2px 7px;'
+                        f'background:{C["danger"]};color:#0D1520;'
+                        'border-radius:10px;font-size:10px;font-weight:800;'
+                        'font-family:\'Nunito\',sans-serif;line-height:1;">'
+                        f'{_disp}'
+                        '</span>'
+                    )
                 # Red dot + "Setup" pill for incomplete required items
                 if _needs_badge:
                     ui.html(
