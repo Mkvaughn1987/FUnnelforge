@@ -8465,9 +8465,6 @@ class AppState:
         self._aicb_cand_text: str = ""            # serialized form for _cand_block consumer
         self._aicb_cand_generating: bool = False  # spinner flag for auto-gen
         self._aicb_cand_err: str = ""             # last auto-gen error message
-        # Step-2 Auto-fill (industries + locations)
-        self._aicb_autofill_generating: bool = False
-        self._aicb_autofill_err: str = ""
         # Step-3 Suggest titles
         self._aicb_titles_generating: bool = False
         self._aicb_titles_err: str = ""
@@ -25194,10 +25191,10 @@ def _extract_listed_items(text: str, section_header: str = None) -> list:
     consider lines AFTER a header matching that prefix. Otherwise the
     whole text is scanned.
 
-    Returns a deduplicated, order-preserving list. Used by both
-    _aicb_suggest_titles_run and _aicb_auto_fill_run because Claude with
-    web search returns inconsistent formats (sometimes preamble, sometimes
-    numbered, sometimes plain).
+    Returns a deduplicated, order-preserving list. Used by
+    _aicb_suggest_titles_run because Claude with web search returns
+    inconsistent formats (sometimes preamble, sometimes numbered,
+    sometimes plain).
     """
     if not text:
         return []
@@ -25647,89 +25644,6 @@ def _aicb_cards_to_text(cards: list) -> str:
     return "\n\n".join(blocks)
 
 
-def _aicb_auto_fill_run(s):
-    """Synchronous worker — web-search the company's website + recent news,
-    extract primary industry and operating locations, write to state.
-    Used by `_aicb_auto_fill_target_details` (background-thread wrapper)
-    and called directly by tests."""
-    try:
-        import anthropic as _anth
-        client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
-        _co = (s.aicb_company or "").strip()
-        _site = (s.aicb_website or "").strip()
-        prompt = (
-            f"Visit {_site} for {_co} and identify:\n"
-            f"  1. Their PRIMARY industry (one short phrase, e.g. "
-            f"'Precision Manufacturing', 'Industrial Automation').\n"
-            f"  2. Up to 5 cities/states where they OPERATE or have "
-            f"offices/plants. Use 'City, ST' format.\n\n"
-            f"CRITICAL: Return ONLY a JSON object with exactly two keys, "
-            f"'industries' and 'locations', each a list of strings. "
-            f"No commentary, no markdown, no preamble.\n\n"
-            f'Example: {{"industries": ["Precision Manufacturing", "Aerospace"], '
-            f'"locations": ["Fort Collins, CO", "Denver, CO"]}}'
-        )
-        msg = _claude_create_with_retry(
-            client,
-            model="claude-haiku-4-5-20251001",
-            max_tokens=600,
-            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 2}],
-            messages=[{"role": "user", "content": prompt}],
-        )
-        text = "".join(b.text for b in msg.content if hasattr(b, "text")).strip()
-        text = re.sub(r'</?cite[^>]*>', '', text)
-
-        industries: list = []
-        locations: list = []
-
-        # Try JSON object first.
-        try:
-            m = re.search(r'\{[\s\S]*?\}', text)
-            if m:
-                obj = json.loads(m.group(0))
-                if isinstance(obj, dict):
-                    industries = [
-                        x.strip() for x in obj.get("industries", [])
-                        if isinstance(x, str) and x.strip()
-                    ]
-                    locations = [
-                        x.strip() for x in obj.get("locations", [])
-                        if isinstance(x, str) and x.strip()
-                    ]
-        except (ValueError, json.JSONDecodeError):
-            pass
-
-        # Fallback: section headers, then whole-text scan.
-        if not industries:
-            industries = _extract_listed_items(text, section_header="INDUSTRIES")
-        if not locations:
-            locations = _extract_listed_items(text, section_header="LOCATIONS")
-        if not industries and not locations:
-            locations = _extract_listed_items(text)
-
-        if industries:
-            s.aicb_industry = industries[0]
-        # Append + dedup; cap at 5
-        existing = list(s.aicb_sel_locations or [])
-        for loc in locations:
-            if loc and loc not in existing:
-                existing.append(loc)
-            if len(existing) >= 5:
-                break
-        s.aicb_sel_locations = existing[:5]
-
-        if not industries and not locations:
-            s._aicb_autofill_err = (
-                "AI couldn't pull industries/locations from that website. "
-                "Fill them in manually."
-            )
-            print(f"[AutoFill] Empty parse. Raw response:\n{text[:800]}", flush=True)
-        else:
-            s._aicb_autofill_err = ""
-    except Exception as e:
-        s._aicb_autofill_err = _friendly_ai_error(e)
-
-
 def _aicb_suggest_titles_run(s):
     """Synchronous worker — web-search the company's career page +
     recent job postings, return 5-8 specific job titles. Append to
@@ -25807,31 +25721,6 @@ def _aicb_suggest_role_titles(s, rf):
             _aicb_suggest_titles_run(s)
         finally:
             s._aicb_titles_generating = False
-            try: rf()
-            except Exception: pass
-    _thr.Thread(target=_bg, daemon=True).start()
-
-
-def _aicb_auto_fill_target_details(s, rf):
-    """Background-thread wrapper around _aicb_auto_fill_run. Sets a
-    spinner state flag while running and calls rf() on completion."""
-    import threading as _thr
-    _co = (s.aicb_company or "").strip()
-    _site = (s.aicb_website or "").strip()
-    if not _co or not _site:
-        s._aicb_autofill_err = "Need both company name and website."
-        try: rf()
-        except Exception: pass
-        return
-    s._aicb_autofill_generating = True
-    s._aicb_autofill_err = ""
-    try: rf()
-    except Exception: pass
-    def _bg():
-        try:
-            _aicb_auto_fill_run(s)
-        finally:
-            s._aicb_autofill_generating = False
             try: rf()
             except Exception: pass
     _thr.Thread(target=_bg, daemon=True).start()
@@ -26336,18 +26225,28 @@ def p_ai_campaign(s: AppState, rf):
         # from the industry picker LATER in the render than this top-of-
         # page validation runs — using a fresh-read closure means the
         # click handler sees the up-to-date state regardless).
+        def _step2_primary_industry_filled():
+            return bool((getattr(s, "aicb_primary_industry", "") or "").strip())
+
         def _step2_target_filled():
+            """Step 2 gate: Primary Industry is ALWAYS required (2026-05-01 —
+            user removed AI auto-fill from this step, so we no longer have
+            an AI safety net for empty industry; PDFs + email prompts both
+            degrade badly without it). On top of that:
+              - Company mode: also need a company name.
+              - Market mode: also need a niche / secondary industry to
+                disambiguate the slice within Primary."""
+            if not _step2_primary_industry_filled():
+                return False
             _m = getattr(s, "aicb_target_mode", "company") or "company"
             if _m == "company":
                 return bool((s.aicb_company or "").strip())
             # Market mode: niche is derived from the industry picker. To
             # avoid the render-order race we ALSO accept the picker fields
-            # directly — if the user has set a primary or any secondary
-            # industry, they've effectively answered the market question.
+            # directly.
             return bool(
                 (s.aicb_niche or "").strip()
                 or getattr(s, "aicb_secondary_industries", []) or []
-                or (getattr(s, "aicb_primary_industry", "") or "").strip()
             )
         if _wiz_mode == "wizard" and _wiz_step == 1:
             _top_next_ok = True  # default mode = company, always valid
@@ -26372,8 +26271,12 @@ def p_ai_campaign(s: AppState, rf):
             elif _wiz_step == 2:
                 if not _step2_target_filled():
                     _m = getattr(s, "aicb_target_mode", "company") or "company"
-                    _tgt_word = "company" if _m == "company" else "market / niche"
-                    ui.notify(f"Enter a {_tgt_word}.", type="warning")
+                    if not _step2_primary_industry_filled():
+                        ui.notify("Pick a Primary Industry.", type="warning")
+                    elif _m == "company" and not (s.aicb_company or "").strip():
+                        ui.notify("Enter a company name.", type="warning")
+                    else:
+                        ui.notify("Pick a sub-niche or secondary industry.", type="warning")
                     return
             elif _wiz_step == 3:
                 if not getattr(s, "aicb_cand_source", ""):
@@ -26670,10 +26573,11 @@ def p_ai_campaign(s: AppState, rf):
                              "These appear on every PDF you attach (Market Pulse, "
                              "Salary Guide, Scorecard, Interview Guide, Tenure Snapshot) "
                              "AND inside every campaign email."),
-                            ("✨ Auto-fill from website",
-                             "Enter the company name + URL and click the button — "
-                             "AI web-searches the site and pre-fills Industry and "
-                             "Locations for you. Edit anything you want after."),
+                            ("Pick what fits",
+                             "Set your Primary Industry, then pick up to 4 secondary "
+                             "sub-niches to mix candidate position types. Add a "
+                             "location the same way. All manual — you know your "
+                             "market better than the web does."),
                             ("Roles come next",
                              "Target roles moved to the next step so they live with "
                              "the candidate picker."),
@@ -27012,40 +26916,6 @@ def p_ai_campaign(s: AppState, rf):
                     web_inp = ui.input(value=s.aicb_website, placeholder="e.g. acmecorp.com").classes("fd-input").style("margin-bottom:10px;width:100%;")
                     web_inp.on("blur", lambda: setattr(s, "aicb_website", (web_inp.value or "").strip()))
 
-                    # ✨ Auto-fill industries + locations from website
-                    # (2026-04-26 — replaces the prior brittle autofill).
-                    # Uses _aicb_auto_fill_target_details which web-searches
-                    # the company's site + recent news, then pre-fills
-                    # aicb_industry and aicb_sel_locations. User can edit
-                    # any field after.
-                    def _af_click():
-                        # Commit pending input values first (the on_blur
-                        # handlers haven't fired yet if user hits the button
-                        # while still focused).
-                        s.aicb_company = (co_inp.value or "").strip()
-                        s.aicb_website = (web_inp.value or "").strip()
-                        if not s.aicb_company or not s.aicb_website:
-                            ui.notify("Enter both company name and website first.",
-                                      type="warning")
-                            return
-                        _aicb_auto_fill_target_details(s, rf)
-
-                    with ui.element("div").style("margin:4px 0 14px;"):
-                        if getattr(s, "_aicb_autofill_generating", False):
-                            with ui.element("div").style(
-                                    "display:flex;align-items:center;gap:8px;"):
-                                ui.spinner("dots", size="sm")
-                                ui.label("Searching the website…").style(
-                                    f"font-size:12px;color:{C['muted']};")
-                        else:
-                            with ui.element("button").classes("fd-pb").style(
-                                    "padding:7px 14px;font-size:12px;border-radius:6px;"
-                                    ).on("click", _af_click):
-                                ui.label("✨ Auto-fill industries + locations from website")
-                            if getattr(s, "_aicb_autofill_err", ""):
-                                ui.label(f"⚠ {s._aicb_autofill_err}").style(
-                                    f"font-size:11px;color:{C['warn']};margin-top:4px;")
-
                 # ── Industry picker (Primary + Secondary) ────────────
                 # Replaces the legacy single-Industry dropdown. Primary
                 # is single-select with an "Other..." escape; Secondary
@@ -27064,7 +26934,7 @@ def p_ai_campaign(s: AppState, rf):
                     container_style="margin-bottom:12px;",
                     label_primary="Primary Industry",
                     label_secondary="Secondary Industry",
-                    required_primary=False,
+                    required_primary=True,
                 )
                 # Keep the legacy s.aicb_industry (key form) in sync so
                 # downstream code that still references it (PDF prompts,
@@ -28175,10 +28045,16 @@ def p_ai_campaign(s: AppState, rf):
                 #   Step 4 (campaign style) — style picked
                 #   Step 5 (review) — no Next, Generate button is the forward action
                 _step1_ok = True  # always valid (default mode = company)
+                # Step 2: Primary Industry is REQUIRED on top of the
+                # mode-specific signal (company name OR market niche).
+                # 2026-05-01 — AI auto-fill removed from this step, so
+                # missing industry would silently degrade PDFs and
+                # campaign emails downstream. Hard gate.
+                _primary_filled = bool((getattr(s, "aicb_primary_industry", "") or "").strip())
                 if _mode == "company":
-                    _step2_ok = bool((s.aicb_company or "").strip())
+                    _step2_ok = _primary_filled and bool((s.aicb_company or "").strip())
                 else:
-                    _step2_ok = bool((s.aicb_niche or "").strip())
+                    _step2_ok = _primary_filled and bool((s.aicb_niche or "").strip())
                 _step3_ok = bool(getattr(s, "aicb_cand_source", ""))
                 _step4_ok = bool((s.aicb_camp_type or "").strip())
 
@@ -28196,8 +28072,12 @@ def p_ai_campaign(s: AppState, rf):
                             elif _mode == "market" and niche_inp is not None:
                                 s.aicb_niche = (niche_inp.value or "").strip()
                             if not _step2_ok:
-                                _tgt_word = "company" if _mode == "company" else "market / niche"
-                                ui.notify(f"Enter a {_tgt_word}.", type="warning"); return
+                                if not _primary_filled:
+                                    ui.notify("Pick a Primary Industry.",
+                                              type="warning"); return
+                                _tgt_word = "company name" if _mode == "company" else "market / niche"
+                                ui.notify(f"Enter a {_tgt_word}.",
+                                          type="warning"); return
                         elif _wiz_step == 3:
                             if not _step3_ok:
                                 if not s.aicb_sel_roles:
