@@ -35578,6 +35578,7 @@ def _auto_refresh_newsletter_tick():
             steps[step_idx]["subject"] = subj
             steps[step_idx]["body"] = body
             steps[step_idx]["_auto_refreshed_at"] = now_utc.isoformat()
+            steps[step_idx]["auto_confirmed"] = True
             camp["emails"] = steps
 
             # Persist campaign (drop helper-only keys before writing)
