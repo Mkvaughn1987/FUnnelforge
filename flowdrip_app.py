@@ -8700,6 +8700,54 @@ def _save_current_page(s: AppState) -> None:
         pass
 
 
+# Fields persisted across reconnects so the AICB ("Recruiting Campaign")
+# wizard doesn't restart at step 1 every time Cloudflare's ~100s websocket
+# idle-timeout fires or a rapid back-and-forth click triggers a reconnect.
+# Keep this list narrow: small primitives + small lists/dicts only. Big
+# fields (resumes, generated docs, research blobs) are excluded — they're
+# heavy to serialize on every render and cheap to regenerate on demand.
+_AICB_PERSISTED_FIELDS = (
+    "aicb_wizard_step", "aicb_wizard_mode", "aicb_step", "aicb_type_picked",
+    "aicb_target_mode",
+    "aicb_company", "aicb_website", "aicb_industry", "aicb_niche",
+    "aicb_primary_industry", "aicb_secondary_industries",
+    "aicb_sel_locations", "aicb_sel_roles",
+    "aicb_camp_type", "aicb_byos_desc",
+    "aicb_cand_count", "aicb_cand_source", "aicb_cand_cards",
+    "aicb_tone",
+)
+
+
+def _save_aicb_state(s: AppState) -> None:
+    """Snapshot the AICB wizard's persistable fields into session storage.
+    Cheap dict serialization called on every render so reconnects can
+    rebuild the wizard exactly where the user left off."""
+    try:
+        snap = {}
+        for f in _AICB_PERSISTED_FIELDS:
+            if hasattr(s, f):
+                snap[f] = getattr(s, f)
+        app.storage.user["_aicb_state"] = snap
+    except Exception:
+        pass
+
+
+def _restore_aicb_state(s: AppState) -> None:
+    """Rehydrate the AICB wizard from session storage onto a fresh
+    AppState. No-op if nothing was saved. Defensive: only assigns
+    fields that already exist on AppState (so a removed field in a
+    future refactor doesn't crash on stale storage)."""
+    try:
+        snap = app.storage.user.get("_aicb_state") or {}
+        if not snap:
+            return
+        for f in _AICB_PERSISTED_FIELDS:
+            if f in snap and hasattr(s, f):
+                setattr(s, f, snap[f])
+    except Exception:
+        pass
+
+
 def _restore_page_if_recent(s: AppState, ttl_hours: int = 24) -> bool:
     """Restore saved hub/sp/ep onto a fresh AppState if the save is
     recent (default: within 24h). Returns True if restored, False if
@@ -27965,10 +28013,43 @@ def p_ai_campaign(s: AppState, rf):
                     else:
                         ui.element("div")  # spacer to keep Next right-aligned
 
-                    # Bottom Next removed 2026-04-26 per user feedback
-                    # ("too many buttons"). The top-right Next is the
-                    # single forward control across the whole wizard;
-                    # bottom row keeps Back only.
+                    # Bottom Next mirrors the top-right Next so users who
+                    # finish typing at the bottom of the form can advance
+                    # without scrolling back up. Steps 1-3 show "Next →",
+                    # Step 4 shows "✦ Generate Campaign →" (matches the
+                    # top button on that step). Step 5 has no button (the
+                    # spinner / generate flow takes over).
+                    if _wiz_step in (1, 2, 3):
+                        _bot_next_ok = (
+                            _step1_ok if _wiz_step == 1
+                            else _step2_ok if _wiz_step == 2
+                            else _step3_ok
+                        )
+                        _bot_next_style = (
+                            "padding:9px 22px;font-size:13px;"
+                            + ("opacity:0.45;cursor:not-allowed;" if not _bot_next_ok else "")
+                        )
+                        with ui.element("button").classes("fd-pb").style(_bot_next_style).on(
+                                "click", (lambda: None) if not _bot_next_ok else _wiz_next):
+                            ui.label("Next →")
+                    elif _wiz_step == 4:
+                        _bot_gen_ok = _step4_ok
+                        _bot_gen_style = (
+                            "padding:9px 22px;font-size:13px;font-weight:700;"
+                            + ("opacity:0.45;cursor:not-allowed;" if not _bot_gen_ok else "")
+                        )
+                        def _bot_generate():
+                            _camp = (getattr(s, "aicb_camp_type", "") or "").strip()
+                            if not _camp:
+                                ui.notify("Pick a sequence style first.", type="warning"); return
+                            if _camp == "byos" and not (getattr(s, "aicb_byos_desc", "") or "").strip():
+                                ui.notify("Describe your custom Free Flow sequence first.",
+                                          type="warning"); return
+                            s.aicb_wizard_step = 5
+                            _do_research()
+                        with ui.element("button").classes("fd-pb").style(_bot_gen_style).on(
+                                "click", (lambda: None) if not _bot_gen_ok else _bot_generate):
+                            ui.label("✦ Generate Campaign →")
 
     # ── Phase 2: Results ───────────────────────────────────────────────────
     elif s.aicb_step == 2:
@@ -40541,6 +40622,11 @@ def index():
         # which would otherwise snap the user back to the default
         # dashboard mid-workflow. With this, they land where they were.
         _restore_page_if_recent(s)
+    # Rehydrate the AICB ("Recruiting Campaign") wizard from session
+    # storage so reconnects don't drop the user back to step 1 with
+    # blank fields. Same root cause as _restore_page_if_recent — fresh
+    # AppState on every websocket reconnect — but for in-wizard state.
+    _restore_aicb_state(s)
     refs = {}
 
     def rf():
@@ -40549,6 +40635,8 @@ def index():
         _cache_campaigns.invalidate()
         _cache_responded.invalidate()
         _cache_queue.invalidate()
+        # Snapshot AICB wizard state so a reconnect mid-flow rebuilds it.
+        _save_aicb_state(s)
         for k in ["tb", "sb", "ct"]:
             if k in refs:
                 refs[k].clear()
