@@ -9496,12 +9496,10 @@ def topbar(s: AppState, rf):
         _on_cf = s.hub == "sales" and s.sp == "candidate_finder"
         with ui.element("button").classes("fd-hub" + (" on" if _on_cf else "")).on("click", _cf):
             ui.label("Candidate Pool")
-        def _mi():
-            s._nav_history.clear()
-            s.hub = "sales"; s.sp = "market_intel"; rf()
-        _on_mi = s.hub == "sales" and s.sp == "market_intel"
-        with ui.element("button").classes("fd-hub" + (" on" if _on_mi else "")).on("click", _mi):
-            ui.label("Market Intel")
+        # Market Intel hub button removed 2026-05-02 per user — "remove
+        # for now". Page handler p_market_intel and the underlying
+        # market_intel route stay in place so anyone with a deep link
+        # still works; just no top-nav entry.
         # ── User avatar + dropdown ──
         _uemail = getattr(s, '_user_email', '')
         _uname_full = getattr(s, '_user_name', '') or _uemail
