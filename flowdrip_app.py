@@ -7692,11 +7692,18 @@ a .fd-attach-pill:hover{{background:rgba(56,189,248,.2);border-color:{C['email_c
 input:focus::placeholder,textarea:focus::placeholder{{color:transparent !important}}
 .q-field--focused .q-field__native::placeholder{{color:transparent !important}}
 .fd-input:focus{{border-color:{C['teal']}}}
-/* Hide the per-chip remove × inside .fd-input multi-selects. The chips
-   themselves still render normally — users deselect by clicking the
-   option in the dropdown again, which keeps the visual cleaner than
-   showing a remove icon on every chip. */
-.fd-input .q-chip__icon-remove{{display:none !important}}
+/* Per-chip remove × inside .fd-input multi-selects. Quasar 2.x class
+   is `q-chip__icon--remove` (double hyphen). An older one-hyphen
+   selector lived here and was a no-op; restored as visible + recolored
+   to brand teal 2026-05-02 per user request. */
+.fd-input .q-chip__icon--remove,
+.fd-input .q-chip__icon-remove{{
+  color:{C['teal']} !important;
+  opacity:0.85;
+  transition:opacity .12s;
+}}
+.fd-input .q-chip__icon--remove:hover,
+.fd-input .q-chip__icon-remove:hover{{opacity:1}}
 .fd-textarea{{width:100%;min-height:200px;background:{C['surface']};border:1px solid {C['border']};border-radius:6px;padding:12px;font-size:13px;color:{C['text_l']};font-family:'DM Sans','Segoe UI',sans-serif;line-height:1.7;resize:none}}
 .fd-textarea:focus{{border-color:{C['teal']}}}
 .fd-toolbar{{display:flex;gap:4px;padding:8px 0;border-bottom:1px solid {C['border']};margin-bottom:12px}}
@@ -8525,6 +8532,13 @@ class AppState:
         # Step-3 Suggest titles
         self._aicb_titles_generating: bool = False
         self._aicb_titles_err: str = ""
+        # Step-2 Auto-fill (industries + locations from website)
+        # Restored 2026-05-02 per user — same flow as before but the
+        # helper now populates Primary + Secondary industries (was
+        # Primary only), so the secondary picker has something to
+        # show after AI fills.
+        self._aicb_autofill_generating: bool = False
+        self._aicb_autofill_err: str = ""
 
         # Job Match state
         self.cf_tab = "pool"           # "pool", "search", or "match_jd"
@@ -25947,6 +25961,128 @@ def _aicb_cards_to_text(cards: list) -> str:
     return "\n\n".join(blocks)
 
 
+def _aicb_auto_fill_run(s):
+    """Synchronous worker — web-search the company's website + recent
+    news, extract primary + secondary industries and operating
+    locations, write to state. Restored 2026-05-02; the secondary-
+    industry population is new (was primary-only previously).
+
+    Used by `_aicb_auto_fill_target_details` (bg-thread wrapper)
+    and called directly by tests."""
+    try:
+        import anthropic as _anth
+        client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
+        _co = (s.aicb_company or "").strip()
+        _site = (s.aicb_website or "").strip()
+        prompt = (
+            f"Visit {_site} for {_co} and identify:\n"
+            f"  1. Their PRIMARY industry (one short phrase, e.g. "
+            f"'Precision Manufacturing', 'Industrial Automation').\n"
+            f"  2. 1-3 SECONDARY industries / sub-niches that the "
+            f"company also operates in (each a short phrase).\n"
+            f"  3. Up to 5 cities/states where they OPERATE or have "
+            f"offices/plants. Use 'City, ST' format.\n\n"
+            f"CRITICAL: Return ONLY a JSON object with exactly two keys, "
+            f"'industries' and 'locations', each a list of strings. "
+            f"The FIRST industry is the primary; the rest are secondary. "
+            f"No commentary, no markdown, no preamble.\n\n"
+            f'Example: {{"industries": ["Precision Manufacturing", "Aerospace", "Defense"], '
+            f'"locations": ["Fort Collins, CO", "Denver, CO"]}}'
+        )
+        msg = _claude_create_with_retry(
+            client,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=600,
+            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 2}],
+            messages=[{"role": "user", "content": prompt}],
+        )
+        text = "".join(b.text for b in msg.content if hasattr(b, "text")).strip()
+        text = re.sub(r'</?cite[^>]*>', '', text)
+
+        industries: list = []
+        locations: list = []
+
+        # Try JSON object first.
+        try:
+            m = re.search(r'\{[\s\S]*?\}', text)
+            if m:
+                obj = json.loads(m.group(0))
+                if isinstance(obj, dict):
+                    industries = [
+                        x.strip() for x in obj.get("industries", [])
+                        if isinstance(x, str) and x.strip()
+                    ]
+                    locations = [
+                        x.strip() for x in obj.get("locations", [])
+                        if isinstance(x, str) and x.strip()
+                    ]
+        except (ValueError, json.JSONDecodeError):
+            pass
+
+        # Fallback: section headers, then whole-text scan.
+        if not industries:
+            industries = _extract_listed_items(text, section_header="INDUSTRIES")
+        if not locations:
+            locations = _extract_listed_items(text, section_header="LOCATIONS")
+        if not industries and not locations:
+            locations = _extract_listed_items(text)
+
+        if industries:
+            # Legacy field (some prompts/PDFs still read it).
+            s.aicb_industry = industries[0]
+            # New picker fields (Primary single-select + Secondary
+            # multi-select). Picker reads Primary by label form, so
+            # set the first industry directly. Secondaries get the
+            # remaining picks, capped at 4 to match the picker UI.
+            s.aicb_primary_industry = industries[0]
+            s.aicb_secondary_industries = industries[1:5]
+
+        # Append + dedup; cap at 5
+        existing = list(s.aicb_sel_locations or [])
+        for loc in locations:
+            if loc and loc not in existing:
+                existing.append(loc)
+            if len(existing) >= 5:
+                break
+        s.aicb_sel_locations = existing[:5]
+
+        if not industries and not locations:
+            s._aicb_autofill_err = (
+                "AI couldn't pull industries/locations from that website. "
+                "Fill them in manually."
+            )
+            print(f"[AutoFill] Empty parse. Raw response:\n{text[:800]}", flush=True)
+        else:
+            s._aicb_autofill_err = ""
+    except Exception as e:
+        s._aicb_autofill_err = _friendly_ai_error(e)
+
+
+def _aicb_auto_fill_target_details(s, rf):
+    """Background-thread wrapper around _aicb_auto_fill_run. Sets a
+    spinner state flag while running and calls rf() on completion."""
+    import threading as _thr
+    _co = (s.aicb_company or "").strip()
+    _site = (s.aicb_website or "").strip()
+    if not _co or not _site:
+        s._aicb_autofill_err = "Need both company name and website."
+        try: rf()
+        except Exception: pass
+        return
+    s._aicb_autofill_generating = True
+    s._aicb_autofill_err = ""
+    try: rf()
+    except Exception: pass
+    def _bg():
+        try:
+            _aicb_auto_fill_run(s)
+        finally:
+            s._aicb_autofill_generating = False
+            try: rf()
+            except Exception: pass
+    _thr.Thread(target=_bg, daemon=True).start()
+
+
 def _aicb_suggest_titles_run(s):
     """Synchronous worker — web-search the company's career page +
     recent job postings, return 5-8 specific job titles. Append to
@@ -27215,6 +27351,40 @@ def p_ai_campaign(s: AppState, rf):
                         f"font-size:10px;color:{C['muted']};margin-bottom:4px;margin-top:-2px;")
                     web_inp = ui.input(value=s.aicb_website, placeholder="e.g. acmecorp.com").classes("fd-input").style("margin-bottom:10px;width:100%;")
                     web_inp.on("blur", lambda: setattr(s, "aicb_website", (web_inp.value or "").strip()))
+
+                    # ✨ Auto-fill industries + locations from website
+                    # (restored 2026-05-02 per user). Only enabled when
+                    # both Company + Website are filled — the helper
+                    # web-searches the site and pre-populates Primary +
+                    # Secondary industries + Locations. User can edit
+                    # any of those after; they're regular pickers.
+                    def _af_click():
+                        # Commit pending input values first (on_blur
+                        # may not have fired if user clicks the button
+                        # while still focused on the website input).
+                        s.aicb_company = (co_inp.value or "").strip()
+                        s.aicb_website = (web_inp.value or "").strip()
+                        if not s.aicb_company or not s.aicb_website:
+                            ui.notify("Enter both company name and website first.",
+                                      type="warning")
+                            return
+                        _aicb_auto_fill_target_details(s, rf)
+
+                    with ui.element("div").style("margin:0 0 14px;"):
+                        if getattr(s, "_aicb_autofill_generating", False):
+                            with ui.element("div").style(
+                                    "display:flex;align-items:center;gap:8px;"):
+                                ui.spinner("dots", size="sm")
+                                ui.label("Searching the website…").style(
+                                    f"font-size:12px;color:{C['muted']};")
+                        else:
+                            with ui.element("button").classes("fd-pb").style(
+                                    "padding:7px 14px;font-size:12px;border-radius:6px;"
+                                    ).on("click", _af_click):
+                                ui.label("✨ Auto-fill industries + locations from website")
+                            if getattr(s, "_aicb_autofill_err", ""):
+                                ui.label(f"⚠ {s._aicb_autofill_err}").style(
+                                    f"font-size:11px;color:{C['warn']};margin-top:4px;display:block;")
 
                 # ── Industry picker (Primary + Secondary) ────────────
                 # Replaces the legacy single-Industry dropdown. Primary
