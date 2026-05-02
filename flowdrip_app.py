@@ -18240,7 +18240,11 @@ def get_evergreen_reminders(days_ahead: int = 7) -> list:
     Used to power reminder banners on the Evergreen page and Dashboard."""
     queue  = _load_queue()
     camps  = load_campaigns()
-    eg_names = {c.get("name","") for c in camps if c.get("evergreen_only")}
+    # Newsletters auto-refresh themselves and email a preview to the user;
+    # they don't need a manual-refresh reminder. Filter them out so the
+    # amber banner only nags for plain slow drips.
+    eg_names = {c.get("name","") for c in camps
+                if c.get("evergreen_only") and not c.get("market_analysis")}
     if not eg_names:
         return []
 
