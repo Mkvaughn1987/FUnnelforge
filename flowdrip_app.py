@@ -26256,6 +26256,16 @@ def _aicb_auto_generate_candidates(s, rf, count: int = 3):
         try:
             _aicb_generate_candidates_run(s, count=count)
         finally:
+            # Parse the AI text into card objects so the UI can render
+            # them. Previously this was done in caller-specific _on_done
+            # callbacks (e.g. _reroll_titles), but the initial _gen_titles
+            # path passed `rf` directly and skipped parsing — leaving the
+            # spinner cleared but no cards rendered ("nothing happens").
+            try:
+                if getattr(s, "_aicb_cand_text", "") and not getattr(s, "aicb_cand_cards", None):
+                    s.aicb_cand_cards = _aicb_cards_from_text(s._aicb_cand_text)
+            except Exception as _ex:
+                print(f"[AICB] card parse failed: {_ex}", flush=True)
             s._aicb_cand_generating = False
             try: rf()
             except Exception: pass
