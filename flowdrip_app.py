@@ -10786,18 +10786,27 @@ def _drip_render_camp_template(s: AppState, rf, camp_name: str,
             ui.label("Tokens like {first_name}, {company}, {role} are placeholders — substitute per contact when you copy.").style(
                 f"font-size:10px;color:{C['muted']};margin-top:4px;display:block;")
         else:
+            # Empty state: helper line + an inline Generate button right
+            # under it. The empty textarea was removed 2026-05-01 per user
+            # request — first action should be one decisive click, not a
+            # blank box. Users who want to type their own can hit Generate
+            # then edit the result inline.
             ui.label(
-                "No template yet — click ✦ Generate to have AI write one "
-                "based on the campaign, or just type your own and it'll save."
-            ).style(f"font-size:11px;color:{C['muted']};font-style:italic;")
-            # Empty editable textarea so users can write their own.
-            _txt = ui.textarea(value="").props("autogrow dense outlined").style(
-                f"width:100%;font-size:12px;margin-top:6px;color:{C['text_l']};")
-            def _save_empty_edit(k=key):
-                v = (_txt.value or "").strip()
-                if v:
-                    s._ai_camp_templates[k] = v
-            _txt.on("blur", _save_empty_edit)
+                "No template yet. Click Generate and AI will write one "
+                "based on the campaign."
+            ).style(
+                f"font-size:11px;color:{C['muted']};font-style:italic;"
+                f"display:block;margin-bottom:8px;")
+            if ANTHROPIC_API_KEY:
+                def _gen_inline(c=channel, ct=camp_tasks, cn=camp_name):
+                    _drip_gen_camp_template(s, rf, cn, c, ct)
+                with ui.element("button").style(
+                        f"padding:7px 16px;font-size:12px;border-radius:6px;"
+                        f"background:{_ch_color}15;color:{_ch_color};"
+                        f"border:1px solid {_ch_color}60;cursor:pointer;"
+                        f"font-family:inherit;font-weight:700;"
+                        ).on("click", _gen_inline):
+                    ui.label(f"✦ Generate {_ch_label}")
 
 
 def _drip_action_label(channel: str) -> tuple:
@@ -10876,12 +10885,31 @@ def _drip_card_detail(t, s: AppState, rf, idx: int = 0, total: int = 0):
                         f'background:{C["warn"]}15;color:{C["warn"]};border:1px solid {C["warn"]}40;'
                         f'text-decoration:none;cursor:pointer;">🔍 Find</a>')
             for ph in t.get("phones", []):
+                # B/C tag (2026-05-01 user request) — Business or Cell
+                # so reps know what they're dialing. Substring match
+                # against the contact's label so variants like "Work" /
+                # "Business" / "Biz" / "Cell" / "Mobile" all map.
+                _lbl = (ph.get("label", "") or "").lower()
+                if "mobile" in _lbl or "cell" in _lbl:
+                    _tag = "C"
+                elif ("work" in _lbl or "office" in _lbl
+                      or "business" in _lbl or "biz" in _lbl):
+                    _tag = "B"
+                else:
+                    _tag = ""
+                _tag_html = (
+                    f'<span style="display:inline-block;font-size:9px;'
+                    f'font-weight:800;padding:1px 5px;border-radius:99px;'
+                    f'background:{C["call_col"]}30;color:{C["call_col"]};'
+                    f'margin-right:2px;letter-spacing:.06em;'
+                    f'font-family:Nunito,sans-serif;">{_tag}</span>'
+                ) if _tag else ""
                 ui.html(f'<a href="tel:{esc(ph["number"])}" '
                         f'style="display:inline-flex;align-items:center;gap:3px;'
                         f'padding:2px 8px;border-radius:99px;font-size:11px;'
                         f'background:rgba(239,159,39,.08);color:{C["call_col"]};'
                         f'border:1px solid {C["call_col"]}40;text-decoration:none;">'
-                        f'☎ {esc(ph["number"])}</a>')
+                        f'{_tag_html}☎ {esc(ph["number"])}</a>')
             if t.get("email"):
                 ui.label(t["email"]).style(f"font-size:11px;color:{C['email_col']};")
             # Touch indicator + overdue flag inline
