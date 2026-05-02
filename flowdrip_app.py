@@ -2679,52 +2679,73 @@ def _render_industry_picker(s, rf, *, primary_state_key: str,
                         ).on("click", _commit_other):
                     ui.label("Add to my list")
 
-        # ── Secondary (single-select dropdown + Other... text input) ───
-        # Originally a multi-select chip control; users found the chips
-        # + remove-X icons clunky. Switched to a single-select dropdown
-        # that mirrors the Primary picker's "Other..." pattern. The
-        # secondary_state_key still holds a list (for backwards compat
-        # with downstream consumers) but now contains 0 or 1 entries.
+        # ── Secondary (multi-select dropdown + Other... text input) ────
+        # 2026-05-01: switched back to multi-select per user request to
+        # let candidate generation mix position types across niches.
+        # Uses Quasar's built-in multi-select (use-chips inside the
+        # dropdown bar) instead of the old standalone chip-with-X UI
+        # that users found clunky. Capped at 4 picks so prompts stay
+        # coherent.
+        SEC_MAX = 4
         if cur_primary and not in_other_mode:
             ui.label(label_secondary).classes("fd-fl").style("margin-top:12px;")
             ui.label(
-                f"Pick one under {cur_primary}, or choose Other... to type your own."
+                f"Pick up to {SEC_MAX} under {cur_primary} (mixing helps "
+                f"vary candidate position types). Choose Other... to add "
+                f"a custom one."
             ).style(f"font-size:10px;color:{C['muted']};margin-bottom:4px;display:block;")
 
             primary_key = _industry_key_for_label_or_key(cur_primary)
             sec_opts = _industry_secondary_options(primary_key)
             sec_opt_dict = {x: x for x in sec_opts}
             sec_opt_dict["Other..."] = "Other..."
-            # Surface the current value (preserve a custom one even if
-            # not in the predefined list) at the top of the dropdown.
-            cur_secondary = (cur_secondaries[0] if cur_secondaries else "").strip()
-            if cur_secondary and cur_secondary not in sec_opt_dict:
-                sec_opt_dict = {cur_secondary: f"{cur_secondary} (custom)", **sec_opt_dict}
+            # Surface any custom values already on the list (e.g. ones
+            # the user added via Other... in an earlier session) at the
+            # top of the dropdown so they remain selectable.
+            for _custom in cur_secondaries:
+                _c = (_custom or "").strip()
+                if _c and _c not in sec_opt_dict:
+                    sec_opt_dict = {_c: f"{_c} (custom)", **sec_opt_dict}
 
             _sec_other_attr = f"_{secondary_state_key}_other_mode"
             sec_in_other_mode = bool(getattr(s, _sec_other_attr, False))
 
             def _on_sec_change(e=None):
-                v = (sec_sel.value or "").strip()
-                if v == "Other...":
+                vals = list(sec_sel.value or [])
+                # If the user picked "Other..." flip into custom-input
+                # mode and strip the sentinel from the picks. They commit
+                # the custom value via the inline Add button.
+                if "Other..." in vals:
+                    vals = [v for v in vals if v != "Other..."]
                     setattr(s, _sec_other_attr, True)
-                    rf()
-                    return
-                setattr(s, _sec_other_attr, False)
-                setattr(s, secondary_state_key, [v] if v else [])
+                # De-dup, drop empties, cap at SEC_MAX.
+                _seen = set()
+                _clean = []
+                for v in vals:
+                    v = (v or "").strip()
+                    if v and v not in _seen:
+                        _seen.add(v)
+                        _clean.append(v)
+                if len(_clean) > SEC_MAX:
+                    ui.notify(f"Cap is {SEC_MAX} secondary industries — keeping the first {SEC_MAX}.",
+                              type="warning", timeout=2500)
+                    _clean = _clean[:SEC_MAX]
+                setattr(s, secondary_state_key, _clean)
+                if getattr(s, _sec_other_attr, False):
+                    rf()  # only rerender when toggling Other... mode
 
             sec_sel = ui.select(
                 options=list(sec_opt_dict.keys()),
-                value=("Other..." if sec_in_other_mode
-                       else (cur_secondary or None)),
+                value=list(cur_secondaries),
+                multiple=True,
                 on_change=_on_sec_change,
-            ).classes("fd-input").style("width:100%;")
+            ).props("use-chips").classes("fd-input").style("width:100%;")
 
             if sec_in_other_mode:
                 with ui.element("div").style(
                         "display:flex;gap:6px;align-items:center;margin-top:6px;"):
                     _sec_other_in = ui.input(
-                        value=cur_secondary,
+                        value="",
                         placeholder=f"Type a custom sub-niche under {cur_primary}",
                     ).classes("fd-input").style("flex:1;")
 
@@ -2733,7 +2754,16 @@ def _render_industry_picker(s, rf, *, primary_state_key: str,
                         if not val:
                             ui.notify("Type a custom sub-niche first.", type="warning")
                             return
-                        setattr(s, secondary_state_key, [val])
+                        _existing = list(getattr(s, secondary_state_key, []) or [])
+                        if val in _existing:
+                            ui.notify(f"'{val}' is already on the list.",
+                                      type="info", timeout=2000)
+                        elif len(_existing) >= SEC_MAX:
+                            ui.notify(f"You've already picked {SEC_MAX} — remove one first.",
+                                      type="warning"); return
+                        else:
+                            _existing.append(val)
+                            setattr(s, secondary_state_key, _existing)
                         setattr(s, _sec_other_attr, False)
                         try:
                             _add_personal_secondary_industry(primary_key, val)
@@ -25825,18 +25855,33 @@ def _aicb_generate_candidates_run(s, count: int = 3):
     _letters_used = _AICB_CAND_LETTERS[:count]
     _letters_str = ", ".join(f"Candidate {l}" for l in _letters_used)
 
+    # If the caller pre-populated aicb_sel_roles, use ONE picked title per
+    # candidate (in order, wrapping if count exceeds title list). Otherwise
+    # the model is free to invent variety inside the requested role string.
+    _picked_titles = [t for t in (s.aicb_sel_roles or []) if str(t).strip()]
+    _per_letter_title = {}
+    if _picked_titles:
+        for i, L in enumerate(_letters_used):
+            _per_letter_title[L] = _picked_titles[i % len(_picked_titles)]
+
     try:
         import anthropic as _anth
         client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
         # Build per-candidate format blocks. Every candidate's location
         # is the SAME _primary_loc (or its immediate suburbs) — this is
-        # a single-geography candidate set.
+        # a single-geography candidate set. Headline format is
+        # "Title, X+ yrs experience" (NOT "X yrs at [single firm]") —
+        # user-reported issue 2026-05-01: anchoring all years at one
+        # employer is a recruiter red flag and reads like a lifer profile.
         _format_blocks = []
         for i, L in enumerate(_letters_used):
+            _hd_title = (_per_letter_title.get(L) or "Role Title")
             _format_blocks.append(
-                f"Candidate {L}: Role Title, X yrs at [Real Competitor Firm]\n"
+                f"Candidate {L}: {_hd_title}, X+ yrs experience\n"
                 f"• Location: {_primary_loc} (or immediate suburb of {_primary_loc})\n"
-                f"• Experience: [years + specific industries/verticals they worked in]\n"
+                f"• Experience: [years total; spread across 2-3 firms; you may name "
+                f"ONE firm (e.g. 'most recently at [Competitor]') but DO NOT anchor "
+                f"all the years at a single employer]\n"
                 f"• Skills: [3-5 role-specific hard skills, comma or semicolon separated]\n"
                 f"• Proficiencies: [specific software + tool/machine/brand names  -  at least 5-8 named items]\n"
                 f"• Certifications / Additional: [certs, education, or one standout achievement]\n"
@@ -25844,14 +25889,33 @@ def _aicb_generate_candidates_run(s, count: int = 3):
             )
         _format_str = "\n\n".join(_format_blocks)
 
+        # If the user picked specific titles, tell the model to use them
+        # one-per-candidate (in order). Otherwise it picks variety inside
+        # the requested role string on its own.
+        _titles_block = ""
+        if _picked_titles:
+            _title_lines = "\n".join(
+                f"  - Candidate {L}: {_per_letter_title[L]}"
+                for L in _letters_used
+            )
+            _titles_block = (
+                "\nTITLE ASSIGNMENT — each candidate gets ONE specific title from the "
+                "user's picked list. Use exactly these titles in the headlines:\n"
+                f"{_title_lines}\n\n"
+            )
+
         prompt = (
             f"Generate {count} anonymous candidate archetypes a recruiter could pitch "
             f"to {_co} for {_roles} in {_primary_loc}.\n\n"
             f"STEP 1: Use web search to identify 3-5 REAL direct competitor companies "
             f"of {_co}  -  same industry, similar clients, similar scale. "
             f"DO NOT include {_co} itself.\n\n"
-            f"STEP 2: For each candidate, name-drop ONE real competitor firm as the "
-            f"employer. Use a DIFFERENT competitor for each candidate.\n\n"
+            f"STEP 2: For each candidate, you may optionally name-drop ONE real "
+            f"competitor firm in the Experience bullet (e.g. 'most recently at "
+            f"[Competitor]'). DO NOT anchor all years at one firm — spread tenure "
+            f"across 2-3 employers in their work history. Use a DIFFERENT named "
+            f"competitor for each candidate when you do name one.\n\n"
+            f"{_titles_block}"
             "These are HYPOTHETICAL profiles  -  do NOT invent real person names. "
             f"Label them {_letters_str}.\n\n"
             f"OUTPUT FORMAT  -  follow this EXACTLY. Start your response with "
@@ -25861,11 +25925,17 @@ def _aicb_generate_candidates_run(s, count: int = 3):
             "Each candidate is a RICH multi-bullet block  -  headline + 6 labeled bullets. "
             "Make every bullet SPECIFIC to the role with real brand names, software, "
             "tool names, and industry terms. Generic bullets are a failure.\n\n"
+            "HEADLINE FORMAT — 'Candidate X: [Title], N+ yrs experience'. NEVER "
+            "anchor the headline to a single employer (no 'X yrs at Sandvik'). "
+            "Years go in the headline, employers (if any) go in the Experience "
+            "bullet across multiple firms.\n\n"
             "For reference, this is the level of depth required:\n\n"
             "EXAMPLE (Manufacturing  -  CNC Machinist):\n"
-            "Candidate X: CNC Mill/Lathe Machinist, 10+ yrs at Sandvik Coromant\n"
+            "Candidate X: CNC Mill/Lathe Machinist, 10+ yrs experience\n"
             "• Location: Grand Rapids, MI\n"
-            "• Experience: 10+ years in manual/CNC machining across Aerospace, Defense, & Aviation\n"
+            "• Experience: 10+ years across Aerospace, Defense, & Aviation manufacturing; "
+            "currently 4 yrs at a Tier-1 aerospace supplier, prior 6 yrs split between "
+            "two precision machine shops\n"
             "• Skills: Operation and setup of vertical/horizontal mills and lathes (3-11 axis); fixture design; tight-tolerance production\n"
             "• Proficiencies: AutoCAD, SolidWorks, GibbsCAM, Mastercam; Hurco, Doosan, Haas, Mazak Mazatrol, Mori Seiki, Fanuc, Okuma controls\n"
             "• Additional Skills: Blueprint reading, GD&T, program editing (G&M codes)\n"
@@ -27050,7 +27120,11 @@ def p_ai_campaign(s: AppState, rf):
                 # _aicb_combined_titles_and_candidates), and Pool selection
                 # derives roles from the picked candidates' target_role.
                 # Skip just leaves roles empty — _do_research handles that.
-                if s.aicb_sel_roles:
+                # 2026-05-01: Autogen now has its own editable title picker
+                # — hide this read-only strip in that case to avoid two
+                # roles widgets stacked on top of each other. Pool/Skip
+                # still use the read-only strip.
+                if s.aicb_sel_roles and s.aicb_cand_source != "autogen":
                     # Show the current chips read-only so users can see what
                     # roles drive the candidate / campaign generation.
                     with ui.element("div").style(
@@ -27107,42 +27181,132 @@ def p_ai_campaign(s: AppState, rf):
 
                 # ── Section C: Source-specific UI ────────────────────
                 if s.aicb_cand_source == "autogen":
-                    with ui.element("div").style(
-                            f"display:flex;align-items:center;gap:12px;margin-bottom:14px;"
-                            f"padding:10px 14px;background:{C['surface']};border-radius:8px;"
-                            f"flex-wrap:wrap;"):
-                        ui.label("Candidates:").style(
-                            f"font-size:12px;color:{C['muted']};white-space:nowrap;")
-                        # Pill buttons 1-6 — replaces the wide ui.number
-                        # spinner whose width style was being ignored by
-                        # Quasar (2026-04-26 user report — "long and clunky").
-                        with ui.element("div").style("display:flex;gap:4px;"):
-                            for _n in [1, 2, 3, 4, 5, 6]:
-                                _is_sel = (int(s.aicb_cand_count or 3) == _n)
-                                _bg = C.get("teal", "#1AE3D9") if _is_sel else "transparent"
-                                _color = "#0a1620" if _is_sel else C['text_l']
-                                _border = C.get("teal", "#1AE3D9") if _is_sel else C['border']
-                                def _pick_n(num=_n):
-                                    s.aicb_cand_count = num
-                                    rf()
-                                with ui.element("button").style(
-                                        f"width:30px;height:30px;border-radius:6px;"
-                                        f"background:{_bg};border:1px solid {_border};"
-                                        f"color:{_color};font-family:inherit;"
-                                        f"font-size:13px;font-weight:700;cursor:pointer;"
-                                        f"padding:0;"
-                                        ).on("click", _pick_n):
-                                    ui.label(str(_n))
+                    # Title-chip picker (2026-05-01) — replaces the old
+                    # count pills. User picks up to 6 titles; AI generates
+                    # ONE candidate per title. If they don't pick any, the
+                    # combined helper falls back to auto-fetching titles
+                    # from the company's careers page (existing behavior),
+                    # so the autogen path still works zero-config.
+                    TITLE_MAX = 6
+                    _picked_titles = list(s.aicb_sel_roles or [])
 
+                    with ui.element("div").style(
+                            f"margin-bottom:14px;padding:12px 14px;"
+                            f"background:{C['surface']};border-radius:8px;"):
+                        ui.label("Target titles").style(
+                            f"font-size:12px;font-weight:700;color:{C['text_l']};"
+                            f"font-family:'Nunito',sans-serif;")
+                        ui.label(
+                            f"Pick up to {TITLE_MAX} — we'll generate one "
+                            f"candidate per title. Skip to let AI auto-fetch "
+                            f"titles from the company's careers page."
+                        ).style(
+                            f"font-size:11px;color:{C['muted']};margin-bottom:10px;display:block;")
+
+                        # Currently picked titles → removable chips
+                        if _picked_titles:
+                            with ui.element("div").style(
+                                    "display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px;"):
+                                for _idx, _t in enumerate(_picked_titles):
+                                    def _rm_title(idx=_idx):
+                                        existing = list(s.aicb_sel_roles or [])
+                                        if 0 <= idx < len(existing):
+                                            existing.pop(idx)
+                                            s.aicb_sel_roles = existing
+                                            # Drop stale candidates so a stale 6
+                                            # don't linger after they remove a title.
+                                            s.aicb_cand_cards = []
+                                            s._aicb_cand_text = ""
+                                            rf()
+                                    with ui.element("div").style(
+                                            f"display:inline-flex;align-items:center;gap:6px;"
+                                            f"padding:5px 10px 5px 12px;border-radius:99px;"
+                                            f"background:{C.get('teal_dim', '#1AE3D920')};"
+                                            f"color:{C.get('teal', '#1AE3D9')};"
+                                            f"font-size:12px;font-weight:600;"):
+                                        ui.label(_t)
+                                        with ui.element("span").style(
+                                                f"cursor:pointer;font-size:14px;"
+                                                f"line-height:1;color:{C['muted']};"
+                                                ).on("click", _rm_title):
+                                            ui.label("×")
+
+                        # Suggest + Add custom + counter row
+                        with ui.element("div").style(
+                                "display:flex;flex-wrap:wrap;align-items:center;gap:8px;"):
+                            _at_max = len(_picked_titles) >= TITLE_MAX
+
+                            def _do_suggest():
+                                if _at_max:
+                                    ui.notify(f"Already at {TITLE_MAX} titles — remove one to suggest more.",
+                                              type="info"); return
+                                _aicb_suggest_role_titles(s, rf)
+                            _suggest_busy = bool(getattr(s, "_aicb_titles_generating", False))
+                            _suggest_style = (
+                                "padding:6px 12px;font-size:11px;"
+                                + ("opacity:0.5;cursor:not-allowed;" if (_at_max or _suggest_busy) else "")
+                            )
+                            with ui.element("button").classes("fd-gb").style(_suggest_style).on(
+                                    "click", (lambda: None) if (_at_max or _suggest_busy) else _do_suggest):
+                                if _suggest_busy:
+                                    ui.label("Suggesting…")
+                                else:
+                                    ui.label("✨ Suggest titles")
+
+                            _custom_in = ui.input(
+                                placeholder="Or type a title (e.g. CNC Machinist)",
+                            ).classes("fd-input").style(
+                                "flex:1;min-width:200px;padding:4px 10px;font-size:12px;")
+
+                            def _add_custom():
+                                v = (_custom_in.value or "").strip()
+                                if not v:
+                                    ui.notify("Type a title first.", type="warning"); return
+                                existing = list(s.aicb_sel_roles or [])
+                                if v in existing:
+                                    ui.notify(f"'{v}' is already on the list.",
+                                              type="info", timeout=2000); return
+                                if len(existing) >= TITLE_MAX:
+                                    ui.notify(f"Cap is {TITLE_MAX} — remove one first.",
+                                              type="warning"); return
+                                existing.append(v)
+                                s.aicb_sel_roles = existing
+                                _custom_in.set_value("")
+                                rf()
+                            with ui.element("button").classes("fd-pb").style(
+                                    "padding:6px 14px;font-size:11px;"
+                                    + ("opacity:0.5;cursor:not-allowed;" if _at_max else "")
+                                    ).on("click", (lambda: None) if _at_max else _add_custom):
+                                ui.label("+ Add")
+
+                            ui.label(f"{len(_picked_titles)} / {TITLE_MAX}").style(
+                                f"font-size:10px;color:{C['muted']};white-space:nowrap;"
+                                f"margin-left:auto;")
+
+                        if getattr(s, "_aicb_titles_err", ""):
+                            ui.label(f"⚠ {s._aicb_titles_err}").style(
+                                f"font-size:11px;color:{C['warn']};margin-top:6px;")
+
+                    # Generate row
+                    with ui.element("div").style(
+                            "display:flex;align-items:center;gap:12px;margin-bottom:14px;"
+                            "flex-wrap:wrap;"):
                         def _gen_click():
-                            n = max(1, min(6, int(s.aicb_cand_count or 3)))
                             if getattr(s, "_aicb_cand_generating", False):
                                 return
                             s.aicb_cand_cards = []
                             s._aicb_cand_text = ""
-                            # Combined: auto-fetch titles (if empty) +
-                            # generate candidates in one thread.
-                            _aicb_combined_titles_and_candidates(s, rf, count=n)
+                            picked = list(s.aicb_sel_roles or [])
+                            if picked:
+                                # User-picked titles → 1 candidate per title.
+                                # Cap at TITLE_MAX (= 6 = letter limit A-F).
+                                n = max(1, min(TITLE_MAX, len(picked)))
+                                _aicb_auto_generate_candidates(s, rf, count=n)
+                            else:
+                                # No titles picked → auto-fetch flow with
+                                # the legacy default count.
+                                n = max(1, min(6, int(s.aicb_cand_count or 3)))
+                                _aicb_combined_titles_and_candidates(s, rf, count=n)
 
                         if getattr(s, "_aicb_cand_generating", False):
                             ui.spinner("dots", size="md")
@@ -27151,12 +27315,20 @@ def p_ai_campaign(s: AppState, rf):
                         else:
                             with ui.element("button").classes("fd-pb").style(
                                     "padding:8px 18px;font-size:13px;").on("click", _gen_click):
-                                ui.label("Generate")
+                                if _picked_titles:
+                                    ui.label(
+                                        f"Generate {len(_picked_titles)} "
+                                        f"candidate{'s' if len(_picked_titles) != 1 else ''}"
+                                    )
+                                else:
+                                    ui.label("Generate (auto-fetch titles)")
 
                     if s.aicb_cand_cards:
                         _render_aicb_candidate_cards(s, rf)
                         def _reroll_all():
-                            n = max(1, min(6, int(s.aicb_cand_count or 3)))
+                            picked = list(s.aicb_sel_roles or [])
+                            n = (max(1, min(TITLE_MAX, len(picked))) if picked
+                                 else max(1, min(6, int(s.aicb_cand_count or 3))))
                             s.aicb_cand_cards = []
                             s._aicb_cand_text = ""
                             # Re-roll just regenerates candidates against
