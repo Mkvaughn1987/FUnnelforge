@@ -10388,20 +10388,34 @@ def p_today_combined(s: AppState, rf):
           key=lambda x: x.get("send_dt", "")
       )
 
+      # 2026-05-02 user request: filter the Active Campaigns panel on
+      # the Today page to ONLY campaigns with sends scheduled for today.
+      # Previously it showed every active campaign regardless of when
+      # the next send was, which made the list ~25+ rows long with
+      # most rows having a "Up Next: May 11" datestamp irrelevant to
+      # what the user is actually doing TODAY.
+      _camps_with_today_sends = {
+          (q.get("campaign") or "").strip()
+          for q in today_scheduled
+          if q.get("campaign")
+      }
+      auto_camps = {k: v for k, v in auto_camps.items()
+                    if k in _camps_with_today_sends}
+
       with ui.element("div").style("display:flex;gap:16px;margin-top:24px;align-items:flex-start;"):
 
-          # ── LEFT: Active Campaigns list ──────────────────────────────────
+          # ── LEFT: Sending Today list (filtered to today's queue) ──────────
           with ui.element("div").style("flex:1;min-width:0;"):
               with ui.element("div").style(
                       "display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;"):
-                  ui.label("Active Campaigns").classes("fd-sec").style("margin:0;")
-                  if auto_camps or queue_by_camp:
-                      total_q = sum(queue_by_camp.values())
-                      ui.label(f"{total_q} emails queued").style(
+                  ui.label("Sending Today").classes("fd-sec").style("margin:0;")
+                  if today_scheduled:
+                      _today_count = len(today_scheduled)
+                      ui.label(f"{_today_count} email{'s' if _today_count != 1 else ''} today").style(
                           f"font-size:11px;color:{C['muted']};")
 
-              if not auto_camps and not queue_by_camp:
-                  ui.label("No active campaigns with emails.").style(
+              if not auto_camps:
+                  ui.label("No campaigns sending today. All caught up.").style(
                       f"font-size:12px;color:{C['muted']};padding:12px 0;")
               else:
                   shown_camps = set()
