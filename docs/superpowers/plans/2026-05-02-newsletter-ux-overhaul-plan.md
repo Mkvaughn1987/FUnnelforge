@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Replace the buried inline newsletter "Refresh & Confirm" panel with a focused modal, surface the 5 hero photos with arrow-overlay swapping, auto-generate every issue at creation, change the reminder window to 5 days, respect a new user-`confirmed` flag in the existing auto-refresh sweep, add an "Auto-refreshed" badge, and add a monthly holiday block to the newsletter footer.
+**Goal:** Drop manual newsletter "Refresh & Confirm" entirely. Auto-refresh every newsletter 3 days before send, email a preview to the user's inbox, default each issue to a different hero photo, give them a focused Edit modal accessible from the card or a deep link in the preview email. Add a dedicated "📰 Newsletters" left-nav page. Add a monthly holiday block to the newsletter footer.
 
-**Architecture:** Single-file NiceGUI app (`flowdrip_app.py`, ~42K lines). Server-side generation/scheduling already exists (`_generate_newsletter_content_for_step` at L35257, `_auto_refresh_newsletter_tick` at L35450, scheduler loop at L41955). UI changes use NiceGUI `ui.dialog()`. Tests use the existing `isolated_appdata` + `with_user` pytest fixtures (`tests/conftest.py`); UI render is not unit-testable, so dialog/card changes are verified via the live `/` smoke check post-deploy.
+**Architecture:** Single-file NiceGUI app (`flowdrip_app.py`, ~42K lines). Server-side generation/scheduling already exists (`_generate_newsletter_content_for_step` at L35257, `_auto_refresh_newsletter_tick` at L35450 — already runs every 6 hours and already sends a preview email at L35612). UI changes use NiceGUI `ui.dialog()`. Tests use the existing `isolated_appdata` + `with_user` pytest fixtures.
 
-**Tech Stack:** Python 3.12, NiceGUI, Anthropic SDK (`_claude_create_with_retry`), pytest, JSON file storage in per-user dirs under `_BASE_DATA_DIR/users/{slug}/`.
+**Tech Stack:** Python 3.12, NiceGUI, Anthropic SDK, pytest, JSON file storage in per-user dirs.
 
 ---
 
@@ -20,25 +20,27 @@ All work lands in **`flowdrip_app.py`** (the existing monolithic NiceGUI app —
 
 | Area | Location | Responsibility |
 | --- | --- | --- |
-| Modal UI | `flowdrip_app.py` — new `_refresh_newsletter_modal(s, rf, camp, step_idx)` (insert after `_create_newsletter_dialog` at ~L18596) | Single-task focused dialog: hero carousel + subject + body + Confirm/Cancel. |
-| Modal trigger sites | `flowdrip_app.py` L18769–L18789, L18877–L18896, L19101–L19115 (inline preview-card refresh), L19247–L19260 | Replace `s._market_refresh_step = "generating"` block with `_refresh_newsletter_modal(...)` call. |
-| Inline panel removal | `flowdrip_app.py` L19353–L20020 (the entire `if _rcamp and _rstep_mode:` block in `p_evergreen`) | Delete. Modal owns the flow. |
-| Hero thumbnail on card | `flowdrip_app.py` ~L18874 (newsletter card action-buttons region) | Add 80×30 thumbnail + "Change photo" link before the Refresh button. |
-| Auto-refreshed badge | `flowdrip_app.py` ~L18866 (newsletter card meta line) | Render small grey "ⓘ Auto-refreshed" pill if any pending step has `auto_confirmed: true`. |
-| Auto-generate all issues | `flowdrip_app.py` L18540–L18577 (`_gen_first_issue`) | Loop over all step indices instead of `0`. |
-| Reminder threshold | `flowdrip_app.py` L18237–L18280 (`get_evergreen_reminders`) | Switch to per-campaign-type window: 5 days for newsletters, 7 for slow drips. |
-| Reminder banner copy | `flowdrip_app.py` L18692–L18693 | Add the "Will auto-send fresh content {date} if not confirmed by then" line under each newsletter row. |
-| `confirmed` flag honored | `flowdrip_app.py` `_auto_refresh_newsletter_tick` at L35450 | Skip steps whose `confirmed: true` was set by user. Set `auto_confirmed: true` when sweep regenerates. |
-| Holiday data + helper | `flowdrip_app.py` — new module-level `_HOLIDAYS_BY_MONTH` dict + `_holiday_for_month(year, month, override_map)` near the other newsletter helpers (~L34060) | Returns `(date_str, name, note)` or `None`. Handles variable dates (Easter, Labor Day, Thanksgiving). |
-| Holiday HTML render | `flowdrip_app.py` ~L35093 (the existing single-cell "Meet Your Hiring Partner" `<tr><td>`) | Refactor to 3-column table; LEFT cell = holiday block; CENTER = unchanged content; RIGHT = empty spacer. |
-| Holiday-note user override | `flowdrip_app.py` Profile/Settings panel (search for `newsletter_personal_note`, around L9799) | Add optional `holiday_note_overrides` dict to user config. |
-| Tests | `tests/test_newsletter_*.py` (new files) | Pure-helper tests: holiday lookup, confirmed-flag skip, all-issue generation iteration, reminder threshold split. |
+| Reminder banner — drop newsletters | `flowdrip_app.py` L18237 (`get_evergreen_reminders`) | Filter out `market_analysis: True` campaigns. |
+| Edit modal | `flowdrip_app.py` — new `_edit_newsletter_modal(s, rf, camp, step_idx)` after `_create_newsletter_dialog` (~L18596) | Single-task focused dialog: hero carousel + subject + body + Save/Cancel. |
+| Modal trigger sites | `flowdrip_app.py` — newsletter card "✦ Refresh" button (~L18877) renamed to "✎ Edit" | Open modal directly. |
+| Inline panel removal | `flowdrip_app.py` L19353–L20020 (`if _rcamp and _rstep_mode:` block) | Delete entirely (modal owns the flow). |
+| Hero thumbnail on card | `flowdrip_app.py` ~L18874 | Add 80×30 thumbnail before the Edit button. |
+| Auto-refreshed badge on card | `flowdrip_app.py` ~L18866 | Render small grey "ⓘ Auto-refreshed" pill if next pending step has `auto_confirmed: true`. |
+| Auto-generate all issues | `flowdrip_app.py` L18540–L18577 (`_gen_first_issue`) + new `_gen_all_issues_for_campaign` near L35257 | Loop over all step indices. |
+| Auto-refresh sweep changes | `flowdrip_app.py` L35450–L35650 (`_auto_refresh_newsletter_tick`) | Window 3 days; default `_hero_variant = step_idx % 5`; skip `confirmed`; stamp `auto_confirmed`; updated preview email subject. |
+| Deep link `?edit_newsletter=...` | `flowdrip_app.py` page-load handler (search `index()` route) | Parse query, open modal on first render. |
+| Holiday data + helper | `flowdrip_app.py` — new `_HOLIDAYS_BY_MONTH` + `_holiday_for_month` near other newsletter helpers | Returns `(date_str, name, note)` or `None`. |
+| Holiday HTML render | `flowdrip_app.py` ~L35093 | Refactor footer to 3-column table; LEFT cell = holiday block. |
+| Holiday-note overrides | `flowdrip_app.py` Settings (~L9799) | Add `holiday_note_overrides` dict to user config. |
+| Newsletters left-nav | `flowdrip_app.py` `SALES_NAV` ~L8385, router ~L40361 | New `("📰", "Newsletters", "newsletters")` above Reports + `p_newsletters(s, rf)` page. |
+| Newsletter list extraction | `flowdrip_app.py` `p_evergreen` newsletter section | Extract into `_render_newsletter_list(s, rf, camps)`. |
+| Tests | `tests/test_newsletter_*.py` (new files) | Helper-level tests. |
 
 ---
 
 ## Phase 0 — Setup
 
-### Task 0.1: Create worktree branch
+### Task 0.1: Branch
 
 - [ ] **Step 1: Confirm clean working tree**
 
@@ -46,7 +48,7 @@ All work lands in **`flowdrip_app.py`** (the existing monolithic NiceGUI app —
 git status
 ```
 
-Expected: branch `claude/critical-bug-fixes`, working tree may have untracked files but no unrelated modified files. (Lots of untracked status entries are normal for this repo.)
+Expected: branch `claude/critical-bug-fixes` (or wherever HEAD is), latest commit is `e9c3bc4 plan: newsletter UX overhaul implementation plan`.
 
 - [ ] **Step 2: Create implementation branch**
 
@@ -54,15 +56,11 @@ Expected: branch `claude/critical-bug-fixes`, working tree may have untracked fi
 git checkout -b claude/newsletter-ux-overhaul
 ```
 
-Expected: switched to a new branch.
-
 ---
 
-## Phase 1 — Foundation (data fields + auto-refresh respects user-confirmed)
+## Phase 1 — Foundation: auto-refresh respects user-confirmed + stamps auto_confirmed
 
-The existing `_auto_refresh_newsletter_tick` (L35450) already regenerates newsletters within 5 days of send. **Today it overwrites manual user edits** because it doesn't check whether the user has confirmed the issue. Fix that first so the rest of the flow can rely on the contract.
-
-### Task 1.1: Test — `_auto_refresh_newsletter_tick` skips steps marked `confirmed: true`
+### Task 1.1: Test — `_auto_refresh_newsletter_tick` skips `confirmed: true`
 
 **Files:**
 - Create: `tests/test_newsletter_auto_refresh_skip.py`
@@ -75,14 +73,11 @@ The existing `_auto_refresh_newsletter_tick` (L35450) already regenerates newsle
 get clobbered the next time the scheduler tick runs."""
 import json
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
 
 
 def test_auto_refresh_skips_confirmed_steps(isolated_appdata, with_user, monkeypatch):
     import flowdrip_app as fa
 
-    # Build a newsletter campaign whose next pending step is in 2 days and
-    # is marked confirmed:true (user clicked Confirm in the modal).
     user_root = with_user
     camp_dir = user_root / "Campaigns"
     camp_dir.mkdir(parents=True, exist_ok=True)
@@ -106,7 +101,6 @@ def test_auto_refresh_skips_confirmed_steps(isolated_appdata, with_user, monkeyp
         }],
     }), encoding="utf-8")
 
-    # Pending queue item due in 2 days for that step.
     queue_path = user_root / "scheduled_queue.json"
     soon = (datetime.now(timezone.utc) + timedelta(days=2)).replace(tzinfo=None).isoformat()
     queue_path.write_text(json.dumps([{
@@ -119,7 +113,6 @@ def test_auto_refresh_skips_confirmed_steps(isolated_appdata, with_user, monkeyp
         "status": "pending",
     }]), encoding="utf-8")
 
-    # If the generator runs, the test fails — confirmed steps must skip it.
     sentinel = {"called": False}
     def _generator(_camp, _idx):
         sentinel["called"] = True
@@ -130,7 +123,6 @@ def test_auto_refresh_skips_confirmed_steps(isolated_appdata, with_user, monkeyp
     fa._auto_refresh_newsletter_tick()
 
     assert sentinel["called"] is False, "Generator was called for a confirmed step"
-
     saved = json.loads(camp_path.read_text(encoding="utf-8"))
     assert saved["emails"][0]["body"] == confirmed_body
     assert saved["emails"][0]["subject"] == confirmed_subject
@@ -142,23 +134,27 @@ def test_auto_refresh_skips_confirmed_steps(isolated_appdata, with_user, monkeyp
 pytest tests/test_newsletter_auto_refresh_skip.py -v
 ```
 
-Expected: FAIL — generator IS called because the existing tick has no `confirmed` check yet.
+Expected: FAIL — generator IS called.
 
-- [ ] **Step 3: Add `confirmed` skip to `_auto_refresh_newsletter_tick`**
+- [ ] **Step 3: Add `confirmed` skip**
 
-Open `flowdrip_app.py`. Find `_auto_refresh_newsletter_tick` at L35450. The current code resolves `step_idx`, then at L35552 does `step = steps[step_idx]`, then at L35553 begins a `# Cooldown: skip if already refreshed recently` block. Insert the new check between `step = steps[step_idx]` and the cooldown comment:
+In `flowdrip_app.py`, find this block at L35552–L35553:
+
+```python
+            step = steps[step_idx]
+            # Cooldown: skip if already refreshed recently
+```
+
+Insert the new check between `step = steps[step_idx]` and the cooldown comment:
 
 ```python
             step = steps[step_idx]
             # User-confirmed steps are owned by the user. Never overwrite.
-            # `confirmed: true` is set by the Refresh modal's Confirm button.
+            # `confirmed: true` is set when the user clicks Save in the Edit modal.
             if step.get("confirmed"):
                 continue
             # Cooldown: skip if already refreshed recently
-            ...
 ```
-
-(Show only the first line of the cooldown block as an anchor — leave the rest unchanged.)
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -175,7 +171,7 @@ git add tests/test_newsletter_auto_refresh_skip.py flowdrip_app.py
 git commit -m "feat(newsletter): auto-refresh respects user-confirmed flag"
 ```
 
-### Task 1.2: Test — `_auto_refresh_newsletter_tick` sets `auto_confirmed: true` after a successful regen
+### Task 1.2: Test — `_auto_refresh_newsletter_tick` stamps `auto_confirmed: true` after regen
 
 **Files:**
 - Create: `tests/test_newsletter_auto_confirmed_flag.py`
@@ -183,9 +179,8 @@ git commit -m "feat(newsletter): auto-refresh respects user-confirmed flag"
 - [ ] **Step 1: Write the failing test**
 
 ```python
-"""When the 6-hour sweep regenerates a newsletter step, it must mark
-the step `auto_confirmed: true` so the UI can render the
-'ⓘ Auto-refreshed' badge and the user knows their input wasn't used."""
+"""When the sweep regenerates a newsletter step, it must mark the step
+`auto_confirmed: true` so the UI can render the 'ⓘ Auto-refreshed' badge."""
 import json
 from datetime import datetime, timedelta, timezone
 
@@ -210,7 +205,6 @@ def test_auto_refresh_marks_auto_confirmed(isolated_appdata, with_user, monkeypa
             "subject": "stale",
             "body": "<p>stale</p>",
             "step_type": "email_auto",
-            # No `confirmed` flag — sweep should regenerate.
         }],
     }), encoding="utf-8")
 
@@ -229,6 +223,9 @@ def test_auto_refresh_marks_auto_confirmed(isolated_appdata, with_user, monkeypa
     monkeypatch.setattr(
         fa, "_generate_newsletter_content_for_step",
         lambda _c, _i: ("FRESH SUBJECT", "<p>FRESH BODY</p>"))
+    # Suppress the preview-email side effect (no Outlook/Gmail in tests).
+    monkeypatch.setattr(fa, "_send_email_universal",
+        lambda **kw: (True, ""))
     monkeypatch.setattr(fa, "_BASE_DATA_DIR", user_root.parent.parent)
 
     fa._auto_refresh_newsletter_tick()
@@ -247,9 +244,9 @@ pytest tests/test_newsletter_auto_confirmed_flag.py -v
 
 Expected: FAIL — `auto_confirmed` key missing.
 
-- [ ] **Step 3: Set `auto_confirmed: true` after successful regen**
+- [ ] **Step 3: Stamp `auto_confirmed: true` after regen**
 
-In `_auto_refresh_newsletter_tick`, find this exact block (L35573–L35577):
+Find this exact block at L35573–L35577:
 
 ```python
             # Update the step on the campaign
@@ -259,7 +256,7 @@ In `_auto_refresh_newsletter_tick`, find this exact block (L35573–L35577):
             camp["emails"] = steps
 ```
 
-Insert the new line right before `camp["emails"] = steps`:
+Add `auto_confirmed` directly before `camp["emails"] = steps`:
 
 ```python
             # Update the step on the campaign
@@ -287,11 +284,370 @@ git commit -m "feat(newsletter): auto-refresh stamps auto_confirmed=true on succ
 
 ---
 
-## Phase 2 — Auto-generate all issues at creation
+## Phase 2 — Auto-refresh window: 3 days + auto-rotate hero photo per issue
 
-Today only step 0 generates in the background. Make the loop cover every step.
+### Task 2.1: Test — auto-refresh window narrows to 3 days
 
-### Task 2.1: Test — newsletter creation triggers generation for every step (not just step 0)
+**Files:**
+- Create: `tests/test_newsletter_auto_refresh_window.py`
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+"""Auto-refresh window changes from 5 days to 3 days. A newsletter
+with send 4 days out should NOT be refreshed; one 3 days out SHOULD be."""
+import json
+from datetime import datetime, timedelta, timezone
+
+
+def _setup(user_root, days_until_send):
+    camp_dir = user_root / "Campaigns"
+    camp_dir.mkdir(parents=True, exist_ok=True)
+    (camp_dir / "NL.json").write_text(json.dumps({
+        "name": "NL",
+        "newsletter_name": "NL",
+        "market_analysis": True,
+        "evergreen_only": True,
+        "_owner_email": "tester@example.com",
+        "emails": [{"name": "I1", "subject": "old", "body": "<p>old</p>",
+                    "step_type": "email_auto"}],
+    }), encoding="utf-8")
+    soon = (datetime.now(timezone.utc) + timedelta(days=days_until_send)).replace(tzinfo=None).isoformat()
+    (user_root / "scheduled_queue.json").write_text(json.dumps([{
+        "id": "q1", "campaign": "NL", "step_name": "I1", "subject": "old",
+        "to": "x@y.com", "send_dt": soon, "status": "pending",
+    }]), encoding="utf-8")
+
+
+def test_4_days_out_skipped(isolated_appdata, with_user, monkeypatch):
+    import flowdrip_app as fa
+    _setup(with_user, days_until_send=4)
+    sentinel = {"called": False}
+    monkeypatch.setattr(fa, "_generate_newsletter_content_for_step",
+        lambda *a: (sentinel.update(called=True), ("S", "B"))[1])
+    monkeypatch.setattr(fa, "_send_email_universal", lambda **kw: (True, ""))
+    monkeypatch.setattr(fa, "_BASE_DATA_DIR", with_user.parent.parent)
+    fa._auto_refresh_newsletter_tick()
+    assert sentinel["called"] is False
+
+
+def test_3_days_out_refreshed(isolated_appdata, with_user, monkeypatch):
+    import flowdrip_app as fa
+    _setup(with_user, days_until_send=3)
+    monkeypatch.setattr(fa, "_generate_newsletter_content_for_step",
+        lambda *a: ("FRESH", "<p>FRESH</p>"))
+    monkeypatch.setattr(fa, "_send_email_universal", lambda **kw: (True, ""))
+    monkeypatch.setattr(fa, "_BASE_DATA_DIR", with_user.parent.parent)
+    fa._auto_refresh_newsletter_tick()
+    saved = json.loads((with_user / "Campaigns" / "NL.json").read_text(encoding="utf-8"))
+    assert saved["emails"][0]["subject"] == "FRESH"
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+```bash
+pytest tests/test_newsletter_auto_refresh_window.py -v
+```
+
+Expected: FAIL on `test_4_days_out_skipped` (current 5-day window catches 4 days too).
+
+- [ ] **Step 3: Narrow the window**
+
+In `_auto_refresh_newsletter_tick` at L35468 find:
+
+```python
+    refresh_window = _td(days=5)
+```
+
+Change to:
+
+```python
+    refresh_window = _td(days=3)
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+```bash
+pytest tests/test_newsletter_auto_refresh_window.py -v
+```
+
+Expected: both tests PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add tests/test_newsletter_auto_refresh_window.py flowdrip_app.py
+git commit -m "feat(newsletter): tighten auto-refresh window to 3 days before send"
+```
+
+### Task 2.2: Test — auto-refresh defaults `_hero_variant` to `step_idx % 5`
+
+**Files:**
+- Create: `tests/test_newsletter_auto_hero_rotate.py`
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+"""Each monthly issue should default to a different hero photo so the
+newsletter doesn't look identical month after month. Auto-refresh sets
+`_hero_variant = step_idx % 5` if not already set. If the user has
+manually set _hero_variant, it must be preserved."""
+import json
+from datetime import datetime, timedelta, timezone
+
+
+def _setup_with_steps(user_root, steps):
+    camp_dir = user_root / "Campaigns"
+    camp_dir.mkdir(parents=True, exist_ok=True)
+    (camp_dir / "NL.json").write_text(json.dumps({
+        "name": "NL", "newsletter_name": "NL", "market_analysis": True,
+        "evergreen_only": True, "_owner_email": "tester@example.com",
+        "emails": steps,
+    }), encoding="utf-8")
+    # Queue: refresh whichever step matches first.
+    soon = (datetime.now(timezone.utc) + timedelta(days=2)).replace(tzinfo=None).isoformat()
+    queue = []
+    for i, st in enumerate(steps):
+        queue.append({"id": f"q{i}", "campaign": "NL",
+                      "step_name": st["name"], "subject": st.get("subject",""),
+                      "to": "x@y.com", "send_dt": soon, "status": "pending"})
+    (user_root / "scheduled_queue.json").write_text(json.dumps(queue), encoding="utf-8")
+
+
+def test_hero_variant_defaults_to_step_index_mod_5(isolated_appdata, with_user, monkeypatch):
+    import flowdrip_app as fa
+    _setup_with_steps(with_user, [
+        {"name": f"I{i}", "subject": "stale", "body": "<p>stale</p>",
+         "step_type": "email_auto"} for i in range(7)
+    ])
+    monkeypatch.setattr(fa, "_generate_newsletter_content_for_step",
+        lambda c, i: (f"S{i}", f"<p>B{i}</p>"))
+    monkeypatch.setattr(fa, "_send_email_universal", lambda **kw: (True, ""))
+    monkeypatch.setattr(fa, "_BASE_DATA_DIR", with_user.parent.parent)
+
+    # Run the tick enough times for each step to have a chance.
+    # The current sweep refreshes one step per campaign per tick (the next
+    # pending one), so loop until all are done.
+    for _ in range(10):
+        fa._auto_refresh_newsletter_tick()
+
+    saved = json.loads((with_user / "Campaigns" / "NL.json").read_text(encoding="utf-8"))
+    # Each refreshed step should have _hero_variant = idx % 5.
+    for i, st in enumerate(saved["emails"]):
+        if st.get("auto_confirmed"):
+            assert st.get("_hero_variant") == i % 5, \
+                f"step {i}: expected variant {i % 5}, got {st.get('_hero_variant')}"
+
+
+def test_hero_variant_user_override_preserved(isolated_appdata, with_user, monkeypatch):
+    import flowdrip_app as fa
+    _setup_with_steps(with_user, [
+        {"name": "I0", "subject": "stale", "body": "<p>stale</p>",
+         "step_type": "email_auto", "_hero_variant": 4},
+    ])
+    monkeypatch.setattr(fa, "_generate_newsletter_content_for_step",
+        lambda c, i: ("FRESH", "<p>FRESH</p>"))
+    monkeypatch.setattr(fa, "_send_email_universal", lambda **kw: (True, ""))
+    monkeypatch.setattr(fa, "_BASE_DATA_DIR", with_user.parent.parent)
+    fa._auto_refresh_newsletter_tick()
+    saved = json.loads((with_user / "Campaigns" / "NL.json").read_text(encoding="utf-8"))
+    # User's variant 4 wins — sweep does not overwrite to 0.
+    assert saved["emails"][0]["_hero_variant"] == 4
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+```bash
+pytest tests/test_newsletter_auto_hero_rotate.py -v
+```
+
+Expected: both FAIL — `_hero_variant` not being set by the sweep.
+
+- [ ] **Step 3: Set `_hero_variant` default during regen**
+
+In `_auto_refresh_newsletter_tick`, find the block where `auto_confirmed` was just added (L35573–L35578):
+
+```python
+            # Update the step on the campaign
+            steps[step_idx]["subject"] = subj
+            steps[step_idx]["body"] = body
+            steps[step_idx]["_auto_refreshed_at"] = now_utc.isoformat()
+            steps[step_idx]["auto_confirmed"] = True
+            camp["emails"] = steps
+```
+
+Insert the variant default between `auto_confirmed` and `camp["emails"]`:
+
+```python
+            # Update the step on the campaign
+            steps[step_idx]["subject"] = subj
+            steps[step_idx]["body"] = body
+            steps[step_idx]["_auto_refreshed_at"] = now_utc.isoformat()
+            steps[step_idx]["auto_confirmed"] = True
+            # Default the hero variant to a different photo per issue so
+            # consecutive months don't look identical. User overrides win.
+            if "_hero_variant" not in steps[step_idx]:
+                steps[step_idx]["_hero_variant"] = step_idx % 5
+            camp["emails"] = steps
+```
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+```bash
+pytest tests/test_newsletter_auto_hero_rotate.py -v
+```
+
+Expected: both PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add tests/test_newsletter_auto_hero_rotate.py flowdrip_app.py
+git commit -m "feat(newsletter): auto-rotate hero photo per issue (step_idx % 5)"
+```
+
+### Task 2.3: Friendlier preview email subject
+
+**Files:**
+- Modify: `flowdrip_app.py` ~L35630
+
+- [ ] **Step 1: Find current subject**
+
+```bash
+grep -n "Auto-Refresh Preview" flowdrip_app.py
+```
+
+Should find one match at ~L35630.
+
+- [ ] **Step 2: Replace the subject string**
+
+Find:
+
+```python
+                    _preview_subj = (f"[Auto-Refresh Preview] {subj}  -  sends "
+                                     f"{send_aware.strftime('%b %d')}")
+```
+
+Replace with:
+
+```python
+                    _preview_subj = (f"Preview: {camp.get('newsletter_name') or camp_name}  -  "
+                                     f"sends {send_aware.strftime('%b %d')}")
+```
+
+- [ ] **Step 3: Verify import**
+
+```bash
+python -c "import flowdrip_app"
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add flowdrip_app.py
+git commit -m "ux(newsletter): friendlier preview-email subject line"
+```
+
+---
+
+## Phase 3 — Drop newsletters from the amber reminder banner
+
+### Task 3.1: Test — `get_evergreen_reminders` excludes newsletters
+
+**Files:**
+- Create: `tests/test_newsletter_no_amber_banner.py`
+
+- [ ] **Step 1: Write the failing test**
+
+```python
+"""Newsletters auto-refresh themselves, so they should NOT appear in the
+amber 'Slow Drip emails sending soon' reminder banner. Slow drips still do."""
+import json
+from datetime import datetime, timedelta
+
+
+def _seed(user_root, name, market_analysis, days_out):
+    camp_dir = user_root / "Campaigns"
+    camp_dir.mkdir(parents=True, exist_ok=True)
+    (camp_dir / f"{name.replace(' ', '_')}.json").write_text(json.dumps({
+        "name": name, "evergreen_only": True,
+        "market_analysis": market_analysis,
+        "emails": [{"name": "S1", "step_type": "email_auto"}],
+    }), encoding="utf-8")
+    when = (datetime.now() + timedelta(days=days_out)).isoformat()
+    qp = user_root / "scheduled_queue.json"
+    existing = []
+    if qp.exists():
+        existing = json.loads(qp.read_text(encoding="utf-8"))
+    existing.append({
+        "id": f"q-{name}", "campaign": name, "step_name": "S1",
+        "to": "x@y.com", "send_dt": when, "status": "pending",
+    })
+    qp.write_text(json.dumps(existing), encoding="utf-8")
+
+
+def test_newsletter_excluded_from_reminders(isolated_appdata, with_user):
+    import flowdrip_app as fa
+    _seed(with_user, "NL Camp", market_analysis=True, days_out=2)
+    rems = fa.get_evergreen_reminders()
+    assert all(r["camp_name"] != "NL Camp" for r in rems), \
+        "Newsletters must NOT appear in the amber banner"
+
+
+def test_slow_drip_still_appears(isolated_appdata, with_user):
+    import flowdrip_app as fa
+    _seed(with_user, "Plain SD", market_analysis=False, days_out=2)
+    rems = fa.get_evergreen_reminders()
+    assert any(r["camp_name"] == "Plain SD" for r in rems), \
+        "Slow drips should still appear in the amber banner"
+```
+
+- [ ] **Step 2: Run test to verify it fails**
+
+```bash
+pytest tests/test_newsletter_no_amber_banner.py -v
+```
+
+Expected: `test_newsletter_excluded_from_reminders` FAILS — newsletters currently appear.
+
+- [ ] **Step 3: Filter newsletters out of `get_evergreen_reminders`**
+
+In `flowdrip_app.py` at L18241, find:
+
+```python
+    eg_names = {c.get("name","") for c in camps if c.get("evergreen_only")}
+```
+
+Replace with:
+
+```python
+    # Newsletters auto-refresh themselves and email a preview to the user;
+    # they don't need a manual-refresh reminder. Filter them out so the
+    # amber banner only nags for plain slow drips.
+    eg_names = {c.get("name","") for c in camps
+                if c.get("evergreen_only") and not c.get("market_analysis")}
+```
+
+- [ ] **Step 4: Run test to verify it passes**
+
+```bash
+pytest tests/test_newsletter_no_amber_banner.py -v
+```
+
+Expected: both PASS.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add tests/test_newsletter_no_amber_banner.py flowdrip_app.py
+git commit -m "feat(newsletter): drop newsletter rows from amber reminder banner"
+```
+
+---
+
+## Phase 4 — Auto-generate every issue at creation
+
+### Task 4.1: Test — `_gen_all_issues_for_campaign` generates content for every step
 
 **Files:**
 - Create: `tests/test_newsletter_auto_gen_all_issues.py`
@@ -299,18 +655,14 @@ Today only step 0 generates in the background. Make the loop cover every step.
 - [ ] **Step 1: Write the failing test**
 
 ```python
-"""When a newsletter is created, the background `_gen_first_issue` thread
-should generate content for ALL N scheduled steps, not just step 0.
-We test the helper directly (not the dialog) by extracting it into a
-named function: `_gen_all_issues_for_campaign(camp_name)`."""
-from unittest.mock import MagicMock
+"""When a newsletter is created, the background generator should fill in
+ALL N scheduled steps, not just step 0."""
 
 
 def test_gen_all_issues_calls_generator_per_step(
         isolated_appdata, with_user, monkeypatch):
     import flowdrip_app as fa
 
-    # Seed a 3-issue newsletter on disk.
     camp = {
         "name": "Big Test NL",
         "newsletter_name": "Big Test NL",
@@ -327,7 +679,6 @@ def test_gen_all_issues_calls_generator_per_step(
     }
     fa.save_campaign(camp)
 
-    # Spy on the generator. Returns ("S0","B0"), ("S1","B1"), ("S2","B2").
     calls = []
     def _spy(_camp, idx):
         calls.append(idx)
@@ -336,10 +687,7 @@ def test_gen_all_issues_calls_generator_per_step(
 
     fa._gen_all_issues_for_campaign("Big Test NL")
 
-    # Generator called once per step, in order.
     assert calls == [0, 1, 2]
-
-    # Each step now has the generated subject/body.
     saved = next(c for c in fa.load_campaigns() if c.get("name") == "Big Test NL")
     for i in range(3):
         assert saved["emails"][i]["subject"] == f"S{i}"
@@ -354,19 +702,18 @@ pytest tests/test_newsletter_auto_gen_all_issues.py -v
 
 Expected: FAIL — `_gen_all_issues_for_campaign` does not exist.
 
-- [ ] **Step 3: Add `_gen_all_issues_for_campaign` near `_generate_newsletter_content_for_step` (~L35257)**
+- [ ] **Step 3: Add `_gen_all_issues_for_campaign`**
 
-Insert immediately after the existing `_generate_newsletter_content_for_step` function (find its closing line, then add):
+In `flowdrip_app.py`, find the closing line of `_generate_newsletter_content_for_step` (search for `def _auto_refresh_newsletter_tick` — insert immediately above it). Add:
 
 ```python
 def _gen_all_issues_for_campaign(camp_name: str) -> None:
     """Generate AI content for every step of the named newsletter campaign.
 
     Used by the post-create background thread so users have a draft for
-    every scheduled month immediately after creating the campaign — not
-    just month 0. Steps that already have non-empty bodies are skipped
-    (idempotent — safe to re-run). Sleeps briefly between issues to keep
-    the Anthropic rate limit happy.
+    every scheduled month immediately. Steps that already have non-empty
+    bodies are skipped (idempotent — safe to re-run). Sleeps briefly
+    between issues to keep the Anthropic rate limit happy.
     """
     import time as _time
     fresh = next((c for c in load_campaigns() if c.get("name") == camp_name), None)
@@ -376,8 +723,6 @@ def _gen_all_issues_for_campaign(camp_name: str) -> None:
     steps = fresh.get("emails", []) or []
     for idx in range(len(steps)):
         st = steps[idx]
-        # Skip steps that already have content (e.g. step 0 generated by
-        # the older _gen_first_issue path, or a confirmed manual edit).
         if (st.get("body") or "").strip() and "[AI:" not in (st.get("body") or ""):
             continue
         try:
@@ -394,7 +739,7 @@ def _gen_all_issues_for_campaign(camp_name: str) -> None:
         steps[idx]["body"] = body
         save_campaign(fresh)
         print(f"[NewsletterAutoAll] step {idx} ready for {camp_name}", flush=True)
-        _time.sleep(3)  # gentle pacing for Anthropic rate limit
+        _time.sleep(3)
     try:
         _cache_campaigns.invalidate()
     except Exception:
@@ -409,9 +754,9 @@ pytest tests/test_newsletter_auto_gen_all_issues.py -v
 
 Expected: PASS.
 
-- [ ] **Step 5: Replace `_gen_first_issue` body with a call to `_gen_all_issues_for_campaign`**
+- [ ] **Step 5: Replace `_gen_first_issue` body**
 
-In `flowdrip_app.py`, find `_gen_first_issue` at L18540. Replace its body so the entire function becomes:
+In `flowdrip_app.py`, find `_gen_first_issue` at L18540. Replace the function body so it becomes:
 
 ```python
             def _gen_first_issue():
@@ -431,10 +776,10 @@ In `flowdrip_app.py`, find `_gen_first_issue` at L18540. Replace its body so the
                         pass
 ```
 
-- [ ] **Step 6: Verify nothing in tests broke**
+- [ ] **Step 6: Verify all tests still pass**
 
 ```bash
-pytest tests/test_newsletter_auto_gen_all_issues.py tests/test_newsletter_auto_refresh_skip.py tests/test_newsletter_auto_confirmed_flag.py -v
+pytest tests/test_newsletter_*.py -v
 ```
 
 Expected: all PASS.
@@ -448,129 +793,9 @@ git commit -m "feat(newsletter): auto-generate every issue on creation"
 
 ---
 
-## Phase 3 — Reminder threshold (5 days for newsletters, 7 for slow drips)
+## Phase 5 — Holiday helper + render
 
-### Task 3.1: Test — `get_evergreen_reminders` uses 5-day window for newsletters
-
-**Files:**
-- Create: `tests/test_newsletter_reminder_window.py`
-
-- [ ] **Step 1: Write the failing test**
-
-```python
-"""Newsletters get a 5-day reminder window. Slow drips keep their 7-day
-window. Today both share `days_ahead=7`."""
-import json
-from datetime import datetime, timedelta
-
-
-def _seed_camp(user_root, name, market_analysis):
-    camp_dir = user_root / "Campaigns"
-    camp_dir.mkdir(parents=True, exist_ok=True)
-    (camp_dir / f"{name.replace(' ', '_')}.json").write_text(json.dumps({
-        "name": name,
-        "evergreen_only": True,
-        "market_analysis": market_analysis,
-        "emails": [{"name": "S1", "step_type": "email_auto"}],
-    }), encoding="utf-8")
-
-
-def _seed_queue(user_root, camp_name, days_out):
-    when = (datetime.now() + timedelta(days=days_out)).isoformat()
-    qp = user_root / "scheduled_queue.json"
-    qp.write_text(json.dumps([{
-        "id": "q1", "campaign": camp_name, "step_name": "S1",
-        "to": "x@y.com", "send_dt": when, "status": "pending",
-    }]), encoding="utf-8")
-
-
-def test_newsletter_appears_at_5_days_not_at_6(isolated_appdata, with_user):
-    import flowdrip_app as fa
-    user_root = with_user
-    _seed_camp(user_root, "NL Camp", market_analysis=True)
-    # 6 days out → outside the 5-day newsletter window → no reminder.
-    _seed_queue(user_root, "NL Camp", days_out=6)
-    rems = fa.get_evergreen_reminders()
-    assert all(r["camp_name"] != "NL Camp" for r in rems), \
-        "Newsletter at 6 days should NOT appear (window is 5)"
-
-
-def test_newsletter_appears_at_5_days(isolated_appdata, with_user):
-    import flowdrip_app as fa
-    user_root = with_user
-    _seed_camp(user_root, "NL Camp", market_analysis=True)
-    _seed_queue(user_root, "NL Camp", days_out=5)
-    rems = fa.get_evergreen_reminders()
-    assert any(r["camp_name"] == "NL Camp" for r in rems), \
-        "Newsletter at 5 days should appear"
-
-
-def test_slow_drip_keeps_7_day_window(isolated_appdata, with_user):
-    import flowdrip_app as fa
-    user_root = with_user
-    _seed_camp(user_root, "Plain SD", market_analysis=False)
-    _seed_queue(user_root, "Plain SD", days_out=6)
-    rems = fa.get_evergreen_reminders()
-    assert any(r["camp_name"] == "Plain SD" for r in rems), \
-        "Slow drip at 6 days should still appear (window is 7)"
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-```bash
-pytest tests/test_newsletter_reminder_window.py -v
-```
-
-Expected: FAIL on `test_newsletter_appears_at_5_days_not_at_6` (current code uses 7 days for everything, so a 6-day-out newsletter still appears).
-
-- [ ] **Step 3: Update `get_evergreen_reminders`**
-
-In `flowdrip_app.py` at L18237, find:
-
-```python
-def get_evergreen_reminders(days_ahead: int = 7) -> list:
-```
-
-Replace the body's per-item filter to apply a tighter window for newsletters. Find this line in the function (around L18264):
-
-```python
-        if send_date > cutoff:
-            continue
-```
-
-Replace it with:
-
-```python
-        # Newsletters get a tighter 5-day window so users have a real
-        # opportunity to refresh just-in-time content. Slow drips keep
-        # the broader 7-day default.
-        camp_obj = next((c for c in camps if c.get("name") == cn), None)
-        _is_newsletter = bool(camp_obj and camp_obj.get("market_analysis"))
-        _eff_cutoff = today + timedelta(days=5) if _is_newsletter else cutoff
-        if send_date > _eff_cutoff:
-            continue
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-```bash
-pytest tests/test_newsletter_reminder_window.py -v
-```
-
-Expected: all 3 tests PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add tests/test_newsletter_reminder_window.py flowdrip_app.py
-git commit -m "feat(newsletter): tighten reminder window to 5 days (slow drips stay 7)"
-```
-
----
-
-## Phase 4 — Holiday data + helper
-
-### Task 4.1: Test — `_holiday_for_month` returns the right holiday for known months
+### Task 5.1: Test — `_holiday_for_month` returns the right holiday
 
 **Files:**
 - Create: `tests/test_newsletter_holiday_lookup.py`
@@ -578,32 +803,28 @@ git commit -m "feat(newsletter): tighten reminder window to 5 days (slow drips s
 - [ ] **Step 1: Write the failing test**
 
 ```python
-"""The holiday helper returns (date_str, name, note) for any month, with
+"""Holiday helper returns (date_str, name, note) for any month, with
 correct handling of variable dates (Easter, Labor Day, Thanksgiving)."""
 
 
 def test_fixed_holidays_lookup():
     import flowdrip_app as fa
 
-    # January → New Year's Day Jan 1
     d, name, note = fa._holiday_for_month(2026, 1)
     assert d == "Jan 1"
     assert name == "New Year's Day"
-    assert note  # non-empty default
+    assert note
 
-    # July → Independence Day Jul 4
     d, name, _ = fa._holiday_for_month(2026, 7)
     assert d == "Jul 4"
     assert name == "Independence Day"
 
-    # December → Christmas Dec 25
     d, name, _ = fa._holiday_for_month(2026, 12)
     assert (d, name) == ("Dec 25", "Christmas")
 
 
 def test_thanksgiving_is_fourth_thursday():
     import flowdrip_app as fa
-    # 2026: Nov 26 is the 4th Thursday.
     d, name, _ = fa._holiday_for_month(2026, 11)
     assert d == "Nov 26"
     assert name == "Thanksgiving"
@@ -611,7 +832,6 @@ def test_thanksgiving_is_fourth_thursday():
 
 def test_labor_day_is_first_monday():
     import flowdrip_app as fa
-    # 2026: Sep 7 is the first Monday.
     d, name, _ = fa._holiday_for_month(2026, 9)
     assert d == "Sep 7"
     assert name == "Labor Day"
@@ -633,15 +853,12 @@ pytest tests/test_newsletter_holiday_lookup.py -v
 
 Expected: FAIL — `_holiday_for_month` does not exist.
 
-- [ ] **Step 3: Add `_HOLIDAYS_BY_MONTH` and `_holiday_for_month` near other newsletter helpers**
+- [ ] **Step 3: Add `_HOLIDAYS_BY_MONTH` and `_holiday_for_month`**
 
 In `flowdrip_app.py`, insert above `_generate_newsletter_content_for_step` (~L35256):
 
 ```python
 # ── Monthly holiday block (newsletter footer LEFT rail) ────────────────────
-# A small block surfaced beside the "Meet Your Hiring Partner" card so the
-# footer stops looking lopsided. Hard-coded curated list — keeps it simple
-# and predictable. Users can override the note text per month in Profile.
 _HOLIDAYS_BY_MONTH: dict = {
     1:  ("New Year's Day",     "Wishing you a strong start to the year."),
     2:  ("Valentine's Day",    "A little appreciation goes a long way."),
@@ -659,23 +876,19 @@ _HOLIDAYS_BY_MONTH: dict = {
 
 
 def _holiday_for_month(year: int, month: int, overrides: dict | None = None):
-    """Return (date_str, name, note) for the named month/year.
-
-    Variable-date holidays (Easter, Labor Day, Thanksgiving) compute the
-    correct date for the given year. Fixed-date holidays use a static day.
-    `overrides` is the user's `holiday_note_overrides` dict (key = "MM").
-    """
+    """Return (date_str, name, note) for the named month/year. Variable-date
+    holidays (Easter, Labor Day, Thanksgiving) compute the correct date for
+    the given year. `overrides` is the user's `holiday_note_overrides` dict
+    (keys are zero-padded "MM")."""
     from datetime import date as _date, timedelta as _td
     if month not in _HOLIDAYS_BY_MONTH:
         return None
     name, default_note = _HOLIDAYS_BY_MONTH[month]
 
-    fixed = {
-        1: 1, 2: 14, 3: 17, 5: 25, 6: 19, 7: 4, 10: 31, 12: 25,
-    }
+    fixed = {1: 1, 2: 14, 3: 17, 5: 25, 6: 19, 7: 4, 10: 31, 12: 25}
     if month in fixed:
         d = _date(year, month, fixed[month])
-    elif month == 4:  # Easter (computus, simplified Anonymous Gregorian alg.)
+    elif month == 4:  # Easter (Anonymous Gregorian computus)
         a = year % 19
         b = year // 100
         c = year % 100
@@ -691,11 +904,9 @@ def _holiday_for_month(year: int, month: int, overrides: dict | None = None):
         em_month = (h + l - 7 * m + 114) // 31
         em_day = ((h + l - 7 * m + 114) % 31) + 1
         d = _date(year, em_month, em_day)
-        # Easter often falls in March; if so, fall back to Apr 1 default
-        # so the April newsletter always has *something* to show.
         if d.month != 4:
             d = _date(year, 4, 1)
-    elif month == 8:  # Summer "fun fact" anchor — first Monday of August.
+    elif month == 8:  # Summer anchor — first Monday of August
         d = _date(year, 8, 1)
         while d.weekday() != 0:
             d += _td(days=1)
@@ -703,7 +914,7 @@ def _holiday_for_month(year: int, month: int, overrides: dict | None = None):
         d = _date(year, 9, 1)
         while d.weekday() != 0:
             d += _td(days=1)
-    elif month == 11:  # Thanksgiving — fourth Thursday
+    elif month == 11:  # Thanksgiving — 4th Thursday
         d = _date(year, 11, 1)
         thursdays = 0
         while True:
@@ -721,8 +932,6 @@ def _holiday_for_month(year: int, month: int, overrides: dict | None = None):
         if overrides.get(key):
             note = overrides[key]
 
-    date_str = d.strftime("%b %-d") if hasattr(d, "strftime") else f"{d.month}/{d.day}"
-    # %-d isn't valid on Windows. Always use a portable format.
     date_str = f"{d.strftime('%b')} {d.day}"
     return (date_str, name, note)
 ```
@@ -742,22 +951,14 @@ git add tests/test_newsletter_holiday_lookup.py flowdrip_app.py
 git commit -m "feat(newsletter): add monthly holiday helper + curated data"
 ```
 
----
-
-## Phase 5 — Holiday block in newsletter HTML
-
-### Task 5.1: Refactor "Meet Your Hiring Partner" footer to 3-column table with holiday on LEFT
+### Task 5.2: Refactor "Meet Your Hiring Partner" footer to 3-column with holiday on LEFT
 
 **Files:**
-- Modify: `flowdrip_app.py` ~L35093 (the existing `<tr><td>` that wraps the avatar/note)
+- Modify: `flowdrip_app.py` ~L35093
 
-- [ ] **Step 1: Read the existing block**
+- [ ] **Step 1: Find the existing single-cell render**
 
-Open `flowdrip_app.py` at L35063 and study the current single-cell render through L35110.
-
-- [ ] **Step 2: Replace the single-cell render with a 3-column layout**
-
-Find this exact block:
+Open `flowdrip_app.py` at L35093. Find this exact block:
 
 ```python
         sections_html += f'''
@@ -780,7 +981,9 @@ Find this exact block:
         </td></tr>'''
 ```
 
-Replace it with:
+- [ ] **Step 2: Replace with 3-column layout**
+
+Replace the entire block above with:
 
 ```python
         # Compute the LEFT-rail holiday block for this issue's send month.
@@ -828,21 +1031,21 @@ Replace it with:
         </td></tr>'''
 ```
 
-- [ ] **Step 3: Verify the file still imports cleanly**
+- [ ] **Step 3: Verify file imports**
 
 ```bash
 python -c "import flowdrip_app"
 ```
 
-Expected: completes with no traceback (warnings about side effects are fine).
+Expected: no traceback.
 
-- [ ] **Step 4: Re-run the holiday helper tests**
+- [ ] **Step 4: Re-run holiday tests**
 
 ```bash
 pytest tests/test_newsletter_holiday_lookup.py -v
 ```
 
-Expected: all PASS — render change is independent of the helper.
+Expected: all PASS.
 
 - [ ] **Step 5: Commit**
 
@@ -853,29 +1056,109 @@ git commit -m "feat(newsletter): 3-column footer with monthly holiday on LEFT"
 
 ---
 
-## Phase 6 — The Refresh Modal (replaces inline panel)
+## Phase 6 — Edit Modal (replaces inline panel)
 
-This is the largest task. Build the modal, wire all four trigger sites, then delete the dead inline panel code.
-
-### Task 6.1: Add the modal function `_refresh_newsletter_modal`
+### Task 6.1: Add module-level helpers used by the modal
 
 **Files:**
-- Modify: `flowdrip_app.py` — insert immediately after `_create_newsletter_dialog` (find its `dlg.open()` line at L18596 and insert after it)
+- Modify: `flowdrip_app.py` near `_unsplash_fetch_city_batch` at ~L34069
 
-- [ ] **Step 1: Insert the modal function**
+- [ ] **Step 1: Insert the helpers**
+
+Find the line `def _unsplash_fetch_city_batch(...)` at L34069. Immediately ABOVE it, insert:
 
 ```python
-def _refresh_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
-    """Centered modal that owns the 'Refresh & Confirm' flow for one
-    newsletter issue. Replaces the old inline panel that lived at the
-    bottom of `p_evergreen` and was hard to find.
+def _hero_cache_dir():
+    """Per-app shared dir for cached Unsplash hero images."""
+    p = _BASE_DATA_DIR / "newsletter_hero_cache"
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _hero_slug_city_state(camp: dict) -> tuple:
+    """Resolve a normalized slug + (city, state) from the campaign's
+    market_region. Used by the modal to find / fetch hero images."""
+    region = (camp.get("market_region") or "").strip()
+    if "," in region:
+        city, state = [x.strip() for x in region.split(",", 1)]
+    else:
+        city, state = region, ""
+    slug = (city + "_" + state).lower().replace(" ", "_") if state else city.lower().replace(" ", "_")
+    return slug, city, state
+
+
+def _sync_queue_after_step_edit(camp_name: str, step_name: str,
+                                new_subject: str, new_body: str) -> int:
+    """Update any pending queue items for this campaign+step with the
+    user's edited subject + body. Returns count updated."""
+    qp = _user_queue_path()
+    if not qp.exists():
+        return 0
+    try:
+        queue = json.loads(qp.read_text(encoding="utf-8"))
+    except Exception:
+        return 0
+    n = 0
+    for q in queue:
+        if q.get("campaign") != camp_name:
+            continue
+        if q.get("status") != "pending":
+            continue
+        if step_name and (q.get("step_name") or "") != step_name:
+            continue
+        q["subject"] = new_subject
+        q["body"] = new_body
+        n += 1
+    if n:
+        qp.write_text(json.dumps(queue, indent=2), encoding="utf-8")
+    return n
+```
+
+- [ ] **Step 2: Add static-files route for hero images**
+
+Search for an existing `add_static_files` call:
+
+```bash
+grep -n "add_static_files" flowdrip_app.py
+```
+
+If `static_hero` is already there, skip. Otherwise add a new route next to existing static-file registrations:
+
+```python
+app.add_static_files("/static_hero", str(_BASE_DATA_DIR / "newsletter_hero_cache"))
+```
+
+- [ ] **Step 3: Verify imports**
+
+```bash
+python -c "import flowdrip_app"
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add flowdrip_app.py
+git commit -m "feat(newsletter): add modal helpers (hero slug, cache dir, queue sync)"
+```
+
+### Task 6.2: Add the Edit Modal function
+
+**Files:**
+- Modify: `flowdrip_app.py` — insert immediately after `_create_newsletter_dialog`'s closing `dlg.open()` line (~L18596)
+
+- [ ] **Step 1: Insert `_edit_newsletter_modal`**
+
+```python
+def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
+    """Centered modal for editing one auto-refreshed newsletter issue.
+    Replaces the old inline panel that lived at the bottom of `p_evergreen`.
 
     Layout:
-      Header: 'Review: {name} — {issue}'                X close
+      Header:  'Edit: {name} — {issue}'                 X close
       Hero photo (640×180) + ◀ ▶ overlay arrows + 'N of M' + Upload link
       Subject (editable)
       Body (editable rich text)
-      Footer: [ Cancel ]                  [ ✓ Confirm & Schedule ]
+      Footer:  [ Cancel ]                  [ ✓ Save changes ]
     """
     steps = camp.get("emails", []) or []
     if step_idx < 0 or step_idx >= len(steps):
@@ -884,11 +1167,10 @@ def _refresh_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
     step = steps[step_idx]
     issue_label = step.get("name") or f"Issue {step_idx + 1}"
 
-    # Mutable state shared with closures.
     state: dict = {
         "subject": step.get("subject", "") or "",
         "body": step.get("body", "") or "",
-        "hero_variant": int(step.get("_hero_variant", 0) or 0),
+        "hero_variant": int(step.get("_hero_variant", step_idx % 5) or 0),
         "is_generating": not (step.get("body") or "").strip()
                           or "[AI:" in (step.get("body") or ""),
         "error": "",
@@ -899,11 +1181,11 @@ def _refresh_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
             f"border-radius:14px;padding:0;width:760px;max-width:96vw;"
             f"max-height:92vh;display:flex;flex-direction:column;"):
 
-        # ── Header bar ─────────────────────────────────────────────────
+        # Header
         with ui.element("div").style(
                 f"display:flex;align-items:center;justify-content:space-between;"
                 f"padding:16px 20px;border-bottom:1px solid {C['border']};"):
-            ui.label(f"Review: {camp.get('newsletter_name') or camp.get('name','')} — {issue_label}").style(
+            ui.label(f"Edit: {camp.get('newsletter_name') or camp.get('name','')} — {issue_label}").style(
                 f"font-size:15px;font-weight:700;color:{C['teal']};"
                 f"font-family:'Nunito',sans-serif;")
             with ui.element("button").style(
@@ -911,12 +1193,10 @@ def _refresh_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
                     f"color:{C['muted']};font-size:18px;").on("click", dlg.close):
                 ui.label("✕").style("pointer-events:none;")
 
-        # ── Body region (scrolls inside the modal) ──────────────────────
+        # Body region (scrolls)
         body_region = ui.element("div").style(
             "padding:16px 20px;overflow-y:auto;flex:1 1 auto;")
         with body_region:
-            # Hero photo placeholder — render via re-render closure so
-            # arrow clicks update the displayed variant in place.
             hero_holder = ui.element("div").style("position:relative;width:100%;")
 
             def _render_hero() -> None:
@@ -928,7 +1208,6 @@ def _refresh_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
                     idx = state["hero_variant"] % max(1, total)
                     img_path = cache_dir / f"{_slug}.unsplash.{idx}.hero.jpg"
                     if not img_path.exists():
-                        # Try to download just-in-time.
                         try:
                             _unsplash_download_variant(_slug, cache_dir, idx)
                         except Exception:
@@ -938,7 +1217,6 @@ def _refresh_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
                         f'<img src="{src_url}" style="width:100%;height:180px;'
                         f'object-fit:cover;border-radius:8px;display:block;"/>'
                     )
-                    # Overlay: ◀  '2 of 5'  ▶
                     def _prev():
                         state["hero_variant"] = (state["hero_variant"] - 1) % total
                         _render_hero()
@@ -964,13 +1242,12 @@ def _refresh_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
                     ui.html(
                         f'<div style="position:absolute;bottom:8px;right:10px;'
                         f'background:rgba(0,0,0,0.6);color:#fff;font-size:11px;'
-                        f'padding:3px 9px;border-radius:99px;font-family:inherit;">'
+                        f'padding:3px 9px;border-radius:99px;">'
                         f'Photo {idx + 1} of {total}</div>'
                     )
 
             _render_hero()
 
-            # Upload link directly under the photo.
             def _on_upload(e):
                 _slug, _city, _state = _hero_slug_city_state(camp)
                 cache_dir = _hero_cache_dir()
@@ -979,7 +1256,6 @@ def _refresh_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
                     from io import BytesIO
                     from PIL import Image
                     img = Image.open(BytesIO(raw)).convert("RGB")
-                    # Crop to 640x180 (same logic the Unsplash path uses).
                     target_w, target_h = 640, 180
                     scale = max(target_w / img.width, target_h / img.height)
                     new_w, new_h = int(img.width * scale), int(img.height * scale)
@@ -989,7 +1265,6 @@ def _refresh_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
                     img = img.crop((left, top, left + target_w, top + target_h))
                     out = BytesIO(); img.save(out, format="JPEG", quality=86)
                     (cache_dir / f"{_slug}.hero.jpg").write_bytes(out.getvalue())
-                    # Clear unsplash cache so the new upload wins
                     for fp in cache_dir.glob(f"{_slug}.unsplash.*.hero.jpg"):
                         try: fp.unlink()
                         except Exception: pass
@@ -1008,16 +1283,15 @@ def _refresh_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
                         f"padding:0;").on("click", lambda: _uploader.run_method("pickFiles")):
                     ui.label("↑ Upload your own").style("pointer-events:none;")
 
-            # ── Subject ─────────────────────────────────────────────────
             ui.label("Subject").classes("fd-fl")
             _subj_inp = ui.input(value=state["subject"]).style(
                 f"width:100%;background:{C['surface']};border:1px solid {C['border']};"
                 f"border-radius:6px;padding:8px 10px;color:{C['text_l']};"
                 f"font-family:inherit;margin-bottom:14px;")
 
-            # ── Body ────────────────────────────────────────────────────
             ui.label("Body").classes("fd-fl")
             body_holder = ui.element("div")
+            nonlocal_body = [None]
 
             def _render_body():
                 body_holder.clear()
@@ -1045,15 +1319,13 @@ def _refresh_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
                                     f"background:{C['teal']};color:#0D1520;"
                                     f"border:none;border-radius:6px;padding:6px 14px;"
                                     f"cursor:pointer;font-family:inherit;").on(
-                                    "click", lambda: (_kick_off_generation(), _render_body())):
+                                    "click", lambda: _kick_off_generation()):
                                 ui.label("Try again").style("pointer-events:none;")
                     else:
                         nonlocal_body[0] = ui.editor(value=state["body"]).style(
                             f"min-height:380px;background:{C['surface']};"
                             f"border:1px solid {C['border']};border-radius:6px;"
                             f"color:{C['text_l']};font-family:inherit;")
-
-            nonlocal_body = [None]  # holder for the ui.editor reference
 
             def _kick_off_generation():
                 state["is_generating"] = True
@@ -1075,7 +1347,6 @@ def _refresh_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
                         state["error"] = str(ex)
                     finally:
                         state["is_generating"] = False
-                        # UI updates from threads must happen on the main loop.
                         try:
                             _subj_inp.set_value(state["subject"])
                         except Exception:
@@ -1089,7 +1360,7 @@ def _refresh_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
                 _kick_off_generation()
             _render_body()
 
-        # ── Footer bar (sticky) ────────────────────────────────────────
+        # Footer (sticky)
         with ui.element("div").style(
                 f"display:flex;align-items:center;justify-content:space-between;"
                 f"padding:12px 20px;border-top:1px solid {C['border']};"
@@ -1098,17 +1369,14 @@ def _refresh_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
                     "padding:8px 16px;font-size:12px;").on("click", dlg.close):
                 ui.label("Cancel")
 
-            def _confirm():
-                # Pull latest values from inputs + state.
+            def _save():
                 step["subject"] = _subj_inp.value or state["subject"]
                 step["body"] = (nonlocal_body[0].value
                                 if nonlocal_body[0] is not None else state["body"])
                 step["_hero_variant"] = state["hero_variant"]
                 step["confirmed"] = True
-                step["auto_confirmed"] = False  # user just owned it
+                step["auto_confirmed"] = False
                 save_campaign(camp)
-                # Update any pending queue items so the scheduler sends the
-                # confirmed copy, not the cached pre-confirm version.
                 try:
                     _sync_queue_after_step_edit(
                         camp.get("name", ""),
@@ -1116,125 +1384,43 @@ def _refresh_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
                         step["subject"], step["body"])
                 except Exception as ex:
                     print(f"[NewsletterModal] queue sync warn: {ex}", flush=True)
-                ui.notify("Confirmed. This issue is locked in for send.",
+                ui.notify("Saved. Auto-refresh will leave this issue alone now.",
                           type="positive")
                 dlg.close()
                 rf()
 
             with ui.element("button").classes("fd-pb").style(
-                    "padding:8px 22px;font-size:13px;").on("click", _confirm):
-                ui.label("✓ Confirm & Schedule")
+                    "padding:8px 22px;font-size:13px;").on("click", _save):
+                ui.label("✓ Save changes")
 
     dlg.open()
 ```
 
-- [ ] **Step 2: Add the helper functions the modal depends on**
-
-The modal references `_hero_slug_city_state`, `_hero_cache_dir`, and `_sync_queue_after_step_edit`. Some exist as inline closures in the old inline-panel code. Promote them to module-level helpers near `_unsplash_fetch_city_batch` (~L34069):
-
-```python
-def _hero_cache_dir():
-    """Per-app shared dir for cached Unsplash hero images."""
-    p = _BASE_DATA_DIR / "newsletter_hero_cache"
-    p.mkdir(parents=True, exist_ok=True)
-    return p
-
-
-def _hero_slug_city_state(camp: dict) -> tuple:
-    """Resolve a normalized slug + (city, state) from the campaign's
-    market_region. Used by the modal to find / fetch hero images."""
-    region = (camp.get("market_region") or "").strip()
-    if "," in region:
-        city, state = [x.strip() for x in region.split(",", 1)]
-    else:
-        city, state = region, ""
-    slug = (city + "_" + state).lower().replace(" ", "_") if state else city.lower().replace(" ", "_")
-    return slug, city, state
-
-
-def _sync_queue_after_step_edit(camp_name: str, step_name: str,
-                                new_subject: str, new_body: str) -> int:
-    """Update any pending queue items for this campaign+step with the
-    user's confirmed subject + body. Returns count updated."""
-    qp = _user_queue_path()
-    if not qp.exists():
-        return 0
-    try:
-        queue = json.loads(qp.read_text(encoding="utf-8"))
-    except Exception:
-        return 0
-    n = 0
-    for q in queue:
-        if q.get("campaign") != camp_name:
-            continue
-        if q.get("status") != "pending":
-            continue
-        if step_name and (q.get("step_name") or "") != step_name:
-            continue
-        q["subject"] = new_subject
-        q["body"] = new_body
-        n += 1
-    if n:
-        qp.write_text(json.dumps(queue, indent=2), encoding="utf-8")
-    return n
-```
-
-- [ ] **Step 3: Add the static_hero file route if missing**
-
-Search for `static_hero` in the file:
-
-```bash
-grep -n "static_hero" flowdrip_app.py
-```
-
-If no results, the modal needs a route to serve hero images. Find where other `app.add_static_files` calls live (search for `add_static_files`) and add right after them:
-
-```python
-app.add_static_files("/static_hero", str(_BASE_DATA_DIR / "newsletter_hero_cache"))
-```
-
-If `static_hero` already exists, skip this step.
-
-- [ ] **Step 4: Verify the file still imports**
+- [ ] **Step 2: Verify file imports**
 
 ```bash
 python -c "import flowdrip_app"
 ```
 
-Expected: no traceback.
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add flowdrip_app.py
-git commit -m "feat(newsletter): add focused refresh modal (not yet wired)"
+git commit -m "feat(newsletter): add focused Edit modal (not yet wired)"
 ```
 
-### Task 6.2: Wire the four trigger sites to call the modal
+### Task 6.3: Rename newsletter card "✦ Refresh" → "✎ Edit" + wire to modal
 
 **Files:**
-- Modify: `flowdrip_app.py` L18769–L18789 (reminder banner refresh button)
-- Modify: `flowdrip_app.py` L18877–L18896 (newsletter card Refresh button)
-- Modify: `flowdrip_app.py` L19101–L19260 (any other inline refresh trigger)
+- Modify: `flowdrip_app.py` ~L18877
 
-- [ ] **Step 1: Replace reminder-banner trigger**
+- [ ] **Step 1: Find existing closure**
 
-In `flowdrip_app.py` find the existing `_refresh_inplace` closure inside the reminder banner (starts L18769). Replace its body with a single line:
+Open `flowdrip_app.py` at L18877. Find the `_refresh` closure inside the newsletter card render.
 
-```python
-                        def _refresh_inplace(c=_camp_obj):
-                            _next_idx = _find_next_evergreen_step(c)
-                            _steps = c.get("emails", []) or []
-                            if _next_idx >= len(_steps):
-                                ui.notify("All newsletter issues have been sent.",
-                                          type="info")
-                                return
-                            _refresh_newsletter_modal(s, rf, c, _next_idx)
-```
+- [ ] **Step 2: Replace closure body**
 
-- [ ] **Step 2: Replace newsletter-card trigger**
-
-Find the `_refresh` closure inside the newsletter-card render (starts L18877). Replace its body with:
+Replace the entire `_refresh` closure (and the button label change in the `ui.label` that says `"✦ Refresh"`) with:
 
 ```python
                             def _refresh(c=camp):
@@ -1244,77 +1430,69 @@ Find the `_refresh` closure inside the newsletter-card render (starts L18877). R
                                     ui.notify("All newsletter issues have been sent.",
                                               type="info")
                                     return
-                                _refresh_newsletter_modal(s, rf, c, _next_idx)
+                                _edit_newsletter_modal(s, rf, c, _next_idx)
 ```
 
-- [ ] **Step 3: Find and replace any remaining trigger sites**
+And find this label (~L18954):
 
-```bash
-grep -n "_market_refresh_step.*generating" flowdrip_app.py
+```python
+                                    ui.label("✦ Refresh").style("pointer-events:none;")
 ```
 
-For each remaining hit (besides the one inside the modal's body editor render), replace the surrounding click handler body the same way as Steps 1 and 2.
+Replace with:
 
-- [ ] **Step 4: Verify the file still imports**
+```python
+                                    ui.label("✎ Edit").style("pointer-events:none;")
+```
+
+- [ ] **Step 3: Verify imports**
 
 ```bash
 python -c "import flowdrip_app"
 ```
 
-Expected: no traceback.
-
-- [ ] **Step 5: Run all newsletter tests**
-
-```bash
-pytest tests/test_newsletter_*.py -v
-```
-
-Expected: all PASS (modal wiring doesn't change tested behavior, but smoke-checks that we didn't break helpers).
-
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add flowdrip_app.py
-git commit -m "feat(newsletter): wire all refresh buttons to new modal"
+git commit -m "feat(newsletter): rename card 'Refresh' to 'Edit', wire to modal"
 ```
 
-### Task 6.3: Delete the dead inline panel render
+### Task 6.4: Delete the dead inline panel render
 
 **Files:**
-- Modify: `flowdrip_app.py` L19353–L20020 (the `if _rcamp and _rstep_mode:` block in `p_evergreen`)
+- Modify: `flowdrip_app.py` L19353–L20020
 
-- [ ] **Step 1: Locate the dead block**
+- [ ] **Step 1: Find the dead block**
 
 ```bash
 grep -n "Newsletter refresh flow (triggered by Refresh button on campaign card)" flowdrip_app.py
 ```
 
-That should land near L19353. The block runs from there to ~L20020 and ends just before the next major comment header in `p_evergreen`.
+- [ ] **Step 2: Delete the entire `if _rcamp and _rstep_mode:` branch**
 
-- [ ] **Step 2: Delete the block**
-
-Open the file, identify the start (the `# ── Newsletter refresh flow…` comment) and the end (the line just before `# ── End refresh flow ──` or the next sibling section). Delete the entire `if _rcamp and _rstep_mode:` branch. Leave a single-line breadcrumb comment in its place:
+Open the file. Identify the block start (the `# ── Newsletter refresh flow…` comment at L19353) and the block end (the line just before the next major sibling section in `p_evergreen`). Delete everything in between, leaving only:
 
 ```python
-    # Newsletter refresh now uses _refresh_newsletter_modal() — see L18597.
+    # Newsletter editing now uses _edit_newsletter_modal() — see L18597.
 ```
 
-- [ ] **Step 3: Find and remove the now-unreferenced state vars**
+- [ ] **Step 3: Sweep for any orphaned `_market_refresh_*` references**
 
 ```bash
 grep -n "_market_refresh_step\|_market_refresh_camp\|_market_refresh_idx\|_market_refresh_body\|_market_refresh_subject\|_market_spotlight_mode\|_market_spotlight_desc\|_market_generation_started" flowdrip_app.py
 ```
 
-If the only remaining references are AppState defaults (likely a list at app start), delete those defaults. If anything else references them (search again to be sure), leave it alone — investigate before deleting.
+For each surviving reference: if it's an AppState default (`__init__`), delete the line. If it's a real reference (besides the modal), investigate before deleting.
 
-- [ ] **Step 4: Verify the file imports and tests pass**
+- [ ] **Step 4: Verify everything still imports + tests pass**
 
 ```bash
 python -c "import flowdrip_app"
 pytest tests/test_newsletter_*.py -v
 ```
 
-Expected: import OK, all newsletter tests PASS.
+Expected: import OK, tests PASS.
 
 - [ ] **Step 5: Commit**
 
@@ -1325,16 +1503,16 @@ git commit -m "chore(newsletter): delete dead inline refresh panel"
 
 ---
 
-## Phase 7 — Hero thumbnail + "Auto-refreshed" badge on the card
+## Phase 7 — Hero thumbnail + Auto-refreshed badge on the card
 
-### Task 7.1: Add hero thumbnail + "Change photo" link to the newsletter card
+### Task 7.1: Add 80×30 hero thumbnail with click-to-edit
 
 **Files:**
-- Modify: `flowdrip_app.py` ~L18874 (the action-buttons region)
+- Modify: `flowdrip_app.py` ~L18874
 
-- [ ] **Step 1: Insert thumbnail before the Refresh button**
+- [ ] **Step 1: Insert thumbnail before the Edit button**
 
-Find this line (around L18874):
+Find the action-buttons region (~L18874):
 
 ```python
                     with ui.element("div").style(
@@ -1346,20 +1524,22 @@ Find this line (around L18874):
 Insert directly after `if _is_newsletter:` and BEFORE the `def _refresh(c=camp):`:
 
 ```python
-                            # Hero thumbnail + Change photo link.
                             try:
                                 _slug, _, _ = _hero_slug_city_state(camp)
                                 _next_idx_for_thumb = _find_next_evergreen_step(camp)
-                                _step_for_thumb = (camp.get("emails", []) or [{}])[
-                                    min(_next_idx_for_thumb, max(0, len(camp.get("emails", []) or []) - 1))]
-                                _hv = int(_step_for_thumb.get("_hero_variant", 0) or 0)
+                                _emails_list = camp.get("emails", []) or []
+                                _step_for_thumb = _emails_list[
+                                    min(_next_idx_for_thumb, max(0, len(_emails_list) - 1))
+                                ] if _emails_list else {}
+                                _hv = int(_step_for_thumb.get("_hero_variant",
+                                                              _next_idx_for_thumb % 5) or 0)
                                 _thumb_url = f"/static_hero/{_slug}.unsplash.{_hv}.hero.jpg"
                             except Exception:
                                 _thumb_url = ""
                             if _thumb_url:
                                 def _open_for_photo(c=camp):
                                     _idx = _find_next_evergreen_step(c)
-                                    _refresh_newsletter_modal(s, rf, c, _idx)
+                                    _edit_newsletter_modal(s, rf, c, _idx)
                                 with ui.element("div").style(
                                         "display:flex;flex-direction:column;align-items:center;"
                                         "gap:2px;cursor:pointer;").on("click", _open_for_photo):
@@ -1372,27 +1552,25 @@ Insert directly after `if _is_newsletter:` and BEFORE the `def _refresh(c=camp):
                                         f"pointer-events:none;text-decoration:underline;")
 ```
 
-- [ ] **Step 2: Verify the file imports**
+- [ ] **Step 2: Verify imports**
 
 ```bash
 python -c "import flowdrip_app"
 ```
 
-Expected: no traceback.
-
 - [ ] **Step 3: Commit**
 
 ```bash
 git add flowdrip_app.py
-git commit -m "feat(newsletter): show hero thumbnail + 'Change photo' on cards"
+git commit -m "feat(newsletter): hero thumbnail + 'Change photo' on cards"
 ```
 
-### Task 7.2: Add "ⓘ Auto-refreshed" badge when the next pending step has `auto_confirmed: true`
+### Task 7.2: Add "ⓘ Auto-refreshed" badge on cards
 
 **Files:**
-- Modify: `flowdrip_app.py` ~L18866 (the meta line of the newsletter card)
+- Modify: `flowdrip_app.py` ~L18866
 
-- [ ] **Step 1: Insert the badge after the meta label**
+- [ ] **Step 1: Insert badge after the meta label**
 
 Find this line (~L18869):
 
@@ -1404,13 +1582,13 @@ Find this line (~L18869):
 Insert directly after it:
 
 ```python
-                            # Auto-refreshed badge: tell the user the system
-                            # generated the next-pending issue without their input.
                             try:
                                 _ar_idx = _find_next_evergreen_step(camp)
-                                _ar_step = (camp.get("emails", []) or [None])[
-                                    _ar_idx if _ar_idx < len(camp.get("emails", []) or []) else 0]
-                                _was_auto = bool(_ar_step and _ar_step.get("auto_confirmed")
+                                _ar_emails = camp.get("emails", []) or []
+                                _ar_step = (_ar_emails[_ar_idx]
+                                            if _ar_idx < len(_ar_emails) else None)
+                                _was_auto = bool(_ar_step
+                                                 and _ar_step.get("auto_confirmed")
                                                  and not _ar_step.get("confirmed"))
                             except Exception:
                                 _was_auto = False
@@ -1422,104 +1600,41 @@ Insert directly after it:
                                     f"pointer-events:none;")
 ```
 
-- [ ] **Step 2: Verify the file imports**
+- [ ] **Step 2: Verify imports**
 
 ```bash
 python -c "import flowdrip_app"
 ```
-
-Expected: no traceback.
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add flowdrip_app.py
-git commit -m "feat(newsletter): show 'Auto-refreshed' badge on cards when sweep ran"
-```
-
-### Task 7.3: Add "Will auto-send fresh content {date}" line to reminder banner rows
-
-**Files:**
-- Modify: `flowdrip_app.py` ~L18749 (inside the per-step row in the reminder banner)
-
-- [ ] **Step 1: Insert the auto-send note**
-
-Find this block (~L18749):
-
-```python
-                            ui.label(when).style(
-                                f"font-size:11px;font-weight:700;color:{when_col};"
-                                f"flex-shrink:0;min-width:80px;text-align:right;")
-```
-
-Insert AFTER it (still inside the row `with` block):
-
-```python
-                            # Auto-send promise (newsletter only). Reassures
-                            # users that ignoring this won't send empty content.
-                            if _is_newsletter_reminder:
-                                ui.label(
-                                    f"Will auto-send fresh content {r['send_date'].strftime('%b %d')} if not confirmed."
-                                ).style(
-                                    f"font-size:10px;font-style:italic;color:{C['muted']};"
-                                    f"margin-top:2px;flex-basis:100%;")
-```
-
-Note: `_is_newsletter_reminder` is defined further down in the existing code (~L18765). The label needs to be inserted *after* that variable is defined. Move the label insertion to immediately after the `if _is_newsletter_reminder:` branch instead, OR move the `_is_newsletter_reminder` definition above this row.
-
-- [ ] **Step 2: Cleaner alternative — move the `_is_newsletter_reminder` line up**
-
-Re-read L18753–L18768 to confirm the variable's current scope, then move:
-
-```python
-                    _camp_obj = next(
-                        (c for c in camps if c.get("name") == camp_name), None)
-                    _is_newsletter_reminder = bool(
-                        _camp_obj and _camp_obj.get("market_analysis"))
-```
-
-…to BEFORE the `for r in unique:` loop (~L18719), so it's available inside row rendering. Then insert the auto-send note as in Step 1.
-
-- [ ] **Step 3: Verify the file imports**
-
-```bash
-python -c "import flowdrip_app"
-```
-
-Expected: no traceback.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add flowdrip_app.py
-git commit -m "feat(newsletter): reminder banner promises 'Will auto-send fresh content'"
+git commit -m "feat(newsletter): 'Auto-refreshed' badge on cards"
 ```
 
 ---
 
-## Phase 8 — User profile field for holiday note overrides
+## Phase 8 — Holiday note overrides in Settings
 
-### Task 8.1: Add `holiday_note_overrides` to the Profile/Settings panel
+### Task 8.1: Add `holiday_note_overrides` field
 
 **Files:**
-- Modify: `flowdrip_app.py` near L9799 (where `newsletter_personal_note` is wired in Settings)
+- Modify: `flowdrip_app.py` near the `newsletter_personal_note` field in Settings
 
-- [ ] **Step 1: Locate the existing Profile section that wires `newsletter_personal_note`**
+- [ ] **Step 1: Locate the existing field**
 
 ```bash
 grep -n "newsletter_personal_note" flowdrip_app.py | head -10
 ```
 
-Find the UI render that exposes that field as a textarea (likely near a Settings dialog).
+Find the textarea render in the Settings/Profile UI (likely near L37748 — `p_company_profile` or similar).
 
-- [ ] **Step 2: Add a single optional field**
+- [ ] **Step 2: Add a collapsed expansion section**
 
-For now, keep it minimal: one collapsible "Holiday note overrides (advanced)" section with a textarea labeled "Override per month (one per line, MM: text)". Save into `cfg["holiday_note_overrides"]` as `{"05": "...", "11": "..."}`.
-
-The render code, inserted after the `newsletter_personal_note` block:
+After the `newsletter_personal_note` block:
 
 ```python
-            # Optional: per-month holiday note overrides. Shown collapsed by default.
             with ui.expansion("Holiday note overrides (advanced)").style(
                     f"width:100%;color:{C['muted']};font-size:12px;"):
                 ui.label(
@@ -1555,13 +1670,11 @@ The render code, inserted after the `newsletter_personal_note` block:
                     ui.label("Save holiday overrides")
 ```
 
-- [ ] **Step 3: Verify the file imports**
+- [ ] **Step 3: Verify imports**
 
 ```bash
 python -c "import flowdrip_app"
 ```
-
-Expected: no traceback.
 
 - [ ] **Step 4: Commit**
 
@@ -1572,9 +1685,285 @@ git commit -m "feat(newsletter): per-month holiday note overrides in Settings"
 
 ---
 
-## Phase 9 — Final verification and deploy
+## Phase 9 — Newsletters left-nav button + dedicated page
 
-### Task 9.1: Run the full newsletter test suite
+### Task 9.1: Add `("📰", "Newsletters", "newsletters")` to SALES_NAV
+
+**Files:**
+- Modify: `flowdrip_app.py` L8385
+
+- [ ] **Step 1: Insert above the Reports row**
+
+Find this exact block at L8383–L8385:
+
+```python
+    # ── Content & Tools ──────────────────────────
+    (None, "CONTENT & TOOLS",   None),
+    ("📊", "Reports",           "pdf_gen"),
+```
+
+Replace with:
+
+```python
+    # ── Content & Tools ──────────────────────────
+    (None, "CONTENT & TOOLS",   None),
+    ("📰", "Newsletters",       "newsletters"),
+    ("📊", "Reports",           "pdf_gen"),
+```
+
+- [ ] **Step 2: Verify imports**
+
+```bash
+python -c "import flowdrip_app"
+```
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add flowdrip_app.py
+git commit -m "feat(nav): add Newsletters left-nav button above Reports"
+```
+
+### Task 9.2: Add `p_newsletters(s, rf)` page + wire into router
+
+**Files:**
+- Modify: `flowdrip_app.py` near `p_evergreen` (~L18599) and the page router (~L40361)
+
+- [ ] **Step 1: Add `p_newsletters` page function**
+
+Insert this new function directly before `def p_evergreen(s, rf):` at ~L18599:
+
+```python
+def p_newsletters(s, rf):
+    """Dedicated Newsletters page. Shows ONLY newsletter campaigns,
+    no slow drips, no amber reminder banner. Same card layout as the
+    newsletter section of p_evergreen."""
+    _seed_evergreen_campaigns()
+    all_camps = load_campaigns()
+    camps = [c for c in all_camps
+             if _is_evergreen(c) and c.get("market_analysis")]
+
+    with ui.element("div").style("display:flex;align-items:center;"):
+        ui.label("Newsletters").classes("fd-h1")
+        _show_page_help(s, rf, "evergreen")
+    ui.label("Auto-refreshed monthly. Edit any issue from the card below.").classes("fd-sub")
+
+    # New newsletter button
+    with ui.element("div").style(
+            "display:flex;align-items:center;gap:10px;margin:10px 0 14px;"):
+        with ui.element("button").classes("fd-pb").style(
+                "padding:8px 18px;font-size:12px;").on(
+                "click", lambda: _create_newsletter_dialog(s, rf)):
+            ui.label("+ New Newsletter")
+
+    if not camps:
+        ui.label("No newsletter campaigns yet.").style(
+            f"font-size:12px;color:{C['muted']};padding:8px 0;")
+        return
+
+    # Reuse the existing newsletter card render block from p_evergreen.
+    # The simplest way is to call into the same code path — for now, we
+    # render inline using the same patterns. (A future refactor can extract
+    # `_render_newsletter_list(s, rf, camps)` to share with p_evergreen.)
+    for i, camp in enumerate(camps):
+        bg, fg, border = EVERGREEN_COLORS[i % len(EVERGREEN_COLORS)]
+        steps = camp.get("emails", []) or []
+        contacts = camp.get("contacts", []) or []
+        # Render a simple, focused card for each newsletter — same visual
+        # language as p_evergreen's newsletter section.
+        with ui.element("div").style(
+                f"background:{bg};border:1px solid {border};border-radius:10px;"
+                f"padding:14px 18px;margin-bottom:10px;display:flex;"
+                f"align-items:center;justify-content:space-between;"):
+            with ui.element("div").style("flex:1;min-width:0;"):
+                ui.label(camp.get("name", "")).style(
+                    f"font-size:14px;font-weight:700;color:{fg};")
+                _next_idx = _find_next_evergreen_step(camp)
+                _next_step = (steps[_next_idx]
+                              if _next_idx < len(steps) else None)
+                _meta = (f"{len(steps)} issues · {len(contacts)} enrolled"
+                         + (f" · next: {_next_step.get('name','')}"
+                            if _next_step else ""))
+                ui.label(_meta).style(
+                    f"font-size:11px;color:{C['muted']};margin-top:2px;")
+                # Auto-refreshed badge
+                if _next_step and _next_step.get("auto_confirmed") and not _next_step.get("confirmed"):
+                    ui.label("ⓘ Auto-refreshed").style(
+                        f"font-size:10px;color:{C['muted']};"
+                        f"background:{C['surface']};border:1px solid {C['border']};"
+                        f"border-radius:99px;padding:1px 8px;margin-top:4px;"
+                        f"display:inline-block;")
+            # Edit button
+            def _edit(c=camp):
+                _idx = _find_next_evergreen_step(c)
+                _emails = c.get("emails", []) or []
+                if _idx >= len(_emails):
+                    ui.notify("All newsletter issues have been sent.", type="info")
+                    return
+                _edit_newsletter_modal(s, rf, c, _idx)
+            with ui.element("button").style(
+                    f"padding:6px 16px;font-size:12px;font-weight:700;"
+                    f"background:{C['indigo']}18;color:{C['indigo']};"
+                    f"border:1px solid {C['indigo']}60;border-radius:8px;"
+                    f"cursor:pointer;font-family:inherit;").on("click", _edit):
+                ui.label("✎ Edit").style("pointer-events:none;")
+```
+
+- [ ] **Step 2: Wire into router**
+
+In `flowdrip_app.py` at the page-dispatch chain (~L40361), find the line:
+
+```python
+            elif page == "evergreen":   p_evergreen(s, rf)
+```
+
+Add directly after it:
+
+```python
+            elif page == "newsletters": p_newsletters(s, rf)
+```
+
+(If the line uses different spacing, match the existing style.)
+
+- [ ] **Step 3: Verify imports**
+
+```bash
+python -c "import flowdrip_app"
+```
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add flowdrip_app.py
+git commit -m "feat(newsletter): dedicated Newsletters page wired to left-nav"
+```
+
+---
+
+## Phase 10 — Deep link from preview email to Edit modal
+
+### Task 10.1: Route `?edit_newsletter=...` to Newsletters page + open modal
+
+**Files:**
+- Modify: `flowdrip_app.py` index `@ui.page("/")` handler (search for `@ui.page("/")` or `def index(`) — sets `s.sp` for first-render routing
+- Modify: `flowdrip_app.py` `p_newsletters` (added in Task 9.2) — reads param and opens modal
+
+- [ ] **Step 1: Find the index handler**
+
+```bash
+grep -n '@ui.page("/")\|def index(' flowdrip_app.py | head -5
+```
+
+Locate where `s.sp` is set for first render (look for the first place `AppState()` or `s.sp = "dashboard"` happens).
+
+- [ ] **Step 2: Add query-param routing in the index handler**
+
+At the very top of the index handler, before any rendering, insert:
+
+```python
+    # Deep link from newsletter preview email: ?edit_newsletter=<name>
+    # Route the user to the Newsletters page so the modal can open there.
+    try:
+        from nicegui import context as _ctx
+        _qs_initial = dict(_ctx.client.request.query_params)
+    except Exception:
+        _qs_initial = {}
+    if _qs_initial.get("edit_newsletter"):
+        s.sp = "newsletters"
+        s.hub = "sales"
+```
+
+If `_ctx.client.request.query_params` isn't available in this NiceGUI version (check `python -c "from nicegui import context; print(dir(context.client.request))"`), fall back to:
+
+```python
+    try:
+        _qs_initial = dict(context.client.request.query_params)
+    except Exception:
+        _qs_initial = {}
+```
+
+If neither path works, investigate the running NiceGUI version's docs for the right accessor before committing — do not guess.
+
+- [ ] **Step 3: Add `?edit_newsletter` reader to `p_newsletters`**
+
+In the `p_newsletters` function defined in Task 9.2, before the `for i, camp in enumerate(camps):` loop, insert:
+
+```python
+    # Deep link: open the Edit modal for the named campaign on first render.
+    if not getattr(s, "_edit_newsletter_handled", False):
+        try:
+            from nicegui import context as _ctx
+            _qs = dict(_ctx.client.request.query_params)
+            _target = _qs.get("edit_newsletter", "")
+        except Exception:
+            _target = ""
+        if _target:
+            s._edit_newsletter_handled = True
+            _target_camp = next((c for c in camps if c.get("name") == _target), None)
+            if _target_camp:
+                _idx = _find_next_evergreen_step(_target_camp)
+                _emails = _target_camp.get("emails", []) or []
+                if _idx < len(_emails):
+                    ui.timer(0.3, lambda: _edit_newsletter_modal(s, rf, _target_camp, _idx),
+                             once=True)
+```
+
+- [ ] **Step 3: Update preview email to include the deep link**
+
+In `_auto_refresh_newsletter_tick` at ~L35635, find this block:
+
+```python
+                    ok, err = _send_email_universal(
+                        to=_inbox,
+                        subject=_preview_subj,
+                        html_body=body,
+                        is_preview=False,
+                        _for_user_email=_owner_email,
+                    )
+```
+
+Wrap `body` with a small "click to edit" banner before sending. Replace the call with:
+
+```python
+                    _edit_link = (f"https://dripdripdrop.ai/?edit_newsletter="
+                                  f"{camp_name.replace(' ', '+')}")
+                    _banner = (
+                        f'<div style="background:#FFF8E1;border:1px solid #FFC107;'
+                        f'border-radius:6px;padding:10px 14px;margin:0 0 16px;'
+                        f'font-family:Arial,sans-serif;font-size:13px;color:#664400;">'
+                        f'Auto-refreshed on {now_utc.strftime("%b %d")}. '
+                        f'Sends on {send_aware.strftime("%b %d")}. '
+                        f'<a href="{_edit_link}" style="color:#0066CC;font-weight:700;">'
+                        f'Open in DripDrop to edit →</a>'
+                        f'</div>'
+                    )
+                    ok, err = _send_email_universal(
+                        to=_inbox,
+                        subject=_preview_subj,
+                        html_body=_banner + body,
+                        is_preview=False,
+                        _for_user_email=_owner_email,
+                    )
+```
+
+- [ ] **Step 4: Verify imports**
+
+```bash
+python -c "import flowdrip_app"
+```
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add flowdrip_app.py
+git commit -m "feat(newsletter): preview email deep link opens Edit modal"
+```
+
+---
+
+## Phase 11 — Final verification and deploy
+
+### Task 11.1: Run the full newsletter test suite
 
 - [ ] **Step 1: Run every newsletter-related test**
 
@@ -1584,13 +1973,13 @@ pytest tests/test_newsletter_*.py -v
 
 Expected: all PASS.
 
-- [ ] **Step 2: Run a fast smoke of the full suite**
+- [ ] **Step 2: Smoke run the full suite**
 
 ```bash
 pytest tests/ -x --timeout=30 2>&1 | tail -40
 ```
 
-Expected: no NEW failures introduced. (The repo may have pre-existing flakes — investigate any failure and confirm it's not caused by this branch.)
+Expected: no NEW failures introduced.
 
 - [ ] **Step 3: Static import check**
 
@@ -1600,15 +1989,11 @@ python -c "import flowdrip_app; print('OK')"
 
 Expected: prints `OK`.
 
-### Task 9.2: Live deploy and smoke check
+### Task 11.2: Live deploy
 
-Per project memory `feedback_zero_downtime_deploy.md` and `feedback_smoke_check_before_deploy.md`:
+The user has explicitly requested deploy after this work is complete (message at 2026-05-02). Per project memory `feedback_zero_downtime_deploy.md`:
 
-- [ ] **Step 1: Ask the user before deploying**
-
-The project memory says: 8am–5pm PDT, **ask** "deploy now or end of hour?" after each change. Today is 2026-05-02. Confirm deploy timing before running the deploy script.
-
-- [ ] **Step 2: Deploy with zero-downtime script**
+- [ ] **Step 1: Deploy with zero-downtime script**
 
 ```bash
 bash _deploy_zero_downtime.sh
@@ -1616,39 +2001,50 @@ bash _deploy_zero_downtime.sh
 
 Expected: script completes successfully.
 
-- [ ] **Step 3: Live smoke check**
+- [ ] **Step 2: Live smoke check (per `feedback_smoke_check_before_deploy.md`)**
 
-In a browser, hit `https://dripdripdrop.ai/` (NOT just `/healthz` — per memory, healthz can pass while page-render path is broken). Verify:
+In a browser, hit `https://dripdripdrop.ai/`. Verify:
 
-1. The Slow Drip Sequence page loads.
-2. Click `Refresh & Confirm` on a newsletter — modal opens **in the center of the screen**, not below the fold.
-3. Inside the modal: hero photo with ◀ ▶ arrows, "Photo N of 5" badge, subject + body editable, footer Confirm button visible.
-4. Click ▶ on the photo: image cycles to the next variant.
-5. Click `✓ Confirm & Schedule`: modal closes, card shows confirmed state.
-6. Reopen the same newsletter: confirmed steps don't re-trigger generation.
-7. (Newsletter footer) preview an issue — holiday block appears LEFT of "Meet Your Hiring Partner" face/quote.
+1. Sidebar shows new "📰 Newsletters" entry above "📊 Reports".
+2. Click it → dedicated Newsletters page opens (no slow drips, no amber banner).
+3. Each newsletter card shows hero thumbnail + "✎ Edit" button.
+4. Click "✎ Edit" → modal opens centered, dimmed background.
+5. Modal: hero photo, ◀ ▶ arrows cycle to other variants, "Photo N of 5" badge, subject + body editable.
+6. Click ✓ Save → modal closes, card shows confirmed state.
+7. (Slow Drip Sequence page) — newsletter rows no longer appear in amber banner.
+8. (Newsletter footer in any preview) — holiday block appears LEFT of "Meet Your Hiring Partner".
 
-- [ ] **Step 4: If anything fails**
-
-Investigate root cause. Do NOT skip the failure or revert the deploy without diagnosis. Report findings to the user before any rollback.
-
-### Task 9.3: Open PR
-
-- [ ] **Step 1: Push branch**
+- [ ] **Step 3: Open PR**
 
 ```bash
 git push -u origin claude/newsletter-ux-overhaul
+gh pr create --title "Newsletter UX overhaul: auto-refresh + Edit modal + dedicated page + holidays" --body "$(cat <<'EOF'
+## Summary
+- Drop manual "Refresh & Confirm" — every newsletter auto-refreshes 3 days before send
+- New focused Edit modal (replaces buried inline panel)
+- Hero photo auto-rotates per issue; manual swap via overlay arrows
+- Dedicated "📰 Newsletters" left-nav page above Reports
+- Monthly holiday block in newsletter footer
+- Preview email has a deep link that opens the Edit modal directly
+
+Spec: docs/superpowers/specs/2026-05-02-newsletter-ux-overhaul-design.md
+Plan: docs/superpowers/plans/2026-05-02-newsletter-ux-overhaul-plan.md
+
+## Test plan
+- [x] All newsletter pytest tests pass
+- [ ] Live smoke test on https://dripdripdrop.ai/
+
+🤖 Generated with [Claude Code](https://claude.com/claude-code)
+EOF
+)"
 ```
-
-- [ ] **Step 2: Open the PR**
-
-Use `gh pr create` with a concise title and the spec URL in the body. Title: `Newsletter UX overhaul — modal review + hero swap + auto-refresh + holiday block`.
 
 ---
 
 ## Risk Notes
 
-- **NiceGUI dialog clicks while a background thread updates state**: `_kick_off_generation` updates `state` from a non-UI thread. NiceGUI is generally tolerant when calls happen via existing element refs, but if the modal feels stuck after a regen, wrap the post-thread render in `ui.timer(0.1, _render_body, once=True)` instead of calling `_render_body()` directly.
-- **`_static_hero` route**: if NiceGUI's `app.add_static_files` is restricted by version, the modal may fail to load images. Verify the route exists; if not, fall back to embedding hero images as base64 data-URIs in the `<img>` tag (slower but route-free).
-- **Existing `_market_refresh_step` references in tests**: search before deleting. None expected, but verify with `grep -rn "_market_refresh_" tests/`.
-- **Holiday `%-d` format**: the spec used `%-d` which is invalid on Windows. The helper sticks to `%b` + `str(day)` for portability.
+- **NiceGUI `ui.editor` from background thread**: `_kick_off_generation` updates state from a non-UI thread. If the modal feels stuck after a regen, wrap the post-thread render in `ui.timer(0.1, _render_body, once=True)`.
+- **`/static_hero` route**: if NiceGUI's `app.add_static_files` is restricted by version, fall back to embedding hero images as base64 data-URIs (slower but route-free).
+- **Deep-link query param**: `nicegui.context.client.request.query_params` access pattern varies by NiceGUI version. If the import path is wrong, investigate via the running version's docs before working around.
+- **Holiday `%-d` format**: `%-d` is invalid on Windows. Helper sticks to `%b` + `str(day)` for portability.
+- **Preview email HTML in Outlook/Gmail**: the wrapping `_banner` div uses inline styles for compatibility. Test at least one preview in Outlook to be sure the banner renders cleanly.
