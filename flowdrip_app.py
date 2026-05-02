@@ -20360,12 +20360,18 @@ def p_dashboard(s: AppState, rf):
             if sdt and (cq["next_dt"] is None or sdt < cq["next_dt"]):
                 cq["next_dt"] = sdt
 
+    # Active = has at least one pending queued send. A campaign with
+    # pending=0 (everything sent or cancelled-due-to-response) is
+    # DONE and moves to completed_camps regardless of status flag.
+    # 2026-05-02 user fix: PCL Scheduler showed 98% with 0 pending
+    # because 2 contacts responded mid-campaign and their queued
+    # sends got cancelled. Without this change the campaign stayed
+    # in "Active Sequences" forever even though there's nothing
+    # left to send.
     active_camps = [c for c in camps
                     if c.get("status") not in ("cancelled",)
                     and len(c.get("contacts", [])) > 0
-                    and (camp_q.get(c.get("name",""), {}).get("pending", 0) > 0
-                         or (c.get("status") == "active"
-                             and camp_q.get(c.get("name",""), {}).get("sent", 0) > 0))]
+                    and camp_q.get(c.get("name",""), {}).get("pending", 0) > 0]
     completed_camps = [c for c in camps if c not in active_camps
                        and camp_q.get(c.get("name",""), {}).get("sent", 0) > 0]
 
