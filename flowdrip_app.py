@@ -38894,22 +38894,29 @@ def p_team_settings(s: AppState, rf):
                         ui.label("Upload a PNG or JPG to set the team default.").style(
                             f"font-size:10px;color:{C['muted']};display:block;margin-top:2px;")
 
-                # Prominent upload control. Dropping flat+dense (which
-                # rendered the button invisibly tiny) and styling it as
-                # a primary button so users actually see it.
-                with ui.element("div").style("flex-shrink:0;"):
+                # Visible-button pattern: wrap ui.upload inside a styled
+                # <label> with display:none on the upload itself. The
+                # label-input HTML association makes clicking the label
+                # trigger the hidden file picker. This is the working
+                # pattern used elsewhere in the codebase (e.g. JD upload
+                # in Match-JD flow). Replaces the flat+dense q-uploader
+                # which rendered as an invisible/empty pane on this row.
+                _btn_label = "↑ Replace Logo" if _existing else "↑ Upload Team Logo"
+                with ui.element("label").style(
+                        f"display:inline-flex;align-items:center;gap:6px;"
+                        f"padding:10px 18px;border-radius:8px;cursor:pointer;"
+                        f"background:{C['teal']};color:{C['bg']};"
+                        f"font-size:12px;font-weight:700;"
+                        f"font-family:inherit;flex-shrink:0;"
+                        f"transition:filter .15s;"):
+                    ui.label(_btn_label).style("pointer-events:none;")
                     ui.upload(
                         on_upload=_on_logo_upload,
-                        label=("↑ Replace Logo" if _existing
-                               else "↑ Upload Team Logo"),
                         auto_upload=True,
                         max_files=1,
                     ).props(
-                        'color=primary accept=".png,.jpg,.jpeg,image/png,image/jpeg"'
-                    ).style(
-                        f"font-size:12px;font-weight:700;"
-                        f"min-width:180px;"
-                    )
+                        'accept=".png,.jpg,.jpeg,image/png,image/jpeg"'
+                    ).style("display:none;")
 
             ui.label("PNG or JPG, 5 MB max. Replaces any existing team logo.").style(
                 f"font-size:10px;color:{C['muted']};font-style:italic;"
