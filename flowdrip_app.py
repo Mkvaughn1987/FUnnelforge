@@ -18550,24 +18550,11 @@ def _create_newsletter_dialog(s, rf):
                     if _uemail:
                         _CURRENT_USER_EMAIL.set(_uemail)
                         _switch_to_user_paths(_uemail)
-                    # Reload the campaign from disk so the owner path is
-                    # resolved correctly (save_campaign stamps _owner_email).
-                    _fresh = next((c for c in load_campaigns()
-                                   if c.get("name") == nl_name), None)
-                    if not _fresh or not _fresh.get("emails"):
-                        print(f"[NewsletterAuto] campaign not found after save: {nl_name}",
-                              flush=True)
-                        return
-                    subj, body = _generate_newsletter_content_for_step(_fresh, 0)
-                    if not subj or not body:
-                        print(f"[NewsletterAuto] generation returned empty for {nl_name}",
-                              flush=True)
-                        return
-                    _fresh["emails"][0]["subject"] = subj
-                    _fresh["emails"][0]["body"] = body
-                    save_campaign(_fresh)
-                    print(f"[NewsletterAuto] first issue ready for {nl_name}",
-                          flush=True)
+                    # Generate every scheduled issue, not just step 0.
+                    # The helper is idempotent — already-populated steps
+                    # are skipped. Sleeps briefly between each so we don't
+                    # hammer the Anthropic rate limit.
+                    _gen_all_issues_for_campaign(nl_name)
                 except Exception as ex:
                     print(f"[NewsletterAuto] error: {ex}", flush=True)
                 finally:
@@ -35459,6 +35446,45 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
     subject = _title_case_subject(
         result.get("subject", "") or f"{nl_name}  -  {month_year}")
     return (subject, body_html)
+
+
+def _gen_all_issues_for_campaign(camp_name: str) -> None:
+    """Generate AI content for every step of the named newsletter campaign.
+
+    Used by the post-create background thread so users have a draft for
+    every scheduled month immediately. Steps that already have non-empty
+    bodies are skipped (idempotent — safe to re-run). Sleeps briefly
+    between issues to keep the Anthropic rate limit happy.
+    """
+    import time as _time
+    fresh = next((c for c in load_campaigns() if c.get("name") == camp_name), None)
+    if not fresh or not fresh.get("emails"):
+        print(f"[NewsletterAutoAll] campaign not found: {camp_name}", flush=True)
+        return
+    steps = fresh.get("emails", []) or []
+    for idx in range(len(steps)):
+        st = steps[idx]
+        if (st.get("body") or "").strip() and "[AI:" not in (st.get("body") or ""):
+            continue
+        try:
+            subj, body = _generate_newsletter_content_for_step(fresh, idx)
+        except Exception as ex:
+            print(f"[NewsletterAutoAll] step {idx} error for {camp_name}: {ex}",
+                  flush=True)
+            continue
+        if not subj or not body:
+            print(f"[NewsletterAutoAll] step {idx} returned empty for {camp_name}",
+                  flush=True)
+            continue
+        steps[idx]["subject"] = subj
+        steps[idx]["body"] = body
+        save_campaign(fresh)
+        print(f"[NewsletterAutoAll] step {idx} ready for {camp_name}", flush=True)
+        _time.sleep(3)
+    try:
+        _cache_campaigns.invalidate()
+    except Exception:
+        pass
 
 
 def _auto_refresh_newsletter_tick():
