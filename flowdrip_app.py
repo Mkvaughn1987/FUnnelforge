@@ -18724,17 +18724,15 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
 
             # Body editor
             ui.label("Body").classes("fd-fl")
-            _body_editor = _apply_editor_props(
-                ui.editor(value=state["body"]),
-                _TOOLBAR_FULL,
-            ).style(
-                f"min-height:380px;background:{C['surface']};"
-                f"border:1px solid {C['border']};border-radius:6px;"
-                f"color:{C['text_l']};font-family:inherit;")
+            _body_editor = ui.editor(value=state["body"])
             try:
                 s._register_qeditor(_body_editor, f"nl_edit_{step_idx}")
             except Exception:
                 pass
+            _apply_editor_props(_body_editor, _TOOLBAR_FULL).style(
+                f"min-height:380px;background:{C['surface']};"
+                f"border:1px solid {C['border']};border-radius:6px;"
+                f"color:{C['text_l']};font-family:inherit;")
 
         # ── Footer (sticky) ─────────────────────────────────────────
         with ui.element("div").style(
@@ -18819,6 +18817,29 @@ def p_newsletters(s, rf):
                 "padding:8px 18px;font-size:12px;").on(
                 "click", lambda: _create_newsletter_dialog(s, rf)):
             ui.label("+ New Newsletter")
+
+    # Deep link from preview email: ?edit_newsletter=<campaign_name>
+    # Open the Edit modal for the named campaign on first render.
+    if not getattr(s, "_edit_newsletter_handled", False):
+        try:
+            from nicegui import context as _ctx
+            _qs = dict(_ctx.client.request.query_params or {})
+            _target = (_qs.get("edit_newsletter") or "").strip()
+        except Exception:
+            _target = ""
+        if _target:
+            s._edit_newsletter_handled = True
+            _target_camp = next(
+                (c for c in camps if c.get("name") == _target), None)
+            if _target_camp:
+                _idx = _find_next_evergreen_step(_target_camp)
+                _emails = _target_camp.get("emails", []) or []
+                if _idx < len(_emails):
+                    ui.timer(
+                        0.4,
+                        lambda: _edit_newsletter_modal(s, rf, _target_camp, _idx),
+                        once=True,
+                    )
 
     if not camps:
         ui.label("No newsletter campaigns yet.").style(
@@ -36093,11 +36114,29 @@ def _auto_refresh_newsletter_tick():
                               or _owner_email)
                     _preview_subj = (f"Preview: {camp.get('newsletter_name') or camp_name}  -  "
                                      f"sends {send_aware.strftime('%b %d')}")
+                    # Deep link back into DripDrop: clicking opens the
+                    # Newsletters page with the Edit modal pre-opened on
+                    # this campaign.
+                    from urllib.parse import quote as _urlq
+                    _edit_link = (
+                        f"https://dripdripdrop.ai/?edit_newsletter="
+                        f"{_urlq(camp_name)}"
+                    )
+                    _banner = (
+                        f'<div style="background:#FFF8E1;border:1px solid #FFC107;'
+                        f'border-radius:6px;padding:12px 16px;margin:0 0 16px;'
+                        f'font-family:Arial,sans-serif;font-size:13px;color:#664400;">'
+                        f'<strong>Preview only</strong> — this is what will go out '
+                        f'on {send_aware.strftime("%b %d")}. '
+                        f'<a href="{_edit_link}" style="color:#0066CC;font-weight:700;">'
+                        f'Open in DripDrop to edit →</a>'
+                        f'</div>'
+                    )
                     ok, err = _send_email_universal(
                         to=_inbox,
                         subject=_preview_subj,
-                        html_body=body,
-                        is_preview=False,   # we set our own [Auto-Refresh Preview] tag
+                        html_body=_banner + body,
+                        is_preview=False,
                         _for_user_email=_owner_email,
                     )
                     if ok:
@@ -41899,6 +41938,17 @@ def index():
     s = AppState()
     s._user_email = _user_email
     s._user_name = app.storage.user.get("name", "")
+
+    # Deep link from newsletter preview email: ?edit_newsletter=<name>
+    # Route the user to the Newsletters page so the modal opens there.
+    try:
+        from nicegui import context as _ctx_for_qs
+        _qs_initial = dict(_ctx_for_qs.client.request.query_params or {})
+    except Exception:
+        _qs_initial = {}
+    if _qs_initial.get("edit_newsletter"):
+        s.sp = "newsletters"
+        s.hub = "sales"
 
     # Registry of QEditors that participate in the merge-field round-trip.
     # Populated by helper `_register_qeditor` below (stored on `s` so module-
