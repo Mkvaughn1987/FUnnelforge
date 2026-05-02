@@ -8470,14 +8470,6 @@ class AppState:
         self._aicb_titles_generating: bool = False
         self._aicb_titles_err: str = ""
 
-        # Today/Drip page — campaign-level shared message templates
-        # (2026-05-01 user request: "one AI message at the top users
-        # can refer to" instead of clicking per-card). Keyed by
-        # f"{campaign_name}::{channel}" so each campaign group renders
-        # one template per channel (LinkedIn / Call / Task).
-        self._ai_camp_templates: dict = {}
-        self._ai_camp_templates_started: dict = {}
-
         # Job Match state
         self.cf_tab = "pool"           # "pool", "search", or "match_jd"
         # ── Match JD → Candidates (reverse search) ──
@@ -10243,21 +10235,16 @@ def p_today_combined(s: AppState, rf):
                                     f"border:1px solid {C['border']};font-family:inherit;").on("click", _mark_all_camp):
                                 ui.label(f"✓ Mark All {len(camp_tasks)} Done")
 
-                    # 2026-05-01 user request: shared message templates
-                    # at the top of each campaign group (one per channel
-                    # actually present), instead of a per-card AI button.
-                    # Render in priority order: LinkedIn → Call → Task.
-                    _channels_present = []
-                    for _ch in ("li", "call", "task"):
-                        if any(_t.get("channel") == _ch for _t in camp_tasks):
-                            _channels_present.append(_ch)
-                    for _ch in _channels_present:
-                        _drip_render_camp_template(s, rf, camp_name, _ch, camp_tasks)
-
-                    # Skinny single-column card stack; numbering resets
-                    # per (campaign, channel) pair, starting at 01.
-                    # Cards group by channel order so users see all
-                    # LinkedIn together, then calls, then tasks.
+                    # Channel-grouped skinny single-column card stack;
+                    # numbering resets per (campaign, channel) starting
+                    # at 01. Cards group by channel order so users see
+                    # all LinkedIn together, then calls, then tasks.
+                    # (Per-channel template panels removed 2026-05-01
+                    # per user request.)
+                    _channels_present = [
+                        _ch for _ch in ("li", "call", "task")
+                        if any(_t.get("channel") == _ch for _t in camp_tasks)
+                    ]
                     with ui.element("div").style("display:flex;flex-direction:column;gap:0;"):
                         for _ch in _channels_present:
                             _ch_tasks = [_t for _t in camp_tasks if _t.get("channel") == _ch]
@@ -10589,239 +10576,19 @@ def _connected_dialog(t, s: AppState, rf):
     dlg.open()
 
 
-def _drip_camp_template_key(camp_name: str, channel: str) -> str:
-    """Composite key for per-campaign-per-channel shared templates."""
-    return f"{camp_name}::{channel}"
-
-
-def _drip_camp_template_default(camp_tasks: list, channel: str) -> str:
-    """If the campaign already has a script defined at the touch level
-    for this channel, return it as the default template. Otherwise
-    return empty string (user can click Generate to AI-fill)."""
-    for t in camp_tasks:
-        if t.get("channel") == channel:
-            sc = (t.get("script", "") or "").strip()
-            if sc:
-                return sc
-    return ""
-
-
-def _drip_gen_camp_template(s: AppState, rf, camp_name: str, channel: str,
-                             camp_tasks: list):
-    """Generate ONE shared template for a (campaign, channel) pair.
-    Replaces the old per-card AI script approach — N contacts in the
-    same campaign all reference one template at the top of the group,
-    so users only ever click Generate once per channel per campaign.
-
-    Template uses {first_name}, {company}, {role} merge tokens which
-    the user mentally substitutes per contact (or copies + edits in
-    LinkedIn / their dialer)."""
-    if not hasattr(s, "_ai_camp_templates"):
-        s._ai_camp_templates = {}
-    if not hasattr(s, "_ai_camp_templates_started"):
-        s._ai_camp_templates_started = {}
-    key = _drip_camp_template_key(camp_name, channel)
-    s._ai_camp_templates[key] = "Generating..."
-    s._ai_camp_templates_started[key] = time.time()
-    try: rf()
-    except Exception: pass
-
-    def _run():
-        try:
-            import anthropic
-            client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-            sig_name = "Mike"
-            try:
-                if _user_sig_path().exists():
-                    sig_lines = _user_sig_path().read_text(encoding="utf-8").strip().split("\n")
-                    if sig_lines and sig_lines[0].strip().split():
-                        sig_name = sig_lines[0].strip().split()[0]
-            except Exception:
-                pass
-            # Pull campaign-level metadata from the first task in the
-            # group — they all share the same campaign / sequence / etc.
-            sample = camp_tasks[0] if camp_tasks else {}
-            _campaign = sample.get("sequence", "") or camp_name
-            _touch = sample.get("touch", "")
-            _base = sample.get("script", "") or sample.get("note", "")
-
-            _meta_block = (
-                _wrap_untrusted("campaign", _campaign, max_chars=300) + "\n"
-                + _wrap_untrusted("touch", str(_touch), max_chars=100) + "\n"
-                + _wrap_untrusted("base_script_notes", _base, max_chars=2000)
-            )
-            if channel == "call":
-                prompt = (
-                    f"You are {sig_name} from {_get_company_name()}, calling "
-                    f"prospects on the {_campaign} campaign.\n\n"
-                    f"CAMPAIGN DETAILS:\n{_meta_block}\n\n"
-                    f"Write ONE call SCRIPT TEMPLATE that will be used for "
-                    f"every contact in this campaign. Use these merge tokens "
-                    f"that the recruiter will mentally swap per call: "
-                    f"{{first_name}}, {{role}}, {{company}}.\n\n"
-                    f"Format:\n"
-                    f"1. Opening line  -  reference {{company}} or {{role}} specifically\n"
-                    f"2. Reason for calling  -  tied to the campaign theme\n"
-                    f"3. 2-3 diagnostic questions\n"
-                    f"4. Value proposition  -  specific to the industry\n"
-                    f"5. Close  -  clear next step\n"
-                    f"6. Voicemail (15 seconds, if no answer)\n\n"
-                    f"Conversational, not robotic. Plain text with dashes "
-                    f"for bullets. No markdown. Keep tokens visible — do "
-                    f"NOT make up a real name or company.\n"
-                    + _style_guide_prompt()
-                )
-            elif channel == "li":
-                prompt = (
-                    f"You are {sig_name} from {_get_company_name()}.\n\n"
-                    f"CAMPAIGN DETAILS:\n{_meta_block}\n\n"
-                    f"Write ONE LinkedIn connection-request TEMPLATE that "
-                    f"will be used for every contact in this campaign. Use "
-                    f"these merge tokens: {{first_name}}, {{role}}, {{company}}.\n\n"
-                    f"MUST be under 300 characters. Reference {{company}} or "
-                    f"{{role}}. Genuine, not salesy.\n\n"
-                    f"Return ONLY the template text — no 'Connection request:' "
-                    f"prefix, no headers, no markdown. Keep tokens visible "
-                    f"— do NOT substitute real names or companies.\n"
-                    + _style_guide_prompt()
-                )
-            else:  # task
-                prompt = (
-                    f"CAMPAIGN DETAILS:\n{_meta_block}\n\n"
-                    f"Write ONE short task GUIDANCE TEMPLATE describing what "
-                    f"the recruiter should do for every contact in this "
-                    f"campaign. Use {{first_name}}, {{role}}, {{company}} as "
-                    f"merge tokens. Plain text, 2-4 lines.\n"
-                    + _style_guide_prompt()
-                )
-            msg = _claude_create_with_retry(
-                client,
-                model="claude-haiku-4-5-20251001",
-                max_tokens=800,
-                system=_INJECTION_GUARD,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            s._ai_camp_templates[key] = msg.content[0].text.strip()
-        except Exception as ex:
-            s._ai_camp_templates[key] = f"Error: {_friendly_ai_error(ex)}"
-        finally:
-            try: rf()
-            except Exception: pass
-    threading.Thread(target=_run, daemon=True).start()
-
-
-def _drip_render_camp_template(s: AppState, rf, camp_name: str,
-                                channel: str, camp_tasks: list):
-    """Render ONE per-(campaign, channel) shared template panel above
-    the cards grid. Shows the campaign's existing script if defined,
-    otherwise a Generate button. Editable inline; Regenerate available
-    at any time."""
-    if not hasattr(s, "_ai_camp_templates"):
-        s._ai_camp_templates = {}
-    key = _drip_camp_template_key(camp_name, channel)
-    cached = s._ai_camp_templates.get(key, "")
-    default = _drip_camp_template_default(camp_tasks, channel)
-    text = cached or default
-    is_generating = (cached == "Generating...")
-    is_error = isinstance(cached, str) and cached.startswith("Error:")
-
-    _ch_label = (
-        "LinkedIn Message" if channel == "li"
-        else "Call Script" if channel == "call"
-        else "Task Notes"
-    )
-    _ch_color = (
-        C.get("indigo", "#7B68EE") if channel == "li"
-        else C.get("call_col", "#EF9F27") if channel == "call"
-        else C.get("teal", "#1AE3D9")
-    )
-
-    with ui.element("div").style(
-            f"background:{C['card']};border:1px solid {_ch_color}30;"
-            f"border-left:3px solid {_ch_color};border-radius:0 10px 10px 0;"
-            f"padding:10px 14px;margin-bottom:10px;"):
-        with ui.element("div").style(
-                "display:flex;align-items:center;justify-content:space-between;"
-                "gap:10px;margin-bottom:6px;"):
-            ui.label(f"✦ {_ch_label} Template").style(
-                f"font-size:10px;font-weight:800;color:{_ch_color};"
-                f"text-transform:uppercase;letter-spacing:.08em;"
-                f"font-family:'Nunito',sans-serif;")
-            with ui.element("div").style("display:flex;gap:6px;align-items:center;"):
-                if not is_generating and ANTHROPIC_API_KEY:
-                    def _gen(c=channel, ct=camp_tasks, cn=camp_name):
-                        _drip_gen_camp_template(s, rf, cn, c, ct)
-                    _btn_label = "✦ Regenerate" if text else "✦ Generate"
-                    with ui.element("button").style(
-                            f"padding:4px 10px;font-size:10px;border-radius:6px;"
-                            f"background:{_ch_color}15;color:{_ch_color};"
-                            f"border:1px solid {_ch_color}40;cursor:pointer;"
-                            f"font-family:inherit;font-weight:600;"
-                            ).on("click", _gen):
-                        ui.label(_btn_label)
-                if text and not is_generating:
-                    def _copy(t2=text):
-                        ui.run_javascript(f"navigator.clipboard.writeText({json.dumps(t2)})")
-                        ui.notify("Copied!", type="positive", timeout=1500)
-                    with ui.element("button").style(
-                            f"padding:4px 10px;font-size:10px;border-radius:6px;"
-                            f"background:transparent;color:{C['muted']};"
-                            f"border:1px solid {C['border']};cursor:pointer;"
-                            f"font-family:inherit;").on("click", _copy):
-                        ui.label("Copy")
-        if is_generating:
-            with ui.element("div").style("display:flex;align-items:center;gap:8px;"):
-                ui.spinner("dots", size="18px", color=_ch_color)
-                ui.label("Generating template…").style(
-                    f"font-size:11px;color:{C['muted']};")
-            # Auto-poll until ready (4s tick).
-            ui.timer(4.0, rf, once=True)
-        elif text:
-            _txt = ui.textarea(value=text).props("autogrow dense outlined").style(
-                f"width:100%;font-size:12px;font-family:'DM Sans',Calibri,Arial,sans-serif;"
-                f"line-height:1.5;color:{C['text_l']};")
-            def _save_edit(k=key):
-                s._ai_camp_templates[k] = (_txt.value or "").strip()
-            _txt.on("blur", _save_edit)
-            ui.label("Tokens like {first_name}, {company}, {role} are placeholders — substitute per contact when you copy.").style(
-                f"font-size:10px;color:{C['muted']};margin-top:4px;display:block;")
-        else:
-            # Empty state: helper line + an inline Generate button right
-            # under it. The empty textarea was removed 2026-05-01 per user
-            # request — first action should be one decisive click, not a
-            # blank box. Users who want to type their own can hit Generate
-            # then edit the result inline.
-            ui.label(
-                "No template yet. Click Generate and AI will write one "
-                "based on the campaign."
-            ).style(
-                f"font-size:11px;color:{C['muted']};font-style:italic;"
-                f"display:block;margin-bottom:8px;")
-            if ANTHROPIC_API_KEY:
-                def _gen_inline(c=channel, ct=camp_tasks, cn=camp_name):
-                    _drip_gen_camp_template(s, rf, cn, c, ct)
-                with ui.element("button").style(
-                        f"padding:7px 16px;font-size:12px;border-radius:6px;"
-                        f"background:{_ch_color}15;color:{_ch_color};"
-                        f"border:1px solid {_ch_color}60;cursor:pointer;"
-                        f"font-family:inherit;font-weight:700;"
-                        ).on("click", _gen_inline):
-                    ui.label(f"✦ Generate {_ch_label}")
-
-
 def _drip_action_label(channel: str) -> tuple:
     """Per-channel (primary title, secondary helper text) pair shown on
-    each numbered card. Replaces the old "click ✦ AI X" affordance —
-    users now reference the campaign-level template above."""
+    each numbered card. Helper text deliberately self-contained — does
+    NOT reference any per-group template panel (those were removed
+    2026-05-01 per user request)."""
     if channel == "li":
         return ("LinkedIn Message",
-                "Send connection request with the message above.")
+                "Open their profile and send a connection request.")
     if channel == "call":
         return ("Cold Call",
-                "Use the call script above. Mark VM if no answer, "
-                "Connected if you reach them.")
+                "Mark VM if no answer, Connected if you reach them.")
     return ("Manual Task",
-            "Read the note above and mark done when complete.")
+            "Mark done when complete.")
 
 
 def _drip_card_detail(t, s: AppState, rf, idx: int = 0, total: int = 0):
