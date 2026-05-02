@@ -8778,18 +8778,46 @@ def _restore_aicb_state(s: AppState) -> None:
         pass
 
 
+# Reconnect window: if the user was active within this many seconds, a
+# fresh AppState build is treated as a websocket-reconnect and the page
+# is preserved verbatim. Beyond it, we treat the visit as a "cold open"
+# and apply the dashboard-default redirect for browse/list pages.
+# Cloudflare's WS idle timeout is ~100s, so 5 min = comfortably wider
+# than any single reconnect cycle but well under "I closed my laptop
+# and came back later".
+_RECONNECT_WINDOW_SECONDS = 300
+
+
 def _restore_page_if_recent(s: AppState, ttl_hours: int = 24) -> bool:
     """Restore saved hub/sp/ep onto a fresh AppState if the save is
     recent (default: within 24h). Returns True if restored, False if
     stale / missing / excluded. Pages that require additional state
     (like a loaded campaign editor) are NOT restored — we fall back to
-    a safe parent page so the user lands somewhere useful."""
+    a safe parent page so the user lands somewhere useful.
+
+    Two distinct entry conditions land here, both via the same `/` route:
+
+      - Cold open (laptop closed, idle hours, fresh tab): user expects
+        Dashboard as the home base — we redirect list/browse pages to
+        Dashboard, preserve only deep workflow pages (wizards/editors).
+
+      - Mid-session websocket reconnect (Cloudflare's ~100s WS idle
+        timeout fires while the user sits on a page): user expects to
+        stay on whatever page they were on. Bouncing them to Dashboard
+        feels like the app "timed them out".
+
+    We disambiguate by the AGE of the last-page timestamp:
+      - Age < _RECONNECT_WINDOW_SECONDS  → reconnect → preserve page.
+      - Age ≥ window (within TTL)        → cold open → list pages to
+                                            Dashboard.
+    """
     try:
         ts = app.storage.user.get("_last_page_ts", "")
         if not ts:
             return False
         saved_at = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ")
-        if (datetime.utcnow() - saved_at).total_seconds() > ttl_hours * 3600:
+        age_secs = (datetime.utcnow() - saved_at).total_seconds()
+        if age_secs > ttl_hours * 3600:
             return False
         _hub = app.storage.user.get("_last_hub", "sales") or "sales"
         _sp  = app.storage.user.get("_last_sp",  "dashboard") or "dashboard"
@@ -8800,16 +8828,17 @@ def _restore_page_if_recent(s: AppState, ttl_hours: int = 24) -> bool:
                        "campaign_manager", "prev_launch"}
         if _sp in _needs_camp:
             _sp = "active_camps"
-        # Browse/list pages should NOT be restored on a fresh open — the
-        # user wants the dashboard as the home base, not whatever list
-        # they happened to be looking at last session. Only deep
-        # workflow pages (wizards, editors, settings) restore so that
-        # reconnects mid-task don't lose the user's place.
+        # Browse/list pages: only redirect to Dashboard on a COLD open.
+        # Within the reconnect window, preserve them — otherwise a 100s
+        # idle timeout while the user reads a page silently bounces them
+        # back to the Dashboard, which feels like "the app logged me
+        # out". (User report 2026-05-01.)
+        is_reconnect = age_secs < _RECONNECT_WINDOW_SECONDS
         _list_pages = {"dashboard", "seq_mgr", "active_camps", "drip",
                        "tasks", "responses", "e_responses", "contacts",
                        "e_contacts", "queue", "dnc", "active_clients",
                        "evergreen", "emails_home"}
-        if _sp in _list_pages:
+        if not is_reconnect and _sp in _list_pages:
             _sp = "dashboard"
             _hub = "sales"
         s.hub = _hub; s.sp = _sp; s.ep = _ep
