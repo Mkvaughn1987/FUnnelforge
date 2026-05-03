@@ -52,3 +52,25 @@ def test_legacy_month_override_applies_to_all_holidays_in_month():
     overrides = {"05": "Have a great month."}
     hols = fa._holidays_for_month(2026, 5, overrides=overrides)
     assert all(h[2] == "Have a great month." for h in hols)
+
+
+def test_empty_string_override_is_respected_not_treated_as_unset():
+    """An explicit empty string in overrides should clear the note,
+    not fall through to the month-wide override or the default note."""
+    import flowdrip_app as fa
+    overrides = {
+        "05-memorial-day": "",
+        "05": "Have a great month.",  # legacy month-wide fallback
+    }
+    hols = fa._holidays_for_month(2026, 5, overrides=overrides)
+    by_name = {h[1]: h[2] for h in hols}
+    assert by_name["Memorial Day"] == ""  # explicit empty wins
+    assert by_name["Mother's Day"] == "Have a great month."  # falls through to month-wide
+
+
+def test_missing_key_falls_through_unchanged():
+    """Sanity: pre-existing fall-through behavior for keys that aren't present
+    still works after the chained-or fix."""
+    import flowdrip_app as fa
+    hols = fa._holidays_for_month(2026, 5, overrides={"05": "Month note."})
+    assert all(h[2] == "Month note." for h in hols)

@@ -35903,7 +35903,12 @@ def _holidays_for_month(year: int, month: int,
         if day is None:
             continue
         slug_key = f"{month_key}-{_slugify_holiday_name(h['name'])}"
-        note = overrides.get(slug_key) or overrides.get(month_key) or h["note"]
+        if slug_key in overrides:
+            note = overrides[slug_key]
+        elif month_key in overrides:
+            note = overrides[month_key]
+        else:
+            note = h["note"]
         out.append((day, h["name"], note))
     out.sort(key=lambda t: t[0])
     return out
