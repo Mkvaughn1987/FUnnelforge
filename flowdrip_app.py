@@ -36031,9 +36031,9 @@ def _pop_last_generated_corner(user_email: str, camp_name: str,
 
 _HOLIDAYS = [
     {"month": 1,  "name": "New Year's Day",   "rule": ("fixed", 1),
-     "note": "Wishing you a strong start to the year."},
+     "note": "Cheers to a great year ahead."},
     {"month": 1,  "name": "MLK Day",          "rule": ("nth-weekday", 3, 0),
-     "note": "A day for service and reflection."},
+     "note": "Honoring the dream and the work that continues."},
     {"month": 2,  "name": "Valentine's Day",  "rule": ("fixed", 14),
      "note": "A little appreciation goes a long way."},
     {"month": 3,  "name": "St. Patrick's Day","rule": ("fixed", 17),
@@ -36041,17 +36041,17 @@ _HOLIDAYS = [
     {"month": 4,  "name": "Easter",           "rule": ("easter",),
      "note": "Hope you got time with the people who matter."},
     {"month": 5,  "name": "Mother's Day",     "rule": ("nth-weekday", 2, 6),
-     "note": "Hug a mom. Or be one."},
+     "note": "Happy Mother's Day to all the moms holding it down."},
     {"month": 5,  "name": "Memorial Day",     "rule": ("last-weekday", 0),
-     "note": "Honoring those who served. Office closed."},
+     "note": "Thank you to all who served."},
     {"month": 6,  "name": "Father's Day",     "rule": ("nth-weekday", 3, 6),
-     "note": "Thanks to the dads holding it down."},
+     "note": "Happy Father's Day to all the dads."},
     {"month": 6,  "name": "Juneteenth",       "rule": ("fixed", 19),
      "note": "Recognizing freedom and progress."},
     {"month": 7,  "name": "Independence Day", "rule": ("fixed", 4),
-     "note": "Wishing you a safe and restful holiday."},
+     "note": "Wishing you a safe and happy 4th."},
     {"month": 9,  "name": "Labor Day",        "rule": ("nth-weekday", 1, 0),
-     "note": "Thank you to everyone keeping the lights on."},
+     "note": "Thanks to everyone who builds, fixes, and keeps the lights on."},
     {"month": 10, "name": "Halloween",        "rule": ("fixed", 31),
      "note": "Hope your week brings more treats than tricks."},
     {"month": 11, "name": "Thanksgiving",     "rule": ("nth-weekday", 4, 3),
@@ -36248,15 +36248,27 @@ def _render_holiday_calendar(year: int, month: int,
     if not holidays:
         return grid_html
 
+    def _legend_item(day, name, note):
+        head = (
+            f'<div><strong style="color:{primary};">{day}</strong> '
+            f'{_html.escape(name, quote=False)}</div>'
+        )
+        if note:
+            head += (
+                f'<div style="font-style:italic;color:{muted};font-size:9px;'
+                f'line-height:1.4;margin:1px 0 0 0;">'
+                f'{_html.escape(note, quote=False)}</div>'
+            )
+        return f'<div style="margin-bottom:6px;">{head}</div>'
+
     legend_items = "".join(
-        f'<div><strong style="color:{primary};">{day}</strong> '
-        f'{_html.escape(name, quote=False)}</div>'
-        for day, name, _ in sorted(holidays, key=lambda h: h[0])
+        _legend_item(day, name, note)
+        for day, name, note in sorted(holidays, key=lambda h: h[0])
     )
     legend_html = (
         f'<div data-pc-legend="1" '
         f'style="font-family:{font};font-size:10px;color:{text};'
-        f'margin-top:8px;line-height:1.6;">{legend_items}</div>'
+        f'margin-top:8px;line-height:1.5;">{legend_items}</div>'
     )
     return grid_html + legend_html
 
