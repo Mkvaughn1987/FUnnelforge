@@ -18623,6 +18623,10 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
         "hero_total": 5,  # cached batch size; safe default
         "is_generating": _is_blank or force_generate,
         "error": "",
+        "personal_corner_mode": step.get("personal_corner_mode", "") or "",
+        "personal_corner_note": step.get("personal_corner_note", "") or "",
+        "personal_corner_caption": step.get("personal_corner_caption", "") or "",
+        "personal_corner_photo_b64": step.get("personal_corner_photo_b64", "") or "",
     }
     _verb = "Create" if state["is_generating"] else "Edit"
 
@@ -18847,14 +18851,29 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                             _CURRENT_USER_EMAIL.set(s._user_email)
                             _switch_to_user_paths(s._user_email)
                         subj, body = _generate_newsletter_content_for_step(camp, step_idx)
+                        # Pop the AI-generated corner stash for THIS step.
+                        _stashed = _pop_last_generated_corner(
+                            getattr(s, "_user_email", "") or "",
+                            camp.get("name", ""), step_idx)
                         if not subj or not body:
                             state["error"] = "Generator returned empty content."
                         else:
                             state["subject"] = subj
                             state["body"] = body
+                            if _stashed:
+                                state["personal_corner_mode"] = _stashed.get("mode", "")
+                                state["personal_corner_note"] = _stashed.get("note", "")
                             try:
                                 _subj_inp.set_value(subj)
                                 _body_editor.set_value(body)
+                                # Update the corner UI fields if they exist (Task 10
+                                # creates them; this code is forward-compatible).
+                                if "_corner_mode_radio" in state and _stashed:
+                                    state["_corner_mode_radio"].set_value(
+                                        _stashed.get("mode", ""))
+                                if "_corner_note_textarea" in state and _stashed:
+                                    state["_corner_note_textarea"].set_value(
+                                        _stashed.get("note", ""))
                             except Exception as _ex:
                                 print(f"[NewsletterEditModal] set_value warn: {_ex}",
                                       flush=True)
@@ -36341,6 +36360,13 @@ def _gen_all_issues_for_campaign(camp_name: str) -> None:
             continue
         steps[idx]["subject"] = subj
         steps[idx]["body"] = body
+        _stashed = _pop_last_generated_corner(
+            fresh.get("_owner_email", "")
+            or _email_from_user_path(fresh.get("_path", "")) or "",
+            camp_name, idx)
+        if _stashed:
+            steps[idx]["personal_corner_mode"] = _stashed.get("mode", "")
+            steps[idx]["personal_corner_note"] = _stashed.get("note", "")
         save_campaign(fresh)
         print(f"[NewsletterAutoAll] step {idx} ready for {camp_name}", flush=True)
         _time.sleep(3)
@@ -36486,6 +36512,13 @@ def _auto_refresh_newsletter_tick():
             # consecutive months don't look identical. User overrides win.
             if "_hero_variant" not in steps[step_idx]:
                 steps[step_idx]["_hero_variant"] = step_idx % 5
+            _stashed = _pop_last_generated_corner(
+                camp.get("_owner_email", "")
+                or _email_from_user_path(str(camp_file)) or "",
+                camp_name, step_idx)
+            if _stashed:
+                steps[step_idx]["personal_corner_mode"] = _stashed.get("mode", "")
+                steps[step_idx]["personal_corner_note"] = _stashed.get("note", "")
             camp["emails"] = steps
 
             # Persist campaign (drop helper-only keys before writing)
