@@ -18871,21 +18871,20 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                           flush=True)
                     ui.notify("Photo updated. Click Save to keep it.",
                               type="positive", timeout=3000)
-                    try:
-                        _pc_upload.reset()  # allow re-upload of another file
-                    except Exception:
-                        pass
+                    # _render_corner_fields rebuilds the upload widget with
+                    # a fresh state, so no explicit .reset() is needed.
                     _render_corner_fields()  # refresh preview
                 except Exception as ex:
                     print(f"[CornerPhoto] error: {ex}", flush=True)
                     ui.notify(f"Image error: {str(ex)[:80]}", type="negative")
 
-            _pc_upload = ui.upload(
-                on_upload=_on_corner_photo_upload,
-                auto_upload=True,
-                max_files=1,
-            ).props('accept="image/*"').style("display:none;")
-
+            # Note: this upload widget renders its own "Upload" button +
+            # file picker UI. The earlier hidden-input + custom-trigger
+            # pattern silently dropped uploads on this modal (server logs
+            # showed click events but never the on_upload callback) —
+            # we don't know exactly why this widget instance behaved
+            # differently from the hero upload, but exposing the default
+            # NiceGUI UI is reliable.
             _corner_field_holder = ui.element("div")
 
             # Persistent textarea references — created once. _render_corner_fields
@@ -18925,12 +18924,16 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                                     f"margin-bottom:8px;"):
                                 ui.label("No photo yet")
 
-                        with ui.element("button").classes("fd-gb").style(
-                                "padding:5px 12px;font-size:11px;"
-                                "margin-bottom:10px;").on(
-                                "click",
-                                lambda: _pc_upload.run_method("pickFiles")):
-                            ui.label("🖼 Upload photo").style("pointer-events:none;")
+                        # NiceGUI's default upload widget — visible, with
+                        # its own pick + upload UX. Lives inside the holder
+                        # so it re-renders cleanly on mode switches.
+                        ui.upload(
+                            on_upload=_on_corner_photo_upload,
+                            auto_upload=True,
+                            max_files=1,
+                            label="Upload photo",
+                        ).props('accept="image/*" flat dense color=primary').style(
+                            "max-width:240px;margin-bottom:10px;")
 
                         ui.label("Caption").classes("fd-fl").style("margin-top:4px;")
                         _ta = ui.textarea(
