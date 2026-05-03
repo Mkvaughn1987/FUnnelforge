@@ -35589,6 +35589,8 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
         _hol_html = _render_holiday_calendar(int(_send_year), int(_send_month),
                                              _holidays)
 
+        _corner_inner = _render_corner_inner(data)
+
         sections_html += f'''
         <tr><td style="padding:18px 40px 10px;background:#FFFFFF;">
           <table cellpadding="0" cellspacing="0" width="100%"
@@ -35608,7 +35610,7 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
                 </div>
                 {_activity_img}
               </td>
-              <td valign="top" width="28%">&nbsp;</td>
+              <td valign="top" width="28%" style="padding-left:18px;"><span data-pc="start"></span>{_corner_inner}<span data-pc="end"></span></td>
             </tr>
           </table>
         </td></tr>'''
@@ -36036,8 +36038,9 @@ def _render_holiday_calendar(year: int, month: int,
 def _render_corner_inner(data: dict) -> str:
     """Render the inner HTML for the Personal Corner column based on the
     issue's `personal_corner_mode`. Returns "&nbsp;" for empty/missing
-    content. Output is the inner HTML — caller wraps it in pc-start/pc-end
-    comment markers."""
+    content. Output is the inner HTML — caller wraps it in
+    <span data-pc="start"></span> / <span data-pc="end"></span> markers
+    (span-based, not HTML comments, because _strip_dashes mangles `--`)."""
     import html as _html
 
     mode = (data.get("personal_corner_mode") or "").strip().lower()
