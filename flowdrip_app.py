@@ -19006,15 +19006,42 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                 ui.label("Cancel")
 
             def _save():
+                # Pull current values from corner UI widgets if they exist.
+                _new_mode = (state["_corner_mode_radio"].value
+                             if "_corner_mode_radio" in state else
+                             state["personal_corner_mode"]) or ""
+                _new_note = (state["_corner_note_textarea"].value
+                             if "_corner_note_textarea" in state else
+                             state["personal_corner_note"]) or ""
+                _new_caption = (state["_corner_caption_textarea"].value
+                                if "_corner_caption_textarea" in state else
+                                state["personal_corner_caption"]) or ""
+                _new_photo = state.get("personal_corner_photo_b64", "") or ""
+
+                # Compose the new corner inner HTML.
+                _new_inner = _render_corner_inner({
+                    "personal_corner_mode": _new_mode,
+                    "personal_corner_note": _new_note,
+                    "personal_corner_caption": _new_caption,
+                    "personal_corner_photo_b64": _new_photo,
+                })
+
+                # Splice into the (possibly hero-swapped) body in the editor.
+                _orig_body = _body_editor.value or state["body"]
+                _new_body = _splice_corner_into_body(_orig_body, _new_inner)
+
                 step["subject"] = _subj_inp.value or state["subject"]
-                step["body"] = _body_editor.value or state["body"]
+                step["body"] = _new_body
                 step["_hero_variant"] = state["hero_variant"]
+                step["personal_corner_mode"] = _new_mode
+                step["personal_corner_note"] = _new_note
+                step["personal_corner_caption"] = _new_caption
+                step["personal_corner_photo_b64"] = _new_photo
                 step["confirmed"] = True
                 step["auto_confirmed"] = False
                 save_campaign(camp)
-                # Push the edited copy into any pending queue items so
-                # the scheduler sends the user's version, not the
-                # cached pre-edit version.
+
+                # Push the edited copy into any pending queue items.
                 try:
                     qp = _user_queue_path()
                     if qp.exists():
@@ -19031,6 +19058,10 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                                     continue
                                 q["subject"] = step["subject"]
                                 q["body"] = step["body"]
+                                q["personal_corner_mode"] = _new_mode
+                                q["personal_corner_note"] = _new_note
+                                q["personal_corner_caption"] = _new_caption
+                                q["personal_corner_photo_b64"] = _new_photo
                                 n += 1
                             if n:
                                 qp.write_text(json.dumps(queue, indent=2),
