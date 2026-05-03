@@ -35577,20 +35577,10 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             _hol_overrides = (load_config() or {}).get("holiday_note_overrides") or {}
         except Exception:
             _hol_overrides = {}
-        _hol = _holiday_for_month(int(_send_year), int(_send_month), overrides=_hol_overrides)
-        if _hol:
-            _hol_date, _hol_name, _hol_note = _hol
-            _hol_html = (
-                f'<div style="font-family:{_FONT};font-size:10px;font-weight:700;'
-                f'color:{nc["primary"]};text-transform:uppercase;letter-spacing:1.6px;'
-                f'margin:0 0 6px;">📅 {_hol_date}</div>'
-                f'<div style="font-family:{_DISPLAY_FONT};font-size:18px;font-weight:700;'
-                f'color:{nc["primary"]};margin:0 0 8px;">{_hol_name}</div>'
-                f'<div style="font-family:{_FONT};font-size:12px;color:{nc["text"]};'
-                f'line-height:1.5;font-style:italic;">{_hol_note}</div>'
-            )
-        else:
-            _hol_html = "&nbsp;"
+        _holidays = _holidays_for_month(int(_send_year), int(_send_month),
+                                        overrides=_hol_overrides)
+        # Calendar rendering wired up in Task 3.
+        _hol_html = "&nbsp;" if not _holidays else f"({len(_holidays)} holidays)"
 
         sections_html += f'''
         <tr><td style="padding:18px 40px 10px;background:#FFFFFF;">
@@ -35793,38 +35783,87 @@ def _load_hero_variant_b64_for_camp(camp: dict, variant_idx: int):
 
 
 # ── Monthly holiday block (newsletter footer LEFT rail) ────────────────────
-# Hard-coded curated list. Users can override the note text per month in
-# Settings via `holiday_note_overrides` (dict keyed by zero-padded "MM").
-_HOLIDAYS_BY_MONTH: dict = {
-    1:  ("New Year's Day",     "Wishing you a strong start to the year."),
-    2:  ("Valentine's Day",    "A little appreciation goes a long way."),
-    3:  ("St. Patrick's Day",  "Wishing you a little luck this month."),
-    4:  ("Easter",             "Hope you got time with the people who matter."),
-    5:  ("Memorial Day",       "Honoring those who served. Office closed."),
-    6:  ("Juneteenth",         "Recognizing freedom and progress."),
-    7:  ("Independence Day",   "Wishing you a safe and restful holiday."),
-    8:  ("Summer",             "Enjoying the long days while they last."),
-    9:  ("Labor Day",          "Thank you to everyone keeping the lights on."),
-    10: ("Halloween",          "Hope your week brings more treats than tricks."),
-    11: ("Thanksgiving",       "Grateful for the partners and people we work with."),
-    12: ("Christmas",          "Wishing you peace and rest with your people."),
-}
+# Each entry has a month, a display name, a date rule, and a default note.
+# Users can override per-holiday notes via Settings `holiday_note_overrides`,
+# keyed either by "MM-name-slug" (preferred) or "MM" (legacy, applies to all
+# holidays that month).
+#
+# Date rule kinds:
+#   ("fixed", day)              → that day-of-month, every year
+#   ("nth-weekday", n, weekday) → n-th occurrence of weekday (Mon=0..Sun=6)
+#   ("last-weekday", weekday)   → last occurrence of weekday in the month
+#   ("easter",)                 → Anonymous Gregorian computus (April only)
+
+_HOLIDAYS = [
+    {"month": 1,  "name": "New Year's Day",   "rule": ("fixed", 1),
+     "note": "Wishing you a strong start to the year."},
+    {"month": 1,  "name": "MLK Day",          "rule": ("nth-weekday", 3, 0),
+     "note": "A day for service and reflection."},
+    {"month": 2,  "name": "Valentine's Day",  "rule": ("fixed", 14),
+     "note": "A little appreciation goes a long way."},
+    {"month": 3,  "name": "St. Patrick's Day","rule": ("fixed", 17),
+     "note": "Wishing you a little luck this month."},
+    {"month": 4,  "name": "Easter",           "rule": ("easter",),
+     "note": "Hope you got time with the people who matter."},
+    {"month": 5,  "name": "Mother's Day",     "rule": ("nth-weekday", 2, 6),
+     "note": "Hug a mom. Or be one."},
+    {"month": 5,  "name": "Memorial Day",     "rule": ("last-weekday", 0),
+     "note": "Honoring those who served. Office closed."},
+    {"month": 6,  "name": "Father's Day",     "rule": ("nth-weekday", 3, 6),
+     "note": "Thanks to the dads holding it down."},
+    {"month": 6,  "name": "Juneteenth",       "rule": ("fixed", 19),
+     "note": "Recognizing freedom and progress."},
+    {"month": 7,  "name": "Independence Day", "rule": ("fixed", 4),
+     "note": "Wishing you a safe and restful holiday."},
+    {"month": 9,  "name": "Labor Day",        "rule": ("nth-weekday", 1, 0),
+     "note": "Thank you to everyone keeping the lights on."},
+    {"month": 10, "name": "Halloween",        "rule": ("fixed", 31),
+     "note": "Hope your week brings more treats than tricks."},
+    {"month": 11, "name": "Thanksgiving",     "rule": ("nth-weekday", 4, 3),
+     "note": "Grateful for the partners and people we work with."},
+    {"month": 12, "name": "Christmas",        "rule": ("fixed", 25),
+     "note": "Wishing you peace and rest with your people."},
+]
 
 
-def _holiday_for_month(year: int, month: int, overrides: dict | None = None):
-    """Return (date_str, name, note) for the named month/year. Variable-date
-    holidays (Easter, Labor Day, Thanksgiving) compute the correct date for
-    the given year. `overrides` is the user's `holiday_note_overrides` dict
-    (keys are zero-padded "MM")."""
+def _slugify_holiday_name(name: str) -> str:
+    """'Mother's Day' → 'mothers-day'. Used for override keys."""
+    import re as _re
+    s = name.lower()
+    s = _re.sub(r"[^\w\s-]", "", s)
+    s = _re.sub(r"\s+", "-", s).strip("-")
+    return s
+
+
+def _resolve_holiday_day(year: int, month: int, rule: tuple) -> int | None:
+    """Resolve a holiday's date rule to a concrete day-of-month for the given
+    year. Returns None if the rule doesn't apply to this month/year."""
     from datetime import date as _date, timedelta as _td
-    if month not in _HOLIDAYS_BY_MONTH:
+    kind = rule[0]
+    if kind == "fixed":
+        return int(rule[1])
+    if kind == "nth-weekday":
+        n, target_wd = int(rule[1]), int(rule[2])
+        d = _date(year, month, 1)
+        count = 0
+        while d.month == month:
+            if d.weekday() == target_wd:
+                count += 1
+                if count == n:
+                    return d.day
+            d += _td(days=1)
         return None
-    name, default_note = _HOLIDAYS_BY_MONTH[month]
-
-    fixed = {1: 1, 2: 14, 3: 17, 5: 25, 6: 19, 7: 4, 10: 31, 12: 25}
-    if month in fixed:
-        d = _date(year, month, fixed[month])
-    elif month == 4:  # Easter (Anonymous Gregorian computus)
+    if kind == "last-weekday":
+        target_wd = int(rule[1])
+        from calendar import monthrange as _mr
+        last = _mr(year, month)[1]
+        d = _date(year, month, last)
+        while d.weekday() != target_wd:
+            d -= _td(days=1)
+        return d.day
+    if kind == "easter":
+        if month != 4:
+            return None
         a = year % 19
         b = year // 100
         c = year % 100
@@ -35839,40 +35878,35 @@ def _holiday_for_month(year: int, month: int, overrides: dict | None = None):
         m = (a + 11 * h + 22 * l) // 451
         em_month = (h + l - 7 * m + 114) // 31
         em_day = ((h + l - 7 * m + 114) % 31) + 1
-        d = _date(year, em_month, em_day)
-        if d.month != 4:
-            # Easter occasionally falls in March; pin to a stable April
-            # anchor for that month's newsletter so the layout never
-            # renders a missing/empty block.
-            d = _date(year, 4, 1)
-    elif month == 8:  # Summer anchor — first Monday of August
-        d = _date(year, 8, 1)
-        while d.weekday() != 0:
-            d += _td(days=1)
-    elif month == 9:  # Labor Day — first Monday
-        d = _date(year, 9, 1)
-        while d.weekday() != 0:
-            d += _td(days=1)
-    elif month == 11:  # Thanksgiving — 4th Thursday
-        d = _date(year, 11, 1)
-        thursdays = 0
-        while True:
-            if d.weekday() == 3:
-                thursdays += 1
-                if thursdays == 4:
-                    break
-            d += _td(days=1)
-    else:
-        return None
+        if em_month != 4:
+            return 1
+        return em_day
+    return None
 
-    note = default_note
-    if overrides:
-        key = f"{month:02d}"
-        if overrides.get(key):
-            note = overrides[key]
 
-    date_str = f"{d.strftime('%b')} {d.day}"
-    return (date_str, name, note)
+def _holidays_for_month(year: int, month: int,
+                        overrides: dict | None = None) -> list[tuple]:
+    """Return a list of (day_int, name, note) for the given month/year,
+    sorted ascending by day. Empty list if no holidays.
+
+    Overrides dict keys (in priority order):
+      "MM-{slug}"  → applies only to that specific holiday
+      "MM"         → legacy: applies to every holiday that month
+    """
+    out: list[tuple[int, str, str]] = []
+    overrides = overrides or {}
+    month_key = f"{month:02d}"
+    for h in _HOLIDAYS:
+        if h["month"] != month:
+            continue
+        day = _resolve_holiday_day(year, month, h["rule"])
+        if day is None:
+            continue
+        slug_key = f"{month_key}-{_slugify_holiday_name(h['name'])}"
+        note = overrides.get(slug_key) or overrides.get(month_key) or h["note"]
+        out.append((day, h["name"], note))
+    out.sort(key=lambda t: t[0])
+    return out
 
 
 def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
