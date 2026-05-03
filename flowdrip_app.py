@@ -18822,6 +18822,12 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                 # Re-render conditional corner fields when the radio changes.
                 # Defined here so _render_corner_fields (declared below) is
                 # in scope at call time via closure.
+                _val = getattr(_e, "value", None) if _e is not None else None
+                try:
+                    _val = _val or _corner_mode_radio.value
+                except Exception:
+                    pass
+                print(f"[CornerMode] radio changed: value={_val!r}", flush=True)
                 try:
                     _render_corner_fields()
                 except NameError:
