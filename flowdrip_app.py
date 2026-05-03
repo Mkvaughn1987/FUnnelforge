@@ -27601,9 +27601,15 @@ def p_ai_campaign(s: AppState, rf):
         # at the SAME x-position as the bottom Next button at the form
         # column's right edge — instead of floating out at the page
         # margin (user request 2026-05-01).
+        # Match _grid_style (the main wizard grid) below: 280px sidebar +
+        # 892px form column, max-width 1200, gap 28. Top + main grids must
+        # have the SAME column dimensions so the top-right Next lands at
+        # the same x as the bottom-right Next. (When the main grid was
+        # widened from 980→1200 on 2026-05-02 this top grid was missed —
+        # buttons drifted out of alignment.)
         _top_row_style = (
-            "display:grid;grid-template-columns:280px minmax(0,620px);"
-            "gap:28px;max-width:980px;margin:0 auto;"
+            "display:grid;grid-template-columns:280px minmax(0,892px);"
+            "gap:28px;max-width:1200px;margin:0 auto;"
             "align-items:center;margin-bottom:6px;"
             if _wiz_mode == "wizard"
             else "display:flex;align-items:center;justify-content:space-between;"
