@@ -18588,7 +18588,8 @@ def _create_newsletter_dialog(s, rf):
     dlg.open()
 
 
-def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
+def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
+                           force_generate: bool = False) -> None:
     """Centered modal for editing one auto-refreshed newsletter issue.
     Replaces the old inline panel that lived at the bottom of `p_evergreen`
     and was hard to find.
@@ -18611,12 +18612,19 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
     issue_label = step.get("name") or f"Issue {step_idx + 1}"
     nl_name = camp.get("newsletter_name") or camp.get("name", "")
 
+    # If the step has no body (or only the AI placeholder marker), this
+    # is a "Create" flow — kick off generation as soon as the modal opens.
+    _existing_body = (step.get("body") or "").strip()
+    _is_blank = (not _existing_body) or "[AI:" in _existing_body
     state: dict = {
         "subject": step.get("subject", "") or "",
         "body": step.get("body", "") or "",
         "hero_variant": int(step.get("_hero_variant", step_idx % 5) or 0),
         "hero_total": 5,  # cached batch size; safe default
+        "is_generating": _is_blank or force_generate,
+        "error": "",
     }
+    _verb = "Create" if state["is_generating"] else "Edit"
 
     with ui.dialog() as dlg, ui.card().style(
             f"background:{C['bg']};border:1px solid {C['border']};"
@@ -18627,7 +18635,7 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
         with ui.element("div").style(
                 f"display:flex;align-items:center;justify-content:space-between;"
                 f"padding:16px 20px;border-bottom:1px solid {C['border']};"):
-            ui.label(f"Edit: {nl_name} — {issue_label}").style(
+            ui.label(f"{_verb}: {nl_name} — {issue_label}").style(
                 f"font-size:15px;font-weight:700;color:{C['teal']};"
                 f"font-family:'Nunito',sans-serif;")
             with ui.element("button").style(
@@ -18786,7 +18794,7 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
                         "click", lambda: _hero_upload.run_method("pickFiles")):
                     ui.label("🖼 Upload your own")
 
-            # Body editor
+            # Body editor + (when generating) spinner overlay.
             ui.label("Body").classes("fd-fl")
             _body_editor = ui.editor(value=state["body"])
             try:
@@ -18797,6 +18805,74 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int) -> None:
                 f"min-height:380px;background:{C['surface']};"
                 f"border:1px solid {C['border']};border-radius:6px;"
                 f"color:{C['text_l']};font-family:inherit;")
+
+            # Spinner placeholder shown WHILE the AI is writing the
+            # first issue. Hidden once content lands.
+            _gen_holder = ui.element("div")
+
+            def _render_gen_state():
+                _gen_holder.clear()
+                if state["is_generating"]:
+                    with _gen_holder:
+                        with ui.element("div").style(
+                                f"background:{C['surface']};border:1px dashed "
+                                f"{C['teal']}60;border-radius:8px;padding:18px;"
+                                f"margin-top:10px;text-align:center;"):
+                            ui.label("✨ Generating fresh content…").style(
+                                f"color:{C['teal']};font-weight:700;font-size:13px;"
+                                f"margin-bottom:4px;")
+                            ui.label("Claude is researching the market. ~15-30 seconds.").style(
+                                f"color:{C['muted']};font-size:11px;")
+                elif state["error"]:
+                    with _gen_holder:
+                        with ui.element("div").style(
+                                f"background:{C['danger']}12;border:1px solid "
+                                f"{C['danger']}50;border-radius:8px;padding:14px;"
+                                f"margin-top:10px;"):
+                            ui.label("Generation failed").style(
+                                f"color:{C['danger']};font-weight:700;margin-bottom:4px;")
+                            ui.label(state["error"][:240]).style(
+                                f"color:{C['text_l']};font-size:12px;")
+
+            _render_gen_state()
+
+            def _kick_off_generation():
+                state["is_generating"] = True
+                state["error"] = ""
+                _render_gen_state()
+
+                def _bg():
+                    try:
+                        if getattr(s, "_user_email", ""):
+                            _CURRENT_USER_EMAIL.set(s._user_email)
+                            _switch_to_user_paths(s._user_email)
+                        subj, body = _generate_newsletter_content_for_step(camp, step_idx)
+                        if not subj or not body:
+                            state["error"] = "Generator returned empty content."
+                        else:
+                            state["subject"] = subj
+                            state["body"] = body
+                            try:
+                                _subj_inp.set_value(subj)
+                                _body_editor.set_value(body)
+                            except Exception as _ex:
+                                print(f"[NewsletterEditModal] set_value warn: {_ex}",
+                                      flush=True)
+                    except Exception as ex:
+                        state["error"] = str(ex)
+                    finally:
+                        state["is_generating"] = False
+                        try:
+                            _render_gen_state()
+                        except Exception:
+                            pass
+
+                import threading as _thr
+                _thr.Thread(target=_bg, daemon=True).start()
+
+            # If we entered the modal in "Create" mode, fire generation now.
+            if state["is_generating"]:
+                _kick_off_generation()
 
         # ── Footer (sticky) ─────────────────────────────────────────
         with ui.element("div").style(
@@ -18943,21 +19019,27 @@ def p_newsletters(s, rf):
                         f"border-radius:99px;padding:1px 8px;margin-top:4px;"
                         f"display:inline-block;")
 
-            # Edit button
-            def _edit(c=camp):
+            # Create / Edit button - 'Create' when next pending step
+            # has no body yet, 'Edit' once content exists.
+            _next_body = ((_next_step or {}).get("body") or "").strip()
+            _needs_create = (not _next_body) or "[AI:" in _next_body
+            _btn_label = "✦ Create" if _needs_create else "✎ Edit"
+            _btn_color = C["teal"] if _needs_create else C["indigo"]
+
+            def _edit(c=camp, force=_needs_create):
                 _idx = _find_next_evergreen_step(c)
                 _emails = c.get("emails", []) or []
                 if _idx >= len(_emails):
                     ui.notify("All newsletter issues have been sent.", type="info")
                     return
-                _edit_newsletter_modal(s, rf, c, _idx)
+                _edit_newsletter_modal(s, rf, c, _idx, force_generate=force)
             with ui.element("button").style(
                     f"padding:6px 16px;font-size:12px;font-weight:700;"
-                    f"background:{C['indigo']}18;color:{C['indigo']};"
-                    f"border:1px solid {C['indigo']}60;border-radius:8px;"
+                    f"background:{_btn_color}18;color:{_btn_color};"
+                    f"border:1px solid {_btn_color}60;border-radius:8px;"
                     f"cursor:pointer;font-family:inherit;flex-shrink:0;").on(
                     "click", _edit):
-                ui.label("✎ Edit").style("pointer-events:none;")
+                ui.label(_btn_label).style("pointer-events:none;")
 
 
 def p_evergreen(s, rf):
@@ -19261,14 +19343,15 @@ def p_evergreen(s, rf):
                         # automatic 3 days before send; users only need this
                         # when they want to tweak an auto-refreshed issue.
                         if _is_newsletter:
-                            def _refresh(c=camp):
+                            def _refresh(c=camp, force=False):
                                 _next_idx = _find_next_evergreen_step(c)
                                 _steps = c.get("emails", []) or []
                                 if _next_idx >= len(_steps):
                                     ui.notify("All newsletter issues have been sent.",
                                               type="info")
                                     return
-                                _edit_newsletter_modal(s, rf, c, _next_idx)
+                                _edit_newsletter_modal(s, rf, c, _next_idx,
+                                                       force_generate=force)
                             # Show Preview button only when the next step has
                             # real content (either auto-refreshed or manually
                             # generated)  -  no point previewing a blank template.
@@ -19320,13 +19403,18 @@ def p_evergreen(s, rf):
                                         f"border-radius:8px;cursor:pointer;font-family:inherit;"
                                         f"pointer-events:auto;").on("click", _preview):
                                     ui.label("✉ Preview").style("pointer-events:none;")
+                            # 'Create' if no body yet, 'Edit' once content exists
+                            _eg_btn_label = "✦ Create" if not _is_ready else "✎ Edit"
+                            _eg_btn_color = C["teal"] if not _is_ready else C["indigo"]
+                            _eg_force = not _is_ready
                             with ui.element("button").style(
                                     f"padding:5px 14px;font-size:12px;font-weight:700;"
-                                    f"background:{C['indigo']}18;color:{C['indigo']};"
-                                    f"border:1px solid {C['indigo']}60;border-radius:8px;"
+                                    f"background:{_eg_btn_color}18;color:{_eg_btn_color};"
+                                    f"border:1px solid {_eg_btn_color}60;border-radius:8px;"
                                     f"cursor:pointer;font-family:inherit;"
-                                    f"pointer-events:auto;").on("click", _refresh):
-                                ui.label("✎ Edit").style("pointer-events:none;")
+                                    f"pointer-events:auto;").on(
+                                    "click", lambda c=camp, f=_eg_force: _refresh(c, f)):
+                                ui.label(_eg_btn_label).style("pointer-events:none;")
                         # Enroll / New Placement button
                         if _is_placement:
                             def _new_placement(c=camp, _fg=fg):
