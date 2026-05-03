@@ -36227,6 +36227,7 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         f'    {{"category":"...","headline":"...","blurb":"...","link":"..."}}\n'
         f'  ],\n'
         f'  "market_update": "3-5 bullet points on comp, talent supply, what offers are winning. NOT paragraphs.",\n'
+        f'  "personal_corner_note": "2-3 first-person sentences (~25-50 words) reflecting on the month in the sender\'s voice. NO greeting, NO sign-off, NO link, NO CTA. Just a short reflection.",\n'
         + _spot_schema_block +
         f'  "top_news": ["2-3 ONE-SENTENCE headlines"]\n'
         f'}}\n\n'
@@ -36257,6 +36258,16 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         print(f"[NewsletterAutoRefresh] AI call failed: {e}", flush=True)
         return (None, None)
 
+    _corner_note_text = (result.get("personal_corner_note") or "").strip()
+    _corner_mode = "note" if _corner_note_text else ""
+    _stash_owner = (camp.get("_owner_email")
+                    or _email_from_user_path(camp.get("_path", ""))
+                    or "")
+    _last_generated_corner[(_stash_owner, camp.get("name", ""), int(step_idx))] = {
+        "mode": _corner_mode,
+        "note": _corner_note_text,
+    }
+
     # Prefer niche (more specific) over sector when available, so taglines
     # like "Construction — Healthcare Construction Intelligence for SoCal"
     # collapse to the cleaner "Healthcare Construction Intelligence for
@@ -36285,6 +36296,10 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         "contact_phone": contact_phone,
         "cta_text": "Let's Talk",
         "cta_url": f"mailto:{contact_email}" if contact_email else "#",
+        "personal_corner_mode": _corner_mode,
+        "personal_corner_note": _corner_note_text,
+        "personal_corner_caption": "",
+        "personal_corner_photo_b64": "",
     }
     try:
         body_html = _render_newsletter_html(nl_data)
