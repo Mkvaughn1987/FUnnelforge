@@ -10131,10 +10131,12 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
                     inflight.discard(camp_name)
                 except Exception:
                     pass
-                try:
-                    rf()
-                except Exception:
-                    pass
+                # NO rf() call here — earlier version called rf() on every
+                # bg completion, which caused a page-refresh storm when
+                # multiple campaigns (each spawning call + LI bg threads)
+                # all completed within ~30s. The user perceived this as
+                # "random refreshing." Briefings populate the cache and
+                # show on the user's next manual page interaction.
 
         import threading as _thr
         _thr.Thread(target=_bg, daemon=True).start()
@@ -10156,7 +10158,7 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
                     "display:flex;align-items:center;gap:10px;"
                     "padding:6px 0;"):
                 ui.spinner(size="sm").style(f"color:{C['call_col']};")
-                ui.label("✨ Generating… ~15-30 seconds.").style(
+                ui.label("✨ Generating in the background — refresh in ~30s to see it.").style(
                     f"font-size:12px;color:{C['muted']};")
             return
         # Cached briefing — render the talking points + candidates.
@@ -10231,10 +10233,8 @@ def _render_li_message_card(camp: dict, s: AppState, rf):
                     inflight.discard(camp_name)
                 except Exception:
                     pass
-                try:
-                    rf()
-                except Exception:
-                    pass
+                # See _render_call_briefing_card for why we don't rf()
+                # here. tl;dr: avoids page-refresh storm.
 
         import threading as _thr
         _thr.Thread(target=_bg, daemon=True).start()
@@ -10256,7 +10256,7 @@ def _render_li_message_card(camp: dict, s: AppState, rf):
                     "display:flex;align-items:center;gap:10px;"
                     "padding:6px 0;"):
                 ui.spinner(size="sm").style(f"color:{C['indigo']};")
-                ui.label("✨ Generating… ~15-30 seconds.").style(
+                ui.label("✨ Generating in the background — refresh in ~30s to see it.").style(
                     f"font-size:12px;color:{C['muted']};")
             return
         # Cached — render the quoted block + Copy button.
