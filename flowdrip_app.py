@@ -18860,8 +18860,8 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
     state: dict = {
         "subject": step.get("subject", "") or "",
         "body": step.get("body", "") or "",
-        "hero_variant": int(step.get("_hero_variant", step_idx % 5) or 0),
-        "hero_total": 5,  # cached batch size; safe default
+        "hero_variant": int(step.get("_hero_variant", step_idx % 3) or 0),
+        "hero_total": 3,  # Unsplash batch size (3 candidates, all cached eagerly)
         "is_generating": _is_blank or force_generate,
         "error": "",
     }
@@ -18896,7 +18896,7 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                 f"font-family:inherit;margin-bottom:14px;")
 
             # Hero photo controls (upload). The auto-refresh sweep
-            # rotates `_hero_variant = step_idx % 5` so each monthly
+            # rotates `_hero_variant = step_idx % 3` so each monthly
             # issue uses a different cached photo automatically — no
             # in-modal carousel needed for the common case.
             def _hero_city_state():
@@ -34863,14 +34863,15 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             return ""
 
     def _unsplash_fetch_city_batch(city: str, state: str, slug: str, cache_dir) -> bool:
-        """Fetch up to 5 Unsplash candidates for a city, crop each to 640x180,
+        """Fetch up to 3 Unsplash candidates for a city, crop each to 640x180,
         cache them at {slug}.unsplash.{i}.hero.jpg, and save attribution
         metadata at {slug}.unsplash.meta.json. Returns True on success.
 
-        We issue ONE search API call and lazily download each candidate as
-        it's first requested (download-on-use keeps the Unsplash dev quota
-        happy since we don't actually need 5 until the user cycles that
-        far). The meta file records image URLs + attribution for all 5.
+        We issue ONE search API call and persist metadata for 3 candidates.
+        Downloads happen eagerly in the caller (_city_image_b64) so the user
+        can cycle through all 3 in the editor without "not cached yet"
+        fallbacks. (Earlier iterations cached 5 with lazy download — users
+        couldn't preview anything beyond variant 0 until auto-refresh ran.)
         """
         if not UNSPLASH_ACCESS_KEY:
             return False
@@ -34881,7 +34882,7 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             def _search(q: str) -> list:
                 url = (
                     "https://api.unsplash.com/search/photos"
-                    f"?query={urllib.parse.quote(q)}&per_page=5"
+                    f"?query={urllib.parse.quote(q)}&per_page=3"
                     "&orientation=landscape&content_filter=high"
                 )
                 req = urllib.request.Request(url, headers={
@@ -34894,7 +34895,7 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
 
             q1 = f"{city} skyline" + (f" {state}" if state else "")
             results = _search(q1)
-            if len(results) < 3:
+            if len(results) < 2:
                 # Fall back to broader query if skyline search is thin
                 results = _search(city + (f" {state}" if state else "")) or results
             if not results:
@@ -34903,7 +34904,7 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             # Persist attribution metadata so the render can surface a
             # "Photo by {name} on Unsplash" credit line per Unsplash ToS.
             meta = {"variants": []}
-            for r in results[:5]:
+            for r in results[:3]:
                 user = r.get("user", {}) or {}
                 meta["variants"].append({
                     "name": user.get("name", "") or "Unknown",
@@ -34983,13 +34984,13 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
         640×180 JPEG so the render is faithful across every email client.
 
         Source priority:
-          1. Unsplash (rich variety, 5 candidates, photographer credit)
+          1. Unsplash (3 candidates, all eagerly cached, photographer credit)
           2. Wikipedia page_image (single fallback, no credit required)
 
         Returns a tuple: (b64_str, attribution_or_None, total_variants_int).
         - attribution is {"name", "profile_url", "unsplash_url"} for Unsplash,
           None for Wikipedia
-        - total_variants is up to 5 for Unsplash, 1 for Wikipedia (so the UI
+        - total_variants is up to 3 for Unsplash, 1 for Wikipedia (so the UI
           can show/hide the "Try another photo" button accordingly)
         """
         if not city:
@@ -35008,8 +35009,21 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
                 try:
                     meta = json.loads(meta_path.read_text(encoding="utf-8"))
                     variants = meta.get("variants", [])
-                    total = len(variants)
+                    # Cap at 3 even if legacy meta has 5 — keeps UI consistent
+                    # with the new 3-photo limit. The extra .hero.jpg files
+                    # for variants 3, 4 stay on disk harmlessly.
+                    total = min(len(variants), 3)
                     if total > 0:
+                        # Eagerly download ALL variants up to `total` so the
+                        # editor's photo cycler can preview every option
+                        # without a "not cached yet" fallback. Each call is
+                        # idempotent: existing files short-circuit.
+                        for _v_idx in range(total):
+                            try:
+                                _unsplash_download_variant(slug, cache_dir, _v_idx)
+                            except Exception:
+                                pass
+
                         idx = max(0, min(variant, total - 1))
                         if _unsplash_download_variant(slug, cache_dir, idx):
                             hero_path = cache_dir / f"{slug}.unsplash.{idx}.hero.jpg"
@@ -37045,7 +37059,7 @@ def _auto_refresh_newsletter_tick():
             # Default the hero variant to a different photo per issue so
             # consecutive months don't look identical. User overrides win.
             if "_hero_variant" not in steps[step_idx]:
-                steps[step_idx]["_hero_variant"] = step_idx % 5
+                steps[step_idx]["_hero_variant"] = step_idx % 3
             _stashed = _pop_last_generated_corner(
                 camp.get("_owner_email", "")
                 or _email_from_user_path(str(camp_file)) or "",
