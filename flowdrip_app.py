@@ -10079,6 +10079,214 @@ def sidebar(s: AppState, rf):
                 f"margin-left:auto;flex-shrink:0;")
 
 # ═══════════════════════════════════════════════════════════════════════════
+#  Daily-page AI briefing panels (call + LinkedIn)
+# ═══════════════════════════════════════════════════════════════════════════
+#
+# Two small per-campaign panels rendered above the daily task cards:
+#   - Call briefing (talking points + candidates) above the cold call
+#     stack so the recruiter can scan it before dialing.
+#   - LinkedIn connection message above the LinkedIn stack — same
+#     message for every contact in the campaign.
+# Both auto-generate the first time a user views the daily page for a
+# campaign that doesn't have a cached briefing/message yet (~15-30s
+# spinner). After that, instant. Cached on the campaign dict and
+# persisted via save_campaign().
+
+def _render_call_briefing_card(camp: dict, s: AppState, rf):
+    """Render the cold-call briefing card above the call stack.
+
+    Auto-fires AI generation in a background thread on first render
+    if camp['call_briefing'] isn't cached yet. Subsequent renders are
+    instant from cache.
+    """
+    if camp is None:
+        return
+    camp_name = camp.get("name", "") or ""
+    briefing = camp.get("call_briefing") if isinstance(camp.get("call_briefing"), dict) else None
+    inflight = getattr(s, "_call_briefing_gen_inflight", None)
+    if inflight is None:
+        inflight = set()
+        s._call_briefing_gen_inflight = inflight
+    is_inflight = camp_name in inflight
+    has_key = bool(ANTHROPIC_API_KEY)
+
+    # Kick off generation if not cached and not already running.
+    if not briefing and has_key and not is_inflight:
+        inflight.add(camp_name)
+        _user = getattr(s, "_user_email", "") or ""
+
+        def _bg():
+            try:
+                if _user:
+                    try:
+                        _CURRENT_USER_EMAIL.set(_user)
+                        _switch_to_user_paths(_user)
+                    except Exception:
+                        pass
+                _generate_call_briefing_for_campaign(camp)
+            except Exception as ex:
+                print(f"[CallBriefingPanel] bg gen error: {ex}", flush=True)
+            finally:
+                try:
+                    inflight.discard(camp_name)
+                except Exception:
+                    pass
+                try:
+                    rf()
+                except Exception:
+                    pass
+
+        import threading as _thr
+        _thr.Thread(target=_bg, daemon=True).start()
+        is_inflight = True
+
+    with ui.element("div").style(
+            f"background:{C['surface']};border:1px solid {C['border']};"
+            f"border-radius:8px;padding:12px 14px;margin-bottom:6px;"):
+        ui.label("📞 Call briefing — talking points & candidates").style(
+            f"font-size:10px;font-weight:700;color:{C['call_col']};"
+            f"text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;"
+            f"font-family:'Nunito',sans-serif;")
+        if not has_key:
+            ui.label("AI key not configured — briefing unavailable.").style(
+                f"font-size:12px;color:{C['muted']};")
+            return
+        if is_inflight or not briefing:
+            with ui.element("div").style(
+                    "display:flex;align-items:center;gap:10px;"
+                    "padding:6px 0;"):
+                ui.spinner(size="sm").style(f"color:{C['call_col']};")
+                ui.label("✨ Generating… ~15-30 seconds.").style(
+                    f"font-size:12px;color:{C['muted']};")
+            return
+        # Cached briefing — render the talking points + candidates.
+        tps = briefing.get("talking_points") or []
+        cands = briefing.get("candidates") or []
+        if tps:
+            ui.label("Talking points").style(
+                f"font-size:11px;font-weight:700;color:{C['text_l']};"
+                f"margin-bottom:4px;")
+            with ui.element("ul").style(
+                    f"margin:0 0 8px 0;padding-left:20px;color:{C['text_l']};"
+                    f"font-size:12px;line-height:1.5;"):
+                for tp in tps:
+                    with ui.element("li"):
+                        ui.label(str(tp))
+        if cands:
+            ui.label("Candidates sent over").style(
+                f"font-size:11px;font-weight:700;color:{C['text_l']};"
+                f"margin-bottom:4px;")
+            with ui.element("div").style(
+                    "display:flex;flex-direction:column;gap:4px;"):
+                for c in cands:
+                    if not isinstance(c, dict):
+                        continue
+                    lbl = c.get("label", "") or ""
+                    hi = c.get("highlight", "") or ""
+                    with ui.element("div").style(
+                            f"font-size:12px;color:{C['text_l']};"
+                            f"line-height:1.45;"):
+                        ui.html(
+                            f'<span style="font-weight:600;">{lbl}</span>'
+                            f'<span style="color:{C["muted"]};"> — {hi}</span>'
+                        )
+
+
+def _render_li_message_card(camp: dict, s: AppState, rf):
+    """Render the LinkedIn connection message card above the LI stack.
+
+    Auto-fires AI generation in a background thread on first render
+    if camp['linkedin_message'] isn't cached yet. Includes a Copy
+    button that pushes the message to the clipboard.
+    """
+    if camp is None:
+        return
+    camp_name = camp.get("name", "") or ""
+    msg = camp.get("linkedin_message") if isinstance(camp.get("linkedin_message"), str) else ""
+    msg = (msg or "").strip()
+    inflight = getattr(s, "_li_message_gen_inflight", None)
+    if inflight is None:
+        inflight = set()
+        s._li_message_gen_inflight = inflight
+    is_inflight = camp_name in inflight
+    has_key = bool(ANTHROPIC_API_KEY)
+
+    if not msg and has_key and not is_inflight:
+        inflight.add(camp_name)
+        _user = getattr(s, "_user_email", "") or ""
+
+        def _bg():
+            try:
+                if _user:
+                    try:
+                        _CURRENT_USER_EMAIL.set(_user)
+                        _switch_to_user_paths(_user)
+                    except Exception:
+                        pass
+                _generate_li_message_for_campaign(camp)
+            except Exception as ex:
+                print(f"[LiMessagePanel] bg gen error: {ex}", flush=True)
+            finally:
+                try:
+                    inflight.discard(camp_name)
+                except Exception:
+                    pass
+                try:
+                    rf()
+                except Exception:
+                    pass
+
+        import threading as _thr
+        _thr.Thread(target=_bg, daemon=True).start()
+        is_inflight = True
+
+    with ui.element("div").style(
+            f"background:{C['surface']};border:1px solid {C['border']};"
+            f"border-radius:8px;padding:12px 14px;margin-bottom:6px;"):
+        ui.label("in Connection message").style(
+            f"font-size:10px;font-weight:700;color:{C['indigo']};"
+            f"text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;"
+            f"font-family:'Nunito',sans-serif;")
+        if not has_key:
+            ui.label("AI key not configured — message unavailable.").style(
+                f"font-size:12px;color:{C['muted']};")
+            return
+        if is_inflight or not msg:
+            with ui.element("div").style(
+                    "display:flex;align-items:center;gap:10px;"
+                    "padding:6px 0;"):
+                ui.spinner(size="sm").style(f"color:{C['indigo']};")
+                ui.label("✨ Generating… ~15-30 seconds.").style(
+                    f"font-size:12px;color:{C['muted']};")
+            return
+        # Cached — render the quoted block + Copy button.
+        with ui.element("div").style(
+                f"font-style:italic;font-size:13px;color:{C['text_l']};"
+                f"max-width:600px;line-height:1.5;border-left:3px solid "
+                f"{C['indigo']}60;padding:2px 10px;margin-bottom:8px;"):
+            ui.label(f"“{msg}”")
+        _char_count = len(msg)
+        with ui.element("div").style(
+                "display:flex;align-items:center;gap:10px;"):
+            _msg_js = json.dumps(msg)
+
+            def _copy(_msg_js=_msg_js):
+                ui.run_javascript(
+                    f"navigator.clipboard.writeText({_msg_js})")
+                ui.notify("Copied!")
+            with ui.element("button").style(
+                    f"display:inline-flex;align-items:center;gap:5px;"
+                    f"padding:5px 12px;border-radius:99px;font-size:11px;"
+                    f"font-weight:600;cursor:pointer;"
+                    f"background:{C['indigo_dim']};color:{C['indigo']};"
+                    f"border:1px solid {C['indigo']}60;font-family:inherit;"
+                    ).on("click", _copy):
+                ui.label("📋 Copy")
+            ui.label(f"{_char_count}/300").style(
+                f"font-size:10px;color:{C['muted']};")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 #  PAGE: TODAY'S DRIP  -  COMBINED VIEW (landing page)
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -10095,6 +10303,13 @@ def p_today_combined(s: AppState, rf):
     # Closure-mutable flag so we schedule at most one refresh timer per page
     # render even if multiple AI script panels are mid-generation.
     _ai_script_timer_scheduled = [False]
+
+    # Clear the daily-page campaign cache on every fresh render. The
+    # per-channel briefing panels look up the full campaign dict by name
+    # via load_campaigns() and stash it here so each channel in a group
+    # doesn't trigger a re-load. Stale state across page entries would
+    # mask edits made elsewhere, so reset on every render.
+    s._daily_camp_cache = {}
 
     # Pick up tab from dashboard navigation if set
     dash_tab = getattr(s, 'dash_drip_tab', None)
@@ -10321,10 +10536,36 @@ def p_today_combined(s: AppState, rf):
                     # number is only meaningful for the LinkedIn channel —
                     # other channels render normally.
                     _li_opened_for_dim = getattr(s, f"_li_batch_{camp_name}", 0)
+                    # Resolve the full campaign dict by name once per group
+                    # so each per-channel briefing panel can read/write
+                    # camp['call_briefing'] / camp['linkedin_message'].
+                    # Cache the lookup on s for the duration of this page
+                    # render (cleared at top of p_today_combined) so we
+                    # don't reload load_campaigns() per channel.
+                    if not hasattr(s, "_daily_camp_cache") or s._daily_camp_cache is None:
+                        s._daily_camp_cache = {}
+                    _camp_full = s._daily_camp_cache.get(camp_name)
+                    if _camp_full is None:
+                        try:
+                            _all = load_campaigns()
+                            _camp_full = next(
+                                (_c for _c in _all
+                                 if _c.get("name") == camp_name), None)
+                        except Exception:
+                            _camp_full = None
+                        s._daily_camp_cache[camp_name] = _camp_full
                     with ui.element("div").style("display:flex;flex-direction:column;gap:0;"):
                         for _ch in _channels_present:
                             _ch_tasks = [_t for _t in camp_tasks if _t.get("channel") == _ch]
                             _ch_total = len(_ch_tasks)
+                            # Insert per-channel AI briefing panel above
+                            # the cards. Call → talking points + candidates.
+                            # LinkedIn → connection-request message.
+                            if _camp_full is not None:
+                                if _ch == "call":
+                                    _render_call_briefing_card(_camp_full, s, rf)
+                                elif _ch == "li":
+                                    _render_li_message_card(_camp_full, s, rf)
                             for _i, _t in enumerate(_ch_tasks, start=1):
                                 # Card "opened" state — only applies to
                                 # LinkedIn cards within the already-opened
@@ -36403,6 +36644,218 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
     subject = _title_case_subject(
         result.get("subject", "") or f"{nl_name}  -  {month_year}")
     return (subject, body_html)
+
+
+def _generate_call_briefing_for_campaign(camp: dict) -> dict | None:
+    """AI-generate a cold call briefing for the campaign.
+
+    Returns a dict like:
+        {
+            "talking_points": ["...", "...", ...],
+            "candidates": [{"label": "...", "highlight": "..."}, ...],
+        }
+    or None on failure / missing API key.
+
+    Cached on `camp["call_briefing"]` and persisted via save_campaign().
+    Safe to call from a background thread — uses the campaign's
+    `_owner_email` to switch user paths so save_campaign() writes to
+    the right per-user folder.
+    """
+    # Cached?
+    cached = camp.get("call_briefing")
+    if isinstance(cached, dict) and cached.get("talking_points") and cached.get("candidates"):
+        return cached
+    if not ANTHROPIC_API_KEY:
+        return None
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=ANTHROPIC_API_KEY)
+    except Exception as e:
+        print(f"[CallBriefing] Anthropic init failed: {e}", flush=True)
+        return None
+
+    sector = camp.get("market_sector", "") or ""
+    niche = camp.get("market_niche", "") or ""
+    region = camp.get("market_region", "") or ""
+
+    # Resolve user context from campaign owner so save_campaign writes
+    # to the correct per-user folder when called from a bg thread.
+    _owner = camp.get("_owner_email") or _email_from_user_path(camp.get("_path", ""))
+    if _owner:
+        try:
+            _CURRENT_USER_EMAIL.set(_owner)
+            _switch_to_user_paths(_owner)
+        except Exception:
+            pass
+
+    # Pull a sample of the email body so Claude can infer what
+    # candidates were sent over and what the prospect already knows.
+    steps = camp.get("emails", []) or []
+    sample_subject = ""
+    sample_body = ""
+    if steps:
+        first = steps[0] or {}
+        sample_subject = (first.get("subject") or "").strip()
+        sample_body = (first.get("body") or "").strip()
+        # Strip HTML tags for cleaner prompt context.
+        sample_body = re.sub(r'<[^>]+>', ' ', sample_body)
+        sample_body = re.sub(r'\s+', ' ', sample_body).strip()
+        sample_body = sample_body[:600]
+
+    prompt = (
+        f"You are prepping a recruiter for a cold call follow-up to an "
+        f"email campaign they already sent. The prospect received the "
+        f"email below and now the recruiter is calling to engage them.\n\n"
+        f"CAMPAIGN CONTEXT:\n"
+        f"- Sector: {sector}\n"
+        f"- Niche: {niche}\n"
+        f"- Region: {region}\n"
+        f"- Sample email subject: {sample_subject}\n"
+        f"- Sample email body excerpt: {sample_body}\n\n"
+        f"Produce a SHORT call-prep briefing as JSON with two keys:\n\n"
+        f"1) talking_points: 3-5 short, punchy talking points the "
+        f"recruiter can lead with. Each point is one sentence. Reference "
+        f"local market signals (real projects, hiring trends, comp) "
+        f"where it helps. Include at least one open-ended question.\n\n"
+        f"2) candidates: 2-4 anonymized candidate spotlights that match "
+        f"what the email implied the recruiter has 'available' or 'in "
+        f"market'. Each candidate has:\n"
+        f"   - label: role + years + 1 cred (e.g. 'Sr. PM, 12 yrs "
+        f"healthcare construction')\n"
+        f"   - highlight: 1 short sentence (what they just delivered, "
+        f"why they're available, comp range, when they can start)\n"
+        f"Mix seniority. Use {region} comp ranges. NEVER use real names.\n\n"
+        f"Return ONLY valid JSON in this exact shape:\n"
+        f'{{\n'
+        f'  "talking_points": ["...", "...", "..."],\n'
+        f'  "candidates": [\n'
+        f'    {{"label": "...", "highlight": "..."}},\n'
+        f'    {{"label": "...", "highlight": "..."}}\n'
+        f'  ]\n'
+        f'}}\n'
+    )
+    try:
+        msg = _claude_create_with_retry(client,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1200,
+            messages=[{"role": "user", "content": prompt}])
+        text = "".join(b.text for b in msg.content if hasattr(b, "text"))
+        clean = text.replace("```json", "").replace("```", "").strip()
+        m = re.search(r'\{.*\}', clean, re.DOTALL)
+        if not m:
+            return None
+        try:
+            result = json.loads(m.group())
+        except json.JSONDecodeError:
+            result = json.loads(re.sub(r',(\s*[}\]])', r'\1', m.group()))
+    except Exception as e:
+        print(f"[CallBriefing] AI call failed: {e}", flush=True)
+        return None
+
+    tps = result.get("talking_points") or []
+    cands = result.get("candidates") or []
+    # Light sanitization — drop empty/short entries.
+    tps = [str(x).strip() for x in tps if str(x).strip()]
+    clean_cands = []
+    for c in cands:
+        if not isinstance(c, dict):
+            continue
+        lbl = str(c.get("label", "")).strip()
+        hi = str(c.get("highlight", "")).strip()
+        if lbl and hi:
+            clean_cands.append({"label": lbl, "highlight": hi})
+    if not tps and not clean_cands:
+        return None
+
+    briefing = {"talking_points": tps, "candidates": clean_cands}
+    camp["call_briefing"] = briefing
+    try:
+        save_campaign(camp)
+    except Exception as e:
+        print(f"[CallBriefing] save_campaign failed: {e}", flush=True)
+    return briefing
+
+
+def _generate_li_message_for_campaign(camp: dict) -> str | None:
+    """AI-generate a single LinkedIn connection-request message tailored
+    to the campaign's audience. Returns the message string (under 300
+    chars) or None on failure / missing API key.
+
+    Cached on `camp["linkedin_message"]` and persisted via save_campaign().
+    Safe to call from a background thread.
+    """
+    cached = camp.get("linkedin_message")
+    if isinstance(cached, str) and cached.strip():
+        return cached.strip()
+    if not ANTHROPIC_API_KEY:
+        return None
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=ANTHROPIC_API_KEY)
+    except Exception as e:
+        print(f"[LiMessage] Anthropic init failed: {e}", flush=True)
+        return None
+
+    sector = camp.get("market_sector", "") or ""
+    niche = camp.get("market_niche", "") or ""
+    region = camp.get("market_region", "") or ""
+
+    _owner = camp.get("_owner_email") or _email_from_user_path(camp.get("_path", ""))
+    if _owner:
+        try:
+            _CURRENT_USER_EMAIL.set(_owner)
+            _switch_to_user_paths(_owner)
+        except Exception:
+            pass
+
+    prompt = (
+        f"Write ONE LinkedIn connection-request message for a recruiter "
+        f"reaching out to {sector} / {niche} professionals in {region}.\n\n"
+        f"RULES:\n"
+        f"- Casual, peer-to-peer tone. Not salesy.\n"
+        f"- STRICT: under 280 characters total.\n"
+        f"- No greeting like 'Hi {{first_name}}' (LinkedIn shows the "
+        f"name automatically).\n"
+        f"- No 'Best,' or sign-off.\n"
+        f"- One concrete reason to connect tied to the sector/region.\n"
+        f"- NO emoji.\n\n"
+        f"Return ONLY the message text. No quotes, no explanation."
+    )
+    try:
+        msg = _claude_create_with_retry(client,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            messages=[{"role": "user", "content": prompt}])
+        text = "".join(b.text for b in msg.content if hasattr(b, "text"))
+    except Exception as e:
+        print(f"[LiMessage] AI call failed: {e}", flush=True)
+        return None
+
+    out = (text or "").strip()
+    # Strip surrounding quotes if Claude wrapped the message.
+    if out and out[0] in ("\"", "'") and out[-1] in ("\"", "'"):
+        out = out[1:-1].strip()
+    if not out:
+        return None
+    if len(out) > 300:
+        # Try truncating at the last sentence-ending period before 280.
+        cut = out[:280]
+        last_p = cut.rfind(".")
+        if last_p >= 60:
+            out = cut[: last_p + 1].strip()
+        else:
+            # Hard truncate.
+            out = (out[:297]).rstrip() + "..."
+    out = out.strip()
+    if not out:
+        return None
+
+    camp["linkedin_message"] = out
+    try:
+        save_campaign(camp)
+    except Exception as e:
+        print(f"[LiMessage] save_campaign failed: {e}", flush=True)
+    return out
 
 
 def _gen_all_issues_for_campaign(camp_name: str) -> None:
