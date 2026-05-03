@@ -18907,6 +18907,7 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                             f"color:{C['text_l']};margin-top:8px;")
                         state["_corner_caption_textarea"] = _ta
 
+            state["_render_corner_fields"] = _render_corner_fields
             _corner_mode_radio.on(
                 "update:model-value",
                 lambda _e: _render_corner_fields()
@@ -18977,6 +18978,15 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                                 if "_corner_note_textarea" in state and _stashed:
                                     state["_corner_note_textarea"].set_value(
                                         _stashed.get("note", ""))
+                                # Force re-render of conditional corner fields:
+                                # set_value on a radio may not fire its
+                                # update:model-value callback, so the textarea
+                                # below the radio wouldn't appear without this.
+                                if "_render_corner_fields" in state and _stashed:
+                                    try:
+                                        state["_render_corner_fields"]()
+                                    except Exception:
+                                        pass
                             except Exception as _ex:
                                 print(f"[NewsletterEditModal] set_value warn: {_ex}",
                                       flush=True)
@@ -19006,6 +19016,13 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                 ui.label("Cancel")
 
             def _save():
+                # Capture identifiers BEFORE we mutate step — the queue
+                # sync below uses them to match queue items even when
+                # step.name is empty (multi-step campaigns without unique
+                # step names rely on the previous subject as fallback).
+                _step_name = (step.get("name") or "").strip()
+                _prev_subj = (step.get("subject") or "").strip()
+
                 # Pull current values from corner UI widgets if they exist.
                 _new_mode = (state["_corner_mode_radio"].value
                              if "_corner_mode_radio" in state else
@@ -19041,20 +19058,34 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                 step["auto_confirmed"] = False
                 save_campaign(camp)
 
-                # Push the edited copy into any pending queue items.
+                # Push the edited copy into matching pending queue items.
+                # Positive-match: require step_name OR previous subject to
+                # match before overwriting; never blast across the whole
+                # campaign just because step.name is empty.
                 try:
                     qp = _user_queue_path()
                     if qp.exists():
                         queue = json.loads(qp.read_text(encoding="utf-8"))
                         if isinstance(queue, list):
                             n = 0
-                            _step_name = (step.get("name") or "").strip()
                             for q in queue:
                                 if q.get("campaign") != camp.get("name"):
                                     continue
                                 if q.get("status") != "pending":
                                     continue
-                                if _step_name and (q.get("step_name") or "") != _step_name:
+                                _q_name = (q.get("step_name") or "").strip()
+                                _q_subj = (q.get("subject") or "").strip()
+                                _matches = False
+                                if _step_name:
+                                    # Step has a name: match ONLY by step_name.
+                                    # Don't fall back to subject — would cause
+                                    # cross-step overwrites when subjects collide.
+                                    if _q_name == _step_name:
+                                        _matches = True
+                                elif _prev_subj and _q_subj == _prev_subj:
+                                    # No step_name: fall back to previous subject.
+                                    _matches = True
+                                if not _matches:
                                     continue
                                 q["subject"] = step["subject"]
                                 q["body"] = step["body"]
