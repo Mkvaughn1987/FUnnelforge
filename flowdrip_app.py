@@ -36033,6 +36033,59 @@ def _render_holiday_calendar(year: int, month: int,
     return grid_html + legend_html
 
 
+def _render_corner_inner(data: dict) -> str:
+    """Render the inner HTML for the Personal Corner column based on the
+    issue's `personal_corner_mode`. Returns "&nbsp;" for empty/missing
+    content. Output is the inner HTML — caller wraps it in pc-start/pc-end
+    comment markers."""
+    import html as _html
+
+    mode = (data.get("personal_corner_mode") or "").strip().lower()
+    primary = _NL_COLORS["primary"]
+    text = _NL_COLORS["text"]
+    font = _NL_FONT
+    display_font = _NL_DISPLAY_FONT
+
+    label_style = (
+        f"font-family:{font};font-size:10px;font-weight:700;"
+        f"color:{primary};text-transform:uppercase;letter-spacing:1.6px;"
+        f"margin:0 0 8px;"
+    )
+    body_style = (
+        f"font-family:{display_font};font-size:12px;color:{text};"
+        f"line-height:1.55;font-style:italic;"
+    )
+
+    if mode == "note":
+        note = (data.get("personal_corner_note") or "").strip()
+        if not note:
+            return "&nbsp;"
+        return (
+            f'<div style="{label_style}">💭 ON MY MIND</div>'
+            f'<div style="{body_style}">{_html.escape(note, quote=False)}</div>'
+        )
+
+    if mode == "photo":
+        photo = (data.get("personal_corner_photo_b64") or "").strip()
+        if not photo:
+            return "&nbsp;"
+        caption = (data.get("personal_corner_caption") or "").strip()
+        caption_html = (
+            f'<div style="{body_style};margin-top:8px;">'
+            f'{_html.escape(caption, quote=False)}</div>'
+        ) if caption else ""
+        return (
+            f'<div style="{label_style}">📸 OUTSIDE THE OFFICE</div>'
+            f'<img src="data:image/jpeg;base64,{photo}" '
+            f'alt="" style="display:block;width:100%;max-width:200px;'
+            f'height:auto;border-radius:6px;border:1px solid #E0E0E0;"/>'
+            f'{caption_html}'
+        )
+
+    # mode == "" or unrecognized
+    return "&nbsp;"
+
+
 def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
     """Standalone newsletter content generator  -  no UI coupling.
     Used by both the manual Refresh flow and the auto-refresh scheduler.
