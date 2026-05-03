@@ -18818,9 +18818,19 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                 "image with a caption."
             ).style(f"font-size:11px;color:{C['muted']};margin-bottom:6px;")
 
+            def _on_corner_mode_change(_e=None):
+                # Re-render conditional corner fields when the radio changes.
+                # Defined here so _render_corner_fields (declared below) is
+                # in scope at call time via closure.
+                try:
+                    _render_corner_fields()
+                except NameError:
+                    pass
+
             _corner_mode_radio = ui.radio(
                 {"": "Empty", "note": "Note", "photo": "Photo"},
                 value=state["personal_corner_mode"] or "",
+                on_change=_on_corner_mode_change,
             ).props("inline").style("margin-bottom:8px;")
             state["_corner_mode_radio"] = _corner_mode_radio
 
@@ -18828,6 +18838,8 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
             # recreating it on every mode toggle was killing the upload
             # event mid-flight before its callback could fire.
             def _on_corner_photo_upload(e):
+                print(f"[CornerPhoto] upload fired: name={getattr(e, 'name', '?')}, "
+                      f"type={getattr(e, 'type', '?')}", flush=True)
                 raw = e.content.read() if hasattr(e.content, "read") else e.content
                 if not raw:
                     ui.notify("Upload was empty.", type="warning")
@@ -18849,10 +18861,17 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                         im.save(buf, format="JPEG", quality=85, optimize=True)
                         b64 = base64.b64encode(buf.getvalue()).decode("ascii")
                         state["personal_corner_photo_b64"] = b64
+                    print(f"[CornerPhoto] processed OK: {len(b64)} b64 chars",
+                          flush=True)
                     ui.notify("Photo updated. Click Save to keep it.",
                               type="positive", timeout=3000)
+                    try:
+                        _pc_upload.reset()  # allow re-upload of another file
+                    except Exception:
+                        pass
                     _render_corner_fields()  # refresh preview
                 except Exception as ex:
+                    print(f"[CornerPhoto] error: {ex}", flush=True)
                     ui.notify(f"Image error: {str(ex)[:80]}", type="negative")
 
             _pc_upload = ui.upload(
@@ -18915,10 +18934,6 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                         state["_corner_caption_textarea"] = _ta
 
             state["_render_corner_fields"] = _render_corner_fields
-            _corner_mode_radio.on(
-                "update:model-value",
-                lambda _e: _render_corner_fields()
-            )
             _render_corner_fields()
 
             # Spinner placeholder shown WHILE the AI is writing the
