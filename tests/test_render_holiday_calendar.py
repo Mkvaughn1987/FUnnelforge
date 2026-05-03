@@ -60,3 +60,30 @@ def test_html_escapes_holiday_names():
     assert "<Mom>" not in html  # should be escaped
     assert "&lt;Mom&gt;" in html
     assert "&amp;" in html
+
+
+def test_render_newsletter_html_includes_calendar_for_send_month():
+    import flowdrip_app as fa
+    html = fa._render_newsletter_html({
+        "company": "Acme",
+        "newsletter_name": "The Test Times",
+        "tagline": "",
+        "location": "Denver, CO",
+        "website": "",
+        "date": "May 2026",
+        "intro_text": "",
+        "top_news": [],
+        "around_town": [],
+        "market_update": "",
+        "spotlights": [],
+        "contact_name": "Jane Doe",
+        "contact_email": "jane@example.com",
+        "contact_phone": "",
+        "cta_text": "Let's Talk",
+        "cta_url": "#",
+        "_send_year": 2026,
+        "_send_month": 5,
+    })
+    assert "May 2026" in html
+    assert 'data-pc-day="10"' in html
+    assert 'data-pc-day="25"' in html

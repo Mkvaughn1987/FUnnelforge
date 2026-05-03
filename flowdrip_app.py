@@ -35586,8 +35586,8 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             _hol_overrides = {}
         _holidays = _holidays_for_month(int(_send_year), int(_send_month),
                                         overrides=_hol_overrides)
-        # Calendar rendering wired up in Task 3.
-        _hol_html = "&nbsp;" if not _holidays else f"({len(_holidays)} holidays)"
+        _hol_html = _render_holiday_calendar(int(_send_year), int(_send_month),
+                                             _holidays)
 
         sections_html += f'''
         <tr><td style="padding:18px 40px 10px;background:#FFFFFF;">
