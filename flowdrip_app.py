@@ -18623,10 +18623,6 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
         "hero_total": 5,  # cached batch size; safe default
         "is_generating": _is_blank or force_generate,
         "error": "",
-        "personal_corner_mode": step.get("personal_corner_mode", "") or "",
-        "personal_corner_note": step.get("personal_corner_note", "") or "",
-        "personal_corner_caption": step.get("personal_corner_caption", "") or "",
-        "personal_corner_photo_b64": step.get("personal_corner_photo_b64", "") or "",
     }
     _verb = "Create" if state["is_generating"] else "Edit"
 
@@ -18774,6 +18770,38 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                     return
                 _render_photo_counter()
 
+            # Hero thumbnail preview — shows the actual image for the
+            # current variant so the user can see what they're picking
+            # without scrolling to the body editor.
+            _hero_thumb_holder = ui.element("div").style(
+                "margin-bottom:8px;")
+
+            def _render_hero_thumb():
+                _hero_thumb_holder.clear()
+                _b64 = _load_hero_variant_b64_for_camp(camp, state["hero_variant"])
+                with _hero_thumb_holder:
+                    if _b64:
+                        ui.html(
+                            f'<img src="data:image/jpeg;base64,{_b64}" '
+                            f'style="display:block;width:100%;max-width:320px;'
+                            f'height:auto;border-radius:6px;'
+                            f'border:1px solid {C["border"]};"/>'
+                        )
+                    else:
+                        with ui.element("div").style(
+                                f"width:100%;max-width:320px;height:90px;"
+                                f"border:1px dashed {C['border']};"
+                                f"border-radius:6px;display:flex;"
+                                f"align-items:center;justify-content:center;"
+                                f"color:{C['muted']};font-size:11px;"):
+                            ui.label("Photo preview will load with the issue.")
+
+            _render_hero_thumb()
+
+            def _cycle_hero_and_refresh(direction: int):
+                _cycle_hero(direction)
+                _render_hero_thumb()
+
             with ui.element("div").style(
                     "display:flex;align-items:center;gap:6px;margin-bottom:12px;"
                     "flex-wrap:wrap;"):
@@ -18781,12 +18809,12 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                     f"font-size:11px;color:{C['muted']};margin-right:4px;")
                 with ui.element("button").classes("fd-gb").style(
                         "padding:5px 10px;font-size:13px;line-height:1;").on(
-                        "click", lambda: _cycle_hero(-1)):
+                        "click", lambda: _cycle_hero_and_refresh(-1)):
                     ui.label("◀").style("pointer-events:none;")
                 _render_photo_counter()
                 with ui.element("button").classes("fd-gb").style(
                         "padding:5px 10px;font-size:13px;line-height:1;").on(
-                        "click", lambda: _cycle_hero(1)):
+                        "click", lambda: _cycle_hero_and_refresh(1)):
                     ui.label("▶").style("pointer-events:none;")
                 _hero_upload = ui.upload(
                     on_upload=_on_hero_upload,
@@ -18809,141 +18837,6 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                 f"min-height:380px;background:{C['surface']};"
                 f"border:1px solid {C['border']};border-radius:6px;"
                 f"color:{C['text_l']};font-family:inherit;")
-
-            # ── Personal Corner (right column of Hiring Partner row) ─────
-            ui.label("Personal corner (right column of the Hiring Partner row)").classes("fd-fl").style("margin-top:14px;")
-            ui.label(
-                "Pick a mode. Empty leaves the column blank. "
-                "Note shows a short italic message. Photo shows an uploaded "
-                "image with a caption."
-            ).style(f"font-size:11px;color:{C['muted']};margin-bottom:6px;")
-
-            def _on_corner_mode_change(_e=None):
-                # Re-render conditional corner fields when the radio changes.
-                # Defined here so _render_corner_fields (declared below) is
-                # in scope at call time via closure.
-                _val = getattr(_e, "value", None) if _e is not None else None
-                try:
-                    _val = _val or _corner_mode_radio.value
-                except Exception:
-                    pass
-                print(f"[CornerMode] radio changed: value={_val!r}", flush=True)
-                try:
-                    _render_corner_fields()
-                except NameError:
-                    pass
-
-            _corner_mode_radio = ui.radio(
-                {"": "Empty", "note": "Note", "photo": "Photo"},
-                value=state["personal_corner_mode"] or "",
-                on_change=_on_corner_mode_change,
-            ).props("inline").style("margin-bottom:8px;")
-            state["_corner_mode_radio"] = _corner_mode_radio
-
-            # Upload widget defined ONCE outside the re-renderable holder —
-            # recreating it on every mode toggle was killing the upload
-            # event mid-flight before its callback could fire.
-            def _on_corner_photo_upload(e):
-                print(f"[CornerPhoto] upload fired: name={getattr(e, 'name', '?')}, "
-                      f"type={getattr(e, 'type', '?')}", flush=True)
-                raw = e.content.read() if hasattr(e.content, "read") else e.content
-                if not raw:
-                    ui.notify("Upload was empty.", type="warning")
-                    return
-                try:
-                    from PIL import Image
-                    from io import BytesIO
-                    import base64
-                    with Image.open(BytesIO(raw)) as im:
-                        im = im.convert("RGB")
-                        max_side = 480
-                        sw, sh = im.size
-                        scale = min(1.0, max_side / max(sw, sh))
-                        if scale < 1.0:
-                            im = im.resize(
-                                (int(sw * scale), int(sh * scale)),
-                                Image.LANCZOS)
-                        buf = BytesIO()
-                        im.save(buf, format="JPEG", quality=85, optimize=True)
-                        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-                        state["personal_corner_photo_b64"] = b64
-                    print(f"[CornerPhoto] processed OK: {len(b64)} b64 chars",
-                          flush=True)
-                    ui.notify("Photo updated. Click Save to keep it.",
-                              type="positive", timeout=3000)
-                    # _render_corner_fields rebuilds the upload widget with
-                    # a fresh state, so no explicit .reset() is needed.
-                    _render_corner_fields()  # refresh preview
-                except Exception as ex:
-                    print(f"[CornerPhoto] error: {ex}", flush=True)
-                    ui.notify(f"Image error: {str(ex)[:80]}", type="negative")
-
-            # Note: this upload widget renders its own "Upload" button +
-            # file picker UI. The earlier hidden-input + custom-trigger
-            # pattern silently dropped uploads on this modal (server logs
-            # showed click events but never the on_upload callback) —
-            # we don't know exactly why this widget instance behaved
-            # differently from the hero upload, but exposing the default
-            # NiceGUI UI is reliable.
-            _corner_field_holder = ui.element("div")
-
-            # Persistent textarea references — created once. _render_corner_fields
-            # only toggles their visibility / parent placement so user input
-            # isn't lost across mode changes and Quasar's floating-label CSS
-            # isn't fighting an inline-styled wrapper.
-
-            def _render_corner_fields():
-                _corner_field_holder.clear()
-                _mode = (_corner_mode_radio.value or "").strip()
-                with _corner_field_holder:
-                    if _mode == "note":
-                        ui.label("Note").classes("fd-fl")
-                        _ta = ui.textarea(
-                            value=state["personal_corner_note"],
-                        ).props("rows=3 outlined dense").style(
-                            "width:100%;")
-                        state["_corner_note_textarea"] = _ta
-                    elif _mode == "photo":
-                        # Existing photo preview (if any)
-                        if state.get("personal_corner_photo_b64"):
-                            ui.html(
-                                f'<img src="data:image/jpeg;base64,'
-                                f'{state["personal_corner_photo_b64"]}" '
-                                f'style="display:block;max-width:200px;'
-                                f'height:auto;border-radius:6px;'
-                                f'border:1px solid {C["border"]};'
-                                f'margin-bottom:8px;"/>'
-                            )
-                        else:
-                            with ui.element("div").style(
-                                    f"width:200px;height:120px;"
-                                    f"border:2px dashed {C['border']};"
-                                    f"border-radius:6px;display:flex;"
-                                    f"align-items:center;justify-content:center;"
-                                    f"color:{C['muted']};font-size:11px;"
-                                    f"margin-bottom:8px;"):
-                                ui.label("No photo yet")
-
-                        # NiceGUI's default upload widget — visible, with
-                        # its own pick + upload UX. Lives inside the holder
-                        # so it re-renders cleanly on mode switches.
-                        ui.upload(
-                            on_upload=_on_corner_photo_upload,
-                            auto_upload=True,
-                            max_files=1,
-                            label="Upload photo",
-                        ).props('accept="image/*" flat dense color=primary').style(
-                            "max-width:240px;margin-bottom:10px;")
-
-                        ui.label("Caption").classes("fd-fl").style("margin-top:4px;")
-                        _ta = ui.textarea(
-                            value=state["personal_corner_caption"],
-                        ).props("rows=2 outlined dense").style(
-                            "width:100%;")
-                        state["_corner_caption_textarea"] = _ta
-
-            state["_render_corner_fields"] = _render_corner_fields
-            _render_corner_fields()
 
             # Spinner placeholder shown WHILE the AI is writing the
             # first issue. Hidden once content lands.
@@ -18986,8 +18879,10 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                             _CURRENT_USER_EMAIL.set(s._user_email)
                             _switch_to_user_paths(s._user_email)
                         subj, body = _generate_newsletter_content_for_step(camp, step_idx)
-                        # Pop the AI-generated corner stash for THIS step.
-                        _stashed = _pop_last_generated_corner(
+                        # Drain any corner stash so it doesn't leak into the
+                        # next session — Personal Corner UI was removed but
+                        # the generator still writes the stash. Discard.
+                        _pop_last_generated_corner(
                             getattr(s, "_user_email", "") or "",
                             camp.get("name", ""), step_idx)
                         if not subj or not body:
@@ -18995,29 +18890,16 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                         else:
                             state["subject"] = subj
                             state["body"] = body
-                            if _stashed:
-                                state["personal_corner_mode"] = _stashed.get("mode", "")
-                                state["personal_corner_note"] = _stashed.get("note", "")
                             try:
                                 _subj_inp.set_value(subj)
                                 _body_editor.set_value(body)
-                                # Update the corner UI fields if they exist (Task 10
-                                # creates them; this code is forward-compatible).
-                                if "_corner_mode_radio" in state and _stashed:
-                                    state["_corner_mode_radio"].set_value(
-                                        _stashed.get("mode", ""))
-                                if "_corner_note_textarea" in state and _stashed:
-                                    state["_corner_note_textarea"].set_value(
-                                        _stashed.get("note", ""))
-                                # Force re-render of conditional corner fields:
-                                # set_value on a radio may not fire its
-                                # update:model-value callback, so the textarea
-                                # below the radio wouldn't appear without this.
-                                if "_render_corner_fields" in state and _stashed:
-                                    try:
-                                        state["_render_corner_fields"]()
-                                    except Exception:
-                                        pass
+                                # Refresh hero thumbnail now that the body
+                                # has actual content (the variant b64 may
+                                # have been cached only after generation).
+                                try:
+                                    _render_hero_thumb()
+                                except Exception:
+                                    pass
                             except Exception as _ex:
                                 print(f"[NewsletterEditModal] set_value warn: {_ex}",
                                       flush=True)
@@ -19054,37 +18936,9 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                 _step_name = (step.get("name") or "").strip()
                 _prev_subj = (step.get("subject") or "").strip()
 
-                # Pull current values from corner UI widgets if they exist.
-                _new_mode = (state["_corner_mode_radio"].value
-                             if "_corner_mode_radio" in state else
-                             state["personal_corner_mode"]) or ""
-                _new_note = (state["_corner_note_textarea"].value
-                             if "_corner_note_textarea" in state else
-                             state["personal_corner_note"]) or ""
-                _new_caption = (state["_corner_caption_textarea"].value
-                                if "_corner_caption_textarea" in state else
-                                state["personal_corner_caption"]) or ""
-                _new_photo = state.get("personal_corner_photo_b64", "") or ""
-
-                # Compose the new corner inner HTML.
-                _new_inner = _render_corner_inner({
-                    "personal_corner_mode": _new_mode,
-                    "personal_corner_note": _new_note,
-                    "personal_corner_caption": _new_caption,
-                    "personal_corner_photo_b64": _new_photo,
-                })
-
-                # Splice into the (possibly hero-swapped) body in the editor.
-                _orig_body = _body_editor.value or state["body"]
-                _new_body = _splice_corner_into_body(_orig_body, _new_inner)
-
                 step["subject"] = _subj_inp.value or state["subject"]
-                step["body"] = _new_body
+                step["body"] = _body_editor.value or state["body"]
                 step["_hero_variant"] = state["hero_variant"]
-                step["personal_corner_mode"] = _new_mode
-                step["personal_corner_note"] = _new_note
-                step["personal_corner_caption"] = _new_caption
-                step["personal_corner_photo_b64"] = _new_photo
                 step["confirmed"] = True
                 step["auto_confirmed"] = False
                 save_campaign(camp)
@@ -19120,10 +18974,6 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                                     continue
                                 q["subject"] = step["subject"]
                                 q["body"] = step["body"]
-                                q["personal_corner_mode"] = _new_mode
-                                q["personal_corner_note"] = _new_note
-                                q["personal_corner_caption"] = _new_caption
-                                q["personal_corner_photo_b64"] = _new_photo
                                 n += 1
                             if n:
                                 qp.write_text(json.dumps(queue, indent=2),
@@ -35804,17 +35654,15 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
         _hol_html = _render_holiday_calendar(int(_send_year), int(_send_month),
                                              _holidays)
 
-        _corner_inner = _render_corner_inner(data)
-
         sections_html += f'''
         <tr><td style="padding:18px 40px 10px;background:#FFFFFF;">
           <table cellpadding="0" cellspacing="0" width="100%"
                  style="border-collapse:collapse;">
             <tr>
-              <td valign="top" width="28%" style="padding-right:18px;text-align:left;">
+              <td valign="top" width="42%" style="padding-right:24px;text-align:left;">
                 {_hol_html}
               </td>
-              <td valign="top" width="44%" style="text-align:center;">
+              <td valign="top" width="58%" style="text-align:center;">
                 {_avatar_img}
                 <div style="font-family:{_FONT};font-size:10px;font-weight:700;
                      color:{nc["primary"]};text-transform:uppercase;
@@ -35825,7 +35673,6 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
                 </div>
                 {_activity_img}
               </td>
-              <td valign="top" width="28%" style="padding-left:18px;"><span data-pc="start"></span>{_corner_inner}<span data-pc="end"></span></td>
             </tr>
           </table>
         </td></tr>'''

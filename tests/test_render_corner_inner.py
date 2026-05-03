@@ -82,69 +82,8 @@ def test_caption_is_html_escaped():
     assert "&lt;bad&gt;" in out
 
 
-def _minimal_nl_data(**overrides):
-    base = {
-        "company": "Acme",
-        "newsletter_name": "The Test Times",
-        "tagline": "",
-        "location": "Denver, CO",
-        "website": "",
-        "date": "May 2026",
-        "intro_text": "",
-        "top_news": [],
-        "around_town": [],
-        "market_update": "",
-        "spotlights": [],
-        "contact_name": "Jane Doe",
-        "contact_email": "jane@example.com",
-        "contact_phone": "",
-        "cta_text": "Let's Talk",
-        "cta_url": "#",
-        "_send_year": 2026,
-        "_send_month": 5,
-        "personal_corner_mode": "",
-        "personal_corner_note": "",
-        "personal_corner_caption": "",
-        "personal_corner_photo_b64": "",
-    }
-    base.update(overrides)
-    return base
-
-
-def test_rendered_body_has_pc_marker_pair():
-    import flowdrip_app as fa
-    html = fa._render_newsletter_html(_minimal_nl_data())
-    assert '<span data-pc="start"></span>' in html
-    assert '<span data-pc="end"></span>' in html
-    # Empty mode → markers wrap an &nbsp; placeholder.
-    assert '<span data-pc="start"></span>&nbsp;<span data-pc="end"></span>' in html
-
-
-def test_rendered_body_with_note_mode_shows_note():
-    import flowdrip_app as fa
-    html = fa._render_newsletter_html(_minimal_nl_data(
-        personal_corner_mode="note",
-        personal_corner_note="Hello world.",
-    ))
-    assert "ON MY MIND" in html
-    assert "Hello world." in html
-
-
-def test_pc_markers_survive_strip_dashes():
-    """_strip_dashes runs at the end of _render_newsletter_html and
-    turns '--' into ' - '. Span markers must survive that pass."""
-    import flowdrip_app as fa
-    html = fa._render_newsletter_html(_minimal_nl_data(
-        personal_corner_mode="note",
-        personal_corner_note="Hello world.",
-    ))
-    # Old comment-based markers would have been mangled to '<! - pc-start - >'.
-    # Span-based markers contain no '--' so survive unchanged.
-    assert '<span data-pc="start"></span>' in html
-    assert '<span data-pc="end"></span>' in html
-    # Sanity: the corner content is also intact between the markers.
-    start_idx = html.index('<span data-pc="start"></span>')
-    end_idx = html.index('<span data-pc="end"></span>')
-    between = html[start_idx:end_idx]
-    assert "Hello world." in between
-    assert "ON MY MIND" in between
+# Personal Corner integration tests (markers in rendered body) were
+# removed when the third column of the Hiring Partner row was deleted
+# in favor of a 2-column layout. The unit tests above (mode dispatch
+# of _render_corner_inner) stay — the helper is dead code in production
+# but kept around in case the corner concept comes back.
