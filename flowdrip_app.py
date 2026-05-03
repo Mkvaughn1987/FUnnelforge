@@ -34173,6 +34173,13 @@ def p_tasks(s: AppState, rf):
 # ═══════════════════════════════════════════════════════════════════════════
 #  PAGE: NEWSLETTER BUILDER
 # ═══════════════════════════════════════════════════════════════════════════
+# Newsletter typography stack — used by _render_newsletter_html and the
+# left/right rail helpers (calendar, personal corner). Email-safe; no web
+# fonts. Mirrors the locals defined inside _render_newsletter_html.
+_NL_FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI','Inter',Helvetica,Arial,sans-serif"
+_NL_DISPLAY_FONT = "Georgia,'Times New Roman','PT Serif',serif"
+
+
 _NL_COLORS = {
     # Primary palette  -  Arena blue lead, softer navy for lighter feel in Outlook
     # (Outlook collapses any font-weight 600+ to full bold, so we lean on
@@ -35912,6 +35919,118 @@ def _holidays_for_month(year: int, month: int,
         out.append((day, h["name"], note))
     out.sort(key=lambda t: t[0])
     return out
+
+
+def _render_holiday_calendar(year: int, month: int,
+                              holidays: list[tuple]) -> str:
+    """Render the left-rail mini calendar HTML for a newsletter footer.
+
+    `holidays` is a list of (day_int, name, note) — typically from
+    _holidays_for_month. Holiday days get a filled circle in the grid;
+    a legend below the grid lists them in day order.
+
+    Outlook desktop strips border-radius, so circles render as filled
+    squares — acceptable degradation; the highlight color is still visible.
+    """
+    import calendar as _cal
+    import html as _html
+    from datetime import date as _date
+
+    primary = _NL_COLORS["primary"]
+    text = _NL_COLORS["text"]
+    muted = _NL_COLORS.get("muted", "#888888")
+    font = _NL_FONT
+
+    month_name = _date(year, month, 1).strftime("%B")
+    holiday_days = {h[0] for h in holidays}
+
+    # Build the 7-column grid. Sunday-first ordering matches the mockup.
+    cal = _cal.Calendar(firstweekday=6)
+    weeks = cal.monthdayscalendar(year, month)
+
+    # Zero-day cells = days from prev/next month. We fill those with the
+    # actual day number rendered in muted color so the grid feels complete.
+    from calendar import monthrange as _mr
+    prev_month = 12 if month == 1 else month - 1
+    prev_year = year - 1 if month == 1 else year
+    prev_last = _mr(prev_year, prev_month)[1]
+
+    rows_html: list[str] = []
+    # Header row
+    header_cells = "".join(
+        f'<td style="padding:3px;text-align:center;color:{muted};'
+        f'font-weight:700;font-size:9px;">{wd}</td>'
+        for wd in ["S", "M", "T", "W", "T", "F", "S"]
+    )
+    rows_html.append(f"<tr>{header_cells}</tr>")
+
+    # Build a flat list of (day, in_month) tuples for the whole grid.
+    # `weeks` rows have zeros for cells outside the month.
+    flat: list[tuple[int, bool]] = []
+    for w in weeks:
+        for d in w:
+            flat.append((d, d != 0))
+    # Replace leading zeros with prev-month tail.
+    leading_zeros = next((i for i, (d, _) in enumerate(flat) if d != 0), 0)
+    trailing_zeros = 0
+    for i in range(len(flat) - 1, -1, -1):
+        if flat[i][0] != 0:
+            break
+        trailing_zeros += 1
+    for i in range(leading_zeros):
+        flat[i] = (prev_last - leading_zeros + 1 + i, False)
+    for i in range(trailing_zeros):
+        flat[-trailing_zeros + i] = (i + 1, False)
+
+    # Emit week rows from `flat`.
+    for wk_idx in range(0, len(flat), 7):
+        wk = flat[wk_idx:wk_idx + 7]
+        cells = []
+        for day, in_month in wk:
+            if not in_month:
+                cells.append(
+                    f'<td style="padding:3px;text-align:center;color:{muted};'
+                    f'font-size:9px;">{day}</td>'
+                )
+                continue
+            if day in holiday_days:
+                cells.append(
+                    f'<td data-pc-day="{day}" '
+                    f'style="padding:3px;text-align:center;'
+                    f'background:{primary};color:#FFFFFF;'
+                    f'border-radius:50%;font-weight:700;font-size:10px;">'
+                    f'{day}</td>'
+                )
+            else:
+                cells.append(
+                    f'<td style="padding:3px;text-align:center;color:{text};'
+                    f'font-size:10px;">{day}</td>'
+                )
+        rows_html.append(f"<tr>{''.join(cells)}</tr>")
+
+    grid_html = (
+        f'<div style="font-family:{font};font-size:10px;font-weight:700;'
+        f'letter-spacing:1.6px;text-transform:uppercase;color:{primary};'
+        f'text-align:center;margin-bottom:6px;">{month_name} {year}</div>'
+        f'<table cellpadding="0" cellspacing="0" '
+        f'style="width:100%;border-collapse:collapse;'
+        f'font-family:Arial,sans-serif;">{"".join(rows_html)}</table>'
+    )
+
+    if not holidays:
+        return grid_html
+
+    legend_items = "".join(
+        f'<div><strong style="color:{primary};">{day}</strong> '
+        f'{_html.escape(name, quote=False)}</div>'
+        for day, name, _ in sorted(holidays, key=lambda h: h[0])
+    )
+    legend_html = (
+        f'<div data-pc-legend="1" '
+        f'style="font-family:{font};font-size:10px;color:{text};'
+        f'margin-top:8px;line-height:1.6;">{legend_items}</div>'
+    )
+    return grid_html + legend_html
 
 
 def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
