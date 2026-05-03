@@ -35791,6 +35791,20 @@ def _load_hero_variant_b64_for_camp(camp: dict, variant_idx: int):
         return None
 
 
+# Per-(user, campaign, step) stash of the AI-generated corner. The
+# generator writes here; callers pop after stamping the step. Popping
+# prevents cross-user leaks and unbounded growth.
+_last_generated_corner: dict[tuple[str, str, int], dict] = {}
+
+
+def _pop_last_generated_corner(user_email: str, camp_name: str,
+                                step_idx: int) -> dict | None:
+    """Read-and-remove the corner stash for one (user, camp, step). Returns
+    None if no entry exists."""
+    return _last_generated_corner.pop(
+        (user_email or "", camp_name or "", int(step_idx)), None)
+
+
 # ── Monthly holiday block (newsletter footer LEFT rail) ────────────────────
 # Each entry has a month, a display name, a date rule, and a default note.
 # Users can override per-holiday notes via Settings `holiday_note_overrides`,
