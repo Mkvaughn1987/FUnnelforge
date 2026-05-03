@@ -18810,6 +18810,109 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                 f"border:1px solid {C['border']};border-radius:6px;"
                 f"color:{C['text_l']};font-family:inherit;")
 
+            # ── Personal Corner (right column of Hiring Partner row) ─────
+            ui.label("Personal corner (right column of the Hiring Partner row)").classes("fd-fl").style("margin-top:14px;")
+            ui.label(
+                "Pick a mode. Empty leaves the column blank. "
+                "Note shows a short italic message. Photo shows an uploaded "
+                "image with a caption."
+            ).style(f"font-size:11px;color:{C['muted']};margin-bottom:6px;")
+
+            _corner_mode_radio = ui.radio(
+                {"": "Empty", "note": "Note", "photo": "Photo"},
+                value=state["personal_corner_mode"] or "",
+            ).props("inline").style("margin-bottom:8px;")
+            state["_corner_mode_radio"] = _corner_mode_radio
+
+            _corner_field_holder = ui.element("div")
+
+            def _on_corner_photo_upload(e):
+                raw = e.content.read() if hasattr(e.content, "read") else e.content
+                if not raw:
+                    ui.notify("Upload was empty.", type="warning")
+                    return
+                try:
+                    from PIL import Image
+                    from io import BytesIO
+                    import base64
+                    with Image.open(BytesIO(raw)) as im:
+                        im = im.convert("RGB")
+                        # Downscale to max 480px on the longer edge.
+                        max_side = 480
+                        sw, sh = im.size
+                        scale = min(1.0, max_side / max(sw, sh))
+                        if scale < 1.0:
+                            im = im.resize(
+                                (int(sw * scale), int(sh * scale)),
+                                Image.LANCZOS)
+                        buf = BytesIO()
+                        im.save(buf, format="JPEG", quality=85, optimize=True)
+                        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+                        state["personal_corner_photo_b64"] = b64
+                    ui.notify("Photo updated. Click Save to keep it.",
+                              type="positive", timeout=3000)
+                    _render_corner_fields()  # refresh preview
+                except Exception as ex:
+                    ui.notify(f"Image error: {str(ex)[:80]}", type="negative")
+
+            def _render_corner_fields():
+                _corner_field_holder.clear()
+                _mode = (_corner_mode_radio.value or "").strip()
+                with _corner_field_holder:
+                    if _mode == "note":
+                        _ta = ui.textarea(
+                            label="Note",
+                            value=state["personal_corner_note"],
+                        ).props("rows=3 outlined").style(
+                            f"width:100%;background:{C['surface']};"
+                            f"color:{C['text_l']};")
+                        state["_corner_note_textarea"] = _ta
+                    elif _mode == "photo":
+                        # Existing photo preview (if any)
+                        if state["personal_corner_photo_b64"]:
+                            ui.html(
+                                f'<img src="data:image/jpeg;base64,'
+                                f'{state["personal_corner_photo_b64"]}" '
+                                f'style="display:block;max-width:200px;'
+                                f'height:auto;border-radius:6px;'
+                                f'border:1px solid {C["border"]};'
+                                f'margin-bottom:8px;"/>'
+                            )
+                        else:
+                            with ui.element("div").style(
+                                    f"width:200px;height:120px;"
+                                    f"border:2px dashed {C['border']};"
+                                    f"border-radius:6px;display:flex;"
+                                    f"align-items:center;justify-content:center;"
+                                    f"color:{C['muted']};font-size:11px;"
+                                    f"margin-bottom:8px;"):
+                                ui.label("No photo yet")
+
+                        _pc_upload = ui.upload(
+                            on_upload=_on_corner_photo_upload,
+                            auto_upload=True,
+                            max_files=1,
+                        ).props('accept="image/*"').style("display:none;")
+                        with ui.element("button").classes("fd-gb").style(
+                                "padding:5px 12px;font-size:11px;").on(
+                                "click",
+                                lambda: _pc_upload.run_method("pickFiles")):
+                            ui.label("🖼 Upload photo").style("pointer-events:none;")
+
+                        _ta = ui.textarea(
+                            label="Caption",
+                            value=state["personal_corner_caption"],
+                        ).props("rows=2 outlined").style(
+                            f"width:100%;background:{C['surface']};"
+                            f"color:{C['text_l']};margin-top:8px;")
+                        state["_corner_caption_textarea"] = _ta
+
+            _corner_mode_radio.on(
+                "update:model-value",
+                lambda _e: _render_corner_fields()
+            )
+            _render_corner_fields()
+
             # Spinner placeholder shown WHILE the AI is writing the
             # first issue. Hidden once content lands.
             _gen_holder = ui.element("div")
