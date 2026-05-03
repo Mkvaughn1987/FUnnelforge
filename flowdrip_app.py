@@ -18824,8 +18824,9 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
             ).props("inline").style("margin-bottom:8px;")
             state["_corner_mode_radio"] = _corner_mode_radio
 
-            _corner_field_holder = ui.element("div")
-
+            # Upload widget defined ONCE outside the re-renderable holder —
+            # recreating it on every mode toggle was killing the upload
+            # event mid-flight before its callback could fire.
             def _on_corner_photo_upload(e):
                 raw = e.content.read() if hasattr(e.content, "read") else e.content
                 if not raw:
@@ -18837,7 +18838,6 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                     import base64
                     with Image.open(BytesIO(raw)) as im:
                         im = im.convert("RGB")
-                        # Downscale to max 480px on the longer edge.
                         max_side = 480
                         sw, sh = im.size
                         scale = min(1.0, max_side / max(sw, sh))
@@ -18855,21 +18855,33 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                 except Exception as ex:
                     ui.notify(f"Image error: {str(ex)[:80]}", type="negative")
 
+            _pc_upload = ui.upload(
+                on_upload=_on_corner_photo_upload,
+                auto_upload=True,
+                max_files=1,
+            ).props('accept="image/*"').style("display:none;")
+
+            _corner_field_holder = ui.element("div")
+
+            # Persistent textarea references — created once. _render_corner_fields
+            # only toggles their visibility / parent placement so user input
+            # isn't lost across mode changes and Quasar's floating-label CSS
+            # isn't fighting an inline-styled wrapper.
+
             def _render_corner_fields():
                 _corner_field_holder.clear()
                 _mode = (_corner_mode_radio.value or "").strip()
                 with _corner_field_holder:
                     if _mode == "note":
+                        ui.label("Note").classes("fd-fl")
                         _ta = ui.textarea(
-                            label="Note",
                             value=state["personal_corner_note"],
-                        ).props("rows=3 outlined").style(
-                            f"width:100%;background:{C['surface']};"
-                            f"color:{C['text_l']};")
+                        ).props("rows=3 outlined dense").style(
+                            "width:100%;")
                         state["_corner_note_textarea"] = _ta
                     elif _mode == "photo":
                         # Existing photo preview (if any)
-                        if state["personal_corner_photo_b64"]:
+                        if state.get("personal_corner_photo_b64"):
                             ui.html(
                                 f'<img src="data:image/jpeg;base64,'
                                 f'{state["personal_corner_photo_b64"]}" '
@@ -18888,23 +18900,18 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                                     f"margin-bottom:8px;"):
                                 ui.label("No photo yet")
 
-                        _pc_upload = ui.upload(
-                            on_upload=_on_corner_photo_upload,
-                            auto_upload=True,
-                            max_files=1,
-                        ).props('accept="image/*"').style("display:none;")
                         with ui.element("button").classes("fd-gb").style(
-                                "padding:5px 12px;font-size:11px;").on(
+                                "padding:5px 12px;font-size:11px;"
+                                "margin-bottom:10px;").on(
                                 "click",
                                 lambda: _pc_upload.run_method("pickFiles")):
                             ui.label("🖼 Upload photo").style("pointer-events:none;")
 
+                        ui.label("Caption").classes("fd-fl").style("margin-top:4px;")
                         _ta = ui.textarea(
-                            label="Caption",
                             value=state["personal_corner_caption"],
-                        ).props("rows=2 outlined").style(
-                            f"width:100%;background:{C['surface']};"
-                            f"color:{C['text_l']};margin-top:8px;")
+                        ).props("rows=2 outlined dense").style(
+                            "width:100%;")
                         state["_corner_caption_textarea"] = _ta
 
             state["_render_corner_fields"] = _render_corner_fields
