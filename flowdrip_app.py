@@ -36122,6 +36122,26 @@ def _render_corner_inner(data: dict) -> str:
     return "&nbsp;"
 
 
+def _splice_corner_into_body(body_html: str, new_inner: str) -> str:
+    """Replace the content between the first <span data-pc="start"></span> and
+    <span data-pc="end"></span> marker pair with `new_inner`. If markers are
+    absent, returns body_html unchanged (legacy issues without markers stay
+    as-is until regenerated)."""
+    if not body_html:
+        return body_html
+    import re as _re
+    pattern = _re.compile(
+        r'(<span data-pc="start"></span>)(.*?)(<span data-pc="end"></span>)',
+        _re.DOTALL,
+    )
+    if not pattern.search(body_html):
+        return body_html
+    return pattern.sub(
+        lambda m: f'{m.group(1)}{new_inner}{m.group(3)}',
+        body_html, count=1,
+    )
+
+
 def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
     """Standalone newsletter content generator  -  no UI coupling.
     Used by both the manual Refresh flow and the auto-refresh scheduler.
