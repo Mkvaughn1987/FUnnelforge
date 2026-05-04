@@ -9227,7 +9227,6 @@ PAGE_HELP = {
             ("Enrolling Contacts", "'+ Enroll' on any campaign adds contacts from a saved CSV. Already-enrolled and Opt-Out List contacts are auto-skipped."),
             ("Reply → Enroll Popup", "When you click Send Reply on a Responses page reply, a popup asks whether to enroll that contact in a Slow Drip or Newsletter. Keeps you in touch long-term."),
             ("Reminder Banner", "Amber banner shows emails sending in the next 7/14/30 days  -  review content before it ships."),
-            ("Newsletters", "Monthly newsletters send on the first Thursday of the month. 'Refresh Next Email' generates fresh AI content. Newsletters are blocked from sending until your profile (signature name, company, personal note) is filled in  -  prevents a blank profile from leaking another user's defaults."),
             ("Creating New", "'+ Create New Slow Drip Campaign' builds from scratch. Relative delays (Day 7, 14...) or fixed dates (May 1, June 1...)."),
         ]
     },
