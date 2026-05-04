@@ -19279,11 +19279,10 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                 except Exception as ex:
                     ui.notify(f"Image error: {str(ex)[:80]}", type="negative")
 
-            # Hero photo controls: ◀ ▶ to cycle through 5 cached
-            # Unsplash variants (swaps the base64 in the rendered body),
-            # plus an Upload-your-own button. Counter shows current
-            # variant. Body editor below auto-updates.
-            _photo_counter_holder = ui.element("div").style("display:inline-block;")
+            # Hero photo gallery: render all 3 cached Unsplash variants
+            # as side-by-side thumbnails. The currently-selected one gets
+            # a teal ring. Click a thumb to select that variant — body
+            # editor's hero <img> base64 is swapped in place.
 
             def _swap_hero_in_body(html_body: str, new_b64: str) -> str:
                 """Find the first 640×180 hero <img> tag and swap its
@@ -19291,103 +19290,114 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                 If no hero img found, returns the body unchanged."""
                 if not new_b64 or not html_body:
                     return html_body
-                # Pattern: <img src="data:image/jpeg;base64,XXXX" width="640"
-                # The hero is the first 640-wide image in the newsletter.
                 pattern = re.compile(
                     r'(<img\s+src="data:image/jpeg;base64,)([^"]+)("\s+width="640")',
                     re.IGNORECASE,
                 )
                 return pattern.sub(rf'\g<1>{new_b64}\g<3>', html_body, count=1)
 
-            def _render_photo_counter():
-                _photo_counter_holder.clear()
-                with _photo_counter_holder:
-                    ui.label(
-                        f"Photo {state['hero_variant'] + 1} of {state['hero_total']}"
-                    ).style(
-                        f"font-size:11px;font-weight:600;color:{C['teal']};"
-                        f"padding:0 8px;")
+            _hero_gallery_holder = ui.element("div").style("margin-bottom:12px;")
 
-            def _cycle_hero(direction: int):
-                """direction = +1 for next, -1 for prev."""
-                state["hero_variant"] = (
-                    state["hero_variant"] + direction
-                ) % max(1, state["hero_total"])
-                new_b64 = _load_hero_variant_b64_for_camp(camp, state["hero_variant"])
+            def _select_hero(variant_idx: int):
+                """Click handler for a thumbnail. Sets hero_variant + swaps
+                the body, then re-renders the gallery so the ring moves."""
+                new_b64 = _load_hero_variant_b64_for_camp(camp, variant_idx)
                 if not new_b64:
                     ui.notify(
-                        f"Photo {state['hero_variant'] + 1} not cached yet — "
-                        f"showing current. The next auto-refresh will fetch it.",
+                        f"Photo {variant_idx + 1} isn't ready yet — "
+                        f"the next auto-refresh will fetch it.",
                         type="info", timeout=2500)
-                    _render_photo_counter()
                     return
-                # Update body editor in place
+                state["hero_variant"] = variant_idx
                 try:
                     current = _body_editor.value or state["body"]
                     new_body = _swap_hero_in_body(current, new_b64)
                     state["body"] = new_body
                     _body_editor.set_value(new_body)
                 except Exception as ex:
-                    print(f"[NewsletterEditModal] hero swap failed: {ex}", flush=True)
+                    print(f"[NewsletterEditModal] hero swap failed: {ex}",
+                          flush=True)
                     ui.notify(f"Couldn't swap photo: {str(ex)[:60]}", type="warning")
                     return
-                _render_photo_counter()
+                _render_hero_gallery()
 
-            # Hero thumbnail preview — shows the actual image for the
-            # current variant so the user can see what they're picking
-            # without scrolling to the body editor.
-            _hero_thumb_holder = ui.element("div").style(
-                "margin-bottom:8px;")
+            def _render_hero_gallery():
+                _hero_gallery_holder.clear()
+                _total = max(1, state["hero_total"])
+                _selected = state["hero_variant"]
+                with _hero_gallery_holder:
+                    ui.label("Hero photo — click a thumbnail to pick:").style(
+                        f"font-size:11px;color:{C['muted']};"
+                        f"margin-bottom:6px;display:block;")
+                    with ui.element("div").style(
+                            "display:flex;gap:8px;flex-wrap:wrap;"
+                            "align-items:flex-start;"):
+                        for _idx in range(_total):
+                            _b64 = _load_hero_variant_b64_for_camp(camp, _idx)
+                            _is_sel = (_idx == _selected)
+                            _ring_color = C["teal"] if _is_sel else C["border"]
+                            _ring_width = "3px" if _is_sel else "1px"
+                            _label_color = C["teal"] if _is_sel else C["muted"]
+                            with ui.element("div").style(
+                                    "display:flex;flex-direction:column;"
+                                    "align-items:center;gap:3px;"
+                                    "cursor:pointer;").on(
+                                    "click",
+                                    lambda _e=None, i=_idx: _select_hero(i)):
+                                if _b64:
+                                    ui.html(
+                                        f'<img src="data:image/jpeg;base64,{_b64}" '
+                                        f'style="display:block;width:160px;'
+                                        f'height:46px;object-fit:cover;'
+                                        f'border-radius:6px;'
+                                        f'border:{_ring_width} solid {_ring_color};'
+                                        f'pointer-events:none;"/>'
+                                    )
+                                else:
+                                    with ui.element("div").style(
+                                            f"width:160px;height:46px;"
+                                            f"border:{_ring_width} dashed "
+                                            f"{_ring_color};border-radius:6px;"
+                                            f"display:flex;align-items:center;"
+                                            f"justify-content:center;"
+                                            f"color:{C['muted']};font-size:10px;"
+                                            f"pointer-events:none;"):
+                                        ui.label("loading…")
+                                ui.label(
+                                    f"{'✓ ' if _is_sel else ''}Photo {_idx + 1}"
+                                ).style(
+                                    f"font-size:10px;font-weight:600;"
+                                    f"color:{_label_color};"
+                                    f"pointer-events:none;")
 
-            def _render_hero_thumb():
-                _hero_thumb_holder.clear()
-                _b64 = _load_hero_variant_b64_for_camp(camp, state["hero_variant"])
-                with _hero_thumb_holder:
-                    if _b64:
-                        ui.html(
-                            f'<img src="data:image/jpeg;base64,{_b64}" '
-                            f'style="display:block;width:100%;max-width:320px;'
-                            f'height:auto;border-radius:6px;'
-                            f'border:1px solid {C["border"]};"/>'
-                        )
-                    else:
+                        # "Upload your own" tile sits as the 4th option
+                        # in the gallery — same size + position as a thumb,
+                        # dashed border to read as "add new" instead of
+                        # a real photo.
+                        _hero_upload = ui.upload(
+                            on_upload=_on_hero_upload,
+                            auto_upload=True,
+                            max_files=1,
+                        ).props('accept="image/*"').style("display:none;")
                         with ui.element("div").style(
-                                f"width:100%;max-width:320px;height:90px;"
-                                f"border:1px dashed {C['border']};"
-                                f"border-radius:6px;display:flex;"
-                                f"align-items:center;justify-content:center;"
-                                f"color:{C['muted']};font-size:11px;"):
-                            ui.label("Photo preview will load with the issue.")
+                                "display:flex;flex-direction:column;"
+                                "align-items:center;gap:3px;"
+                                "cursor:pointer;").on(
+                                "click",
+                                lambda _e=None: _hero_upload.run_method("pickFiles")):
+                            with ui.element("div").style(
+                                    f"width:160px;height:46px;"
+                                    f"border:1px dashed {C['border']};"
+                                    f"border-radius:6px;display:flex;"
+                                    f"align-items:center;justify-content:center;"
+                                    f"color:{C['muted']};font-size:11px;"
+                                    f"pointer-events:none;"):
+                                ui.label("🖼 Upload your own")
+                            ui.label("Custom").style(
+                                f"font-size:10px;font-weight:600;"
+                                f"color:{C['muted']};pointer-events:none;")
 
-            _render_hero_thumb()
-
-            def _cycle_hero_and_refresh(direction: int):
-                _cycle_hero(direction)
-                _render_hero_thumb()
-
-            with ui.element("div").style(
-                    "display:flex;align-items:center;gap:6px;margin-bottom:12px;"
-                    "flex-wrap:wrap;"):
-                ui.label("Hero photo:").style(
-                    f"font-size:11px;color:{C['muted']};margin-right:4px;")
-                with ui.element("button").classes("fd-gb").style(
-                        "padding:5px 10px;font-size:13px;line-height:1;").on(
-                        "click", lambda: _cycle_hero_and_refresh(-1)):
-                    ui.label("◀").style("pointer-events:none;")
-                _render_photo_counter()
-                with ui.element("button").classes("fd-gb").style(
-                        "padding:5px 10px;font-size:13px;line-height:1;").on(
-                        "click", lambda: _cycle_hero_and_refresh(1)):
-                    ui.label("▶").style("pointer-events:none;")
-                _hero_upload = ui.upload(
-                    on_upload=_on_hero_upload,
-                    auto_upload=True,
-                    max_files=1,
-                ).props('accept="image/*"').style("display:none;")
-                with ui.element("button").classes("fd-gb").style(
-                        "padding:5px 12px;font-size:11px;margin-left:8px;").on(
-                        "click", lambda: _hero_upload.run_method("pickFiles")):
-                    ui.label("🖼 Upload your own")
+            _render_hero_gallery()
 
             # Body editor + (when generating) spinner overlay.
             ui.label("Body").classes("fd-fl")
