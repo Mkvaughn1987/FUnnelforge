@@ -9411,6 +9411,148 @@ def _render_page_intro_strip(s, rf, page_key: str) -> None:
             ui.label("✕").style("pointer-events:none;")
 
 
+EMPTY_STATES = {
+    "seq_mgr": {
+        "icon": "📨",
+        "headline": "No campaigns yet",
+        "body": "Campaigns are sequences of emails you send to prospects. Pick a contact list, write a few emails, and Claude schedules the rest.",
+        "cta_label": "+ Start your first campaign",
+        "cta_target": "start_seq",
+    },
+    "evergreen": {
+        "icon": "🐢",
+        "headline": "No slow drips yet",
+        "body": "Slow drips are always-on campaigns contacts can join anytime. Perfect for nurturing leads over months instead of weeks.",
+        "cta_label": "+ Create a slow drip",
+        "cta_target": "evergreen_create",
+    },
+    "newsletters": {
+        "icon": "📰",
+        "headline": "No newsletters yet",
+        "body": "Newsletters auto-send monthly to enrolled contacts. Claude drafts each issue with your sector and region's market data.",
+        "cta_label": "+ New Newsletter",
+        "cta_target": "@new_newsletter",
+    },
+    "candidate_finder": {
+        "icon": "👥",
+        "headline": "No candidates yet",
+        "body": "Bulk-import resumes (PDF, Word, or RTF). Claude extracts name, role, location, and writes a 4-6 bullet highlight summary per resume.",
+        "cta_label": "Bulk Import Resumes",
+        "cta_target": "@cand_import",
+    },
+    "contacts": {
+        "icon": "📇",
+        "headline": "No contact lists yet",
+        "body": "Upload a CSV to build outreach lists. ZoomInfo, LinkedIn Sales Nav, and most exports work out of the box — headers auto-normalize.",
+        "cta_label": "+ Import New List",
+        "cta_target": "@contacts_import",
+    },
+    "queue": {
+        "icon": "📭",
+        "headline": "Nothing in the queue",
+        "body": "Emails appear here automatically when you launch a campaign. Schedule, sender, and content are all editable per-message.",
+        "cta_label": "Go to campaigns",
+        "cta_target": "seq_mgr",
+    },
+    "responses": {
+        "icon": "💬",
+        "headline": "No replies yet",
+        "body": "DripDrop scans your inbox every 5 minutes. When prospects reply, drafts appear here ready to send.",
+        "cta_label": "Check campaign progress",
+        "cta_target": "seq_mgr",
+    },
+    "dnc": {
+        "icon": "🚫",
+        "headline": "Nobody's opted out",
+        "body": "Reply-based opt-outs auto-land here. You can also add emails manually or upload a CSV.",
+        "cta_label": "Add an opt-out",
+        "cta_target": "@dnc_focus",
+    },
+    "drip": {
+        "icon": "✅",
+        "headline": "All done for today",
+        "body": "No outstanding tasks. Tomorrow's tasks preview is below if you want to get a head start.",
+        "cta_label": "View tomorrow's drip",
+        "cta_target": "@drip_tomorrow_tab",
+    },
+}
+
+
+def _render_empty_state(s, rf, page_key: str) -> None:
+    """Render a centered emoji + headline + body + CTA card for a page
+    that has no data yet. Reads EMPTY_STATES[page_key]. Renders nothing
+    if the page key isn't in EMPTY_STATES.
+
+    Two CTA target conventions:
+      - Plain string like "start_seq" → treated as a route key
+        (s.sp = cta_target; rf()).
+      - "@"-prefixed string like "@new_newsletter" → looks up callable on
+        s._empty_state_handlers[cta_target] and invokes it. The page
+        render function must populate s._empty_state_handlers BEFORE
+        calling this helper.
+    """
+    entry = EMPTY_STATES.get(page_key)
+    if not entry:
+        return
+
+    icon = entry.get("icon", "")
+    headline = entry.get("headline", "")
+    body = entry.get("body", "")
+    cta_label = entry.get("cta_label", "")
+    cta_target = entry.get("cta_target", "")
+
+    primary = C["teal"]
+    text = C["text_l"]
+    muted = C["muted"]
+    border = C["border"]
+    bg = C.get("card", C.get("surface", "#FFFFFF"))
+
+    def _on_cta_click():
+        if cta_target.startswith("@"):
+            handlers = getattr(s, "_empty_state_handlers", None) or {}
+            handler = handlers.get(cta_target)
+            if handler is not None:
+                try:
+                    handler()
+                except Exception as ex:
+                    print(f"[EmptyState] action {cta_target} failed: {ex}",
+                          flush=True)
+            return
+        # Plain route key — navigate via s.sp.
+        try:
+            s.sp = cta_target
+            rf()
+        except Exception as ex:
+            print(f"[EmptyState] route {cta_target!r} navigation failed: {ex}",
+                  flush=True)
+
+    with ui.element("div").style(
+            "display:flex;justify-content:center;padding:32px 16px;"):
+        with ui.element("div").style(
+                f"max-width:320px;background:{bg};"
+                f"border:1px solid {border};border-radius:12px;"
+                f"padding:32px 24px;text-align:center;"
+                f"font-family:'DM Sans','Segoe UI',sans-serif;"):
+            if icon:
+                ui.label(icon).style(
+                    "font-size:36px;line-height:1.1;margin-bottom:8px;"
+                    "display:block;")
+            if headline:
+                ui.label(headline).style(
+                    f"font-size:14px;font-weight:700;color:{text};"
+                    f"margin-bottom:8px;display:block;")
+            if body:
+                ui.label(body).style(
+                    f"font-size:12px;color:{muted};line-height:1.5;"
+                    f"max-width:240px;margin:0 auto 16px;display:block;")
+            if cta_label:
+                with ui.element("button").classes("fd-pb").style(
+                        "padding:8px 22px;font-size:12px;font-weight:700;"
+                        "border-radius:99px;cursor:pointer;"
+                        ).on("click", _on_cta_click):
+                    ui.label(cta_label).style("pointer-events:none;")
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _show_profile_modal(s: AppState, rf):
