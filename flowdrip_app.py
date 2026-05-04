@@ -9318,6 +9318,99 @@ def _show_page_help(s: AppState, rf, page_key: str):
                         f"{'padding-left:12px;' if _indent else ''}")
 
 
+def _is_help_strip_dismissed(page_key: str) -> bool:
+    """Return True if the current user has dismissed the page intro strip
+    for the given page key. Reads dripdrop_config.json (per-user, async-safe)."""
+    try:
+        cfg = load_config()
+    except Exception:
+        return False
+    dismissed = cfg.get("dismissed_help_strips") or []
+    return page_key in dismissed
+
+
+def _dismiss_help_strip(page_key: str) -> None:
+    """Append page_key to the user's dismissed_help_strips list. Idempotent —
+    duplicates are not added."""
+    try:
+        cfg = load_config()
+    except Exception:
+        cfg = {}
+    dismissed = list(cfg.get("dismissed_help_strips") or [])
+    if page_key not in dismissed:
+        dismissed.append(page_key)
+    cfg["dismissed_help_strips"] = dismissed
+    save_config(cfg)
+
+
+def _clear_all_dismissed_help_strips() -> None:
+    """Reset the user's dismissed_help_strips list to []. Used by the
+    'Show all page guides again' button on the Settings page."""
+    try:
+        cfg = load_config()
+    except Exception:
+        cfg = {}
+    cfg["dismissed_help_strips"] = []
+    save_config(cfg)
+
+
+def _render_page_intro_strip(s, rf, page_key: str) -> None:
+    """Render the always-visible 'What is this page for / Next:' tinted card
+    at the top of a page. Reads PAGE_HELP[page_key] for the summary and
+    next_action fields. Renders nothing if:
+      - the page key isn't in PAGE_HELP, OR
+      - the entry has no summary field (or summary is empty), OR
+      - the entry has no next_action field (or next_action is empty), OR
+      - the current user has dismissed this strip.
+
+    Dismissing writes page_key to dripdrop_config.json[dismissed_help_strips]
+    and triggers a re-render via the rf callable.
+    """
+    entry = PAGE_HELP.get(page_key)
+    if not entry:
+        return
+    summary = (entry.get("summary") or "").strip()
+    next_action = (entry.get("next_action") or "").strip()
+    if not summary or not next_action:
+        return
+    if _is_help_strip_dismissed(page_key):
+        return
+
+    def _on_dismiss():
+        _dismiss_help_strip(page_key)
+        try:
+            rf()
+        except Exception:
+            pass
+
+    primary = C["teal"]
+    text = C["text_l"]
+    muted = C["muted"]
+    with ui.element("div").style(
+            f"background:{primary}12;border-left:4px solid {primary};"
+            f"border-radius:4px;padding:10px 14px;margin-bottom:12px;"
+            f"display:flex;align-items:flex-start;gap:10px;"
+            f"font-family:'DM Sans','Segoe UI',sans-serif;"):
+        # Lightbulb icon
+        ui.label("💡").style("font-size:18px;line-height:1.2;flex-shrink:0;")
+        # Body — summary on one line, next_action on the next
+        with ui.element("div").style("flex:1;min-width:0;line-height:1.5;font-size:12px;"):
+            ui.html(
+                f'<strong style="color:{primary};">What this page is for:</strong> '
+                f'<span style="color:{text};">{summary}</span>'
+            )
+            ui.html(
+                f'<strong style="color:{primary};">→ Next:</strong> '
+                f'<span style="color:{text};">{next_action}</span>'
+            )
+        # Dismiss button
+        with ui.element("button").style(
+                f"background:transparent;border:none;cursor:pointer;"
+                f"color:{muted};font-size:16px;padding:0 4px;"
+                f"line-height:1;flex-shrink:0;").on("click", _on_dismiss):
+            ui.label("✕").style("pointer-events:none;")
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _show_profile_modal(s: AppState, rf):
