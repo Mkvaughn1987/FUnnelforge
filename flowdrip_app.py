@@ -13511,6 +13511,87 @@ def _sq_loaded_campaign(s: AppState, rf):
                         "click", _clear_contacts):
                     ui.label("✕ Clear & Change").style("pointer-events:none;")
 
+        # ── Active Clients red-flag banner ────────────────────────────────
+        # Wizard step 3 has this gate (_sq_contacts L16691); the loaded-
+        # campaign editor skipped it. Result: user uploads a list of
+        # contacts at a protected client, sees no warning, hits Launch,
+        # queue_campaign_emails silently filters them all out, and the
+        # user has no idea why nothing sent (user report 2026-05-04:
+        # "I did a trial run on a current client - it didnt give any
+        # red flags anywhere and was going to let me run the campaign").
+        if contacts:
+            try:
+                _ac_blocklist_now = load_client_blocklist()
+                _flagged_pairs = (
+                    blocklisted_contacts(contacts, _ac_blocklist_now)
+                    if _ac_blocklist_now else []
+                )
+            except Exception:
+                _flagged_pairs = []
+            if _flagged_pairs:
+                # Group by client/domain for a tidy summary
+                _by_dom: dict = {}
+                for _c, _entry in _flagged_pairs:
+                    _dom = _normalize_domain(_entry.get("domain", "")) or _entry.get("domain", "")
+                    _cname = (_entry.get("client_name", "") or "").strip()
+                    _bucket = _by_dom.setdefault(_dom, {"name": _cname, "count": 0})
+                    _bucket["count"] += 1
+                    if _cname and not _bucket["name"]:
+                        _bucket["name"] = _cname
+                _n_flag = len(_flagged_pairs)
+                _kept_lc = max(0, len(contacts) - _n_flag)
+                with ui.element("div").style(
+                        f"background:{C['danger']}12;border:1px solid {C['danger']}60;"
+                        f"border-left:4px solid {C['danger']};border-radius:8px;"
+                        f"padding:14px 18px;margin-bottom:18px;"):
+                    with ui.element("div").style(
+                            "display:flex;align-items:flex-start;gap:10px;"):
+                        ui.label("⚠").style(
+                            f"font-size:20px;color:{C['danger']};flex-shrink:0;"
+                            f"line-height:1.1;")
+                        with ui.element("div").style("flex:1;min-width:0;"):
+                            ui.label(
+                                f"{_n_flag} contact{'s' if _n_flag != 1 else ''} "
+                                f"at active client{'s' if len(_by_dom) != 1 else ''}"
+                            ).style(
+                                f"font-size:14px;font-weight:800;color:{C['danger']};"
+                                f"font-family:'Nunito',sans-serif;display:block;"
+                                f"margin-bottom:4px;")
+                            ui.label(
+                                "These contacts work at companies on your team's "
+                                "Active Clients list. They will be SKIPPED at launch "
+                                "(default behavior). If you intentionally want to "
+                                "send anyway, use the gate at Preview Campaign."
+                            ).style(
+                                f"font-size:12px;color:{C['text_l']};line-height:1.5;"
+                                f"display:block;margin-bottom:10px;")
+                            with ui.element("div").style(
+                                    f"background:{C['surface']};"
+                                    f"border:1px solid {C['border']};border-radius:6px;"
+                                    f"padding:8px 12px;max-height:140px;overflow-y:auto;"):
+                                for _dom, _info in sorted(
+                                        _by_dom.items(),
+                                        key=lambda kv: (-kv[1]["count"], kv[0]))[:10]:
+                                    with ui.element("div").style(
+                                            "display:flex;align-items:center;"
+                                            "justify-content:space-between;padding:2px 0;"):
+                                        ui.label(_info["name"] or _dom).style(
+                                            f"font-size:12px;color:{C['text_l']};"
+                                            f"font-weight:600;")
+                                        ui.label(
+                                            f"{_info['count']} "
+                                            f"contact{'s' if _info['count'] != 1 else ''} "
+                                            f"({_dom})"
+                                        ).style(
+                                            f"font-size:11px;color:{C['muted']};"
+                                            f"font-family:monospace;")
+                            ui.label(
+                                f"Effective send: {_kept_lc} of {len(contacts)} "
+                                f"contact{'s' if len(contacts) != 1 else ''}."
+                            ).style(
+                                f"font-size:11px;color:{C['muted']};"
+                                f"margin-top:8px;font-style:italic;display:block;")
+
         # ── Two option cards ──────────────────────────────────────────────────
         show_saved = getattr(s, "_show_saved_lists", False)
         saved = list_saved_contact_lists()
@@ -14182,6 +14263,107 @@ def _sq_loaded_campaign(s: AppState, rf):
                                     f"Pick today or a future date.",
                                     type="warning",
                                 )
+                                return
+                            # ── Active Clients gate ────────────────────────
+                            # If any contacts are at protected clients AND
+                            # the user hasn't already made a per-launch
+                            # decision, block the launch and surface the
+                            # warning. queue_campaign_emails will silently
+                            # filter at queue time otherwise — better to
+                            # confront the user explicitly so they can
+                            # consciously choose Skip vs Send-Anyway.
+                            try:
+                                _ac_block = load_client_blocklist()
+                                _ac_flagged = (
+                                    blocklisted_contacts(contacts, _ac_block)
+                                    if _ac_block else []
+                                )
+                            except Exception:
+                                _ac_flagged = []
+                            if _ac_flagged and not (camp.get("_ac_decision") or "").strip():
+                                _n_flagged = len(_ac_flagged)
+                                _by_dom_l: dict = {}
+                                for _fc, _fe in _ac_flagged:
+                                    _fdom = _normalize_domain(_fe.get("domain", "")) or _fe.get("domain", "")
+                                    _fcname = (_fe.get("client_name", "") or "").strip()
+                                    _b = _by_dom_l.setdefault(_fdom, {"name": _fcname, "count": 0})
+                                    _b["count"] += 1
+                                    if _fcname and not _b["name"]:
+                                        _b["name"] = _fcname
+                                _kept = max(0, len(contacts) - _n_flagged)
+                                with ui.dialog() as _ac_dlg, ui.card().style(
+                                        f"background:{C['card']};border:1px solid {C['danger']}60;"
+                                        f"min-width:480px;max-width:580px;padding:24px 28px;"):
+                                    ui.label(
+                                        f"⚠ {_n_flagged} contact"
+                                        f"{'s' if _n_flagged != 1 else ''} at active clients"
+                                    ).style(
+                                        f"font-size:18px;font-weight:800;color:{C['danger']};"
+                                        f"font-family:'Nunito',sans-serif;margin-bottom:6px;")
+                                    ui.label(
+                                        "These contacts work at companies on your team's "
+                                        "Active Clients list. Pick how to handle them before "
+                                        "launching."
+                                    ).style(
+                                        f"font-size:12px;color:{C['muted']};line-height:1.5;"
+                                        f"margin-bottom:14px;")
+                                    with ui.element("div").style(
+                                            f"background:{C['surface']};border:1px solid {C['border']};"
+                                            f"border-radius:8px;padding:10px 14px;margin-bottom:18px;"
+                                            f"max-height:160px;overflow-y:auto;"):
+                                        for _bd, _bi in sorted(
+                                                _by_dom_l.items(),
+                                                key=lambda kv: (-kv[1]["count"], kv[0]))[:10]:
+                                            with ui.element("div").style(
+                                                    "display:flex;align-items:center;"
+                                                    "justify-content:space-between;padding:3px 0;"):
+                                                ui.label(_bi["name"] or _bd).style(
+                                                    f"font-size:12px;color:{C['text_l']};"
+                                                    f"font-weight:600;")
+                                                ui.label(
+                                                    f"{_bi['count']} contact"
+                                                    f"{'s' if _bi['count'] != 1 else ''} ({_bd})"
+                                                ).style(
+                                                    f"font-size:11px;color:{C['muted']};"
+                                                    f"font-family:monospace;")
+                                    with ui.element("div").style(
+                                            "display:flex;flex-wrap:wrap;justify-content:flex-end;"
+                                            "gap:8px;align-items:center;"):
+                                        with ui.element("button").classes("fd-gb").style(
+                                                "padding:8px 16px;font-size:12px;").on(
+                                                "click", _ac_dlg.close):
+                                            ui.label("← Cancel launch")
+
+                                        def _decide_skip():
+                                            camp["_ac_decision"] = "skip"
+                                            _ac_dlg.close()
+                                            ui.notify(
+                                                f"✓ {_n_flagged} active-client contact"
+                                                f"{'s' if _n_flagged != 1 else ''} will be skipped.",
+                                                type="positive", timeout=3500)
+                                            _confirm_launch()
+                                        with ui.element("button").classes("fd-pb").style(
+                                                "padding:8px 18px;font-size:12px;font-weight:700;"
+                                                ).on("click", _decide_skip):
+                                            ui.label(f"Skip {_n_flagged} — Launch with {_kept} →")
+
+                                        def _decide_send_all():
+                                            camp["_ac_decision"] = "send_all"
+                                            _ac_dlg.close()
+                                            ui.notify(
+                                                f"⚠ Sending to ALL {len(contacts)} contacts including "
+                                                f"{_n_flagged} active-client contact"
+                                                f"{'s' if _n_flagged != 1 else ''}.",
+                                                type="warning", timeout=4500)
+                                            _confirm_launch()
+                                        with ui.element("button").style(
+                                                f"padding:8px 16px;font-size:12px;"
+                                                f"background:transparent;border:1px solid {C['danger']}80;"
+                                                f"color:{C['danger']};border-radius:8px;cursor:pointer;"
+                                                f"font-family:inherit;font-weight:600;"
+                                                ).on("click", _decide_send_all):
+                                            ui.label("Send to them anyway")
+                                _ac_dlg.open()
                                 return
                             camp["name"] = new_name
                             camp["status"] = "active"
