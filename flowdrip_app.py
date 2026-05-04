@@ -10563,6 +10563,7 @@ def _render_li_message_card(camp: dict, s: AppState, rf):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def p_today_combined(s: AppState, rf):
+    _render_page_intro_strip(s, rf, "drip")
     # Promote stale "Generating..." AI-script entries to an error so the
     # page stops auto-refreshing if a generation thread hung or vanished.
     if hasattr(s, "_ai_scripts") and getattr(s, "_ai_scripts_started_at", None):
@@ -11598,6 +11599,7 @@ def _drip_done_card(t, s: AppState, rf):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def p_responses(s, rf):
+    _render_page_intro_strip(s, rf, "responses")
     recs = load_responded()
 
     # Promote stale "Drafting reply..." entries to an error so the page stops
@@ -14342,6 +14344,7 @@ def _sq_campaign_wizard_header(s: AppState, rf):
 
 
 def p_seq(s: AppState, rf):
+    _render_page_intro_strip(s, rf, "start_seq")
     # If a saved campaign is loaded, show the campaign viewer
     if s.loaded_camp or (s.loaded_view == "summary" and s.launch_result):
         _sq_loaded_campaign(s, rf)
@@ -17275,6 +17278,7 @@ def _humanize_iso_age(iso: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 
 def p_contacts(s, rf):
+    _render_page_intro_strip(s, rf, "contacts")
     contacts = load_contacts()
     saved = list_saved_contact_lists()
 
@@ -19527,12 +19531,14 @@ def p_newsletters(s, rf):
     with ui.element("div").style(
             "max-width:880px;margin:0 auto;padding:0 8px;"):
 
+        _render_page_intro_strip(s, rf, "newsletters")
+
         with ui.element("div").style(
                 "display:flex;align-items:center;justify-content:center;"
                 "gap:8px;margin-bottom:4px;"):
             ui.label("Newsletters").classes("fd-h1").style("margin:0;")
             try:
-                _show_page_help(s, rf, "evergreen")
+                _show_page_help(s, rf, "newsletters")
             except Exception:
                 pass
         ui.label(
@@ -19638,6 +19644,7 @@ def p_newsletters(s, rf):
 
 
 def p_evergreen(s, rf):
+    _render_page_intro_strip(s, rf, "evergreen")
     # Seed built-in evergreen campaigns if needed
     _seed_evergreen_campaigns()
 
@@ -21452,6 +21459,7 @@ def count_archivable_queue_entries(days: int = 30) -> int:
 
 def p_dashboard(s: AppState, rf):
     """Dashboard - stats + active campaigns + Today/Tomorrow drip tabs."""
+    _render_page_intro_strip(s, rf, "dashboard")
     camps   = load_campaigns()
     queue   = _load_queue()
     recs    = load_responded()
@@ -22735,6 +22743,7 @@ def p_prev_launch(s: AppState, rf):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def p_seq_mgr(s, rf):
+    _render_page_intro_strip(s, rf, "seq_mgr")
     camps = load_campaigns()
     queue = _load_queue()
 
@@ -23739,6 +23748,7 @@ def p_seq_mgr(s, rf):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def p_dnc(s, rf):
+    _render_page_intro_strip(s, rf, "dnc")
     dnc = load_dnc()
 
     # ── Header + Add form ─────────────────────────────────────────────────
@@ -24321,6 +24331,7 @@ def _render_active_clients_upload(s, rf, user_email: str):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def p_queue(s, rf):
+    _render_page_intro_strip(s, rf, "queue")
     queue = _load_queue()
     now = datetime.now()
     today_str = now.strftime("%Y-%m-%d")
@@ -30744,6 +30755,7 @@ def _render_custom_pdf_modal(s: AppState, rf):
 
 def p_pdf_gen(s: AppState, rf):
     """PDF Generator  -  create branded Market Pulse, Scorecard, and Tenure PDFs on demand."""
+    _render_page_intro_strip(s, rf, "pdf_gen")
 
     with ui.element("div").style("display:flex;align-items:center;"):
         ui.label("Reports").classes("fd-h1")
@@ -32901,6 +32913,7 @@ def _p_candidate_pool_tab(s: AppState, rf, pool: list):
 
 def p_candidate_finder(s: AppState, rf):
     """Job Match  -  manage candidates, search jobs, generate outreach."""
+    _render_page_intro_strip(s, rf, "candidate_finder")
 
     if not ANTHROPIC_API_KEY:
         with ui.element("div").style(
@@ -33775,6 +33788,7 @@ def p_timezone(s, rf):
 
 def p_ai_settings(s, rf):
     global ANTHROPIC_API_KEY
+    _render_page_intro_strip(s, rf, "ai_settings")
     with ui.element("div").style("display:flex;align-items:center;"):
         ui.label("Settings").classes("fd-h1")
         _show_page_help(s, rf, "ai_settings")
@@ -41160,6 +41174,7 @@ def p_team_settings(s: AppState, rf):
 
 
 def p_signature(s, rf):
+    _render_page_intro_strip(s, rf, "signature")
     with ui.element("div").style("display:flex;align-items:center;"):
         ui.label("Email Signature").classes("fd-h1")
         _show_page_help(s, rf, "signature")
