@@ -9233,9 +9233,10 @@ PAGE_HELP = {
     "newsletters": {
         "title": "Newsletters",
         "summary": "Each card is a monthly newsletter that auto-sends on the 1st.",
-        "next_action": "Click View / Edit on any card to review this month's issue before it ships.",
+        "next_action": "Click + Enroll to add contacts, or View / Edit to review this month's issue before it ships.",
         "sections": [
             ("What is this?", "Monthly market-pulse newsletters that auto-send to enrolled contacts on the first of each month. Claude drafts each issue using your sector + region; you review and tweak."),
+            ("Enrolling contacts", "Click + Enroll on any newsletter card to add contacts from a saved list. Contacts join at the next upcoming issue  -  they don't receive past issues."),
             ("Auto-refresh", "Every issue regenerates 3 days before send, so the content's always current. Click Save in the editor to lock an issue (auto-refresh leaves it alone)."),
             ("Hero photo", "Each issue picks one of 3 cached city photos. The editor's ◀ ▶ buttons cycle through them; you can also upload your own."),
             ("Calendar + Hiring Partner", "The footer shows a mini month calendar with US holidays + your headshot/note. The holiday legend is editable in the campaign settings."),

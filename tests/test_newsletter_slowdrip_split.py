@@ -14,3 +14,16 @@ def test_evergreen_help_drops_newsletters_section():
     assert "Newsletters" not in titles, (
         f"PAGE_HELP['evergreen'] still has a 'Newsletters' bullet: {titles}"
     )
+
+
+def test_newsletters_help_adds_enrolling_contacts_section():
+    import flowdrip_app as fa
+    sections = fa.PAGE_HELP["newsletters"]["sections"]
+    titles = [t for (t, _body) in sections]
+    assert "Enrolling contacts" in titles, (
+        f"PAGE_HELP['newsletters'] should have an 'Enrolling contacts' bullet, "
+        f"got: {titles}"
+    )
+    # Verify the body explains the + Enroll button.
+    body = next(b for (t, b) in sections if t == "Enrolling contacts")
+    assert "+ Enroll" in body or "Enroll" in body
