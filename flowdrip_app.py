@@ -20366,33 +20366,56 @@ def p_evergreen(s, rf):
                                 f"font-style:italic;margin-top:3px;")
                     # Action buttons
                     with ui.element("div").style(
-                            "flex-shrink:0;display:flex;gap:6px;pointer-events:auto;").on("click.stop", lambda: None):
-                        # Refresh
-                        def _refresh_nl(c=camp):
-                            _next_idx = _find_next_evergreen_step(c)
-                            _nl_steps = c.get("emails", [])
-                            _next_step = _nl_steps[_next_idx] if _next_idx < len(_nl_steps) else None
-                            if _next_step:
-                                s._market_refresh_camp = c
-                                s._market_refresh_idx = _next_idx
-                                # Skip the candidate picker — auto-generate
-                                # candidates popular in this market/region.
-                                s._market_refresh_step = "generating"
-                                s._market_refresh_body = ""
-                                s._market_refresh_subject = ""
-                                s._market_spotlight_mode = "auto"
-                                s._market_spotlight_desc = ""
-                                s._market_generation_started = False
-                                ui.run_javascript('window.scrollTo({top:0,behavior:"smooth"})')
-                                rf()
-                            else:
-                                ui.notify("All newsletter issues have been sent.", type="info")
-                        with ui.element("button").style(
-                                f"padding:4px 12px;border-radius:6px;cursor:pointer;font-family:inherit;"
-                                f"background:{C['teal']}15;border:1px solid {C['teal']}40;"
-                                f"color:{C['teal']};font-size:11px;font-weight:600;"
-                                ).on("click", _refresh_nl):
-                            ui.label("+ Refresh")
+                            "flex-shrink:0;display:flex;gap:6px;pointer-events:auto;align-items:center;").on("click.stop", lambda: None):
+                        # Inline generating indicator: when THIS card's campaign
+                        # is the one being refreshed, replace the + Refresh button
+                        # with a spinner + "Generating…" text so the user sees
+                        # the work happening on the card they clicked, not at
+                        # the bottom of the page (per user request 2026-05-04).
+                        _rcamp_inline = getattr(s, "_market_refresh_camp", None)
+                        _rstep_inline = getattr(s, "_market_refresh_step", "")
+                        _is_this_refreshing = (
+                            isinstance(_rcamp_inline, dict)
+                            and _rcamp_inline.get("name") == camp.get("name")
+                            and _rstep_inline == "generating"
+                        )
+                        if _is_this_refreshing:
+                            with ui.element("div").style(
+                                    f"display:inline-flex;align-items:center;gap:6px;"
+                                    f"padding:4px 12px;border-radius:6px;"
+                                    f"background:{C['teal']}15;border:1px solid {C['teal']}40;"
+                                    f"color:{C['teal']};font-size:11px;font-weight:600;"
+                                    f"font-family:inherit;"):
+                                ui.spinner("dots", size="14px", color=C["teal"]).style(
+                                    "pointer-events:none;")
+                                ui.label("Generating… ~15-30s").style(
+                                    "pointer-events:none;white-space:nowrap;")
+                        else:
+                            # Refresh
+                            def _refresh_nl(c=camp):
+                                _next_idx = _find_next_evergreen_step(c)
+                                _nl_steps = c.get("emails", [])
+                                _next_step = _nl_steps[_next_idx] if _next_idx < len(_nl_steps) else None
+                                if _next_step:
+                                    s._market_refresh_camp = c
+                                    s._market_refresh_idx = _next_idx
+                                    # Skip the candidate picker — auto-generate
+                                    # candidates popular in this market/region.
+                                    s._market_refresh_step = "generating"
+                                    s._market_refresh_body = ""
+                                    s._market_refresh_subject = ""
+                                    s._market_spotlight_mode = "auto"
+                                    s._market_spotlight_desc = ""
+                                    s._market_generation_started = False
+                                    rf()
+                                else:
+                                    ui.notify("All newsletter issues have been sent.", type="info")
+                            with ui.element("button").style(
+                                    f"padding:4px 12px;border-radius:6px;cursor:pointer;font-family:inherit;"
+                                    f"background:{C['teal']}15;border:1px solid {C['teal']}40;"
+                                    f"color:{C['teal']};font-size:11px;font-weight:600;"
+                                    ).on("click", _refresh_nl):
+                                ui.label("+ Refresh")
                         # Enroll
                         def _enroll_nl(c=camp):
                             _enroll_dialog(c, s, rf)
@@ -20643,13 +20666,11 @@ def p_evergreen(s, rf):
                         ui.label("Cancel")
 
             elif _rstep_mode == "generating":
-                with ui.element("div").style(
-                        f"background:{C['card']};border:1px solid {C['teal']}40;"
-                        f"border-radius:10px;padding:20px 24px;text-align:center;"):
-                    ui.label("Generating fresh market content...").style(
-                        f"font-size:14px;color:{C['teal']};font-weight:600;margin-bottom:8px;")
-                    ui.label("Claude is researching and writing your email. This takes 15-30 seconds.").style(
-                        f"font-size:12px;color:{C['muted']};")
+                # No visible UI here anymore — the per-card inline spinner
+                # (see "Inline generating indicator" above in the card loop)
+                # has replaced the bottom "Generating fresh market content…"
+                # banner so users see the work happening on the card they
+                # clicked. Background thread launch below is unchanged.
 
                 # Run AI generation in background thread
                 def _run_generation():
