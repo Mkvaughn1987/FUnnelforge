@@ -19069,6 +19069,97 @@ def get_evergreen_reminders(days_ahead: int = 7) -> list:
     return reminders
 
 
+def _render_nl_first_gen_status(s, rf) -> None:
+    """Render the 'Generating your first issue…' status card after a user
+    creates a new newsletter from _create_newsletter_dialog. Shows a
+    prominent centered card with spinner + countdown while the bg
+    thread generates content; flips to a success card with a 'View
+    your newsletter →' button when done.
+
+    Reads:
+      s._nl_first_gen_camp_name — set by _create_newsletter_dialog,
+        cleared once the user dismisses the success card.
+      s._nl_first_gen_done — flipped True by the bg thread when
+        _gen_all_issues_for_campaign returns.
+
+    Renders nothing if there's no in-flight generation.
+
+    Used by p_newsletters and p_evergreen — both pages can be the
+    landing point after a new-newsletter creation, so both call this.
+    """
+    _camp_name = getattr(s, "_nl_first_gen_camp_name", None)
+    if not _camp_name:
+        return
+    _done = bool(getattr(s, "_nl_first_gen_done", False))
+
+    if not _done:
+        # In-flight: prominent centered card with big spinner.
+        with ui.element("div").style(
+                f"background:{C['card']};border:1px solid {C['teal']}60;"
+                f"border-left:5px solid {C['teal']};border-radius:12px;"
+                f"padding:22px 28px;margin:14px 0 18px;display:flex;"
+                f"align-items:center;gap:18px;"
+                f"box-shadow:0 4px 14px rgba(0,0,0,.18);"):
+            ui.spinner("dots", size="40px", color=C["teal"]).style("flex-shrink:0;")
+            with ui.element("div").style("flex:1;min-width:0;"):
+                ui.label(
+                    f"✨ Generating the first issue of '{_camp_name}'…"
+                ).style(
+                    f"font-size:16px;font-weight:800;color:{C['teal']};"
+                    f"font-family:'Nunito',sans-serif;display:block;"
+                    f"margin-bottom:4px;")
+                ui.label(
+                    "Claude is researching the market and writing your "
+                    "first issue. Usually 20-30 seconds. You can leave "
+                    "this page — we'll keep working in the background."
+                ).style(
+                    f"font-size:12px;color:{C['muted']};line-height:1.55;"
+                    f"display:block;")
+
+        # Poll for completion. The bg thread sets _nl_first_gen_done when
+        # _gen_all_issues_for_campaign returns; this timer flips the UI
+        # over to the success state on the next tick.
+        def _poll_nl_gen():
+            if getattr(s, '_nl_first_gen_done', False):
+                try: _cache_campaigns.invalidate()
+                except Exception: pass
+                try: rf()
+                except Exception: pass
+        ui.timer(2.0, _poll_nl_gen)
+        return
+
+    # Done: success card with View button + dismiss.
+    with ui.element("div").style(
+            f"background:{C['good']}15;border:1px solid {C['good']}60;"
+            f"border-left:5px solid {C['good']};border-radius:12px;"
+            f"padding:18px 24px;margin:14px 0 18px;display:flex;"
+            f"align-items:center;gap:18px;"):
+        ui.label("✓").style(
+            f"font-size:32px;color:{C['good']};flex-shrink:0;line-height:1;")
+        with ui.element("div").style("flex:1;min-width:0;"):
+            ui.label(f"Your first issue of '{_camp_name}' is ready.").style(
+                f"font-size:15px;font-weight:800;color:{C['good']};"
+                f"font-family:'Nunito',sans-serif;display:block;"
+                f"margin-bottom:2px;")
+            ui.label(
+                "Click View / Edit on the card below to review and tweak "
+                "before it sends. Future issues auto-refresh 3 days "
+                "before send."
+            ).style(
+                f"font-size:11px;color:{C['muted']};line-height:1.5;"
+                f"display:block;")
+
+        def _dismiss_done():
+            s._nl_first_gen_camp_name = None
+            s._nl_first_gen_done = False
+            rf()
+
+        with ui.element("button").classes("fd-pb").style(
+                "padding:8px 18px;font-size:12px;flex-shrink:0;").on(
+                "click", _dismiss_done):
+            ui.label("Got it ✓")
+
+
 def _create_newsletter_dialog(s, rf):
     """Dialog for creating a new Newsletter evergreen campaign.
     User picks name, sector, region, start month, and number of months.
@@ -19353,9 +19444,8 @@ def _create_newsletter_dialog(s, rf):
             _thr.Thread(target=_gen_first_issue, daemon=True).start()
 
             ui.notify(
-                f"Created '{nl_name}'. Generating your first issue now  -  "
-                f"it'll show up in about 30 seconds.",
-                type="positive", timeout=6000,
+                f"Created '{nl_name}' — generating now…",
+                type="positive", timeout=3500,
             )
             dlg.close()
             rf()
@@ -19845,6 +19935,12 @@ def p_newsletters(s, rf):
 
         _render_page_intro_strip(s, rf, "newsletters")
 
+        # First-issue generation status — shows when a user just created
+        # a newsletter and the bg thread is still generating its first
+        # issue. Same helper rendered on p_evergreen so the user sees
+        # the status regardless of which page they end up on.
+        _render_nl_first_gen_status(s, rf)
+
         with ui.element("div").style(
                 "display:flex;align-items:center;justify-content:center;"
                 "gap:8px;margin-bottom:4px;"):
@@ -20000,36 +20096,9 @@ def p_evergreen(s, rf):
                     f"font-size:11px;color:{C['muted']};display:block;margin-top:2px;")
 
     # If a newsletter's first issue is generating in the background
-    # (triggered from the Create Newsletter dialog), show a live banner
-    # and auto-refresh the page when it finishes — so the user sees the
-    # generated content appear without having to manually reload.
-    if getattr(s, '_nl_first_gen_camp_name', None) and not getattr(s, '_nl_first_gen_done', False):
-        with ui.element("div").style(
-                f"background:{C['teal']}12;border:1px solid {C['teal']}40;"
-                f"border-left:3px solid {C['teal']};border-radius:8px;"
-                f"padding:10px 14px;margin:8px 0 12px;display:flex;"
-                f"align-items:center;gap:10px;"):
-            ui.spinner("dots", size="20px", color=C["teal"])
-            ui.label(
-                f"Generating the first issue of '{s._nl_first_gen_camp_name}'… "
-                f"this usually takes 20-30 seconds."
-            ).style(f"font-size:12px;color:{C['text_l']};")
-
-        def _poll_nl_gen():
-            if getattr(s, '_nl_first_gen_done', False):
-                # Clear the flags so the banner and toast don't re-fire
-                _done_name = s._nl_first_gen_camp_name
-                s._nl_first_gen_camp_name = None
-                s._nl_first_gen_done = False
-                try: _cache_campaigns.invalidate()
-                except Exception: pass
-                try: ui.notify(
-                    f"First issue of '{_done_name}' is ready — scroll down to preview.",
-                    type="positive", timeout=5000)
-                except Exception: pass
-                try: rf()
-                except Exception: pass
-        ui.timer(2.0, _poll_nl_gen)
+    # (triggered from the Create Newsletter dialog), show the prominent
+    # generating card and auto-refresh the page when it finishes.
+    _render_nl_first_gen_status(s, rf)
 
     # Create buttons
     def _create_evergreen():
