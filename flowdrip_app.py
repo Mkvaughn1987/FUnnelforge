@@ -42411,19 +42411,56 @@ def render_page(s: AppState, rf):
             # "undo the last thing I did", not jump up an arbitrary level.
             _in_aicb_wizard = (page == "ai_campaign"
                                and int(getattr(s, "aicb_wizard_step", 1) or 1) > 1)
+            # Loaded campaign editor (start_seq with s.loaded_camp set) has
+            # its own 4-step flow: emails → sequence → contacts → launch.
+            # When the user is on any step BEYOND emails, Back should go
+            # to the previous step within that flow, not pop the nav stack
+            # all the way back to where they entered the editor (user
+            # report 2026-05-04: 'Back takes me all the way back to the
+            # first page and not the last page I was on').
+            _LOADED_STEPS_ORDER = ["emails", "sequence", "contacts", "launch"]
+            _loaded_view = (getattr(s, "loaded_view", "emails") or "emails")
+            _in_loaded_camp_step = (
+                page == "start_seq"
+                and getattr(s, "loaded_camp", None) is not None
+                and _loaded_view in _LOADED_STEPS_ORDER
+                and _loaded_view != "emails"
+            )
             back_label = nav_back_label(s)
-            _show_back = (_in_aicb_wizard or back_label) and page != "dashboard"
+            _show_back = (_in_aicb_wizard or _in_loaded_camp_step or back_label) and page != "dashboard"
             if _show_back:
                 def _do_back():
                     if _in_aicb_wizard:
                         s.aicb_wizard_step = max(
                             1, int(getattr(s, "aicb_wizard_step", 1) or 1) - 1)
                         rf()
+                    elif _in_loaded_camp_step:
+                        try:
+                            _cur_idx = _LOADED_STEPS_ORDER.index(_loaded_view)
+                            s.loaded_view = _LOADED_STEPS_ORDER[_cur_idx - 1]
+                            rf()
+                        except (ValueError, IndexError):
+                            nav_back(s, rf)
                     else:
                         nav_back(s, rf)
                 _btn_text = "← Back"
                 if _in_aicb_wizard:
                     _btn_text = "← Back a step"
+                elif _in_loaded_camp_step:
+                    # Show the previous step's name so the user knows
+                    # exactly where this Back button is taking them.
+                    _LOADED_STEP_LABELS = {
+                        "emails": "Edit Emails",
+                        "sequence": "Edit Sequence",
+                        "contacts": "Choose Contacts",
+                        "launch": "Preview Campaign",
+                    }
+                    try:
+                        _prev_view = _LOADED_STEPS_ORDER[
+                            _LOADED_STEPS_ORDER.index(_loaded_view) - 1]
+                        _btn_text = f"← Back to {_LOADED_STEP_LABELS[_prev_view]}"
+                    except (ValueError, IndexError, KeyError):
+                        _btn_text = "← Back a step"
                 elif back_label:
                     _btn_text = f"← {back_label}"
                 with ui.element("div").classes("fd-back-bar"):
