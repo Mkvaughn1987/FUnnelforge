@@ -9112,6 +9112,8 @@ def _seq_wizard_footer(s: AppState, rf, current_page: str, can_advance: bool = T
 PAGE_HELP = {
     "dashboard": {
         "title": "Dashboard",
+        "summary": "Your daily command center — overdue tasks, emails sending today, active campaigns, and recent replies, all on one screen.",
+        "next_action": "Click any colored stat at the top to jump into that filtered list, or pick a campaign card to drill in.",
         "sections": [
             ("What is this?", "Your daily command center. Overdue tasks, emails sending today, active campaigns, and recent responses  -  all on one screen."),
             ("Stat Bar", "Clickable colored numbers at the top:\n- Overdue (red): Tasks past their due date.\n- Tasks Today (amber): Calls, LinkedIn touches, and tasks due today.\n- Active (teal): Campaigns currently running.\n- Replies (green): Contacts who replied to your campaigns."),
@@ -9122,6 +9124,8 @@ PAGE_HELP = {
     },
     "drip": {
         "title": "Today",
+        "summary": "Today's to-do list — every cold call, LinkedIn touch, and email task across your active campaigns, grouped by campaign.",
+        "next_action": "Work through the list; click ✓ Done on each card or ✓ Mark All Done to clear a campaign group.",
         "sections": [
             ("What is this?", "Your daily to-do list for sales outreach  -  every call, LinkedIn touch, and task that needs to happen today, grouped by campaign."),
             ("Task Types", "Each task has a colored badge:\n- Call (amber): Phone call with script + talking points.\n- LinkedIn (indigo): Connection request or DM.\n- Task (gray): General action item.\n- Slow Drip (purple): Task from an evergreen campaign."),
@@ -9132,6 +9136,8 @@ PAGE_HELP = {
     },
     "start_seq": {
         "title": "Start a Sequence",
+        "summary": "Build a multi-step outreach campaign — pick contacts, write the emails, set delays, and queue.",
+        "next_action": "Pick a preset on the right (Blitz, Steady Flow, etc.) or click + Free Flow to build from scratch.",
         "sections": [
             ("What is this?", "Build and launch email campaigns step by step. Use a preset or build from scratch."),
             ("Campaign Types", "Pick a preset (Blitz, Steady Flow, etc.) or build a Free Flow  -  any mix of emails, calls, and LinkedIn touches. First-time Free Flows get offered as saved templates for reuse."),
@@ -9143,6 +9149,8 @@ PAGE_HELP = {
     },
     "seq_mgr": {
         "title": "Sequences",
+        "summary": "Every campaign you've launched — progress, sent counts, pending emails, contact status.",
+        "next_action": "Click any campaign card to expand its emails, contacts, and queue. Pause or delete from there.",
         "sections": [
             ("What is this?", "Manage running campaigns. Progress, emails, contacts, sent/pending status."),
             ("Campaign Cards", "Progress bar + contact count + sent/pending. Click to expand."),
@@ -9152,6 +9160,8 @@ PAGE_HELP = {
     },
     "evergreen": {
         "title": "SlowDrip Sequence",
+        "summary": "Always-on campaigns contacts join anytime, perfect for long-term nurture (months, not weeks).",
+        "next_action": "Click + Enroll on any campaign to add contacts from a saved list.",
         "sections": [
             ("What is this?", "Long-running campaigns on a fixed schedule. Enroll anytime  -  contacts pick up at the next upcoming email."),
             ("How It Works", "Regular campaigns start from Day 1 per contact. Slow Drips use fixed dates or rolling schedules. Contacts enrolled mid-sequence skip past emails."),
@@ -9162,8 +9172,21 @@ PAGE_HELP = {
             ("Creating New", "'+ Create New Slow Drip Campaign' builds from scratch. Relative delays (Day 7, 14...) or fixed dates (May 1, June 1...)."),
         ]
     },
+    "newsletters": {
+        "title": "Newsletters",
+        "summary": "Each card is a monthly newsletter that auto-sends on the 1st.",
+        "next_action": "Click View / Edit on any card to review this month's issue before it ships.",
+        "sections": [
+            ("What is this?", "Monthly market-pulse newsletters that auto-send to enrolled contacts on the first of each month. Claude drafts each issue using your sector + region; you review and tweak."),
+            ("Auto-refresh", "Every issue regenerates 3 days before send, so the content's always current. Click Save in the editor to lock an issue (auto-refresh leaves it alone)."),
+            ("Hero photo", "Each issue picks one of 3 cached city photos. The editor's ◀ ▶ buttons cycle through them; you can also upload your own."),
+            ("Calendar + Hiring Partner", "The footer shows a mini month calendar with US holidays + your headshot/note. The holiday legend is editable in the campaign settings."),
+        ]
+    },
     "candidate_finder": {
         "title": "Candidates",
+        "summary": "Your roster of active candidates, grouped by industry. Bulk-import resumes, match them to a JD, and build submittals.",
+        "next_action": "Click Bulk Import Resumes to add candidates, or use Who's the best fit? to score your pool against a role.",
         "sections": [
             ("What is this?", "Your roster of active candidates, grouped by industry. Bulk-import resumes, match them to a JD, and build submittals in minutes."),
             ("Candidate Pool Tab", "Candidates grouped by industry (Construction, Manufacturing, Sales, etc.). Click any row to expand for AI-generated highlights, View Resume, Search Jobs, Start Campaign, or status changes."),
@@ -9176,6 +9199,8 @@ PAGE_HELP = {
     },
     "contacts": {
         "title": "Contacts",
+        "summary": "Your master contact database — saved CSV lists you reuse across campaigns.",
+        "next_action": "Click + Import New List at the top to upload a CSV. Headers auto-normalize.",
         "sections": [
             ("What is this?", "Your master contact database. Upload CSV files to build outreach lists, then use them in campaigns."),
             ("Importing", "Click '＋ Import New List' at the top. Headers auto-normalize (FirstName, LastName, Email, Company, JobTitle, City, State, etc.). Duplicates are dropped."),
@@ -9185,6 +9210,8 @@ PAGE_HELP = {
     },
     "pdf_gen": {
         "title": "Reports",
+        "summary": "Branded PDFs you can attach to outreach emails — Market Pulse, Salary Guide, Interview Guide, and more.",
+        "next_action": "Enter a company + role + location, then click any of the 6 PDF types to generate.",
         "sections": [
             ("What is this?", "Create branded PDFs to attach to outreach emails. AI-generated with real market data + your brand color and logo."),
             ("How to Use", "1. Enter a company name or market, location, and target role.\n2. Click one of the 6 PDF types.\n3. 'View PDF' to open.\n4. 'Clear / New PDF' to start another."),
@@ -9194,6 +9221,8 @@ PAGE_HELP = {
     },
     "queue": {
         "title": "Email Queue",
+        "summary": "Every email scheduled to send, sorted by time. Sent / Pending / Failed tabs.",
+        "next_action": "Click any email to preview it. Cancel pending or retry failed sends.",
         "sections": [
             ("What is this?", "All emails scheduled to send. Queued on campaign launch, sent automatically via your connected email (Outlook / Gmail / SendGrid) at the scheduled time."),
             ("Tabs", "- Upcoming: Not sent yet, sorted by send date.\n- Sent: Successfully delivered.\n- Failed: Errors  -  retry-able."),
@@ -9202,6 +9231,8 @@ PAGE_HELP = {
     },
     "signature": {
         "title": "Email Signature",
+        "summary": "Auto-appended to every outgoing email. Includes display name, title, phone, links.",
+        "next_action": "Edit the text below; changes save on every keystroke and apply immediately.",
         "sections": [
             ("What is this?", "Auto-appended to every outgoing email. Edit here, applies everywhere."),
             ("Format", "Plain text. First line is your display name. Include title, company, phone, any links."),
@@ -9210,6 +9241,8 @@ PAGE_HELP = {
     },
     "dnc": {
         "title": "Opt-Out List",
+        "summary": "Anyone here is auto-excluded from every campaign. Replies with \"unsubscribe\" auto-add.",
+        "next_action": "Add an email manually, or upload a CSV of opt-outs.",
         "sections": [
             ("What is this?", "Any email address here is auto-excluded from every campaign. Core of CAN-SPAM compliance."),
             ("Auto-Detection", "Every email includes a 'Reply UNSUBSCRIBE' footer + a List-Unsubscribe header (powers Gmail's native one-click unsub button). When a contact replies with keywords like \"unsubscribe\", \"opt out\", \"remove me\", or hits Gmail's unsub button, they're auto-added here AND pulled from every active campaign."),
@@ -9218,6 +9251,8 @@ PAGE_HELP = {
     },
     "ai_settings": {
         "title": "Settings",
+        "summary": "Connect your email (Outlook / Gmail / SMTP) and your Claude API key — both required for DripDrop to send and generate.",
+        "next_action": "Pick an email connection method, then paste your Claude API key from console.anthropic.com.",
         "sections": [
             ("What is this?", "Connect your email (so DripDrop can send) and add your AI key (so DripDrop can generate content). Both are required end-to-end."),
             ("Email Sending", "Three options:\n- Microsoft: one-click OAuth for Outlook / Office 365.\n- Gmail: OAuth via Google.\n- SMTP / SendGrid / Brevo: any provider via SMTP or HTTP API  -  works from the server when SMTP is blocked."),
@@ -9227,6 +9262,8 @@ PAGE_HELP = {
     },
     "responses": {
         "title": "Replies",
+        "summary": "Your reply hub — every response across every campaign, with AI-drafted replies you can send in one click.",
+        "next_action": "Click any reply to expand. Edit the AI draft if needed, then Send.",
         "sections": [
             ("What is this?", "Your campaign command center. See active campaigns and replies  -  all in one place."),
             ("Campaign Health", "Cards at the top show each active campaign's sent, pending, and reply counts at a glance."),
