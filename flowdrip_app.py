@@ -20118,12 +20118,14 @@ def p_newsletters(s, rf):
                             f"border-radius:99px;padding:1px 8px;margin-top:4px;"
                             f"display:inline-block;")
 
-                # Single View/Edit button. The same modal handles both
-                # first-time generation (when the issue body is blank,
-                # AI fills it) and edits (when the user wants to tweak
-                # an already-rendered issue). One label avoids the
-                # earlier user confusion between "Create" and "Edit".
+                # Action buttons: + Enroll (manage contacts) and View / Edit
+                # (open the focused modal — same modal handles both first-time
+                # generation when the issue body is blank, and edits when the
+                # user wants to tweak an already-rendered issue).
                 _btn_color = C["indigo"]
+
+                def _enroll(c=camp):
+                    _enroll_dialog(c, s, rf)
 
                 def _edit(c=camp):
                     _idx = _find_next_evergreen_step(c)
@@ -20135,13 +20137,22 @@ def p_newsletters(s, rf):
                     _body = (_next.get("body") or "").strip()
                     _needs_create = (not _body) or "[AI:" in _body
                     _edit_newsletter_modal(s, rf, c, _idx, force_generate=_needs_create)
-                with ui.element("button").style(
-                        f"padding:9px 22px;font-size:13px;font-weight:700;"
-                        f"background:{_btn_color}22;color:{_btn_color};"
-                        f"border:1px solid {_btn_color}80;border-radius:8px;"
-                        f"cursor:pointer;font-family:inherit;flex-shrink:0;").on(
-                        "click", _edit):
-                    ui.label("👁 View / Edit").style("pointer-events:none;")
+
+                with ui.element("div").style(
+                        "flex-shrink:0;display:flex;gap:6px;align-items:center;"):
+                    # + Enroll button — same fg color as the card border for visual tie-in
+                    with ui.element("button").classes("fd-pb").style(
+                            f"padding:9px 18px;font-size:13px;background:{fg};").on(
+                            "click", _enroll):
+                        ui.label("＋ Enroll").style("pointer-events:none;")
+                    # View / Edit button (preserved)
+                    with ui.element("button").style(
+                            f"padding:9px 22px;font-size:13px;font-weight:700;"
+                            f"background:{_btn_color}22;color:{_btn_color};"
+                            f"border:1px solid {_btn_color}80;border-radius:8px;"
+                            f"cursor:pointer;font-family:inherit;").on(
+                            "click", _edit):
+                        ui.label("👁 View / Edit").style("pointer-events:none;")
 
 
 def p_evergreen(s, rf):
