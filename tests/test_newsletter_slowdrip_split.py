@@ -42,3 +42,29 @@ def test_p_newsletters_includes_enroll_button():
     assert "_enroll_dialog(" in src, (
         "p_newsletters must wire its enroll button to _enroll_dialog"
     )
+
+
+def test_p_evergreen_no_longer_renders_newsletters():
+    """p_evergreen source must no longer contain the NEWSLETTERS section
+    header, the + New Newsletter button, or the _market_refresh state
+    machine that was only reachable from the now-removed Refresh button."""
+    import flowdrip_app as fa
+    src = inspect.getsource(fa.p_evergreen)
+
+    # Section header marker
+    assert '"NEWSLETTERS"' not in src and "'NEWSLETTERS'" not in src, (
+        "p_evergreen must not render the NEWSLETTERS section header anymore"
+    )
+    # Creation button label that lived inside p_evergreen
+    assert "+ New Newsletter" not in src, (
+        "p_evergreen must not render the '+ New Newsletter' button anymore "
+        "(creation moved to p_newsletters)"
+    )
+    # The _market_refresh_* state was only set by the Refresh button on
+    # newsletter cards inside p_evergreen, and consumed by the refresh
+    # panel below. Both are gone, so neither setter nor reader should
+    # remain in this function.
+    assert "_market_refresh_camp" not in src, (
+        "p_evergreen must no longer reference _market_refresh_camp "
+        "(legacy newsletter refresh state)"
+    )
