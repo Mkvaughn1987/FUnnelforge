@@ -5841,6 +5841,41 @@ def _strip_dashes(text) -> str:
     return text
 
 
+def _sanitize_candidate_salary_ask(raw: str) -> str:
+    """Strip job-offer-style suffixes from a candidate's salary_ask.
+
+    The newsletter's candidate spotlights show CANDIDATES looking for work,
+    not job postings. The AI sometimes still tacks on '(plus $8k bonus)',
+    '+ benefits', 'OTE $XX', etc. — confusing because it makes the card
+    read like a job rec instead of a candidate's ask. Prompt-side fix is
+    in place; this is the runtime safety net so already-generated content
+    cleans up too (user report 2026-05-04 — 'plus $8k bonus' on a
+    candidate card).
+
+    Strips: "(plus ...)", "(eligible ...)", "+ bonus", "+ benefits",
+    "+ stock", "OTE $...", "plus $X bonus", etc.
+
+    Returns the cleaned string. Empty input → empty output.
+    """
+    if not raw:
+        return raw
+    import re as _re
+    s = str(raw)
+    # Drop parenthesized suffixes ("(plus $8k bonus)", "(eligible ...)").
+    s = _re.sub(r'\s*\([^)]*\)\s*$', '', s).strip()
+    # Drop trailing "+ bonus", "+ benefits", "+ stock" etc.
+    s = _re.sub(r'\s*\+\s*(bonus(?:es)?|benefits?|stock|equity|OTE|commission)[^,]*$',
+                '', s, flags=_re.IGNORECASE).strip()
+    # Drop trailing "OTE $XXk" / "OTE: $XX" patterns.
+    s = _re.sub(r'\s*[,;]?\s*OTE[:\s].*$', '', s, flags=_re.IGNORECASE).strip()
+    # Drop trailing "plus $XX bonus" / "plus benefits" without parens.
+    s = _re.sub(r'\s*[,;]?\s*plus\s+(\$[\d.,kKmM]+\s+)?(bonus|benefits|stock|equity|commission)[^,]*$',
+                '', s, flags=_re.IGNORECASE).strip()
+    # Trim trailing punctuation left over from the strip ops.
+    s = _re.sub(r'[\s,;]+$', '', s)
+    return s
+
+
 def _resolve_spintax(text: str, seed: str = "") -> str:
     """Resolve spintax like {Hi|Hey|Hello} into one option.
 
@@ -21225,12 +21260,18 @@ def p_evergreen(s, rf):
                         f'  ],\n'
                         f'  "market_update": "3-5 bullet points on comp, talent supply, what offers are winning. NOT paragraphs. Keep each bullet to 1 sentence.",\n'
                         + (
+                            f'\nCANDIDATE SPOTLIGHTS — these are CANDIDATES looking for work, '
+                            f'NOT job postings. The salary_ask field is what the candidate '
+                            f'wants to earn, expressed as a single hourly range OR a single '
+                            f'annual base salary range. Do NOT tack on "plus $X bonus", '
+                            f'"plus benefits", "(eligible for...)", "OTE", "+ stock", or '
+                            f'anything that frames it like a job offer. Plain comp range only.\n'
                             '  "spotlights": [\n    '
                             + ",\n    ".join(
                                 f'{{"name": "ROLE TITLE HERE (e.g. Sr. Project Manager, Superintendent, QA Manager) — NOT Candidate {chr(65+_i)}",'
                                 f' "title": "years of experience + key credentials/specialty (e.g. 10 years aerospace, AS9100 lead auditor)",'
                                 f' "location": "City, ST in or near {_region} — real city in-market",'
-                                f' "salary_ask": "$XXXk - $YYYk OR $XX/hr OR \\"Open\\" if not specified",'
+                                f' "salary_ask": "$XXXk - $YYYk (annual base only) OR $XX/hr - $YY/hr (hourly only) OR \\"Open\\" if not specified — NO bonuses, NO benefits, NO OTE, NO \\"plus $X\\"",'
                                 f' "bullets": [{_bpc} short single-sentence bullets]}}'
                                 for _i in range(_cand_count)
                             )
@@ -36624,7 +36665,8 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             _name = cand.get("name", "") or ""
             _title = cand.get("title", "") or ""
             _location = (cand.get("location") or "").strip()
-            _salary = (cand.get("salary_ask") or cand.get("comp_target") or "").strip()
+            _salary = _sanitize_candidate_salary_ask(
+                (cand.get("salary_ask") or cand.get("comp_target") or "").strip())
             _letter = chr(65 + idx) if idx < 26 else "?"
 
             # Meta row: location + salary as plain inline text separated by
@@ -37430,12 +37472,18 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
             f'and executive).'
         )
         _spot_schema_block = (
+            f'\nCANDIDATE SPOTLIGHTS — these are CANDIDATES looking for work, '
+            f'NOT job postings. The salary_ask field is what the candidate '
+            f'wants to earn, expressed as a single hourly range OR a single '
+            f'annual base salary range. Do NOT tack on "plus $X bonus", '
+            f'"plus benefits", "(eligible for...)", "OTE", "+ stock", or '
+            f'anything that frames it like a job offer. Plain comp range only.\n'
             '  "spotlights": [\n    '
             + ",\n    ".join(
                 f'{{"name": "Candidate {chr(65+_i)}", '
                 f'"title": "role + years + key cred (must reflect {region} demand for {sector})", '
                 f'"location": "{region}", '
-                f'"salary_ask": "$XXk - $YYk OR $XX/hr — real local range", '
+                f'"salary_ask": "$XXk - $YYk (annual base only) OR $XX/hr - $YY/hr (hourly only) — real local range, NO bonuses, NO benefits, NO OTE, NO \\"plus $X\\"", '
                 f'"bullets": [{_bpc} short single-sentence bullets, each a concrete skill or result]}}'
                 for _i in range(_spot_n)
             )
