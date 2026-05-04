@@ -29847,6 +29847,56 @@ def p_ai_campaign(s: AppState, rf):
                             # attach bug 2026-04-26).
                             s._aicb_pdfs_in_progress = False
 
+                            # ── AUTOSAVE ──────────────────────────────────
+                            # User report 2026-05-04: "I started the SBJames
+                            # campaign and it refreshed and disappeared."
+                            # Previously the campaign existed only in
+                            # AppState memory until the user explicitly
+                            # clicked Save on the review page. A page
+                            # refresh / OOM kill / browser tab close lost
+                            # the entire AI generation. Now we save to disk
+                            # immediately after AI gen completes, so the
+                            # campaign shows up in Saved Sequences right
+                            # away and survives any session disruption.
+                            try:
+                                # save_campaign expects "name"; the AI
+                                # returns "campaign_name". Map it.
+                                if not campaign_data.get("name"):
+                                    campaign_data["name"] = (
+                                        campaign_data.get("campaign_name")
+                                        or f"AI Campaign {datetime.now().strftime('%b %d %H:%M')}"
+                                    )
+                                # Stamp the standard fields that
+                                # load_campaigns / Saved Sequences expects.
+                                # setdefault — don't overwrite anything the
+                                # AI already filled in.
+                                campaign_data.setdefault("schema", 2)
+                                campaign_data.setdefault("status", "draft")
+                                campaign_data.setdefault("contacts", [])
+                                campaign_data.setdefault("contact_count", 0)
+                                campaign_data.setdefault("responders", [])
+                                campaign_data.setdefault("variables", {})
+                                campaign_data.setdefault(
+                                    "created_date", date.today().isoformat())
+                                campaign_data.setdefault(
+                                    "template_key",
+                                    (s.aicb_camp_type or "ai").strip() or "ai")
+                                campaign_data.setdefault(
+                                    "template_name", "AI Campaign Builder")
+                                campaign_data.setdefault("market_analysis", True)
+                                save_campaign(campaign_data)
+                                print(
+                                    f"[AICB] autosaved campaign: "
+                                    f"{campaign_data.get('name','?')!r} "
+                                    f"-> {campaign_data.get('_path','?')}",
+                                    flush=True)
+                            except Exception as _save_ex:
+                                # Non-fatal — the in-memory state still
+                                # carries the campaign; user can save
+                                # explicitly from the review page.
+                                print(f"[AICB] autosave failed: {_save_ex}",
+                                      flush=True)
+
                             s.aicb_step = 2
                             # Trigger "save as style?" popup for fresh Free Flow
                             # descriptions  -  but skip when the user picked an
