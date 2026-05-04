@@ -34650,6 +34650,33 @@ def p_ai_settings(s, rf):
                         f"padding:8px 20px;font-size:13px;").on("click", _save_limit):
                     ui.label("Save Limit")
 
+    # ── Page guides ────────────────────────────────────────────────────
+    # Lets users restore page intro strips they've previously dismissed.
+    cfg = load_config()
+    _dismissed_count = len(cfg.get("dismissed_help_strips") or [])
+    with ui.element("div").style(
+            f"background:{C['card']};border:1px solid {C['border']};"
+            f"border-radius:10px;padding:18px 20px;margin-top:18px;"):
+        ui.label("Page guides").style(
+            f"font-size:14px;font-weight:700;color:{C['text_l']};"
+            f"margin-bottom:6px;font-family:'Nunito',sans-serif;")
+        ui.label(
+            f"You've dismissed {_dismissed_count} page guide"
+            f"{'' if _dismissed_count == 1 else 's'}. Click below to bring "
+            f"all of them back — useful if you can't remember what a page is for."
+        ).style(
+            f"font-size:12px;color:{C['muted']};line-height:1.5;"
+            f"margin-bottom:10px;")
+
+        def _restore_all():
+            _clear_all_dismissed_help_strips()
+            ui.notify("All page guides restored.", type="positive", timeout=3000)
+            rf()
+
+        with ui.element("button").classes("fd-gb").style(
+                "padding:8px 18px;font-size:12px;").on("click", _restore_all):
+            ui.label("Show all page guides again")
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  SIGNATURE EDITOR (shared by both hubs)
