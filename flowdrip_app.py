@@ -19847,6 +19847,63 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                     "padding:8px 16px;font-size:12px;").on("click", dlg.close):
                 ui.label("Cancel")
 
+            # ── Preview button ─────────────────────────────────────
+            # Sends the current rendered body to the user's inbox so they
+            # can see what the issue actually looks like in an email
+            # client before saving / sending. User report 2026-05-04:
+            # "What happened to the button to send a preview?" — the
+            # SlowDrip card has one, but the focused edit modal didn't.
+            def _send_preview_modal():
+                _body_now = _body_editor.value or state["body"] or ""
+                _subj_now = (_subj_inp.value or state["subject"] or "").strip()
+                if not _body_now.strip():
+                    ui.notify("Nothing to preview yet — the body is empty.",
+                              type="warning")
+                    return
+                if not _subj_now:
+                    _subj_now = (
+                        f"{camp.get('newsletter_name', 'Newsletter')} preview")
+                _cfg2 = load_config()
+                _inbox = (
+                    getattr(s, "_user_email", "")
+                    or _cfg2.get("ms_email", "")
+                    or (_cfg2.get("gmail_tokens", {}) or {}).get("email", "")
+                    or _cfg2.get("sig_email", "")
+                    or _cfg2.get("smtp_email", "")
+                )
+                if not _inbox:
+                    ui.notify(
+                        "No inbox on file. Connect Outlook/Gmail in Settings first.",
+                        type="warning", timeout=6000)
+                    return
+                _for = getattr(s, "_user_email", "") or ""
+
+                def _send_prev_bg():
+                    try:
+                        ok, err = _send_email_universal(
+                            to=_inbox, subject=f"[PREVIEW] {_subj_now}",
+                            html_body=_body_now, is_preview=True,
+                            _for_user_email=_for,
+                        )
+                        if not ok:
+                            print(
+                                f"[NewsletterEditModal] preview send failed: {err}",
+                                flush=True)
+                    except Exception as _pex:
+                        print(
+                            f"[NewsletterEditModal] preview send error: {_pex}",
+                            flush=True)
+
+                threading.Thread(target=_send_prev_bg, daemon=True).start()
+                ui.notify(
+                    f"Preview sent to {_inbox}. Check your inbox in ~30 seconds.",
+                    type="positive", timeout=4500)
+
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:8px 18px;font-size:12px;margin-left:auto;"
+                    "margin-right:8px;").on("click", _send_preview_modal):
+                ui.label("✉ Send Preview")
+
             def _save():
                 # Capture identifiers BEFORE we mutate step — the queue
                 # sync below uses them to match queue items even when
