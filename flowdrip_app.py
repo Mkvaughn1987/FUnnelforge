@@ -301,6 +301,30 @@ def _serve_tenant_logo():
     return FileResponse(p, headers={"Cache-Control": "private, max-age=30"})
 
 
+# City hero photo route — serves cached Unsplash thumbnails to the
+# newsletter editor's hero gallery via plain URLs instead of inline
+# base64 (which was held in NiceGUI's widget tree and accumulated
+# memory across modal opens). Files live in the SHARED city_images
+# cache dir; no per-user auth needed since these are generic city
+# photos already published on Unsplash. Strictly bounded to
+# {slug}.unsplash.{N}.hero.jpg files inside that single directory.
+@app.get("/city_image/{slug}/{variant}.jpg")
+def _serve_city_image(slug: str, variant: str):
+    if "/" in slug or "\\" in slug or ".." in slug or not slug:
+        return Response(status_code=404)
+    if not variant.isdigit() or len(variant) > 2:
+        return Response(status_code=404)
+    cache_dir = _BASE_DATA_DIR / "city_images"
+    target = cache_dir / f"{slug}.unsplash.{int(variant)}.hero.jpg"
+    if not target.is_file():
+        return Response(status_code=404)
+    return FileResponse(
+        str(target),
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 # Static asset route  -  strict allowlist of files in the project root that
 # may be served. Replaces the old `add_static_files('/static', _APP_DIR)`
 # which exposed the entire source tree (including flowdrip_app.py) to the
@@ -10409,6 +10433,14 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
                 # all completed within ~30s. The user perceived this as
                 # "random refreshing." Briefings populate the cache and
                 # show on the user's next manual page interaction.
+                # GC after the AI call so the Anthropic client + response
+                # buffers don't sit in heap until the next allocation
+                # cycle — matters on the 1GB droplet.
+                try:
+                    import gc as _gc
+                    _gc.collect()
+                except Exception:
+                    pass
 
         import threading as _thr
         _thr.Thread(target=_bg, daemon=True).start()
@@ -10507,6 +10539,13 @@ def _render_li_message_card(camp: dict, s: AppState, rf):
                     pass
                 # See _render_call_briefing_card for why we don't rf()
                 # here. tl;dr: avoids page-refresh storm.
+                # GC after the AI call to free the Anthropic client +
+                # response buffers (1GB droplet — every MB matters).
+                try:
+                    import gc as _gc
+                    _gc.collect()
+                except Exception:
+                    pass
 
         import threading as _thr
         _thr.Thread(target=_bg, daemon=True).start()
@@ -19321,10 +19360,32 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                     return
                 _render_hero_gallery()
 
+            def _hero_thumb_slug() -> str:
+                """Resolve the cache slug for the current campaign's region.
+                Mirrors _load_hero_variant_b64_for_camp's slug logic so the
+                /city_image/{slug}/{variant}.jpg route hits the same cached
+                JPEG file."""
+                _region = (camp.get("market_region") or camp.get("location") or "").strip()
+                if not _region:
+                    return ""
+                _parts = [p.strip() for p in _region.split(",")]
+                _city = _parts[0] if _parts else ""
+                _state = _parts[1][:2].upper() if len(_parts) > 1 else ""
+                return re.sub(r'[^A-Za-z0-9]+', '_',
+                              f"{_city}_{_state}").strip('_').lower()
+
+            def _hero_thumb_exists(variant_idx: int) -> bool:
+                _slug = _hero_thumb_slug()
+                if not _slug:
+                    return False
+                _p = _BASE_DATA_DIR / "city_images" / f"{_slug}.unsplash.{variant_idx}.hero.jpg"
+                return _p.is_file()
+
             def _render_hero_gallery():
                 _hero_gallery_holder.clear()
                 _total = max(1, state["hero_total"])
                 _selected = state["hero_variant"]
+                _slug = _hero_thumb_slug()
                 with _hero_gallery_holder:
                     ui.label("Hero photo — click a thumbnail to pick:").style(
                         f"font-size:11px;color:{C['muted']};"
@@ -19333,7 +19394,7 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                             "display:flex;gap:8px;flex-wrap:wrap;"
                             "align-items:flex-start;"):
                         for _idx in range(_total):
-                            _b64 = _load_hero_variant_b64_for_camp(camp, _idx)
+                            _exists = _hero_thumb_exists(_idx)
                             _is_sel = (_idx == _selected)
                             _ring_color = C["teal"] if _is_sel else C["border"]
                             _ring_width = "3px" if _is_sel else "1px"
@@ -19344,9 +19405,14 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                                     "cursor:pointer;").on(
                                     "click",
                                     lambda _e=None, i=_idx: _select_hero(i)):
-                                if _b64:
+                                if _exists and _slug:
+                                    # URL-based thumb instead of inline base64
+                                    # — saves ~50KB per variant per modal session
+                                    # in the NiceGUI widget tree (was a real
+                                    # contributor to OOM crashes on the 1GB
+                                    # droplet).
                                     ui.html(
-                                        f'<img src="data:image/jpeg;base64,{_b64}" '
+                                        f'<img src="/city_image/{_slug}/{_idx}.jpg" '
                                         f'style="display:block;width:160px;'
                                         f'height:46px;object-fit:cover;'
                                         f'border-radius:6px;'
@@ -19470,7 +19536,7 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                                 # has actual content (the variant b64 may
                                 # have been cached only after generation).
                                 try:
-                                    _render_hero_thumb()
+                                    _render_hero_gallery()
                                 except Exception:
                                     pass
                             except Exception as _ex:
@@ -19482,6 +19548,14 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                         state["is_generating"] = False
                         try:
                             _render_gen_state()
+                        except Exception:
+                            pass
+                        # GC after newsletter gen — the rendered body is a
+                        # 50-100KB HTML string and the AI client has its
+                        # own buffers. Free them promptly.
+                        try:
+                            import gc as _gc
+                            _gc.collect()
                         except Exception:
                             pass
 
