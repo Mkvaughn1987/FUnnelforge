@@ -1,0 +1,314 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>DripDrop Light Mode — Color Scope Preview</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: #F5F7FA;
+    color: #2D3748;
+    padding: 24px;
+    line-height: 1.45;
+  }
+  h1 { font-size: 28px; font-weight: 800; color: #1E2B5E; margin-bottom: 4px; }
+  h2 { font-size: 20px; font-weight: 700; color: #1E2B5E; margin-top: 32px; margin-bottom: 8px; padding-top: 24px; border-top: 1px solid #C8D0DA; }
+  h3 { font-size: 14px; font-weight: 700; color: #4A5868; text-transform: uppercase; letter-spacing: .07em; margin: 18px 0 10px; }
+  p, li { font-size: 14px; }
+  .container { max-width: 1100px; margin: 0 auto; }
+  .lede { color: #4A5868; margin-bottom: 24px; max-width: 720px; }
+  .section { margin-bottom: 8px; }
+  .grid { display: grid; gap: 12px; }
+  .grid.cols-2 { grid-template-columns: 1fr 1fr; }
+  .grid.cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+  .grid.cols-5 { grid-template-columns: repeat(5, 1fr); }
+
+  /* Token swatches */
+  .swatch-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; background: #fff; border: 1px solid #C8D0DA; border-radius: 8px; box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 1px 3px rgba(15,23,42,.06); margin-bottom: 6px; }
+  .swatch { width: 48px; height: 48px; border-radius: 6px; border: 1px solid rgba(0,0,0,.08); flex-shrink: 0; }
+  .swatch-meta { flex: 1; min-width: 0; }
+  .swatch-name { font-size: 13px; font-weight: 700; color: #1E2B5E; }
+  .swatch-hex { font-family: 'Consolas', 'Menlo', monospace; font-size: 11px; color: #4A5868; }
+  .swatch-desc { font-size: 11px; color: #6B7B8D; margin-top: 2px; }
+  .compare { display: flex; align-items: center; gap: 6px; }
+  .compare .arrow { color: #4A5868; font-weight: 700; }
+  .pill-old { background: #f1f1f1; color: #6B7B8D; font-family: monospace; font-size: 11px; padding: 2px 6px; border-radius: 4px; text-decoration: line-through; }
+  .pill-new { background: #E0F9F8; color: #0FB8B5; font-family: monospace; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+
+  /* Card mockups */
+  .card { background: #fff; border: 1px solid #C8D0DA; border-radius: 10px; padding: 14px 18px; box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 1px 3px rgba(15,23,42,.06); }
+  .card.with-strip { border-left-width: 4px; padding-left: 16px; }
+
+  /* Newsletter card mockups - LIGHT MODE PROPOSAL */
+  .nl-card { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+  .nl-meta { flex: 1; min-width: 0; }
+  .nl-title { font-size: 15px; font-weight: 800; }
+  .nl-sub { font-size: 11px; color: #6B7B8D; margin-top: 3px; }
+  .nl-actions { display: flex; gap: 6px; flex-shrink: 0; }
+  .btn-enroll { padding: 9px 18px; font-size: 13px; font-weight: 700; color: #fff; border: none; border-radius: 8px; cursor: pointer; }
+  .btn-edit { padding: 9px 22px; font-size: 13px; font-weight: 700; background: rgba(99,102,241,0.13); color: #4F46E5; border: 1px solid rgba(99,102,241,0.5); border-radius: 8px; cursor: pointer; }
+
+  /* Newsletter palette - 5 hues */
+  .nl-1 { border-left-color: #0FB8B5; } .nl-1 .nl-title { color: #0FB8B5; } .nl-1 .btn-enroll { background: #0FB8B5; }
+  .nl-2 { border-left-color: #1E40AF; } .nl-2 .nl-title { color: #1E40AF; } .nl-2 .btn-enroll { background: #1E40AF; }
+  .nl-3 { border-left-color: #4F46E5; } .nl-3 .nl-title { color: #4F46E5; } .nl-3 .btn-enroll { background: #4F46E5; }
+  .nl-4 { border-left-color: #B45309; } .nl-4 .nl-title { color: #B45309; } .nl-4 .btn-enroll { background: #B45309; }
+  .nl-5 { border-left-color: #0E7490; } .nl-5 .nl-title { color: #0E7490; } .nl-5 .btn-enroll { background: #0E7490; }
+
+  /* Report card mockup */
+  .report-card { padding: 18px 16px; text-align: center; border-top: 3px solid; }
+  .report-card.r-teal { border-top-color: #0FB8B5; }
+  .report-card.r-orange { border-top-color: #B45309; }
+  .report-card.r-indigo { border-top-color: #4F46E5; }
+  .report-card .r-emoji { font-size: 28px; }
+  .report-card .r-title { font-size: 15px; font-weight: 700; margin: 6px 0; }
+  .report-card.r-teal .r-title { color: #0FB8B5; }
+  .report-card.r-orange .r-title { color: #B45309; }
+  .report-card.r-indigo .r-title { color: #4F46E5; }
+  .report-card .r-desc { font-size: 12px; color: #4A5868; }
+
+  /* Candidates page mockup */
+  .cand-section-hdr { font-size: 12px; font-weight: 700; color: #0FB8B5; text-transform: uppercase; letter-spacing: .08em; margin: 14px 0 6px; }
+  .cand-row { display: flex; align-items: center; gap: 12px; padding: 10px 14px; }
+  .cand-avatar { width: 36px; height: 36px; border-radius: 50%; background: #E0F9F8; color: #0FB8B5; font-size: 12px; font-weight: 700; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .cand-name { font-size: 14px; font-weight: 700; color: #1E2B5E; }
+  .cand-role { font-size: 12px; color: #0FB8B5; margin-left: 6px; }
+  .cand-loc { font-size: 12px; color: #6B7B8D; margin-left: 6px; }
+
+  /* Sidebar typography demo */
+  .sb-demo { background: #fff; border: 1px solid #C8D0DA; border-radius: 8px; padding: 14px 0; width: 200px; }
+  .sb-section { font-size: 10px; font-weight: 800; color: #4A5868; text-transform: uppercase; letter-spacing: .08em; padding: 12px 18px 6px; }
+  .sb-item { padding: 9px 18px; font-size: 13px; color: #4A5868; cursor: pointer; }
+  .sb-item.on { color: #0FB8B5; border-left: 3px solid #0FB8B5; padding-left: 15px; background: #E0F9F8; font-weight: 600; }
+
+  /* Comparison: before/after sidebar */
+  .sb-before { background: #fff; border: 1px solid #D8DEE6; border-radius: 8px; padding: 14px 0; width: 200px; }
+  .sb-before .sb-section { color: #6B7B8D; }
+  .sb-before .sb-item { color: #6B7B8D; }
+
+  /* Dashboard stat boxes */
+  .stat-box { padding: 18px; }
+  .stat-num { font-size: 32px; font-weight: 800; line-height: 1; }
+  .stat-label { font-size: 11px; font-weight: 700; color: #4A5868; text-transform: uppercase; letter-spacing: .08em; margin-top: 6px; }
+
+  .footnote { font-size: 12px; color: #6B7B8D; margin-top: 8px; font-style: italic; }
+  .scope-list { background: #fff; border: 1px solid #C8D0DA; border-radius: 10px; padding: 16px 22px; box-shadow: 0 1px 2px rgba(15,23,42,.04), 0 1px 3px rgba(15,23,42,.06); }
+  .scope-list ul { padding-left: 22px; }
+  .scope-list li { margin-bottom: 6px; font-size: 13px; }
+  .scope-list .out { color: #94A3B8; text-decoration: line-through; }
+</style>
+</head>
+<body>
+<div class="container">
+
+<h1>DripDrop Light Mode — Scope Preview</h1>
+<p class="lede">Open this file in a browser to see actual swatches and mockups. Everything in this preview is the <strong>proposed</strong> light-mode design (option A from chat — lifted white cards, accent via borders/strips). Dark mode is unchanged.</p>
+
+<h2>What's in scope</h2>
+<div class="scope-list">
+  <ul>
+    <li><strong>Default theme flip</strong> → light is the default for new visitors (existing users keep their saved preference).</li>
+    <li><strong>3 token contrast bumps</strong> in <code>C_LIGHT</code>: <code>muted</code>, <code>border</code>, and accent darkening.</li>
+    <li><strong>Card elevation pattern</strong> applied to <code>.fd-card</code> / <code>.fd-bub</code> in light mode (subtle shadow + slightly darker border).</li>
+    <li><strong>Newsletter / SlowDrip card palette</strong> restructured to white cards with colored left strip + darker accent in light mode. Dark mode untouched.</li>
+    <li><strong>Today page activity panels</strong> (the right rail with "181 emails sending today" etc.) — same elevation treatment.</li>
+    <li class="out">Dark mode polish (intentionally untouched)</li>
+    <li class="out">Per-account theme persistence (stays browser-local for now)</li>
+    <li class="out">Audit of every <code>{fg}15</code> ad-hoc tint (follow-up if specific cards still look off after deploy)</li>
+    <li class="out">Email editor / Quasar overrides (already covered by existing <code>:root[data-theme="light"]</code> rules)</li>
+  </ul>
+</div>
+
+<h2>Token changes</h2>
+<p>Three tokens get a bump in <code>C_LIGHT</code>. Everything else stays.</p>
+
+<div class="grid cols-2" style="margin-top: 12px;">
+  <div class="swatch-row">
+    <div class="swatch" style="background: #6B7B8D;"></div>
+    <div class="swatch-meta">
+      <div class="swatch-name">muted (current)</div>
+      <div class="swatch-hex">#6B7B8D</div>
+      <div class="swatch-desc">Sidebar labels, section headers — looks faded against white</div>
+    </div>
+  </div>
+  <div class="swatch-row">
+    <div class="swatch" style="background: #4A5868;"></div>
+    <div class="swatch-meta">
+      <div class="swatch-name">muted (proposed)</div>
+      <div class="swatch-hex">#4A5868</div>
+      <div class="swatch-desc">~7.5:1 contrast on white — passes WCAG AAA</div>
+    </div>
+  </div>
+  <div class="swatch-row">
+    <div class="swatch" style="background: #D8DEE6;"></div>
+    <div class="swatch-meta">
+      <div class="swatch-name">border (current)</div>
+      <div class="swatch-hex">#D8DEE6</div>
+      <div class="swatch-desc">Card edges blend into the page</div>
+    </div>
+  </div>
+  <div class="swatch-row">
+    <div class="swatch" style="background: #C8D0DA;"></div>
+    <div class="swatch-meta">
+      <div class="swatch-name">border (proposed)</div>
+      <div class="swatch-hex">#C8D0DA</div>
+      <div class="swatch-desc">Visible but soft — pairs with the new card shadow</div>
+    </div>
+  </div>
+</div>
+
+<h2>Sidebar typography (before vs after)</h2>
+<div class="grid cols-2" style="grid-template-columns: 200px 200px; gap: 24px;">
+  <div>
+    <div class="footnote" style="margin-bottom: 6px; font-style: normal; font-weight: 600;">Current</div>
+    <div class="sb-before">
+      <div class="sb-section">Home</div>
+      <div class="sb-item">Dashboard</div>
+      <div class="sb-item">Today</div>
+      <div class="sb-item">Replies</div>
+      <div class="sb-section">Sequences</div>
+      <div class="sb-item">Start a Sequence</div>
+      <div class="sb-item">Contacts</div>
+    </div>
+  </div>
+  <div>
+    <div class="footnote" style="margin-bottom: 6px; font-style: normal; font-weight: 600;">Proposed</div>
+    <div class="sb-demo">
+      <div class="sb-section">Home</div>
+      <div class="sb-item on">Dashboard</div>
+      <div class="sb-item">Today</div>
+      <div class="sb-item">Replies</div>
+      <div class="sb-section">Sequences</div>
+      <div class="sb-item">Start a Sequence</div>
+      <div class="sb-item">Contacts</div>
+    </div>
+  </div>
+</div>
+
+<h2>Newsletter / SlowDrip cards (the 5-hue palette)</h2>
+<p>Each card was previously a saturated dark fill in light mode (looked like a black brick on white). Proposal: white card, 4px colored left strip, title/button in the darkened identity hue. Same identity, light treatment.</p>
+
+<div style="display: flex; flex-direction: column; gap: 8px; margin-top: 12px;">
+  <div class="card with-strip nl-1 nl-card">
+    <div class="nl-meta">
+      <div class="nl-title">Columbus Cooter</div>
+      <div class="nl-sub">12 issues · 0 enrolled · next: May 2026</div>
+    </div>
+    <div class="nl-actions">
+      <button class="btn-enroll">＋ Enroll</button>
+      <button class="btn-edit">👁 View / Edit</button>
+    </div>
+  </div>
+  <div class="card with-strip nl-2 nl-card">
+    <div class="nl-meta">
+      <div class="nl-title">Construction Custy</div>
+      <div class="nl-sub">12 issues · 0 enrolled · next: May 2026</div>
+    </div>
+    <div class="nl-actions">
+      <button class="btn-enroll">＋ Enroll</button>
+      <button class="btn-edit">👁 View / Edit</button>
+    </div>
+  </div>
+  <div class="card with-strip nl-3 nl-card">
+    <div class="nl-meta">
+      <div class="nl-title">Denver Dirt - Construction Newsletter</div>
+      <div class="nl-sub">12 issues · 83 enrolled · next: May 2026</div>
+    </div>
+    <div class="nl-actions">
+      <button class="btn-enroll">＋ Enroll</button>
+      <button class="btn-edit">👁 View / Edit</button>
+    </div>
+  </div>
+  <div class="card with-strip nl-4 nl-card">
+    <div class="nl-meta">
+      <div class="nl-title">Denver Manufacturing</div>
+      <div class="nl-sub">12 issues · 59 enrolled · next: May 2026</div>
+    </div>
+    <div class="nl-actions">
+      <button class="btn-enroll">＋ Enroll</button>
+      <button class="btn-edit">👁 View / Edit</button>
+    </div>
+  </div>
+  <div class="card with-strip nl-5 nl-card">
+    <div class="nl-meta">
+      <div class="nl-title">Denver's Energy &amp; Wastewater watch</div>
+      <div class="nl-sub">12 issues · 0 enrolled · next: May 2026</div>
+    </div>
+    <div class="nl-actions">
+      <button class="btn-enroll">＋ Enroll</button>
+      <button class="btn-edit">👁 View / Edit</button>
+    </div>
+  </div>
+</div>
+
+<h2>Reports page cards</h2>
+<p>Same elevation treatment. The thin colored top stripe stays for category identification, but the card now has a soft shadow and visible border so it doesn't read as flat.</p>
+<div class="grid cols-3" style="margin-top: 12px;">
+  <div class="card report-card r-teal">
+    <div class="r-emoji">📊</div>
+    <div class="r-title">Market Pulse</div>
+    <div class="r-desc">Talent supply, comp trends, what's moving in their market right now.</div>
+  </div>
+  <div class="card report-card r-indigo">
+    <div class="r-emoji">🎯</div>
+    <div class="r-title">Interview Guide</div>
+    <div class="r-desc">Ready-to-use interview framework: questions by competency, what to listen for, red flags.</div>
+  </div>
+  <div class="card report-card r-orange">
+    <div class="r-emoji">💰</div>
+    <div class="r-title">Salary Guide</div>
+    <div class="r-desc">What the market is paying: comp ranges, what's driving offers up, where they stand.</div>
+  </div>
+</div>
+
+<h2>Candidates page rows</h2>
+<p>Each row gets the same soft shadow + visible border. The teal-tint background is gone (it was barely visible) — replaced by white card with a teal left edge and the same teal accent on role text.</p>
+<div class="cand-section-hdr">▾ Construction (4)</div>
+<div style="display: flex; flex-direction: column; gap: 6px;">
+  <div class="card with-strip nl-1 cand-row">
+    <div class="cand-avatar">BV</div>
+    <div><span class="cand-name">Brenda V. Curiel</span><span class="cand-role">Assistant Construction Manager</span><span class="cand-loc">· Lakewood, CA</span></div>
+  </div>
+  <div class="card with-strip nl-1 cand-row">
+    <div class="cand-avatar">PG</div>
+    <div><span class="cand-name">Paul Gothberg</span><span class="cand-role">Superintendent</span><span class="cand-loc">· Ewa Beach, HI</span></div>
+  </div>
+  <div class="card with-strip nl-1 cand-row">
+    <div class="cand-avatar">JM</div>
+    <div><span class="cand-name">Jeffrey McClure</span><span class="cand-role">Senior Superintendent</span><span class="cand-loc">· Clarksville, TN</span></div>
+  </div>
+</div>
+
+<h2>Dashboard stat boxes</h2>
+<p>Same elevation. Numbers stay in their semantic colors (red for overdue, amber for tasks, green for active/replies).</p>
+<div class="grid cols-3" style="margin-top: 12px;">
+  <div class="card stat-box">
+    <div class="stat-num" style="color: #DC2626;">465</div>
+    <div class="stat-label">Overdue</div>
+  </div>
+  <div class="card stat-box">
+    <div class="stat-num" style="color: #D97706;">0</div>
+    <div class="stat-label">Tasks Today</div>
+  </div>
+  <div class="card stat-box">
+    <div class="stat-num" style="color: #059669;">23</div>
+    <div class="stat-label">Active</div>
+  </div>
+</div>
+
+<h2>Open decisions for you</h2>
+<div class="scope-list">
+  <ol style="padding-left: 22px;">
+    <li style="margin-bottom: 8px;"><strong>Are the 5 newsletter hues right?</strong> Look at the cards above (teal, blue, indigo, amber, cyan). Any that look wrong or any you want me to change?</li>
+    <li style="margin-bottom: 8px;"><strong>Enroll button color</strong> — currently each card's enroll button is its own identity hue (rich, varied). Alternative: standardize all enroll buttons to a single teal regardless of card hue (cleaner, less busy). Pick.</li>
+    <li style="margin-bottom: 8px;"><strong>Anything missing from the scope list?</strong> Look at the in-scope / out-of-scope checklist at the top. Should anything move?</li>
+    <li><strong>The shadow strength</strong> — the current shadow is intentionally subtle (<code>0 1px 3px rgba(15,23,42,.06)</code>). Want it stronger so cards "pop" more, or leave it as-is?</li>
+  </ol>
+</div>
+
+<p class="footnote" style="margin-top: 24px;">Reload this file after I make changes during iteration. Once you're happy, I'll convert this preview into the actual spec doc and proceed to writing the implementation plan.</p>
+
+</div>
+</body>
+</html>
