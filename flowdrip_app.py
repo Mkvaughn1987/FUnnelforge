@@ -10681,8 +10681,19 @@ def p_today_combined(s: AppState, rf):
                     ui.element("div").classes("fd-progress-fill").style(f"width:{pct}%")
 
         if not tasks:
-            with ui.element("div").style(f"text-align:center;padding:40px 0;color:{C['muted']};font-size:14px;"):
-                ui.label("No manual tasks due today. All caught up!")
+            # On the Today tab, show the full empty state with a CTA to
+            # peek at Tomorrow's drip. On Tomorrow/Overdue tabs the same
+            # CTA wouldn't make sense, so fall back to the plain text.
+            if drip_day == "today":
+                s._empty_state_handlers = {
+                    "@drip_tomorrow_tab": lambda: (
+                        setattr(s, "drip_day", "tomorrow"), rf()),
+                }
+                _render_empty_state(s, rf, "drip")
+            else:
+                with ui.element("div").style(
+                        f"text-align:center;padding:40px 0;color:{C['muted']};font-size:14px;"):
+                    ui.label("No manual tasks due today. All caught up!")
 
         # Pending tasks grouped by campaign (Tasks page layout)
         if pending:
@@ -11601,6 +11612,28 @@ def _drip_done_card(t, s: AppState, rf):
 def p_responses(s, rf):
     _render_page_intro_strip(s, rf, "responses")
     recs = load_responded()
+
+    # First-time empty state: no replies AND no actively-running campaigns
+    # (running = at least one pending email in queue, non-evergreen). We
+    # only show the full empty card when BOTH are empty, so users with
+    # active campaigns and zero replies still see the campaign-health
+    # table — that's their primary signal, not "no replies yet."
+    if not recs:
+        _camps_check = load_campaigns()
+        _queue_check = _load_queue()
+        _pending_by_camp = {}
+        for _q in _queue_check:
+            _cn = _q.get("campaign", "")
+            if _cn and _q.get("status") == "pending":
+                _pending_by_camp[_cn] = _pending_by_camp.get(_cn, 0) + 1
+        _has_active = any(
+            _pending_by_camp.get(_c.get("name", ""), 0) > 0
+            and not _c.get("evergreen_only")
+            for _c in _camps_check
+        )
+        if not _has_active:
+            _render_empty_state(s, rf, "responses")
+            return
 
     # Promote stale "Drafting reply..." entries to an error so the page stops
     # auto-refreshing if a generation thread hung or vanished. 90s is well past
@@ -17282,8 +17315,21 @@ def p_contacts(s, rf):
     contacts = load_contacts()
     saved = list_saved_contact_lists()
 
-    # ── Wizard header when accessed from Email Sequencer flow ───────────────
+    # First-time empty state: no saved lists AND no active contacts.
+    # Renders only outside the Email Sequencer wizard flow — the wizard
+    # header has its own context cues and shouldn't be replaced.
     is_sequencer_flow = s.hub == "emails" and s.ep == "e_contacts"
+    if not is_sequencer_flow and not saved and not contacts:
+        def _on_uploaded(_):
+            rf()
+        _upload_el = _contact_upload_and_name(s, rf, _on_uploaded)
+        s._empty_state_handlers = {
+            "@contacts_import": lambda: _upload_el.run_method("pickFiles"),
+        }
+        _render_empty_state(s, rf, "contacts")
+        return
+
+    # ── Wizard header when accessed from Email Sequencer flow ───────────────
     if is_sequencer_flow:
         _seq_wizard_header(s, rf, "e_contacts")
         ui.label("Add Contacts").classes("fd-h1")
@@ -19580,9 +19626,10 @@ def p_newsletters(s, rf):
                         )
 
         if not camps:
-            ui.label("No newsletter campaigns yet.").style(
-                f"font-size:13px;color:{C['muted']};padding:20px 0;"
-                "text-align:center;display:block;")
+            s._empty_state_handlers = {
+                "@new_newsletter": lambda: _create_newsletter_dialog(s, rf),
+            }
+            _render_empty_state(s, rf, "newsletters")
             return
 
         for i, camp in enumerate(camps):
@@ -19650,6 +19697,9 @@ def p_evergreen(s, rf):
 
     all_camps = load_campaigns()
     camps = [c for c in all_camps if _is_evergreen(c)]
+    if not camps:
+        _render_empty_state(s, rf, "evergreen")
+        return
 
     with ui.element("div").style("display:flex;align-items:center;"):
         ui.label("Slow Drip Campaigns").classes("fd-h1")
@@ -22745,6 +22795,9 @@ def p_prev_launch(s: AppState, rf):
 def p_seq_mgr(s, rf):
     _render_page_intro_strip(s, rf, "seq_mgr")
     camps = load_campaigns()
+    if not camps:
+        _render_empty_state(s, rf, "seq_mgr")
+        return
     queue = _load_queue()
 
     # Build queue stats per campaign.
@@ -22810,11 +22863,6 @@ def p_seq_mgr(s, rf):
         with ui.element("button").classes("fd-hub" + _comp_cls).style(
                 "border-radius:8px;padding:7px 16px;font-size:12px;").on("click", _toggle_completed):
             ui.label(f"Show Completed ({len(completed)})")
-
-    if not camps:
-        with ui.element("div").classes("fd-empty"):
-            ui.label("No campaigns yet. Start one from the Sales Hub.")
-        return
 
     # Auto-select: respect whether we're viewing active or completed
     _show_completed = s._mgr_show_completed
@@ -23836,8 +23884,17 @@ def p_dnc(s, rf):
 
     # ── Table ─────────────────────────────────────────────────────────────
     if not dnc:
-        with ui.element("div").classes("fd-empty"):
-            ui.label("No blocked contacts. When you add someone here, they'll never receive emails from any campaign.")
+        # Focus the first input on the page (the Email input on the Add
+        # form, which is rendered above this block). Selector targets the
+        # first .fd-input that's an <input type="text"> — that's our
+        # email field on a fresh DNC page.
+        s._empty_state_handlers = {
+            "@dnc_focus": lambda: ui.run_javascript(
+                "var el=document.querySelector('.fd-input input,input.fd-input');"
+                "if(el){el.focus();el.scrollIntoView({behavior:'smooth',block:'center'});}"
+            ),
+        }
+        _render_empty_state(s, rf, "dnc")
     else:
         search = getattr(s, "_dnc_search", "").lower()
         filtered = [d for d in dnc if not search or
@@ -24333,6 +24390,9 @@ def _render_active_clients_upload(s, rf, user_email: str):
 def p_queue(s, rf):
     _render_page_intro_strip(s, rf, "queue")
     queue = _load_queue()
+    if not queue:
+        _render_empty_state(s, rf, "queue")
+        return
     now = datetime.now()
     today_str = now.strftime("%Y-%m-%d")
     tomorrow_str = (now + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -32941,6 +33001,15 @@ def p_candidate_finder(s: AppState, rf):
         # Legacy route — redirect users back to the pool view.
         s.cf_tab = "pool"
     if s.cf_tab != "search":
+        if not _pool:
+            # Construct the bulk uploader so the empty-state CTA can
+            # trigger its hidden file picker via run_method("pickFiles").
+            _bulk_el = _bulk_import_resumes(s, rf)
+            s._empty_state_handlers = {
+                "@cand_import": lambda: _bulk_el.run_method("pickFiles"),
+            }
+            _render_empty_state(s, rf, "candidate_finder")
+            return
         _p_candidate_pool_tab(s, rf, _pool)
         return
 
