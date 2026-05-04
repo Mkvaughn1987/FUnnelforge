@@ -10651,6 +10651,42 @@ def p_today_combined(s: AppState, rf):
     # render even if multiple AI script panels are mid-generation.
     _ai_script_timer_scheduled = [False]
 
+    # Auto-refresh timer for AI generation cards (call briefing + LI message).
+    # Each card's bg thread populates camp['call_briefing'] / camp['linkedin_message']
+    # then removes the camp name from the appropriate inflight set. We snapshot
+    # the union of inflight names at render time, then poll every 5s with a
+    # one-shot self-rearming timer. When any snapshotted job completes, fire
+    # rf() exactly once and let the next render decide whether to keep polling.
+    #
+    # Why a snapshot + set-difference: counting completions by length alone
+    # misses the case where one job completes and another starts in the same
+    # tick window (count unchanged but a snapshotted job is gone).
+    #
+    # Why once=True + re-arm: a plain recurring ui.timer would accumulate
+    # across re-renders, recreating the historical "refresh storm" the
+    # comment in _render_call_briefing_card warns about.
+    _origin_inflight = (
+        frozenset(getattr(s, '_call_briefing_gen_inflight', set()) or set())
+        | frozenset(getattr(s, '_li_message_gen_inflight', set()) or set())
+    )
+    if _origin_inflight:
+        def _poll_ai_gen():
+            still = (
+                frozenset(getattr(s, '_call_briefing_gen_inflight', set()) or set())
+                | frozenset(getattr(s, '_li_message_gen_inflight', set()) or set())
+            )
+            if _origin_inflight - still:
+                # At least one snapshotted job completed — refresh once.
+                try:
+                    rf()
+                except Exception as ex:
+                    print(f"[TodayAutoRefresh] rf error: {ex}", flush=True)
+                return
+            if _origin_inflight & still:
+                # Still waiting on at least one — keep polling.
+                ui.timer(5.0, _poll_ai_gen, once=True)
+        ui.timer(5.0, _poll_ai_gen, once=True)
+
     # Clear the daily-page campaign cache on every fresh render. The
     # per-channel briefing panels look up the full campaign dict by name
     # via load_campaigns() and stash it here so each channel in a group
