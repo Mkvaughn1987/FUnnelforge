@@ -24771,7 +24771,33 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
         f"TARGET EXPERIENCE LEVEL: {exp_level or '(unspecified)'}\n\n"
     )
 
+    # Resolve the prepared-by company / brand — the staffing firm sending
+    # the document. Falls back to a neutral phrase if missing.
+    _prep_company = (ctx.get("prepared_by_company") or
+                     ctx.get("brand") or
+                     "your staffing partner").strip() or "your staffing partner"
+
     common_rules = (
+        "\nAUDIENCE & VOICE:\n"
+        f"- This document is sent BY {_prep_company} TO an executive or hiring "
+        f"manager at {company}. Write for them, not for our internal team.\n"
+        "- Voice is strategic, authoritative, helpful. You are the market expert "
+        "giving the client a one-page advantage. You are NOT writing a job "
+        "description, a training plan, or a staffing-firm playbook.\n"
+        "- Frame every section in terms of business outcomes the CLIENT cares "
+        "about — fill rate, time-to-fill, retention, quality of hire, revenue "
+        "enabled by the hire, risk reduced — not internal ops the role-doer "
+        "performs day-to-day.\n"
+        "\nDO NOT:\n"
+        "- Use procedural / ops language: 'build a sourcing pipeline', "
+        "'document sourcing channel effectiveness', 'establish weekly touchpoints', "
+        "'develop standard operating procedures', 'attend weekly jobsite visits'. "
+        "These read as internal training content, not client value.\n"
+        "- Address the role-doer in second person ('You'll own…'). Always speak "
+        "TO the hiring manager ABOUT what the hire delivers: 'This hire owns…', "
+        "'Within 90 days, expect…', 'The client should see…'.\n"
+        "- Reference any internal tools, budget cycles, vendor contracts, or "
+        "back-office workflows. The client doesn't run those.\n"
         "\nRULES:\n"
         "- Fill the page. Each section must carry real, specific content tied to the inputs above.\n"
         "- Use REAL numbers, comp ranges, and named events/trends — no 'Market Rate', no 'Competitive', no placeholders.\n"
@@ -24859,19 +24885,27 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
 
     elif kind == "scorecard":
         body = (
-            f"Build a rich one-page Role Scorecard for the {role_label} hire at {company} "
-            f"({industry_str}, {location}).\n"
+            f"Build a rich one-page Role Scorecard the hiring manager at {company} can use to "
+            f"benchmark the {role_label} hire ({industry_str}, {location}). The reader is the "
+            f"hiring decision-maker, not the candidate or the role-doer.\n"
             f"\nREQUIRED SECTIONS:\n"
-            f"  1. heading 'The Role at a Glance' — type 'paragraph' — 3-4 sentences on what success "
-            f"looks like in this specific role at {company}, referencing their actual scale/work.\n"
-            f"  2. heading 'First-90-Day Outcomes' — type 'bullets' — 5 outcome bullets, each ~2 sentences "
-            f"specific to {company}'s context.\n"
+            f"  1. heading 'What Great Looks Like at {company}' — type 'paragraph' — 3-4 sentences "
+            f"describing what a high-performing hire delivers TO {company} (business impact, scale "
+            f"served, customer/jobsite outcomes), referencing their actual scale/work. Speak to the "
+            f"hiring manager about the hire's contribution, never to the candidate about their tasks.\n"
+            f"  2. heading 'First-90-Day Outcomes' — type 'bullets' — 5 measurable outcomes the "
+            f"hiring manager will be able to point to at the 90-day mark. Each in the form "
+            f"'<X> delivered / <Y%> improved / <Z> is in place'. Frame each as a deliverable to "
+            f"{company}, NOT a task the hire performs day-to-day. NO procedural language "
+            f"('build a pipeline', 'document a process', 'attend weekly meetings'). Each bullet "
+            f"~2 sentences with a concrete metric.\n"
             f"  3. heading 'Core Competencies' — type 'table' — header + 4-5 rows. "
-            f"Columns: ['Competency','What It Looks Like','Why It Matters Here'].\n"
-            f"  4. heading 'Fit Markers vs. Red Flags' — type 'qa' — 3 Q&A pairs where q names a fit dimension "
-            f"and a contrasts the strong vs weak signal (2-3 sentences each).\n"
-            f"  5. heading 'High-Signal Interview Questions' — type 'bullets' — 5 questions tied to the "
-            f"outcomes above, each ~1 sentence.\n"
+            f"Columns: ['Competency','What It Looks Like at {company}','Why It Matters to the Business']. "
+            f"The third column is the BUSINESS reason — revenue, risk, retention — not internal ops.\n"
+            f"  4. heading 'Fit Markers vs. Red Flags' — type 'qa' — 3 Q&A pairs where q names a fit "
+            f"dimension and a contrasts the strong vs weak signal in candidate behavior (2-3 sentences each).\n"
+            f"  5. heading 'High-Signal Interview Questions' — type 'bullets' — 5 questions the "
+            f"hiring manager should ask candidates, tied to the outcomes above, each ~1 sentence.\n"
         )
 
     elif kind == "why_staffing":
