@@ -7597,7 +7597,7 @@ def inject_styles():
     # ── Apply saved theme on load (before paint) ──
     ui.add_head_html("""<script>
 (function(){
-  var t = localStorage.getItem('dd-theme') || 'dark';
+  var t = localStorage.getItem('dd-theme') || 'light';
   document.addEventListener('DOMContentLoaded', function(){
     if (t === 'light') {
       document.documentElement.setAttribute('data-theme','light');
