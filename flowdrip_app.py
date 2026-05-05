@@ -7584,8 +7584,25 @@ def inject_styles():
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
 """)
     # ── Theme CSS custom properties (dark = default, light = [data-theme="light"]) ──
-    dark_vars = "\n".join(f"  --dd-{k}:{v};" for k, v in C_DARK.items())
-    light_vars = "\n".join(f"  --dd-{k}:{v};" for k, v in C_LIGHT.items())
+    # Newsletter / SlowDrip per-card palette (5 hues, each with bg/fg/border).
+    # Dark = saturated fill + bright accent. Light = white fill + darkened
+    # accent (used as both title text and 4px left strip).
+    EG_DARK = {
+        "eg-1-bg": "#0E3A3A", "eg-1-fg": "#1AE3D9", "eg-1-border": "#0F4035",
+        "eg-2-bg": "#0D2540", "eg-2-fg": "#5EADD8", "eg-2-border": "#0F3050",
+        "eg-3-bg": "#1E2560", "eg-3-fg": "#6366F1", "eg-3-border": "#251545",
+        "eg-4-bg": "#2D1F00", "eg-4-fg": "#FCD34D", "eg-4-border": "#3D2800",
+        "eg-5-bg": "#0D1F2A", "eg-5-fg": "#67E8F9", "eg-5-border": "#0F2535",
+    }
+    EG_LIGHT = {
+        "eg-1-bg": "#FFFFFF", "eg-1-fg": "#0FB8B5", "eg-1-border": "#C8D0DA",
+        "eg-2-bg": "#FFFFFF", "eg-2-fg": "#1E40AF", "eg-2-border": "#C8D0DA",
+        "eg-3-bg": "#FFFFFF", "eg-3-fg": "#4F46E5", "eg-3-border": "#C8D0DA",
+        "eg-4-bg": "#FFFFFF", "eg-4-fg": "#B45309", "eg-4-border": "#C8D0DA",
+        "eg-5-bg": "#FFFFFF", "eg-5-fg": "#0E7490", "eg-5-border": "#C8D0DA",
+    }
+    dark_vars = "\n".join(f"  --dd-{k}:{v};" for k, v in {**C_DARK, **EG_DARK}.items())
+    light_vars = "\n".join(f"  --dd-{k}:{v};" for k, v in {**C_LIGHT, **EG_LIGHT}.items())
     ui.add_head_html(f"""<style>
 :root {{
 {dark_vars}
@@ -18440,12 +18457,12 @@ def p_launch(s, rf):
 #  PAGE: EVERGREEN
 # ═══════════════════════════════════════════════════════════════════════════
 
+# 5-hue palette for newsletter / slow-drip cards. Each entry is
+# (bg, fg, border) using CSS custom properties so values swap with
+# the active theme (see EG_DARK / EG_LIGHT inside inject_styles).
 EVERGREEN_COLORS = [
-    (C["teal_dim"], C["teal"], "#0F4035"),
-    ("#0D2540", "#5EADD8", "#0F3050"),
-    (C["indigo_dim"], C["indigo"], "#251545"),
-    ("#2D1F00", "#FCD34D", "#3D2800"),
-    ("#0D1F2A", "#67E8F9", "#0F2535"),
+    (f"var(--dd-eg-{i}-bg)", f"var(--dd-eg-{i}-fg)", f"var(--dd-eg-{i}-border)")
+    for i in range(1, 6)
 ]
 
 def _seed_evergreen_campaigns():
@@ -20145,7 +20162,8 @@ def p_newsletters(s, rf):
                              and not _next_step.get("confirmed"))
 
             with ui.element("div").style(
-                    f"background:{bg};border:1px solid {border};border-radius:10px;"
+                    f"background:{bg};border:1px solid {border};"
+                    f"border-left:4px solid {fg};border-radius:10px;"
                     f"padding:14px 18px;margin-bottom:10px;display:flex;"
                     f"align-items:center;justify-content:space-between;gap:14px;"):
                 with ui.element("div").style("flex:1;min-width:0;"):
