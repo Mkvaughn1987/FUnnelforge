@@ -10509,13 +10509,84 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
         _thr.Thread(target=_bg, daemon=True).start()
         is_inflight = True
 
+    # Refresh handler — clears cache + re-arms inflight tracking + spawns
+    # a fresh background generation. Used by the explicit Refresh button.
+    def _refresh_briefing(_camp=camp, _name=camp_name):
+        try:
+            _camp.pop("call_briefing", None)
+            try:
+                save_campaign(_camp)
+            except Exception:
+                pass
+        except Exception:
+            pass
+        try:
+            inflight.add(_name)
+        except Exception:
+            pass
+        _user_local = getattr(s, "_user_email", "") or ""
+
+        def _bg_refresh():
+            try:
+                if _user_local:
+                    try:
+                        _CURRENT_USER_EMAIL.set(_user_local)
+                        _switch_to_user_paths(_user_local)
+                    except Exception:
+                        pass
+                _generate_call_briefing_for_campaign(_camp, force_refresh=True)
+            except Exception as ex:
+                print(f"[CallBriefingPanel] refresh bg gen error: {ex}", flush=True)
+            finally:
+                try:
+                    inflight.discard(_name)
+                except Exception:
+                    pass
+                try:
+                    import gc as _gc
+                    _gc.collect()
+                except Exception:
+                    pass
+        import threading as _thr2
+        _thr2.Thread(target=_bg_refresh, daemon=True).start()
+        ui.notify("Refreshing briefing — new content in ~15-30s.", type="info")
+        rf()
+
     with ui.element("div").style(
             f"background:{C['surface']};border:1px solid {C['border']};"
             f"border-radius:8px;padding:12px 14px;margin-bottom:6px;"):
-        ui.label("📞 Call briefing — talking points & candidates").style(
-            f"font-size:10px;font-weight:700;color:{C['call_col']};"
-            f"text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;"
-            f"font-family:'Nunito',sans-serif;")
+        # Header: title + (when a company is known) the company name +
+        # a Refresh button on the right.
+        _company_for_header = ""
+        if isinstance(briefing, dict):
+            _company_for_header = (briefing.get("company_name") or "").strip()
+        if not _company_for_header:
+            _company_for_header = _first_contact_company(camp)
+
+        with ui.element("div").style(
+                "display:flex;align-items:center;justify-content:space-between;"
+                "gap:10px;margin-bottom:8px;"):
+            with ui.element("div").style("display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0;"):
+                ui.label("📞 Call briefing").style(
+                    f"font-size:10px;font-weight:700;color:{C['call_col']};"
+                    f"text-transform:uppercase;letter-spacing:.06em;"
+                    f"font-family:'Nunito',sans-serif;")
+                if _company_for_header:
+                    ui.label(f"— {_company_for_header}").style(
+                        f"font-size:11px;font-weight:600;color:{C['text_l']};"
+                        f"font-family:'Nunito',sans-serif;")
+            # Refresh button (always available when API key is set).
+            if has_key:
+                with ui.element("button").style(
+                        f"display:inline-flex;align-items:center;gap:4px;"
+                        f"padding:3px 10px;border-radius:99px;font-size:10px;"
+                        f"font-weight:600;cursor:pointer;"
+                        f"background:transparent;color:{C['muted']};"
+                        f"border:1px solid {C['border']};font-family:inherit;"
+                        f"flex-shrink:0;"
+                        ).on("click", _refresh_briefing):
+                    ui.label("↻ Refresh")
+
         if not has_key:
             ui.label("AI key not configured — briefing unavailable.").style(
                 f"font-size:12px;color:{C['muted']};")
@@ -10525,22 +10596,83 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
                     "display:flex;align-items:center;gap:10px;"
                     "padding:6px 0;"):
                 ui.spinner(size="sm").style(f"color:{C['call_col']};")
-                ui.label("✨ Generating in the background — refresh in ~30s to see it.").style(
+                ui.label("✨ Generating in the background — auto-updates in ~15-30s.").style(
                     f"font-size:12px;color:{C['muted']};")
             return
-        # Cached briefing — render the talking points + candidates.
-        tps = briefing.get("talking_points") or []
+        # Cached briefing — render open jobs, news, candidates.
+        open_jobs = briefing.get("open_jobs") or []
+        news = briefing.get("news") or []
         cands = briefing.get("candidates") or []
-        if tps:
-            ui.label("Talking points").style(
+
+        # ── Open jobs ──
+        if open_jobs:
+            ui.label("Open jobs at this company").style(
                 f"font-size:11px;font-weight:700;color:{C['text_l']};"
                 f"margin-bottom:4px;")
-            with ui.element("ul").style(
-                    f"margin:0 0 8px 0;padding-left:20px;color:{C['text_l']};"
-                    f"font-size:12px;line-height:1.5;"):
-                for tp in tps:
-                    with ui.element("li"):
-                        ui.label(str(tp))
+            with ui.element("div").style(
+                    "display:flex;flex-direction:column;gap:3px;"
+                    "margin-bottom:10px;"):
+                for j in open_jobs:
+                    if not isinstance(j, dict):
+                        continue
+                    title = (j.get("title") or "").strip()
+                    loc = (j.get("location") or "").strip()
+                    url = _safe_url(j.get("url") or "", allow_tel=False, allow_mailto=False)
+                    if not title:
+                        continue
+                    parts = [f'<span style="font-weight:600;">{esc(title)}</span>']
+                    if loc:
+                        parts.append(f'<span style="color:{C["muted"]};">— {esc(loc)}</span>')
+                    if url:
+                        parts.append(
+                            f'<a href="{url}" target="_blank" rel="noopener" '
+                            f'style="color:{C["call_col"]};text-decoration:none;'
+                            f'font-size:11px;margin-left:4px;">↗</a>'
+                        )
+                    with ui.element("div").style(
+                            f"font-size:12px;color:{C['text_l']};"
+                            f"line-height:1.45;"):
+                        ui.html(" ".join(parts))
+        elif _company_for_header:
+            # Show the no-jobs case explicitly so the user knows we looked.
+            ui.label("Open jobs at this company").style(
+                f"font-size:11px;font-weight:700;color:{C['text_l']};"
+                f"margin-bottom:4px;")
+            ui.label("No public openings surfaced — could be filling quietly or via agencies.").style(
+                f"font-size:11px;color:{C['muted']};font-style:italic;"
+                f"margin-bottom:10px;")
+
+        # ── Recent news ──
+        if news:
+            ui.label("Recent news").style(
+                f"font-size:11px;font-weight:700;color:{C['text_l']};"
+                f"margin-bottom:4px;")
+            with ui.element("div").style(
+                    "display:flex;flex-direction:column;gap:3px;"
+                    "margin-bottom:10px;"):
+                for n in news:
+                    if not isinstance(n, dict):
+                        continue
+                    headline = (n.get("headline") or "").strip()
+                    date_str = (n.get("date") or "").strip()
+                    url = _safe_url(n.get("url") or "", allow_tel=False, allow_mailto=False)
+                    if not headline:
+                        continue
+                    parts = [f'<span style="font-weight:600;">{esc(headline)}</span>']
+                    if date_str:
+                        parts.append(f'<span style="color:{C["muted"]};">— {esc(date_str)}</span>')
+                    if url:
+                        parts.append(
+                            f'<a href="{url}" target="_blank" rel="noopener" '
+                            f'style="color:{C["call_col"]};text-decoration:none;'
+                            f'font-size:11px;margin-left:4px;">↗</a>'
+                        )
+                    with ui.element("div").style(
+                            f"font-size:12px;color:{C['text_l']};"
+                            f"line-height:1.45;"):
+                        ui.html(" ".join(parts))
+
+        # ── Candidates sent over ──
         if cands:
             ui.label("Candidates sent over").style(
                 f"font-size:11px;font-weight:700;color:{C['text_l']};"
@@ -10556,8 +10688,8 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
                             f"font-size:12px;color:{C['text_l']};"
                             f"line-height:1.45;"):
                         ui.html(
-                            f'<span style="font-weight:600;">{lbl}</span>'
-                            f'<span style="color:{C["muted"]};"> — {hi}</span>'
+                            f'<span style="font-weight:600;">{esc(lbl)}</span>'
+                            f'<span style="color:{C["muted"]};"> — {esc(hi)}</span>'
                         )
 
 
@@ -36565,25 +36697,45 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
     return (subject, body_html)
 
 
-def _generate_call_briefing_for_campaign(camp: dict) -> dict | None:
-    """AI-generate a cold call briefing for the campaign.
+def _first_contact_company(camp: dict) -> str:
+    """Return the company name of the first contact in the campaign,
+    or empty string if none. Handles both CSV-import casing (Company)
+    and normalized casing (company)."""
+    contacts = camp.get("contacts", []) or []
+    for c in contacts:
+        if not isinstance(c, dict):
+            continue
+        name = (c.get("Company") or c.get("company") or "").strip()
+        if name:
+            return name
+    return ""
+
+
+def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False) -> dict | None:
+    """AI-generate a cold call briefing for the campaign's first contact's
+    company. Uses web search to surface real open jobs and recent news.
 
     Returns a dict like:
         {
-            "talking_points": ["...", "...", ...],
+            "company_name": "Brannan Companies",
+            "open_jobs": [{"title": "...", "location": "...", "url": "..."}, ...],
+            "news": [{"headline": "...", "date": "...", "url": "..."}, ...],
             "candidates": [{"label": "...", "highlight": "..."}, ...],
         }
     or None on failure / missing API key.
 
     Cached on `camp["call_briefing"]` and persisted via save_campaign().
-    Safe to call from a background thread — uses the campaign's
-    `_owner_email` to switch user paths so save_campaign() writes to
-    the right per-user folder.
+    Pass force_refresh=True to bypass cache (used by the Refresh button
+    in the UI). Safe to call from a background thread.
     """
-    # Cached?
-    cached = camp.get("call_briefing")
-    if isinstance(cached, dict) and cached.get("talking_points") and cached.get("candidates"):
-        return cached
+    # Cached? (unless force_refresh)
+    if not force_refresh:
+        cached = camp.get("call_briefing")
+        # New schema (open_jobs OR news OR candidates)
+        if isinstance(cached, dict) and (
+            cached.get("open_jobs") or cached.get("news") or cached.get("candidates")
+        ):
+            return cached
     if not ANTHROPIC_API_KEY:
         return None
     try:
@@ -36596,6 +36748,7 @@ def _generate_call_briefing_for_campaign(camp: dict) -> dict | None:
     sector = camp.get("market_sector", "") or ""
     niche = camp.get("market_niche", "") or ""
     region = camp.get("market_region", "") or ""
+    company = _first_contact_company(camp)
 
     # Resolve user context from campaign owner so save_campaign writes
     # to the correct per-user folder when called from a bg thread.
@@ -36607,8 +36760,8 @@ def _generate_call_briefing_for_campaign(camp: dict) -> dict | None:
         except Exception:
             pass
 
-    # Pull a sample of the email body so Claude can infer what
-    # candidates were sent over and what the prospect already knows.
+    # Pull a sample of the email body so Claude can extract the candidate
+    # spotlights the recruiter referenced in the original email.
     steps = camp.get("emails", []) or []
     sample_subject = ""
     sample_body = ""
@@ -36616,77 +36769,125 @@ def _generate_call_briefing_for_campaign(camp: dict) -> dict | None:
         first = steps[0] or {}
         sample_subject = (first.get("subject") or "").strip()
         sample_body = (first.get("body") or "").strip()
-        # Strip HTML tags for cleaner prompt context.
         sample_body = re.sub(r'<[^>]+>', ' ', sample_body)
         sample_body = re.sub(r'\s+', ' ', sample_body).strip()
         sample_body = sample_body[:600]
 
-    prompt = (
-        f"You are prepping a recruiter for a cold call follow-up to an "
-        f"email campaign they already sent. The prospect received the "
-        f"email below and now the recruiter is calling to engage them.\n\n"
-        f"CAMPAIGN CONTEXT:\n"
-        f"- Sector: {sector}\n"
-        f"- Niche: {niche}\n"
-        f"- Region: {region}\n"
-        f"- Sample email subject: {sample_subject}\n"
-        f"- Sample email body excerpt: {sample_body}\n\n"
-        f"Produce a SHORT call-prep briefing as JSON with two keys:\n\n"
-        f"1) talking_points: 3-5 short, punchy talking points the "
-        f"recruiter can lead with. Each point is one sentence. Reference "
-        f"local market signals (real projects, hiring trends, comp) "
-        f"where it helps. Include at least one open-ended question.\n\n"
-        f"2) candidates: 2-4 anonymized candidate spotlights that match "
-        f"what the email implied the recruiter has 'available' or 'in "
-        f"market'. Each candidate has:\n"
-        f"   - label: role + years + 1 cred (e.g. 'Sr. PM, 12 yrs "
-        f"healthcare construction')\n"
-        f"   - highlight: 1 short sentence (what they just delivered, "
-        f"why they're available, comp range, when they can start)\n"
-        f"Mix seniority. Use {region} comp ranges. NEVER use real names.\n\n"
-        f"Return ONLY valid JSON in this exact shape:\n"
+    # ── Step 1: Web search for open jobs + news at the company ──
+    open_jobs: list = []
+    news: list = []
+    if company:
+        search_prompt = (
+            f"You are prepping a recruiter for a cold call to {company} "
+            f"in {region}. Use web_search to find:\n\n"
+            f"1) Open jobs / current hiring at {company} — search for "
+            f"\"{company} careers\" or \"{company} hiring\". Focus on "
+            f"{sector} / {niche} roles if relevant. Surface 2-3 specific "
+            f"open positions if you find any.\n\n"
+            f"2) Recent news about {company} from the last ~60 days — "
+            f"funding, expansion, project wins, layoffs, leadership "
+            f"changes, M&A. Surface 1-3 items if you find any.\n\n"
+            f"After searching, return ONLY valid JSON in this exact shape "
+            f"(omit items you couldn't find — don't fabricate):\n"
+            f'{{\n'
+            f'  "open_jobs": [\n'
+            f'    {{"title": "Project Manager", "location": "Denver, CO", "url": "https://..."}}\n'
+            f'  ],\n'
+            f'  "news": [\n'
+            f'    {{"headline": "...", "date": "April 2026", "url": "https://..."}}\n'
+            f'  ]\n'
+            f'}}\n\n'
+            f"If nothing found for either category, return that key as []. "
+            f"Never fabricate URLs — only use URLs you actually saw in "
+            f"the search results."
+        )
+        try:
+            ws_msg = _claude_create_with_retry(client,
+                model="claude-haiku-4-5-20251001",
+                max_tokens=1500,
+                tools=[_safe_web_search_tool(max_uses=3)],
+                messages=[{"role": "user", "content": search_prompt}])
+            ws_text = "".join(b.text for b in ws_msg.content if hasattr(b, "text"))
+            ws_clean = ws_text.replace("```json", "").replace("```", "").strip()
+            m = re.search(r'\{.*\}', ws_clean, re.DOTALL)
+            if m:
+                try:
+                    ws_result = json.loads(m.group())
+                except json.JSONDecodeError:
+                    ws_result = json.loads(re.sub(r',(\s*[}\]])', r'\1', m.group()))
+                for j in (ws_result.get("open_jobs") or []):
+                    if not isinstance(j, dict):
+                        continue
+                    title = str(j.get("title", "")).strip()
+                    loc = str(j.get("location", "")).strip()
+                    url = str(j.get("url", "")).strip()
+                    if title:
+                        open_jobs.append({"title": title, "location": loc, "url": url})
+                for n in (ws_result.get("news") or []):
+                    if not isinstance(n, dict):
+                        continue
+                    headline = str(n.get("headline", "")).strip()
+                    date_str = str(n.get("date", "")).strip()
+                    url = str(n.get("url", "")).strip()
+                    if headline:
+                        news.append({"headline": headline, "date": date_str, "url": url})
+        except Exception as e:
+            print(f"[CallBriefing] web search failed: {e}", flush=True)
+
+    # ── Step 2: Extract candidate spotlights from the email body ──
+    candidates: list = []
+    extract_prompt = (
+        f"Extract anonymized candidate spotlights from the recruiter's "
+        f"email below. The recruiter mentioned candidates they have "
+        f"'available' or 'in market' for {sector} / {niche} roles in "
+        f"{region}. List the candidates the recruiter actually "
+        f"referenced — do not fabricate.\n\n"
+        f"EMAIL SUBJECT: {sample_subject}\n"
+        f"EMAIL BODY EXCERPT: {sample_body}\n\n"
+        f"Return ONLY valid JSON:\n"
         f'{{\n'
-        f'  "talking_points": ["...", "...", "..."],\n'
         f'  "candidates": [\n'
-        f'    {{"label": "...", "highlight": "..."}},\n'
-        f'    {{"label": "...", "highlight": "..."}}\n'
+        f'    {{"label": "Sr. PM, 12 yrs healthcare construction", '
+        f'"highlight": "Just wrapped a $30M hospital expansion in Denver."}}\n'
         f'  ]\n'
-        f'}}\n'
+        f'}}\n\n'
+        f"Each candidate has 'label' (role + years + 1 cred) and "
+        f"'highlight' (1 short sentence). Use {region} comp ranges if "
+        f"mentioned. NEVER use real names. If the email doesn't reference "
+        f"specific candidates, return an empty list."
     )
     try:
-        msg = _claude_create_with_retry(client,
+        ex_msg = _claude_create_with_retry(client,
             model="claude-haiku-4-5-20251001",
-            max_tokens=1200,
-            messages=[{"role": "user", "content": prompt}])
-        text = "".join(b.text for b in msg.content if hasattr(b, "text"))
-        clean = text.replace("```json", "").replace("```", "").strip()
-        m = re.search(r'\{.*\}', clean, re.DOTALL)
-        if not m:
-            return None
-        try:
-            result = json.loads(m.group())
-        except json.JSONDecodeError:
-            result = json.loads(re.sub(r',(\s*[}\]])', r'\1', m.group()))
+            max_tokens=800,
+            messages=[{"role": "user", "content": extract_prompt}])
+        ex_text = "".join(b.text for b in ex_msg.content if hasattr(b, "text"))
+        ex_clean = ex_text.replace("```json", "").replace("```", "").strip()
+        m = re.search(r'\{.*\}', ex_clean, re.DOTALL)
+        if m:
+            try:
+                ex_result = json.loads(m.group())
+            except json.JSONDecodeError:
+                ex_result = json.loads(re.sub(r',(\s*[}\]])', r'\1', m.group()))
+            for c in (ex_result.get("candidates") or []):
+                if not isinstance(c, dict):
+                    continue
+                lbl = str(c.get("label", "")).strip()
+                hi = str(c.get("highlight", "")).strip()
+                if lbl and hi:
+                    candidates.append({"label": lbl, "highlight": hi})
     except Exception as e:
-        print(f"[CallBriefing] AI call failed: {e}", flush=True)
+        print(f"[CallBriefing] candidate extraction failed: {e}", flush=True)
+
+    if not open_jobs and not news and not candidates:
         return None
 
-    tps = result.get("talking_points") or []
-    cands = result.get("candidates") or []
-    # Light sanitization — drop empty/short entries.
-    tps = [str(x).strip() for x in tps if str(x).strip()]
-    clean_cands = []
-    for c in cands:
-        if not isinstance(c, dict):
-            continue
-        lbl = str(c.get("label", "")).strip()
-        hi = str(c.get("highlight", "")).strip()
-        if lbl and hi:
-            clean_cands.append({"label": lbl, "highlight": hi})
-    if not tps and not clean_cands:
-        return None
-
-    briefing = {"talking_points": tps, "candidates": clean_cands}
+    briefing = {
+        "company_name": company,
+        "open_jobs": open_jobs,
+        "news": news,
+        "candidates": candidates,
+    }
     camp["call_briefing"] = briefing
     try:
         save_campaign(camp)
@@ -36727,17 +36928,36 @@ def _generate_li_message_for_campaign(camp: dict) -> str | None:
         except Exception:
             pass
 
+    # Sender's firm name powers the brief intro line ("I'm with X, ...").
+    sender_firm = ""
+    try:
+        sender_firm = _get_company_name() or ""
+    except Exception:
+        sender_firm = ""
+    sender_firm = sender_firm.strip()
+
+    # Topic for the email reference: prefer niche, fall back to sector,
+    # fall back to a generic "your role".
+    topic = (niche or sector or "your role").strip()
+
     prompt = (
-        f"Write ONE LinkedIn connection-request message for a recruiter "
-        f"reaching out to {sector} / {niche} professionals in {region}.\n\n"
-        f"RULES:\n"
-        f"- Casual, peer-to-peer tone. Not salesy.\n"
-        f"- STRICT: under 280 characters total.\n"
+        f"Write ONE LinkedIn connection-request message that follows up "
+        f"on an email the recruiter ALREADY SENT.\n\n"
+        f"CONTEXT:\n"
+        f"- Sender works at: {sender_firm or 'a recruiting firm'}\n"
+        f"- Recruiter focuses on: {topic} hires in {region or 'their market'}\n\n"
+        f"STRUCTURE (3 short sentences, in this order):\n"
+        f"1) Reference the email: 'Just sent you an email re: {topic}' "
+        f"(or similar). Make clear they sent the email already.\n"
+        f"2) Brief intro: who they are / what their firm does. "
+        f"Mention {sender_firm or 'their firm'} by name if available.\n"
+        f"3) Soft close: 'Open to a quick chat if useful' or similar.\n\n"
+        f"STRICT RULES:\n"
+        f"- Under 280 characters total (LinkedIn cap on connection notes).\n"
         f"- No greeting like 'Hi {{first_name}}' (LinkedIn shows the "
         f"name automatically).\n"
         f"- No 'Best,' or sign-off.\n"
-        f"- One concrete reason to connect tied to the sector/region.\n"
-        f"- NO emoji.\n\n"
+        f"- Casual, peer-to-peer tone. Not salesy. No emoji.\n\n"
         f"Return ONLY the message text. No quotes, no explanation."
     )
     try:
