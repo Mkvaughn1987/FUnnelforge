@@ -20403,6 +20403,57 @@ def p_newsletters(s, rf):
                     _needs_create = (not _body) or "[AI:" in _body
                     _edit_newsletter_modal(s, rf, c, _idx, force_generate=_needs_create)
 
+                # Delete handler: confirmation dialog before destructive op.
+                # Pattern mirrors _delete_camp on the Campaign management page.
+                def _delete_nl(c=camp):
+                    _cname = c.get("name", "")
+                    _cpath = c.get("_path", "")
+                    _enrolled_count = len([
+                        _ct for _ct in (c.get("contacts", []) or [])
+                        if not _ct.get("removed")
+                    ])
+                    with ui.dialog() as _dlg, ui.card().style(
+                            f"background:{C['card']};border:1px solid {C['border']};"
+                            f"padding:20px 24px;min-width:380px;max-width:460px;"):
+                        ui.label(f"Delete \"{_cname}\"?").style(
+                            f"font-size:15px;font-weight:700;color:{C['text_l']};"
+                            f"font-family:'Nunito',sans-serif;margin-bottom:6px;")
+                        _detail = (
+                            f"This removes the newsletter and cancels any pending "
+                            f"queue emails. {_enrolled_count} contacts currently "
+                            f"enrolled will stop receiving issues. This cannot be "
+                            f"undone."
+                        )
+                        ui.label(_detail).style(
+                            f"font-size:12px;color:{C['muted']};margin-bottom:14px;line-height:1.5;")
+                        with ui.element("div").style(
+                                "display:flex;justify-content:flex-end;gap:8px;"):
+                            def _cancel():
+                                _dlg.close()
+                            with ui.element("button").classes("fd-gb").style(
+                                    "padding:6px 16px;font-size:12px;").on("click", _cancel):
+                                ui.label("Cancel")
+
+                            def _confirm():
+                                try:
+                                    delete_campaign(_cpath)
+                                    _cache_campaigns.invalidate()
+                                    _cache_queue.invalidate()
+                                    ui.notify(f"Deleted \"{_cname}\"", type="positive")
+                                except Exception as ex:
+                                    ui.notify(
+                                        f"Delete failed: {str(ex)[:80]}",
+                                        type="negative")
+                                _dlg.close()
+                                rf()
+                            with ui.element("button").style(
+                                    f"padding:6px 16px;font-size:12px;font-weight:700;"
+                                    f"background:{C['danger']};color:#fff;border:none;"
+                                    f"border-radius:8px;cursor:pointer;font-family:inherit;"
+                                    ).on("click", _confirm):
+                                ui.label("Delete")
+                    _dlg.open()
+
                 with ui.element("div").style(
                         "flex-shrink:0;display:flex;gap:6px;align-items:center;"):
                     # + Enroll button — same fg color as the card border for visual tie-in
@@ -20418,6 +20469,14 @@ def p_newsletters(s, rf):
                             f"cursor:pointer;font-family:inherit;").on(
                             "click", _edit):
                         ui.label("👁 View / Edit").style("pointer-events:none;")
+                    # Small delete button — subtle, danger-colored, last in row.
+                    with ui.element("button").style(
+                            f"padding:9px 12px;font-size:13px;font-weight:600;"
+                            f"background:transparent;color:{C['danger']};"
+                            f"border:1px solid {C['danger']}40;border-radius:8px;"
+                            f"cursor:pointer;font-family:inherit;line-height:1;"
+                            ).on("click", _delete_nl):
+                        ui.label("✕").style("pointer-events:none;")
 
 
 def p_evergreen(s, rf):
