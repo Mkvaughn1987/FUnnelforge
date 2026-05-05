@@ -53,21 +53,44 @@ def test_call_briefing_generator_uses_web_search():
     )
 
 
-def test_call_briefing_schema_has_jobs_and_news():
-    """The new briefing dict includes open_jobs + news + candidates.
-    Old schema had talking_points + candidates. Verify the new keys
-    are referenced in the generator source."""
+def test_call_briefing_schema_has_all_sections():
+    """The briefing dict includes:
+      - open_jobs / news (web-search)
+      - candidates (extracted from email body or inferred from sector)
+      - talking_points (3-5 punchy bullets — restored from original)
+      - conversation_flow (walkthrough: opener/discovery/pitch/close)
+    """
     import flowdrip_app as fa
     src = inspect.getsource(fa._generate_call_briefing_for_campaign)
-    assert '"open_jobs"' in src, (
-        "Briefing schema must include 'open_jobs' key"
+    for key in ('"open_jobs"', '"news"', '"candidates"',
+                '"talking_points"', '"conversation_flow"'):
+        assert key in src, (
+            f"Briefing schema must include {key} key"
+        )
+
+
+def test_call_briefing_has_schema_version():
+    """Old cached briefings (before the conversation_flow + talking_points
+    additions) must auto-regenerate. The cache check gates on _schema_version."""
+    import flowdrip_app as fa
+    assert hasattr(fa, "_CALL_BRIEFING_SCHEMA_VERSION")
+    assert isinstance(fa._CALL_BRIEFING_SCHEMA_VERSION, int)
+    assert fa._CALL_BRIEFING_SCHEMA_VERSION >= 2
+
+
+def test_render_call_briefing_card_shows_walkthrough_sections():
+    """Render must surface the conversation walkthrough sections
+    (opener / discovery / pitch / close) and talking points."""
+    import flowdrip_app as fa
+    src = inspect.getsource(fa._render_call_briefing_card)
+    assert "Walk through the call" in src, (
+        "Render must include the walkthrough header"
     )
-    assert '"news"' in src, (
-        "Briefing schema must include 'news' key"
-    )
-    assert '"candidates"' in src, (
-        "Briefing schema must still include 'candidates' key (kept per user request)"
-    )
+    for label in ("Opener", "Discovery questions", "Pitch", "Close",
+                  "Talking points"):
+        assert label in src, (
+            f"Render must include the '{label}' section label"
+        )
 
 
 def test_render_call_briefing_card_shows_company_and_refresh():

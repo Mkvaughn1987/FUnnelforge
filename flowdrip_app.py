@@ -10599,10 +10599,78 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
                 ui.label("✨ Generating in the background — auto-updates in ~15-30s.").style(
                     f"font-size:12px;color:{C['muted']};")
             return
-        # Cached briefing — render open jobs, news, candidates.
+        # Cached briefing — render the full conversation prep:
+        # 1) Walkthrough (opener / discovery / pitch / close)
+        # 2) Talking points
+        # 3) Open jobs at this company
+        # 4) Recent news
+        # 5) Candidates sent over
         open_jobs = briefing.get("open_jobs") or []
         news = briefing.get("news") or []
         cands = briefing.get("candidates") or []
+        tps = briefing.get("talking_points") or []
+        flow = briefing.get("conversation_flow") or {}
+
+        # ── Conversation walkthrough ──
+        if isinstance(flow, dict) and any([
+            flow.get("opener"), flow.get("discovery"),
+            flow.get("pitch"), flow.get("close"),
+        ]):
+            ui.label("Walk through the call").style(
+                f"font-size:11px;font-weight:700;color:{C['text_l']};"
+                f"margin-bottom:6px;")
+            with ui.element("div").style(
+                    f"display:flex;flex-direction:column;gap:8px;"
+                    f"margin-bottom:12px;padding:10px 12px;"
+                    f"background:{C['call_col']}10;border-left:3px solid {C['call_col']};"
+                    f"border-radius:4px;"):
+                _opener = (flow.get("opener") or "").strip()
+                if _opener:
+                    ui.label("Opener").style(
+                        f"font-size:10px;font-weight:700;color:{C['call_col']};"
+                        f"text-transform:uppercase;letter-spacing:.06em;")
+                    ui.label(_opener).style(
+                        f"font-size:12px;color:{C['text_l']};line-height:1.5;")
+                _disc = flow.get("discovery") or []
+                if _disc:
+                    ui.label("Discovery questions").style(
+                        f"font-size:10px;font-weight:700;color:{C['call_col']};"
+                        f"text-transform:uppercase;letter-spacing:.06em;"
+                        f"margin-top:4px;")
+                    with ui.element("ul").style(
+                            f"margin:0;padding-left:18px;color:{C['text_l']};"
+                            f"font-size:12px;line-height:1.5;"):
+                        for q in _disc:
+                            with ui.element("li"):
+                                ui.label(str(q))
+                _pitch = (flow.get("pitch") or "").strip()
+                if _pitch:
+                    ui.label("Pitch").style(
+                        f"font-size:10px;font-weight:700;color:{C['call_col']};"
+                        f"text-transform:uppercase;letter-spacing:.06em;"
+                        f"margin-top:4px;")
+                    ui.label(_pitch).style(
+                        f"font-size:12px;color:{C['text_l']};line-height:1.5;")
+                _close = (flow.get("close") or "").strip()
+                if _close:
+                    ui.label("Close").style(
+                        f"font-size:10px;font-weight:700;color:{C['call_col']};"
+                        f"text-transform:uppercase;letter-spacing:.06em;"
+                        f"margin-top:4px;")
+                    ui.label(_close).style(
+                        f"font-size:12px;color:{C['text_l']};line-height:1.5;")
+
+        # ── Talking points ──
+        if tps:
+            ui.label("Talking points").style(
+                f"font-size:11px;font-weight:700;color:{C['text_l']};"
+                f"margin-bottom:4px;")
+            with ui.element("ul").style(
+                    f"margin:0 0 10px 0;padding-left:20px;color:{C['text_l']};"
+                    f"font-size:12px;line-height:1.5;"):
+                for tp in tps:
+                    with ui.element("li"):
+                        ui.label(str(tp))
 
         # ── Open jobs ──
         if open_jobs:
@@ -36711,30 +36779,48 @@ def _first_contact_company(camp: dict) -> str:
     return ""
 
 
+_CALL_BRIEFING_SCHEMA_VERSION = 2
+
+
 def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False) -> dict | None:
     """AI-generate a cold call briefing for the campaign's first contact's
-    company. Uses web search to surface real open jobs and recent news.
+    company. Uses web search to surface real open jobs and recent news,
+    plus an AI-generated call walkthrough (opener -> discovery -> pitch
+    -> close), talking points, and candidate spotlights extracted from
+    the email body.
 
     Returns a dict like:
         {
+            "_schema_version": 2,
             "company_name": "Brannan Companies",
             "open_jobs": [{"title": "...", "location": "...", "url": "..."}, ...],
             "news": [{"headline": "...", "date": "...", "url": "..."}, ...],
             "candidates": [{"label": "...", "highlight": "..."}, ...],
+            "talking_points": ["...", "...", "..."],
+            "conversation_flow": {
+                "opener": "...",
+                "discovery": ["...", "...", "..."],
+                "pitch": "...",
+                "close": "...",
+            },
         }
     or None on failure / missing API key.
 
     Cached on `camp["call_briefing"]` and persisted via save_campaign().
     Pass force_refresh=True to bypass cache (used by the Refresh button
-    in the UI). Safe to call from a background thread.
+    in the UI). Old-schema cached briefings are auto-invalidated by
+    checking _schema_version. Safe to call from a background thread.
     """
     # Cached? (unless force_refresh)
     if not force_refresh:
         cached = camp.get("call_briefing")
-        # New schema (open_jobs OR news OR candidates)
-        if isinstance(cached, dict) and (
-            cached.get("open_jobs") or cached.get("news") or cached.get("candidates")
-        ):
+        # Schema check: only return cache if it matches current version.
+        # Old briefings (no _schema_version, or schema_version=1) get
+        # regenerated automatically on first view.
+        if (isinstance(cached, dict)
+                and cached.get("_schema_version") == _CALL_BRIEFING_SCHEMA_VERSION
+                and (cached.get("open_jobs") or cached.get("news") or cached.get("candidates")
+                     or cached.get("talking_points") or cached.get("conversation_flow"))):
             return cached
     if not ANTHROPIC_API_KEY:
         return None
@@ -36834,32 +36920,81 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
         except Exception as e:
             print(f"[CallBriefing] web search failed: {e}", flush=True)
 
-    # ── Step 2: Extract candidate spotlights from the email body ──
+    # ── Step 2: Generate the call walkthrough, talking points, and
+    # extract candidate spotlights. The prompt has access to the web
+    # search results from Step 1 so the script can reference real
+    # open jobs and news items at the company. ──────────────────────
     candidates: list = []
+    talking_points: list = []
+    conversation_flow: dict = {}
+
+    # Render Step 1 results as compact context for Step 2's prompt.
+    if open_jobs:
+        _jobs_ctx = "OPEN JOBS AT THIS COMPANY (from web search):\n" + "\n".join(
+            f"- {j['title']}" + (f" — {j['location']}" if j.get("location") else "")
+            for j in open_jobs
+        )
+    else:
+        _jobs_ctx = "OPEN JOBS AT THIS COMPANY: none surfaced via web search."
+    if news:
+        _news_ctx = "RECENT NEWS ABOUT THIS COMPANY (from web search):\n" + "\n".join(
+            f"- {n['headline']}" + (f" ({n['date']})" if n.get("date") else "")
+            for n in news
+        )
+    else:
+        _news_ctx = "RECENT NEWS ABOUT THIS COMPANY: none surfaced via web search."
+
     extract_prompt = (
-        f"Extract anonymized candidate spotlights from the recruiter's "
-        f"email below. The recruiter mentioned candidates they have "
-        f"'available' or 'in market' for {sector} / {niche} roles in "
-        f"{region}. List the candidates the recruiter actually "
-        f"referenced — do not fabricate.\n\n"
-        f"EMAIL SUBJECT: {sample_subject}\n"
-        f"EMAIL BODY EXCERPT: {sample_body}\n\n"
-        f"Return ONLY valid JSON:\n"
+        f"You are prepping a recruiter for a cold call to {company or 'a prospect company'} "
+        f"in {region}. The recruiter has already sent the email below. Generate a "
+        f"complete call-prep package as JSON.\n\n"
+        f"CAMPAIGN CONTEXT:\n"
+        f"- Sector: {sector}\n"
+        f"- Niche: {niche}\n"
+        f"- Region: {region}\n"
+        f"- Company being called: {company or 'unknown'}\n\n"
+        f"EMAIL ALREADY SENT:\n"
+        f"- Subject: {sample_subject}\n"
+        f"- Body excerpt: {sample_body}\n\n"
+        f"{_jobs_ctx}\n\n"
+        f"{_news_ctx}\n\n"
+        f"Produce JSON with FOUR keys:\n\n"
+        f"1) candidates: 2-4 anonymized candidate spotlights the recruiter "
+        f"can reference. If the email body explicitly mentions candidates, "
+        f"extract those. Otherwise, infer realistic candidates that match "
+        f"the {sector}/{niche} pitch. Each candidate has 'label' "
+        f"(role + years + 1 cred) and 'highlight' (1 short sentence). "
+        f"Use {region} comp ranges. NEVER use real names.\n\n"
+        f"2) talking_points: 3-5 short, punchy bullets the recruiter can "
+        f"weave into the call. Each is one sentence. Tie at least one "
+        f"to the open jobs / news above when present.\n\n"
+        f"3) conversation_flow: a structured walkthrough of the call:\n"
+        f"   - opener: 1-2 sentences. Reference the email already sent.\n"
+        f"     Acknowledge their time. Sound human, not scripted.\n"
+        f"   - discovery: 2-4 open-ended questions to learn their hiring "
+        f"     pain. Tie at least one to the open jobs above if any.\n"
+        f"   - pitch: 1-2 sentences. The value prop tied to the candidates "
+        f"     and what the recruiter has placed at peer companies.\n"
+        f"   - close: 1 sentence. Soft ask for a 15-min follow-up call or "
+        f"     a candidate intro this week.\n\n"
+        f"Return ONLY valid JSON in this exact shape:\n"
         f'{{\n'
         f'  "candidates": [\n'
-        f'    {{"label": "Sr. PM, 12 yrs healthcare construction", '
-        f'"highlight": "Just wrapped a $30M hospital expansion in Denver."}}\n'
-        f'  ]\n'
-        f'}}\n\n'
-        f"Each candidate has 'label' (role + years + 1 cred) and "
-        f"'highlight' (1 short sentence). Use {region} comp ranges if "
-        f"mentioned. NEVER use real names. If the email doesn't reference "
-        f"specific candidates, return an empty list."
+        f'    {{"label": "Sr. PM, 12 yrs healthcare construction", "highlight": "..."}}\n'
+        f'  ],\n'
+        f'  "talking_points": ["...", "...", "..."],\n'
+        f'  "conversation_flow": {{\n'
+        f'    "opener": "...",\n'
+        f'    "discovery": ["...", "...", "..."],\n'
+        f'    "pitch": "...",\n'
+        f'    "close": "..."\n'
+        f'  }}\n'
+        f'}}\n'
     )
     try:
         ex_msg = _claude_create_with_retry(client,
             model="claude-haiku-4-5-20251001",
-            max_tokens=800,
+            max_tokens=2000,
             messages=[{"role": "user", "content": extract_prompt}])
         ex_text = "".join(b.text for b in ex_msg.content if hasattr(b, "text"))
         ex_clean = ex_text.replace("```json", "").replace("```", "").strip()
@@ -36876,17 +37011,35 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
                 hi = str(c.get("highlight", "")).strip()
                 if lbl and hi:
                     candidates.append({"label": lbl, "highlight": hi})
+            talking_points = [
+                str(t).strip() for t in (ex_result.get("talking_points") or [])
+                if str(t).strip()
+            ]
+            cf = ex_result.get("conversation_flow") or {}
+            if isinstance(cf, dict):
+                conversation_flow = {
+                    "opener": str(cf.get("opener", "")).strip(),
+                    "discovery": [
+                        str(q).strip() for q in (cf.get("discovery") or [])
+                        if str(q).strip()
+                    ],
+                    "pitch": str(cf.get("pitch", "")).strip(),
+                    "close": str(cf.get("close", "")).strip(),
+                }
     except Exception as e:
-        print(f"[CallBriefing] candidate extraction failed: {e}", flush=True)
+        print(f"[CallBriefing] step-2 generation failed: {e}", flush=True)
 
-    if not open_jobs and not news and not candidates:
+    if not (open_jobs or news or candidates or talking_points or conversation_flow):
         return None
 
     briefing = {
+        "_schema_version": _CALL_BRIEFING_SCHEMA_VERSION,
         "company_name": company,
         "open_jobs": open_jobs,
         "news": news,
         "candidates": candidates,
+        "talking_points": talking_points,
+        "conversation_flow": conversation_flow,
     }
     camp["call_briefing"] = briefing
     try:
