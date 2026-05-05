@@ -10475,6 +10475,10 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
         _user = getattr(s, "_user_email", "") or ""
 
         def _bg():
+            # Acquire one of the global AI gen slots before doing any
+            # heavy work. Blocks here if 2 other generations are already
+            # running. Released in the finally block below.
+            _AI_GEN_SEMAPHORE.acquire()
             try:
                 if _user:
                     try:
@@ -10486,6 +10490,10 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
             except Exception as ex:
                 print(f"[CallBriefingPanel] bg gen error: {ex}", flush=True)
             finally:
+                try:
+                    _AI_GEN_SEMAPHORE.release()
+                except Exception:
+                    pass
                 try:
                     inflight.discard(camp_name)
                 except Exception:
@@ -10527,6 +10535,9 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
         _user_local = getattr(s, "_user_email", "") or ""
 
         def _bg_refresh():
+            # Same throttle as the auto-gen path so manual Refresh
+            # clicks across multiple campaigns can't pile up either.
+            _AI_GEN_SEMAPHORE.acquire()
             try:
                 if _user_local:
                     try:
@@ -10538,6 +10549,10 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
             except Exception as ex:
                 print(f"[CallBriefingPanel] refresh bg gen error: {ex}", flush=True)
             finally:
+                try:
+                    _AI_GEN_SEMAPHORE.release()
+                except Exception:
+                    pass
                 try:
                     inflight.discard(_name)
                 except Exception:
@@ -10785,6 +10800,8 @@ def _render_li_message_card(camp: dict, s: AppState, rf):
         _user = getattr(s, "_user_email", "") or ""
 
         def _bg():
+            # Same global AI gen throttle as the call briefing thread.
+            _AI_GEN_SEMAPHORE.acquire()
             try:
                 if _user:
                     try:
@@ -10796,6 +10813,10 @@ def _render_li_message_card(camp: dict, s: AppState, rf):
             except Exception as ex:
                 print(f"[LiMessagePanel] bg gen error: {ex}", flush=True)
             finally:
+                try:
+                    _AI_GEN_SEMAPHORE.release()
+                except Exception:
+                    pass
                 try:
                     inflight.discard(camp_name)
                 except Exception:
@@ -36822,6 +36843,18 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
     subject = _title_case_subject(
         result.get("subject", "") or f"{nl_name}  -  {month_year}")
     return (subject, body_html)
+
+
+# ── Concurrency cap on Today-page AI generations ──────────────────────
+# Each call briefing spawns 2 Claude calls (web search + walkthrough).
+# When a user lands on /today with many campaigns, all bg threads kick
+# off simultaneously, holding HTTP connections + response buffers in
+# memory. On the 1GB droplet this can saturate memory and stall the
+# NiceGUI WebSocket event loop ("Reconnecting to DripDrop…" overlay).
+# Cap simultaneous AI work to 2 — campaigns waiting for a slot just
+# show the spinner longer; their bg threads block on .acquire() until
+# a slot frees. Shared between the call briefing + LI message threads.
+_AI_GEN_SEMAPHORE = threading.Semaphore(2)
 
 
 def _first_contact_company(camp: dict) -> str:
