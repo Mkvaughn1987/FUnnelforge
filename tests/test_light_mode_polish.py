@@ -46,3 +46,22 @@ def test_border_token_bumped_for_visibility():
     assert fa.C_LIGHT["border"] == "#C8D0DA", (
         f"Expected C_LIGHT['border'] == '#C8D0DA', got {fa.C_LIGHT['border']!r}"
     )
+
+
+def test_card_elevation_rule_present_in_light_mode():
+    """Light mode adds a subtle drop-shadow + visible border to .fd-card
+    and .fd-bub. Dark mode is untouched. The rule must scope to
+    [data-theme='light'] and target both card class names."""
+    import flowdrip_app as fa
+    src = inspect.getsource(fa.inject_styles)
+    assert ":root[data-theme=\"light\"] .fd-card" in src, (
+        "inject_styles must include a .fd-card rule scoped to "
+        ":root[data-theme=\"light\"]"
+    )
+    assert ":root[data-theme=\"light\"] .fd-bub" in src, (
+        "inject_styles must include a .fd-bub rule scoped to "
+        ":root[data-theme=\"light\"]"
+    )
+    assert "box-shadow" in src, (
+        "Card elevation rule must use box-shadow"
+    )

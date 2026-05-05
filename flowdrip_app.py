@@ -7850,6 +7850,17 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
 :root[data-theme="light"] .q-dialog__backdrop{{
   background:rgba(30,43,94,0.42) !important;
 }}
+/* ── Card elevation in light mode ──
+   Adds a subtle drop shadow + sharper border to .fd-card / .fd-bub
+   in light theme only. Dark mode keeps its existing border-only
+   treatment which already works on the dark navy background. */
+:root[data-theme="light"] .fd-card,
+:root[data-theme="light"] .fd-bub{{
+  box-shadow:0 1px 2px rgba(15,23,42,.04),0 1px 3px rgba(15,23,42,.06);
+}}
+:root[data-theme="light"] .fd-card:hover{{
+  box-shadow:0 2px 4px rgba(15,23,42,.06),0 4px 8px rgba(15,23,42,.08);
+}}
 /* Auth form inputs  -  ensure proper left padding on the native input */
 .fd-auth-form .q-field__native,
 .fd-auth-form .q-field__input{{padding-left:14px !important;padding-right:14px !important}}
