@@ -2309,8 +2309,8 @@ C_DARK = dict(
 )
 C_LIGHT = dict(
     bg="#F5F7FA", surface="#FFFFFF", card="#FFFFFF", card_h="#F0F2F5",
-    border="#D8DEE6", teal="#0FB8B5", teal_dim="#E0F9F8",
-    muted="#6B7B8D", text="#2D3748", text_l="#1E2B5E",
+    border="#C8D0DA", teal="#0FB8B5", teal_dim="#E0F9F8",
+    muted="#4A5868", text="#2D3748", text_l="#1E2B5E",
     warn="#D97706", danger="#DC2626", good="#059669",
     indigo="#6366F1", indigo_dim="#EEF0FF",
     email_col="#3EBFD9", call="#0FB8B5", li="#6366F1",
