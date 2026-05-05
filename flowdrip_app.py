@@ -6406,6 +6406,15 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
     except Exception:
         pass
 
+    # ── Newsletter campaigns: skip inlining body in queue items ──
+    # Newsletter HTML is identical for every recipient (no per-contact
+    # placeholders) and is ~380 KB per issue. Inlining it for every
+    # contact bloats scheduled_queue.json by hundreds of MB and pushes
+    # the server into swap on every render. For newsletters we leave
+    # body="" in queue items; _server_send_one looks up the body from
+    # the campaign step at send time via _resolve_body_from_campaign.
+    _is_newsletter = bool(camp.get("market_analysis"))
+
     # Build queue items for email steps
     queue_items = []
     cumulative_delay = 0
@@ -6518,6 +6527,13 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
             else:
                 full_body = body
 
+            # Newsletter body is identical per recipient — defer the body
+            # to send time via _resolve_body_from_campaign. Saves ~380 KB
+            # per queue entry × thousands of entries = ~400 MB on disk
+            # and ~1 GB in memory once parsed.
+            _queue_body = "" if _is_newsletter else full_body
+            _queue_is_html = True if _is_newsletter else is_html
+
             queue_items.append(dict(
                 id=f"{camp_name}::{email_addr}::{step.get('touch_number', step_idx + 1)}",
                 campaign=camp_name,
@@ -6527,8 +6543,8 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
                 contact_name=f"{first} {last}".strip(),
                 contact_company=company,
                 subject=subj,
-                body=full_body,
-                is_html=is_html,
+                body=_queue_body,
+                is_html=_queue_is_html,
                 # Jitter: spread sends across a 90-minute window from the base
                 # time so ISPs don't see 50 identical-timestamp sends. Each
                 # contact gets a deterministic offset (hash-based) so re-queuing
@@ -43537,17 +43553,66 @@ _SERVER_SEND_INTERVAL = 60  # seconds between scheduler ticks
 _SERVER_INTER_EMAIL_PAUSE = 2  # seconds between individual emails
 
 
-def _server_send_one(item: dict, config_path: Path) -> tuple:
+def _resolve_body_from_campaign(item: dict, user_dir: Path) -> str:
+    """Lazy lookup of the rendered email body from the campaign file.
+    Used when queue items are written without an inlined body — currently
+    for newsletter campaigns, where every recipient gets the same auto-
+    generated issue HTML and inlining 380 KB per recipient was bloating
+    scheduled_queue.json by hundreds of MB.
+
+    Returns the step's `body` field, or empty string if the campaign
+    file or step can't be found. Newsletter bodies have no per-contact
+    placeholders, so no substitution is needed here.
+    """
+    camp_name = item.get("campaign", "") or ""
+    step_idx = item.get("_step_idx")
+    if not camp_name or step_idx is None:
+        return ""
+    # Campaign file path mirrors save_campaign's slug logic.
+    safe_name = re.sub(r'[^\w]+', '_', camp_name).strip('_') or "campaign"
+    camp_path = user_dir / "Campaigns" / f"{safe_name}.json"
+    if not camp_path.exists():
+        return ""
+    try:
+        camp = json.loads(camp_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    steps = camp.get("emails", []) or []
+    try:
+        step = steps[int(step_idx)]
+    except Exception:
+        return ""
+    return (step.get("body") or "").strip()
+
+
+def _server_send_one(item: dict, config_path: Path, user_dir: Path = None) -> tuple:
     """Send one queued email using the user's connected OAuth provider.
-    Tries Microsoft Graph first, then Gmail. Returns (success, error)."""
+    Tries Microsoft Graph first, then Gmail. Returns (success, error).
+
+    If the queue item has an empty body (newsletter campaigns now write
+    items without inlining the body — see _resolve_body_from_campaign),
+    the body is looked up from the campaign file at send time. Saves
+    hundreds of MB on the queue file.
+    """
     to = item.get("to", "")
     subject = item.get("subject", "")
-    body = item.get("body", "")
+    body = item.get("body", "") or ""
     is_html = item.get("is_html", False)
     attachments = item.get("attachments") or []
 
+    # Lazy body lookup for newsletter (and any other) entries that were
+    # queued without an inlined body. Falls back to empty string on lookup
+    # failure → the empty-body guard below will refuse to send.
+    if not body.strip() and user_dir is not None:
+        body = _resolve_body_from_campaign(item, user_dir)
+        # Newsletter HTML is pre-rendered; if we just loaded it, mark as html.
+        if body and not is_html:
+            is_html = True
+
     if not to or not subject:
         return False, "Missing recipient or subject"
+    if not body.strip():
+        return False, "Missing email body (campaign step body unavailable)"
 
     # Ensure body is HTML
     if not is_html:
@@ -43711,7 +43776,7 @@ def _server_scheduler_tick():
         # Send each due item
         changed = False
         for item in due:
-            ok, err = _server_send_one(item, config_path)
+            ok, err = _server_send_one(item, config_path, user_dir=user_dir)
             if ok:
                 item["status"] = "sent"
                 item["sent_at"] = datetime.now().isoformat()
