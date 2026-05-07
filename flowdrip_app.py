@@ -36150,8 +36150,9 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
           <![endif]-->
           <!--[if !mso]><!-- -->
           <a href="{cta_url}" style="display:inline-block;padding:18px 48px;
+             background-color:{nc["primary"]};
              background:linear-gradient(135deg,{nc["primary"]} 0%,#1E4E8C 100%);
-             color:{nc["white"]};font-size:18px;font-weight:400;
+             color:{nc["white"]} !important;font-size:18px;font-weight:400;
              text-decoration:none;border-radius:999px;
              font-family:{_DISPLAY_FONT};letter-spacing:0.4px;
              box-shadow:0 8px 24px rgba(43,108,176,0.38),0 2px 6px rgba(18,35,58,0.10);
@@ -36669,7 +36670,19 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
     sector = camp.get("market_sector", "") or ""
     niche = camp.get("market_niche", "") or ""
     region = camp.get("market_region", "") or ""
-    nl_name = camp.get("newsletter_name", "") or (sector.title() + " Report" if sector else "Newsletter")
+    # Newsletter name fallback chain — newsletter_name first, then a
+    # sector-derived title, then the campaign's own name (always present),
+    # then a last-resort literal. Without the campaign-name step, older
+    # newsletter campaigns that predate the newsletter_name field rendered
+    # a giant generic "Newsletter" header in customer inboxes
+    # (Denver Water/Wastewater issue, 2026-05-04).
+    nl_name = (camp.get("newsletter_name") or "").strip()
+    if not nl_name and sector:
+        nl_name = sector.title() + " Report"
+    if not nl_name:
+        nl_name = (camp.get("name") or "").strip()
+    if not nl_name:
+        nl_name = "Newsletter"
 
     # Resolve user context from the campaign owner so config/signature are right
     _owner = camp.get("_owner_email") or _email_from_user_path(camp.get("_path", ""))
