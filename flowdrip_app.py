@@ -325,6 +325,44 @@ def _serve_city_image(slug: str, variant: str):
     )
 
 
+# Newsletter email image cache. We used to inline every image as base64
+# directly in the email body — emails routinely hit 350+ KB and Gmail
+# would clip / mangle them. Now in server mode we write the bytes once
+# to disk and reference an https URL in the email; emails drop to
+# ~30 KB and render cleanly across Gmail / Outlook / Apple Mail.
+@app.get("/email_img/{subdir}/{filename}")
+def _serve_email_img(subdir: str, filename: str):
+    """Serve a cached newsletter image. Path traversal is rejected and
+    only known subdirs are allowed. Long cache header (1 week) since
+    filenames are content-addressed (sha1 of bytes) — same image always
+    has the same URL, safe to cache forever."""
+    for component in (subdir, filename):
+        if not component or "/" in component or "\\" in component or ".." in component:
+            return Response(status_code=404)
+    # Allowlist of subdirs we ever write into. Keeps random URLs from
+    # being routable into other server data.
+    if subdir not in ("cat", "hero", "avatar", "activity", "corner",
+                      "logo", "flag"):
+        return Response(status_code=404)
+    target = _BASE_DATA_DIR / "email_imgs" / subdir / filename
+    if not target.is_file():
+        return Response(status_code=404)
+    name_lower = filename.lower()
+    if name_lower.endswith((".jpg", ".jpeg")):
+        media = "image/jpeg"
+    elif name_lower.endswith(".png"):
+        media = "image/png"
+    elif name_lower.endswith(".gif"):
+        media = "image/gif"
+    else:
+        media = "application/octet-stream"
+    return FileResponse(
+        str(target),
+        media_type=media,
+        headers={"Cache-Control": "public, max-age=604800, immutable"},
+    )
+
+
 # Static asset route  -  strict allowlist of files in the project root that
 # may be served. Replaces the old `add_static_files('/static', _APP_DIR)`
 # which exposed the entire source tree (including flowdrip_app.py) to the
@@ -34817,6 +34855,56 @@ def _validate_around_town_links(blurbs: list) -> list:
     return cleaned
 
 
+def _email_img_src(b64_data: str, subdir: str, mime: str = "image/jpeg") -> str:
+    """Convert base64 image bytes into the right <img src='...'> value
+    for newsletter emails.
+
+    In SERVER mode: writes the bytes once to /opt/dripdrop/data/email_imgs/
+    {subdir}/{sha1_of_bytes}.jpg and returns an absolute https URL pointing
+    to dripdripdrop.ai. The hash is content-addressed so identical images
+    share a single file (cache hit) and the URL is stable across renders.
+    Resulting emails drop from ~350 KB to ~30 KB and stop getting clipped
+    by Gmail.
+
+    In DESKTOP mode: returns a data:image/...;base64,... URL inlined into
+    the email (no public web server to host from).
+
+    Returns "" if b64_data is empty or decoding fails.
+    """
+    if not b64_data:
+        return ""
+    if not _SERVER_MODE:
+        return f"data:{mime};base64,{b64_data}"
+    # Server mode: cache to disk + return URL.
+    try:
+        import base64 as _b64m
+        import hashlib as _hashlib
+        raw = _b64m.b64decode(b64_data, validate=False)
+    except Exception:
+        # Fall back to inline if the bytes are unreadable.
+        return f"data:{mime};base64,{b64_data}"
+    if mime == "image/png":
+        ext = "png"
+    elif mime == "image/gif":
+        ext = "gif"
+    else:
+        ext = "jpg"
+    digest = _hashlib.sha1(raw).hexdigest()[:24]
+    fname = f"{digest}.{ext}"
+    cache_dir = _BASE_DATA_DIR / "email_imgs" / subdir
+    try:
+        cache_dir.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        return f"data:{mime};base64,{b64_data}"
+    cache_path = cache_dir / fname
+    if not cache_path.is_file():
+        try:
+            cache_path.write_bytes(raw)
+        except Exception:
+            return f"data:{mime};base64,{b64_data}"
+    return f"https://dripdripdrop.ai/email_img/{subdir}/{fname}"
+
+
 def _render_newsletter_html(data: dict, show: dict = None) -> str:
     """Render a complete HTML email newsletter from structured data."""
     if show is None:
@@ -35480,14 +35568,15 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             f'text-decoration:underline;">Unsplash</a>'
             f'</td></tr>'
         )
+    _hero_city_src = _email_img_src(_hero_city_b64, "hero", mime="image/jpeg")
     _hero_city_html = (
         f'<tr><td style="padding:0;line-height:0;font-size:0;">'
-        f'<img src="data:image/jpeg;base64,{_hero_city_b64}" '
+        f'<img src="{_hero_city_src}" '
         f'width="640" height="180" alt="{_loc_raw or "city"}" '
         f'style="display:block;width:640px;height:180px;'
         f'max-width:100%;border:0;outline:none;">'
         f'</td></tr>' + _attr_html
-    ) if _hero_city_b64 else ""
+    ) if _hero_city_src else ""
 
     def _render_bullets(items, color_dot=None):
         """Render a bullet list using a real '•' glyph so the marker is
@@ -35762,12 +35851,13 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             _variant = _cat_variant_counter.get(_cat, 0)
             _cat_variant_counter[_cat] = _variant + 1
             _thumb_b64 = _category_image_b64(_cat, variant=_variant)
+            _thumb_src = _email_img_src(_thumb_b64, "cat", mime="image/jpeg")
             _thumb_html = ""
-            if _thumb_b64:
+            if _thumb_src:
                 _thumb_html = (
                     f'<td valign="top" width="100" '
                     f'style="width:100px;padding-right:14px;">'
-                    f'<img src="data:image/jpeg;base64,{_thumb_b64}" '
+                    f'<img src="{_thumb_src}" '
                     f'width="100" height="80" alt="{_cat.lower()}" '
                     f'style="display:block;width:100px;height:80px;'
                     f'object-fit:cover;border-radius:8px;border:0;outline:none;">'
@@ -36069,20 +36159,22 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
         _note_body = _newsletter_note()
         _avatar_b64 = _newsletter_avatar_b64()
         _activity_b64 = data.get("_activity_photo_b64", "")
+        _avatar_src = _email_img_src(_avatar_b64, "avatar", mime="image/jpeg")
+        _activity_src = _email_img_src(_activity_b64, "activity", mime="image/jpeg")
 
         _avatar_img = (
-            f'<img src="data:image/jpeg;base64,{_avatar_b64}" '
+            f'<img src="{_avatar_src}" '
             f'width="100" height="100" alt="{_first_name}" '
             f'style="display:inline-block;width:100px;height:100px;'
             f'border-radius:50%;border:3px solid {nc["primary"]};'
             f'outline:none;background:#FFFFFF;margin-bottom:10px;"/>'
-        ) if _avatar_b64 else ""
+        ) if _avatar_src else ""
 
         _activity_img = ""
-        if _activity_b64:
+        if _activity_src:
             _activity_img = (
                 f'<div style="margin-top:12px;">'
-                f'<img src="data:image/jpeg;base64,{_activity_b64}" '
+                f'<img src="{_activity_src}" '
                 f'alt="What I\'ve been up to" '
                 f'style="display:inline-block;width:100%;max-width:480px;height:auto;'
                 f'border-radius:8px;border:1px solid #E0E0E0;"/>'
@@ -36611,6 +36703,9 @@ def _render_corner_inner(data: dict) -> str:
         photo = (data.get("personal_corner_photo_b64") or "").strip()
         if not photo:
             return "&nbsp;"
+        photo_src = _email_img_src(photo, "corner", mime="image/jpeg")
+        if not photo_src:
+            return "&nbsp;"
         caption = (data.get("personal_corner_caption") or "").strip()
         caption_html = (
             f'<div style="{body_style};margin-top:8px;">'
@@ -36618,7 +36713,7 @@ def _render_corner_inner(data: dict) -> str:
         ) if caption else ""
         return (
             f'<div style="{label_style}">📸 OUTSIDE THE OFFICE</div>'
-            f'<img src="data:image/jpeg;base64,{photo}" '
+            f'<img src="{photo_src}" '
             f'alt="" style="display:block;width:100%;max-width:200px;'
             f'height:auto;border-radius:6px;border:1px solid #E0E0E0;"/>'
             f'{caption_html}'
