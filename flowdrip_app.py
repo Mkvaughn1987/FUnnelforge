@@ -32095,6 +32095,16 @@ def _bulk_import_resumes(s: AppState, rf):
         if len(content) > _MAX_RESUME_BYTES:
             ui.notify(f"Skipped {fname} (10 MB max).", type="warning"); return
 
+        # Capture the active user's email INSIDE the async task (where the
+        # ContextVar is set), then re-bind it inside the worker thread.
+        # Python ContextVars don't propagate to threading.Thread workers, so
+        # without this every bulk-imported candidate ended up saved to the
+        # SHARED _BASE_DATA_DIR/candidate_pool.json (a cross-user leak)
+        # instead of the user's own pool. Users then saw empty pools on
+        # page load because the page reads from per-user paths correctly.
+        # Same fix pattern as the newsletter / call-briefing bg threads.
+        _user_email_for_worker = getattr(s, "_user_email", "") or ""
+
         tmp = _safe_attachment_path(
             f"_bulk_import_{fname}", _user_pdf_dir(),
             _ALLOWED_RESUME_EXTS, fallback="resume",
@@ -32105,12 +32115,22 @@ def _bulk_import_resumes(s: AppState, rf):
         _prog["queued"] += 1
         print(f"[BulkImport] queued {fname} (queued={_prog['queued']})", flush=True)
 
-        def _worker(_path=str(tmp), _name=fname):
+        def _worker(_path=str(tmp), _name=fname, _user=_user_email_for_worker):
             # Worker runs in a background thread  -  NO ui.notify / rf() here.
             # NiceGUI can't resolve a UI slot from a thread without a task
             # context, so any ui.* call raises RuntimeError. We just log and
             # track progress; the 'finish' handler does the single rf() at
             # the end so all new candidates appear at once.
+            #
+            # Bind the user we captured in the async task so per-user path
+            # helpers (_user_candidate_pool_path() etc.) resolve to THIS
+            # user's directory instead of falling back to _BASE_DATA_DIR.
+            if _user:
+                try:
+                    _CURRENT_USER_EMAIL.set(_user)
+                    _switch_to_user_paths(_user)
+                except Exception as _ex:
+                    print(f"[BulkImport] user bind failed: {_ex}", flush=True)
             _saved_name = None
             _skipped_reason = ""
             try:
