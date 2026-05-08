@@ -36287,32 +36287,38 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
     _default_cta = f"mailto:{contact_email}" if contact_email else (f"https://{website}" if website else "#")
     cta_url = data.get("cta_url", "") or _default_cta
     if cta_text and _show("show_cta"):
+        # Bulletproof table-based CTA button. Replaces the earlier
+        # dual-branch conditional-comment trick (separate VML rendering
+        # for Outlook + modern <a> link for everyone else) — Gmail
+        # was unreliably hiding the MSO branch and users saw TWO
+        # buttons side-by-side. This single table renders the SAME
+        # in Gmail, Outlook 2016+, Apple Mail, Yahoo. Old Outlook
+        # 2007/2010 won't show the gradient (just solid bgcolor) or
+        # border-radius (square button) — acceptable trade for
+        # eliminating the duplicate-button bug.
         sections_html += f'''
         <tr><td style="padding:14px 40px 40px;text-align:center;background:#FFFFFF;">
-          <!-- VML fallback for Outlook so the pill still looks premium there -->
-          <!--[if mso]>
-          <v:roundrect xmlns:v="urn:schemas-microsoft-com:vml" xmlns:w="urn:schemas-microsoft-com:office:word"
-                       href="{cta_url}" style="height:58px;v-text-anchor:middle;width:300px;" arcsize="100%"
-                       stroke="f" fillcolor="#2B6CB0">
-            <w:anchorlock/>
-            <center style="color:#ffffff;font-family:Georgia,serif;font-size:18px;font-weight:400;letter-spacing:0.4px;">
-              {cta_text} &rarr;
-            </center>
-          </v:roundrect>
-          <![endif]-->
-          <!--[if !mso]><!-- -->
-          <a href="{cta_url}" style="display:inline-block;padding:18px 48px;
-             background-color:{nc["primary"]};
-             background:linear-gradient(135deg,{nc["primary"]} 0%,#1E4E8C 100%);
-             color:{nc["white"]} !important;font-size:18px;font-weight:400;
-             text-decoration:none;border-radius:999px;
-             font-family:{_DISPLAY_FONT};letter-spacing:0.4px;
-             box-shadow:0 8px 24px rgba(43,108,176,0.38),0 2px 6px rgba(18,35,58,0.10);
-             border:1px solid rgba(255,255,255,0.18);">
-            <span style="font-family:{_DISPLAY_FONT};font-style:italic;">{cta_text}</span>
-            <span style="font-family:{_FONT};margin-left:8px;font-weight:500;">&rarr;</span>
-          </a>
-          <!--<![endif]-->
+          <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center"
+                 style="border-collapse:separate;margin:0 auto;">
+            <tr>
+              <td align="center" bgcolor="{nc["primary"]}"
+                  style="border-radius:999px;
+                         background-color:{nc["primary"]};
+                         background:linear-gradient(135deg,{nc["primary"]} 0%,#1E4E8C 100%);
+                         box-shadow:0 8px 24px rgba(43,108,176,0.38),0 2px 6px rgba(18,35,58,0.10);">
+                <a href="{cta_url}" target="_blank"
+                   style="display:inline-block;padding:18px 48px;
+                          color:#FFFFFF;font-size:18px;font-weight:400;
+                          text-decoration:none;border-radius:999px;
+                          font-family:{_DISPLAY_FONT};letter-spacing:0.4px;
+                          mso-padding-alt:0;
+                          border:1px solid rgba(255,255,255,0.18);">
+                  <span style="font-family:{_DISPLAY_FONT};font-style:italic;color:#FFFFFF;">{cta_text}</span>
+                  <span style="font-family:{_FONT};margin-left:8px;font-weight:500;color:#FFFFFF;">&rarr;</span>
+                </a>
+              </td>
+            </tr>
+          </table>
           <div style="font-size:11px;color:{nc["muted"]};margin-top:10px;font-family:{_FONT};letter-spacing:0.4px;">
             Reply to this email or book time with us.
           </div>
