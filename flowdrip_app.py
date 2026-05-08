@@ -5535,6 +5535,32 @@ def _roll_past_send_forward(send_date, hour: int, minute: int, tz_name: str):
                              hour, minute, tzinfo=tz)
         if candidate >= user_now:
             return send_date, None
+        # Send time is in the past for the user's local clock. There are
+        # two cases:
+        #   1. The picked DAY is still today (or earlier today) but the
+        #      time-of-day already passed (e.g. user picks today 9am at
+        #      10am). Don't roll the day — keeping it today preserves the
+        #      user's date choice. Caller will use original send_date and
+        #      the existing jitter offset still produces a future moment
+        #      because send-comparison happens at scheduler tick time.
+        #   2. The picked DAY is itself in the past (e.g. user picked an
+        #      earlier date that's already gone). Roll forward to the next
+        #      business day at the picked time so we don't queue something
+        #      that fires immediately for a date that's already gone.
+        # The trigger for case 2 is: the picked DATE (not time) is
+        # strictly before today in the user's tz.
+        today_in_tz = user_now.date()
+        if send_date >= today_in_tz:
+            # Case 1 — day is today (or future), only the time has
+            # passed. Leave the date alone; the caller's per-contact
+            # jitter (0-90 min) plus the scheduler's "is due now?" check
+            # will correctly fire the email shortly after launch instead
+            # of dropping a whole calendar day.
+            return send_date, (
+                f"send time was past on day {send_date.isoformat()} but "
+                f"day not advanced — preserves user's date pick"
+            )
+        # Case 2 — picked date is itself in the past. Roll forward.
         orig_date = send_date
         bumps = 0
         while candidate < user_now and bumps < 30:
@@ -5543,18 +5569,28 @@ def _roll_past_send_forward(send_date, hour: int, minute: int, tz_name: str):
                                  hour, minute, tzinfo=tz)
             bumps += 1
         return send_date, (
-            f"send time was past — rolled {orig_date.isoformat()} "
+            f"picked date was in the past — rolled {orig_date.isoformat()} "
             f"→ {send_date.isoformat()} ({tz_name})"
         )
     except Exception as ex:
         # Tz-aware guard failed. Naive fallback so we never queue a date
-        # whose time is obviously in the past.
+        # whose time is obviously in the past. Same day-preservation
+        # logic as the tz-aware path above: only roll the day if the
+        # picked DATE is strictly before today.
         try:
             naive_now = datetime.now()
             naive_candidate = datetime(send_date.year, send_date.month, send_date.day,
                                        hour, minute)
             if naive_candidate >= naive_now:
                 return send_date, f"tz error ({ex}); naive check ok, no roll"
+            today_naive = naive_now.date()
+            if send_date >= today_naive:
+                # Picked day is today or future; only time-of-day has
+                # passed. Don't shift the day forward.
+                return send_date, (
+                    f"tz error ({ex}); time past on day {send_date.isoformat()} "
+                    f"but day not advanced — preserves user's date pick"
+                )
             orig_date = send_date
             bumps = 0
             while naive_candidate < naive_now and bumps < 30:
@@ -5563,7 +5599,7 @@ def _roll_past_send_forward(send_date, hour: int, minute: int, tz_name: str):
                                            send_date.day, hour, minute)
                 bumps += 1
             return send_date, (
-                f"tz error ({ex}); naive fallback rolled "
+                f"tz error ({ex}); naive fallback rolled past date "
                 f"{orig_date.isoformat()} → {send_date.isoformat()}"
             )
         except Exception as naive_ex:
