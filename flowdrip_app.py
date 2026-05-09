@@ -19929,13 +19929,6 @@ def _create_newsletter_dialog(s, rf):
             s._nl_first_gen_done = False
             def _gen_first_issue():
                 try:
-                    # Bind this background thread to the requesting user's
-                    # data dir  -  _generate_newsletter_content_for_step
-                    # reads sig/config from _resolve_user_root().
-                    _uemail = getattr(s, '_user_email', '') or ''
-                    if _uemail:
-                        _CURRENT_USER_EMAIL.set(_uemail)
-                        _switch_to_user_paths(_uemail)
                     # Generate every scheduled issue, not just step 0.
                     # The helper is idempotent — already-populated steps
                     # are skipped. Sleeps briefly between each so we don't
@@ -19950,8 +19943,7 @@ def _create_newsletter_dialog(s, rf):
                     except Exception:
                         pass
 
-            import threading as _thr
-            _thr.Thread(target=_gen_first_issue, daemon=True).start()
+            _run_as_user(s._user_email, _gen_first_issue, name="newsletter_first_issue_worker")
 
             ui.notify(
                 f"Created '{nl_name}' — generating now…",
@@ -25272,11 +25264,6 @@ def _render_pdf_editor_body(s, rf, pdf_filename: str, step_idx: int,
                 rf()
                 def _run():
                     try:
-                        try:
-                            if getattr(s, "_user_email", ""):
-                                _CURRENT_USER_EMAIL.set(s._user_email)
-                        except Exception:
-                            pass
                         ok = _rebuild_pdf_from_sidecar_data(fname, s._pdf_editor_data[k])
                         if ok:
                             ui.notify("✓ PDF saved & re-rendered.", type="positive")
@@ -25291,7 +25278,7 @@ def _render_pdf_editor_body(s, rf, pdf_filename: str, step_idx: int,
                     finally:
                         s._pdf_editor_busy.discard(k)
                         rf()
-                threading.Thread(target=_run, daemon=True).start()
+                _run_as_user(getattr(s, "_user_email", "") or "", _run, name="pdf_editor_save_worker")
             with ui.element("button").classes("fd-pb").style(
                     f"padding:8px 20px;font-size:12px;"
                     + ("opacity:0.6;pointer-events:none;" if _busy else "")
