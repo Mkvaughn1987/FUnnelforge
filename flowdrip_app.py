@@ -5408,7 +5408,16 @@ class CandidatePoolScanner:
             time.sleep(self.SCAN_INTERVAL)
 
     def _check_and_scan(self):
-        """Check if any candidates need a fresh search, and run if so."""
+        """Check if any candidates need a fresh search, and run if so.
+
+        Server mode: this scanner is a desktop-era pattern (single-user
+        daily refresh) and has no defined per-user iteration in server
+        mode. Disable rather than silently leak per-user writes to the
+        shared base data dir. A future Phase 3 task can rebuild it as
+        a user-iterating scheduler if needed.
+        """
+        if _SERVER_MODE:
+            return
         if not ANTHROPIC_API_KEY:
             return
         pool = load_candidate_pool()
