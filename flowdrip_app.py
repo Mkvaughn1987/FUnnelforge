@@ -861,6 +861,87 @@ USERS_DB_PATH       = USER_DIR / "users.json"
 # ── Per-user data isolation (server mode) ─────────────────────────────────
 _BASE_DATA_DIR = _user_data_dir()  # shared root  -  users.json lives here
 
+# ── Exception logging to a rotating file ─────────────────────────────────
+# Setup writes uncaught exceptions (main thread + worker threads) to a
+# daily-rotating file at _BASE_DATA_DIR/logs/errors.log so production
+# bug reports include tracebacks without requiring SSH into the server.
+# Best-effort: if setup fails (permissions, disk full), the app still
+# starts and exceptions still go to stdout via the existing prints.
+import logging.handlers as _logging_handlers
+import traceback as _traceback
+
+_LOG_DIR = _BASE_DATA_DIR / "logs"
+_err_log = _logging.getLogger("dripdrop.errors")
+_err_log.setLevel(_logging.ERROR)
+_err_log.propagate = False  # don't double-log to stdout/journal
+
+try:
+    _LOG_DIR.mkdir(parents=True, exist_ok=True)
+    _err_log_handler = _logging_handlers.TimedRotatingFileHandler(
+        str(_LOG_DIR / "errors.log"),
+        when="midnight", backupCount=14, encoding="utf-8",
+    )
+    _err_log_handler.setFormatter(_logging.Formatter(
+        "%(asctime)s | %(message)s"
+    ))
+    _err_log.addHandler(_err_log_handler)
+except Exception as _ex:
+    # Logging setup is best-effort; never block app startup on it.
+    print(f"[errors.log] setup failed: {_ex}", flush=True)
+
+
+def _log_exception(exc, context: str = ""):
+    """Write a single exception entry to errors.log. Includes the
+    bound user (if any), a context string identifying the callsite,
+    and the formatted traceback."""
+    user = ""
+    try:
+        user = _CURRENT_USER_EMAIL.get() or ""
+    except Exception:
+        pass
+    try:
+        tb = "".join(_traceback.format_exception(
+            type(exc), exc, exc.__traceback__,
+        ))
+    except Exception:
+        tb = repr(exc)
+    try:
+        _err_log.error("user=%s context=%s\n%s", user, context, tb)
+    except Exception as _ex:
+        print(f"[errors.log] write failed: {_ex}", flush=True)
+
+
+def _install_excepthooks():
+    """Wire sys.excepthook (main thread) and threading.excepthook
+    (worker threads) so uncaught exceptions land in errors.log."""
+    _prev_sys = sys.excepthook
+    def _sys_hook(exc_type, exc, tb):
+        try:
+            _log_exception(exc, context="sys.excepthook")
+        except Exception:
+            pass
+        try:
+            _prev_sys(exc_type, exc, tb)
+        except Exception:
+            pass
+    sys.excepthook = _sys_hook
+
+    _prev_thr = threading.excepthook
+    def _thr_hook(args):
+        try:
+            tname = getattr(args.thread, "name", "?")
+            _log_exception(args.exc_value, context=f"threading.excepthook thread={tname}")
+        except Exception:
+            pass
+        try:
+            _prev_thr(args)
+        except Exception:
+            pass
+    threading.excepthook = _thr_hook
+
+
+_install_excepthooks()
+
 # CRITICAL: per-request user context. NiceGUI runs on a single-threaded
 # asyncio event loop where multiple users' async handlers interleave on
 # every `await`. If we stored the current user in a module global,
