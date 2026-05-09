@@ -8,7 +8,6 @@ silently lands in _BASE_DATA_DIR/<file>.json (a shared cross-user
 file) instead of the per-user dir.
 """
 import threading
-import time
 
 
 def test_helper_exists_and_returns_thread():
@@ -85,3 +84,26 @@ def test_thread_name_defaults_to_target_name():
     th = fa._run_as_user("c@example.com", _bulk_import_worker)
     th.join(timeout=2.0)
     assert seen["name"] == "_bulk_import_worker"
+
+
+def test_exception_in_target_propagates_to_excepthook():
+    """If target() raises, the wrapper must NOT swallow the exception —
+    it must bubble to threading.excepthook so errors.log records the
+    crash. The spec lists this as one of the four named test behaviors;
+    it's the regression guard against someone wrapping target() in a
+    bare except: while trying to 'harden' the wrapper."""
+    import flowdrip_app as fa
+    captured = {"args": None}
+    prev = threading.excepthook
+    threading.excepthook = lambda args: captured.__setitem__("args", args)
+    try:
+        def _boom():
+            raise ValueError("sentinel")
+        th = fa._run_as_user("x@example.com", _boom, name="boom_thread")
+        th.join(timeout=2.0)
+    finally:
+        threading.excepthook = prev
+    assert captured["args"] is not None, "threading.excepthook must fire"
+    assert isinstance(captured["args"].exc_value, ValueError)
+    assert str(captured["args"].exc_value) == "sentinel"
+    assert captured["args"].thread.name == "boom_thread"

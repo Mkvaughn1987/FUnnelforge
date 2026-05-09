@@ -35,7 +35,7 @@
 
 **Files:**
 - Create: `tests/test_run_as_user_helper.py`
-- Modify: `flowdrip_app.py` (insert after `_switch_to_user_paths` definition, around L1750+)
+- Modify: `flowdrip_app.py` (insert after `_switch_to_user_paths` definition; landed at L1728)
 
 - [ ] **Step 1: Locate where the helper goes**
 
