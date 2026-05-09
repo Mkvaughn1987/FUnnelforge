@@ -2153,8 +2153,16 @@ def _find_community_dir() -> Path:
 
 COMMUNITY_DIR = _find_community_dir()
 
-for _d in [_user_campaigns_dir(), _user_contacts_dir(), _user_pdf_dir()]:
-    _d.mkdir(parents=True, exist_ok=True)
+# Desktop mode: pre-create the per-user data dirs at module init so the
+# rest of the app can assume they exist. In server mode, no user is bound
+# at module init, so these helpers fall through LEAK_GUARD to the SHARED
+# base dir — pre-creating those would seed cross-user dirs we don't want.
+# Per-user dirs in server mode get created lazily inside actual write
+# paths (e.g. `_user_pdf_dir().mkdir(parents=True, exist_ok=True)` in
+# the PDF generation worker). Safe to skip here.
+if not _SERVER_MODE:
+    for _d in [_user_campaigns_dir(), _user_contacts_dir(), _user_pdf_dir()]:
+        _d.mkdir(parents=True, exist_ok=True)
 
 def _publish_pdf(src_path):
     """Previously copied generated PDFs to a shared, publicly served static
