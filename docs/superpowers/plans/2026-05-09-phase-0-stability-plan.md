@@ -25,39 +25,9 @@
 
 ---
 
-## Task 1: Add `threading` to top-level imports
+## Task 1: ~~Add `threading` to top-level imports~~ — NO-OP
 
-**Why:** `_run_as_user` lives near L880 alongside other path helpers. `threading` is currently imported inline inside ~50 functions. The helper needs module-level visibility.
-
-**Files:**
-- Modify: `flowdrip_app.py` (top-of-file imports, near L1-50)
-
-- [ ] **Step 1: Locate the existing import block**
-
-Run: `head -40 flowdrip_app.py | grep -n '^import\|^from'`
-
-Expected: Lists imports including `import sys` at L6, `import logging as _logging` at L30. No `import threading` present.
-
-- [ ] **Step 2: Add `import threading` to the top-level imports**
-
-Find the block near L6 with `import sys`. Add immediately after it:
-
-```python
-import threading
-```
-
-- [ ] **Step 3: Verify the file still parses**
-
-Run: `python -c "import ast; ast.parse(open('flowdrip_app.py', encoding='utf-8').read())"`
-
-Expected: Exit 0, no output.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add flowdrip_app.py
-git commit -m "chore(imports): add top-level threading import for _run_as_user helper"
-```
+**Status:** Skipped. Verification on 2026-05-09 found `threading` is already imported at `flowdrip_app.py:12` as part of the comma-separated import line (`import asyncio, copy, csv, json, os, re, threading, time, uuid`). The earlier audit's `^import threading` grep missed comma-imported modules. No action required; `_run_as_user` can reference `threading.Thread` and `threading.excepthook` directly.
 
 ---
 
