@@ -33348,7 +33348,7 @@ def p_candidate_finder(s: AppState, rf):
                     finally:
                         s.cf_generating = False
 
-                threading.Thread(target=_run, daemon=True).start()
+                _run_as_user(s._user_email, _run, name="cf_search_worker")
 
             with ui.element("div").style("margin-top:20px;"):
                 with ui.element("button").classes("fd-pb").style(
