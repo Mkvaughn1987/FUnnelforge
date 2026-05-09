@@ -6895,7 +6895,7 @@ def _setup_status() -> dict:
     }
 
 
-def _teach_ai_from_edit(original_body: str, edited_body: str, rf_func=None):
+def _teach_ai_from_edit(original_body: str, edited_body: str, rf_func=None, s_email: str = ""):
     """Analyze what changed between original and edited email, then add a style rule."""
     if not ANTHROPIC_API_KEY:
         ui.notify("No API key configured.", type="warning"); return
@@ -6950,8 +6950,7 @@ def _teach_ai_from_edit(original_body: str, edited_body: str, rf_func=None):
         except Exception as e:
             ui.notify(_friendly_ai_error(e), type="negative")
 
-    import threading
-    threading.Thread(target=_run, daemon=True).start()
+    _run_as_user(s_email, _run, name="teach_ai_style_worker")
     ui.notify("Analyzing your edits...", type="info")
 
 
@@ -10295,9 +10294,7 @@ def _show_requeue_dialog(s, rf, camp: dict, cname: str, pending_count: int):
                 except Exception as ex:
                     print(f"[Re-queue] Exception: {ex}", flush=True)
             # Run synchronously in thread so the notify clears when done
-            import threading as _th
-            _t = _th.Thread(target=_run, daemon=True)
-            _t.start()
+            _t = _run_as_user(getattr(s, "_user_email", "") or "", _run, name="requeue_campaign_worker")
             _t.join(timeout=15)  # usually completes in <2s
             # Then refresh the UI so the new scheduled times show up
             rf()
@@ -12494,7 +12491,7 @@ def p_responses(s, rf):
                                                         save_responded(all_r)
                                                     except Exception as ex:
                                                         print(f"[Reply] Send failed: {ex}")
-                                                threading.Thread(target=_do_send, daemon=True).start()
+                                                _run_as_user(getattr(s, "_user_email", "") or "", _do_send, name="reply_send_worker")
                                                 ui.notify(f"Reply sent to {nm}!", type="positive", timeout=4000)
                                                 # Offer to enroll this responder in a Slow Drip / Newsletter
                                                 _offer_slow_drip_enroll(to_email, nm, rf)
@@ -13648,7 +13645,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                             _log_exception(e, context="pdf.inline_generation")
                         finally:
                             s._pdf_generating = ""
-                    threading.Thread(target=_run, daemon=True).start()
+                    _run_as_user(getattr(s, "_user_email", "") or "", _run, name="pdf_inline_gen_worker")
                     # (The pre-rerender toast above is the user-facing
                     # feedback. The spinner block below also renders
                     # "Generating ..." once rf() rebuilds the page.)
@@ -13807,7 +13804,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                     _original_body = body_val  # captured before editor loaded
                     def _teach_ai(orig=_original_body):
                         if body_area:
-                            _teach_ai_from_edit(orig, body_area.value or "", rf)
+                            _teach_ai_from_edit(orig, body_area.value or "", rf, s_email=getattr(s, "_user_email", "") or "")
                     if ANTHROPIC_API_KEY and body_val.strip():
                         with ui.element("button").style(
                                 f"display:inline-flex;align-items:center;gap:5px;padding:8px 16px;"
