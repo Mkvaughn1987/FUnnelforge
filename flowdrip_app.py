@@ -8689,11 +8689,7 @@ SALES_NAV = [
     (None, "CONTENT & TOOLS",   None),
     ("📰", "Newsletters",       "newsletters"),
     ("📊", "Reports",           "pdf_gen"),
-    # Candidates entry hidden 2026-05-08 while the upload + view bugs
-    # are investigated. Page handler p_candidate_finder and the
-    # candidate_finder route stay in place — the top-nav 'Candidate
-    # Pool' pill still navigates there for users with deep links.
-    # ("🔍", "Candidates",        "candidate_finder"),
+    ("🔍", "Candidates",        "candidate_finder"),
     # ── Settings ─────────────────────────────────
     (None, "SETTINGS",          None),
     ("◆",  "My Profile",       "company_profile"),
