@@ -29675,7 +29675,7 @@ def p_ai_campaign(s: AppState, rf):
                     finally:
                         s.aicb_generating = False
 
-                threading.Thread(target=_run, daemon=True).start()
+                _run_as_user(getattr(s, "_user_email", "") or "", _run, name="aicb_campaign_gen_worker")
 
             # Review + Generate wrapper — now Step 5 in wizard mode (was 4
             # before the 2026-04-26 Candidates insert). In expanded mode
@@ -30636,16 +30636,6 @@ def _render_custom_pdf_modal(s: AppState, rf):
                             rf()
 
                             def _run():
-                                # Background-thread safety — see comment in
-                                # _aicb_generate_pdfs / _gen_pdf_inline. Without
-                                # this rebind, _get_company_name() inside the
-                                # thread can't see the per-user / tenant
-                                # profile and falls back to "Your Company".
-                                try:
-                                    if getattr(s, "_user_email", ""):
-                                        _CURRENT_USER_EMAIL.set(s._user_email)
-                                except Exception as _ex:
-                                    print(f"[Custom PDF] ContextVar rebind failed: {_ex}", flush=True)
                                 try:
                                     import sys as _sys
                                     _sys.path.insert(0, str(Path(__file__).resolve().parent / "funnel_forge"))
@@ -30756,7 +30746,7 @@ def _render_custom_pdf_modal(s: AppState, rf):
                                 finally:
                                     s._pdf_generating = False
 
-                            threading.Thread(target=_run, daemon=True).start()
+                            _run_as_user(getattr(s, "_user_email", "") or "", _run, name="custom_pdf_gen_worker")
 
                         with ui.element("button").classes("fd-pb").style(
                                 "padding:9px 22px;font-size:12px;").on("click", _generate_custom):
@@ -30951,16 +30941,6 @@ def p_pdf_gen(s: AppState, rf):
                 rf()
 
                 def _run():
-                    # Background-thread safety — see comment in
-                    # _aicb_generate_pdfs / _gen_pdf_inline. Without this
-                    # rebind, _get_company_name() and _get_company_logo_path()
-                    # inside the thread can't see this user's per-user /
-                    # tenant profile and "Your Company" leaks into the PDF.
-                    try:
-                        if getattr(s, "_user_email", ""):
-                            _CURRENT_USER_EMAIL.set(s._user_email)
-                    except Exception as _ex:
-                        print(f"[PDFGen] ContextVar rebind failed: {_ex}", flush=True)
                     try:
                         import sys as _sys
                         _sys.path.insert(0, str(Path(__file__).resolve().parent / "funnel_forge"))
@@ -31103,7 +31083,7 @@ def p_pdf_gen(s: AppState, rf):
                     finally:
                         s._pdf_generating = False
 
-                threading.Thread(target=_run, daemon=True).start()
+                _run_as_user(getattr(s, "_user_email", "") or "", _run, name="pdfgen_page_worker")
 
             with ui.element("div").style(
                     f"background:{C['card']};border:1px solid {C['border']};"
