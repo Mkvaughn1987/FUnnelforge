@@ -43610,6 +43610,53 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
 # near /download so they share the same routing path that's known to work.
 
 
+@ui.page("/diagnostics")
+def diagnostics_page():
+    """Admin diagnostics: tail of errors.log + last error timestamp.
+    Requires login. Intended for users to copy-paste into bug reports
+    so we don't need SSH access to debug their issue."""
+    # Auth gate: only logged-in users see the page; anonymous gets a
+    # bare "log in first" prompt.
+    try:
+        email = (app.storage.user.get("email") or "").strip()
+    except Exception:
+        email = ""
+    if not email:
+        ui.label("Log in to view diagnostics.").style("padding:24px;")
+        return
+
+    log_file = _LOG_DIR / "errors.log"
+    if not log_file.exists():
+        ui.label("No errors logged yet.").style("padding:24px;")
+        return
+
+    try:
+        # Read last 100 lines (cheap for an error log; rotates daily)
+        lines = log_file.read_text(encoding="utf-8").splitlines()
+        tail = lines[-100:]
+        last_ts = ""
+        for line in reversed(tail):
+            # Each entry starts with a timestamp from the formatter
+            # "%(asctime)s | …" — extract first " | " split's left side.
+            if " | " in line:
+                last_ts = line.split(" | ", 1)[0]
+                break
+    except Exception as ex:
+        ui.label(f"Failed to read errors.log: {ex}").style("padding:24px;")
+        return
+
+    ui.label("DripDrop Diagnostics").style(
+        "font-size:18px;font-weight:700;padding:16px 24px 4px;")
+    ui.label(f"Last error: {last_ts or '(none in tail)'}").style(
+        "padding:0 24px 12px;color:#666;font-size:12px;")
+    ui.html(
+        "<pre style='background:#f6f6f6;padding:16px 24px;font-size:11px;"
+        "white-space:pre-wrap;word-break:break-all;'>"
+        + "\n".join(tail).replace("<", "&lt;").replace(">", "&gt;")
+        + "</pre>"
+    )
+
+
 # ── Main App (authenticated) ──────────────────────────────────────────────
 @ui.page("/")
 def index():
