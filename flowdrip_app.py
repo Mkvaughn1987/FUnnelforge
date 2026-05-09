@@ -5896,14 +5896,23 @@ def _strip_dashes(text) -> str:
     if isinstance(text, str):
         if not text:
             return text
+        import re as _re
+        # Replace em/en-dashes etc. (these are unambiguous, no HTML
+        # interaction concern).
         s = (text
              .replace("\u2014", " - ")
              .replace("\u2013", " - ")
              .replace("\u2015", " - ")   # horizontal bar
-             .replace("\u2212", "-")     # minus sign (used as en-dash lookalike)
-             .replace("--", " - "))
+             .replace("\u2212", "-"))    # minus sign (used as en-dash lookalike)
+        # ASCII '--' \u2192 ' - ' BUT skip when '--' is part of an HTML
+        # comment marker (<!-- or -->). Earlier this rewrote
+        # <!--[if mso]> into <! - [if mso]>, breaking the conditional
+        # comment so Outlook + Gmail both rendered the VML branch
+        # AND the modern <a> branch \u2014 users saw two CTA buttons
+        # side-by-side. Negative lookbehind '(?<!<!)' rejects '<!--'
+        # and negative lookahead '(?!>)' rejects '-->'.
+        s = _re.sub(r'(?<!<!)--(?!>)', ' - ', s)
         # Collapse double spaces introduced by the swap
-        import re as _re
         s = _re.sub(r'  +', ' ', s)
         # Tighten " - " at start or end of line
         s = _re.sub(r'(^| )- +', r'\1- ', s)
