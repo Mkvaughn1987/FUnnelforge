@@ -10691,12 +10691,6 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
             # running. Released in the finally block below.
             _AI_GEN_SEMAPHORE.acquire()
             try:
-                if _user:
-                    try:
-                        _CURRENT_USER_EMAIL.set(_user)
-                        _switch_to_user_paths(_user)
-                    except Exception:
-                        pass
                 _generate_call_briefing_for_campaign(camp)
             except Exception as ex:
                 print(f"[CallBriefingPanel] bg gen error: {ex}", flush=True)
@@ -10724,8 +10718,7 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
                 except Exception:
                     pass
 
-        import threading as _thr
-        _thr.Thread(target=_bg, daemon=True).start()
+        _run_as_user(_user, _bg, name="call_briefing_gen_worker")
         is_inflight = True
 
     # Refresh handler — clears cache + re-arms inflight tracking + spawns
@@ -10750,12 +10743,6 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
             # clicks across multiple campaigns can't pile up either.
             _AI_GEN_SEMAPHORE.acquire()
             try:
-                if _user_local:
-                    try:
-                        _CURRENT_USER_EMAIL.set(_user_local)
-                        _switch_to_user_paths(_user_local)
-                    except Exception:
-                        pass
                 _generate_call_briefing_for_campaign(_camp, force_refresh=True)
             except Exception as ex:
                 print(f"[CallBriefingPanel] refresh bg gen error: {ex}", flush=True)
@@ -10773,8 +10760,7 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
                     _gc.collect()
                 except Exception:
                     pass
-        import threading as _thr2
-        _thr2.Thread(target=_bg_refresh, daemon=True).start()
+        _run_as_user(_user_local, _bg_refresh, name="call_briefing_refresh_worker")
         ui.notify("Refreshing briefing — new content in ~15-30s.", type="info")
         rf()
 
@@ -11014,12 +11000,6 @@ def _render_li_message_card(camp: dict, s: AppState, rf):
             # Same global AI gen throttle as the call briefing thread.
             _AI_GEN_SEMAPHORE.acquire()
             try:
-                if _user:
-                    try:
-                        _CURRENT_USER_EMAIL.set(_user)
-                        _switch_to_user_paths(_user)
-                    except Exception:
-                        pass
                 _generate_li_message_for_campaign(camp)
             except Exception as ex:
                 print(f"[LiMessagePanel] bg gen error: {ex}", flush=True)
@@ -11042,8 +11022,7 @@ def _render_li_message_card(camp: dict, s: AppState, rf):
                 except Exception:
                     pass
 
-        import threading as _thr
-        _thr.Thread(target=_bg, daemon=True).start()
+        _run_as_user(_user, _bg, name="li_message_gen_worker")
         is_inflight = True
 
     with ui.element("div").style(
