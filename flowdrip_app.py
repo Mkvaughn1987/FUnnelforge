@@ -940,8 +940,6 @@ def _install_excepthooks():
     threading.excepthook = _thr_hook
 
 
-_install_excepthooks()
-
 # CRITICAL: per-request user context. NiceGUI runs on a single-threaded
 # asyncio event loop where multiple users' async handlers interleave on
 # every `await`. If we stored the current user in a module global,
@@ -959,6 +957,8 @@ _install_excepthooks()
 # multi-user isolation.
 from contextvars import ContextVar
 _CURRENT_USER_EMAIL: ContextVar = ContextVar("_current_user_email", default="")
+
+_install_excepthooks()
 
 
 def _resolve_user_root(email: str = None):
@@ -19948,7 +19948,7 @@ def _create_newsletter_dialog(s, rf):
                     except Exception:
                         pass
 
-            _run_as_user(s._user_email, _gen_first_issue, name="newsletter_first_issue_worker")
+            _run_as_user(getattr(s, "_user_email", "") or "", _gen_first_issue, name="newsletter_first_issue_worker")
 
             ui.notify(
                 f"Created '{nl_name}' — generating now…",
@@ -25018,11 +25018,6 @@ def _render_pdf_editor_body(s, rf, pdf_filename: str, step_idx: int,
                     rf()
                     def _run():
                         try:
-                            try:
-                                if getattr(s, "_user_email", ""):
-                                    _CURRENT_USER_EMAIL.set(s._user_email)
-                            except Exception:
-                                pass
                             import anthropic
                             client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
                             revised = _ai_revise_pdf_data(client, s._pdf_editor_data[k], instr)
@@ -25035,7 +25030,7 @@ def _render_pdf_editor_body(s, rf, pdf_filename: str, step_idx: int,
                         finally:
                             s._pdf_editor_busy.discard(k)
                             rf()
-                    threading.Thread(target=_run, daemon=True).start()
+                    _run_as_user(getattr(s, "_user_email", "") or "", _run, name="pdf_ai_revise_worker")
                 with ui.element("button").classes("fd-pb").style(
                         f"padding:7px 18px;font-size:12px;align-self:flex-start;"
                         + ("opacity:0.6;pointer-events:none;" if _busy else "")
@@ -32249,7 +32244,7 @@ def _bulk_import_resumes(s: AppState, rf):
                 print(f"[BulkImport] progress {_prog['done']}/{_prog['queued']}", flush=True)
                 # NO rf() here  -  that would nuke the uploader mid-batch.
 
-        _run_as_user(_user_email_for_worker, _worker, name="_bulk_import_worker")
+        _run_as_user(_user_email_for_worker, _worker, name="bulk_import_worker")
 
     def _on_finish():
         """Fires once per batch when q-uploader has finished all uploads.
@@ -33376,7 +33371,7 @@ def p_candidate_finder(s: AppState, rf):
                     finally:
                         s.cf_generating = False
 
-                _run_as_user(s._user_email, _run, name="cf_search_worker")
+                _run_as_user(getattr(s, "_user_email", "") or "", _run, name="cf_search_worker")
 
             with ui.element("div").style("margin-top:20px;"):
                 with ui.element("button").classes("fd-pb").style(
@@ -43569,8 +43564,11 @@ def diagnostics_page():
         email = (app.storage.user.get("email") or "").strip()
     except Exception:
         email = ""
-    if not email:
-        ui.label("Log in to view diagnostics.").style("padding:24px;")
+    if not email or not _is_super_admin(email):
+        # Non-admins see a generic 'not available' message rather than
+        # 'log in first' — leaking the existence of an admin endpoint
+        # is itself a small information disclosure.
+        ui.label("Diagnostics not available.").style("padding:24px;")
         return
 
     log_file = _LOG_DIR / "errors.log"
