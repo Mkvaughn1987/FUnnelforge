@@ -908,8 +908,11 @@ def _resolve_user_root(email: str = None):
             # background workers must pass email explicitly or set the
             # ContextVar themselves. Fall through to base-dir below.
             email = ""
-    if not _SERVER_MODE:
+    if not _SERVER_MODE and not email:
         # Desktop fallback — single user, base dir is fine.
+        # (If email IS set, e.g. by _run_as_user inside a thread,
+        # fall through to the per-user path so the helper works
+        # correctly even in dev/test mode.)
         return _BASE_DATA_DIR
     if not email:
         # Server mode with no user resolved is a CROSS-USER LEAK risk:
@@ -1724,6 +1727,36 @@ def _switch_to_user_paths(email: str):
     # have to mkdir under `await` contention.
     for d in [_user_campaigns_dir(), _user_contacts_dir(), _user_pdf_dir()]:
         d.mkdir(parents=True, exist_ok=True)
+
+def _run_as_user(email, target, name=None, daemon=True):
+    """Spawn a thread that's pre-bound to `email` for per-user path resolution.
+
+    Use this anywhere a worker thread will read or write per-user state.
+    System threads (schedulers, monitors) should keep using threading.Thread
+    directly — they don't have a single owning user.
+
+    Why: Python ContextVars don't propagate into threading.Thread workers,
+    so _CURRENT_USER_EMAIL.get() returns "" inside the worker and
+    _resolve_user_root() falls back via LEAK_GUARD to _BASE_DATA_DIR — a
+    cross-user shared file. This helper sets the ContextVar inside the
+    worker before target() runs.
+    """
+    captured = (email or "").strip()
+    def _wrapper():
+        if captured:
+            try:
+                _CURRENT_USER_EMAIL.set(captured)
+                _switch_to_user_paths(captured)
+            except Exception as ex:
+                print(f"[run_as_user] bind failed for {captured}: {ex}",
+                      flush=True)
+        target()
+    t = threading.Thread(
+        target=_wrapper, daemon=daemon,
+        name=name or getattr(target, "__name__", "user_worker"),
+    )
+    t.start()
+    return t
 
 # ── User Authentication ───────────────────────────────────────────────────
 def _hash_password(password: str, salt: str = "") -> str:
