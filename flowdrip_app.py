@@ -44679,9 +44679,18 @@ def _start_server_reply_monitor():
 if __name__ in {"__main__", "__mp_main__"}:
     # Silently archive queue entries older than 30 days before the UI starts.
     # This keeps the live queue file lean without any user action required.
-    _archived = archive_old_queue_entries(days=30)
-    if _archived:
-        print(f"[DripDrop] Archived {_archived} old queue entries → scheduled_queue_archive.json")
+    #
+    # Server mode: archive_old_queue_entries() resolves to a per-user file
+    # via _user_queue_path() — calling it here at module init (before any
+    # user is bound) falls through LEAK_GUARD and would archive the SHARED
+    # _BASE_DATA_DIR/scheduled_queue.json file (which may not even exist
+    # in well-isolated installs). Per-user archiving in server mode is
+    # better done lazily on first access or by the ServerEmailScheduler
+    # iterating users. Skip the boot-time call until that's built.
+    if not _SERVER_MODE:
+        _archived = archive_old_queue_entries(days=30)
+        if _archived:
+            print(f"[DripDrop] Archived {_archived} old queue entries → scheduled_queue_archive.json")
     # One-shot tenant admin migration: promote the oldest user from each
     # email domain to tenant_admin if the domain has no admin yet. Fills
     # the gap for users (like Michael at arenastaffing.net) who signed up
