@@ -36,11 +36,17 @@ def test_worker_sees_bound_user_in_contextvar():
     assert seen["email"] == "alice@example.com"
 
 
-def test_worker_resolves_per_user_path_not_base_dir():
+def test_worker_resolves_per_user_path_not_base_dir(monkeypatch):
     """The whole point of this helper: per-user path accessors inside
     the worker must resolve to /…/users/<safe_email>/, not the base
-    data dir (which is the cross-user leak vector)."""
+    data dir (which is the cross-user leak vector).
+
+    We monkeypatch _SERVER_MODE=True to exercise production-mode path
+    resolution from a desktop dev machine. In real production this
+    flag is True automatically (set during app init when the
+    DRIPDROP_DATA_DIR env var is detected)."""
     import flowdrip_app as fa
+    monkeypatch.setattr(fa, "_SERVER_MODE", True)
     seen = {"path": None}
     def _t():
         seen["path"] = fa._user_candidate_pool_path()

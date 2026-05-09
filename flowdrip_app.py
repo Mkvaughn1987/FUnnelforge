@@ -908,11 +908,8 @@ def _resolve_user_root(email: str = None):
             # background workers must pass email explicitly or set the
             # ContextVar themselves. Fall through to base-dir below.
             email = ""
-    if not _SERVER_MODE and not email:
+    if not _SERVER_MODE:
         # Desktop fallback — single user, base dir is fine.
-        # (If email IS set, e.g. by _run_as_user inside a thread,
-        # fall through to the per-user path so the helper works
-        # correctly even in dev/test mode.)
         return _BASE_DATA_DIR
     if not email:
         # Server mode with no user resolved is a CROSS-USER LEAK risk:
