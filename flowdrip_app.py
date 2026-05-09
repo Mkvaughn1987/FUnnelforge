@@ -13645,7 +13645,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                             print(f"[PDF] Generated and attached {pdf_name}")
                         except Exception as e:
                             print(f"[PDF] Inline generation error: {e}")
-                            import traceback; traceback.print_exc()
+                            _log_exception(e, context="pdf.inline_generation")
                         finally:
                             s._pdf_generating = ""
                     threading.Thread(target=_run, daemon=True).start()
@@ -33422,9 +33422,8 @@ def p_candidate_finder(s: AppState, rf):
                                     s._cf_pool_search_id = add_candidate_to_pool(cand)
                                 print(f"[CF] Saved to pool: {cand['name']}")
                     except Exception as e:
-                        import traceback
                         print(f"[CF] ERROR: {e}")
-                        traceback.print_exc()
+                        _log_exception(e, context="candidate_finder.search")
                         s._cf_error = _friendly_ai_error(e)
                     finally:
                         s.cf_generating = False
@@ -38509,7 +38508,7 @@ def p_newsletter(s: AppState, rf):
                     html_body = _render_newsletter_html(d, setup)
                 except Exception as ex:
                     print(f"[Newsletter] Render FAILED: {ex}")
-                    import traceback; traceback.print_exc()
+                    _log_exception(ex, context="newsletter.render")
                     ui.notify(f"Preview render error: {str(ex)[:80]}", type="negative")
                     return
 
@@ -38548,7 +38547,7 @@ def p_newsletter(s: AppState, rf):
                             print(f"[Newsletter] Preview send failed: {err}")
                     except Exception as ex:
                         print(f"[Newsletter] Preview send error: {ex}")
-                        import traceback; traceback.print_exc()
+                        _log_exception(ex, context="newsletter.preview_send")
 
                 threading.Thread(target=_do_send, daemon=True).start()
                 ui.notify(f"Preview sent to {my_email}  -  check your inbox in a moment.",
@@ -39226,7 +39225,7 @@ def p_market_intel(s: AppState, rf):
                                         print(f"[MarketIntel] Scans complete for {w['name']}")
                                     except Exception as e:
                                         print(f"[MarketIntel] THREAD ERROR: {e}")
-                                        traceback.print_exc()
+                                        _log_exception(e, context="market_intel.thread")
                                         s._mi_error = str(e)[:100]
                                     finally:
                                         s.mi_scanning = False
@@ -40260,9 +40259,8 @@ def _p_profile_body(s, rf):
                         ui.notify("Profile photo updated.", type="positive")
                         rf()
                     except Exception as ex:
-                        import traceback
                         print(f"[ProfilePhoto] unexpected error: {ex}", flush=True)
-                        traceback.print_exc()
+                        _log_exception(ex, context="profile_photo.upload")
                         ui.notify(f"Upload failed: {str(ex)[:100]}", type="negative")
 
                 with ui.element("div").style("height:0;overflow:hidden;"):
@@ -40470,7 +40468,7 @@ def _p_profile_body(s, rf):
                             rf()
                         except Exception as ex:
                             print(f"[NewsletterAvatar] upload error: {ex}", flush=True)
-                            import traceback; traceback.print_exc()
+                            _log_exception(ex, context="newsletter_avatar.upload")
                             ui.notify(f"Upload failed: {str(ex)[:80]}", type="negative")
 
                     # Hidden uploader + visible button that calls
