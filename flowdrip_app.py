@@ -2142,6 +2142,14 @@ def _get_all_users_summary() -> list:
 
 # Community / Team campaigns (shared OneDrive)
 def _find_community_dir() -> Path:
+    # Server mode: the OneDrive primary path doesn't exist on Linux, and
+    # _user_dir() at module init has no user bound — falls through
+    # LEAK_GUARD. Community is a SHARED concept (team campaigns), so
+    # _BASE_DATA_DIR/Community is the right home in server mode.
+    if _SERVER_MODE:
+        community = _BASE_DATA_DIR / "Community"
+        community.mkdir(parents=True, exist_ok=True)
+        return community
     home = Path.home()
     primary = home / "Arena Staffing" / "your company - Documents" / "FunnelForge" / "community"
     if primary.exists():
