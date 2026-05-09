@@ -32711,7 +32711,7 @@ def _p_candidate_pool_tab(s: AppState, rf, pool: list):
                             finally:
                                 s._highlights_in_flight.discard(_cid_)
 
-                        threading.Thread(target=_worker, daemon=True).start()
+                        _run_as_user(getattr(s, "_user_email", "") or "", _worker, name="candidate_highlights_worker")
                         # Use a short ui.timer to refresh once the worker is likely done
                         _poll = {"t": None}
                         def _check():
@@ -39173,7 +39173,7 @@ def p_market_intel(s: AppState, rf):
                                     finally:
                                         s.mi_scanning = False
                                         s.mi_scan_phase = ""
-                                threading.Thread(target=_run, daemon=True).start()
+                                _run_as_user(getattr(s, "_user_email", "") or "", _run, name="market_intel_scan_worker")
                                 rf()
 
                             if s.mi_scanning and s.mi_sel_watch == wi:
@@ -40753,7 +40753,7 @@ def _p_profile_body(s, rf):
                                 ui.notify(f"Auto-fill failed: {str(e)[:100]}", type="negative")
                             rf()
 
-                        threading.Thread(target=_run, daemon=True).start()
+                        _run_as_user(getattr(s, "_user_email", "") or "", _run, name="company_autofill_worker")
 
                     with ui.element("button").classes("fd-pb").style(
                             "padding:8px 18px;font-size:12px;flex-shrink:0;").on("click", _do_autofill):
