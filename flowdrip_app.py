@@ -28765,39 +28765,9 @@ def p_ai_campaign(s: AppState, rf):
                                 ui.label(_msub).style(
                                     f"font-size:10px;color:{C['muted']};line-height:1.3;")
 
-                # PDF-connection hint: make it explicit that only the active-
-                # mode fields below appear on any attached PDFs. The "only"
-                # language is important — users were seeing stale Company
-                # text leak onto Market PDFs before the toggle.
-                # Note: the standalone Market / Niche text input was removed;
-                # in market mode the Industry + Sub-niche picker is the
-                # whole target definition.
-                if _mode == "company":
-                    _pdf_fields_line = (
-                        "Only your Company, Industry, Sub-niche, Location, and Target "
-                        "Roles are pulled into every PDF (Market Pulse, Salary Guide, "
-                        "Scorecard, Interview Guide, Tenure Snapshot) and into every "
-                        "campaign email."
-                    )
-                else:
-                    _pdf_fields_line = (
-                        "Only your Industry, Sub-niche, Location, and Target Roles "
-                        "are pulled into every PDF (Market Pulse, Salary Guide, "
-                        "Scorecard, Interview Guide, Tenure Snapshot) and into every "
-                        "campaign email."
-                    )
-                with ui.element("div").style(
-                        f"display:flex;align-items:flex-start;gap:8px;"
-                        f"padding:10px 14px;background:{C['warn']}08;"
-                        f"border:1px solid {C['warn']}30;border-left:3px solid {C['warn']};"
-                        f"border-radius:8px;margin-bottom:14px;"):
-                    ui.label("📎").style("font-size:14px;line-height:1.2;margin-top:1px;")
-                    with ui.element("div"):
-                        ui.label("This is what will be on your PDFs").style(
-                            f"font-size:11px;font-weight:700;color:{C['warn']};"
-                            f"font-family:'Nunito',sans-serif;margin-bottom:2px;")
-                        ui.label(_pdf_fields_line).style(
-                            f"font-size:11px;color:{C['text']};line-height:1.45;")
+                # PDF-connection hint banner removed 2026-05-10 — the same
+                # information is already shown in the left-side directions
+                # column. Inline banner here was duplicative noise.
 
                 # ── Mode-scoped target field ─────
                 # Company mode shows Company + Website inputs.
@@ -31804,28 +31774,9 @@ def p_pdf_gen(s: AppState, rf):
     if not s._pdf_secondary_industries:
         s._pdf_secondary_industries = list(getattr(s, "_sq_secondary_industries", []) or [])
 
-    # Connection banner: tell the user these PDFs mirror what they typed in
-    # the campaign builder, so they know exactly what will appear on the PDF.
-    _have_target_details = bool(
-        _eff["company"] or _eff["niche"] or _eff["locations"] or _eff["roles"]
-    )
-    if _pulled_from_targets or _have_target_details:
-        _mode_word = "Company" if _eff["mode"] == "company" else "Market / Niche"
-        with ui.element("div").style(
-                f"background:{C['teal']}12;border:1px solid {C['teal']}40;"
-                f"border-left:3px solid {C['teal']};border-radius:8px;"
-                f"padding:12px 16px;margin-bottom:14px;max-width:700px;"):
-            with ui.element("div").style(
-                    "display:flex;align-items:center;gap:8px;margin-bottom:4px;"):
-                ui.label("📎").style("font-size:14px;")
-                ui.label(f"Pulled from your {_mode_word}-mode Target Details").style(
-                    f"font-size:13px;font-weight:700;color:{C['teal']};"
-                    f"font-family:'Nunito',sans-serif;")
-            ui.label(
-                f"Your active target is '{_mode_word}'. Only that mode's fields "
-                f"(plus Location, Industry, and Target Roles) flow onto every PDF "
-                f"you generate. Switch modes in the Campaign Builder to change."
-            ).style(f"font-size:11px;color:{C['text']};line-height:1.5;")
+    # PDF-fields connection banner removed 2026-05-10 per user — the
+    # information lives in the page's left-side directions; the inline
+    # banner was duplicative.
 
     # Clear button
     def _clear_pdf():
