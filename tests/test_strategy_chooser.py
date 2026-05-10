@@ -12,7 +12,10 @@ def test_chooser_renders_5_options():
     """The chooser source must reference all 5 starting place titles."""
     import flowdrip_app as fa
     src = inspect.getsource(fa)
-    assert "Target a Client" in src
+    # 'Target a Client' renamed to 'Target a Company' on 2026-05-10 per
+    # user feedback (terminology preference). Accept either to keep the
+    # test robust across the rename.
+    assert "Target a Company" in src or "Target a Client" in src
     assert "Target a Market" in src
     assert "Target a Candidate" in src
     assert "Saved Campaigns" in src or "Saved Sequences" in src
