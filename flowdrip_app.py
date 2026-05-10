@@ -1170,6 +1170,118 @@ def _user_responded_json_path(): return _resolve_user_root() / "Campaigns" / "re
 def _user_nl_dir(): return _resolve_user_root() / "Newsletters"
 def _user_mi_path(): return _resolve_user_root() / "market_intel.json"
 def _user_mi_results_path(): return _resolve_user_root() / "market_intel_results.json"
+def _user_wizard_draft_path(): return _resolve_user_root() / "wizard_draft.json"
+
+
+# ── Wizard draft autosave ─────────────────────────────────────────────
+# Preserves AICB / custom / RC wizard state across page navigation,
+# refresh, and the chooser's _reset_wizard_state() call. Saves a small
+# JSON file per user with the relevant state slots; on chooser render,
+# if a draft exists the user gets a Resume / Discard banner.
+#
+# Why: users were complaining "the wizard restarts on me." Root cause:
+# AICB state lives only in in-memory AppState; any chooser re-pick or
+# session refresh wipes it. The draft layer provides a fallback.
+_WIZARD_DRAFT_FIELDS = (
+    # AICB main state
+    "aicb_target_mode", "aicb_wizard_step", "aicb_wizard_mode",
+    "aicb_company", "aicb_website", "aicb_industry", "aicb_niche",
+    "aicb_primary_industry", "aicb_secondary_industries",
+    "aicb_sel_locations", "aicb_sel_roles",
+    "aicb_camp_type", "aicb_byos_desc",
+    "aicb_cand_count", "aicb_cand_source", "aicb_cand_cards",
+    "_aicb_cand_text",
+    # Chooser context
+    "_chooser_origin",
+)
+_WIZARD_DRAFT_TTL_HOURS = 72  # auto-discard older than 3 days
+
+
+def _wizard_state_is_meaningful(s) -> bool:
+    """True if any user-typed wizard field has content worth saving.
+    Used to skip autosave on initial / empty wizard renders."""
+    try:
+        return bool(
+            (getattr(s, "aicb_company", "") or "").strip()
+            or (getattr(s, "aicb_niche", "") or "").strip()
+            or (getattr(s, "aicb_byos_desc", "") or "").strip()
+            or (getattr(s, "aicb_primary_industry", "") or "").strip()
+            or (getattr(s, "aicb_sel_locations", []) or [])
+            or (getattr(s, "aicb_sel_roles", []) or [])
+        )
+    except Exception:
+        return False
+
+
+def _save_wizard_draft(s) -> None:
+    """Snapshot the relevant wizard fields to disk. Cheap (small JSON);
+    safe to call on every render that has meaningful state."""
+    if not _wizard_state_is_meaningful(s):
+        return
+    try:
+        snapshot = {"_saved_at": datetime.now().isoformat(timespec="seconds")}
+        for field in _WIZARD_DRAFT_FIELDS:
+            try:
+                snapshot[field] = getattr(s, field, None)
+            except Exception:
+                pass
+        # Friendly label for the resume banner
+        snapshot["_label"] = (
+            (snapshot.get("aicb_company") or "").strip()
+            or (snapshot.get("aicb_niche") or "").strip()
+            or (snapshot.get("aicb_primary_industry") or "").strip()
+            or "Untitled draft"
+        )
+        path = _user_wizard_draft_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(snapshot, indent=2, default=str), encoding="utf-8")
+        tmp.replace(path)
+    except Exception as ex:
+        print(f"[WizardDraft] save failed: {ex}", flush=True)
+
+
+def _load_wizard_draft() -> dict:
+    """Load the current user's wizard draft. Returns {} if none exists,
+    or if older than _WIZARD_DRAFT_TTL_HOURS."""
+    try:
+        path = _user_wizard_draft_path()
+        if not path.exists():
+            return {}
+        data = json.loads(path.read_text(encoding="utf-8"))
+        try:
+            saved_at = datetime.fromisoformat(data.get("_saved_at", ""))
+            age_h = (datetime.now() - saved_at).total_seconds() / 3600
+            if age_h > _WIZARD_DRAFT_TTL_HOURS:
+                _clear_wizard_draft()
+                return {}
+        except Exception:
+            pass
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _clear_wizard_draft() -> None:
+    try:
+        path = _user_wizard_draft_path()
+        if path.exists():
+            path.unlink()
+    except Exception:
+        pass
+
+
+def _restore_wizard_draft(s, draft: dict) -> None:
+    """Pour the saved snapshot back onto the AppState. Caller is
+    responsible for routing to the right page after this."""
+    if not draft:
+        return
+    for field in _WIZARD_DRAFT_FIELDS:
+        if field in draft:
+            try:
+                setattr(s, field, draft[field])
+            except Exception:
+                pass
 
 
 # ── Tenant-shared storage (per-email-domain branding + defaults) ────────
@@ -15606,6 +15718,55 @@ def _sq_pick(s, rf):
 
     # ── Strategy Chooser — 5 starting places ──────────────────────────────
     if not s._tab:
+        # Resume-draft banner — appears above the chooser when a recent
+        # wizard draft exists for this user. Solves the "wizard restarts
+        # on me" complaint by giving users an explicit way back into
+        # their in-progress work, even after a refresh or a navigation
+        # bounce that fired _reset_wizard_state().
+        _draft = _load_wizard_draft()
+        if _draft:
+            _label = _draft.get("_label", "Untitled draft")
+            try:
+                _saved_at = datetime.fromisoformat(_draft.get("_saved_at", ""))
+                _mins = max(1, int((datetime.now() - _saved_at).total_seconds() / 60))
+                _ago = (f"{_mins} min ago" if _mins < 60
+                        else f"{_mins // 60} hr ago" if _mins < 1440
+                        else f"{_mins // 1440} day(s) ago")
+            except Exception:
+                _ago = "earlier"
+            with ui.element("div").style(
+                    f"background:{C['warn']}10;border:1px solid {C['warn']}40;"
+                    f"border-left:4px solid {C['warn']};border-radius:10px;"
+                    f"padding:14px 18px;margin-bottom:18px;"
+                    f"display:flex;align-items:center;justify-content:space-between;"
+                    f"gap:12px;flex-wrap:wrap;"):
+                with ui.element("div").style("flex:1;min-width:200px;"):
+                    ui.label(f"📝 Pick up where you left off: {_label}").style(
+                        f"font-size:13px;font-weight:700;color:{C['warn']};")
+                    ui.label(f"Saved {_ago}. Resume to restore your in-progress wizard.").style(
+                        f"font-size:11px;color:{C['muted']};margin-top:2px;")
+                with ui.element("div").style(
+                        "display:flex;gap:8px;flex-shrink:0;"):
+                    def _resume_draft(d=_draft):
+                        _restore_wizard_draft(s, d)
+                        # Land them back in the AICB wizard at whatever step
+                        # was active when the draft was saved.
+                        s.sp = "ai_campaign"
+                        rf()
+                    def _discard_draft():
+                        _clear_wizard_draft()
+                        rf()
+                    with ui.element("button").classes("fd-pb").style(
+                            "padding:6px 14px;font-size:12px;border-radius:99px;"
+                            "cursor:pointer;").on("click", _resume_draft):
+                        ui.label("Resume").style("pointer-events:none;")
+                    with ui.element("button").style(
+                            f"padding:6px 14px;font-size:12px;border-radius:99px;"
+                            f"border:1px solid {C['muted']};background:transparent;"
+                            f"color:{C['muted']};cursor:pointer;font-family:inherit;"
+                            ).on("click", _discard_draft):
+                        ui.label("Discard").style("pointer-events:none;")
+
         ui.label("Choose a Sequence Type").style(
             f"font-size:20px;font-weight:700;color:{C['text_l']};margin-bottom:8px;"
             f"font-family:'Nunito',sans-serif;")
@@ -28185,6 +28346,15 @@ def p_ai_campaign(s: AppState, rf):
     # noise. The aicb_target_mode is still pre-set by the chooser, so the
     # downstream wizard step picker is skipped.
 
+    # Autosave the wizard draft on every render that has meaningful state.
+    # Cheap (~1KB JSON) and idempotent. Recovers user work across the
+    # chooser's _reset_wizard_state() wipe and full browser refreshes.
+    # Cleared on successful campaign generation (see Generate handler).
+    try:
+        _save_wizard_draft(s)
+    except Exception:
+        pass
+
     # ── Step 1: Configure sequence ────────────────────────────────────────────
     if s.aicb_step == 1:
         # ── Wizard chrome: progress bar + mode toggle ──────────────────
@@ -30063,6 +30233,14 @@ def p_ai_campaign(s: AppState, rf):
                                     f"{campaign_data.get('name','?')!r} "
                                     f"-> {campaign_data.get('_path','?')}",
                                     flush=True)
+                                # Generation succeeded — clear the wizard
+                                # draft so the resume banner doesn't
+                                # reappear next time the user lands on
+                                # the chooser.
+                                try:
+                                    _clear_wizard_draft()
+                                except Exception:
+                                    pass
                             except Exception as _save_ex:
                                 # Non-fatal — the in-memory state still
                                 # carries the campaign; user can save
