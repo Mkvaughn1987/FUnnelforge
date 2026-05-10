@@ -41893,11 +41893,20 @@ def p_recruiting_campaign(s: AppState, rf):
                         f'CRITICAL: Each step MUST have a unique delay_days value. '
                         f'delay_days is RELATIVE  -  the number of days AFTER the previous step (NOT cumulative). '
                         f'Step 1 is always 0.\n\n'
+                        f'STRICT RULES:\n'
+                        f'- Include exactly one LinkedIn step at position 2 (delay_days:1, time:"10:00 AM"). '
+                        f'Never place LinkedIn before email 1. Never include more than one LinkedIn step.\n\n'
                         f'Return ONLY valid JSON:\n'
                         f'{{"synopsis":"...","campaign_name":"Recruiting  -  {s.rc_job_title}",'
                         f'"emails":[{{"week":1,"name":"Step 1 - ...",'
                         f'"subject":"...","body":"Hi {{FirstName}},<br><br>...",'
-                        f'"delay_days":0,"time":"9:00 AM","step_type":"email_auto"}},...]}}'
+                        f'"delay_days":0,"time":"9:00 AM","step_type":"email_auto"}},'
+                        f'{{"week":1,"name":"Step 2 - LinkedIn touch",'
+                        f'"subject":"","body":"Hi {{{{FirstName}}}}, I sent you an email about a {jt} opportunity I think you\'d find interesting. Would love to connect here too.",'
+                        f'"delay_days":1,"time":"10:00 AM","step_type":"linkedin"}},'
+                        f'{{"week":1,"name":"Step 3 - ...",'
+                        f'"subject":"...","body":"Hi {{FirstName}},<br><br>...",'
+                        f'"delay_days":1,"time":"9:00 AM","step_type":"email_auto"}},...]}}'
                     )
                     msg = _claude_create_with_retry(client,
                         model="claude-haiku-4-5-20251001",

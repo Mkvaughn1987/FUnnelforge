@@ -31,3 +31,26 @@ def test_aicb_byos_prompt_enforces_one_li_at_step_2():
         "Free Flow AICB prompt must specify the LI step's position "
         "(step 2 / position 2 / after the first email)"
     )
+
+
+def test_recruiting_sequence_prompt_includes_li_after_email_1():
+    """The Recruiting Campaigns page generator currently builds
+    email-only sequences. Per the 2026-05-10 directive, every NEW
+    sequence (including recruiting-flow ones) should include exactly
+    one LinkedIn step at position 2."""
+    import flowdrip_app as fa
+    src = inspect.getsource(fa)
+    assert "Recruiting" in src, "Expected to find recruiting-sequence builder source"
+    idx_candidates = [i for i in range(len(src)) if src[i:i+20] == "Return ONLY valid JS"]
+    found_li_in_recruiting = False
+    for idx in idx_candidates:
+        window = src[idx : idx + 800]
+        before = src[max(idx - 2000, 0) : idx]
+        if ("recruiting" in before.lower() or "Recruiting" in before) and '"step_type":"linkedin"' in window:
+            found_li_in_recruiting = True
+            break
+    assert found_li_in_recruiting, (
+        "The Recruiting Sequence generator's JSON example must include "
+        "a step with \"step_type\":\"linkedin\" at position 2. Current "
+        "prompt generates email-only sequences."
+    )
