@@ -37254,7 +37254,7 @@ def _first_contact_company(camp: dict) -> str:
     return ""
 
 
-_CALL_BRIEFING_SCHEMA_VERSION = 2
+_CALL_BRIEFING_SCHEMA_VERSION = 3
 
 
 def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False) -> dict | None:
@@ -37504,6 +37504,83 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
     except Exception as e:
         print(f"[CallBriefing] step-2 generation failed: {e}", flush=True)
 
+    # ── Step 3: Generate 3 cold-call opener variants in Leigh's pitch DNA ──
+    # Styles: Project-Anchored Direct / Market-Data Contrarian / Brief Diagnostic
+    # Single Claude call → one JSON response parsed into 3 variants.
+    # Market stats pulled from the per-industry cache (Task 5) so scripts
+    # use real fill-window data without hallucinating numbers.
+    mkt = _market_stats_for_industry(sector or niche)
+    variant_context = (
+        f"- Company: {company}\n"
+        f"- Sector / niche: {sector or '?'} / {niche or '?'}\n"
+        f"- Open jobs at this company: {open_jobs[:2] if open_jobs else 'none surfaced'}\n"
+        f"- Recent news: {news[:1] if news else 'none surfaced'}\n"
+        f"- Industry market stats: {mkt or 'unavailable — do NOT invent stats'}\n"
+    )
+    variant_prompt = (
+        f"You are writing 3 cold-call openers for a recruiter calling "
+        f"{company} about {sector or niche or 'their hiring needs'}.\n\n"
+        f"CONTEXT:\n{variant_context}\n"
+        f"WRITE EXACTLY 3 OPENERS, each in a distinct style:\n\n"
+        f"VARIANT 1 — Project-Anchored Direct\n"
+        f"  Self-aware honesty (acknowledge it's a cold call but a "
+        f"researched one). Anchor on a specific project / open role / "
+        f"news item. Two questions ending in 'who's owning the hiring, "
+        f"and is it you?'\n\n"
+        f"VARIANT 2 — Market-Data Contrarian\n"
+        f"  Lead with a market data point (use the fill_window_days "
+        f"stat above if available; if NOT available, use a structural "
+        f"observation like 'the firms hitting 30 days are running "
+        f"parallel passive searches'). Frame their open seats as a "
+        f"diagnostic: 'sourcing problem, closing problem, or comp "
+        f"problem?'\n\n"
+        f"VARIANT 3 — Brief Diagnostic\n"
+        f"  ONE question only. Reference a specific company project or "
+        f"open role. End with: 'what's harder right now: finding the "
+        f"right people, or getting them to say yes?'\n\n"
+        f"STRICT RULES:\n"
+        f"- Each variant under 80 words.\n"
+        f"- Use the recruiter's actual name (placeholder {{recruiter_name}}) "
+        f"and firm name (placeholder {{firm_name}}). The UI will substitute "
+        f"these at display time.\n"
+        f"- Address the prospect by first name only (use placeholder {{first_name}}).\n"
+        f"- Do NOT fabricate market stats. If mkt is empty, drop the stat.\n"
+        f"- Do NOT use emoji or markdown.\n\n"
+        f"Return ONLY valid JSON:\n"
+        f'{{"variants":['
+        f'{{"style":"project_anchored","label":"Project-Anchored Direct","script":"..."}},'
+        f'{{"style":"market_data","label":"Market-Data Contrarian","script":"..."}},'
+        f'{{"style":"brief_diagnostic","label":"Brief Diagnostic","script":"..."}}'
+        f']}}'
+    )
+    variants: list = []
+    try:
+        msg = _claude_create_with_retry(client,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1500,
+            messages=[{"role": "user", "content": variant_prompt}])
+        text = "".join(b.text for b in msg.content if hasattr(b, "text"))
+        m = re.search(r'\{[\s\S]*\}', text)
+        if m:
+            parsed = json.loads(m.group(0))
+            variants = parsed.get("variants") or []
+    except Exception as ex:
+        print(f"[CallBriefing] variants gen failed: {ex}", flush=True)
+        variants = []
+
+    # Populate result["variants"] and keep conversation_flow.opener in sync
+    # with variant 1 for backwards compat with legacy UI code.
+    if variants and isinstance(conversation_flow, dict) and conversation_flow:
+        conversation_flow["opener"] = variants[0].get("script", conversation_flow.get("opener", ""))
+    elif variants and not conversation_flow:
+        # No conversation_flow generated (Step 2 failed) — synthesize minimal one.
+        conversation_flow = {
+            "opener": variants[0].get("script", ""),
+            "discovery": [],
+            "pitch": "",
+            "close": "",
+        }
+
     if not (open_jobs or news or candidates or talking_points or conversation_flow):
         return None
 
@@ -37515,6 +37592,7 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
         "candidates": candidates,
         "talking_points": talking_points,
         "conversation_flow": conversation_flow,
+        "variants": variants,
     }
     camp["call_briefing"] = briefing
     try:
