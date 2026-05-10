@@ -18,7 +18,9 @@ def test_chooser_renders_5_options():
     assert "Target a Company" in src or "Target a Client" in src
     assert "Target a Market" in src
     assert "Target a Candidate" in src
-    assert "Saved Campaigns" in src or "Saved Sequences" in src
+    # Renamed 2026-05-10: 'Saved Campaigns' -> 'Saved Sequences' -> 'Drafts & Saved'
+    # to signal that wizard drafts also live behind this card.
+    assert "Drafts & Saved" in src or "Saved Sequences" in src or "Saved Campaigns" in src
     assert "Build from scratch" in src or "Build from Scratch" in src
 
 

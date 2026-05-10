@@ -15825,12 +15825,12 @@ def _sq_pick(s, rf):
             {
                 "key": "saved",
                 "icon": "📁",
-                "title": "Saved Sequences",
-                "subtitle": "Re-use a prior sequence",
-                "desc": ("Load a sequence from your library. Pick what worked before, "
-                         "swap in a fresh contact list, send. Fast path for repeat "
-                         "outreach motions."),
-                "best_for": ["Repeat outreach", "Proven cadences", "Quick re-runs"],
+                "title": "Drafts & Saved",
+                "subtitle": "Resume in-progress or re-use a finished sequence",
+                "desc": ("Pick up a draft you started earlier, or load a sequence "
+                         "from your library. Swap in a fresh contact list and send. "
+                         "Fast path for repeat outreach and unfinished work."),
+                "best_for": ["Resume drafts", "Repeat outreach", "Proven cadences"],
                 "border": "#60A5FA",
             },
             {
