@@ -186,15 +186,45 @@ def _healthz():
 
 @app.get("/pdfs/{filename:path}")
 def _serve_pdf(filename: str, request: Request):
-    """PDF serving. On desktop (single-user mode) serves from the local
-    PDFs/ directory without auth. On the cloud server, requires a valid
-    signed session cookie and only serves files from THAT user's per-user
-    PDFs/ directory."""
+    """Attachment serving. On desktop (single-user mode) serves from the
+    local PDFs/ directory without auth. On the cloud server, requires a
+    valid signed session cookie and only serves files from THAT user's
+    per-user PDFs/ directory.
+
+    Despite the route name, serves ALL allowed attachment file types
+    (PDF, Word, Excel, PowerPoint, images, text/CSV/RTF) — they all live
+    in the same per-user PDFs directory regardless of extension. The
+    /pdfs/ prefix is kept for backward compat with existing campaign
+    JSONs that reference attachments by that URL."""
     # Block obvious path traversal before doing any work
     if "/" in filename or "\\" in filename or ".." in filename:
         return Response(status_code=404)
-    if not filename.lower().endswith(".pdf"):
+    # Reject anything outside the allowed attachment extension list
+    _ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if _ext not in _ALLOWED_ATTACHMENT_EXTS:
         return Response(status_code=404)
+    # Resolve the right media type. mimetypes covers the standard set;
+    # we explicitly map a few that mimetypes misses or returns wrong on
+    # some platforms (Windows registry-driven results vary).
+    import mimetypes as _mt
+    _media_type = _mt.guess_type(filename)[0] or "application/octet-stream"
+    _ext_overrides = {
+        "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "doc":  "application/msword",
+        "xls":  "application/vnd.ms-excel",
+        "ppt":  "application/vnd.ms-powerpoint",
+        "pdf":  "application/pdf",
+        "rtf":  "application/rtf",
+        "csv":  "text/csv",
+        "txt":  "text/plain",
+        "odt":  "application/vnd.oasis.opendocument.text",
+        "ods":  "application/vnd.oasis.opendocument.spreadsheet",
+        "odp":  "application/vnd.oasis.opendocument.presentation",
+    }
+    if _ext in _ext_overrides:
+        _media_type = _ext_overrides[_ext]
 
     # Desktop mode: single user, no auth, serve from the global _user_pdf_dir()
     if not _SERVER_MODE:
@@ -203,7 +233,7 @@ def _serve_pdf(filename: str, request: Request):
             if local_path.is_file():
                 return FileResponse(
                     str(local_path),
-                    media_type="application/pdf",
+                    media_type=_media_type,
                     headers={"Cache-Control": "private, max-age=300"},
                 )
         except Exception:
@@ -259,7 +289,7 @@ def _serve_pdf(filename: str, request: Request):
         return Response(status_code=404)
     return FileResponse(
         str(pdf_path),
-        media_type="application/pdf",
+        media_type=_media_type,
         headers={"Cache-Control": "private, max-age=300"},
     )
 
