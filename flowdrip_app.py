@@ -961,6 +961,108 @@ _CURRENT_USER_EMAIL: ContextVar = ContextVar("_current_user_email", default="")
 _install_excepthooks()
 
 
+# ── Per-industry market stats cache ─────────────────────────────────────
+# Shared across all users (market data is public). 30-day TTL. Hydrated
+# via web_search when an industry is queried for the first time. Used by
+# the call / voicemail / LinkedIn variant generators to anchor scripts
+# in real market data ("fill windows have stretched to 50-65 days")
+# without making a separate web search per script generation.
+_MARKET_STATS_CACHE_PATH = _BASE_DATA_DIR / "market_stats_cache.json"
+_MARKET_STATS_TTL_DAYS = 30
+
+
+def _load_market_stats_cache() -> dict:
+    if not _MARKET_STATS_CACHE_PATH.exists():
+        return {}
+    try:
+        return json.loads(_MARKET_STATS_CACHE_PATH.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _save_market_stats_cache(cache: dict) -> None:
+    try:
+        _MARKET_STATS_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = _MARKET_STATS_CACHE_PATH.with_suffix(".tmp")
+        tmp.write_text(json.dumps(cache, indent=2), encoding="utf-8")
+        tmp.replace(_MARKET_STATS_CACHE_PATH)
+    except Exception as ex:
+        print(f"[MarketStatsCache] save failed: {ex}", flush=True)
+
+
+def _market_stats_for_industry(industry: str) -> dict | None:
+    """Return market stats for `industry`, refreshing via web search if
+    the cached entry is stale or missing. Returns None if no API key
+    is available (cache miss can't be filled).
+
+    Cache shape:
+        {
+          "<industry-key>": {
+            "fill_window_days": "50 to 65",
+            "trend_summary": "fill windows have stretched this year",
+            "_cached_at": "2026-05-10T12:00:00"
+          },
+          ...
+        }
+    """
+    if not industry:
+        return None
+    key = industry.strip().lower()
+    cache = _load_market_stats_cache()
+    entry = cache.get(key)
+    if entry:
+        try:
+            cached_at = entry.get("_cached_at", "")
+            cached_dt = datetime.fromisoformat(cached_at)
+            age_days = (datetime.now() - cached_dt).days
+            if age_days < _MARKET_STATS_TTL_DAYS:
+                return entry
+        except Exception:
+            pass
+    if not ANTHROPIC_API_KEY:
+        return None
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=ANTHROPIC_API_KEY)
+    except Exception as ex:
+        print(f"[MarketStatsCache] Anthropic init failed: {ex}", flush=True)
+        return None
+    prompt = (
+        f"Use web_search to find current 2026 hiring-market stats for the "
+        f"{industry} industry in the United States. Search bls.gov, "
+        f"linkedin.com, and indeed.com. Return ONLY valid JSON in this "
+        f"exact shape:\n"
+        f'{{"fill_window_days": "<typical days to fill a senior role, '
+        f'e.g. \\"50 to 65\\">", "trend_summary": "<one sentence on '
+        f'whether the market is tightening or loosening>"}}\n\n'
+        f"If you cannot find specific numbers, return: "
+        f'{{"fill_window_days": "", "trend_summary": ""}}'
+    )
+    try:
+        msg = _claude_create_with_retry(client,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=500,
+            tools=[_safe_web_search_tool(max_uses=3)],
+            messages=[{"role": "user", "content": prompt}])
+        text = "".join(b.text for b in msg.content if hasattr(b, "text"))
+    except Exception as ex:
+        print(f"[MarketStatsCache] web search failed for {industry}: {ex}", flush=True)
+        return None
+    try:
+        m = re.search(r'\{[^{}]*\}', text, re.DOTALL)
+        if not m:
+            return None
+        data = json.loads(m.group(0))
+    except Exception:
+        return None
+    if not isinstance(data, dict):
+        return None
+    data["_cached_at"] = datetime.now().isoformat(timespec="seconds")
+    cache[key] = data
+    _save_market_stats_cache(cache)
+    return data
+
+
 def _resolve_user_root(email: str = None):
     """Build the per-user data directory path from an email. Doesn't touch
     any module state  -  purely a path computation.
