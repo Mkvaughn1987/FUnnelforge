@@ -8030,6 +8030,14 @@ body,.nicegui-content{{background:{C['bg']} !important;font-family:'Segoe UI',sy
 .fd-ni{{padding:9px 18px;font-size:13px;color:{C['muted']};cursor:pointer;border-left:3px solid transparent;display:flex;align-items:center;gap:8px;transition:all .15s;user-select:none}}
 .fd-ni:hover{{color:{C['text']};background:rgba(255,255,255,.03)}}
 .fd-ni.on{{color:{C['teal']};border-left-color:{C['teal']};background:{C['teal_dim']};font-weight:500}}
+/* CTA variant — applied only to "Start a Sequence" so first-time users
+   know where to start. Filled teal pill, white text, slightly bigger
+   icon + padding. The .on state still works (slightly darker tint to
+   indicate the user is currently on that page). */
+.fd-ni-cta{{margin:6px 12px 8px;padding:11px 14px;border-radius:8px;background:{C['teal']};color:#fff !important;font-weight:600;font-size:13px;border-left:none !important;box-shadow:0 2px 6px rgba(20,184,166,0.25);transition:all .15s}}
+.fd-ni-cta:hover{{background:{C['teal']};filter:brightness(1.08);box-shadow:0 3px 10px rgba(20,184,166,0.35);color:#fff !important}}
+.fd-ni-cta.on{{background:{C['teal']};filter:brightness(0.92);color:#fff !important;border-left:none !important}}
+.fd-ni-cta > *:first-child{{font-size:16px !important;width:18px !important}}
 .fd-ver{{padding:10px 18px;font-size:11px;color:{C['muted']};border-top:1px solid {C['border']};margin-top:auto}}
 .fd-pg{{flex:1;overflow-y:auto;padding:24px 28px;width:100%;box-sizing:border-box}}
 .fd-pi{{width:100%;max-width:100%}}
@@ -10687,7 +10695,12 @@ def sidebar(s: AppState, rf):
                 or (key == "company_profile" and not _setup.get("company", True))
                 or (key == "timezone" and not _setup.get("timezone", True))
             )
-            _ni = ui.element("div").classes("fd-ni" + (" on" if cur == key else "")).on("click", _go)
+            # Promote "Start a Sequence" to a filled-pill CTA so first-
+            # time users know where to start. All other items render as
+            # normal sidebar entries.
+            _is_cta = (key == "start_seq")
+            _ni_classes = "fd-ni" + (" on" if cur == key else "") + (" fd-ni-cta" if _is_cta else "")
+            _ni = ui.element("div").classes(_ni_classes).on("click", _go)
             # Tag nav items the onboarding tour needs to point at so we can
             # find them from JS regardless of label/icon changes later.
             if key in ("ai_settings", "start_seq", "dashboard", "contacts"):
