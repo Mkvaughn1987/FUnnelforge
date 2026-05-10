@@ -13217,6 +13217,30 @@ def _sq_loaded_campaign(s: AppState, rf):
                             attachments=[], tags=[], script_notes="",
                             touch_number=0, channel=ch_map.get(stype, "email"),
                         )
+                        # LinkedIn placement guardrails (soft warnings, not hard blocks).
+                        # Per 2026-05-10 directive: each sequence should have exactly
+                        # one LI step at position 2. The wizard lets users override,
+                        # but warns first so the convention is visible.
+                        if stype == ST.LINKEDIN:
+                            existing_emails = sum(1 for st in steps if st.get("step_type") in (ST.EMAIL_AUTO, ST.EMAIL_MANUAL))
+                            existing_li = sum(1 for st in steps if st.get("step_type") == ST.LINKEDIN)
+                            if existing_li >= 1:
+                                ui.notify(
+                                    "You already have a LinkedIn touch in this sequence. "
+                                    "Adding a second one may dilute response. Continuing "
+                                    "anyway — remove it later if you change your mind.",
+                                    type="warning", timeout=6000,
+                                )
+                            # If user is inserting LI at position 0 (Beginning) AND has
+                            # at least one email already, warn that LI before email 1
+                            # rarely lands well.
+                            if pos == 0 and existing_emails >= 1:
+                                ui.notify(
+                                    "Heads up — placing a LinkedIn touch BEFORE your "
+                                    "first email is unusual. Cold LI connects without "
+                                    "context typically convert worse than after email 1.",
+                                    type="warning", timeout=6000,
+                                )
                         insert_idx = pos  # 0 = insert at start, N = insert after index N-1
                         steps.insert(insert_idx, new_step)
                         # Renumber

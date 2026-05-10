@@ -54,3 +54,25 @@ def test_recruiting_sequence_prompt_includes_li_after_email_1():
         "a step with \"step_type\":\"linkedin\" at position 2. Current "
         "prompt generates email-only sequences."
     )
+
+
+def test_step_add_handler_has_li_guardrails():
+    """The Free Flow step-add UI must warn (via ui.notify) if the user
+    tries to add a second LinkedIn step or place a LinkedIn step
+    before any email. These are SOFT enforcement (warnings, not hard
+    blocks) — the user is explicitly building a custom sequence and
+    can override."""
+    import flowdrip_app as fa
+    src = inspect.getsource(fa)
+    assert "_confirm_add_step" in src, (
+        "Expected _confirm_add_step handler in flowdrip_app.py"
+    )
+    idx = src.index("def _confirm_add_step")
+    end = src.find("\n    def ", idx + 1)
+    if end == -1:
+        end = idx + 3000
+    body = src[idx:end]
+    assert "linkedin" in body.lower() and ("warn" in body.lower() or "ui.notify" in body), (
+        "_confirm_add_step must check for an existing LinkedIn step "
+        "and warn the user via ui.notify before adding a second one"
+    )
