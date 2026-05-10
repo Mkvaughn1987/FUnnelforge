@@ -65,3 +65,26 @@ def test_step_preset_continue_requires_selection():
     import flowdrip_app as fa
     src = inspect.getsource(fa._tc_render_step_preset)
     assert "tc_preset" in src
+
+
+def test_step_generate_emits_campaign_with_correct_cadence():
+    """The generation step source must reference all 3 non-custom
+    preset keys, call save_campaign, and use the JD context."""
+    import flowdrip_app as fa
+    src = inspect.getsource(fa._tc_render_step_generate)
+    assert "one_email" in src
+    assert "two_emails_1day" in src
+    assert "three_emails_3days" in src
+    assert "save_campaign" in src
+    assert "tc_jd_text" in src or "tc_jd_parsed" in src
+
+
+def test_step_generate_uses_run_as_user_helper():
+    """The generation thread must use _run_as_user for per-user binding
+    (Phase 0 regression net)."""
+    import flowdrip_app as fa
+    src = inspect.getsource(fa._tc_render_step_generate)
+    assert "_run_as_user" in src, (
+        "Generation worker must use _run_as_user(s._user_email, _run, "
+        "name=...) for per-user thread binding (Phase 0 enforced)"
+    )

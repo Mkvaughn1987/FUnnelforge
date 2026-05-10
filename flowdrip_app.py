@@ -31534,11 +31534,181 @@ def _tc_render_step_preset(s: AppState, rf):
 
 
 def _tc_render_step_generate(s: AppState, rf):
-    """Step 4: placeholder. Filled in by Task 8."""
     ui.label("Step 4 - Generate").style(
-        f"font-size:18px;font-weight:700;color:{C['ink']};margin-bottom:12px;")
-    ui.label("(Step 4 wizard UI lands in Task 8.)").style(
-        f"font-size:13px;color:{C['muted']};")
+        f"font-size:18px;font-weight:700;color:{C['ink']};margin-bottom:6px;")
+    ui.label("AI writes the sequence using your JD as context. After "
+             "generation you'll land in the email editor for review.").style(
+        f"font-size:13px;color:{C['muted']};margin-bottom:18px;")
+
+    # Summary card
+    role = s.tc_jd_parsed.get("role_title", "(role from JD)")
+    seniority = s.tc_jd_parsed.get("seniority", "")
+    cand_n = len(s.tc_candidates)
+    preset_labels = {
+        "one_email": "1 email, sent at 9 AM",
+        "two_emails_1day": "2 emails, 9 AM + 2 PM same day",
+        "three_emails_3days": "3 emails, 1/day at 9 AM for 3 days",
+    }
+    preset_label = preset_labels.get(s.tc_preset, s.tc_preset)
+
+    with ui.element("div").style(
+            f"background:{C['teal_dim']};border:1px solid {C['teal']}40;"
+            f"border-radius:8px;padding:14px 18px;margin-bottom:18px;"):
+        ui.label(f"Role: {role} {f'({seniority})' if seniority else ''}").style(
+            f"font-size:13px;font-weight:600;color:{C['ink']};")
+        ui.label(f"Candidates: {cand_n}").style(
+            f"font-size:13px;color:{C['ink']};margin-top:4px;")
+        ui.label(f"Cadence: {preset_label}").style(
+            f"font-size:13px;color:{C['ink']};margin-top:4px;")
+
+    if s.tc_error:
+        ui.label(s.tc_error).style(
+            f"font-size:12px;color:{C['bad']};margin-bottom:8px;")
+
+    if s.tc_generating:
+        with ui.element("div").style(
+                f"background:{C['teal_dim']};border-radius:10px;"
+                f"padding:32px;text-align:center;margin-bottom:18px;"):
+            ui.spinner("dots", size="48px", color=C["teal"])
+            ui.label("Generating sequence...").style(
+                f"font-size:14px;font-weight:600;color:{C['teal']};margin-top:12px;")
+            ui.label("This usually takes 15-30 seconds.").style(
+                f"font-size:12px;color:{C['muted']};margin-top:4px;")
+
+    def _on_generate():
+        if s.tc_generating:
+            return
+        s.tc_generating = True
+        s.tc_error = ""
+        rf()
+
+        def _run():
+            try:
+                # Build the cadence per preset
+                if s.tc_preset == "one_email":
+                    steps_meta = [{"delay_days": 0, "time": "9:00 AM"}]
+                elif s.tc_preset == "two_emails_1day":
+                    steps_meta = [
+                        {"delay_days": 0, "time": "9:00 AM"},
+                        {"delay_days": 0, "time": "2:00 PM"},
+                    ]
+                elif s.tc_preset == "three_emails_3days":
+                    steps_meta = [
+                        {"delay_days": 0, "time": "9:00 AM"},
+                        {"delay_days": 1, "time": "9:00 AM"},
+                        {"delay_days": 2, "time": "9:00 AM"},
+                    ]
+                else:
+                    steps_meta = [{"delay_days": 0, "time": "9:00 AM"}]
+
+                role_title = s.tc_jd_parsed.get("role_title", "this role")
+                key_skills = ", ".join((s.tc_jd_parsed.get("key_skills") or [])[:5])
+                seniority = s.tc_jd_parsed.get("seniority", "")
+                comp = s.tc_jd_parsed.get("comp_range", "")
+                location = s.tc_jd_parsed.get("location", "")
+
+                from anthropic import Anthropic
+                client = Anthropic(api_key=ANTHROPIC_API_KEY)
+
+                prompt = (
+                    f"Write {len(steps_meta)} candidate-outreach emails "
+                    f"for a recruiter pitching the role of {role_title} "
+                    f"({seniority}) to passive candidates.\n\n"
+                    f"ROLE CONTEXT:\n"
+                    f"- Title: {role_title}\n"
+                    f"- Seniority: {seniority}\n"
+                    f"- Key skills: {key_skills}\n"
+                    f"- Comp: {comp or 'not specified'}\n"
+                    f"- Location: {location or 'not specified'}\n\n"
+                    f"FULL JD (excerpt):\n{s.tc_jd_text[:1500]}\n\n"
+                    f"CADENCE: {len(steps_meta)} emails over "
+                    f"{1 + max((m['delay_days'] for m in steps_meta), default=0)} day(s).\n\n"
+                    f"STRICT RULES:\n"
+                    f"- Address candidate as {{first_name}}.\n"
+                    f"- Respectful, no fake urgency. Treat them as a peer.\n"
+                    f"- Each email under 150 words.\n"
+                    f"- Subject lines distinct and specific.\n"
+                    f"- DO NOT use emoji or markdown.\n"
+                    f"- DO NOT include 'I came across your profile' or "
+                    f"similar template-feeling openers.\n\n"
+                    f"Return ONLY valid JSON:\n"
+                    f'{{"emails":['
+                    + ",".join(
+                        f'{{"name":"Step {i+1}","subject":"...",'
+                        f'"body":"Hi {{first_name}},<br><br>...",'
+                        f'"delay_days":{m["delay_days"]},'
+                        f'"time":"{m["time"]}",'
+                        f'"step_type":"email_auto"}}'
+                        for i, m in enumerate(steps_meta)
+                    )
+                    + "]}}"
+                )
+                msg = _claude_create_with_retry(client,
+                    model="claude-haiku-4-5-20251001",
+                    max_tokens=3000,
+                    messages=[{"role": "user", "content": prompt}])
+                text = "".join(b.text for b in msg.content if hasattr(b, "text"))
+                m = re.search(r'\{[\s\S]*\}', text)
+                if not m:
+                    raise ValueError("AI did not return parseable JSON")
+                parsed = json.loads(m.group(0))
+                emails = parsed.get("emails") or []
+                if len(emails) != len(steps_meta):
+                    raise ValueError(
+                        f"AI returned {len(emails)} emails, expected {len(steps_meta)}"
+                    )
+
+                # Build the campaign dict
+                if role_title and role_title != "this role":
+                    camp_name = f"Target a Candidate - {role_title}"
+                else:
+                    camp_name = f"Target a Candidate - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                camp = {
+                    "name": camp_name,
+                    "_owner_email": s._user_email,
+                    "_chooser_origin": "candidate",
+                    "synopsis": (
+                        f"Candidate outreach for {role_title}. "
+                        f"{len(s.tc_candidates)} candidates. "
+                        f"{preset_label}."
+                    ),
+                    "emails": emails,
+                    "market_sector": s.tc_jd_parsed.get("seniority", ""),
+                    "market_niche": role_title,
+                    "market_region": location,
+                    "tc_jd_parsed": s.tc_jd_parsed,
+                    "tc_candidates": s.tc_candidates,
+                }
+                save_campaign(camp)
+                # Load it as the active campaign and route to the email editor
+                s.loaded_camp = camp
+                s.loaded_view = "emails"
+                s.loaded_tab = 0
+                s.sp = "start_seq"
+                s._tab = "custom"
+                s.tc_generating = False
+                rf()
+            except Exception as ex:
+                s.tc_error = f"Generation failed: {ex}"
+                s.tc_generating = False
+                rf()
+
+        _run_as_user(s._user_email, _run, name="tc_generate_worker")
+
+    # Back / Generate
+    with ui.element("div").style(
+            "display:flex;justify-content:space-between;margin-top:6px;"):
+        def _back():
+            s.tc_step = 2
+            rf()
+        with ui.element("button").classes("fd-gb").style(
+                "padding:10px 22px;font-size:13px;").on("click", _back):
+            ui.label("<- Back").style("pointer-events:none;")
+        with ui.element("button").classes("fd-pb").style(
+                "padding:10px 28px;font-size:13px;"
+                + ("opacity:0.6;pointer-events:none;" if s.tc_generating else "")
+                ).on("click", _on_generate):
+            ui.label("Generate Sequence ->").style("pointer-events:none;")
 
 
 def p_pdf_gen(s: AppState, rf):
