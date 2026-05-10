@@ -15437,9 +15437,23 @@ def _sq_pick(s, rf):
         ui.label("Choose a Sequence Type").style(
             f"font-size:20px;font-weight:700;color:{C['text_l']};margin-bottom:8px;"
             f"font-family:'Nunito',sans-serif;")
-        ui.label("Pick the right starting place — each one is "
-                 "tuned for a different scenario.").style(
-            f"font-size:13px;color:{C['muted']};margin-bottom:24px;")
+        ui.label(
+            "Every sequence starts here. Pick the option that matches "
+            "what you're trying to do today, and the next page will walk "
+            "you through the rest. Not sure? Read the description on each "
+            "card — the icon color hints at the type of outreach. You can "
+            "always change direction or come back to this page later."
+        ).style(
+            f"font-size:13px;color:{C['muted']};margin-bottom:6px;line-height:1.55;")
+        ui.label(
+            "Going to a single company? Pick Target a Company. "
+            "Working a vertical or region? Target a Market. "
+            "Have a candidate to place? Target a Candidate. "
+            "Re-running something that worked? Saved Sequences. "
+            "Want full manual control? Build from scratch."
+        ).style(
+            f"font-size:12px;color:{C['muted']};margin-bottom:24px;line-height:1.55;"
+            f"font-style:italic;")
 
         CHOOSER_OPTIONS = [
             {
@@ -15447,8 +15461,8 @@ def _sq_pick(s, rf):
                 "icon": "🎯",
                 "title": "Target a Company",
                 "subtitle": "Land a specific account",
-                "desc": ("AI deep-research on a single named company — their open roles, "
-                         "recent news, project pipeline. Generates a hyper-personalized "
+                "desc": ("AI deep-research on a single named company. Reads their open roles, "
+                         "recent news, and project pipeline. Generates a hyper-personalized "
                          "7-week sequence aimed at one specific company."),
                 "best_for": ["Named accounts", "Account expansion", "Single-target outreach"],
                 "border": C["teal"],
@@ -15458,8 +15472,8 @@ def _sq_pick(s, rf):
                 "icon": "📊",
                 "title": "Target a Market",
                 "subtitle": "Cover an industry or region",
-                "desc": ("Build a sequence template for a market segment — industry, "
-                         "region, role family. Reusable across many similar companies. "
+                "desc": ("Build a sequence template for a market segment. Pick an industry, "
+                         "region, and role family. Reusable across many similar companies. "
                          "Best for prospect-list campaigns."),
                 "best_for": ["Industry plays", "Regional sweeps", "Bulk outreach"],
                 "border": "#A78BFA",
@@ -15469,7 +15483,7 @@ def _sq_pick(s, rf):
                 "icon": "👤",
                 "title": "Target a Candidate",
                 "subtitle": "Place a candidate or fill a role",
-                "desc": ("Guided wizard — paste a job description, upload candidates, "
+                "desc": ("Guided wizard. Paste a job description, upload candidates, "
                          "pick a cadence. AI generates outreach in your voice tuned to the "
                          "specific role you're filling."),
                 "best_for": ["Specific role hiring", "Candidate placement", "MPC outreach"],
@@ -15478,7 +15492,7 @@ def _sq_pick(s, rf):
             {
                 "key": "saved",
                 "icon": "📁",
-                "title": "Saved Campaigns",
+                "title": "Saved Sequences",
                 "subtitle": "Re-use a prior sequence",
                 "desc": ("Load a sequence from your library. Pick what worked before, "
                          "swap in a fresh contact list, send. Fast path for repeat "
