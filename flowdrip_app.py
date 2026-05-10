@@ -19373,114 +19373,6 @@ def _seed_evergreen_campaigns():
                          "delay_days": 185, "time": "9:00 AM", "step_type": "email_auto"},
                     ], variables={}, status="active", responders=[], created_date=date.today().isoformat()))
 
-    # ── Holiday Campaign ─────────────────────────────────────────────────────
-    _upsert(dict(schema=2, name="Holiday Campaign",
-                template_key="evergreen", template_name="Slow Drip",
-                evergreen_only=True, _seed_version=SEED_VERSION,
-                start_date=date.today().isoformat(),
-                contacts=[], contact_count=0, emails=[
-                        {"name": "St. Patrick's Day",
-                         "subject": "Happy St. Patrick's Day",
-                         "body": "Hi {FirstName},\n\nHappy St. Patrick\u2019s Day.\n\nHope the week is treating you well. Just wanted to drop a quick note \u2014 no agenda, just staying in touch.\n\nIf anything comes up on the hiring front, I\u2019m always happy to be a sounding board.\n\n",
-                         "holiday": "st_patricks",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Easter",
-                         "subject": "Happy Easter week",
-                         "body": "Hi {FirstName},\n\nHappy Easter week. Hope you get a chance to recharge.\n\nSpring always brings a lot of energy to teams \u2014 new projects, new goals. If you\u2019re thinking about adding to the team this quarter, feel free to reach out.\n\n",
-                         "holiday": "easter",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Tax Day",
-                         "subject": "Quick Tax Day note",
-                         "body": "Hi {FirstName},\n\nHope Tax Day is painless this year.\n\nOne thing I\u2019ve noticed working with hiring managers \u2014 the cost of an open seat adds up quietly. If you\u2019ve got a role that\u2019s been sitting, happy to share what we\u2019re seeing in the market.\n\n",
-                         "holiday": "tax_day",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Cinco de Mayo",
-                         "subject": "Happy Cinco de Mayo",
-                         "body": "Hi {FirstName},\n\nHappy Cinco de Mayo. Hope you\u2019re having a good week.\n\nJust a quick check-in \u2014 if your team is growing or you\u2019re thinking about what Q3 looks like, I\u2019m always here as a resource.\n\n",
-                         "holiday": "cinco_de_mayo",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Mother's Day",
-                         "subject": "Happy Mother's Day weekend",
-                         "body": "Hi {FirstName},\n\nQuick note to wish you a happy Mother\u2019s Day weekend.\n\nA lot of leaders I work with are juggling work, family, and everything in between. I respect the people who keep showing up and making time for what matters.\n\nThank you for the partnership.\n\n",
-                         "holiday": "mothers_day",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Memorial Day",
-                         "subject": "Happy Memorial Day",
-                         "body": "Hi {FirstName},\n\nHope you have a great Memorial Day weekend.\n\nSummer moves fast \u2014 if there\u2019s anything on your radar for the team before things get busy, don\u2019t hesitate to reach out.\n\n",
-                         "holiday": "memorial_day",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Juneteenth",
-                         "subject": "Happy Juneteenth",
-                         "body": "Hi {FirstName},\n\nHappy Juneteenth. Hope you and your team have a meaningful day.\n\nAlways here if you want to connect.\n\n",
-                         "holiday": "juneteenth",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Father's Day",
-                         "subject": "Happy Father's Day weekend",
-                         "body": "Hi {FirstName},\n\nWishing you a happy Father\u2019s Day weekend.\n\nAppreciate the partnership and the trust. Hope you get some time to enjoy the weekend.\n\n",
-                         "holiday": "fathers_day",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Independence Day",
-                         "subject": "Happy 4th of July",
-                         "body": "Hi {FirstName},\n\nHappy July 4th. Hope you and your family have a great holiday.\n\nIf you\u2019re thinking about any moves for Q3 hiring, I\u2019m always a phone call away.\n\n",
-                         "holiday": "independence_day",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Labor Day",
-                         "subject": "Happy Labor Day",
-                         "body": "Hi {FirstName},\n\nHappy Labor Day. Hope you get a chance to recharge before the fall push.\n\nSeptember always brings momentum \u2014 if you\u2019re planning any hires before year-end, I\u2019d love to help.\n\n",
-                         "holiday": "labor_day",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Columbus/Indigenous Peoples Day",
-                         "subject": "Quick October check-in",
-                         "body": "Hi {FirstName},\n\nHope October is off to a good start.\n\nJust wanted to stay on your radar \u2014 if anything changes on the hiring front, I\u2019m here.\n\n",
-                         "holiday": "columbus_day",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Halloween",
-                         "subject": "Happy Halloween",
-                         "body": "Hi {FirstName},\n\nHappy Halloween week.\n\nQ4 moves fast. If you\u2019ve got roles you want buttoned up before the holidays, now\u2019s the time. Happy to chat anytime.\n\n",
-                         "holiday": "halloween",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Election Day",
-                         "subject": "Quick note",
-                         "body": "Hi {FirstName},\n\nHope the week is going well. Just staying in touch \u2014 always here if you want to connect.\n\n",
-                         "holiday": "election_day",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Veterans Day",
-                         "subject": "Veterans Day",
-                         "body": "Hi {FirstName},\n\nOn Veterans Day, just wanted to express gratitude for those who served and the families who supported them.\n\nIf you have veterans on your team, thank you for creating a place where their experience matters.\n\nWishing you a meaningful day.\n\n",
-                         "holiday": "veterans_day",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Thanksgiving",
-                         "subject": "Grateful for the partnership",
-                         "body": "Hi {FirstName},\n\nHappy Thanksgiving.\n\nJust wanted to say thank you for the partnership and trust. It means a lot.\n\nWishing you a great holiday with the people you care about.\n\n",
-                         "holiday": "thanksgiving",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Black Friday",
-                         "subject": "Hope you survived Black Friday",
-                         "body": "Hi {FirstName},\n\nHope you had a great Thanksgiving and survived Black Friday in one piece.\n\nIf year-end hiring is still on your mind, I\u2019m around all month. Happy to help.\n\n",
-                         "holiday": "black_friday",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Cyber Monday",
-                         "subject": "Quick Monday note",
-                         "body": "Hi {FirstName},\n\nHope you had a restful weekend. Just a quick note \u2014 if you\u2019re wrapping up any hiring decisions before the holidays, I\u2019m here if you need anything.\n\n",
-                         "holiday": "cyber_monday",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Christmas Eve",
-                         "subject": "Merry Christmas Eve",
-                         "body": "Hi {FirstName},\n\nMerry Christmas Eve. Hope you and your team are winding down and enjoying the season.\n\nThank you for the trust this year. Looking forward to a great year ahead.\n\n",
-                         "holiday": "christmas_eve",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Christmas Day",
-                         "subject": "Merry Christmas",
-                         "body": "Hi {FirstName},\n\nMerry Christmas to you and your family. Thank you for the partnership. I appreciate you.\n\n",
-                         "holiday": "christmas_day",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "New Year's Eve",
-                         "subject": "Happy New Year",
-                         "body": "Hi {FirstName},\n\nHappy New Year\u2019s Eve. Hope this year was a good one.\n\nIf anything is on the horizon for Q1 hiring, I\u2019d love to help you get a head start. Wishing you a strong start to the new year.\n\n",
-                         "holiday": "new_years_eve",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                    ], variables={}, status="active", responders=[], created_date=date.today().isoformat()))
-
     # Monthly Prospect Drip  -  REMOVED. Users create their own newsletters.
     # Auto-delete the seed if it exists and has no enrolled contacts.
     _mpd = by_name.get("Monthly Prospect Drip")
@@ -19489,6 +19381,17 @@ def _seed_evergreen_campaigns():
             delete_campaign("Monthly Prospect Drip")
         except Exception:
             pass
+
+    # Holiday Campaign / Holiday Sequence — REMOVED 2026-05-10. The
+    # newsletter feature now covers calendar-driven outreach (per user
+    # direction). Auto-delete any existing seed if no contacts enrolled.
+    for _legacy_name in ("Holiday Campaign", "Holiday Sequence"):
+        _legacy = by_name.get(_legacy_name)
+        if _legacy and not _legacy.get("contacts"):
+            try:
+                delete_campaign(_legacy_name)
+            except Exception:
+                pass
 
 
 
