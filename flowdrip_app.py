@@ -13800,61 +13800,79 @@ def _sq_loaded_campaign(s: AppState, rf):
                     # Add attachment  -  primary: upload any file from the user's
                     # computer (PDF/Word/Excel/images/etc). Secondary: pick from
                     # PDFs we've already generated for this campaign.
-                    def _handle_upload(e, idx=active):
+                    async def _handle_upload(e, idx=active):
+                        # NiceGUI's UploadEventArguments exposes the file
+                        # via e.file (a SpooledTemporaryFile-like wrapper
+                        # whose .read() is async). The older `.content`
+                        # attribute pattern doesn't exist in this version
+                        # — see _on_attach in the Build-from-scratch flow
+                        # for the canonical working pattern.
                         print(f"[Attach] _handle_upload fired for step {idx}", flush=True)
-                        _added: list = []
-                        _errors: list = []
-                        for f in e.files if hasattr(e, 'files') else [e]:
+                        try:
+                            raw_name = e.file.name if hasattr(e.file, 'name') else "attachment"
+                        except Exception:
+                            raw_name = "attachment"
+                        try:
+                            content = await e.file.read()
+                        except Exception as ex:
+                            print(f"[Attach] read error for {raw_name}: {ex}", flush=True)
                             try:
-                                raw_name = f.name if hasattr(f, 'name') else getattr(f, 'filename', 'attachment')
-                                content = f.read() if hasattr(f, 'read') else f.content.read()
-                                if not content:
-                                    _errors.append(f"{raw_name}: empty file")
-                                    continue
-                                if len(content) > _MAX_ATTACHMENT_BYTES:
-                                    _errors.append(f"{raw_name}: too large (25MB max)")
-                                    continue
-                                dest = _safe_attachment_path(
-                                    raw_name, _user_pdf_dir(),
-                                    _ALLOWED_ATTACHMENT_EXTS,
-                                    fallback="attachment",
-                                )
-                                if dest is None:
-                                    _errors.append(f"{raw_name}: file type not allowed")
-                                    continue
-                                dest.write_bytes(content)
-                                fname = dest.name
-                                steps[idx].setdefault("attachments", []).append(fname)
-                                _added.append(fname)
-                                print(f"[Attach] Uploaded {fname} "
-                                      f"({len(content)} bytes) to step {idx}", flush=True)
-                            except Exception as ex:
-                                _errors.append(f"{raw_name if 'raw_name' in dir() else 'file'}: {ex}")
-                                print(f"[Attach] Upload error: {ex}", flush=True)
-                        # Persist to disk so the attachment survives a page
-                        # reload (the in-memory mutation alone is fragile —
-                        # re-render paths that re-read s.loaded_camp from
-                        # disk would lose unsaved attachments).
-                        if _added:
+                                ui.notify(f"Upload failed: {ex}", type="negative", timeout=6000)
+                            except Exception:
+                                pass
+                            return
+                        if not content:
                             try:
-                                save_campaign(camp)
-                            except Exception as ex:
-                                print(f"[Attach] save_campaign failed: {ex}", flush=True)
+                                ui.notify(f"{raw_name}: empty file", type="warning")
+                            except Exception:
+                                pass
+                            return
+                        if len(content) > _MAX_ATTACHMENT_BYTES:
+                            try:
+                                ui.notify(f"{raw_name}: file too large (25MB max)",
+                                          type="negative")
+                            except Exception:
+                                pass
+                            return
+                        dest = _safe_attachment_path(
+                            raw_name, _user_pdf_dir(),
+                            _ALLOWED_ATTACHMENT_EXTS,
+                            fallback="attachment",
+                        )
+                        if dest is None:
                             try:
                                 ui.notify(
-                                    f"✓ Attached: {', '.join(_added)}",
-                                    type="positive", timeout=4000,
+                                    f"{raw_name}: file type not allowed (use PDF, "
+                                    f"Word, Excel, PowerPoint, text, CSV, or images)",
+                                    type="negative", timeout=6000,
                                 )
                             except Exception:
                                 pass
-                        if _errors:
+                            return
+                        try:
+                            dest.write_bytes(content)
+                        except Exception as ex:
+                            print(f"[Attach] write_bytes failed: {ex}", flush=True)
                             try:
-                                ui.notify(
-                                    "Upload error: " + "; ".join(_errors),
-                                    type="negative", timeout=8000,
-                                )
+                                ui.notify(f"Save failed: {ex}", type="negative")
                             except Exception:
                                 pass
+                            return
+                        fname = dest.name
+                        steps[idx].setdefault("attachments", []).append(fname)
+                        # Persist to disk so the attachment survives any
+                        # re-render path that re-reads s.loaded_camp.
+                        try:
+                            save_campaign(camp)
+                        except Exception as ex:
+                            print(f"[Attach] save_campaign failed: {ex}", flush=True)
+                        print(f"[Attach] Uploaded {fname} "
+                              f"({len(content)} bytes) to step {idx}", flush=True)
+                        try:
+                            ui.notify(f"✓ Attached: {fname}",
+                                      type="positive", timeout=4000)
+                        except Exception:
+                            pass
                         rf()
 
                     # ── Add Attachment — clean button row ──
