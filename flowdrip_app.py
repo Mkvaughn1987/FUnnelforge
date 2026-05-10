@@ -15251,7 +15251,7 @@ def _sq_campaign_wizard_header(s: AppState, rf):
         # user sees the whole journey before committing to a flow. Steps
         # aren't clickable yet — they're a preview, not a navigator.
         steps = [
-            ("pick",     "✦", "Choose Type",       "Pick how you want to build this campaign — template, from scratch, or saved."),
+            ("pick",     "✦", "Choose Type",       "Pick how you want to build this sequence — template, from scratch, or saved."),
             ("prompts",  "✎", "Personalise",       "Tell Claude about the role, market, and company so it can write targeted emails."),
             ("contacts", "👥","Add Contacts",       "Import a CSV or pick a saved list."),
             ("launch",   "🚀","Review & Launch",   "Generate the emails, review the sequence, then fire."),
@@ -15432,8 +15432,8 @@ def _sq_pick(s, rf):
             {
                 "key": "client",
                 "icon": "🎯",
-                "title": "Target a Client",
-                "subtitle": "Land a specific company",
+                "title": "Target a Company",
+                "subtitle": "Land a specific account",
                 "desc": ("AI deep-research on a single named company — their open roles, "
                          "recent news, project pipeline. Generates a hyper-personalized "
                          "7-week sequence aimed at one specific company."),
@@ -28078,36 +28078,12 @@ def p_ai_campaign(s: AppState, rf):
 
         return
 
-    # ── Chooser-origin banner ──────────────────────────────────────────────────
-    origin = getattr(s, "_chooser_origin", "")
-    if origin in ("client", "market"):
-        label = "Target a Client" if origin == "client" else "Target a Market"
-        sub = (
-            "Deep-researching a single named company."
-            if origin == "client"
-            else "Building a sequence template for an industry or region."
-        )
-        color = C["teal"] if origin == "client" else "#A78BFA"
-        with ui.element("div").style(
-                f"background:#fff;border:1px solid #E5E7EB;"
-                f"border-left:4px solid {color};border-radius:10px;"
-                f"padding:14px 18px;margin-bottom:18px;"
-                f"display:flex;justify-content:space-between;align-items:center;"):
-            with ui.element("div"):
-                ui.label(label).style(
-                    f"font-size:14px;font-weight:700;color:{color};")
-                ui.label(sub).style(
-                    f"font-size:12px;color:{C['muted']};margin-top:2px;")
-            def _dismiss():
-                s._chooser_origin = ""; rf()
-            with ui.element("button").style(
-                    f"padding:4px 10px;font-size:11px;border-radius:6px;"
-                    f"border:1px solid {C['muted']};background:transparent;"
-                    f"color:{C['muted']};cursor:pointer;font-family:inherit;"
-                    ).on("click", _dismiss):
-                ui.label("× Hide").style("pointer-events:none;")
+    # Chooser-origin banner removed 2026-05-10 — the chooser cards
+    # already labeled the choice clearly; the in-page banner was visual
+    # noise. The aicb_target_mode is still pre-set by the chooser, so the
+    # downstream wizard step picker is skipped.
 
-    # ── Step 1: Configure campaign ────────────────────────────────────────────
+    # ── Step 1: Configure sequence ────────────────────────────────────────────
     if s.aicb_step == 1:
         # ── Wizard chrome: progress bar + mode toggle ──────────────────
         # The full-page form confused new users ("where do I start?").
@@ -28232,7 +28208,7 @@ def p_ai_campaign(s: AppState, rf):
                 if _wiz_mode == "wizard"
                 else "margin:0;"
             )
-            ui.label("Create a Campaign").classes("fd-h1").style(_title_style)
+            ui.label("Create a Sequence").classes("fd-h1").style(_title_style)
             # Top Next visible on steps 1-3. Step 4 (Campaign style) shows
             # a top-right "✦ Generate Campaign →" instead of Next so users
             # always have a forward action visible regardless of which
@@ -28730,29 +28706,37 @@ def p_ai_campaign(s: AppState, rf):
                     s.aicb_target_mode = m
                     rf()
 
-                ui.label("I want to target...").style(
-                    f"font-size:10px;font-weight:700;color:{C['muted']};"
-                    f"text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;")
-                with ui.element("div").style(
-                        f"display:grid;grid-template-columns:1fr 1fr;gap:6px;"
-                        f"margin-bottom:12px;"):
-                    for _mk, _ml, _msub in [
-                        ("company", "A Company",  "One specific account"),
-                        ("market",  "A Market",   "An entire vertical / niche"),
-                    ]:
-                        _active = (_mode == _mk)
-                        with ui.element("div").style(
-                                f"background:{C['teal'] + '15' if _active else C['surface']};"
-                                f"border:1px solid {C['teal'] if _active else C['border']};"
-                                f"border-radius:8px;padding:8px 10px;cursor:pointer;"
-                                f"transition:all .12s;text-align:center;"
-                                ).on("click", lambda mk=_mk: _set_target_mode(mk)):
-                            ui.label(("● " if _active else "○ ") + _ml).style(
-                                f"font-size:12px;font-weight:700;"
-                                f"color:{C['teal'] if _active else C['text_l']};"
-                                f"font-family:'Nunito',sans-serif;margin-bottom:1px;")
-                            ui.label(_msub).style(
-                                f"font-size:10px;color:{C['muted']};line-height:1.3;")
+                # Hide the redundant Company/Market picker when the user
+                # came through the strategy chooser — _chooser_origin being
+                # set means they ALREADY answered this question one click
+                # ago. Showing it again is duplicative and confusing.
+                # Non-chooser entries (saved sequences, deep links) still
+                # see the picker so they can set the mode here.
+                _from_chooser = getattr(s, "_chooser_origin", "") in ("client", "market")
+                if not _from_chooser:
+                    ui.label("I want to target...").style(
+                        f"font-size:10px;font-weight:700;color:{C['muted']};"
+                        f"text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;")
+                    with ui.element("div").style(
+                            f"display:grid;grid-template-columns:1fr 1fr;gap:6px;"
+                            f"margin-bottom:12px;"):
+                        for _mk, _ml, _msub in [
+                            ("company", "A Company",  "One specific account"),
+                            ("market",  "A Market",   "An entire vertical / niche"),
+                        ]:
+                            _active = (_mode == _mk)
+                            with ui.element("div").style(
+                                    f"background:{C['teal'] + '15' if _active else C['surface']};"
+                                    f"border:1px solid {C['teal'] if _active else C['border']};"
+                                    f"border-radius:8px;padding:8px 10px;cursor:pointer;"
+                                    f"transition:all .12s;text-align:center;"
+                                    ).on("click", lambda mk=_mk: _set_target_mode(mk)):
+                                ui.label(("● " if _active else "○ ") + _ml).style(
+                                    f"font-size:12px;font-weight:700;"
+                                    f"color:{C['teal'] if _active else C['text_l']};"
+                                    f"font-family:'Nunito',sans-serif;margin-bottom:1px;")
+                                ui.label(_msub).style(
+                                    f"font-size:10px;color:{C['muted']};line-height:1.3;")
 
                 # PDF-connection hint: make it explicit that only the active-
                 # mode fields below appear on any attached PDFs. The "only"
