@@ -29478,7 +29478,12 @@ def p_ai_campaign(s: AppState, rf):
                                f'The user wants a CUSTOM sequence. Here is their description:\n'
                                f'{s.aicb_byos_desc}\n\n'
                                f'Design the sequence based on their instructions. Use step_type values: '
-                               f'email_auto, linkedin, call, task_general. Set appropriate delay_days.\n\n') +
+                               f'email_auto, linkedin, call, task_general. Set appropriate delay_days.\n\n'
+                               f'PLACEMENT RULES (these override the user description if there is conflict):\n'
+                               f'- Include EXACTLY ONE LinkedIn step at position 2, delay_days:1, '
+                               f'time:"10:00 AM". The first step must always be email_auto.\n'
+                               f'- Never place LinkedIn before any email step.\n'
+                               f'- Never include more than one LinkedIn step.\n\n') +
                             f'For LinkedIn steps, put the connection/DM message in the "body" field.\n'
                             f'For Call steps, put the call script in the "body" field.\n'
                             f'For Task steps, put the task instructions in the "body" field.\n\n'
