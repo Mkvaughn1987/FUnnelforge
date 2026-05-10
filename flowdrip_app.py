@@ -31051,6 +31051,91 @@ def _render_custom_pdf_modal(s: AppState, rf):
                             ui.label("✓ Generate the PDF")
 
 
+# ── Target-a-Candidate Wizard ────────────────────────────────────────────────
+
+def p_target_candidate(s: AppState, rf):
+    """Target a Candidate guided wizard. 4 steps:
+    1. JD upload/paste
+    2. Candidate CSV upload
+    3. Sequence preset choice
+    4. AI generation + handoff to email editor
+
+    Each step uses an `_tc_render_step_*` helper. Wizard state lives
+    in s.tc_step (0..3) and the s.tc_* AppState slots."""
+    with ui.element("div").style("max-width:920px;margin:0 auto;padding:24px;"):
+        # Stepper UI
+        steps_meta = [
+            {"label": "Job description"},
+            {"label": "Candidates"},
+            {"label": "Cadence"},
+            {"label": "Generate"},
+        ]
+        with ui.element("div").style(
+                "display:flex;gap:8px;margin-bottom:24px;align-items:center;"):
+            for i, meta in enumerate(steps_meta):
+                is_done = i < s.tc_step
+                is_current = i == s.tc_step
+                bg = C["teal"] if is_current else (C["good"] if is_done else "#E5E7EB")
+                fg = "#fff" if (is_current or is_done) else C["muted"]
+                with ui.element("div").style(
+                        "display:flex;align-items:center;gap:8px;"):
+                    ui.html(
+                        f"<div style='width:28px;height:28px;border-radius:50%;"
+                        f"background:{bg};color:{fg};display:flex;align-items:center;"
+                        f"justify-content:center;font-size:12px;font-weight:700;'>"
+                        f"{'&#10003;' if is_done else i+1}</div>"
+                    )
+                    ui.label(meta["label"]).style(
+                        f"font-size:12px;color:{C['ink'] if is_current else C['muted']};"
+                        f"font-weight:{600 if is_current else 400};")
+                if i < len(steps_meta) - 1:
+                    ui.html(
+                        "<div style='flex:0 0 30px;height:1px;background:#E5E7EB;'></div>"
+                    )
+
+        # Render current step
+        if s.tc_step == 0:
+            _tc_render_step_jd(s, rf)
+        elif s.tc_step == 1:
+            _tc_render_step_candidates(s, rf)
+        elif s.tc_step == 2:
+            _tc_render_step_preset(s, rf)
+        elif s.tc_step == 3:
+            _tc_render_step_generate(s, rf)
+
+
+def _tc_render_step_jd(s: AppState, rf):
+    """Step 1: placeholder. Filled in by Task 5."""
+    ui.label("Step 1 - Job description").style(
+        f"font-size:18px;font-weight:700;color:{C['ink']};margin-bottom:12px;")
+    ui.label("(Step 1 wizard UI lands in Task 5.)").style(
+        f"font-size:13px;color:{C['muted']};")
+
+
+def _tc_render_step_candidates(s: AppState, rf):
+    """Step 2: placeholder. Filled in by Task 6."""
+    ui.label("Step 2 - Candidates").style(
+        f"font-size:18px;font-weight:700;color:{C['ink']};margin-bottom:12px;")
+    ui.label("(Step 2 wizard UI lands in Task 6.)").style(
+        f"font-size:13px;color:{C['muted']};")
+
+
+def _tc_render_step_preset(s: AppState, rf):
+    """Step 3: placeholder. Filled in by Task 7."""
+    ui.label("Step 3 - Cadence").style(
+        f"font-size:18px;font-weight:700;color:{C['ink']};margin-bottom:12px;")
+    ui.label("(Step 3 wizard UI lands in Task 7.)").style(
+        f"font-size:13px;color:{C['muted']};")
+
+
+def _tc_render_step_generate(s: AppState, rf):
+    """Step 4: placeholder. Filled in by Task 8."""
+    ui.label("Step 4 - Generate").style(
+        f"font-size:18px;font-weight:700;color:{C['ink']};margin-bottom:12px;")
+    ui.label("(Step 4 wizard UI lands in Task 8.)").style(
+        f"font-size:13px;color:{C['muted']};")
+
+
 def p_pdf_gen(s: AppState, rf):
     """PDF Generator  -  create branded Market Pulse, Scorecard, and Tenure PDFs on demand."""
     _render_page_intro_strip(s, rf, "pdf_gen")
@@ -42898,6 +42983,7 @@ def render_page(s: AppState, rf):
             elif page == "pdf_gen":      p_pdf_gen(s, rf)
             elif page == "candidate_finder": p_candidate_finder(s, rf)
             elif page == "candidate_campaign": p_candidate_campaign(s, rf)
+            elif page == "target_candidate": p_target_candidate(s, rf)
             elif page == "recruiting":   p_recruiting_campaign(s, rf)
             elif page == "ai_settings":  p_ai_settings(s, rf)
             elif page == "timezone":     p_timezone(s, rf)
