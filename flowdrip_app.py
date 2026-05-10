@@ -28020,6 +28020,35 @@ def p_ai_campaign(s: AppState, rf):
 
         return
 
+    # ── Chooser-origin banner ──────────────────────────────────────────────────
+    origin = getattr(s, "_chooser_origin", "")
+    if origin in ("client", "market"):
+        label = "Target a Client" if origin == "client" else "Target a Market"
+        sub = (
+            "Deep-researching a single named company."
+            if origin == "client"
+            else "Building a sequence template for an industry or region."
+        )
+        color = C["teal"] if origin == "client" else "#A78BFA"
+        with ui.element("div").style(
+                f"background:#fff;border:1px solid #E5E7EB;"
+                f"border-left:4px solid {color};border-radius:10px;"
+                f"padding:14px 18px;margin-bottom:18px;"
+                f"display:flex;justify-content:space-between;align-items:center;"):
+            with ui.element("div"):
+                ui.label(label).style(
+                    f"font-size:14px;font-weight:700;color:{color};")
+                ui.label(sub).style(
+                    f"font-size:12px;color:{C['muted']};margin-top:2px;")
+            def _dismiss():
+                s._chooser_origin = ""; rf()
+            with ui.element("button").style(
+                    f"padding:4px 10px;font-size:11px;border-radius:6px;"
+                    f"border:1px solid {C['muted']};background:transparent;"
+                    f"color:{C['muted']};cursor:pointer;font-family:inherit;"
+                    ).on("click", _dismiss):
+                ui.label("× Hide").style("pointer-events:none;")
+
     # ── Step 1: Configure campaign ────────────────────────────────────────────
     if s.aicb_step == 1:
         # ── Wizard chrome: progress bar + mode toggle ──────────────────
