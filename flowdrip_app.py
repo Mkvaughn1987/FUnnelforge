@@ -8964,6 +8964,18 @@ class AppState:
         self._aicb_autofill_generating: bool = False
         self._aicb_autofill_err: str = ""
 
+        # Phase 2: Strategy Chooser + Target-a-Candidate wizard
+        self._chooser_origin: str = ""           # "client" | "market" | "" — set by chooser cards
+        self.tc_step: int = 0                    # 0..3 for the 4 wizard steps
+        self.tc_jd_text: str = ""                # raw JD text (uploaded or pasted)
+        self.tc_jd_filename: str = ""            # original filename if uploaded
+        self.tc_jd_parsed: dict = {}             # AI-extracted role metadata
+        self.tc_jd_generating: bool = False      # spinner during background AI parse
+        self.tc_candidates: list = []            # list of candidate dicts from CSV
+        self.tc_preset: str = ""                 # "one_email" | "two_emails_1day" | "three_emails_3days" | "custom"
+        self.tc_generating: bool = False         # spinner during sequence gen
+        self.tc_error: str = ""                  # last error message for the wizard
+
         # Job Match state
         self.cf_tab = "pool"           # "pool", "search", or "match_jd"
         # ── Match JD → Candidates (reverse search) ──
