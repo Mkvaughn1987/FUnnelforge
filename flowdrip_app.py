@@ -8853,7 +8853,7 @@ SALES_NAV = [
     ("🛡", "Existing Customers", "active_clients"),
     # ── Content & Tools ──────────────────────────
     (None, "CONTENT & TOOLS",   None),
-    ("📰", "Newsletters",       "newsletters"),
+    ("💧", "Slow Drip",         "evergreen"),
     ("📊", "Reports",           "pdf_gen"),
     ("🔍", "Candidates",        "candidate_finder"),
     # ── Settings ─────────────────────────────────
@@ -9440,7 +9440,7 @@ def nav_back_label(s: AppState) -> str:
         "start_seq": "Start a Campaign", "contacts": "Contact Lists",
         "active_camps": "Active Campaigns", "evergreen": "Slow Drip", "evergreen_create": "Slow Drip",
         "queue": "Email Queue",
-        "seq_mgr": "Manage Campaigns", "signature": "Email Signature",
+        "seq_mgr": "Current Campaigns", "signature": "Email Signature",
         "camp_gen": "Campaign Builder",
         "emails_build": "Emails", "sequence": "Sequence",
         "prev_launch": "Preview & Launch", "e_responses": "Campaign Radar",
@@ -10246,20 +10246,22 @@ def topbar(s: AppState, rf):
         def _camp_mgr():
             s._nav_history.clear()
             s.hub = "sales"; s.sp = "seq_mgr"; rf()
-        # Active state: each pill is mutually exclusive
-        _on_sales    = s.hub == "sales" and s.sp not in ("seq_mgr", "evergreen")
-        _on_emails   = s.hub == "emails"
-        _on_camp_mgr = s.hub == "sales" and s.sp == "seq_mgr"
-        def _evergreen():
+        def _newsletters():
             s._nav_history.clear()
-            s.hub = "sales"; s.sp = "evergreen"; rf()
-        _on_evergreen = s.hub == "sales" and s.sp == "evergreen"
+            s.hub = "sales"; s.sp = "newsletters"; rf()
+        # Active state: each pill is mutually exclusive. Newsletters
+        # replaces the old SlowDrip Sequence pill as the second button
+        # (Slow Drip moved to the sidebar 2026-05-10 per user feedback).
+        _on_sales       = s.hub == "sales" and s.sp not in ("seq_mgr", "newsletters")
+        _on_emails      = s.hub == "emails"
+        _on_camp_mgr    = s.hub == "sales" and s.sp == "seq_mgr"
+        _on_newsletters = s.hub == "sales" and s.sp == "newsletters"
         with ui.element("button").classes("fd-hub" + (" on" if _on_sales else "")).on("click", _sales):
             ui.label("Sales Hub")
+        with ui.element("button").classes("fd-hub" + (" on" if _on_newsletters else "")).on("click", _newsletters):
+            ui.label("Newsletters")
         with ui.element("button").classes("fd-hub" + (" on" if _on_camp_mgr else "")).on("click", _camp_mgr):
-            ui.label("Manage Campaigns")
-        with ui.element("button").classes("fd-hub" + (" on" if _on_evergreen else "")).on("click", _evergreen):
-            ui.label("SlowDrip Sequence")
+            ui.label("Current Campaigns")
         def _cf():
             s._nav_history.clear()
             s.hub = "sales"; s.sp = "candidate_finder"; rf()
