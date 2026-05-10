@@ -3562,7 +3562,7 @@ AICB_CAMPAIGN_TYPES = [
      "of experience, standout skill). Names withheld. End with an assumptive ask for time "
      "this week and a graceful out ('totally understand if the timing isn't right'). "
      "NO links, NO attachments, plain text only.\n"
-     "Step 2 - LinkedIn Connect (delay_days:0, step_type:linkedin) - connection message under 300 characters: "
+     "Step 2 - LinkedIn Connect (delay_days:1, step_type:linkedin) - connection message under 300 characters: "
      "'Sent you an email with a few candidate profiles for your team. Wanted to connect here as well. "
      "Happy to share market insights in your space.'\n"
      "Step 3 - The Bump email WITH CANDIDATE COMPANY-FIT ANGLE + Market Pulse PDF (delay_days:3, step_type:email_auto) - "
