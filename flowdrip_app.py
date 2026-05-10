@@ -15369,65 +15369,117 @@ STEP_TYPE_OPTIONS = [
 def _sq_pick(s, rf):
     """Landing: pick a sequence type  -  legacy-style big cards then into content."""
 
-    # ── LANDING: 4 sequence type cards ─────────────────────────────────────
+    # ── Strategy Chooser — 5 starting places ──────────────────────────────
     if not s._tab:
         ui.label("Choose a Sequence Type").style(
             f"font-size:20px;font-weight:700;color:{C['text_l']};margin-bottom:8px;"
             f"font-family:'Nunito',sans-serif;")
-        ui.label("Pick the right cadence for your outreach  -  each one is tuned for a different scenario.").style(
+        ui.label("Pick the right starting place — each one is "
+                 "tuned for a different scenario.").style(
             f"font-size:13px;color:{C['muted']};margin-bottom:24px;")
 
-        # "Custom Campaign" renamed to "Build from scratch" — the card
-        # key stays "custom" so saved campaigns and downstream code keep
-        # working. This flow is fully manual (no AI).
-        SEQ_CARDS = [
-            ("ai_campaign",   "AI Campaign Builder", "✦", C["teal"],
-             "AI-powered",
-             "Research a company with AI, then auto-generate a full 7-week email campaign "
-             "plus sales documents  -  market pulse, scorecards, comp checks, and more.",
-             "New prospects · company research · full campaign generation"),
-            ("recruiting",    "Recruitment Campaign", "🎯", "#8B5CF6",
-             "AI candidate outreach",
-             "Paste a job description or describe the role in your own words. AI builds a "
-             "candidate-outreach sequence tuned to the brief. Client names stay confidential.",
-             "Filling specific roles · candidate outreach · confidential client search"),
-            ("custom",        "Build from scratch",  "✏️", "#F59E0B",
-             "You write every email",
-             "Start with a blank slate. Add emails, calls, LinkedIn touches, and tasks in any "
-             "order you want, write each message yourself, and set your own cadence. No AI — "
-             "you're in full control.",
-             "Hand-crafted outreach · personal voice · non-standard cadences"),
-            ("saved",         "Saved Sequences",  "📂", "#60A5FA",
-             "Your library",
-             "Load a sequence you've saved from a previous campaign. "
-             "Re-use what worked  -  just upload a new contact list and run.",
-             "Repeat outreach · proven cadences · new contact lists"),
+        CHOOSER_OPTIONS = [
+            {
+                "key": "client",
+                "icon": "🎯",
+                "title": "Target a Client",
+                "subtitle": "Land a specific company",
+                "desc": ("AI deep-research on a single named company — their open roles, "
+                         "recent news, project pipeline. Generates a hyper-personalized "
+                         "7-week sequence aimed at one specific company."),
+                "best_for": ["Named accounts", "Account expansion", "Single-target outreach"],
+                "border": C["teal"],
+            },
+            {
+                "key": "market",
+                "icon": "📊",
+                "title": "Target a Market",
+                "subtitle": "Cover an industry or region",
+                "desc": ("Build a sequence template for a market segment — industry, "
+                         "region, role family. Reusable across many similar companies. "
+                         "Best for prospect-list campaigns."),
+                "best_for": ["Industry plays", "Regional sweeps", "Bulk outreach"],
+                "border": "#A78BFA",
+            },
+            {
+                "key": "candidate",
+                "icon": "👤",
+                "title": "Target a Candidate",
+                "subtitle": "Place a candidate or fill a role",
+                "desc": ("Guided wizard — paste a job description, upload candidates, "
+                         "pick a cadence. AI generates outreach in your voice tuned to the "
+                         "specific role you're filling."),
+                "best_for": ["Specific role hiring", "Candidate placement", "MPC outreach"],
+                "border": "#F472B6",
+            },
+            {
+                "key": "saved",
+                "icon": "📁",
+                "title": "Saved Campaigns",
+                "subtitle": "Re-use a prior sequence",
+                "desc": ("Load a sequence from your library. Pick what worked before, "
+                         "swap in a fresh contact list, send. Fast path for repeat "
+                         "outreach motions."),
+                "best_for": ["Repeat outreach", "Proven cadences", "Quick re-runs"],
+                "border": "#60A5FA",
+            },
+            {
+                "key": "scratch",
+                "icon": "✏️",
+                "title": "Build from scratch",
+                "subtitle": "You write every email",
+                "desc": ("Start with a blank slate. Add emails, calls, LinkedIn touches, "
+                         "tasks in any order. Write each message yourself. No AI. "
+                         "Full control."),
+                "best_for": ["Hand-crafted outreach", "Personal voice", "Non-standard cadences"],
+                "border": "#F59E0B",
+            },
         ]
 
         with ui.element("div").style("display:flex;flex-direction:column;gap:10px;max-width:860px;"):
-            for tab_key, name, icon, color, meta, desc, best in SEQ_CARDS:
-                def _pick(k=tab_key):
-                    if k == "recruiting":
+            for opt in CHOOSER_OPTIONS:
+                key = opt["key"]
+                def _pick(k=key):
+                    if k == "client":
                         s._nav_history.append(_nav_snapshot(s))
                         _reset_wizard_state(s)
-                        s.sp = "recruiting"
-                        s.rc_step = 0
-                        s.rc_custom_steps = []
-                    elif k == "ai_campaign":
-                        s._nav_history.append(_nav_snapshot(s))
-                        _reset_wizard_state(s)
+                        s._chooser_origin = "client"
+                        s.aicb_camp_type = "blitz"
                         s.sp = "ai_campaign"
-                        s.aicb_step = 1  # land on wizard
-                        s.aicb_wizard_step = 1  # fresh wizard start
+                        s.aicb_step = 1
+                        s.aicb_wizard_step = 1
                         s.aicb_type_picked = False
                         s.aicb_contacts = []
-                    else:
+                    elif k == "market":
+                        s._nav_history.append(_nav_snapshot(s))
                         _reset_wizard_state(s)
-                        s._tab = k
+                        s._chooser_origin = "market"
+                        s.aicb_camp_type = "talentdrop"
+                        s.sp = "ai_campaign"
+                        s.aicb_step = 1
+                        s.aicb_wizard_step = 1
+                        s.aicb_type_picked = False
+                        s.aicb_contacts = []
+                    elif k == "candidate":
+                        _reset_wizard_state(s)
+                        s.tc_step = 0
+                        s.tc_jd_text = ""
+                        s.tc_jd_parsed = {}
+                        s.tc_candidates = []
+                        s.tc_preset = ""
+                        s.sp = "target_candidate"
+                    elif k == "saved":
+                        _reset_wizard_state(s)
+                        s._tab = "saved"
+                    elif k == "scratch":
+                        _reset_wizard_state(s)
+                        s._chooser_origin = ""
+                        s.aicb_camp_type = "byos"
+                        s._tab = "custom"
                     rf()
                 with ui.element("div").style(
-                        f"background:{C['card']};border:1px solid {color}60;"
-                        f"border-left:4px solid {color};"
+                        f"background:{C['card']};border:1px solid {opt['border']}60;"
+                        f"border-left:4px solid {opt['border']};"
                         f"border-radius:0 12px 12px 0;padding:18px 20px;"
                         f"cursor:pointer;transition:background .15s;"
                         ).on("click", _pick):
@@ -15435,21 +15487,31 @@ def _sq_pick(s, rf):
                         # Icon badge
                         with ui.element("div").style(
                                 f"width:44px;height:44px;border-radius:10px;"
-                                f"background:{color}22;border:1px solid {color}60;"
+                                f"background:{opt['border']}22;border:1px solid {opt['border']}60;"
                                 f"display:flex;align-items:center;justify-content:center;flex-shrink:0;"):
-                            ui.label(icon).style("font-size:20px;")
+                            ui.label(opt["icon"]).style("font-size:20px;")
                         with ui.element("div").style("flex:1;min-width:0;"):
-                            with ui.element("div").style("display:flex;align-items:center;gap:12px;margin-bottom:4px;"):
-                                ui.label(name).style(
-                                    f"font-size:15px;font-weight:700;color:{color};"
+                            with ui.element("div").style(
+                                    "display:flex;align-items:center;gap:12px;margin-bottom:4px;"):
+                                ui.label(opt["title"]).style(
+                                    f"font-size:15px;font-weight:700;color:{opt['border']};"
                                     f"font-family:'Nunito',sans-serif;")
-                                ui.label(meta).style(f"font-size:12px;color:{C['muted']};")
-                            ui.label(desc).style(
+                                ui.label(opt["subtitle"]).style(
+                                    f"font-size:12px;color:{C['muted']};")
+                            ui.label(opt["desc"]).style(
                                 f"font-size:12px;color:{C['text']};line-height:1.6;margin-bottom:4px;")
-                            with ui.element("div").style("display:flex;align-items:center;gap:6px;"):
+                            with ui.element("div").style(
+                                    "display:flex;align-items:center;gap:6px;flex-wrap:wrap;"):
                                 ui.label("Best for:").style(f"font-size:11px;color:{C['muted']};")
-                                ui.label(best).style(f"font-size:11px;color:{color};font-weight:500;")
-                        ui.label("→").style(f"font-size:20px;color:{color};font-weight:700;flex-shrink:0;align-self:center;")
+                                for tag in opt["best_for"]:
+                                    ui.label(tag).style(
+                                        f"font-size:11px;color:{opt['border']};font-weight:500;")
+                                    if tag != opt["best_for"][-1]:
+                                        ui.label("·").style(
+                                            f"font-size:11px;color:{C['muted']};")
+                        ui.label("→").style(
+                            f"font-size:20px;color:{opt['border']};font-weight:700;"
+                            f"flex-shrink:0;align-self:center;")
 
         return
 
