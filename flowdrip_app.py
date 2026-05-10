@@ -6939,6 +6939,7 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
         try:
             _ffc.add_to_queue(queue_items, _user_queue_path())
             _cache_queue.invalidate()
+            _auto_remove_used_candidates(queue_items, camp_name)
             return len(queue_items)
         except Exception:
             pass
@@ -6957,7 +6958,45 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
     tmp.write_text(json.dumps(existing, indent=2, default=str), encoding="utf-8")
     tmp.replace(qp)
     _cache_queue.invalidate()
+    _auto_remove_used_candidates(new_items, camp_name)
     return len(new_items)
+
+
+def _auto_remove_used_candidates(queue_items: list, camp_name: str) -> int:
+    """Auto-remove pooled candidates once they're 'used' in a launched
+    campaign. Per user direction (2026-05-10): the Candidate Pool is
+    NOT an ATS — it's a working roster of people actively being placed.
+    First outreach = exit the pool.
+
+    Match candidates to queued contacts by email (case-insensitive).
+    Re-queues are a no-op for already-removed candidates.
+
+    Returns count of candidates removed (0 if no matches or on error)."""
+    try:
+        _used = {(item.get("to", "") or "").lower().strip() for item in queue_items}
+        _used.discard("")
+        if not _used:
+            return 0
+        _pool = load_candidate_pool()
+        _to_remove = [c for c in _pool
+                      if (c.get("email", "") or "").lower().strip() in _used]
+        for _c in _to_remove:
+            remove_candidate_from_pool(_c.get("id", ""))
+        if _to_remove:
+            print(f"[Candidates] Auto-removed {len(_to_remove)} from pool "
+                  f"(used in campaign {camp_name!r})", flush=True)
+            try:
+                ui.notify(
+                    f"✓ {len(_to_remove)} candidate(s) removed from your pool "
+                    f"— pitched in '{camp_name}'.",
+                    type="positive", timeout=6000,
+                )
+            except Exception:
+                pass  # background thread; no UI context
+        return len(_to_remove)
+    except Exception as ex:
+        print(f"[Candidates] Auto-remove failed: {ex}", flush=True)
+        return 0
 
 
 def load_config() -> dict:
@@ -31665,6 +31704,24 @@ def _tc_render_step_generate(s: AppState, rf):
                     camp_name = f"Target a Candidate - {role_title}"
                 else:
                     camp_name = f"Target a Candidate - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                # Wire tc_candidates into the campaign's contacts list so
+                # queue_campaign_emails has actual recipients to send to.
+                # Without this the campaign would launch empty. Field
+                # mapping mirrors the contact normalizer in queue_campaign.
+                _contacts = []
+                for _cand in (s.tc_candidates or []):
+                    _name = (_cand.get("name") or "").strip()
+                    _first = _name.split()[0] if _name else ""
+                    _last = " ".join(_name.split()[1:]) if len(_name.split()) > 1 else ""
+                    _contacts.append({
+                        "email": (_cand.get("email") or "").strip(),
+                        "first_name": _first,
+                        "last_name": _last,
+                        "company": (_cand.get("current_company") or "").strip(),
+                        "title": (_cand.get("current_title") or "").strip(),
+                        "linkedin": (_cand.get("linkedin_url") or "").strip(),
+                    })
+
                 camp = {
                     "name": camp_name,
                     "_owner_email": s._user_email,
@@ -31675,6 +31732,8 @@ def _tc_render_step_generate(s: AppState, rf):
                         f"{preset_label}."
                     ),
                     "emails": emails,
+                    "contacts": _contacts,
+                    "contact_count": len(_contacts),
                     "market_sector": s.tc_jd_parsed.get("seniority", ""),
                     "market_niche": role_title,
                     "market_region": location,
@@ -33283,9 +33342,11 @@ def _render_pool_explainer(s, rf, compact: bool = False):
                     ui.label("Hide" if _expanded else "Show me how it works")
 
         ui.label(
-            "Your Candidate Pool is a reusable roster of people you are actively trying to place. "
-            "Once someone is in the pool, you can plug them into any email campaign, newsletter "
-            "spotlight, or JD match run — no re-uploading, no re-typing, no lost context."
+            "Your Candidate Pool is a working roster of people you are actively trying to place. "
+            "Add candidates as you work them, plug them into any sequence, newsletter spotlight, or "
+            "JD match run. Once a candidate is included in a launched sequence they're automatically "
+            "removed from the pool — DripDrop is not an ATS, and the pool stays small so you focus "
+            "on people you haven't reached yet."
         ).style(
             f"font-size:12.5px;color:{C['muted']};line-height:1.55;margin-bottom:{'0' if compact and not _expanded else '14px'};")
 
