@@ -13801,31 +13801,60 @@ def _sq_loaded_campaign(s: AppState, rf):
                     # computer (PDF/Word/Excel/images/etc). Secondary: pick from
                     # PDFs we've already generated for this campaign.
                     def _handle_upload(e, idx=active):
+                        print(f"[Attach] _handle_upload fired for step {idx}", flush=True)
+                        _added: list = []
+                        _errors: list = []
                         for f in e.files if hasattr(e, 'files') else [e]:
                             try:
                                 raw_name = f.name if hasattr(f, 'name') else getattr(f, 'filename', 'attachment')
                                 content = f.read() if hasattr(f, 'read') else f.content.read()
                                 if not content:
-                                    ui.notify("Empty file.", type="warning"); continue
+                                    _errors.append(f"{raw_name}: empty file")
+                                    continue
                                 if len(content) > _MAX_ATTACHMENT_BYTES:
-                                    ui.notify("File too large (25 MB max).", type="negative"); continue
+                                    _errors.append(f"{raw_name}: too large (25MB max)")
+                                    continue
                                 dest = _safe_attachment_path(
                                     raw_name, _user_pdf_dir(),
                                     _ALLOWED_ATTACHMENT_EXTS,
                                     fallback="attachment",
                                 )
                                 if dest is None:
-                                    ui.notify(
-                                        "That file type isn't allowed.",
-                                        type="negative",
-                                    )
+                                    _errors.append(f"{raw_name}: file type not allowed")
                                     continue
                                 dest.write_bytes(content)
                                 fname = dest.name
                                 steps[idx].setdefault("attachments", []).append(fname)
-                                print(f"[Attach] Uploaded {fname} ({len(content)} bytes)")
+                                _added.append(fname)
+                                print(f"[Attach] Uploaded {fname} "
+                                      f"({len(content)} bytes) to step {idx}", flush=True)
                             except Exception as ex:
-                                print(f"[Attach] Upload error: {ex}")
+                                _errors.append(f"{raw_name if 'raw_name' in dir() else 'file'}: {ex}")
+                                print(f"[Attach] Upload error: {ex}", flush=True)
+                        # Persist to disk so the attachment survives a page
+                        # reload (the in-memory mutation alone is fragile —
+                        # re-render paths that re-read s.loaded_camp from
+                        # disk would lose unsaved attachments).
+                        if _added:
+                            try:
+                                save_campaign(camp)
+                            except Exception as ex:
+                                print(f"[Attach] save_campaign failed: {ex}", flush=True)
+                            try:
+                                ui.notify(
+                                    f"✓ Attached: {', '.join(_added)}",
+                                    type="positive", timeout=4000,
+                                )
+                            except Exception:
+                                pass
+                        if _errors:
+                            try:
+                                ui.notify(
+                                    "Upload error: " + "; ".join(_errors),
+                                    type="negative", timeout=8000,
+                                )
+                            except Exception:
+                                pass
                         rf()
 
                     # ── Add Attachment — clean button row ──
