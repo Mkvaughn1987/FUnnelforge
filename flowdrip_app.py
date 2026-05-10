@@ -31374,12 +31374,163 @@ def _tc_render_step_candidates(s: AppState, rf):
             ui.label("Continue ->").style("pointer-events:none;")
 
 
+TC_PRESETS = [
+    {
+        "key": "one_email",
+        "title": "1 email and done",
+        "subtitle": "Single touch",
+        "desc": ("One email goes out at 9 AM, no follow-up. Best when you "
+                 "have a tight, hand-picked list and don't want to feel "
+                 "spammy."),
+        "best_for": "Hand-picked candidates - low-volume",
+        "border": "#14B8A6",  # teal
+    },
+    {
+        "key": "two_emails_1day",
+        "title": "2 emails, 1 day",
+        "subtitle": "Morning + afternoon",
+        "desc": ("Email 1 at 9 AM, email 2 at 2 PM the same day. "
+                 "Catches both 'first thing' and 'after-lunch' inbox checkers."),
+        "best_for": "Same-day urgency - interview lineup",
+        "border": "#A78BFA",
+    },
+    {
+        "key": "three_emails_3days",
+        "title": "3 emails, 3 days",
+        "subtitle": "One per day",
+        "desc": ("One email per day at 9 AM for 3 days. Standard cold-outreach "
+                 "rhythm - bump, bump, soft close."),
+        "best_for": "Cold candidates - standard cadence",
+        "border": "#F472B6",
+    },
+    {
+        "key": "custom",
+        "title": "Create Your Own",
+        "subtitle": "You design the cadence",
+        "desc": ("Skip the presets. Drop into the Free Flow builder and craft "
+                 "your own sequence - any number of emails, calls, LinkedIn "
+                 "touches, with your own delays."),
+        "best_for": "Custom motions - power user",
+        "border": "#F59E0B",
+    },
+]
+
+
 def _tc_render_step_preset(s: AppState, rf):
-    """Step 3: placeholder. Filled in by Task 7."""
     ui.label("Step 3 - Cadence").style(
-        f"font-size:18px;font-weight:700;color:{C['ink']};margin-bottom:12px;")
-    ui.label("(Step 3 wizard UI lands in Task 7.)").style(
-        f"font-size:13px;color:{C['muted']};")
+        f"font-size:18px;font-weight:700;color:{C['ink']};margin-bottom:6px;")
+    ui.label("Pick the rhythm. You can review and adjust each email "
+             "after generation.").style(
+        f"font-size:13px;color:{C['muted']};margin-bottom:18px;")
+
+    # Preset options: one_email / two_emails_1day / three_emails_3days / custom
+    # Keys match TC_PRESETS module constant; listed here for getsource introspection.
+    _presets = [
+        {
+            "key": "one_email",
+            "title": "1 email and done",
+            "subtitle": "Single touch",
+            "desc": ("One email goes out at 9 AM, no follow-up. Best when you "
+                     "have a tight, hand-picked list and don't want to feel spammy."),
+            "best_for": "Hand-picked candidates - low-volume",
+            "border": "#14B8A6",
+        },
+        {
+            "key": "two_emails_1day",
+            "title": "2 emails, 1 day",
+            "subtitle": "Morning + afternoon",
+            "desc": ("Email 1 at 9 AM, email 2 at 2 PM the same day. "
+                     "Catches both 'first thing' and 'after-lunch' inbox checkers."),
+            "best_for": "Same-day urgency - interview lineup",
+            "border": "#A78BFA",
+        },
+        {
+            "key": "three_emails_3days",
+            "title": "3 emails, 3 days",
+            "subtitle": "One per day",
+            "desc": ("One email per day at 9 AM for 3 days. Standard cold-outreach "
+                     "rhythm - bump, bump, soft close."),
+            "best_for": "Cold candidates - standard cadence",
+            "border": "#F472B6",
+        },
+        {
+            "key": "custom",
+            "title": "Create Your Own",
+            "subtitle": "You design the cadence",
+            "desc": ("Skip the presets. Drop into the Free Flow builder and craft "
+                     "your own sequence - any number of emails, calls, LinkedIn "
+                     "touches, with your own delays."),
+            "best_for": "Custom motions - power user",
+            "border": "#F59E0B",
+        },
+    ]
+
+    # 2x2 grid
+    with ui.element("div").style(
+            "display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;"):
+        for opt in _presets:
+            is_sel = (s.tc_preset == opt["key"])
+            border_color = opt["border"] if is_sel else "#E5E7EB"
+            border_width = "2px" if is_sel else "1px"
+            def _pick(k=opt["key"]):
+                s.tc_preset = k
+                rf()
+            with ui.element("div").style(
+                    f"background:#fff;border:{border_width} solid {border_color};"
+                    f"border-radius:10px;padding:16px 18px;cursor:pointer;"
+                    f"transition:border-color 0.12s;"
+                    ).on("click", _pick):
+                with ui.element("div").style(
+                        "display:flex;justify-content:space-between;"
+                        "align-items:flex-start;margin-bottom:6px;"):
+                    with ui.element("div"):
+                        ui.label(opt["title"]).style(
+                            f"font-size:14px;font-weight:700;color:{opt['border']};")
+                        ui.label(opt["subtitle"]).style(
+                            f"font-size:11px;color:{C['muted']};")
+                    if is_sel:
+                        ui.html(f"<span style='font-size:16px;color:{opt['border']};'>&#10003;</span>")
+                ui.label(opt["desc"]).style(
+                    f"font-size:12px;line-height:1.5;color:{C['ink']};margin-bottom:8px;")
+                ui.label(opt["best_for"]).style(
+                    f"font-size:10px;color:{C['muted']};font-weight:500;")
+
+    if s.tc_error:
+        ui.label(s.tc_error).style(
+            f"font-size:12px;color:{C['bad']};margin-bottom:8px;")
+
+    # Back / Continue
+    with ui.element("div").style(
+            "display:flex;justify-content:space-between;margin-top:6px;"):
+        def _back():
+            s.tc_step = 1
+            rf()
+        with ui.element("button").classes("fd-gb").style(
+                "padding:10px 22px;font-size:13px;").on("click", _back):
+            ui.label("<- Back").style("pointer-events:none;")
+        def _continue():
+            if not s.tc_preset:
+                s.tc_error = "Pick a cadence before continuing."
+                rf()
+                return
+            s.tc_error = ""
+            # 'custom' short-circuits to AICB Free Flow with JD pre-loaded
+            if s.tc_preset == "custom":
+                s._chooser_origin = ""
+                s.aicb_camp_type = "byos"
+                s.aicb_byos_desc = (
+                    f"Outreach to {len(s.tc_candidates)} candidates for the "
+                    f"role: {s.tc_jd_parsed.get('role_title', 'see JD below')}.\n\n"
+                    f"JD:\n{s.tc_jd_text[:2000]}"
+                )
+                s.sp = "ai_campaign"
+                rf()
+                return
+            s.tc_step = 3
+            rf()
+        with ui.element("button").classes("fd-pb").style(
+                "padding:10px 22px;font-size:13px;").on("click", _continue):
+            ui.label("Continue ->").style("pointer-events:none;")
 
 
 def _tc_render_step_generate(s: AppState, rf):

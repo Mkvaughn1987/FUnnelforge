@@ -46,3 +46,22 @@ def test_step_candidates_continue_requires_at_least_one_candidate():
     import flowdrip_app as fa
     src = inspect.getsource(fa._tc_render_step_candidates)
     assert "tc_candidates" in src and "tc_step = 2" in src
+
+
+def test_step_preset_renderer_offers_four_options():
+    import flowdrip_app as fa
+    src = inspect.getsource(fa._tc_render_step_preset)
+    assert "one_email" in src
+    assert "two_emails_1day" in src
+    assert "three_emails_3days" in src
+    assert "custom" in src
+    assert "1 email" in src.lower() or "one email" in src.lower()
+    assert "2 emails" in src.lower() or "two emails" in src.lower()
+    assert "3 emails" in src.lower() or "three emails" in src.lower()
+    assert "create your own" in src.lower()
+
+
+def test_step_preset_continue_requires_selection():
+    import flowdrip_app as fa
+    src = inspect.getsource(fa._tc_render_step_preset)
+    assert "tc_preset" in src
