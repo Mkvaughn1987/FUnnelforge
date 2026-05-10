@@ -13828,20 +13828,34 @@ def _sq_loaded_campaign(s: AppState, rf):
                                 print(f"[Attach] Upload error: {ex}")
                         rf()
 
-                    with ui.element("div").style("display:flex;gap:10px;align-items:center;flex-wrap:wrap;"):
-                        # Primary: Add Attachment upload (any file type)
-                        ui.upload(
+                    # ── Add Attachment — clean button row ──
+                    # Hide the raw ui.upload (its Quasar default rendering is
+                    # essentially invisible against the dark theme — users
+                    # didn't see it as a button). Trigger pickFiles() from a
+                    # styled button instead. Same pattern as Bulk Import.
+                    with ui.element("div").style("height:0;overflow:hidden;"):
+                        _att_uploader = ui.upload(
                             on_upload=_handle_upload,
-                            label="＋ Add Attachment",
                             auto_upload=True,
                             max_files=5,
-                        ).props('flat dense accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.odt,.png,.jpg,.jpeg,.gif,.webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/csv,application/rtf,image/*"').style(
-                            f"font-size:12px;")
-                        ui.label("PDF, Word, Excel, PPT, images  -  25MB max").style(
-                            f"font-size:10px;color:{C['muted']};font-style:italic;")
-                    # Secondary: pick from already-generated PDFs (collapsed by default)
+                        ).props('accept=".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv,.rtf,.odt,.png,.jpg,.jpeg,.gif,.webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/csv,application/rtf,image/*"')
+
+                    # Visible action row: Add Attachment + reuse-existing dropdown
                     available_pdfs = sorted(_user_pdf_dir().glob("*.pdf")) if _user_pdf_dir().exists() else []
                     _reusable_pdfs = [p for p in available_pdfs if p.name not in step_atts]
+
+                    with ui.element("div").style(
+                            "display:flex;gap:10px;align-items:center;"
+                            "flex-wrap:wrap;margin-top:4px;"):
+                        with ui.element("button").classes("fd-pb").style(
+                                "padding:7px 18px;font-size:12px;"
+                                "border-radius:99px;cursor:pointer;"
+                                ).on("click", lambda u=_att_uploader: u.run_method("pickFiles")):
+                            ui.label("＋ Upload Attachment").style("pointer-events:none;")
+                        ui.label("PDF · Word · Excel · PowerPoint · images · 25MB max").style(
+                            f"font-size:11px;color:{C['muted']};")
+
+                    # Secondary: pick from already-generated PDFs (collapsed by default)
                     if _reusable_pdfs:
                         _att_options = {"": f"Or reuse a generated PDF ({len(_reusable_pdfs)} available)...",
                                         **{p.name: p.name for p in _reusable_pdfs}}
@@ -13850,7 +13864,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                                 steps[idx].setdefault("attachments", []).append(e.value)
                                 rf()
                         ui.select(options=_att_options, value="", on_change=_add_att).style(
-                            "width:100%;font-size:12px;margin-top:6px;")
+                            "width:100%;font-size:12px;margin-top:8px;")
 
             # Generate PDF buttons (not on first email)  -  inline generation + auto-attach
             if is_email_step and active > 0 and ANTHROPIC_API_KEY:
