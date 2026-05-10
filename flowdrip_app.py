@@ -8893,7 +8893,7 @@ SALES_NAV = [
     # ── Content & Tools ──────────────────────────
     (None, "CONTENT & TOOLS",   None),
     ("💧", "Slow Drip",         "evergreen"),
-    ("📊", "Reports",           "pdf_gen"),
+    ("📊", "Sales Assets",      "pdf_gen"),
     ("🔍", "Candidates",        "candidate_finder"),
     # ── Settings ─────────────────────────────────
     (None, "SETTINGS",          None),
@@ -9731,7 +9731,7 @@ PAGE_HELP = {
         ]
     },
     "pdf_gen": {
-        "title": "Reports",
+        "title": "Sales Assets",
         "summary": "Branded PDFs you can attach to outreach emails — Market Pulse, Salary Guide, Interview Guide, and more.",
         "next_action": "Enter a company + role + location, then click any of the 6 PDF types to generate.",
         "sections": [
@@ -9958,9 +9958,24 @@ EMPTY_STATES = {
     "candidate_finder": {
         "icon": "👥",
         "headline": "No candidates yet",
-        "body": "Bulk-import resumes (PDF, Word, or RTF). Claude extracts name, role, location, and writes a 4-6 bullet highlight summary per resume.",
-        "cta_label": "Bulk Import Resumes",
-        "cta_target": "@cand_import",
+        "body": (
+            "The Candidate Pool is your working roster of people you're "
+            "actively trying to place. Add candidates here once, then plug "
+            "them into any sequence, newsletter spotlight, or JD match.\n\n"
+            "Two ways to add:\n"
+            "• Add a Candidate — single resume, you fill in the details\n"
+            "• Bulk Import — drop in many resumes (PDF/Word/RTF); Claude "
+            "extracts name, role, location, and writes a short highlight "
+            "summary for each\n\n"
+            "Once a candidate is included in a launched sequence they're "
+            "automatically removed from the pool. DripDrop is not an ATS — "
+            "the pool stays small so you focus on people you haven't "
+            "reached yet."
+        ),
+        "cta_label": "+ Add a Candidate",
+        "cta_target": "@cand_add_single",
+        "cta_label_2": "Bulk Import Resumes",
+        "cta_target_2": "@cand_import",
     },
     "contacts": {
         "icon": "📇",
@@ -10022,6 +10037,11 @@ def _render_empty_state(s, rf, page_key: str) -> None:
     body = entry.get("body", "")
     cta_label = entry.get("cta_label", "")
     cta_target = entry.get("cta_target", "")
+    # Optional secondary CTA — same target conventions as the primary
+    # (route-key string OR "@"-prefixed handler key). Renders as an
+    # outlined button next to the primary if both label + target set.
+    cta_label_2 = entry.get("cta_label_2", "")
+    cta_target_2 = entry.get("cta_target_2", "")
 
     primary = C["teal"]
     text = C["text_l"]
@@ -10029,29 +10049,34 @@ def _render_empty_state(s, rf, page_key: str) -> None:
     border = C["border"]
     bg = C.get("card", C.get("surface", "#FFFFFF"))
 
-    def _on_cta_click():
-        if cta_target.startswith("@"):
+    def _dispatch(target: str):
+        if not target:
+            return
+        if target.startswith("@"):
             handlers = getattr(s, "_empty_state_handlers", None) or {}
-            handler = handlers.get(cta_target)
+            handler = handlers.get(target)
             if handler is not None:
                 try:
                     handler()
                 except Exception as ex:
-                    print(f"[EmptyState] action {cta_target} failed: {ex}",
+                    print(f"[EmptyState] action {target} failed: {ex}",
                           flush=True)
             return
-        # Plain route key — navigate via s.sp.
         try:
-            s.sp = cta_target
+            s.sp = target
             rf()
         except Exception as ex:
-            print(f"[EmptyState] route {cta_target!r} navigation failed: {ex}",
+            print(f"[EmptyState] route {target!r} navigation failed: {ex}",
                   flush=True)
+
+    _has_secondary = bool(cta_label_2 and cta_target_2)
+    _card_w = "420px" if _has_secondary else "320px"
+    _body_w = "340px" if _has_secondary else "240px"
 
     with ui.element("div").style(
             "display:flex;justify-content:center;padding:32px 16px;"):
         with ui.element("div").style(
-                f"max-width:320px;background:{bg};"
+                f"max-width:{_card_w};background:{bg};"
                 f"border:1px solid {border};border-radius:12px;"
                 f"padding:32px 24px;text-align:center;"
                 f"font-family:'DM Sans','Segoe UI',sans-serif;"):
@@ -10064,15 +10089,32 @@ def _render_empty_state(s, rf, page_key: str) -> None:
                     f"font-size:14px;font-weight:700;color:{text};"
                     f"margin-bottom:8px;display:block;")
             if body:
-                ui.label(body).style(
-                    f"font-size:12px;color:{muted};line-height:1.5;"
-                    f"max-width:240px;margin:0 auto 16px;display:block;")
+                # Render body as multi-line if it contains newlines so users
+                # can get structured directional copy (what / how / next).
+                ui.html(
+                    f"<div style='font-size:12px;color:{muted};line-height:1.55;"
+                    f"max-width:{_body_w};margin:0 auto 18px;text-align:left;"
+                    f"white-space:pre-line;'>"
+                    + body.replace("<", "&lt;").replace(">", "&gt;")
+                    + "</div>"
+                )
             if cta_label:
-                with ui.element("button").classes("fd-pb").style(
-                        "padding:8px 22px;font-size:12px;font-weight:700;"
-                        "border-radius:99px;cursor:pointer;"
-                        ).on("click", _on_cta_click):
-                    ui.label(cta_label).style("pointer-events:none;")
+                with ui.element("div").style(
+                        "display:flex;gap:10px;justify-content:center;"
+                        "flex-wrap:wrap;"):
+                    with ui.element("button").classes("fd-pb").style(
+                            "padding:8px 22px;font-size:12px;font-weight:700;"
+                            "border-radius:99px;cursor:pointer;"
+                            ).on("click", lambda: _dispatch(cta_target)):
+                        ui.label(cta_label).style("pointer-events:none;")
+                    if _has_secondary:
+                        with ui.element("button").classes("fd-gb").style(
+                                f"padding:8px 22px;font-size:12px;font-weight:700;"
+                                f"border-radius:99px;cursor:pointer;"
+                                f"border:1px solid {primary};color:{primary};"
+                                f"background:transparent;"
+                                ).on("click", lambda: _dispatch(cta_target_2)):
+                            ui.label(cta_label_2).style("pointer-events:none;")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -31680,7 +31722,7 @@ def p_pdf_gen(s: AppState, rf):
     _render_page_intro_strip(s, rf, "pdf_gen")
 
     with ui.element("div").style("display:flex;align-items:center;"):
-        ui.label("Reports").classes("fd-h1")
+        ui.label("Sales Assets").classes("fd-h1")
         _show_page_help(s, rf, "pdf_gen")
     ui.label("Create branded PDFs to attach to your outreach emails.").classes("fd-sub")
 
@@ -33844,8 +33886,19 @@ def p_candidate_finder(s: AppState, rf):
             # Construct the bulk uploader so the empty-state CTA can
             # trigger its hidden file picker via run_method("pickFiles").
             _bulk_el = _bulk_import_resumes(s, rf)
+            def _go_add_single():
+                # Switch to the Quick Search tab which is also the
+                # single-candidate add flow (resume upload + manual
+                # detail entry).
+                s.cf_tab = "search"; s.cf_step = 0
+                s.cf_resume_text = ""; s.cf_resume_filename = ""
+                s.cf_target_role = ""; s.cf_location = ""; s.cf_salary = ""
+                s.cf_candidate_name = ""; s._cf_pool_search_id = ""
+                s.cf_jobs = []; s.cf_summary = ""; s.cf_redacted_resume = ""
+                rf()
             s._empty_state_handlers = {
                 "@cand_import": lambda: _bulk_el.run_method("pickFiles"),
+                "@cand_add_single": _go_add_single,
             }
             _render_empty_state(s, rf, "candidate_finder")
             return
