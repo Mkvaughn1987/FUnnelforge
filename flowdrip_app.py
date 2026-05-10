@@ -6002,6 +6002,48 @@ async def _claude_create_with_retry_async(client, retries=2, delay=3, **kwargs):
             raise
 
 
+def _tc_parse_jd(jd_text: str) -> dict:
+    """Parse a job description into structured metadata. Returns a
+    dict with role_title, key_skills (list, max 8), seniority,
+    comp_range, location. Empty dict on failure / missing API key.
+
+    Used by the Target-a-Candidate wizard's Step 1 to surface the
+    role context for downstream sequence generation. Failure here is
+    non-fatal - Step 1 only requires raw text to advance."""
+    if not jd_text or not ANTHROPIC_API_KEY:
+        return {}
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=ANTHROPIC_API_KEY)
+    except Exception as ex:
+        print(f"[TCParseJD] Anthropic init failed: {ex}", flush=True)
+        return {}
+    prompt = (
+        f"Extract structured metadata from this job description. "
+        f"Return ONLY valid JSON in this exact shape:\n"
+        f'{{"role_title": "<short title>", '
+        f'"key_skills": ["<skill1>", "<skill2>", "...max 8"], '
+        f'"seniority": "<entry|mid|senior|lead|exec>", '
+        f'"comp_range": "<e.g. \\"$90-110k\\" or empty if not stated>", '
+        f'"location": "<city, state or remote, empty if not stated>"}}\n\n'
+        f"JOB DESCRIPTION:\n{jd_text[:6000]}"
+    )
+    try:
+        msg = _claude_create_with_retry(client,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}])
+        text = "".join(b.text for b in msg.content if hasattr(b, "text"))
+        m = re.search(r'\{[\s\S]*\}', text)
+        if not m:
+            return {}
+        data = json.loads(m.group(0))
+        return data if isinstance(data, dict) else {}
+    except Exception as ex:
+        print(f"[TCParseJD] AI call failed: {ex}", flush=True)
+        return {}
+
+
 def _load_signature_text() -> str:
     """Load signature text for appending to emails. Uses async-safe per-user
     path accessor so concurrent renders never pick up the wrong signature."""
@@ -31105,11 +31147,120 @@ def p_target_candidate(s: AppState, rf):
 
 
 def _tc_render_step_jd(s: AppState, rf):
-    """Step 1: placeholder. Filled in by Task 5."""
+    """Step 1: JD upload/paste with AI parsing. Task 5."""
     ui.label("Step 1 - Job description").style(
-        f"font-size:18px;font-weight:700;color:{C['ink']};margin-bottom:12px;")
-    ui.label("(Step 1 wizard UI lands in Task 5.)").style(
-        f"font-size:13px;color:{C['muted']};")
+        f"font-size:18px;font-weight:700;color:{C['ink']};margin-bottom:6px;")
+    ui.label("Upload the JD or paste the text. AI uses this to tailor "
+             "the candidate outreach.").style(
+        f"font-size:13px;color:{C['muted']};margin-bottom:18px;")
+
+    # Two input modes — upload OR paste, side-by-side
+    with ui.element("div").style("display:flex;gap:14px;margin-bottom:18px;"):
+        # Upload column
+        with ui.element("div").style(
+                f"flex:1;background:#fff;border:1px solid #E5E7EB;"
+                f"border-radius:8px;padding:18px;"):
+            ui.label("Upload (PDF or DOCX)").style(
+                f"font-size:13px;font-weight:700;color:{C['ink']};margin-bottom:8px;")
+
+            def _on_upload(e):
+                import tempfile, os as _os
+                try:
+                    data = e.content.read() if hasattr(e.content, "read") else bytes(e.content)
+                    fname = getattr(e, "name", None) or "jd.pdf"
+                    ext = ("." + fname.rsplit(".", 1)[-1].lower()) if "." in fname else ".pdf"
+                    s.tc_jd_filename = fname
+                    s.tc_jd_generating = True
+                    rf()
+                    # _extract_resume_text takes a file path, not bytes — write to temp
+                    fd, tmp_path = tempfile.mkstemp(suffix=ext, prefix="dd_jd_")
+                    try:
+                        with _os.fdopen(fd, "wb") as fh:
+                            fh.write(data)
+                        extracted = _extract_resume_text(tmp_path)
+                    finally:
+                        try:
+                            _os.unlink(tmp_path)
+                        except Exception:
+                            pass
+                    s.tc_jd_text = (extracted or "").strip()
+                    if s.tc_jd_text:
+                        s.tc_jd_parsed = _tc_parse_jd(s.tc_jd_text)
+                    s.tc_jd_generating = False
+                    rf()
+                except Exception as ex:
+                    s.tc_error = f"Upload failed: {ex}"
+                    s.tc_jd_generating = False
+                    rf()
+
+            ui.upload(on_upload=_on_upload, max_files=1,
+                      auto_upload=True).props('accept=".pdf,.docx,.doc"')
+            if s.tc_jd_filename:
+                ui.label(f"✓ {s.tc_jd_filename}").style(
+                    f"font-size:11px;color:{C['good']};margin-top:6px;")
+
+        # Paste column
+        with ui.element("div").style(
+                f"flex:1;background:#fff;border:1px solid #E5E7EB;"
+                f"border-radius:8px;padding:18px;"):
+            ui.label("Or paste").style(
+                f"font-size:13px;font-weight:700;color:{C['ink']};margin-bottom:8px;")
+            _ta = ui.textarea(value=s.tc_jd_text,
+                              placeholder="Paste the JD here...").props(
+                "rows=8 outlined dense").style("width:100%;")
+
+            def _on_paste_change(e):
+                val = ""
+                if isinstance(e.args, str):
+                    val = e.args
+                elif hasattr(e, "value"):
+                    val = e.value or ""
+                s.tc_jd_text = val.strip()
+
+            _ta.on("update:model-value", _on_paste_change)
+
+    if s.tc_jd_generating:
+        with ui.element("div").style(
+                "display:flex;align-items:center;gap:8px;margin-bottom:12px;"):
+            ui.spinner("dots", size="14px", color=C["teal"])
+            ui.label("Parsing JD...").style(f"font-size:12px;color:{C['teal']};")
+
+    if s.tc_jd_parsed:
+        meta = s.tc_jd_parsed
+        with ui.element("div").style(
+                f"background:{C['teal_dim']};border:1px solid {C['teal']}40;"
+                f"border-radius:8px;padding:12px 16px;margin-bottom:18px;"):
+            ui.label(f"AI extracted: {meta.get('role_title', '?')} "
+                     f"({meta.get('seniority', '?')})").style(
+                f"font-size:13px;font-weight:600;color:{C['teal']};")
+            if meta.get("key_skills"):
+                ui.label("Skills: " + ", ".join(meta["key_skills"][:6])).style(
+                    f"font-size:12px;color:{C['ink']};margin-top:4px;")
+            if meta.get("comp_range"):
+                ui.label(f"Comp: {meta['comp_range']}").style(
+                    f"font-size:12px;color:{C['ink']};")
+            if meta.get("location"):
+                ui.label(f"Location: {meta['location']}").style(
+                    f"font-size:12px;color:{C['ink']};")
+
+    if s.tc_error:
+        ui.label(s.tc_error).style(
+            f"font-size:12px;color:{C['bad']};margin-bottom:8px;")
+
+    # Continue button — gated on raw tc_jd_text (AI parse failure is non-fatal)
+    with ui.element("div").style(
+            "display:flex;justify-content:flex-end;margin-top:20px;"):
+        def _continue():
+            if not (s.tc_jd_text or "").strip():
+                s.tc_error = "Upload or paste a JD before continuing."
+                rf()
+                return
+            s.tc_error = ""
+            s.tc_step = 1
+            rf()
+        with ui.element("button").classes("fd-pb").style(
+                "padding:10px 22px;font-size:13px;").on("click", _continue):
+            ui.label("Continue ->").style("pointer-events:none;")
 
 
 def _tc_render_step_candidates(s: AppState, rf):
