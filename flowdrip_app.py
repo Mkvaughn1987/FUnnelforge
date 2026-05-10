@@ -10946,10 +10946,65 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
         tps = briefing.get("talking_points") or []
         flow = briefing.get("conversation_flow") or {}
 
+        # ── Variant pill selector + selected-variant body ──
+        variants = briefing.get("variants") or []
+        # Backwards compat: campaigns generated before Task 6 don't have
+        # `variants` — synthesize a single "Opener" variant from the
+        # legacy conversation_flow.opener so old briefings still render.
+        if not variants and isinstance(briefing.get("conversation_flow"), dict):
+            legacy_opener = briefing["conversation_flow"].get("opener", "")
+            if legacy_opener:
+                variants = [{"style": "legacy", "label": "Opener", "script": legacy_opener}]
+
+        if variants:
+            # Track selection in AppState (one slot per campaign)
+            sel_key = f"_call_variant_{camp.get('name', 'unnamed')}"
+            sel_idx = getattr(s, sel_key, 0)
+            if sel_idx >= len(variants):
+                sel_idx = 0
+
+            # Pill row
+            with ui.element("div").style(
+                    "display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;"):
+                for i, v in enumerate(variants):
+                    is_sel = (i == sel_idx)
+                    def _pick(idx=i, key=sel_key):
+                        setattr(s, key, idx); rf()
+                    bg = C["teal"] if is_sel else "transparent"
+                    fg = "#fff" if is_sel else C["teal"]
+                    label = v.get("label", f"Variant {i+1}")
+                    with ui.element("button").style(
+                            f"padding:5px 12px;border-radius:14px;cursor:pointer;"
+                            f"background:{bg};color:{fg};border:1px solid {C['teal']};"
+                            f"font-size:11px;font-family:inherit;font-weight:600;"
+                            ).on("click", _pick):
+                        ui.label(label).style("pointer-events:none;")
+
+            # Selected variant body + Copy button
+            sel_v = variants[sel_idx]
+            _script_text = (sel_v.get("script", "") or "")
+            with ui.element("div").style(
+                    "display:flex;justify-content:space-between;align-items:flex-start;"
+                    "gap:12px;margin-bottom:12px;"):
+                ui.html(
+                    "<div style='font-size:13px;line-height:1.55;color:#222;"
+                    "white-space:pre-wrap;'>"
+                    + _script_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    + "</div>"
+                ).style("flex:1;")
+                _esc_script = _script_text.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
+                ui.html(
+                    f"<button onclick=\"navigator.clipboard.writeText(`{_esc_script}`); "
+                    f"this.textContent='✓ Copied'; "
+                    f"setTimeout(()=>this.textContent='⧧ Copy', 1500);\" "
+                    f"style='padding:5px 12px;border-radius:6px;border:1px solid {C['teal']};"
+                    f"background:transparent;color:{C['teal']};font-size:11px;cursor:pointer;"
+                    f"font-family:inherit;flex-shrink:0;'>⧧ Copy</button>"
+                )
+
         # ── Conversation walkthrough ──
         if isinstance(flow, dict) and any([
-            flow.get("opener"), flow.get("discovery"),
-            flow.get("pitch"), flow.get("close"),
+            flow.get("discovery"), flow.get("pitch"), flow.get("close"),
         ]):
             ui.label("Walk through the call").style(
                 f"font-size:11px;font-weight:700;color:{C['text_l']};"
@@ -10959,13 +11014,6 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
                     f"margin-bottom:12px;padding:10px 12px;"
                     f"background:{C['call_col']}10;border-left:3px solid {C['call_col']};"
                     f"border-radius:4px;"):
-                _opener = (flow.get("opener") or "").strip()
-                if _opener:
-                    ui.label("Opener").style(
-                        f"font-size:10px;font-weight:700;color:{C['call_col']};"
-                        f"text-transform:uppercase;letter-spacing:.06em;")
-                    ui.label(_opener).style(
-                        f"font-size:12px;color:{C['text_l']};line-height:1.5;")
                 _disc = flow.get("discovery") or []
                 if _disc:
                     ui.label("Discovery questions").style(
