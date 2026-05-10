@@ -14943,13 +14943,21 @@ def _sq_loaded_campaign(s: AppState, rf):
                         placeholder="Campaign name"
                     ).classes("fd-input").style("margin-bottom:16px;")
 
-                    # Start-sending-on date picker. Defaults to TOMORROW
-                    # (safer than "today, possibly already past the step's
-                    # scheduled hour" — the silent-fire bug that hit
-                    # Elizabeth's James Fisher campaign on 2026-04-25).
-                    # User can pick today or any future date. The chosen
-                    # date becomes camp["start_date"] before queueing.
-                    _default_start = (date.today() + timedelta(days=1)).isoformat()
+                    # Start-sending-on date picker. Defaults to TODAY
+                    # since 2026-05-10. Previously defaulted to TOMORROW as
+                    # a workaround for the silent-fire bug that hit
+                    # Elizabeth's James Fisher campaign on 2026-04-25 —
+                    # but that bug was fixed at the source in commit
+                    # aca2963 (_roll_past_send_forward preserves today's
+                    # date when only the time-of-day has passed; jitter +
+                    # scheduler tick handle the actual fire moment).
+                    # Multiple users reported their campaigns going out
+                    # 1-2 days later than the wizard preview showed —
+                    # root cause was this stale TOMORROW default
+                    # systematically shifting all sends +1 day from what
+                    # the preview computed (which uses date.today()).
+                    # Weekend amplifies to +2.
+                    _default_start = date.today().isoformat()
                     ui.label("Start sending on").classes("fd-fl").style("margin-bottom:4px;")
                     ui.label(
                         "Step 1 fires this day at its configured time. "
@@ -31601,10 +31609,15 @@ def _tc_render_step_generate(s: AppState, rf):
                         {"delay_days": 0, "time": "2:00 PM"},
                     ]
                 elif s.tc_preset == "three_emails_3days":
+                    # delay_days here are RELATIVE gaps (each step's offset
+                    # from the previous step), NOT absolute offsets from
+                    # campaign start. The queue's cumulative_delay sums
+                    # them: [0, 1, 1] -> day 0, day 1, day 2 (one per day
+                    # for 3 days, as advertised).
                     steps_meta = [
                         {"delay_days": 0, "time": "9:00 AM"},
                         {"delay_days": 1, "time": "9:00 AM"},
-                        {"delay_days": 2, "time": "9:00 AM"},
+                        {"delay_days": 1, "time": "9:00 AM"},
                     ]
                 else:
                     steps_meta = [{"delay_days": 0, "time": "9:00 AM"}]
