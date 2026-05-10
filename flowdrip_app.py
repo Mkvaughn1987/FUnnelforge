@@ -31264,11 +31264,114 @@ def _tc_render_step_jd(s: AppState, rf):
 
 
 def _tc_render_step_candidates(s: AppState, rf):
-    """Step 2: placeholder. Filled in by Task 6."""
     ui.label("Step 2 - Candidates").style(
-        f"font-size:18px;font-weight:700;color:{C['ink']};margin-bottom:12px;")
-    ui.label("(Step 2 wizard UI lands in Task 6.)").style(
-        f"font-size:13px;color:{C['muted']};")
+        f"font-size:18px;font-weight:700;color:{C['ink']};margin-bottom:6px;")
+    ui.label("Upload a CSV of candidates to reach out to. Required columns: "
+             "name, email. Optional: current_company, current_title, linkedin_url.").style(
+        f"font-size:13px;color:{C['muted']};margin-bottom:18px;")
+
+    def _on_csv(e):
+        try:
+            content = e.content.read() if hasattr(e.content, "read") else e.content
+            text = content.decode("utf-8", errors="replace") if isinstance(content, bytes) else content
+            # Try to reuse the Contacts page parser if it exists; otherwise
+            # fall back to csv.DictReader.
+            rows = None
+            try:
+                rows = _parse_contacts_csv(text)
+            except (NameError, TypeError):
+                rows = None
+            if rows is None:
+                import io as _io
+                rdr = csv.DictReader(_io.StringIO(text))
+                rows = [dict(r) for r in rdr]
+            # Normalize keys (lowercase) and require name+email
+            normalized = []
+            for r in rows:
+                rk = {k.lower().strip(): (v or "").strip() for k, v in r.items() if k}
+                if rk.get("name") and rk.get("email"):
+                    normalized.append({
+                        "name": rk["name"],
+                        "email": rk["email"],
+                        "current_company": rk.get("current_company") or rk.get("company") or "",
+                        "current_title": rk.get("current_title") or rk.get("title") or "",
+                        "linkedin_url": rk.get("linkedin_url") or rk.get("linkedin") or "",
+                    })
+            s.tc_candidates = normalized
+            s.tc_error = "" if normalized else "No valid rows found (need name + email columns)."
+            rf()
+        except Exception as ex:
+            s.tc_error = f"CSV parse failed: {ex}"
+            rf()
+
+    ui.upload(on_upload=_on_csv, max_files=1,
+              auto_upload=True).props('accept=".csv"').style("margin-bottom:14px;")
+
+    if s.tc_error:
+        ui.label(s.tc_error).style(
+            f"font-size:12px;color:{C['bad']};margin-bottom:8px;")
+
+    # Preview table (first 10 rows + count)
+    if s.tc_candidates:
+        ui.label(f"{len(s.tc_candidates)} candidates loaded").style(
+            f"font-size:13px;font-weight:600;color:{C['ink']};margin-bottom:8px;")
+        with ui.element("table").style(
+                f"width:100%;border-collapse:collapse;background:#fff;"
+                f"border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;"):
+            with ui.element("thead").style("background:#F9FAFB;"):
+                with ui.element("tr"):
+                    for col in ("Name", "Email", "Company", "Title", ""):
+                        ui.html(
+                            f"<th style='text-align:left;padding:8px 12px;"
+                            f"font-size:11px;color:{C['muted']};font-weight:600;'>"
+                            f"{col}</th>"
+                        )
+            with ui.element("tbody"):
+                for i, cand in enumerate(s.tc_candidates[:10]):
+                    with ui.element("tr").style(
+                            "border-top:1px solid #F3F4F6;"):
+                        for field in ("name", "email", "current_company", "current_title"):
+                            val = (cand.get(field, "") or "").replace("<", "&lt;").replace(">", "&gt;")
+                            ui.html(
+                                f"<td style='padding:8px 12px;font-size:12px;"
+                                f"color:{C['ink']};'>{val}</td>"
+                            )
+                        def _remove(idx=i):
+                            if 0 <= idx < len(s.tc_candidates):
+                                del s.tc_candidates[idx]
+                                rf()
+                        with ui.element("td").style("padding:8px 12px;"):
+                            with ui.element("button").style(
+                                    f"padding:2px 8px;font-size:11px;"
+                                    f"border:1px solid {C['muted']};"
+                                    f"border-radius:4px;background:transparent;"
+                                    f"color:{C['muted']};cursor:pointer;"
+                                    ).on("click", _remove):
+                                ui.label("&times;").style("pointer-events:none;")
+        if len(s.tc_candidates) > 10:
+            ui.label(f"... and {len(s.tc_candidates) - 10} more").style(
+                f"font-size:11px;color:{C['muted']};margin-top:6px;")
+
+    # Back / Continue
+    with ui.element("div").style(
+            "display:flex;justify-content:space-between;margin-top:20px;"):
+        def _back():
+            s.tc_step = 0
+            rf()
+        with ui.element("button").classes("fd-gb").style(
+                "padding:10px 22px;font-size:13px;").on("click", _back):
+            ui.label("<- Back").style("pointer-events:none;")
+        def _continue():
+            if len(s.tc_candidates) == 0:
+                s.tc_error = "Upload a CSV with at least one candidate before continuing."
+                rf()
+                return
+            s.tc_error = ""
+            s.tc_step = 2
+            rf()
+        with ui.element("button").classes("fd-pb").style(
+                "padding:10px 22px;font-size:13px;").on("click", _continue):
+            ui.label("Continue ->").style("pointer-events:none;")
 
 
 def _tc_render_step_preset(s: AppState, rf):

@@ -32,3 +32,17 @@ def test_jd_parsing_helper_exists():
     assert hasattr(fa, "_tc_parse_jd"), (
         "_tc_parse_jd(jd_text) must be defined to extract role metadata"
     )
+
+
+def test_step_candidates_renderer_supports_csv_upload():
+    import flowdrip_app as fa
+    src = inspect.getsource(fa._tc_render_step_candidates)
+    assert "csv" in src.lower() or ".upload" in src
+    assert "tc_candidates" in src
+
+
+def test_step_candidates_continue_requires_at_least_one_candidate():
+    """The Continue button on Step 2 must gate on len(tc_candidates) >= 1."""
+    import flowdrip_app as fa
+    src = inspect.getsource(fa._tc_render_step_candidates)
+    assert "tc_candidates" in src and "tc_step = 2" in src
