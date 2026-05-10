@@ -15489,8 +15489,13 @@ def _sq_pick(s, rf):
                         s.aicb_camp_type = "blitz"
                         s.sp = "ai_campaign"
                         s.aicb_step = 1
-                        s.aicb_wizard_step = 1
-                        s.aicb_type_picked = False
+                        # Chooser already asked "client vs market" — pre-set
+                        # aicb_target_mode and skip past the wizard's redundant
+                        # "Pick who you're targeting" step. Land on Step 2
+                        # (Target details) directly.
+                        s.aicb_target_mode = "company"
+                        s.aicb_wizard_step = 2
+                        s.aicb_type_picked = True
                         s.aicb_contacts = []
                     elif k == "market":
                         s._nav_history.append(_nav_snapshot(s))
@@ -15499,8 +15504,11 @@ def _sq_pick(s, rf):
                         s.aicb_camp_type = "talentdrop"
                         s.sp = "ai_campaign"
                         s.aicb_step = 1
-                        s.aicb_wizard_step = 1
-                        s.aicb_type_picked = False
+                        # Same logic as 'client' — chooser already covered
+                        # this question; skip the AICB picker.
+                        s.aicb_target_mode = "market"
+                        s.aicb_wizard_step = 2
+                        s.aicb_type_picked = True
                         s.aicb_contacts = []
                     elif k == "candidate":
                         _reset_wizard_state(s)
