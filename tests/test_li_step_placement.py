@@ -61,18 +61,52 @@ def test_step_add_handler_has_li_guardrails():
     tries to add a second LinkedIn step or place a LinkedIn step
     before any email. These are SOFT enforcement (warnings, not hard
     blocks) — the user is explicitly building a custom sequence and
-    can override."""
+    can override.
+
+    Body extraction note: _confirm_add_step is nested inside outer
+    closures at deep indentation, so the body ends at the next
+    same-indentation `def ` line OR a fixed 4000-char ceiling,
+    whichever comes first. Without the ceiling the body would extend
+    180KB+ into unrelated code and the assertions would always pass
+    against incidental occurrences elsewhere.
+    """
     import flowdrip_app as fa
     src = inspect.getsource(fa)
     assert "_confirm_add_step" in src, (
         "Expected _confirm_add_step handler in flowdrip_app.py"
     )
     idx = src.index("def _confirm_add_step")
-    end = src.find("\n    def ", idx + 1)
-    if end == -1:
-        end = idx + 3000
+    # Detect the indent of the def itself
+    line_start = src.rfind("\n", 0, idx) + 1
+    def_indent = idx - line_start
+    # Walk forward looking for the next `def ` at the same or shallower
+    # indentation, with a hard 4000-char ceiling (the function is small).
+    end = idx + 4000
+    cursor = idx + 1
+    next_def_pat = "\n" + " " * def_indent + "def "
+    next_def = src.find(next_def_pat, cursor)
+    if next_def != -1 and next_def < end:
+        end = next_def
+    # Also stop at the next dedented-to-shallower-level definition
+    for shallower in range(0, def_indent, 4):
+        pat = "\n" + " " * shallower + "def "
+        candidate = src.find(pat, cursor)
+        if candidate != -1 and candidate < end:
+            end = candidate
     body = src[idx:end]
-    assert "linkedin" in body.lower() and ("warn" in body.lower() or "ui.notify" in body), (
-        "_confirm_add_step must check for an existing LinkedIn step "
-        "and warn the user via ui.notify before adding a second one"
+    # Assertions on the now-bounded body
+    assert "linkedin" in body.lower(), (
+        "_confirm_add_step body must reference 'linkedin' (the step "
+        "type the guardrails check for)"
+    )
+    assert "ui.notify" in body, (
+        "_confirm_add_step must call ui.notify when adding a 2nd "
+        "LinkedIn or placing LI before email 1"
+    )
+    # The body should mention BOTH guardrail conditions
+    assert ("existing_li" in body or "already have" in body.lower()), (
+        "Guardrail for 2nd LinkedIn step must be present"
+    )
+    assert ("existing_emails" in body or "before" in body.lower()), (
+        "Guardrail for LI-before-email-1 must be present"
     )
