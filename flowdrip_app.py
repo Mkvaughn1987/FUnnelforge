@@ -28117,8 +28117,12 @@ def _aicb_combined_titles_and_candidates(s, rf, count: int = 3,
     without re-typing. We snapshot + clear roles before fetching, then
     restore the snapshot if the fetch fails / returns nothing."""
     import threading as _thr
-    if getattr(s, "_aicb_cand_generating", False):
-        return
+    # Run-id pattern lets a fresh call (e.g. user changed candidate count
+    # mid-generation) supersede an in-flight run instead of being blocked
+    # by it. Each call bumps the id; the bg thread captures its id at
+    # spawn and only commits results if it's still the active one.
+    s._aicb_cand_run_id = (getattr(s, "_aicb_cand_run_id", 0) or 0) + 1
+    _my_run = s._aicb_cand_run_id
     s._aicb_cand_generating = True
     s._aicb_cand_err = ""
     s._aicb_titles_err = ""
@@ -28138,9 +28142,17 @@ def _aicb_combined_titles_and_candidates(s, rf, count: int = 3,
                 s.aicb_sel_roles = []  # so suggest helper appends from empty
             if not s.aicb_sel_roles and (s.aicb_company or "").strip():
                 _aicb_suggest_titles_run(s)
+            # If a newer run started while we were on the network, abort
+            # before doing the (more expensive) candidate gen.
+            if s._aicb_cand_run_id != _my_run:
+                return
             # 2. Generate the candidates.
             _aicb_generate_candidates_run(s, count=count)
-            # 3. Parse text into editable cards for the UI.
+            # 3. Parse text into editable cards for the UI — but ONLY if
+            #    we're still the active run. Otherwise discard our result
+            #    so a newer (different-count) run owns the final state.
+            if s._aicb_cand_run_id != _my_run:
+                return
             if s._aicb_cand_text:
                 s.aicb_cand_cards = _aicb_cards_from_text(s._aicb_cand_text)
         finally:
@@ -28150,9 +28162,13 @@ def _aicb_combined_titles_and_candidates(s, rf, count: int = 3,
             if (force_fresh_titles and _saved_roles
                     and not s.aicb_sel_roles):
                 s.aicb_sel_roles = _saved_roles
-            s._aicb_cand_generating = False
-            try: rf()
-            except Exception: pass
+            # Only the active run owns the generating flag; orphaned
+            # threads exit silently without flipping it (a newer run is
+            # in flight and will flip it itself when it finishes).
+            if s._aicb_cand_run_id == _my_run:
+                s._aicb_cand_generating = False
+                try: rf()
+                except Exception: pass
     _thr.Thread(target=_bg, daemon=True).start()
 
 
@@ -29423,6 +29439,21 @@ def p_ai_campaign(s: AppState, rf):
                                 _border = C.get("teal", "#1AE3D9") if _is_sel else C['border']
                                 def _pick_n(num=_n):
                                     s.aicb_cand_count = num
+                                    # If a generation is in flight and the
+                                    # user just changed the count, supersede
+                                    # the in-flight run with a fresh one
+                                    # using the new count. The orphaned run
+                                    # exits silently via run-id check; this
+                                    # one becomes the active run. Without
+                                    # this, the user is stuck waiting for
+                                    # the old count's run to finish before
+                                    # they can re-Generate.
+                                    if getattr(s, "_aicb_cand_generating", False):
+                                        s.aicb_cand_cards = []
+                                        s._aicb_cand_text = ""
+                                        _aicb_combined_titles_and_candidates(
+                                            s, rf, count=num,
+                                            force_fresh_titles=True)
                                     rf()
                                 with ui.element("button").style(
                                         f"width:30px;height:30px;border-radius:6px;"
