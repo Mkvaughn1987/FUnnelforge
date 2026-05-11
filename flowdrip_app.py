@@ -29346,6 +29346,19 @@ def p_ai_campaign(s: AppState, rf):
                     if m == "skip":
                         s.aicb_cand_cards = []
                         s._aicb_cand_text = ""
+                    # Auto-fire generation for "AI does it for me" so the
+                    # user doesn't have to click Generate separately. Per
+                    # user feedback (2026-05-10): picking the card should
+                    # do the work, not just enable a deeper button.
+                    # Skip if cards already exist for this mode (avoid
+                    # re-running on re-clicks of the active card) or if
+                    # generation is already in flight.
+                    if (m == "autogen_quick"
+                            and not s.aicb_cand_cards
+                            and not getattr(s, "_aicb_cand_generating", False)):
+                        n = max(1, min(6, int(s.aicb_cand_count or 3)))
+                        _aicb_combined_titles_and_candidates(
+                            s, rf, count=n, force_fresh_titles=True)
                     rf()
 
                 _CARDS = [
