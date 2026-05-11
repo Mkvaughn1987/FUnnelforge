@@ -26851,6 +26851,17 @@ def _effective_target(s) -> dict:
         _ind_label = (AICB_INDUSTRIES.get(_ind_key, {}) or {}).get("label", "") or ""
     except Exception:
         _ind_label = ""
+    # Fallback: the new picker writes the user-facing LABEL to
+    # aicb_primary_industry. The legacy aicb_industry is the lookup
+    # KEY, only valid for industries that exist in the AICB_INDUSTRIES
+    # dict. If the user picked a custom industry (or one that doesn't
+    # round-trip cleanly through _industry_key_for_label_or_key),
+    # aicb_industry stays empty and the dict lookup yields no label —
+    # leaving Review showing '—' even though the user picked something
+    # on Step 2. Fall back to the typed primary industry label so the
+    # Review reflects what the user actually entered.
+    if not _ind_label:
+        _ind_label = (getattr(s, "aicb_primary_industry", "") or "").strip()
     _web = (getattr(s, "aicb_website", "") or "").strip()
     _locs = list(getattr(s, "aicb_sel_locations", []) or [])
     _roles = list(getattr(s, "aicb_sel_roles", []) or [])
