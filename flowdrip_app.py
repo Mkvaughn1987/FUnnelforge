@@ -30686,13 +30686,22 @@ def p_ai_campaign(s: AppState, rf):
                 rf()
 
             # PDF generation gate: the AICB PDF worker runs in a background
-            # thread after the campaign emails finish generating. We block
-            # Import until every PDF is built + attached so the campaign
-            # opens in the editor with all attachments ready (no race-y
+            # thread after the campaign emails finish generating. Block
+            # auto-import until every PDF is built + attached so the
+            # editor opens with all attachments ready (no race-y
             # post-import auto-attach).
             _pdfs_running = bool(getattr(s, "_aicb_pdfs_in_progress", False))
             _pdfs_done = int(getattr(s, "_aicb_pdfs_done", 0) or 0)
             _pdfs_total = int(getattr(s, "_aicb_pdfs_total", 0) or 0)
+
+            # Auto-import the moment PDFs finish — per user feedback, the
+            # Import button was just friction. Skip directly to the editor.
+            # Guard with a one-shot flag so re-renders during PDF gen
+            # don't cause repeated imports.
+            if not _pdfs_running and not getattr(s, "aicb_auto_imported", False):
+                s.aicb_auto_imported = True
+                _import_camp()
+                return
 
             with ui.element("div").style(
                     f"background:{C['good']}10;border:1px solid {C['good']}40;"
@@ -30707,19 +30716,17 @@ def p_ai_campaign(s: AppState, rf):
                             f"</div>"
                         )
                         ui.label(
-                            "Hang tight — Import will unlock once Market Pulse, "
-                            "Salary Guide, Interview Guide, Role Scorecard, and "
-                            "Tenure Snapshot are all ready."
+                            "Hang tight — opening the email editor as soon as "
+                            "Market Pulse, Salary Guide, Interview Guide, Role "
+                            "Scorecard, and Tenure Snapshot are all ready."
                         ).style(f"font-size:12px;color:{C['muted']};margin-top:2px;line-height:1.5;")
                         # Auto-refresh every 3s while the worker runs so
-                        # the Import button flips to enabled the moment
-                        # the last PDF lands. (Dots animate via CSS, no
-                        # rerender needed for the loader itself.)
+                        # auto-import fires the moment the last PDF lands.
                         ui.timer(3.0, rf, once=True)
                     else:
                         ui.label(f"{len(emails)}-email campaign ready").style(
                             f"font-size:14px;font-weight:600;color:{C['good']};")
-                        ui.label("Import into DripDrop to add contacts and launch.").style(
+                        ui.label("Opening editor…").style(
                             f"font-size:12px;color:{C['muted']};margin-top:2px;")
                 with ui.element("div").style("display:flex;gap:8px;align-items:center;flex-wrap:wrap;"):
                     # Save as Style  -  only meaningful for Free Flow, since the
