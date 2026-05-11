@@ -32831,16 +32831,37 @@ def p_candidate_campaign(s: AppState, rf):
 
         # Action buttons
         with ui.element("div").style("display:flex;gap:10px;margin-top:16px;"):
-            def _save_camp():
+            def _save_and_open():
+                """Save the placement sequence + hand off to the email
+                editor so the user can review emails and add contacts.
+                Previously this just saved + toasted, leaving the user
+                stranded on the review page wondering where the sequence
+                went. Mirrors the Phase 2 Target-a-Candidate handoff
+                pattern (af3f3eb)."""
                 s.cpc_campaign["candidate_summary"] = _sum_area.value
                 camp_to_save = copy.deepcopy(s.cpc_campaign)
                 camp_to_save["status"] = "draft"
                 save_campaign(camp_to_save)
-                ui.notify(f"Sequence saved: {camp_to_save['name']}", type="positive")
+                ui.notify(
+                    f"Sequence saved: {camp_to_save['name']}. Opening "
+                    f"email editor — add contacts on the next step.",
+                    type="positive", timeout=5000,
+                )
+                # Hand off to the email editor with this sequence loaded
+                s.loaded_camp = camp_to_save
+                s.loaded_view = "emails"
+                s.loaded_tab = 0
+                s.sp = "start_seq"
+                s._tab = "custom"
+                # Reset the placement-campaign wizard state so re-opening
+                # candidate-pool flow starts clean.
+                s.cpc_step = 0
+                s.cpc_campaign = None
+                rf()
             with ui.element("button").classes("fd-pb").style(
                     "padding:12px 24px;font-size:13px;flex:1;justify-content:center;display:flex;"
-                    ).on("click", _save_camp):
-                ui.label("Save Campaign")
+                    ).on("click", _save_and_open):
+                ui.label("Save & Open in Editor →")
             def _back_pool():
                 s.cpc_step = 0; s.cpc_campaign = None; s.sp = "candidate_finder"; rf()
             with ui.element("button").classes("fd-gb").style(
