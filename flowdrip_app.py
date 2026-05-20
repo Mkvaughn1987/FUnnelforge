@@ -47131,6 +47131,20 @@ def diagnostics_page():
 # ── Main App (authenticated) ──────────────────────────────────────────────
 @ui.page("/")
 def index():
+    # DIAGNOSTIC 2026-05-20: log every page-handler invocation so we can
+    # correlate user-reported "refresh every 5 min" with actual handler
+    # entries. If this fires periodically, the WebSocket is reconnecting
+    # and NiceGUI is treating the reconnect as a brand-new client
+    # (reconnect_timeout misconfigured / Cloudflare-induced). If it does
+    # NOT fire periodically, the "refresh" is something else (a stray
+    # rf() somewhere, or a JS-side reload).
+    try:
+        _client_email = (app.storage.user.get("email") or "anon")[:40]
+    except Exception:
+        _client_email = "?"
+    print(f"[REFRESH-DBG] index() ENTER user={_client_email} "
+          f"at={datetime.now().isoformat(timespec='seconds')}", flush=True)
+
     # Desktop mode: single user, no accounts, no auth wall. Auto-authenticate
     # as the local user so the cloud-mode landing page / login form never
     # appears. Cloud mode keeps the full auth flow.
@@ -47334,6 +47348,14 @@ def index():
             while True:
                 await asyncio.sleep(REPLY_POLL_SEC)
                 new = outlook_monitor.pop()
+                # DIAGNOSTIC 2026-05-20: report on every 5-min tick so we
+                # can correlate user-reported "refresh every 5 min" with
+                # actual rf() calls. Remove this line once the report
+                # is resolved.
+                print(f"[REFRESH-DBG] index._poll tick "
+                      f"user={getattr(s, '_user_email', '?')[:40]} "
+                      f"new_count={len(new) if new else 0} "
+                      f"will_rf={'YES' if new else 'no'}", flush=True)
                 if not new:
                     continue
                 for r in new:
