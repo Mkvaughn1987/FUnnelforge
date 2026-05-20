@@ -28135,27 +28135,36 @@ def _aicb_ai_extract(s, user_text: str, mode: str, rf):
                     messages=[{"role": "user", "content": prompt}])
                 text = msg.content[0].text
             elif mode == "company":
+                # Trimmed prompt 2026-05-20 — previously asked for summary
+                # + open_jobs + 3 target roles + web_search up to 3 times,
+                # which routinely ran 20-40s on well-known companies. The
+                # Target Details autofill only needs website / industry /
+                # location, so the heavy fields are dropped. Recruiters
+                # who want the company brief can use the dedicated Quick
+                # Start flow which still asks for the full payload.
+                import time as _time_for_log
+                _t0 = _time_for_log.time()
                 prompt = (
-                    f"Research '{user_text.strip()}' and return structured JSON about this company. "
-                    "Use web search to find their official website, headquarters location, industry, "
-                    "and any currently open positions at their careers page. Return ONLY valid JSON:\n"
-                    '{"company":"Official company name","website":"domain.com",'
-                    '"industry":"one of the valid industries","location":"City, State of HQ",'
-                    '"niche":"","summary":"2-3 sentence company summary  -  what they do, size, recent news",'
-                    '"open_jobs":[{"title":"Job title","location":"City, State"}],'
-                    '"roles":["top 3 target roles from their postings"]}\n\n'
+                    f"Identify '{user_text.strip()}': official website domain, "
+                    f"headquarters city/state, and industry.\n"
+                    f"Return ONLY valid JSON:\n"
+                    '{"company":"Official name","website":"domain.com",'
+                    '"industry":"one of the valid industries",'
+                    '"location":"City, ST"}\n\n'
                     f"VALID INDUSTRIES: {', '.join(AICB_INDUSTRIES.keys())}\n\n"
-                    "If the company cannot be identified, return {\"error\":\"not found\"}. "
-                    "Return ONLY the JSON object."
+                    "If the company can't be identified, return {\"error\":\"not found\"}. "
+                    "No commentary, no markdown."
                 )
                 msg = _claude_create_with_retry(client,
                     model="claude-haiku-4-5-20251001",
-                    max_tokens=1500,
-                    tools=[_safe_web_search_tool(max_uses=3)],
+                    max_tokens=400,
+                    tools=[_safe_web_search_tool(max_uses=1)],
                     system=_injection_guarded_system(
                         "You research companies for B2B recruiters and extract hiring-relevant data."),
                     messages=[{"role": "user", "content": prompt}])
                 text = "".join(b.text for b in msg.content if hasattr(b, "text"))
+                print(f"[AICB-extract] company='{user_text.strip()[:60]}' "
+                      f"took={_time_for_log.time() - _t0:.1f}s", flush=True)
             elif mode == "job":
                 # If user_text looks like a URL, web search can fetch it; otherwise treat as pasted text.
                 _is_url = user_text.strip().startswith("http")
@@ -30345,14 +30354,21 @@ def p_ai_campaign(s: AppState, rf):
                                     "Looking up the company — finding website, "
                                     "industry, and locations…"
                                 ).style(f"font-size:12px;color:{C['muted']};")
-                            # Tick the page once the bg worker flips the
-                            # running flag back to False so the populated
-                            # fields render without the user having to click.
+                            # RECURRING timer (no once=True) so it keeps
+                            # checking until the bg worker flips the flag.
+                            # Earlier this used once=True and only fired
+                            # at t=1.5s — if the AI call took longer (which
+                            # it always does), the spinner sat forever
+                            # because no later check ever re-rendered.
+                            # Mirrors the Quick Start panel's _qs_poll
+                            # pattern further down. NiceGUI auto-cancels
+                            # the timer when the page re-renders past
+                            # the spinner branch.
                             def _af_poll():
                                 if not getattr(s, "_aicb_qs_running", False):
                                     try: rf()
                                     except Exception: pass
-                            ui.timer(1.5, _af_poll, once=True)
+                            ui.timer(1.5, _af_poll)
                         else:
                             with ui.element("button").classes("fd-pb").style(
                                     "padding:8px 16px;font-size:13px;border-radius:6px;"
