@@ -35537,13 +35537,17 @@ def _p_candidate_pool_tab(s: AppState, rf, pool: list):
                                 "padding:6px 14px;font-size:11px;").on("click", _view_resume):
                             ui.label("\U0001F4C4 View Resume")
 
-                        # Start campaign
+                        # Start campaign. A prior job search isn't required —
+                        # the campaign page renders with an empty target-company
+                        # list when results aren't populated yet, and the user
+                        # can run the search later (or supply companies another
+                        # way). Reported 2026-05-20 by user: forcing a search
+                        # gate before campaign creation didn't match how they
+                        # actually work.
                         def _camp_one(c=cand):
-                            if not c.get("results"):
-                                ui.notify("Run a search first to find companies.", type="warning"); return
                             s._nav_history.append(_nav_snapshot(s))
                             s.cpc_candidate = c
-                            s.cpc_companies = c.get("results", [])
+                            s.cpc_companies = c.get("results", []) or []
                             s.cpc_step = 0; s.cpc_campaign = None; s._cpc_error = ""
                             s.sp = "candidate_campaign"
                             rf()
