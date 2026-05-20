@@ -34424,7 +34424,22 @@ def p_candidate_campaign(s: AppState, rf):
                     s._cpc_error = _friendly_ai_error(e)
                 finally:
                     s.cpc_generating = False
-            threading.Thread(target=_run, daemon=True).start()
+            # CRITICAL: dispatch via _run_as_user so the bg thread inherits
+            # the signed-in user's email. Previously this used raw
+            # threading.Thread, which left _CURRENT_USER_EMAIL unbound in
+            # the worker. When _run reached `save_campaign(camp)`, the
+            # _resolve_user_root() call tripped the LEAK_GUARD and fell
+            # back to _BASE_DATA_DIR — saving the campaign to
+            # /opt/dripdrop/data/Campaigns/ (the shared/orphan dir) instead
+            # of the user's own /Campaigns/. Reported 2026-05-20: Sarah
+            # Henze's MPC for Matthew Trowbridge landed in the base dir
+            # and didn't show up in her saved campaigns list. Manually
+            # recovered + this fix prevents recurrence.
+            _run_as_user(
+                getattr(s, "_user_email", "") or "",
+                _run,
+                name="cpc_placement_worker",
+            )
 
         with ui.element("div").style("margin-top:20px;max-width:1000px;"):
             with ui.element("button").classes("fd-pb").style(
