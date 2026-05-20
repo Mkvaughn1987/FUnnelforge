@@ -34318,20 +34318,38 @@ def p_candidate_campaign(s: AppState, rf):
                             "candidate_redacted_resume": cand.get("redacted_resume", ""),
                             "target_companies": [c.get("company", "") for c in companies],
                             "synopsis": campaign_data.get("synopsis", ""),
-                            # Standard field name 2026-05-20 — was "steps" which
-                            # left the email editor empty when the user clicked
-                            # "Save & Open in Editor". Every other campaign in
-                            # the app stores its sequence under "emails"; the
-                            # editor + save layer + queue dispatcher all read
-                            # camp["emails"].
                             "emails": emails,
-                            # Keep "steps" populated too for any in-flight
-                            # placement-flow code that still reads it.
-                            "steps": emails,
+                            "steps": emails,  # legacy alias
                             "contacts_path": "",
                         }
-                        s.cpc_campaign = camp
-                        s.cpc_step = 2
+
+                        # Direct handoff to the email editor 2026-05-20.
+                        # Previously this set cpc_step=2 to land the user
+                        # on a Placement Campaign review page (strategy +
+                        # collapsed email rows + candidate-summary edit
+                        # box + "Save & Open in Editor" button). User
+                        # reported that page was unnecessary friction:
+                        # they want to land in the editor directly and
+                        # tweak from there. Candidate summary stays on
+                        # the saved campaign and is reachable as a
+                        # variable / via the editor's metadata; the
+                        # review page is bypassed entirely.
+                        try:
+                            save_campaign(camp)
+                        except Exception as _save_ex:
+                            print(f"[CPC] save_campaign failed: {_save_ex}", flush=True)
+                            s._cpc_error = f"Couldn't save campaign: {str(_save_ex)[:120]}"
+                            return
+                        s.loaded_camp = camp
+                        s.loaded_view = "emails"
+                        s.loaded_tab = 0
+                        s.sp = "start_seq"
+                        s._tab = "custom"
+                        # Reset the placement-campaign wizard state so
+                        # re-opening the candidate-pool flow starts clean.
+                        s.cpc_step = 0
+                        s.cpc_campaign = None
+                        s._cpc_error = ""
                     else:
                         s._cpc_error = "Could not parse campaign. Try again."
                 except Exception as e:
