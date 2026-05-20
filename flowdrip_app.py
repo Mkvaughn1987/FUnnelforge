@@ -10211,13 +10211,13 @@ def _render_page_intro_strip(s, rf, page_key: str) -> None:
             pass
 
     primary = C["teal"]
-    # Compact 2026-05-20: collapsed from a full-width tinted card with
-    # "What this page is for" / "→ Next" text down to a small lightbulb
-    # badge. Summary + next-action live in a hover tooltip so users who
-    # want the orientation can still get it without the row of text
-    # nailed to the top of every page.
+    # Compact 2026-05-20: collapsed from a full-width tinted card to a
+    # small lightbulb badge. Right-aligned so it doesn't crowd the page
+    # title, and the hover tooltip is themed to match the app's dark
+    # surface instead of Quasar's default gray block.
     with ui.element("div").style(
-            "display:inline-flex;align-items:center;margin-bottom:10px;"):
+            "display:flex;justify-content:flex-end;align-items:center;"
+            "width:100%;margin-bottom:8px;"):
         with ui.element("div").style(
                 f"width:28px;height:28px;border-radius:50%;"
                 f"background:{primary}18;border:1px solid {primary}40;"
@@ -10225,9 +10225,15 @@ def _render_page_intro_strip(s, rf, page_key: str) -> None:
                 f"font-size:14px;line-height:1;cursor:help;"
                 f"font-family:'DM Sans','Segoe UI',sans-serif;"):
             ui.label("💡").style("pointer-events:none;")
-            # Quasar tooltip — surfaces the summary + next on hover.
+            # Quasar tooltip — themed to match the dark surface palette.
             ui.tooltip(f"{summary}\n\nNext: {next_action}").style(
-                "max-width:340px;white-space:pre-wrap;line-height:1.45;")
+                f"max-width:340px;white-space:pre-wrap;line-height:1.45;"
+                f"background:{C['card']} !important;"
+                f"color:{C['text_l']} !important;"
+                f"border:1px solid {primary}55;"
+                f"border-radius:8px;padding:10px 12px;"
+                f"font-family:'DM Sans','Segoe UI',sans-serif;font-size:12px;"
+                f"box-shadow:0 4px 16px rgba(0,0,0,0.35);")
 
 
 EMPTY_STATES = {
