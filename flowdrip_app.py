@@ -34283,7 +34283,15 @@ def p_candidate_campaign(s: AppState, rf):
                         f"7. Do NOT include any sign-off, closing, or sender name at the end of any email. No 'Best,', no 'Thanks,', no name. The user's signature is auto-appended at send time.\n"
                         f"8. Step 1: intro + candidate highlights. Step 2: deeper skills match + market context. "
                         f"Step 3: urgency + competitive landscape. Step 4: offer to share candidate summary. "
-                        f"Step 5: final follow-up with value add.\n\n"
+                        f"Step 5: final follow-up with value add.\n"
+                        f"9. FORMATTING — output HTML body, NOT markdown:\n"
+                        f"   - For lists of points, USE real HTML lists: "
+                        f"<ul><li>Point one</li><li>Point two</li><li>Point three</li></ul>\n"
+                        f"   - The list items must be TIGHT — no <br> tags, no blank lines, no extra "
+                        f"whitespace between consecutive <li> tags. Just <li>...</li><li>...</li>.\n"
+                        f"   - For emphasis use <strong>text</strong>, NEVER ** asterisks ** or * single *.\n"
+                        f"   - For paragraph breaks use a blank line; do NOT wrap each line in <p> tags.\n"
+                        f"   - Do NOT mix markdown and HTML — pick HTML and stay consistent.\n\n"
                         + _style_guide_prompt() +
                         f"Return ONLY valid JSON:\n"
                         f'{{"campaign_name":"{cand_name} - {role} Placement",'
@@ -34305,6 +34313,26 @@ def p_candidate_campaign(s: AppState, rf):
                         for _em in emails:
                             if _em.get("body"):
                                 _em["body"] = _strip_dashes(_strip_ai_signoff(_em["body"]))
+                                # Convert any stray markdown the AI emitted
+                                # despite the prompt's HTML-only rule:
+                                #   **bold**   → <strong>bold</strong>
+                                #   *italic*   → <em>italic</em>   (when adjacent to word chars)
+                                #   * item     → <li>item</li>     (loose lines starting "* ")
+                                # And collapse blank lines between consecutive
+                                # <li>...</li> tags so the list reads tight.
+                                _b = _em["body"]
+                                # bold first (greedier ** match before * for italic)
+                                _b = re.sub(r"\*\*([^*\n][^*]*?)\*\*", r"<strong>\1</strong>", _b)
+                                # italic — only when * touches word chars (avoid
+                                # mangling other asterisk usage)
+                                _b = re.sub(r"(?<![\*\w])\*(\S[^*\n]*?\S|\S)\*(?!\w)", r"<em>\1</em>", _b)
+                                # Tighten consecutive list items: blank lines
+                                # / extra whitespace between </li> and <li> →
+                                # collapse to nothing.
+                                _b = re.sub(r"</li>\s*\n+\s*<li>", "</li><li>", _b, flags=re.I)
+                                # Also kill stray <br> tags inside lists.
+                                _b = re.sub(r"</li>\s*(?:<br\s*/?>\s*)+<li>", "</li><li>", _b, flags=re.I)
+                                _em["body"] = _b
                             if _em.get("subject"):
                                 _em["subject"] = _strip_dashes(_em["subject"])
                         camp = {
