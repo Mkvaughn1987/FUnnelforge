@@ -32568,59 +32568,43 @@ def _tc_render_step_jd(s: AppState, rf):
             val = e.value or ""
         s.tc_jd_text = val.strip()
 
-    if s.tc_jd_mode == "":
-        # Choice state — two equal-weight cards as buttons.
+    # Single unified card: paste textarea is the primary affordance,
+    # upload is a compact secondary action in the same card. Previously
+    # this step opened a two-giant-card chooser ("Upload" vs "Paste")
+    # that forced an extra decision before the user could even start
+    # typing — collapsed to one card 2026-05-20 per user feedback.
+    # `s.tc_jd_mode` is kept on AppState for back-compat but is no
+    # longer used to switch views here.
+    with ui.element("div").style(
+            f"background:{C['card']};border:1px solid {C['border']};"
+            f"border-radius:10px;padding:18px;margin-bottom:14px;"):
+        # Header row: title + inline upload button (right-aligned)
         with ui.element("div").style(
-                "display:flex;gap:14px;margin-bottom:14px;"):
-            for _mode, _icon, _title, _sub in [
-                ("upload", "📄", "Upload a job description", "PDF or DOCX"),
-                ("paste", "📋", "Copy & paste a job description", "Paste the JD text"),
-            ]:
-                with ui.element("button").style(
-                        f"flex:1;background:{C['card']};border:1px solid {C['border']};"
-                        f"border-radius:10px;padding:24px 18px;cursor:pointer;"
-                        f"display:flex;flex-direction:column;align-items:center;"
-                        f"gap:6px;text-align:center;transition:all .15s ease;"
-                        ).on("click", lambda _e, m=_mode: _set_mode(m)):
-                    ui.html(f"<div style='font-size:30px;line-height:1;'>{_icon}</div>")
-                    ui.label(_title).style(
-                        f"font-size:14px;font-weight:700;color:{C['text_l']};"
-                        f"pointer-events:none;")
-                    ui.label(_sub).style(
-                        f"font-size:12px;color:{C['muted']};pointer-events:none;")
-
-    elif s.tc_jd_mode == "upload":
-        with ui.element("div").style(
-                f"background:{C['card']};border:1px solid {C['border']};"
-                f"border-radius:10px;padding:18px;margin-bottom:14px;"):
-            ui.label("📄  Upload a job description").style(
-                f"font-size:13px;font-weight:700;color:{C['text_l']};margin-bottom:10px;")
-            ui.upload(on_upload=_on_upload, max_files=1,
-                      auto_upload=True).props('accept=".pdf,.docx,.doc"')
+                "display:flex;align-items:center;justify-content:space-between;"
+                "gap:10px;margin-bottom:10px;"):
+            ui.label("Job description").style(
+                f"font-size:13px;font-weight:700;color:{C['text_l']};")
             if s.tc_jd_filename:
                 ui.label(f"✓ {s.tc_jd_filename}").style(
-                    f"font-size:11px;color:{C['good']};margin-top:6px;")
-            with ui.element("a").style(
-                    f"display:inline-block;margin-top:12px;font-size:12px;"
-                    f"color:{C['teal']};cursor:pointer;text-decoration:underline;"
-                    ).on("click", lambda _e: _set_mode("paste")):
-                ui.label("or copy & paste instead →").style("pointer-events:none;")
+                    f"font-size:11px;color:{C['good']};")
 
-    else:  # paste
+        # Primary input: paste textarea
+        _ta = ui.textarea(value=s.tc_jd_text,
+                          placeholder="Paste the JD here…").props(
+            "rows=8 outlined dense").style("width:100%;")
+        _ta.on("update:model-value", _on_paste_change)
+
+        # Secondary input: file upload, presented as a compact row below
+        # the textarea so it doesn't compete with the primary action.
         with ui.element("div").style(
-                f"background:{C['card']};border:1px solid {C['border']};"
-                f"border-radius:10px;padding:18px;margin-bottom:14px;"):
-            ui.label("📋  Paste a job description").style(
-                f"font-size:13px;font-weight:700;color:{C['text_l']};margin-bottom:10px;")
-            _ta = ui.textarea(value=s.tc_jd_text,
-                              placeholder="Paste the JD here...").props(
-                "rows=8 outlined dense").style("width:100%;")
-            _ta.on("update:model-value", _on_paste_change)
-            with ui.element("a").style(
-                    f"display:inline-block;margin-top:10px;font-size:12px;"
-                    f"color:{C['teal']};cursor:pointer;text-decoration:underline;"
-                    ).on("click", lambda _e: _set_mode("upload")):
-                ui.label("or upload a file instead →").style("pointer-events:none;")
+                "display:flex;align-items:center;gap:10px;margin-top:10px;"
+                f"padding-top:10px;border-top:1px dashed {C['border']};"):
+            ui.label("Or upload a file:").style(
+                f"font-size:11px;color:{C['muted']};font-weight:600;")
+            ui.upload(on_upload=_on_upload, max_files=1,
+                      auto_upload=True).props(
+                'accept=".pdf,.docx,.doc" flat dense').style(
+                "flex:1;min-width:0;")
 
     if s.tc_jd_generating:
         with ui.element("div").style(
