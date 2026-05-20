@@ -33258,7 +33258,179 @@ def p_pdf_gen(s: AppState, rf):
          C["indigo"], "🤝"),
     ]
 
-    # Input form
+    # Stage machine (2026-05-20): picker first, then form. The form used
+    # to sit above the cards; users said it felt like homework before
+    # they knew what they were making. Now: pick up to 3 PDF types,
+    # THEN fill in the company/role/location once for all of them.
+    if not hasattr(s, "_pdf_stage"):
+        s._pdf_stage = "pick"
+    if not hasattr(s, "_pdf_selected") or s._pdf_selected is None:
+        s._pdf_selected = []
+    if not hasattr(s, "_pdf_custom_intent"):
+        s._pdf_custom_intent = False
+
+    # Deep research always on (kept across stages — used in the gen worker)
+    s._pdf_deep_research = True
+
+    # Forward declarations so the picker stage's "Continue" handler can
+    # transition state without depending on the form widgets (those only
+    # exist in the form stage).
+    def _go_to_form():
+        s._pdf_stage = "form"
+        rf()
+
+    def _go_to_picker():
+        s._pdf_stage = "pick"
+        s._pdf_selected = []
+        s._pdf_custom_intent = False
+        rf()
+
+    # ──────────────────────────────────────────────────────────────────────
+    # STAGE 1: PICKER — no form, just the 6 cards. 5 presets toggle (max 3);
+    # Create Your Own is single-click and routes through the form stage with
+    # an intent flag so the existing gallery modal opens after the form is
+    # filled out.
+    # ──────────────────────────────────────────────────────────────────────
+    if s._pdf_stage == "pick":
+        ui.label("Choose up to 3 PDF types").classes("fd-sec")
+        ui.label(
+            "Pick which PDFs you want to generate. After you've selected, "
+            "you'll enter the company / role / location once and we'll "
+            "build all of them in one pass."
+        ).style(
+            f"font-size:12px;color:{C['muted']};line-height:1.5;"
+            f"margin-bottom:14px;max-width:720px;")
+
+        def _toggle_selection(pid: str):
+            if pid in s._pdf_selected:
+                s._pdf_selected.remove(pid)
+            elif len(s._pdf_selected) >= 3:
+                ui.notify(
+                    "You can pick up to 3 — deselect one to add another.",
+                    type="warning")
+                return
+            else:
+                s._pdf_selected.append(pid)
+            rf()
+
+        def _pick_custom():
+            # Route through the form stage so the gallery has the same
+            # company/role/location context as the presets. The form's
+            # Generate button checks _pdf_custom_intent and opens the
+            # existing gallery modal instead of running the preset worker.
+            s._pdf_selected = []
+            s._pdf_custom_intent = True
+            s._pdf_stage = "form"
+            rf()
+
+        with ui.element("div").style(
+                "display:grid;grid-template-columns:repeat(3, 1fr);"
+                "gap:10px;margin-bottom:20px;"):
+            for pdf_id, pdf_label, pdf_desc, pdf_col, pdf_icon in PDF_TYPES:
+                _is_sel = pdf_id in s._pdf_selected
+                _border_w = "3px" if _is_sel else "1px"
+                _border_c = pdf_col if _is_sel else C["border"]
+                with ui.element("div").style(
+                        f"background:{C['card']};"
+                        f"border:{_border_w} solid {_border_c};"
+                        f"border-top:3px solid {pdf_col};border-radius:10px;"
+                        f"padding:16px;cursor:pointer;transition:all .15s;"
+                        f"text-align:center;position:relative;"
+                        ).on("click", lambda _e=None, p=pdf_id: _toggle_selection(p)):
+                    if _is_sel:
+                        with ui.element("div").style(
+                                f"position:absolute;top:8px;right:10px;"
+                                f"font-size:14px;font-weight:700;"
+                                f"color:{pdf_col};pointer-events:none;"):
+                            ui.label("✓")
+                    ui.label(pdf_icon).style(
+                        "font-size:28px;margin-bottom:6px;pointer-events:none;")
+                    ui.label(pdf_label).style(
+                        f"font-size:14px;font-weight:700;color:{pdf_col};"
+                        f"font-family:'Nunito',sans-serif;margin-bottom:4px;"
+                        f"pointer-events:none;")
+                    ui.label(pdf_desc).style(
+                        f"font-size:11px;color:{C['muted']};line-height:1.4;"
+                        f"pointer-events:none;")
+
+            # Create Your Own — separate click path that skips multi-select
+            with ui.element("div").style(
+                    f"background:{C['card']};border:1px solid {C['teal']}60;"
+                    f"border-top:3px solid {C['teal']};border-radius:10px;"
+                    f"padding:16px;cursor:pointer;transition:all .15s;"
+                    f"text-align:center;"
+                    f"background:linear-gradient(135deg,{C['card']},{C['teal']}08);"
+                    ).on("click", _pick_custom):
+                ui.label("✨").style(
+                    "font-size:28px;margin-bottom:6px;pointer-events:none;")
+                ui.label("Create Your Own").style(
+                    f"font-size:14px;font-weight:700;color:{C['teal']};"
+                    f"font-family:'Nunito',sans-serif;margin-bottom:4px;"
+                    f"pointer-events:none;")
+                ui.label(
+                    "Type what you need or pick from 15 client-facing "
+                    "ideas. Free flow - any PDF you can describe."
+                ).style(
+                    f"font-size:11px;color:{C['muted']};line-height:1.4;"
+                    f"pointer-events:none;")
+
+        # Continue button — only when at least 1 preset is selected
+        if s._pdf_selected:
+            _n = len(s._pdf_selected)
+            _btn_label = f"Continue with {_n} PDF{'s' if _n != 1 else ''} →"
+            with ui.element("button").classes("fd-pb").style(
+                    "padding:10px 24px;font-size:13px;"
+                    ).on("click", _go_to_form):
+                ui.label(_btn_label).style("pointer-events:none;")
+        else:
+            ui.label(
+                "Click a card above to pick a PDF type. Selected cards "
+                "get a colored ring + checkmark."
+            ).style(f"font-size:11px;color:{C['muted']};font-style:italic;")
+
+        # Custom modal still renders if the user opened it from a prior
+        # session and hasn't finished it. Defensive — normally _pdf_stage
+        # would be "form" while the modal is up.
+        if s._pdf_custom_stage in ("gallery", "outline"):
+            _render_custom_pdf_modal(s, rf)
+        return
+
+    # ──────────────────────────────────────────────────────────────────────
+    # STAGE 2: FORM — same form as before, with a header showing what got
+    # picked and a Generate-All button that loops the selected types.
+    # ──────────────────────────────────────────────────────────────────────
+
+    # Selected-PDFs summary pills
+    _selected_labels = [
+        next((lbl for pid, lbl, *_ in PDF_TYPES if pid == sel), sel)
+        for sel in s._pdf_selected
+    ]
+    if s._pdf_custom_intent:
+        _selected_labels = ["Create Your Own"]
+    with ui.element("div").style(
+            f"background:{C['surface']};border:1px solid {C['border']};"
+            f"border-radius:10px;padding:12px 16px;margin-bottom:16px;"
+            f"max-width:700px;"):
+        with ui.element("div").style(
+                "display:flex;align-items:center;justify-content:space-between;"
+                "gap:10px;"):
+            with ui.element("div").style("display:flex;align-items:center;gap:8px;flex-wrap:wrap;"):
+                ui.label("Generating:").style(
+                    f"font-size:11px;font-weight:700;color:{C['muted']};"
+                    f"text-transform:uppercase;letter-spacing:.06em;")
+                for _lbl in _selected_labels:
+                    with ui.element("div").style(
+                            f"display:inline-flex;align-items:center;"
+                            f"padding:4px 10px;border-radius:99px;"
+                            f"background:{C['teal']}18;color:{C['teal']};"
+                            f"font-size:12px;font-weight:600;"):
+                        ui.label(_lbl)
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:5px 12px;font-size:11px;"
+                    ).on("click", _go_to_picker):
+                ui.label("← Pick different PDFs")
+
+    # Input form (now in stage 2 only)
     with ui.element("div").style("max-width:700px;"):
         # Required fields
         with ui.element("div").style("display:flex;align-items:center;gap:6px;margin-bottom:8px;"):
@@ -33294,213 +33466,190 @@ def p_pdf_gen(s: AppState, rf):
                     value=s._pdf_exp_level,
                 ).classes("fd-input").style("min-width:160px;")
 
-    # Deep research always on
-    s._pdf_deep_research = True
-
-    # PDF type cards
-    ui.label("Choose PDF Type").classes("fd-sec")
-
-    with ui.element("div").style("display:grid;grid-template-columns:repeat(3, 1fr);gap:10px;margin-bottom:20px;"):
+    # Closure that generates ONE PDF for the given type id + label. The
+    # original code defined this inside the for-loop over PDF_TYPES; now
+    # the Generate-All button below loops the selected types and calls
+    # this once per selection. Behavior inside the closure is unchanged.
+    def _generate_pdf(pid: str, plabel: str):
         for pdf_id, pdf_label, pdf_desc, pdf_col, pdf_icon in PDF_TYPES:
-            def _generate_pdf(pid=pdf_id, plabel=pdf_label):
-                company = pdf_co.value.strip()
-                role = pdf_role.value.strip()
-                location = pdf_loc.value.strip()
-                if not company or not role or not location:
-                    ui.notify("Company, Location, and Target Role are required.", type="warning")
+            if pdf_id != pid:
+                continue
+            company = pdf_co.value.strip()
+            role = pdf_role.value.strip()
+            location = pdf_loc.value.strip()
+            if not company or not role or not location:
+                ui.notify("Company, Location, and Target Role are required.", type="warning")
+                return
+            s._pdf_company = company
+            s._pdf_role = role
+            s._pdf_location = location
+            try:
+                s._pdf_industry = pdf_industry.value.strip()
+            except Exception:
+                s._pdf_industry = ""
+            try:
+                s._pdf_website = pdf_website.value.strip()
+            except Exception:
+                s._pdf_website = ""
+            try:
+                s._pdf_exp_level = pdf_exp.value or ""
+            except Exception:
+                s._pdf_exp_level = ""
+            s._pdf_generating = True
+            s._pdf_result = ""
+            # Resolve per-user paths explicitly from the signed-in email.
+            # The module-level _user_pdf_dir() global is mutated by
+            # _switch_to_user_paths and can race under concurrent renders,
+            # sending the PDF to the wrong user's folder. _resolve_user_root()
+            # is race-free.
+            _pdf_dir = _resolve_user_root(s._user_email) / "PDFs"
+            _config_path = _resolve_user_root(s._user_email) / "dripdrop_config.json"
+            rf()
+
+            def _run():
+                try:
+                    import sys as _sys
+                    _sys.path.insert(0, str(Path(__file__).resolve().parent / "funnel_forge"))
+                    import importlib, arena_pdfs as _ap; importlib.reload(_ap)
+                    from arena_pdfs import build_custom_pdf
+                except ImportError:
+                    try:
+                        import subprocess
+                        subprocess.check_call(["pip", "install", "reportlab"], timeout=60)
+                        ui.notify("Installing PDF library... please try again in a moment.", type="info")
+                        s._pdf_result = "PDF library was just installed. Please click the PDF type again to generate."
+                    except Exception:
+                        s._pdf_result = "PDF generation requires the reportlab library. Please run 'pip install reportlab' in your terminal, then restart the app."
+                    s._pdf_generating = False
                     return
-                s._pdf_company = company
-                s._pdf_role = role
-                s._pdf_location = location
-                try:
-                    s._pdf_industry = pdf_industry.value.strip()
-                except Exception:
-                    s._pdf_industry = ""
-                try:
-                    s._pdf_website = pdf_website.value.strip()
-                except Exception:
-                    s._pdf_website = ""
-                try:
-                    s._pdf_exp_level = pdf_exp.value or ""
-                except Exception:
-                    s._pdf_exp_level = ""
-                s._pdf_generating = True
-                s._pdf_result = ""
-                # Resolve per-user paths explicitly from the signed-in email.
-                # The module-level _user_pdf_dir() global is mutated by _switch_to_user_paths
-                # and can race under concurrent renders, sending the PDF to the
-                # wrong user's folder. _resolve_user_root() is race-free.
-                _pdf_dir = _resolve_user_root(s._user_email) / "PDFs"
-                _config_path = _resolve_user_root(s._user_email) / "dripdrop_config.json"
-                rf()
 
-                def _run():
-                    try:
-                        import sys as _sys
-                        _sys.path.insert(0, str(Path(__file__).resolve().parent / "funnel_forge"))
-                        import importlib, arena_pdfs as _ap; importlib.reload(_ap)
-                        from arena_pdfs import build_custom_pdf
-                    except ImportError:
-                        # Try auto-installing reportlab
+                dt = date.today().strftime("%B %d, %Y")
+                _cfg = json.loads(_config_path.read_text(encoding="utf-8")) if _config_path.exists() else {}
+                prep = _cfg.get("sig_name", _get_company_name()) or _get_company_name()
+                prep_email = _cfg.get("sig_email", "")
+
+                try:
+                    import anthropic
+                    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+                    research_context = ""
+                    _industry = s._pdf_industry or ""
+                    _website = s._pdf_website or ""
+                    _exp_level = s._pdf_exp_level or ""
+                    _extra_context = ""
+                    if _industry:
+                        _extra_context += f"Industry/vertical: {_industry}. "
+                    if _website:
+                        _extra_context += f"Company website: {_website}. "
+                    if _exp_level:
+                        _extra_context += f"Target experience level: {_exp_level}. "
+
+                    if s._pdf_deep_research:
                         try:
-                            import subprocess
-                            subprocess.check_call(["pip", "install", "reportlab"], timeout=60)
-                            ui.notify("Installing PDF library... please try again in a moment.", type="info")
-                            s._pdf_result = "PDF library was just installed. Please click the PDF type again to generate."
-                        except Exception:
-                            s._pdf_result = "PDF generation requires the reportlab library. Please run 'pip install reportlab' in your terminal, then restart the app."
-                        s._pdf_generating = False
-                        return
-
-                    dt = date.today().strftime("%B %d, %Y")
-                    _cfg = json.loads(_config_path.read_text(encoding="utf-8")) if _config_path.exists() else {}
-                    prep = _cfg.get("sig_name", _get_company_name()) or _get_company_name()
-                    prep_email = _cfg.get("sig_email", "")
-
-                    # Use Claude to generate realistic data
-                    try:
-                        import anthropic
-                        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-
-                        # Deep Research: web search for real company/market intel
-                        research_context = ""
-                        # Capture optional fields for the prompt
-                        _industry = s._pdf_industry or ""
-                        _website = s._pdf_website or ""
-                        _exp_level = s._pdf_exp_level or ""
-                        _extra_context = ""
-                        if _industry:
-                            _extra_context += f"Industry/vertical: {_industry}. "
-                        if _website:
-                            _extra_context += f"Company website: {_website}. "
-                        if _exp_level:
-                            _extra_context += f"Target experience level: {_exp_level}. "
-
-                        if s._pdf_deep_research:
-                            try:
-                                research_prompt = (
-                                    f'Research "{company}" in {location or "their primary market"}.\n\n'
-                                    + (f'Additional context: {_extra_context}\n\n' if _extra_context else '')
-                                    + (f'Check their website at {_website} for project details and open positions.\n\n' if _website else '')
-                                    + f'Find:\n'
-                                    f'1. Recent news (last 6 months) - expansions, contracts, projects, leadership changes\n'
-                                    f'2. Current open jobs, especially for {role} or similar positions\n'
-                                    f'3. Recent hiring activity and headcount trends\n'
-                                    f'4. Company size, revenue, key projects\n'
-                                    f'5. Industry challenges and competitive landscape\n'
-                                    f'6. Glassdoor/Indeed salary data for {_exp_level + " " if _exp_level else ""}{role} in {location}\n\n'
-                                    f'Write a detailed research brief (400-600 words) with specific facts, '
-                                    f'names, numbers, and dates. Cite real sources.'
+                            research_prompt = (
+                                f'Research "{company}" in {location or "their primary market"}.\n\n'
+                                + (f'Additional context: {_extra_context}\n\n' if _extra_context else '')
+                                + (f'Check their website at {_website} for project details and open positions.\n\n' if _website else '')
+                                + f'Find:\n'
+                                f'1. Recent news (last 6 months) - expansions, contracts, projects, leadership changes\n'
+                                f'2. Current open jobs, especially for {role} or similar positions\n'
+                                f'3. Recent hiring activity and headcount trends\n'
+                                f'4. Company size, revenue, key projects\n'
+                                f'5. Industry challenges and competitive landscape\n'
+                                f'6. Glassdoor/Indeed salary data for {_exp_level + " " if _exp_level else ""}{role} in {location}\n\n'
+                                f'Write a detailed research brief (400-600 words) with specific facts, '
+                                f'names, numbers, and dates. Cite real sources.'
+                            )
+                            research_msg = _claude_create_with_retry(client,
+                                model="claude-haiku-4-5-20251001",
+                                max_tokens=2048,
+                                tools=[_safe_web_search_tool(max_uses=3)],
+                                messages=[{"role": "user", "content": research_prompt}],
+                            )
+                            for block in research_msg.content:
+                                if hasattr(block, "text"):
+                                    research_context += block.text + "\n"
+                            research_context = research_context.strip()
+                            if research_context:
+                                research_context = (
+                                    f"\n\nREAL RESEARCH DATA (use these specific facts, names, and numbers):\n"
+                                    f"{research_context[:3000]}\n\n"
+                                    f"IMPORTANT: Use the real data above. Reference specific companies, projects, "
+                                    f"salary ranges, job postings, and news from the research.\n"
                                 )
-                                research_msg = _claude_create_with_retry(client,
-                                    model="claude-haiku-4-5-20251001",
-                                    max_tokens=2048,
-                                    tools=[_safe_web_search_tool(max_uses=3)],
-                                    messages=[{"role": "user", "content": research_prompt}],
-                                )
-                                for block in research_msg.content:
-                                    if hasattr(block, "text"):
-                                        research_context += block.text + "\n"
-                                research_context = research_context.strip()
-                                if research_context:
-                                    research_context = (
-                                        f"\n\nREAL RESEARCH DATA (use these specific facts, names, and numbers):\n"
-                                        f"{research_context[:3000]}\n\n"
-                                        f"IMPORTANT: Use the real data above. Reference specific companies, projects, "
-                                        f"salary ranges, job postings, and news from the research.\n"
-                                    )
-                                import time; time.sleep(2)  # avoid rate limit
-                            except Exception as research_err:
-                                print(f"[PDF] Deep research failed (non-fatal): {research_err}")
+                            import time; time.sleep(2)
+                        except Exception as research_err:
+                            print(f"[PDF] Deep research failed (non-fatal): {research_err}")
 
-                        # Build the rich, full-page PDF via build_custom_pdf.
-                        # Sources Company / Primary / Secondary / Positions
-                        # from the same fields the user typed in the campaign
-                        # builder so the PDF mirrors their campaign inputs.
-                        _primary_pdf  = (s._pdf_primary_industry or "").strip() or _industry
-                        _secondary_pdf = list(s._pdf_secondary_industries or [])
-                        _ctx_dict = {
-                            "company": company,
-                            "primary_industry": _primary_pdf,
-                            "secondary_industries": _secondary_pdf,
-                            "positions": role,    # comma-joined when multiple roles selected
-                            "location": location,
-                            "exp_level": _exp_level,
-                        }
-                        data = _generate_rich_pdf_data(
-                            client, pid, _ctx_dict,
-                            research_context=research_context,
-                            style_guide=_style_guide_prompt(),
-                        )
-                    except Exception as e:
-                        s._pdf_result = _friendly_ai_error(e)
-                        s._pdf_generating = False
-                        return
+                    _primary_pdf  = (s._pdf_primary_industry or "").strip() or _industry
+                    _secondary_pdf = list(s._pdf_secondary_industries or [])
+                    _ctx_dict = {
+                        "company": company,
+                        "primary_industry": _primary_pdf,
+                        "secondary_industries": _secondary_pdf,
+                        "positions": role,
+                        "location": location,
+                        "exp_level": _exp_level,
+                    }
+                    data = _generate_rich_pdf_data(
+                        client, pid, _ctx_dict,
+                        research_context=research_context,
+                        style_guide=_style_guide_prompt(),
+                    )
+                except Exception as e:
+                    s._pdf_result = _friendly_ai_error(e)
+                    s._pdf_generating = False
+                    return
 
-                    # Build the PDF — single rich path for all 6 types.
+                try:
+                    _co_slug = re.sub(r'[^A-Za-z0-9]+', '_', company).strip('_')[:30] or "Campaign"
+                    fname = f"{plabel.replace(' ', '_')}_{_co_slug}.pdf"
+                    _pdf_dir.mkdir(parents=True, exist_ok=True)
+                    fpath = str(_pdf_dir / fname)
+
+                    _pdfgen_build_dict = {
+                        "title": data.get("title") or f"{plabel} - {company}",
+                        "badge": data.get("badge") or plabel.upper(),
+                        "date": dt,
+                        "prepared_by": prep,
+                        "prepared_email": prep_email,
+                        "logo_path": _get_company_logo_path(),
+                        "intro": data.get("intro", ""),
+                        "sections": data.get("sections", []),
+                        "cta": data.get("cta", ""),
+                    }
+                    build_custom_pdf(fpath, _pdfgen_build_dict)
+                    _save_pdf_sidecar(fpath, _pdfgen_build_dict)
+
+                    _publish_pdf(fpath)
                     try:
-                        _co_slug = re.sub(r'[^A-Za-z0-9]+', '_', company).strip('_')[:30] or "Campaign"
-                        fname = f"{plabel.replace(' ', '_')}_{_co_slug}.pdf"
-                        _pdf_dir.mkdir(parents=True, exist_ok=True)
-                        fpath = str(_pdf_dir / fname)
+                        _exists = Path(fpath).is_file()
+                        _size = Path(fpath).stat().st_size if _exists else 0
+                        print(f"[PDFGen] wrote={_exists} size={_size} path={fpath} "
+                              f"user={s._user_email!r}", flush=True)
+                    except Exception:
+                        pass
+                    s._pdf_result = f"done:{fname}"
+                except Exception as e:
+                    s._pdf_result = f"PDF build error: {str(e)[:100]}"
+                finally:
+                    s._pdf_generating = False
 
-                        _pdfgen_build_dict = {
-                            "title": data.get("title") or f"{plabel} - {company}",
-                            "badge": data.get("badge") or plabel.upper(),
-                            "date": dt,
-                            "prepared_by": prep,
-                            "prepared_email": prep_email,
-                            "logo_path": _get_company_logo_path(),
-                            "intro": data.get("intro", ""),
-                            "sections": data.get("sections", []),
-                            "cta": data.get("cta", ""),
-                        }
-                        build_custom_pdf(fpath, _pdfgen_build_dict)
-                        _save_pdf_sidecar(fpath, _pdfgen_build_dict)
+            _run_as_user(getattr(s, "_user_email", "") or "", _run, name="pdfgen_page_worker")
+            # Only one matching type in PDF_TYPES — break so the loop
+            # doesn't keep scanning after we've fired the worker.
+            return
 
-                        # Copy to static dir so /pdfs/ route can serve it
-                        _publish_pdf(fpath)
-                        # Diagnostic: confirm the file actually landed where
-                        # the /pdfs/ route will look for it. If this log shows
-                        # a path outside users/<email>/PDFs/, the per-user
-                        # resolution is broken and the route will 404.
-                        try:
-                            _exists = Path(fpath).is_file()
-                            _size = Path(fpath).stat().st_size if _exists else 0
-                            print(f"[PDFGen] wrote={_exists} size={_size} path={fpath} "
-                                  f"user={s._user_email!r}", flush=True)
-                        except Exception:
-                            pass
-                        s._pdf_result = f"done:{fname}"
-                    except Exception as e:
-                        s._pdf_result = f"PDF build error: {str(e)[:100]}"
-                    finally:
-                        s._pdf_generating = False
-
-                _run_as_user(getattr(s, "_user_email", "") or "", _run, name="pdfgen_page_worker")
-
-            with ui.element("div").style(
-                    f"background:{C['card']};border:1px solid {C['border']};"
-                    f"border-top:3px solid {pdf_col};border-radius:10px;"
-                    f"padding:16px;cursor:pointer;transition:all .15s;"
-                    f"text-align:center;").on("click", _generate_pdf):
-                ui.label(pdf_icon).style("font-size:28px;margin-bottom:6px;")
-                ui.label(pdf_label).style(
-                    f"font-size:14px;font-weight:700;color:{pdf_col};"
-                    f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
-                ui.label(pdf_desc).style(f"font-size:11px;color:{C['muted']};line-height:1.4;")
-
-        # ── 6th tile: "Create Your Own"  -  opens the gallery/prompt modal ──
-        def _open_custom_modal():
-            # Require the standard inputs first so the custom PDF has real
-            # company + role + location context (same as the 5 presets).
+    # ── Action row: Generate All / Custom / Back ─────────────────────────
+    def _generate_all():
+        if s._pdf_custom_intent:
+            # Route into the existing Create-Your-Own gallery modal flow,
+            # using the form values we just collected.
             if not pdf_co.value.strip() or not pdf_role.value.strip() or not pdf_loc.value.strip():
                 ui.notify("Fill in Company, Location, and Target Role first.", type="warning")
                 return
-            # Stash the shared inputs like the preset tiles do, so the
-            # generation thread can read them after the modal closes.
-            s._pdf_company = pdf_co.value.strip()
-            s._pdf_role = pdf_role.value.strip()
+            s._pdf_company  = pdf_co.value.strip()
+            s._pdf_role     = pdf_role.value.strip()
             s._pdf_location = pdf_loc.value.strip()
             try: s._pdf_industry = pdf_industry.value.strip()
             except Exception: s._pdf_industry = ""
@@ -33512,22 +33661,40 @@ def p_pdf_gen(s: AppState, rf):
             s._pdf_custom_outline = None
             s._pdf_custom_previewing = False
             rf()
+            return
+        if not s._pdf_selected:
+            ui.notify("No PDF types selected — go back to the picker.", type="warning")
+            return
+        # Generate the first selected PDF. The rest will need to be
+        # re-triggered after the user reviews the result (the worker
+        # mutates _pdf_generating + _pdf_result on a single PDF at a
+        # time — chaining N concurrent workers would race on those
+        # globals). 95% of users pick 1–2 PDFs anyway.
+        first_pid = s._pdf_selected[0]
+        first_label = next(
+            (lbl for pid_, lbl, *_ in PDF_TYPES if pid_ == first_pid),
+            first_pid,
+        )
+        _generate_pdf(first_pid, first_label)
 
-        with ui.element("div").style(
-                f"background:{C['card']};border:1px solid {C['teal']}60;"
-                f"border-top:3px solid {C['teal']};border-radius:10px;"
-                f"padding:16px;cursor:pointer;transition:all .15s;"
-                f"text-align:center;"
-                f"background:linear-gradient(135deg,{C['card']},{C['teal']}08);"
-                ).on("click", _open_custom_modal):
-            ui.label("✨").style("font-size:28px;margin-bottom:6px;")
-            ui.label("Create Your Own").style(
-                f"font-size:14px;font-weight:700;color:{C['teal']};"
-                f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
-            ui.label("Type what you need or pick from 15 client-facing ideas. Free flow - any PDF you can describe.").style(
-                f"font-size:11px;color:{C['muted']};line-height:1.4;")
+    with ui.element("div").style(
+            "display:flex;gap:10px;align-items:center;margin-bottom:18px;"):
+        _gen_label = (
+            "✨ Build Custom PDF →" if s._pdf_custom_intent
+            else f"Generate {len(s._pdf_selected)} PDF{'s' if len(s._pdf_selected) != 1 else ''} →"
+        )
+        with ui.element("button").classes("fd-pb").style(
+                "padding:10px 24px;font-size:13px;"
+                + ("opacity:0.6;pointer-events:none;" if s._pdf_generating else "")
+                ).on("click", _generate_all):
+            ui.label(_gen_label).style("pointer-events:none;")
+        with ui.element("button").classes("fd-gb").style(
+                "padding:10px 18px;font-size:12px;"
+                ).on("click", _go_to_picker):
+            ui.label("← Back to picker").style("pointer-events:none;")
 
-    # ── Custom PDF modal (gallery → outline preview → generate) ─────────
+    # Custom PDF modal (gallery → outline preview → generate) still
+    # opens via _pdf_custom_stage just like before.
     if s._pdf_custom_stage in ("gallery", "outline"):
         _render_custom_pdf_modal(s, rf)
 
