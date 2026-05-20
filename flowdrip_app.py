@@ -10211,31 +10211,23 @@ def _render_page_intro_strip(s, rf, page_key: str) -> None:
             pass
 
     primary = C["teal"]
-    text = C["text_l"]
-    muted = C["muted"]
+    # Compact 2026-05-20: collapsed from a full-width tinted card with
+    # "What this page is for" / "→ Next" text down to a small lightbulb
+    # badge. Summary + next-action live in a hover tooltip so users who
+    # want the orientation can still get it without the row of text
+    # nailed to the top of every page.
     with ui.element("div").style(
-            f"background:{primary}12;border-left:4px solid {primary};"
-            f"border-radius:4px;padding:10px 14px;margin-bottom:12px;"
-            f"display:flex;align-items:flex-start;gap:10px;"
-            f"font-family:'DM Sans','Segoe UI',sans-serif;"):
-        # Lightbulb icon
-        ui.label("💡").style("font-size:18px;line-height:1.2;flex-shrink:0;")
-        # Body — summary on one line, next_action on the next
-        with ui.element("div").style("flex:1;min-width:0;line-height:1.5;font-size:12px;"):
-            ui.html(
-                f'<strong style="color:{primary};">What this page is for:</strong> '
-                f'<span style="color:{text};">{summary}</span>'
-            )
-            ui.html(
-                f'<strong style="color:{primary};">→ Next:</strong> '
-                f'<span style="color:{text};">{next_action}</span>'
-            )
-        # Dismiss button
-        with ui.element("button").style(
-                f"background:transparent;border:none;cursor:pointer;"
-                f"color:{muted};font-size:16px;padding:0 4px;"
-                f"line-height:1;flex-shrink:0;").on("click", _on_dismiss):
-            ui.label("✕").style("pointer-events:none;")
+            "display:inline-flex;align-items:center;margin-bottom:10px;"):
+        with ui.element("div").style(
+                f"width:28px;height:28px;border-radius:50%;"
+                f"background:{primary}18;border:1px solid {primary}40;"
+                f"display:inline-flex;align-items:center;justify-content:center;"
+                f"font-size:14px;line-height:1;cursor:help;"
+                f"font-family:'DM Sans','Segoe UI',sans-serif;"):
+            ui.label("💡").style("pointer-events:none;")
+            # Quasar tooltip — surfaces the summary + next on hover.
+            ui.tooltip(f"{summary}\n\nNext: {next_action}").style(
+                "max-width:340px;white-space:pre-wrap;line-height:1.45;")
 
 
 EMPTY_STATES = {
