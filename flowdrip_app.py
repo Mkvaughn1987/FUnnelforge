@@ -10091,7 +10091,18 @@ PAGE_HELP = {
 
 
 def _show_page_help(s: AppState, rf, page_key: str):
-    """Render a help icon that opens a slide-out guide for the current page."""
+    """No-op as of 2026-05-20 — the "?" help icon next to each page
+    title (and the inline guide popup it opened) was retired per user
+    feedback. The lightbulb intro strip at the top of each page
+    (_render_page_intro_strip) is the surviving on-page help surface.
+
+    Every call site (~20 across this file) is left alone so we can
+    re-enable the guide later by reverting just this function. The
+    PAGE_HELP dict is preserved as the source of truth.
+    """
+    return
+    # Original implementation kept below for reference / quick revert.
+    # ──────────────────────────────────────────────────────────────────
     guide = PAGE_HELP.get(page_key)
     if not guide:
         return
