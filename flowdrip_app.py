@@ -20711,7 +20711,11 @@ def _render_nl_first_gen_status(s, rf) -> None:
         ui.timer(2.0, _poll_nl_gen)
         return
 
-    # Done: success card with View button + dismiss.
+    # Done: success card with a direct Preview button + dismiss. The old
+    # copy pointed at the View / Edit pill on the newsletter card below;
+    # that pill was removed 2026-05-20 (title is the click target now),
+    # so the card here gives the user the entry directly instead of
+    # describing where to find it.
     with ui.element("div").style(
             f"background:{C['good']}15;border:1px solid {C['good']}60;"
             f"border-left:5px solid {C['good']};border-radius:12px;"
@@ -20725,22 +20729,49 @@ def _render_nl_first_gen_status(s, rf) -> None:
                 f"font-family:'Nunito',sans-serif;display:block;"
                 f"margin-bottom:2px;")
             ui.label(
-                "Click View / Edit on the card below to review and tweak "
-                "before it sends. Future issues auto-refresh 3 days "
-                "before send."
+                "Preview it now to review and tweak before it sends. "
+                "Future issues auto-refresh 3 days before each send."
             ).style(
                 f"font-size:11px;color:{C['muted']};line-height:1.5;"
                 f"display:block;")
+
+        def _preview_first_issue():
+            # Open the View / Edit modal on step 0 of the just-generated
+            # newsletter so the user can review the AI's first draft.
+            try:
+                _camp = next(
+                    (c for c in load_campaigns()
+                     if c.get("name") == _camp_name),
+                    None,
+                )
+            except Exception:
+                _camp = None
+            if not _camp:
+                ui.notify(
+                    "Couldn't load the newsletter — refresh the page.",
+                    type="warning"); return
+            _emails = _camp.get("emails", []) or []
+            if not _emails:
+                ui.notify(
+                    "No issues on the newsletter yet — try again in a moment.",
+                    type="warning"); return
+            _edit_newsletter_modal(s, rf, _camp, 0)
 
         def _dismiss_done():
             s._nl_first_gen_camp_name = None
             s._nl_first_gen_done = False
             rf()
 
-        with ui.element("button").classes("fd-pb").style(
-                "padding:8px 18px;font-size:12px;flex-shrink:0;").on(
-                "click", _dismiss_done):
-            ui.label("Got it ✓")
+        with ui.element("div").style(
+                "display:flex;gap:8px;flex-shrink:0;align-items:center;"):
+            with ui.element("button").classes("fd-pb").style(
+                    "padding:8px 18px;font-size:12px;").on(
+                    "click", _preview_first_issue):
+                ui.label("✦ Preview Newsletter").style("pointer-events:none;")
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:8px 14px;font-size:12px;").on(
+                    "click", _dismiss_done):
+                ui.label("Dismiss").style("pointer-events:none;")
 
 
 def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
