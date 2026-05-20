@@ -20743,7 +20743,7 @@ def _render_nl_first_gen_status(s, rf) -> None:
             ui.label("Got it ✓")
 
 
-def _create_newsletter_dialog(s, rf):
+def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
     """Dialog for creating a new Newsletter evergreen campaign.
     User picks name, sector, region, start month, and number of months.
     The dialog seeds N monthly steps, each scheduled for the first
@@ -20753,7 +20753,28 @@ def _create_newsletter_dialog(s, rf):
 
     Each step starts with an empty body; the existing "Refresh Next
     Email" flow on the Slow Drip page uses AI + web search to write
-    fresh content for each month before it sends."""
+    fresh content for each month before it sends.
+
+    `prefill` (added 2026-05-20): when provided, seeds the inputs from
+    an existing campaign so users can spin up a newsletter from a
+    Current Campaigns card in one click. Recognised keys:
+      - name: suggested newsletter name
+      - sector_key: AICB_INDUSTRIES key (e.g. "construction")
+      - niche: free-text niche
+      - region: market region
+      - contacts: list of contact dicts to pre-enroll in the newsletter
+      - source_campaign_name: name tag stored on the new campaign for
+        provenance (shown nowhere yet; available for future audit)
+    """
+    prefill = prefill or {}
+    _pre_name = (prefill.get("name") or "").strip()
+    _pre_sector_key = (prefill.get("sector_key") or "").strip()
+    if _pre_sector_key and _pre_sector_key not in AICB_INDUSTRIES:
+        _pre_sector_key = ""
+    _pre_niche = (prefill.get("niche") or "").strip()
+    _pre_region = (prefill.get("region") or "").strip()
+    _pre_contacts = list(prefill.get("contacts") or [])
+    _pre_source = (prefill.get("source_campaign_name") or "").strip()
     with ui.dialog() as dlg, ui.card().style(
             f"min-width:520px;max-width:580px;background:{C['card']};"
             f"border:1px solid {C['border']};padding:24px;"):
@@ -20774,6 +20795,7 @@ def _create_newsletter_dialog(s, rf):
         ui.label("Shows as the branded header on every issue — also used as the campaign name in your Slow Drip list.").style(
             f"font-size:10px;color:{C['muted']};margin-bottom:4px;")
         nl_name_in = ui.input(
+            value=_pre_name,
             placeholder="e.g. The Denver Construction Report"
         ).classes("fd-input").style("margin-bottom:12px;")
 
@@ -20783,7 +20805,7 @@ def _create_newsletter_dialog(s, rf):
         ui.label("Market Sector").classes("fd-fl")
         _sector_options = {"": "Select a sector..."}
         _sector_options.update({k: v["label"] for k, v in AICB_INDUSTRIES.items()})
-        sector_in = ui.select(options=_sector_options, value="").classes("fd-input").style("margin-bottom:12px;width:100%;")
+        sector_in = ui.select(options=_sector_options, value=_pre_sector_key or "").classes("fd-input").style("margin-bottom:12px;width:100%;")
 
         # Optional Niche — refines the sector. Comes with a ? help
         # icon on hover so users know what to do with it.
@@ -20802,12 +20824,14 @@ def _create_newsletter_dialog(s, rf):
                     "Manufacturing'). Leave blank to cover the whole sector."
                 )
         niche_in = ui.input(
+            value=_pre_niche,
             placeholder="e.g. Healthcare Construction, Data Centers"
         ).classes("fd-input").style("margin-bottom:12px;")
 
         # Region
         ui.label("Market Region").classes("fd-fl")
         region_in = ui.input(
+            value=_pre_region,
             placeholder="e.g. Denver, CO  ·  San Diego, CA  ·  Southeast US"
         ).classes("fd-input").style("margin-bottom:12px;")
 
@@ -21011,13 +21035,20 @@ def _create_newsletter_dialog(s, rf):
                 newsletter_spotlight_count=_spotlight_count,
                 newsletter_show_city_life=_show_city_life,
                 start_date=date.today().isoformat(),
-                contacts=[],
-                contact_count=0,
+                # Pre-seed contacts when the dialog was opened with a
+                # prefill (e.g. "Spin up Newsletter" from a campaign).
+                # Empty list otherwise — the normal create-from-scratch
+                # flow asks the user to enroll later via the +Enroll pill.
+                contacts=list(_pre_contacts),
+                contact_count=len(_pre_contacts),
                 emails=emails,
                 variables={},
                 status="active",
                 responders=[],
                 created_date=date.today().isoformat(),
+                # Provenance tag when spun up from another campaign;
+                # nothing reads this yet, but it's cheap audit data.
+                spun_from_campaign=_pre_source or "",
             )
             save_campaign(new_camp)
 
@@ -24693,6 +24724,38 @@ def p_seq_mgr(s, rf):
                                 f"color:{C['teal']};font-family:inherit;").on(
                                 "click", _add_contacts_btn):
                             ui.label("＋ Add Contacts").style("pointer-events:none;")
+
+                        # Spin up Newsletter — pre-populates the create-
+                        # newsletter dialog from the campaign's industry,
+                        # niche, region, and contact list. User reviews the
+                        # dialog and clicks Create to ship it.
+                        # Added 2026-05-20.
+                        def _spin_up_newsletter(c=sel_camp, cn=cname):
+                            _sec_key = (c.get("market_sector_key") or "").strip().lower()
+                            if not _sec_key or _sec_key not in AICB_INDUSTRIES:
+                                # Try inferring from the human-readable label
+                                _label = (c.get("market_sector") or "").strip().lower()
+                                for _k, _v in AICB_INDUSTRIES.items():
+                                    if (_v.get("label", "") or "").strip().lower() == _label:
+                                        _sec_key = _k
+                                        break
+                                else:
+                                    _sec_key = ""
+                            _prefill = {
+                                "name": f"{cn} - Monthly Newsletter",
+                                "sector_key": _sec_key,
+                                "niche": (c.get("market_niche") or "").strip(),
+                                "region": (c.get("market_region") or "").strip(),
+                                "contacts": c.get("contacts", []) or [],
+                                "source_campaign_name": cn,
+                            }
+                            _create_newsletter_dialog(s, rf, prefill=_prefill)
+                        with ui.element("button").style(
+                                f"padding:6px 16px;font-size:12px;border-radius:8px;cursor:pointer;"
+                                f"background:{C['indigo_dim']};border:1px solid {C['indigo']}60;"
+                                f"color:{C['indigo']};font-family:inherit;").on(
+                                "click", _spin_up_newsletter):
+                            ui.label("📰 Spin up Newsletter").style("pointer-events:none;")
 
                         # Duplicate ──────────────────────────────────────────────
                         def _dup(c=sel_camp):
