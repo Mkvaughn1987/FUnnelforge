@@ -30302,56 +30302,80 @@ def p_ai_campaign(s: AppState, rf):
                 if _mode == "company":
                     if not hasattr(s, '_aicb_qs_running'): s._aicb_qs_running = False
 
-                    # Company and Website both required before Autofill.
-                    # Web search research quality is much better with a
-                    # domain hint than with just a name (disambiguates
-                    # when multiple companies share a name, and lets the
-                    # AI read the actual site instead of guessing).
+                    # Inverted autofill flow 2026-05-20: type the company,
+                    # click Autofill, AI finds the website + industry +
+                    # locations from the name alone. Website renders BELOW
+                    # the button as a confirmable input — user can correct
+                    # it before generation if AI guessed the wrong Acme.
                     ui.label("Company").classes("fd-fl")
                     ui.label("The specific account you want to target.").style(
                         f"font-size:10px;color:{C['muted']};margin-bottom:4px;margin-top:-2px;")
                     co_inp = ui.input(value=s.aicb_company, placeholder="e.g. Acme Corp").classes("fd-input").style("margin-bottom:10px;width:100%;")
                     co_inp.on("blur", lambda: setattr(s, "aicb_company", (co_inp.value or "").strip()))
 
-                    ui.label("Website").classes("fd-fl")
-                    ui.label("Domain helps AI find the real company (without this, AI might research the wrong Acme).").style(
-                        f"font-size:10px;color:{C['muted']};margin-bottom:4px;margin-top:-2px;")
-                    web_inp = ui.input(value=s.aicb_website, placeholder="e.g. acmecorp.com").classes("fd-input").style("margin-bottom:10px;width:100%;")
-                    web_inp.on("blur", lambda: setattr(s, "aicb_website", (web_inp.value or "").strip()))
-
-                    # ✨ Auto-fill industries + locations from website
-                    # (restored 2026-05-02 per user). Only enabled when
-                    # both Company + Website are filled — the helper
-                    # web-searches the site and pre-populates Primary +
-                    # Secondary industries + Locations. User can edit
-                    # any of those after; they're regular pickers.
+                    # ✨ Autofill button — calls _aicb_ai_extract in
+                    # "company" mode. The extractor finds the company's
+                    # website, industry, niche, and operating locations
+                    # in one Anthropic call and writes them onto AppState
+                    # (s.aicb_website / aicb_primary_industry /
+                    # aicb_sel_locations / aicb_niche). When it completes,
+                    # _aicb_qs_running flips False and the polling timer
+                    # below re-renders the page with the fields populated.
                     def _af_click():
-                        # Commit pending input values first (on_blur
-                        # may not have fired if user clicks the button
-                        # while still focused on the website input).
+                        # Commit pending company text first — on_blur may
+                        # not have fired if the user clicked the button
+                        # while still focused on the company input.
                         s.aicb_company = (co_inp.value or "").strip()
-                        s.aicb_website = (web_inp.value or "").strip()
-                        if not s.aicb_company or not s.aicb_website:
-                            ui.notify("Enter both company name and website first.",
+                        if not s.aicb_company:
+                            ui.notify("Enter a company name first.",
                                       type="warning")
                             return
-                        _aicb_auto_fill_target_details(s, rf)
+                        if not ANTHROPIC_API_KEY:
+                            ui.notify("Anthropic API key missing — see Email & AI Setup.",
+                                      type="warning")
+                            return
+                        _aicb_ai_extract(s, s.aicb_company, "company", rf)
 
-                    with ui.element("div").style("margin:0 0 14px;"):
-                        if getattr(s, "_aicb_autofill_generating", False):
+                    with ui.element("div").style("margin:0 0 16px;"):
+                        if getattr(s, "_aicb_qs_running", False):
                             with ui.element("div").style(
                                     "display:flex;align-items:center;gap:8px;"):
                                 ui.spinner("dots", size="sm")
-                                ui.label("Searching the website…").style(
-                                    f"font-size:12px;color:{C['muted']};")
+                                ui.label(
+                                    "Looking up the company — finding website, "
+                                    "industry, and locations…"
+                                ).style(f"font-size:12px;color:{C['muted']};")
+                            # Tick the page once the bg worker flips the
+                            # running flag back to False so the populated
+                            # fields render without the user having to click.
+                            def _af_poll():
+                                if not getattr(s, "_aicb_qs_running", False):
+                                    try: rf()
+                                    except Exception: pass
+                            ui.timer(1.5, _af_poll, once=True)
                         else:
                             with ui.element("button").classes("fd-pb").style(
-                                    "padding:7px 14px;font-size:12px;border-radius:6px;"
+                                    "padding:8px 16px;font-size:13px;border-radius:6px;"
+                                    f"background:{C['teal']};color:#0D1520;"
+                                    f"border:none;font-weight:700;font-family:inherit;"
+                                    f"cursor:pointer;"
                                     ).on("click", _af_click):
-                                ui.label("✨ Auto-fill industries + locations from website")
+                                ui.label("✨ Autofill with AI").style("pointer-events:none;")
+                            if getattr(s, "_aicb_qs_err", ""):
+                                ui.label(f"⚠ {s._aicb_qs_err}").style(
+                                    f"font-size:11px;color:{C['warn']};margin-top:4px;display:block;")
                             if getattr(s, "_aicb_autofill_err", ""):
                                 ui.label(f"⚠ {s._aicb_autofill_err}").style(
                                     f"font-size:11px;color:{C['warn']};margin-top:4px;display:block;")
+
+                    ui.label("Website").classes("fd-fl")
+                    ui.label(
+                        "AI fills this from the company name above — confirm "
+                        "it's the right site, or edit if it picked the wrong Acme."
+                    ).style(
+                        f"font-size:10px;color:{C['muted']};margin-bottom:4px;margin-top:-2px;")
+                    web_inp = ui.input(value=s.aicb_website, placeholder="e.g. acmecorp.com").classes("fd-input").style("margin-bottom:10px;width:100%;")
+                    web_inp.on("blur", lambda: setattr(s, "aicb_website", (web_inp.value or "").strip()))
 
                 # ── Industry picker (Primary + Secondary) ────────────
                 # Replaces the legacy single-Industry dropdown. Primary
