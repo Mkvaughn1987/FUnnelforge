@@ -15541,21 +15541,54 @@ def _sq_loaded_campaign(s: AppState, rf):
                         f"color:{C['text_l']};font-size:13px;"
                         f"--q-color-primary:{C['teal']};")
 
-        # ── Opt-out footer ───────────────────────────────────────────────────
-        # Always-on (CAN-SPAM). No user toggle  -  every email carries the
-        # "Reply UNSUBSCRIBE" footer + physical address from Company Profile,
-        # and a List-Unsubscribe header for Gmail/Apple Mail's one-click button.
+        # ── Spin up Newsletter from this campaign ─────────────────────────────
+        # Replaced the always-on Opt-Out Footer disclaimer (which was just
+        # informational chrome) with an actionable cross-sell: "all this
+        # campaign's info is already here — turn it into a monthly newsletter
+        # in one click." Pre-fills name, sector, niche, region, and the full
+        # contact list. The opt-out logic itself is still always on; it just
+        # doesn't need a banner advertising itself.
+        def _spin_up_from_launch():
+            _sec_key = (camp.get("market_sector_key") or "").strip().lower()
+            if not _sec_key or _sec_key not in AICB_INDUSTRIES:
+                _label = (camp.get("market_sector") or "").strip().lower()
+                _sec_key = ""
+                for _k, _v in AICB_INDUSTRIES.items():
+                    if (_v.get("label", "") or "").strip().lower() == _label:
+                        _sec_key = _k
+                        break
+            _cn = camp.get("name", "Campaign")
+            _create_newsletter_dialog(s, rf, prefill={
+                "name": f"{_cn} - Monthly Newsletter",
+                "sector_key": _sec_key,
+                "niche": (camp.get("market_niche") or "").strip(),
+                "region": (camp.get("market_region") or "").strip(),
+                "contacts": camp.get("contacts", []) or [],
+                "source_campaign_name": _cn,
+            })
+
         with ui.element("div").style(
-                f"background:{C['surface']};border:1px solid {C['border']};"
-                f"border-left:3px solid {C['good']};"
-                f"border-radius:0 10px 10px 0;padding:10px 16px;margin-bottom:16px;"):
-            ui.label("✓ Opt-Out Footer (Always On)").style(
-                f"font-size:12px;font-weight:700;color:{C['good']};"
-                f"font-family:'Nunito',sans-serif;margin-bottom:2px;")
-            ui.label('Every email includes "Reply UNSUBSCRIBE to opt out" plus your '
-                     'Company Profile address. Replies with opt-out keywords auto-land '
-                     'in your Opt-Out List and stop further sends.').style(
-                f"font-size:11px;color:{C['muted']};line-height:1.5;")
+                f"background:{C['indigo']}10;border:1px solid {C['indigo']}40;"
+                f"border-left:3px solid {C['indigo']};"
+                f"border-radius:0 10px 10px 0;padding:14px 18px;margin-bottom:16px;"
+                f"display:flex;align-items:center;justify-content:space-between;"
+                f"gap:14px;flex-wrap:wrap;"):
+            with ui.element("div").style("flex:1;min-width:240px;"):
+                ui.label("📰 Create a Newsletter from this campaign").style(
+                    f"font-size:13px;font-weight:700;color:{C['indigo']};"
+                    f"font-family:'Nunito',sans-serif;margin-bottom:2px;")
+                ui.label(
+                    "Your industry, niche, region, and contact list are "
+                    "already set — turn this campaign into a monthly "
+                    "branded newsletter in one click."
+                ).style(
+                    f"font-size:11px;color:{C['muted']};line-height:1.5;")
+            with ui.element("button").style(
+                    f"padding:8px 18px;font-size:12px;border-radius:8px;cursor:pointer;"
+                    f"background:{C['indigo']};color:#0D1520;border:none;"
+                    f"font-weight:700;font-family:inherit;flex-shrink:0;").on(
+                    "click", _spin_up_from_launch):
+                ui.label("📰 Create Newsletter →").style("pointer-events:none;")
 
         # Launch buttons
         with ui.element("div").style("display:flex;gap:12px;flex-wrap:wrap;align-items:center;"):
@@ -20052,79 +20085,14 @@ def _seed_evergreen_campaigns():
         existing["_seed_version"]  = SEED_VERSION
         save_campaign(existing)
 
-    # ── Candidate - Start Date Follow-Up ────────────────────────────────────
-    _upsert(dict(schema=2, name="Candidate - Start Date Follow-Up",
-                template_key="evergreen", template_name="Slow Drip",
-                evergreen_only=True, _seed_version=SEED_VERSION,
-                placement_type="candidate",
-                start_date=date.today().isoformat(),
-                contacts=[], contact_count=0, emails=[
-                        {"name": "Day 1 - Good Luck",
-                         "subject": "Good luck on your first day",
-                         "body": "Hi {First Name},\n\nJust wanted to wish you the best of luck on your first day at {Company}.\n\nI'm really excited for you and hope the day goes smoothly. I'll check in with you over the next few months just to make sure everything is going well and that you are settling in the way you hoped.\n\nAnd of course, if anything comes up and you want to talk something through, feel free to call or email me anytime. When you have a chance, I'd love to hear - how did your first day go?\n\nWishing you a great first day.\n\nSincerely,\n",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Day 7 - First Week",
-                         "subject": "How's your first week going?",
-                         "body": "Hi {First Name},\n\nI wanted to check in and see how your first week at {Company} has been going so far.\n\nI know the first week can be a lot - new people, new systems, and new routines - so I just wanted to make sure things are heading in the right direction.\n\nWhen you have a minute, I'd love to hear how it's going. What has stood out to you most so far?\n\nHope you are off to a great start.\n\nSincerely,\n",
-                         "delay_days": 7, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Day 30 - First Month",
-                         "subject": "How has your first month been?",
-                         "body": "Hi {First Name},\n\nI can't believe it has already been a month since you started at {Company}.\n\nI wanted to check in and see how everything has been going for you so far. By now, you are probably getting a better feel for the team, the role, and the day-to-day flow, so I'd love to hear how things are shaping up.\n\nHow are you feeling about the role now that you have had a full month to settle in?\n\nThanks, and I look forward to hearing your update when you have a moment.\n\nSincerely,\n",
-                         "delay_days": 23, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Day 60 - Two Months",
-                         "subject": "{Name} from {Company} - Just checking in",
-                         "body": "Hi {First Name},\n\nHope your week is off to a good start.\n\nI wanted to do a quick check-in and see how things are going at {Company}. I'm hoping you are feeling more settled in now and starting to find your rhythm.\n\nWhat is feeling good so far, and is there anything that still feels new or unclear?\n\nI'd love to hear how things have been going on your end. And as always, if you need anything or want to talk through something, I'm here.\n\nSincerely,\n",
-                         "delay_days": 30, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Day 90 - 90-Day Milestone",
-                         "subject": "Congrats on 90 days",
-                         "body": "Hi {First Name},\n\nCongratulations on reaching your 90-day mark at {Company}.\n\nThat is a big milestone, and I just wanted to check in and see how everything is going. I hope you are feeling confident in the role, building strong relationships with the team, and continuing to feel good about the move.\n\nLooking back on the last 90 days, what has felt like the biggest win so far?\n\nI've really enjoyed being part of this transition with you, and I appreciate you keeping in touch along the way. If you ever need anything, whether now or down the road, I'm always here as a resource.\n\nAnd if you have had a positive experience working with me, a LinkedIn recommendation would mean a lot. Totally your call, but I'd be very grateful.\n\nHope to hear a good update from you soon.\n\nSincerely,\n",
-                         "delay_days": 30, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Day 180 - Six Months",
-                         "subject": "Checking in at 6 months",
-                         "body": "Hi {First Name},\n\nHard to believe it has already been six months since you started at {Company}.\n\nI wanted to check in and see how things have been going now that you have had some time to really settle in. By this point, you probably have a much better feel for the role, the team, and the day-to-day, so I'd love to hear how it has been for you.\n\nHow has the role compared to what you expected when you first made the move?\n\nNo pressure at all - I just always like staying close to the people I work with. And if you ever want to talk something through, I'm here.\n\nBest,\n",
-                         "delay_days": 90, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Day 365 - One Year Anniversary",
-                         "subject": "Happy one-year anniversary",
-                         "body": "Hi {First Name},\n\nHappy one-year anniversary at {Company}.\n\nThat is a big milestone, and I wanted to reach out and say congratulations. I hope the move has continued to feel like the right one for you and that you are proud of what you have built so far.\n\nWhat has been the biggest highlight from your first year?\n\nI've really enjoyed staying in touch, and I'm always here if you ever want to talk through work, career goals, or anything else down the road.\n\nBest,\n",
-                         "delay_days": 185, "time": "9:00 AM", "step_type": "email_auto"},
-                    ], variables={}, status="active", responders=[], created_date=date.today().isoformat()))
-
-    # ── Client - Candidate Start Date ───────────────────────────────────────
-    _upsert(dict(schema=2, name="Client - Candidate Start Date",
-                template_key="evergreen", template_name="Slow Drip",
-                evergreen_only=True, _seed_version=SEED_VERSION,
-                placement_type="client",
-                start_date=date.today().isoformat(),
-                    contacts=[], contact_count=0, emails=[
-                        {"name": "Day 1 - First Day Check-In",
-                         "subject": "Checking in on {Candidate First Name}'s first day",
-                         "body": "Hi {Client First Name},\n\nI just wanted to check in and see how {Candidate First Name}'s first day at {Company} is going so far.\n\nI hope everything got off to a smooth start and that onboarding has gone well. I always like to stay close early on to make sure both sides feel supported.\n\nWhen you have a moment, how has day one gone from your side? Feel free to call me if it's easier on 323-434-5305.\n\nThanks again for trusting me on this search. I'm here if anything comes up.\n\nBest,\n",
-                         "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Day 7 - First Week",
-                         "subject": "How did the first week go?",
-                         "body": "Hi {Client First Name},\n\nI wanted to do a quick check-in and see how {Candidate First Name}'s first week has been going at {Company}.\n\nThe first week is usually when everyone starts getting a feel for the pace, communication style, and overall fit, so I just wanted to make sure things are moving in the right direction.\n\nWhat has stood out to you most so far?\n\nIf there is anything you would like me to reinforce or support from my end, I am always happy to help.\n\nBest,\n",
-                         "delay_days": 7, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Day 30 - First Month",
-                         "subject": "Checking in on the first month for {Candidate Full Name}",
-                         "body": "Hi {Client First Name},\n\nHard to believe {Candidate First Name} has already been with {Company} for a month.\n\nI wanted to check in and see how things have been going now that there has been a little more time for onboarding, training, and early ramp-up.\n\nHow are you feeling about the transition so far?\n\nI always appreciate honest feedback, and if there is anything that needs attention early, I am glad to help. Please call or email me back if you need anything.\n\nBest,\n",
-                         "delay_days": 23, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Day 60 - Two Months",
-                         "subject": "Quick checking in on {Candidate Full Name}",
-                         "body": "Hi {Client First Name},\n\nHope your week is off to a good start.\n\nI wanted to do a quick check-in and see how {Candidate First Name} is progressing now that they are a little further into the role.\n\nBy this point, people usually start finding their rhythm, so I would love to hear how things are looking from your side.\n\nWhat is feeling strongest so far, and is there anything you are still watching closely?\n\nAs always, I'm here if you want to talk through anything.\n\nBest,\n",
-                         "delay_days": 30, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Day 90 - 90-Day Mark",
-                         "subject": "Checking in at the 90-day mark",
-                         "body": "Hi {Client First Name},\n\nI wanted to reach out now that {Candidate First Name} is at the 90-day mark.\n\nThat is a meaningful milestone, and I always like to check in around this point to see how the placement is settling in from the client side.\n\nHow are you feeling about their overall progress and fit with the team?\n\nI appreciate you keeping me in the loop, and if there is anything you would like me to help reinforce or support, I'm here.\n\nBest,\n",
-                         "delay_days": 30, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Day 180 - Six Months",
-                         "subject": "Checking in at 6 months",
-                         "body": "Hi {Client First Name},\n\nHard to believe it has already been six months since {Candidate First Name} joined {Company}.\n\nI wanted to check in and see how things have been going now that they have had more time in the role and a real chance to contribute.\n\nHow has their performance compared to what you hoped for when you made the hire?\n\nI always appreciate hearing how things are going, and I'm glad to stay close as a resource any time.\n\nBest,\n",
-                         "delay_days": 90, "time": "9:00 AM", "step_type": "email_auto"},
-                        {"name": "Day 365 - One Year",
-                         "subject": "One-year check-in on {Candidate Full Name}",
-                         "body": "Hi {Client First Name},\n\nHappy one-year anniversary to {Candidate First Name} at {Company}.\n\nI wanted to reach out and check in now that they have officially been in the role for a full year. It is always meaningful to look back at a placement at this point and hear how it has gone from your side.\n\nLooking back on the past year, what has been the biggest win with this hire?\n\nI appreciate the opportunity to continue to earn your trust and your business, and I'm always here if you need support on this role or anything else in the future.\n\nBest,\n",
-                         "delay_days": 185, "time": "9:00 AM", "step_type": "email_auto"},
-                    ], variables={}, status="active", responders=[], created_date=date.today().isoformat()))
+    # ── Candidate / Client Start-Date Follow-Up seeds ──────────────────────
+    # REMOVED 2026-05-20 per user — start-date follow-up sequences were
+    # noise in the "Enroll in Slow Drip After Launch" picker on the
+    # campaign launch screen. Auto-delete logic below cleans up any
+    # existing on-disk copies that have zero enrolled contacts.
+    # Copies WITH enrolled contacts are left alone so we don't wipe
+    # in-flight follow-ups silently. The seeded templates lived here
+    # before; check git history if you need to recreate them by hand.
 
     # Monthly Prospect Drip  -  REMOVED. Users create their own newsletters.
     # Auto-delete the seed if it exists and has no enrolled contacts.
@@ -20134,6 +20102,24 @@ def _seed_evergreen_campaigns():
             delete_campaign("Monthly Prospect Drip")
         except Exception:
             pass
+
+    # Retired start-date follow-up seeds. Wipe empties; leave the ones
+    # the user actually enrolled contacts into so we don't wipe in-flight
+    # follow-up sequences silently.
+    for _retired_name in (
+        "Candidate - Start Date Follow-Up",
+        "Client - Candidate Start Date",
+    ):
+        _retired = by_name.get(_retired_name)
+        if _retired and not _retired.get("contacts"):
+            try:
+                _path = _retired.get("_path", "")
+                if _path:
+                    delete_campaign(_path)
+                else:
+                    delete_campaign(_retired_name)
+            except Exception:
+                pass
 
     # Holiday Campaign / Holiday Sequence — REMOVED 2026-05-10. The
     # newsletter feature now covers calendar-driven outreach (per user
