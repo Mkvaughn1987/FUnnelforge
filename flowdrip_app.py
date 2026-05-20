@@ -15549,20 +15549,79 @@ def _sq_loaded_campaign(s: AppState, rf):
         # contact list. The opt-out logic itself is still always on; it just
         # doesn't need a banner advertising itself.
         def _spin_up_from_launch():
+            # Multi-source prefill: many campaigns don't have market_sector_key
+            # / market_niche / market_region set directly. Fall back through:
+            #   1. campaign top-level fields
+            #   2. _effective_target(s) — the live campaign-builder context
+            #      (AICB AppState) for the campaign being launched
+            #   3. campaign's `variables` block — AICB writes Industry / Niche
+            #      / Location / Company there
+            #   4. AICB AppState directly (aicb_industry, aicb_niche, etc.)
+            try:
+                _eff = _effective_target(s)
+            except Exception:
+                _eff = {}
+            _vars = camp.get("variables", {}) or {}
+
+            def _first_nonblank(*vals):
+                for v in vals:
+                    sv = (str(v) if v is not None else "").strip()
+                    if sv:
+                        return sv
+                return ""
+
+            def _label_to_key(label: str) -> str:
+                _ll = (label or "").strip().lower()
+                if not _ll:
+                    return ""
+                for _k, _v in AICB_INDUSTRIES.items():
+                    if (_v.get("label", "") or "").strip().lower() == _ll:
+                        return _k
+                return ""
+
+            # ── Sector key ───────────────────────────────────────────────
             _sec_key = (camp.get("market_sector_key") or "").strip().lower()
             if not _sec_key or _sec_key not in AICB_INDUSTRIES:
-                _label = (camp.get("market_sector") or "").strip().lower()
-                _sec_key = ""
-                for _k, _v in AICB_INDUSTRIES.items():
-                    if (_v.get("label", "") or "").strip().lower() == _label:
-                        _sec_key = _k
-                        break
+                _sec_key = _label_to_key(camp.get("market_sector", "") or "")
+            if not _sec_key:
+                _sec_key = (_eff.get("industry_key") or "").strip().lower()
+                if _sec_key and _sec_key not in AICB_INDUSTRIES:
+                    _sec_key = ""
+            if not _sec_key:
+                _sec_key = _label_to_key(_eff.get("industry_label", "") or "")
+            if not _sec_key:
+                _sec_key = _label_to_key(
+                    _vars.get("Industry") or _vars.get("industry") or "")
+            if not _sec_key:
+                _sec_key = (getattr(s, "aicb_industry", "") or "").strip().lower()
+                if _sec_key and _sec_key not in AICB_INDUSTRIES:
+                    _sec_key = ""
+
+            # ── Niche ────────────────────────────────────────────────────
+            _niche = _first_nonblank(
+                camp.get("market_niche"),
+                _eff.get("niche"),
+                _vars.get("Niche"),
+                _vars.get("niche"),
+                getattr(s, "aicb_niche", ""),
+            )
+
+            # ── Region (city/state or comma-joined locations) ────────────
+            _region = _first_nonblank(
+                camp.get("market_region"),
+                ", ".join(_eff.get("locations") or []),
+                _vars.get("Location"),
+                _vars.get("location"),
+                _vars.get("Locations"),
+                ", ".join(getattr(s, "aicb_sel_locations", []) or []),
+            )
+
             _cn = camp.get("name", "Campaign")
             _create_newsletter_dialog(s, rf, prefill={
                 "name": f"{_cn} - Monthly Newsletter",
                 "sector_key": _sec_key,
-                "niche": (camp.get("market_niche") or "").strip(),
-                "region": (camp.get("market_region") or "").strip(),
+                "niche": _niche,
+                "region": _region,
                 "contacts": camp.get("contacts", []) or [],
                 "source_campaign_name": _cn,
             })
