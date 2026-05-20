@@ -11842,11 +11842,19 @@ def p_today_combined(s: AppState, rf):
     # mask edits made elsewhere, so reset on every render.
     s._daily_camp_cache = {}
 
-    # Day-tab map: drip_day → offset in days from today. Extended 2026-05-20
-    # from just today/tomorrow to a 5-day forward window so recruiters can
-    # peek further out without leaving this page. Overdue stays special.
+    # Day-tab map: drip_day → offset in days from today. Workweek-only
+    # (Mon-Fri) — weekends are skipped since nothing fires Sat/Sun in
+    # this product. Builds 5 weekday offsets starting from today; if
+    # today IS a weekend, the first offset jumps to next Monday.
     _DAY_KEYS = ['today', 'tomorrow', 'day_2', 'day_3', 'day_4']
-    _KEY_TO_OFFSET = {k: i for i, k in enumerate(_DAY_KEYS)}
+    _offsets = []
+    _probe = 0
+    while len(_offsets) < len(_DAY_KEYS):
+        _cand = date.today() + timedelta(days=_probe)
+        if _cand.weekday() < 5:  # 0=Mon..4=Fri
+            _offsets.append(_probe)
+        _probe += 1
+    _KEY_TO_OFFSET = dict(zip(_DAY_KEYS, _offsets))
 
     # Pick up tab from dashboard navigation if set
     dash_tab = getattr(s, 'dash_drip_tab', None)
@@ -11885,19 +11893,22 @@ def p_today_combined(s: AppState, rf):
 
     # ── Day toggle ──────────────────────────────────────────────────────────
     # Pills: Today | Tomorrow | <weekday> | <weekday> | <weekday> | Overdue
-    # The three "+N day" tabs render the weekday short name (e.g. "Thu")
-    # since "+2 / +3 / +4" reads worse once it's not adjacent to today.
+    # Labels are derived from the actual offset (not list position) so
+    # weekend skips render correctly — e.g., on Friday the second pill
+    # is "Mon", not "Tomorrow" (which would be Saturday).
     with ui.element("div").classes("fd-drip-pills").style("display:flex;align-items:center;gap:12px;margin-bottom:4px;"):
         _show_page_help(s, rf, "drip")
         with ui.element("div").style(f"display:inline-flex;gap:4px;background:{C['surface']};border-radius:10px;padding:4px;"):
             pills = []
-            for _i, _key in enumerate(_DAY_KEYS):
-                if _i == 0:
+            for _key in _DAY_KEYS:
+                _offset = _KEY_TO_OFFSET[_key]
+                _cand = date.today() + timedelta(days=_offset)
+                if _offset == 0:
                     _lbl = "Today"
-                elif _i == 1:
+                elif _offset == 1:
                     _lbl = "Tomorrow"
                 else:
-                    _lbl = (date.today() + timedelta(days=_i)).strftime("%a")
+                    _lbl = _cand.strftime("%a")
                 pills.append((_key, _lbl))
             if overdue_count:
                 pills.append(("overdue", f"Overdue ({overdue_count})"))
