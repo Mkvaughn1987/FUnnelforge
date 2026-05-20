@@ -39316,25 +39316,28 @@ def _splice_corner_into_body(body_html: str, new_inner: str) -> str:
 # Spec: docs/superpowers/specs/2026-05-20-newsletter-spotlight-adjacent-roles-design.md
 _SPOTLIGHT_ADJACENT_ROLES = {
     "construction": [
-        "Project Manager", "Superintendent", "Senior Estimator",
-        "Project Engineer", "Operations Manager",
+        "Senior Project Engineer", "MEP Engineer", "Structural Engineer",
+        "Project Manager", "Senior Superintendent", "Senior Estimator",
         "Preconstruction Director", "Safety Director",
         "Construction Tech Manager",
     ],
     "architecture": [
-        "Project Architect", "BIM Manager", "Studio Lead",
-        "Senior Designer", "Project Manager", "Senior Estimator",
+        "Senior Architect", "Project Architect", "BIM Manager",
+        "Senior Designer", "Senior Interior Designer",
+        "Project Manager", "Senior Estimator",
         "Design Director", "Digital Design Lead",
     ],
     "engineering": [
-        "Senior Engineer", "Engineering Manager", "Project Manager",
-        "Lead Designer", "Principal Engineer", "Department Head",
-        "CAD/BIM Manager",
+        "Senior Engineer", "Senior MEP Engineer",
+        "Senior Structural Engineer", "Principal Engineer",
+        "Engineering Manager", "Project Manager", "Lead Designer",
+        "Department Head", "CAD/BIM Manager",
     ],
     "manufacturing": [
-        "Plant Manager", "Production Manager", "Operations Manager",
-        "Quality Manager", "Engineering Manager", "Maintenance Manager",
-        "Senior Manufacturing Engineer", "Manufacturing Systems Manager",
+        "Senior Manufacturing Engineer", "Senior Process Engineer",
+        "Senior Industrial Engineer", "Plant Manager",
+        "Production Manager", "Quality Manager",
+        "Engineering Manager", "Manufacturing Systems Manager",
     ],
     "accounting": [
         "Controller", "Audit Manager", "Tax Manager", "FP&A Manager",
@@ -39517,12 +39520,18 @@ def _spotlight_prompt_block(sector: str, n: int,
         f"ADJACENT MANAGER+ ROLES FOR THIS SECTOR:\n"
         f"  {adj_csv}\n\n"
         f"SELECTION RULES:\n"
-        f"  - Every spotlight must be a manager-level or above role "
-        f"(Senior IC, Manager, Director, VP, Principal). Do NOT include "
-        f"entry-level, junior, trades, or field/labor positions — "
-        f"Arena Direct Hire works manager+ only.\n"
-        f"  - At least one spotlight must be a tech-flavored manager+ "
-        f"role appropriate to the sector (BIM Manager, IT Director, "
+        f"  - Every spotlight must be a senior-level role. BOTH senior "
+        f"individual contributors (Senior Engineer, Senior Architect, "
+        f"Senior Designer, Senior Estimator, Project Engineer with 5+ "
+        f"yrs, Principal Engineer) AND management roles (Manager, "
+        f"Director, VP, Principal) are valid. Do NOT include entry-level, "
+        f"junior, trades, apprentice, or field/labor positions.\n"
+        f"  - BALANCE: do NOT make every spotlight a Manager / Director "
+        f"/ VP. At least 2 of the {n} spotlights MUST be senior IC roles "
+        f"(engineers, architects, designers, estimators, etc.) — the "
+        f"output should NOT read as 6 variations on \"Manager.\"\n"
+        f"  - At least one spotlight must be a tech-flavored senior role "
+        f"appropriate to the sector (BIM Manager, IT Director, "
         f"Engineering Tech Lead, Manufacturing Systems Manager, etc.).\n"
         f"{mix_rule}\n"
         f"  - Each profile is a composite (NOT a real person), labeled "

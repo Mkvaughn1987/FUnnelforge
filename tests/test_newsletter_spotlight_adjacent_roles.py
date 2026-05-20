@@ -18,14 +18,32 @@ def test_block_empty_when_n_is_zero():
 
 
 def test_block_includes_manager_plus_rule():
-    """Every non-empty block must carry the seniority guardrail."""
+    """Every non-empty block must carry the seniority guardrail. The
+    wording was tightened 2026-05-20 after user feedback: leading with
+    'manager-level or above' caused Claude to pick all-Manager titles
+    and squeeze out Senior IC engineers. Rule now explicitly names
+    Senior ICs alongside management."""
     instr, _ = fa._spotlight_prompt_block(
         sector="construction", n=3, target_roles=[])
-    assert "manager-level or above" in instr.lower()
-    # Must explicitly forbid the categories Arena does not place
+    instr_l = instr.lower()
+    assert "senior-level" in instr_l or "senior individual" in instr_l, (
+        "seniority rule no longer leads with senior-level / senior IC framing")
+    assert "engineer" in instr_l, "engineers not named in seniority rule"
     forbidden_terms = ("trades", "field/labor", "junior", "entry-level")
     for term in forbidden_terms:
-        assert term in instr.lower(), f"missing seniority exclusion: {term}"
+        assert term in instr_l, f"missing seniority exclusion: {term}"
+
+
+def test_block_includes_balance_rule():
+    """Without an explicit balance rule the AI tends to pick all
+    Manager/Director titles. User reported 2026-05-20 that the very
+    first deployed output had 6 spotlights all named Manager/Director,
+    no engineers. The balance rule forces at least 2 senior IC roles."""
+    instr, _ = fa._spotlight_prompt_block(
+        sector="construction", n=6, target_roles=[])
+    instr_l = instr.lower()
+    assert "balance" in instr_l
+    assert "senior ic" in instr_l
 
 
 def test_block_includes_tech_role_rule():
@@ -63,9 +81,9 @@ def test_block_handles_unknown_sector_with_generic_adjacency():
         sector="basket_weaving", n=3, target_roles=[])
     # Generic fallback titles, per spec
     assert "Director" in instr
-    assert "VP" in instr or "Vice President" in instr
-    # Seniority rule still applies
-    assert "manager-level or above" in instr.lower()
+    assert "VP" in instr
+    # Seniority rule still applies (post-2026-05-20 wording)
+    assert "senior-level" in instr.lower()
 
 
 def test_block_selection_rule_text_present():
