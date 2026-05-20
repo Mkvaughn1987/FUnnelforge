@@ -39619,49 +39619,19 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
 
     # Candidate spotlights — number of anonymized "hot in market" profiles
     # to auto-populate per issue. Set when the user creates the newsletter
-    # ("None" / "3 per issue" / "6 per issue"). The AI generates composite
-    # profiles based on sector + region talent demand — no real PII.
+    # ("None" / "3 per issue" / "6 per issue"). Helper builds the prompt
+    # block; see _spotlight_prompt_block() for the seniority + adjacency
+    # rules. Spec:
+    # docs/superpowers/specs/2026-05-20-newsletter-spotlight-adjacent-roles-design.md
     try:
         _spot_n = int(camp.get("newsletter_spotlight_count", 0) or 0)
     except Exception:
         _spot_n = 0
     if _spot_n not in (0, 3, 6):
         _spot_n = 0
-    # 3 bullets per card — tight, scannable, enough detail to sell the
-    # profile without turning each card into a paragraph.
-    _bpc = {0: 0, 3: 3, 6: 3}.get(_spot_n, 0)
-    _spot_schema_block = ""
-    _spot_instruction = ""
-    if _spot_n > 0:
-        _spot_instruction = (
-            f'\n\nCANDIDATE SPOTLIGHTS — auto-populate {_spot_n} anonymized '
-            f'candidate profiles that reflect WHAT IS HOT in {sector} in '
-            f'{region} RIGHT NOW ({month_year}). Research actual in-demand '
-            f'titles, experience profiles, and real local salary ranges. '
-            f'Each profile is a composite (NOT a real person) labeled '
-            f'"Candidate A", "Candidate B", etc. Titles + comp MUST reflect '
-            f'real local market pricing — use web search if you need to '
-            f'verify. Vary seniority across the cards (mix of mid, senior, '
-            f'and executive).'
-        )
-        _spot_schema_block = (
-            f'\nCANDIDATE SPOTLIGHTS — these are CANDIDATES looking for work, '
-            f'NOT job postings. The salary_ask field is what the candidate '
-            f'wants to earn, expressed as a single hourly range OR a single '
-            f'annual base salary range. Do NOT tack on "plus $X bonus", '
-            f'"plus benefits", "(eligible for...)", "OTE", "+ stock", or '
-            f'anything that frames it like a job offer. Plain comp range only.\n'
-            '  "spotlights": [\n    '
-            + ",\n    ".join(
-                f'{{"name": "Candidate {chr(65+_i)}", '
-                f'"title": "role + years + key cred (must reflect {region} demand for {sector})", '
-                f'"location": "{region}", '
-                f'"salary_ask": "$XXk - $YYk (annual base only) OR $XX/hr - $YY/hr (hourly only) — real local range, NO bonuses, NO benefits, NO OTE, NO \\"plus $X\\"", '
-                f'"bullets": [{_bpc} short single-sentence bullets, each a concrete skill or result]}}'
-                for _i in range(_spot_n)
-            )
-            + '\n  ],\n'
-        )
+    _target_roles = camp.get("aicb_sel_roles") or []
+    _spot_instruction, _spot_schema_block = _spotlight_prompt_block(
+        sector=sector, n=_spot_n, target_roles=_target_roles)
 
     prompt = (
         f'You are writing content for a branded monthly newsletter.\n\n'
