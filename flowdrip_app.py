@@ -22163,26 +22163,28 @@ def p_newsletters(s, rf):
                         ui.tooltip("Delete this newsletter")
 
     # ── Slow Drip section ────────────────────────────────────────────────
-    # The Slow Drip page used to live in the left sidebar as its own
-    # entry. Merged here 2026-05-20 so always-on touch points (newsletters
-    # AND slow drips) live in one place. `as_section=True` makes
-    # p_evergreen render an inline header + compact empty state instead
-    # of treating itself as the whole page.
-    p_evergreen(s, rf, as_section=True)
+    # Shelved 2026-05-20 per user — was rendered here as
+    # `p_evergreen(s, rf, as_section=True)`. The handler still exists
+    # with as_section support; re-attach with that single line when the
+    # Slow Drip surface is ready to come back.
 
 
 def p_evergreen(s, rf, *, as_section: bool = False):
     """Slow Drip campaigns page.
 
-    `as_section=True` is passed when this is rendered as a section at the
-    bottom of the Newsletters page (the standalone sidebar entry was
-    removed 2026-05-20). In that mode we skip the page-intro strip,
-    swap the full-page empty state for a compact inline one, and render
-    a section divider + heading so the embed reads as a clear sub-area
-    of the Newsletters page rather than a runaway second page.
+    SHELVED 2026-05-20: the standalone surface is hidden. Anyone landing
+    here from a legacy bookmark / deep link / nav_go("evergreen") gets
+    bounced to the Newsletters page. The handler body still renders
+    when `as_section=True` so we can re-attach it later — just call
+    `p_evergreen(s, rf, as_section=True)` from wherever and the inline
+    section comes back.
     """
     if not as_section:
-        _render_page_intro_strip(s, rf, "evergreen")
+        # Standalone access is shelved — redirect to Newsletters.
+        s.hub = "sales"
+        s.sp = "newsletters"
+        rf()
+        return
     # Seed built-in evergreen campaigns if needed
     _seed_evergreen_campaigns()
 
