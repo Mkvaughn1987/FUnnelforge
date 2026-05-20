@@ -12152,8 +12152,11 @@ def p_today_combined(s: AppState, rf):
           if len(c.get("contacts", [])) == 0:
               continue
           _cs = _camp_q_stats.get(cname, {"sent": 0, "pending": 0})
-          _is_active = (_cs["pending"] > 0
-                        or (c.get("status") == "active" and _cs["sent"] > 0))
+          # Active = has pending queue items. The old "or (status==active
+          # and sent>0)" clause kept fully-sent campaigns in Active forever;
+          # removed 2026-05-20 so completed campaigns drop out of the
+          # Active bucket once the last email fires.
+          _is_active = _cs["pending"] > 0
           if not _is_active:
               continue
           email_steps = [e for e in c.get("emails", [])
@@ -24238,13 +24241,16 @@ def p_seq_mgr(s, rf):
                 step_stats[cn][key] = {"sent": 0, "pending": 0, "failed": 0}
             step_stats[cn][key][st if st in ("sent","pending","failed") else "pending"] += 1
 
+    # Active = has pending queue items. A campaign with all emails sent
+    # (pending=0, sent>0) drops out of Active automatically — used to
+    # stick around forever because the OR clause "status=='active' and
+    # sent>0" kept it there. Reported 2026-05-20 by user.
     active   = [c for c in camps
                 if c.get("status") not in ("cancelled",)
                 and len(c.get("contacts", [])) > 0
-                and (camp_q.get(c.get("name",""), {}).get("pending", 0) > 0
-                     or (c.get("status") == "active"
-                         and camp_q.get(c.get("name",""), {}).get("sent", 0) > 0))]
+                and camp_q.get(c.get("name",""), {}).get("pending", 0) > 0]
     completed = [c for c in camps if c not in active
+                 and c.get("status") not in ("cancelled",)
                  and (camp_q.get(c.get("name",""), {}).get("sent", 0) > 0
                       or len(c.get("contacts", [])) > 0)]
     # Most-recent-first across the whole list (matches the sidebar
@@ -24421,7 +24427,13 @@ def p_seq_mgr(s, rf):
                     started_label = f"Started {start_str}" if start_str else "Start date not set"
 
                 is_cancelled = status == "cancelled"
-                is_active    = status == "active" and not is_cancelled and (cq.get("pending",0) > 0 or len(contacts) > 0)
+                # Active = has pending queue items. Used to also include
+                # "len(contacts) > 0" which left all-sent campaigns badged
+                # as Active forever. Reported 2026-05-20 by user — once the
+                # final scheduled email fires (pending=0), badge flips to
+                # Completed.
+                is_active    = (status == "active" and not is_cancelled
+                                and cq.get("pending", 0) > 0)
                 status_col   = C["teal"] if is_active else (C["danger"] if is_cancelled else C["good"])
                 status_txt   = "Active" if is_active else ("Cancelled" if is_cancelled else "Completed")
 
@@ -33466,140 +33478,158 @@ def p_pdf_gen(s: AppState, rf):
                     value=s._pdf_exp_level,
                 ).classes("fd-input").style("min-width:160px;")
 
-    # Closure that generates ONE PDF for the given type id + label. The
-    # original code defined this inside the for-loop over PDF_TYPES; now
-    # the Generate-All button below loops the selected types and calls
-    # this once per selection. Behavior inside the closure is unchanged.
-    def _generate_pdf(pid: str, plabel: str):
-        for pdf_id, pdf_label, pdf_desc, pdf_col, pdf_icon in PDF_TYPES:
-            if pdf_id != pid:
-                continue
-            company = pdf_co.value.strip()
-            role = pdf_role.value.strip()
-            location = pdf_loc.value.strip()
-            if not company or not role or not location:
-                ui.notify("Company, Location, and Target Role are required.", type="warning")
+    # Batch PDF builder: takes a list of (pid, label) pairs and generates
+    # them sequentially in ONE background thread. Deep research runs once
+    # for the whole batch (same company/location), then each PDF is built
+    # in turn. Per-PDF failures don't abort the batch.
+    #
+    # Refactored 2026-05-20 from a single-PDF closure to a batch worker so
+    # the "Generate N PDFs →" button actually generates all N. The previous
+    # implementation only fired the first one because the worker mutates
+    # _pdf_generating / _pdf_result globally — running them in parallel
+    # would race those flags.
+    def _generate_pdf(pid_label_list: list):
+        if not pid_label_list:
+            return
+        company = pdf_co.value.strip()
+        role = pdf_role.value.strip()
+        location = pdf_loc.value.strip()
+        if not company or not role or not location:
+            ui.notify("Company, Location, and Target Role are required.", type="warning")
+            return
+        s._pdf_company = company
+        s._pdf_role = role
+        s._pdf_location = location
+        try:
+            s._pdf_industry = pdf_industry.value.strip()
+        except Exception:
+            s._pdf_industry = ""
+        try:
+            s._pdf_website = pdf_website.value.strip()
+        except Exception:
+            s._pdf_website = ""
+        try:
+            s._pdf_exp_level = pdf_exp.value or ""
+        except Exception:
+            s._pdf_exp_level = ""
+        s._pdf_generating = True
+        s._pdf_result = ""
+        s._pdf_session_done = []
+        s._pdf_session_failed = []
+        s._pdf_batch_total = len(pid_label_list)
+        s._pdf_current_label = pid_label_list[0][1] if pid_label_list else ""
+        # Resolve per-user paths explicitly from the signed-in email.
+        # _resolve_user_root() is race-free; the module-level
+        # _user_pdf_dir() global is mutated by _switch_to_user_paths.
+        _pdf_dir = _resolve_user_root(s._user_email) / "PDFs"
+        _config_path = _resolve_user_root(s._user_email) / "dripdrop_config.json"
+        rf()
+
+        def _run():
+            try:
+                import sys as _sys
+                _sys.path.insert(0, str(Path(__file__).resolve().parent / "funnel_forge"))
+                import importlib, arena_pdfs as _ap; importlib.reload(_ap)
+                from arena_pdfs import build_custom_pdf
+            except ImportError:
+                try:
+                    import subprocess
+                    subprocess.check_call(["pip", "install", "reportlab"], timeout=60)
+                    ui.notify("Installing PDF library... please try again in a moment.", type="info")
+                    s._pdf_result = "PDF library was just installed. Please click Generate again."
+                except Exception:
+                    s._pdf_result = "PDF generation requires the reportlab library. Please run 'pip install reportlab' in your terminal, then restart the app."
+                s._pdf_generating = False
                 return
-            s._pdf_company = company
-            s._pdf_role = role
-            s._pdf_location = location
-            try:
-                s._pdf_industry = pdf_industry.value.strip()
-            except Exception:
-                s._pdf_industry = ""
-            try:
-                s._pdf_website = pdf_website.value.strip()
-            except Exception:
-                s._pdf_website = ""
-            try:
-                s._pdf_exp_level = pdf_exp.value or ""
-            except Exception:
-                s._pdf_exp_level = ""
-            s._pdf_generating = True
-            s._pdf_result = ""
-            # Resolve per-user paths explicitly from the signed-in email.
-            # The module-level _user_pdf_dir() global is mutated by
-            # _switch_to_user_paths and can race under concurrent renders,
-            # sending the PDF to the wrong user's folder. _resolve_user_root()
-            # is race-free.
-            _pdf_dir = _resolve_user_root(s._user_email) / "PDFs"
-            _config_path = _resolve_user_root(s._user_email) / "dripdrop_config.json"
-            rf()
 
-            def _run():
+            dt = date.today().strftime("%B %d, %Y")
+            _cfg = json.loads(_config_path.read_text(encoding="utf-8")) if _config_path.exists() else {}
+            prep = _cfg.get("sig_name", _get_company_name()) or _get_company_name()
+            prep_email = _cfg.get("sig_email", "")
+
+            try:
+                import anthropic
+                client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+            except Exception as e:
+                s._pdf_result = _friendly_ai_error(e)
+                s._pdf_generating = False
+                return
+
+            _industry = s._pdf_industry or ""
+            _website = s._pdf_website or ""
+            _exp_level = s._pdf_exp_level or ""
+            _extra_context = ""
+            if _industry:
+                _extra_context += f"Industry/vertical: {_industry}. "
+            if _website:
+                _extra_context += f"Company website: {_website}. "
+            if _exp_level:
+                _extra_context += f"Target experience level: {_exp_level}. "
+
+            # Deep research ONCE for the entire batch — same company,
+            # same context, so we don't burn N research calls.
+            research_context = ""
+            if s._pdf_deep_research:
                 try:
-                    import sys as _sys
-                    _sys.path.insert(0, str(Path(__file__).resolve().parent / "funnel_forge"))
-                    import importlib, arena_pdfs as _ap; importlib.reload(_ap)
-                    from arena_pdfs import build_custom_pdf
-                except ImportError:
-                    try:
-                        import subprocess
-                        subprocess.check_call(["pip", "install", "reportlab"], timeout=60)
-                        ui.notify("Installing PDF library... please try again in a moment.", type="info")
-                        s._pdf_result = "PDF library was just installed. Please click the PDF type again to generate."
-                    except Exception:
-                        s._pdf_result = "PDF generation requires the reportlab library. Please run 'pip install reportlab' in your terminal, then restart the app."
-                    s._pdf_generating = False
-                    return
+                    research_prompt = (
+                        f'Research "{company}" in {location or "their primary market"}.\n\n'
+                        + (f'Additional context: {_extra_context}\n\n' if _extra_context else '')
+                        + (f'Check their website at {_website} for project details and open positions.\n\n' if _website else '')
+                        + f'Find:\n'
+                        f'1. Recent news (last 6 months) - expansions, contracts, projects, leadership changes\n'
+                        f'2. Current open jobs, especially for {role} or similar positions\n'
+                        f'3. Recent hiring activity and headcount trends\n'
+                        f'4. Company size, revenue, key projects\n'
+                        f'5. Industry challenges and competitive landscape\n'
+                        f'6. Glassdoor/Indeed salary data for {_exp_level + " " if _exp_level else ""}{role} in {location}\n\n'
+                        f'Write a detailed research brief (400-600 words) with specific facts, '
+                        f'names, numbers, and dates. Cite real sources.'
+                    )
+                    research_msg = _claude_create_with_retry(client,
+                        model="claude-haiku-4-5-20251001",
+                        max_tokens=2048,
+                        tools=[_safe_web_search_tool(max_uses=3)],
+                        messages=[{"role": "user", "content": research_prompt}],
+                    )
+                    for block in research_msg.content:
+                        if hasattr(block, "text"):
+                            research_context += block.text + "\n"
+                    research_context = research_context.strip()
+                    if research_context:
+                        research_context = (
+                            f"\n\nREAL RESEARCH DATA (use these specific facts, names, and numbers):\n"
+                            f"{research_context[:3000]}\n\n"
+                            f"IMPORTANT: Use the real data above. Reference specific companies, projects, "
+                            f"salary ranges, job postings, and news from the research.\n"
+                        )
+                    import time; time.sleep(2)
+                except Exception as research_err:
+                    print(f"[PDF] Deep research failed (non-fatal): {research_err}")
 
-                dt = date.today().strftime("%B %d, %Y")
-                _cfg = json.loads(_config_path.read_text(encoding="utf-8")) if _config_path.exists() else {}
-                prep = _cfg.get("sig_name", _get_company_name()) or _get_company_name()
-                prep_email = _cfg.get("sig_email", "")
+            _primary_pdf  = (s._pdf_primary_industry or "").strip() or _industry
+            _secondary_pdf = list(s._pdf_secondary_industries or [])
+            _ctx_dict = {
+                "company": company,
+                "primary_industry": _primary_pdf,
+                "secondary_industries": _secondary_pdf,
+                "positions": role,
+                "location": location,
+                "exp_level": _exp_level,
+            }
 
+            # Build each PDF in the batch. A failure on one PDF doesn't
+            # abort the rest — the user gets a per-PDF pass/fail summary.
+            for (pid, plabel) in pid_label_list:
+                s._pdf_current_label = plabel
                 try:
-                    import anthropic
-                    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-
-                    research_context = ""
-                    _industry = s._pdf_industry or ""
-                    _website = s._pdf_website or ""
-                    _exp_level = s._pdf_exp_level or ""
-                    _extra_context = ""
-                    if _industry:
-                        _extra_context += f"Industry/vertical: {_industry}. "
-                    if _website:
-                        _extra_context += f"Company website: {_website}. "
-                    if _exp_level:
-                        _extra_context += f"Target experience level: {_exp_level}. "
-
-                    if s._pdf_deep_research:
-                        try:
-                            research_prompt = (
-                                f'Research "{company}" in {location or "their primary market"}.\n\n'
-                                + (f'Additional context: {_extra_context}\n\n' if _extra_context else '')
-                                + (f'Check their website at {_website} for project details and open positions.\n\n' if _website else '')
-                                + f'Find:\n'
-                                f'1. Recent news (last 6 months) - expansions, contracts, projects, leadership changes\n'
-                                f'2. Current open jobs, especially for {role} or similar positions\n'
-                                f'3. Recent hiring activity and headcount trends\n'
-                                f'4. Company size, revenue, key projects\n'
-                                f'5. Industry challenges and competitive landscape\n'
-                                f'6. Glassdoor/Indeed salary data for {_exp_level + " " if _exp_level else ""}{role} in {location}\n\n'
-                                f'Write a detailed research brief (400-600 words) with specific facts, '
-                                f'names, numbers, and dates. Cite real sources.'
-                            )
-                            research_msg = _claude_create_with_retry(client,
-                                model="claude-haiku-4-5-20251001",
-                                max_tokens=2048,
-                                tools=[_safe_web_search_tool(max_uses=3)],
-                                messages=[{"role": "user", "content": research_prompt}],
-                            )
-                            for block in research_msg.content:
-                                if hasattr(block, "text"):
-                                    research_context += block.text + "\n"
-                            research_context = research_context.strip()
-                            if research_context:
-                                research_context = (
-                                    f"\n\nREAL RESEARCH DATA (use these specific facts, names, and numbers):\n"
-                                    f"{research_context[:3000]}\n\n"
-                                    f"IMPORTANT: Use the real data above. Reference specific companies, projects, "
-                                    f"salary ranges, job postings, and news from the research.\n"
-                                )
-                            import time; time.sleep(2)
-                        except Exception as research_err:
-                            print(f"[PDF] Deep research failed (non-fatal): {research_err}")
-
-                    _primary_pdf  = (s._pdf_primary_industry or "").strip() or _industry
-                    _secondary_pdf = list(s._pdf_secondary_industries or [])
-                    _ctx_dict = {
-                        "company": company,
-                        "primary_industry": _primary_pdf,
-                        "secondary_industries": _secondary_pdf,
-                        "positions": role,
-                        "location": location,
-                        "exp_level": _exp_level,
-                    }
                     data = _generate_rich_pdf_data(
                         client, pid, _ctx_dict,
                         research_context=research_context,
                         style_guide=_style_guide_prompt(),
                     )
                 except Exception as e:
-                    s._pdf_result = _friendly_ai_error(e)
-                    s._pdf_generating = False
-                    return
+                    s._pdf_session_failed.append((pid, plabel, _friendly_ai_error(e)))
+                    continue
 
                 try:
                     _co_slug = re.sub(r'[^A-Za-z0-9]+', '_', company).strip('_')[:30] or "Campaign"
@@ -33620,7 +33650,6 @@ def p_pdf_gen(s: AppState, rf):
                     }
                     build_custom_pdf(fpath, _pdfgen_build_dict)
                     _save_pdf_sidecar(fpath, _pdfgen_build_dict)
-
                     _publish_pdf(fpath)
                     try:
                         _exists = Path(fpath).is_file()
@@ -33629,16 +33658,32 @@ def p_pdf_gen(s: AppState, rf):
                               f"user={s._user_email!r}", flush=True)
                     except Exception:
                         pass
-                    s._pdf_result = f"done:{fname}"
+                    s._pdf_session_done.append((pid, plabel, fname))
                 except Exception as e:
-                    s._pdf_result = f"PDF build error: {str(e)[:100]}"
-                finally:
-                    s._pdf_generating = False
+                    s._pdf_session_failed.append((pid, plabel, f"PDF build error: {str(e)[:100]}"))
 
-            _run_as_user(getattr(s, "_user_email", "") or "", _run, name="pdfgen_page_worker")
-            # Only one matching type in PDF_TYPES — break so the loop
-            # doesn't keep scanning after we've fired the worker.
-            return
+            # Done with the batch. Set _pdf_result so the legacy
+            # "done:<fname>" single-PDF success card keeps working when
+            # only one PDF was selected (preserves the "Attach to Email"
+            # button). Multi-PDF batches get a "batch_done" marker that
+            # the result section renders as a per-PDF list.
+            s._pdf_current_label = ""
+            s._pdf_generating = False
+            if len(pid_label_list) == 1 and s._pdf_session_done:
+                _, _, fname = s._pdf_session_done[0]
+                s._pdf_result = f"done:{fname}"
+            elif s._pdf_session_done or s._pdf_session_failed:
+                s._pdf_result = "batch_done"
+            else:
+                # Nothing succeeded, nothing was flagged failed — likely
+                # an early-return before the loop started. Leave _pdf_result
+                # alone (it was set to the error message inside the worker).
+                pass
+            # Clear the in-stage selection so re-clicking Generate doesn't
+            # re-fire the same batch.
+            s._pdf_selected = []
+
+        _run_as_user(getattr(s, "_user_email", "") or "", _run, name="pdfgen_batch_worker")
 
     # ── Action row: Generate All / Custom / Back ─────────────────────────
     def _generate_all():
@@ -33665,17 +33710,15 @@ def p_pdf_gen(s: AppState, rf):
         if not s._pdf_selected:
             ui.notify("No PDF types selected — go back to the picker.", type="warning")
             return
-        # Generate the first selected PDF. The rest will need to be
-        # re-triggered after the user reviews the result (the worker
-        # mutates _pdf_generating + _pdf_result on a single PDF at a
-        # time — chaining N concurrent workers would race on those
-        # globals). 95% of users pick 1–2 PDFs anyway.
-        first_pid = s._pdf_selected[0]
-        first_label = next(
-            (lbl for pid_, lbl, *_ in PDF_TYPES if pid_ == first_pid),
-            first_pid,
-        )
-        _generate_pdf(first_pid, first_label)
+        # Build all selected PDFs sequentially in one worker thread.
+        # See _generate_pdf() — it now accepts a list of (pid, label)
+        # pairs and processes them in order, sharing one deep-research
+        # call across the batch.
+        _pid_label_list = [
+            (pid, next((lbl for p, lbl, *_ in PDF_TYPES if p == pid), pid))
+            for pid in s._pdf_selected
+        ]
+        _generate_pdf(_pid_label_list)
 
     with ui.element("div").style(
             "display:flex;gap:10px;align-items:center;margin-bottom:18px;"):
@@ -33698,14 +33741,26 @@ def p_pdf_gen(s: AppState, rf):
     if s._pdf_custom_stage in ("gallery", "outline"):
         _render_custom_pdf_modal(s, rf)
 
-    # Status / spinner
+    # Status / spinner — shows batch progress when more than one PDF is
+    # being built. `_pdf_current_label` is updated by the batch worker as
+    # it moves through the list; `_pdf_session_done` counts completed
+    # PDFs so the user sees real progress instead of a stalled spinner.
     if s._pdf_generating:
+        _cur_lbl = getattr(s, "_pdf_current_label", "") or "PDF"
+        _done_n = len(getattr(s, "_pdf_session_done", []) or [])
+        _total = getattr(s, "_pdf_batch_total", 1) or 1
+        _progress = f" ({_done_n + 1} of {_total})" if _total > 1 else ""
         with ui.element("div").style(
                 f"background:{C['teal_dim']};border:1px solid {C['teal']}40;"
                 f"border-radius:10px;padding:20px;text-align:center;max-width:700px;"):
             ui.spinner("dots", size="36px", color=C["teal"])
-            ui.label("Researching company and generating PDF...").style(
+            ui.label(f"Generating {_cur_lbl}{_progress}…").style(
                 f"font-size:14px;font-weight:600;color:{C['teal']};margin-top:8px;")
+            if _total > 1:
+                ui.label(
+                    "Deep research is shared across the batch — "
+                    "subsequent PDFs are faster."
+                ).style(f"font-size:11px;color:{C['muted']};margin-top:4px;")
         async def _poll():
             while s._pdf_generating:
                 await asyncio.sleep(2)
@@ -33714,7 +33769,33 @@ def p_pdf_gen(s: AppState, rf):
 
     # Result
     if s._pdf_result:
-        if s._pdf_result.startswith("done:"):
+        if s._pdf_result == "batch_done":
+            _done = getattr(s, "_pdf_session_done", []) or []
+            _failed = getattr(s, "_pdf_session_failed", []) or []
+            with ui.element("div").style(
+                    f"background:{C['good']}10;border:1px solid {C['good']}40;"
+                    f"border-radius:10px;padding:14px 18px;max-width:700px;"
+                    f"margin-bottom:10px;"):
+                ui.label(
+                    f"Built {len(_done)} PDF{'s' if len(_done) != 1 else ''}"
+                    + (f", {len(_failed)} failed" if _failed else "")
+                    + "."
+                ).style(f"font-size:13px;color:{C['good']};font-weight:700;margin-bottom:8px;")
+                for (_pid, _plabel, _fname) in _done:
+                    with ui.element("div").style(
+                            "display:flex;align-items:center;justify-content:space-between;"
+                            "padding:6px 0;gap:10px;"):
+                        ui.label(f"✓ {_plabel}").style(
+                            f"font-size:12px;color:{C['text_l']};")
+                        with ui.link(target=f"/pdfs/{_fname}", new_tab=True).style("text-decoration:none;"):
+                            with ui.element("button").classes("fd-gb").style(
+                                    "padding:4px 12px;font-size:11px;"):
+                                ui.label("View PDF")
+                for (_pid, _plabel, _err) in _failed:
+                    with ui.element("div").style(
+                            f"padding:6px 0;color:{C['danger']};font-size:12px;"):
+                        ui.label(f"✗ {_plabel} — {_err[:120]}")
+        elif s._pdf_result.startswith("done:"):
             fname = s._pdf_result.split(":", 1)[1]
             _from_campaign = getattr(s, "_pdf_from_campaign", False)
             _from_builder = getattr(s, "_pdf_from_builder", False)
