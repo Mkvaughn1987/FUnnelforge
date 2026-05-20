@@ -15567,13 +15567,19 @@ def _sq_loaded_campaign(s: AppState, rf):
                 "source_campaign_name": _cn,
             })
 
+        # Whole-card click target (no side button). User feedback 2026-05-20:
+        # the "Create Newsletter →" pill was redundant — the entire card
+        # describes the same action, so the whole card is the affordance now.
+        # A small arrow on the right hints at its actionable nature.
         with ui.element("div").style(
                 f"background:{C['indigo']}10;border:1px solid {C['indigo']}40;"
                 f"border-left:3px solid {C['indigo']};"
                 f"border-radius:0 10px 10px 0;padding:14px 18px;margin-bottom:16px;"
                 f"display:flex;align-items:center;justify-content:space-between;"
-                f"gap:14px;flex-wrap:wrap;"):
-            with ui.element("div").style("flex:1;min-width:240px;"):
+                f"gap:14px;flex-wrap:wrap;cursor:pointer;"
+                f"transition:background .15s ease, border-color .15s ease;"
+                ).on("click", _spin_up_from_launch):
+            with ui.element("div").style("flex:1;min-width:240px;pointer-events:none;"):
                 ui.label("📰 Create a Newsletter from this campaign").style(
                     f"font-size:13px;font-weight:700;color:{C['indigo']};"
                     f"font-family:'Nunito',sans-serif;margin-bottom:2px;")
@@ -15583,12 +15589,10 @@ def _sq_loaded_campaign(s: AppState, rf):
                     "branded newsletter in one click."
                 ).style(
                     f"font-size:11px;color:{C['muted']};line-height:1.5;")
-            with ui.element("button").style(
-                    f"padding:8px 18px;font-size:12px;border-radius:8px;cursor:pointer;"
-                    f"background:{C['indigo']};color:#0D1520;border:none;"
-                    f"font-weight:700;font-family:inherit;flex-shrink:0;").on(
-                    "click", _spin_up_from_launch):
-                ui.label("📰 Create Newsletter →").style("pointer-events:none;")
+            ui.label("→").style(
+                f"font-size:22px;font-weight:700;color:{C['indigo']};"
+                f"flex-shrink:0;pointer-events:none;line-height:1;"
+                f"padding-right:6px;")
 
         # Launch buttons
         with ui.element("div").style("display:flex;gap:12px;flex-wrap:wrap;align-items:center;"):
