@@ -9111,8 +9111,11 @@ SALES_NAV = [
     ("🚫", "Opt-Out List",     "dnc"),
     ("🛡", "Existing Customers", "active_clients"),
     # ── Content & Tools ──────────────────────────
+    # Slow Drip removed from sidebar 2026-05-20 — now lives as a section
+    # at the bottom of the Newsletters page (merged so users see both
+    # always-on touch points in one place). The "evergreen" page handler
+    # is still callable as a subsection from p_newsletters.
     (None, "CONTENT & TOOLS",   None),
-    ("💧", "Slow Drip",         "evergreen"),
     ("📊", "Sales Assets",      "pdf_gen"),
     ("🔍", "Candidates",        "candidate_finder"),
     # ── Settings ─────────────────────────────────
@@ -22156,27 +22159,84 @@ def p_newsletters(s, rf):
                         ui.label("✕").style("pointer-events:none;")
                         ui.tooltip("Delete this newsletter")
 
+    # ── Slow Drip section ────────────────────────────────────────────────
+    # The Slow Drip page used to live in the left sidebar as its own
+    # entry. Merged here 2026-05-20 so always-on touch points (newsletters
+    # AND slow drips) live in one place. `as_section=True` makes
+    # p_evergreen render an inline header + compact empty state instead
+    # of treating itself as the whole page.
+    p_evergreen(s, rf, as_section=True)
 
-def p_evergreen(s, rf):
-    _render_page_intro_strip(s, rf, "evergreen")
+
+def p_evergreen(s, rf, *, as_section: bool = False):
+    """Slow Drip campaigns page.
+
+    `as_section=True` is passed when this is rendered as a section at the
+    bottom of the Newsletters page (the standalone sidebar entry was
+    removed 2026-05-20). In that mode we skip the page-intro strip,
+    swap the full-page empty state for a compact inline one, and render
+    a section divider + heading so the embed reads as a clear sub-area
+    of the Newsletters page rather than a runaway second page.
+    """
+    if not as_section:
+        _render_page_intro_strip(s, rf, "evergreen")
     # Seed built-in evergreen campaigns if needed
     _seed_evergreen_campaigns()
 
     all_camps = load_campaigns()
     camps = [c for c in all_camps if _is_evergreen(c)]
+
+    if as_section:
+        # Visible section divider + heading so the user sees where the
+        # Slow Drip area starts within the Newsletters page.
+        ui.element("div").style(
+            f"border-top:1px solid {C['border']};margin:32px 0 20px;")
+        with ui.element("div").style("display:flex;align-items:center;"):
+            ui.label("Slow Drip Sequences").classes("fd-h1").style("margin:0;")
+            _show_page_help(s, rf, "evergreen")
+        ui.label(
+            "Always-on sequences your contacts get enrolled into — "
+            "pick up at the next upcoming step."
+        ).classes("fd-sub")
+
     if not camps:
+        if as_section:
+            # Compact inline empty state — keeps the section visible
+            # (with a Create CTA) instead of jumping the user to a
+            # full-page empty experience.
+            with ui.element("div").style(
+                    f"background:{C['surface']};border:1px dashed "
+                    f"{C['border']};border-radius:10px;padding:18px 22px;"
+                    f"color:{C['muted']};font-size:13px;line-height:1.5;"):
+                ui.label(
+                    "No Slow Drips yet. Use \"＋ Create Slow Drip\" below "
+                    "to spin up an always-on sequence — quarterly check-ins, "
+                    "anniversary touches, market updates."
+                )
+            # The original page rendered a Create button via the empty
+            # state; in section mode we let the rest of the function fall
+            # through so any "Create" affordance further down still draws.
+            # But there's no list to render, so we short-circuit here.
+            return
         _render_empty_state(s, rf, "evergreen")
         return
 
-    with ui.element("div").style("display:flex;align-items:center;"):
-        ui.label("Slow Drip Campaigns").classes("fd-h1")
-        _show_page_help(s, rf, "evergreen")
-    ui.label("Enroll contacts into always-on sequences. They pick up at the next upcoming step.").classes("fd-sub")
+    if not as_section:
+        with ui.element("div").style("display:flex;align-items:center;"):
+            ui.label("Slow Drip Campaigns").classes("fd-h1")
+            _show_page_help(s, rf, "evergreen")
+        ui.label(
+            "Enroll contacts into always-on sequences. They pick up at "
+            "the next upcoming step."
+        ).classes("fd-sub")
 
     # If a newsletter's first issue is generating in the background
     # (triggered from the Create Newsletter dialog), show the prominent
     # generating card and auto-refresh the page when it finishes.
-    _render_nl_first_gen_status(s, rf)
+    # Skip when embedded — p_newsletters already rendered this status
+    # at the top of the same page.
+    if not as_section:
+        _render_nl_first_gen_status(s, rf)
 
     # Create buttons
     def _create_evergreen():
