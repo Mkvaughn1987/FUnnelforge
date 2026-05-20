@@ -22033,6 +22033,93 @@ def p_newsletters(s, rf):
                     "padding:9px 22px;font-size:13px;").on(
                     "click", lambda: _create_newsletter_dialog(s, rf)):
                 ui.label("+ New Newsletter")
+
+            # Spin up Newsletter from an existing campaign. Opens a small
+            # picker (campaign dropdown), then the standard create-newsletter
+            # dialog with name/sector/niche/region/contacts pre-filled from
+            # the chosen campaign. Added 2026-05-20.
+            _all_camps_for_seed = [c for c in load_campaigns()
+                                   if not _is_evergreen(c)
+                                   and c.get("status") not in ("cancelled",)]
+            _can_spin = bool(_all_camps_for_seed)
+
+            def _open_spin_up_picker():
+                if not _all_camps_for_seed:
+                    ui.notify(
+                        "No regular campaigns to seed a newsletter from yet.",
+                        type="info"); return
+                _state = {"camp": None}
+                with ui.dialog() as _pdlg, ui.card().style(
+                        f"background:{C['card']};border:1px solid {C['border']};"
+                        f"min-width:480px;max-width:560px;padding:24px 26px;"):
+                    ui.label("Spin up a Newsletter from a campaign").style(
+                        f"font-size:16px;font-weight:700;color:{C['text_l']};"
+                        f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
+                    ui.label(
+                        "Pick a campaign — its industry, niche, region, and "
+                        "contact list will be pre-filled on the next screen. "
+                        "You can review and edit before creating."
+                    ).style(
+                        f"font-size:12px;color:{C['muted']};line-height:1.5;"
+                        f"margin-bottom:16px;")
+                    _picker_options = {
+                        i: c.get("name", f"Campaign {i+1}")
+                        for i, c in enumerate(_all_camps_for_seed)
+                    }
+                    _picker = ui.select(
+                        options=_picker_options, value=0,
+                        label="Source campaign",
+                    ).classes("fd-input").style("width:100%;margin-bottom:18px;")
+
+                    with ui.element("div").style(
+                            "display:flex;justify-content:flex-end;gap:8px;"):
+                        with ui.element("button").classes("fd-gb").style(
+                                "padding:6px 16px;font-size:12px;"
+                                ).on("click", _pdlg.close):
+                            ui.label("Cancel")
+
+                        def _next():
+                            try:
+                                _idx = int(_picker.value or 0)
+                                c = _all_camps_for_seed[_idx]
+                            except Exception:
+                                ui.notify("Pick a campaign first.", type="warning"); return
+                            cn = c.get("name", "Campaign")
+                            _sec_key = (c.get("market_sector_key") or "").strip().lower()
+                            if not _sec_key or _sec_key not in AICB_INDUSTRIES:
+                                _label = (c.get("market_sector") or "").strip().lower()
+                                _sec_key = ""
+                                for _k, _v in AICB_INDUSTRIES.items():
+                                    if (_v.get("label", "") or "").strip().lower() == _label:
+                                        _sec_key = _k
+                                        break
+                            _prefill = {
+                                "name": f"{cn} - Monthly Newsletter",
+                                "sector_key": _sec_key,
+                                "niche": (c.get("market_niche") or "").strip(),
+                                "region": (c.get("market_region") or "").strip(),
+                                "contacts": c.get("contacts", []) or [],
+                                "source_campaign_name": cn,
+                            }
+                            _pdlg.close()
+                            _create_newsletter_dialog(s, rf, prefill=_prefill)
+                        with ui.element("button").classes("fd-pb").style(
+                                "padding:6px 18px;font-size:12px;"
+                                ).on("click", _next):
+                            ui.label("Next →").style("pointer-events:none;")
+                _pdlg.open()
+
+            with ui.element("button").style(
+                    f"padding:9px 22px;font-size:13px;font-weight:700;"
+                    f"background:{C['indigo']}22;color:{C['indigo']};"
+                    f"border:1px solid {C['indigo']}80;border-radius:8px;"
+                    f"cursor:{'pointer' if _can_spin else 'not-allowed'};"
+                    f"font-family:inherit;"
+                    f"opacity:{1 if _can_spin else 0.5};"
+                    ).on("click",
+                         _open_spin_up_picker if _can_spin else (lambda: None)):
+                ui.label("📰 From a Campaign").style("pointer-events:none;")
+
             _can_send = bool(camps)
             with ui.element("button").style(
                     f"padding:9px 22px;font-size:13px;font-weight:700;"
@@ -24725,37 +24812,10 @@ def p_seq_mgr(s, rf):
                                 "click", _add_contacts_btn):
                             ui.label("＋ Add Contacts").style("pointer-events:none;")
 
-                        # Spin up Newsletter — pre-populates the create-
-                        # newsletter dialog from the campaign's industry,
-                        # niche, region, and contact list. User reviews the
-                        # dialog and clicks Create to ship it.
-                        # Added 2026-05-20.
-                        def _spin_up_newsletter(c=sel_camp, cn=cname):
-                            _sec_key = (c.get("market_sector_key") or "").strip().lower()
-                            if not _sec_key or _sec_key not in AICB_INDUSTRIES:
-                                # Try inferring from the human-readable label
-                                _label = (c.get("market_sector") or "").strip().lower()
-                                for _k, _v in AICB_INDUSTRIES.items():
-                                    if (_v.get("label", "") or "").strip().lower() == _label:
-                                        _sec_key = _k
-                                        break
-                                else:
-                                    _sec_key = ""
-                            _prefill = {
-                                "name": f"{cn} - Monthly Newsletter",
-                                "sector_key": _sec_key,
-                                "niche": (c.get("market_niche") or "").strip(),
-                                "region": (c.get("market_region") or "").strip(),
-                                "contacts": c.get("contacts", []) or [],
-                                "source_campaign_name": cn,
-                            }
-                            _create_newsletter_dialog(s, rf, prefill=_prefill)
-                        with ui.element("button").style(
-                                f"padding:6px 16px;font-size:12px;border-radius:8px;cursor:pointer;"
-                                f"background:{C['indigo_dim']};border:1px solid {C['indigo']}60;"
-                                f"color:{C['indigo']};font-family:inherit;").on(
-                                "click", _spin_up_newsletter):
-                            ui.label("📰 Spin up Newsletter").style("pointer-events:none;")
+                        # "Spin up Newsletter" lives on the Newsletters
+                        # page alongside "+ New Newsletter" now — moved
+                        # there 2026-05-20 per user feedback. The detail
+                        # panel keeps its existing actions only.
 
                         # Duplicate ──────────────────────────────────────────────
                         def _dup(c=sel_camp):
