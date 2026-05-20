@@ -4770,12 +4770,50 @@ def save_outcomes(outcomes: dict):
 #  CANDIDATE POOL
 # ═══════════════════════════════════════════════════════════════════════════
 
+_CAND_USED_SHELF_DAYS = 3  # how long a "used" candidate lingers in the pool
+
+
+def _purge_expired_used_candidates(pool: list) -> tuple:
+    """Drop any candidate whose `used_at` timestamp is older than the
+    shelf-life window. Returns (kept_pool, removed_count). Used in a
+    campaign = stays in the pool for _CAND_USED_SHELF_DAYS so the
+    user can re-pitch them to a different campaign without re-uploading
+    (user direction 2026-05-11). After the window, they age out."""
+    if not pool:
+        return pool, 0
+    _now = datetime.now()
+    _kept = []
+    _dropped = 0
+    for c in pool:
+        _ts = (c or {}).get("used_at", "")
+        if not _ts:
+            _kept.append(c)
+            continue
+        try:
+            _used_at = datetime.fromisoformat(_ts)
+            if (_now - _used_at).total_seconds() > _CAND_USED_SHELF_DAYS * 86400:
+                _dropped += 1
+                continue
+        except Exception:
+            # Malformed timestamp — keep the candidate, don't strand them.
+            pass
+        _kept.append(c)
+    return _kept, _dropped
+
+
 def load_candidate_pool() -> list:
-    """Load the candidate pool from disk."""
+    """Load the candidate pool from disk. Auto-purges candidates whose
+    'used' shelf life has expired (set on first campaign use; expires
+    after _CAND_USED_SHELF_DAYS days)."""
     _pool = _user_candidate_pool_path()
     try:
         if _pool.exists():
-            return json.loads(_pool.read_text(encoding="utf-8"))
+            _raw = json.loads(_pool.read_text(encoding="utf-8"))
+            _kept, _dropped = _purge_expired_used_candidates(_raw)
+            if _dropped:
+                # Persist the purge so the next load doesn't re-purge.
+                save_candidate_pool(_kept)
+            return _kept
     except Exception:
         pass
     return []
@@ -7105,39 +7143,53 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
 
 
 def _auto_remove_used_candidates(queue_items: list, camp_name: str) -> int:
-    """Auto-remove pooled candidates once they're 'used' in a launched
-    campaign. Per user direction (2026-05-10): the Candidate Pool is
-    NOT an ATS — it's a working roster of people actively being placed.
-    First outreach = exit the pool.
+    """Mark pooled candidates as 'used' when they're queued in a
+    launched campaign. They stay in the pool for _CAND_USED_SHELF_DAYS
+    days so the user can re-pitch them to a different campaign without
+    re-uploading (user direction 2026-05-11 — was previously immediate
+    removal under "the pool is not an ATS"). After the window expires,
+    load_candidate_pool() purges them automatically.
 
     Match candidates to queued contacts by email (case-insensitive).
-    Re-queues are a no-op for already-removed candidates.
+    Re-queues are idempotent — already-marked candidates keep their
+    original used_at timestamp so re-queueing doesn't extend the shelf
+    life.
 
-    Returns count of candidates removed (0 if no matches or on error)."""
+    Returns count of candidates newly marked (0 if no matches or all
+    already marked)."""
     try:
         _used = {(item.get("to", "") or "").lower().strip() for item in queue_items}
         _used.discard("")
         if not _used:
             return 0
         _pool = load_candidate_pool()
-        _to_remove = [c for c in _pool
-                      if (c.get("email", "") or "").lower().strip() in _used]
-        for _c in _to_remove:
-            remove_candidate_from_pool(_c.get("id", ""))
-        if _to_remove:
-            print(f"[Candidates] Auto-removed {len(_to_remove)} from pool "
-                  f"(used in campaign {camp_name!r})", flush=True)
+        _now_iso = datetime.now().isoformat(timespec="seconds")
+        _newly_marked = 0
+        for _c in _pool:
+            if (_c.get("email", "") or "").lower().strip() not in _used:
+                continue
+            if _c.get("used_at"):
+                continue  # already marked — preserve original timestamp
+            _c["used_at"] = _now_iso
+            _c["used_in_campaign"] = camp_name
+            _newly_marked += 1
+        if _newly_marked:
+            save_candidate_pool(_pool)
+            print(f"[Candidates] Marked {_newly_marked} pool candidate(s) as "
+                  f"used in campaign {camp_name!r} (auto-purge in "
+                  f"{_CAND_USED_SHELF_DAYS} days)", flush=True)
             try:
                 ui.notify(
-                    f"✓ {len(_to_remove)} candidate(s) removed from your pool "
-                    f"— pitched in '{camp_name}'.",
+                    f"✓ {_newly_marked} candidate(s) pitched in '{camp_name}'. "
+                    f"They'll stay in your pool for {_CAND_USED_SHELF_DAYS} "
+                    f"more days so you can re-use them.",
                     type="positive", timeout=6000,
                 )
             except Exception:
                 pass  # background thread; no UI context
-        return len(_to_remove)
+        return _newly_marked
     except Exception as ex:
-        print(f"[Candidates] Auto-remove failed: {ex}", flush=True)
+        print(f"[Candidates] Auto-mark failed: {ex}", flush=True)
         return 0
 
 
@@ -7517,6 +7569,27 @@ these six; never repeat one inside the same sequence:
   [BENCHMARK] "Happy to do a side-by-side against [specific competitor
     from BRIEF], no pitch, just the data."
 
+NO FABRICATED HISTORY (do NOT invent prior interactions):
+This is COLD outreach. The recipient has NOT spoken with you, asked
+you anything, replied to anything, requested anything, or attended
+any meeting. Every phrase that implies a prior interaction is a hard
+violation, including (but not limited to):
+- "You asked about..." / "you mentioned..." / "you said..."
+- "As we discussed" / "per our conversation" / "following our chat"
+- "Circling back on the [topic] we talked about"
+- "Per your request" / "you wanted to know..." / "you were curious about..."
+- "Thanks for getting back to me" / "appreciate your reply"
+- "Picking up where we left off" / "to follow up on your question"
+- ANY phrasing that assumes the reader has engaged with you before.
+Reference the company's PUBLIC market context (job postings, recent
+news, project announcements, comp benchmarks, geography). Never imply
+a private exchange. If you find yourself writing "you" + a verb of
+communication ("asked", "mentioned", "said", "wanted", "requested"),
+delete the sentence and rewrite from a market-observation angle.
+Even for emails LATER in a sequence: still no fake history. Touch 3
+is not "following up on your reply to touch 1" — it's another fresh
+market insight.
+
 FACT DISCIPLINE (do NOT invent specifics):
 - Every concrete number ($amount, percent, day count, headcount,
   project size) you put in an email must be traceable to the BRIEF
@@ -7552,6 +7625,11 @@ NEVER DO THESE (hard rules):
 - Never assume a phone call happened. Say "I wanted to see if you got
   my voicemail" or "following up on my note" instead.
 - Never reference a previous call as if it was answered.
+- Never write "you asked", "you mentioned", "as we discussed",
+  "per your request", "thanks for getting back to me", or any
+  variant that fakes a prior conversation. See NO FABRICATED
+  HISTORY above. This applies to EVERY email in a sequence, not
+  just touch 1.
 
 SEQUENCE ARCHITECTURE (when generating multi-email campaigns):
 - Touch 1: Market insight that helps them calibrate expectations
@@ -9200,6 +9278,7 @@ class AppState:
         self.tc_jd_filename: str = ""            # original filename if uploaded
         self.tc_jd_parsed: dict = {}             # AI-extracted role metadata
         self.tc_jd_generating: bool = False      # spinner during background AI parse
+        self.tc_jd_mode: str = ""                # "" (choice), "upload", or "paste" — Step 1 input mode
         self.tc_candidates: list = []            # list of candidate dicts from CSV
         self.tc_preset: str = ""                 # "one_email" | "two_emails_1day" | "three_emails_3days" | "custom"
         self.tc_generating: bool = False         # spinner during sequence gen
@@ -9463,13 +9542,20 @@ def _save_current_page(s: AppState) -> None:
         pass
 
 
-# Fields persisted across reconnects so the AICB ("Recruiting Campaign")
-# wizard doesn't restart at step 1 every time Cloudflare's ~100s websocket
-# idle-timeout fires or a rapid back-and-forth click triggers a reconnect.
+# Fields persisted across reconnects so wizards don't restart at step 1
+# every time Cloudflare's ~100s websocket idle-timeout fires or a rapid
+# back-and-forth click triggers a reconnect. Originally AICB-only; expanded
+# 2026-05-11 to cover the Phase 2 Target-a-Candidate wizard (tc_*),
+# Build-from-scratch flow (custom_*), and Recruiting Campaign wizard (rc_*)
+# after the user reported "a few resets while I was mid work".
 # Keep this list narrow: small primitives + small lists/dicts only. Big
 # fields (resumes, generated docs, research blobs) are excluded — they're
 # heavy to serialize on every render and cheap to regenerate on demand.
+# Transient flags (*_generating, *_error) are also excluded so they
+# re-render fresh on reconnect rather than locking the UI in a stale
+# loading state.
 _AICB_PERSISTED_FIELDS = (
+    # AICB ("AI Campaign Builder") wizard
     "aicb_wizard_step", "aicb_wizard_mode", "aicb_step", "aicb_type_picked",
     "aicb_target_mode",
     "aicb_company", "aicb_website", "aicb_industry", "aicb_niche",
@@ -9478,6 +9564,23 @@ _AICB_PERSISTED_FIELDS = (
     "aicb_camp_type", "aicb_byos_desc",
     "aicb_cand_count", "aicb_cand_source", "aicb_cand_cards",
     "aicb_tone",
+    # Target-a-Candidate wizard (Phase 2, 2026-05-10). Skip tc_jd_generating
+    # and tc_generating — transient spinner flags. Skip tc_error — should
+    # re-derive on next render. tc_candidates is bounded (CSV upload).
+    "tc_step", "tc_jd_text", "tc_jd_filename", "tc_jd_parsed",
+    "tc_candidates", "tc_preset",
+    # Build-from-scratch / custom wizard
+    "custom_steps", "custom_name", "custom_preset_picked",
+    "custom_editing", "custom_selected_type", "custom_editing_idx",
+    # Recruiting Campaign wizard. Skip rc_ai_generating and rc_ai_error —
+    # transient. rc_ai_pitch is a small string, fine to persist.
+    "rc_job_title", "rc_company", "rc_location", "rc_selling_points",
+    "rc_salary_range", "rc_job_url", "rc_brief", "rc_step",
+    "rc_custom_steps", "rc_ai_pitch",
+    # Chooser + active-tab context so a reconnect lands the user back
+    # in the same chooser branch (Saved vs Custom vs Templates) rather
+    # than the bare picker page.
+    "_tab", "_chooser_origin", "stpl",
 )
 
 
@@ -9499,14 +9602,45 @@ def _restore_aicb_state(s: AppState) -> None:
     """Rehydrate the AICB wizard from session storage onto a fresh
     AppState. No-op if nothing was saved. Defensive: only assigns
     fields that already exist on AppState (so a removed field in a
-    future refactor doesn't crash on stale storage)."""
+    future refactor doesn't crash on stale storage).
+
+    TTL guard (2026-05-11): only auto-restore when the save is recent
+    (< 5 min old — i.e. a Cloudflare websocket reconnect, not a cold
+    cold-open hours later). Older snapshots fall through to the
+    Resume banner on the chooser, which is user-initiated and lets
+    them pick "go back to my draft" vs "start fresh" rather than
+    being silently dropped mid-wizard.
+
+    User complaint 2026-05-11: opening the app the next day landed
+    them on an empty results screen (aicb_step=2 was restored but
+    aicb_docs intentionally isn't persisted — heavy + cheap to
+    regenerate — leaving the results page with no content to render).
+    """
     try:
         snap = app.storage.user.get("_aicb_state") or {}
         if not snap:
             return
+        # Brief-reconnect TTL: only auto-restore within 5 minutes of
+        # the last render. Older = treat as cold open, let the Resume
+        # banner offer the draft instead.
+        _ts = app.storage.user.get("_last_page_ts", "")
+        if _ts:
+            try:
+                _age_s = (datetime.utcnow() - datetime.strptime(
+                    _ts, "%Y-%m-%dT%H:%M:%SZ")).total_seconds()
+                if _age_s > 300:  # 5 min
+                    return
+            except Exception:
+                pass
         for f in _AICB_PERSISTED_FIELDS:
             if f in snap and hasattr(s, f):
                 setattr(s, f, snap[f])
+        # Safety net: if aicb_step came back as 2 (results screen) but
+        # aicb_docs is empty (it's not persisted), the results screen
+        # would render with no content. Force back to step 1 (editable
+        # wizard) so the user lands somewhere coherent.
+        if getattr(s, "aicb_step", 1) == 2 and not (getattr(s, "aicb_docs", None) or {}):
+            s.aicb_step = 1
     except Exception:
         pass
 
@@ -9551,6 +9685,21 @@ def _restore_page_if_recent(s: AppState, ttl_hours: int = 24) -> bool:
                        "campaign_manager", "prev_launch"}
         if _sp in _needs_camp:
             _sp = "active_camps"
+        # Wizard pages: auto-restoring mid-wizard on a cold open after
+        # a long absence dropped users into broken half-state (e.g.,
+        # the AICB results screen with no docs to render — reported
+        # 2026-05-11). Within 5 min we treat it as a reconnect and
+        # keep the page; older = treat as cold open and land them on
+        # Dashboard so the chooser's Resume banner becomes the
+        # user-initiated path back into the wizard.
+        _wizard_pages = {"ai_campaign", "target_candidate", "recruiting_campaign"}
+        if _sp in _wizard_pages:
+            try:
+                _age_s = (datetime.utcnow() - saved_at).total_seconds()
+            except Exception:
+                _age_s = 1e9
+            if _age_s > 300:
+                _sp = "dashboard"
         s.hub = _hub; s.sp = _sp; s.ep = _ep
         return True
     except Exception:
@@ -9853,7 +10002,7 @@ PAGE_HELP = {
         "next_action": "Click Bulk Import Resumes to add candidates, or use Who's the best fit? to score your pool against a role.",
         "sections": [
             ("What is this?", "Your roster of active candidates, grouped by industry. Bulk-import resumes, match them to a JD, and build submittals in minutes."),
-            ("Candidate Pool Tab", "Candidates grouped by industry (Construction, Manufacturing, Sales, etc.). Click any row to expand for AI-generated highlights, View Resume, Search Jobs, Start Campaign, or status changes."),
+            ("Candidate Job Finder Tab", "Candidates grouped by industry (Construction, Manufacturing, Sales, etc.). Click any row to expand for AI-generated highlights, View Resume, Search Jobs, Start Campaign, or status changes."),
             ("Bulk Import Resumes", "Click the button, select up to 30 PDFs/Word docs/RTFs at once. AI extracts name, role, location, and pulls a 4-6 bullet highlights summary per resume. Goes into your pool as Active."),
             ("Who's the best fit? Tab", "Type a role (\"welder\", \"project manager\") or paste a full JD. AI scores your whole pool on a 0-100 scale using technical fit, industry, tenure, location, and comp weights. Only candidates scoring 70+ surface."),
             ("Create Submittal", "On any ranked candidate, click 'Create Submittal →'. AI writes a detailed pitch: Why They Fit, Gaps, Red Flags, Relocation / Counter-offer / Comp, 5 tailored interview questions, and a paste-ready submittal email for your client."),
@@ -10101,18 +10250,20 @@ EMPTY_STATES = {
         "icon": "👥",
         "headline": "No candidates yet",
         "body": (
-            "The Candidate Pool is your working roster of people you're "
-            "actively trying to place. Add candidates here once, then plug "
-            "them into any sequence, newsletter spotlight, or JD match.\n\n"
+            "The Candidate Job Finder is your working roster of people "
+            "you're actively trying to place. Add candidates here once, "
+            "then plug them into any sequence, newsletter spotlight, or "
+            "JD match.\n\n"
             "Two ways to add:\n"
             "• Add a Candidate — single resume, you fill in the details\n"
             "• Bulk Import — drop in many resumes (PDF/Word/RTF); Claude "
             "extracts name, role, location, and writes a short highlight "
             "summary for each\n\n"
-            "Once a candidate is included in a launched sequence they're "
-            "automatically removed from the pool. DripDrop is not an ATS — "
-            "the pool stays small so you focus on people you haven't "
-            "reached yet."
+            "Once a candidate is included in a launched sequence they "
+            "stick around in the pool for 3 more days so you can re-pitch "
+            "them to a different campaign without re-uploading. After that "
+            "they age out — DripDrop is not an ATS, the pool stays small "
+            "so you focus on people you haven't reached yet."
         ),
         "cta_label": "+ Add a Candidate",
         "cta_target": "@cand_add_single",
@@ -10475,7 +10626,13 @@ def topbar(s: AppState, rf):
         # Active state: each pill is mutually exclusive. Newsletters
         # replaces the old SlowDrip Sequence pill as the second button
         # (Slow Drip moved to the sidebar 2026-05-10 per user feedback).
-        _on_sales       = s.hub == "sales" and s.sp not in ("seq_mgr", "newsletters")
+        # Sales Hub is the catch-all — anything that's NOT one of the
+        # other explicit hub destinations. Forgetting candidate_finder
+        # in the exclude list (pre-2026-05-11) caused both Sales Hub
+        # and Candidate Pool to highlight together. New hub pages
+        # added below MUST also be added to this exclusion tuple.
+        _other_hub_pages = ("seq_mgr", "newsletters", "candidate_finder")
+        _on_sales       = s.hub == "sales" and s.sp not in _other_hub_pages
         _on_emails      = s.hub == "emails"
         _on_camp_mgr    = s.hub == "sales" and s.sp == "seq_mgr"
         _on_newsletters = s.hub == "sales" and s.sp == "newsletters"
@@ -10490,7 +10647,7 @@ def topbar(s: AppState, rf):
             s.hub = "sales"; s.sp = "candidate_finder"; rf()
         _on_cf = s.hub == "sales" and s.sp == "candidate_finder"
         with ui.element("button").classes("fd-hub" + (" on" if _on_cf else "")).on("click", _cf):
-            ui.label("Candidate Pool")
+            ui.label("Candidate Job Finder")
         # Market Intel hub button removed 2026-05-02 per user — "remove
         # for now". Page handler p_market_intel and the underlying
         # market_intel route stay in place so anyone with a deep link
@@ -10900,9 +11057,18 @@ def sidebar(s: AppState, rf):
                 else:
                     s.ep = k
                 if k in ("start_seq", "create_camp"):
-                    # Only reset if there's no in-progress campaign to preserve
+                    # Reset to the chooser unless there's REAL in-progress
+                    # work to preserve. Note that `_tab` is NOT a signal
+                    # of work — it's just a UI cursor, and it gets
+                    # restored from session storage on reconnect, which
+                    # used to falsely trigger the preserve branch and
+                    # drop users onto Build-from-Scratch instead of the
+                    # chooser when they clicked Start a Sequence after
+                    # a brief Cloudflare timeout (user-reported
+                    # 2026-05-12). Real work signals: custom_steps,
+                    # custom_name, loaded_camp, sq > 1.
                     _has_work = (s.custom_steps or s.custom_name or s.loaded_camp
-                                 or s._tab or s.sq > 1)
+                                 or s.sq > 1)
                     if not _has_work:
                         s.loaded_camp = None; s.loaded_tab = 0; s.loaded_view = "emails"
                         s.launch_result = None; s.custom_editing = False
@@ -11289,6 +11455,76 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
                     f"setTimeout(()=>this.textContent='⧧ Copy', 1500);\" "
                     f"style='padding:5px 12px;border-radius:6px;border:1px solid {C['teal']};"
                     f"background:transparent;color:{C['teal']};font-size:11px;cursor:pointer;"
+                    f"font-family:inherit;flex-shrink:0;'>⧧ Copy</button>"
+                )
+
+        # ── Voicemail variants (added 2026-05-12 per Leigh) ──
+        # Same trial-multiple-options pattern as live-call openers: pill
+        # row to switch styles, body text + Copy button. Phone-number
+        # placeholder is substituted at display time from the recruiter's
+        # configured signature phone (plain format; the spelled-out
+        # repeated treatment was rolled back per user feedback).
+        vm_variants = briefing.get("voicemail_variants") or []
+        if vm_variants:
+            try:
+                _vm_phone_raw = (
+                    (load_config() or {}).get("sig_phone", "") or ""
+                ).strip()
+            except Exception:
+                _vm_phone_raw = ""
+            _phone_block = (
+                _vm_phone_raw
+                or "[Your phone number — set it under My Profile → Signature]"
+            )
+
+            ui.label("Voicemail (3 options)").style(
+                f"font-size:11px;font-weight:700;color:{C['text_l']};"
+                f"margin-top:4px;margin-bottom:6px;")
+
+            vm_sel_key = f"_vm_variant_{camp.get('name', 'unnamed')}"
+            vm_sel_idx = getattr(s, vm_sel_key, 0)
+            if vm_sel_idx >= len(vm_variants):
+                vm_sel_idx = 0
+
+            with ui.element("div").style(
+                    "display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap;"):
+                for i, v in enumerate(vm_variants):
+                    is_sel = (i == vm_sel_idx)
+                    def _pick_vm(idx=i, key=vm_sel_key):
+                        setattr(s, key, idx); rf()
+                    bg = C["call_col"] if is_sel else "transparent"
+                    fg = "#fff" if is_sel else C["call_col"]
+                    label = v.get("label", f"Voicemail {i+1}")
+                    with ui.element("button").style(
+                            f"padding:5px 12px;border-radius:14px;cursor:pointer;"
+                            f"background:{bg};color:{fg};border:1px solid {C['call_col']};"
+                            f"font-size:11px;font-family:inherit;font-weight:600;"
+                            ).on("click", _pick_vm):
+                        ui.label(label).style("pointer-events:none;")
+
+            sel_vm = vm_variants[vm_sel_idx]
+            _vm_script = (sel_vm.get("script", "") or "")
+            # Substitute both the new {phone} placeholder and the legacy
+            # {phone_spelled_twice} placeholder (the latter from briefings
+            # generated before the spelled-out behavior was rolled back).
+            _vm_script = _vm_script.replace("{phone}", _phone_block)
+            _vm_script = _vm_script.replace("{phone_spelled_twice}", _phone_block)
+            with ui.element("div").style(
+                    "display:flex;justify-content:space-between;align-items:flex-start;"
+                    "gap:12px;margin-bottom:12px;"):
+                ui.html(
+                    "<div style='font-size:13px;line-height:1.55;color:#222;"
+                    "white-space:pre-wrap;'>"
+                    + _vm_script.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    + "</div>"
+                ).style("flex:1;")
+                _esc_vm = _vm_script.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
+                ui.html(
+                    f"<button onclick=\"navigator.clipboard.writeText(`{_esc_vm}`); "
+                    f"this.textContent='✓ Copied'; "
+                    f"setTimeout(()=>this.textContent='⧧ Copy', 1500);\" "
+                    f"style='padding:5px 12px;border-radius:6px;border:1px solid {C['call_col']};"
+                    f"background:transparent;color:{C['call_col']};font-size:11px;cursor:pointer;"
                     f"font-family:inherit;flex-shrink:0;'>⧧ Copy</button>"
                 )
 
@@ -15218,7 +15454,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                 ui.label("💾 Save Campaign")
 
             # Launch dialog  -  prompts for campaign name before launching
-            _launch_state = {"dialog": None}
+            _launch_state = {"dialog": None, "card": None, "in_flight": False}
 
             def _open_launch_dialog():
                 if not contacts:
@@ -15229,7 +15465,8 @@ def _sq_loaded_campaign(s: AppState, rf):
                     return
                 with ui.dialog() as dlg, ui.card().style(
                         f"background:{C['card']};border:1px solid {C['border']};"
-                        f"min-width:440px;padding:24px;border-radius:14px;"):
+                        f"min-width:440px;padding:24px;border-radius:14px;") as _dlg_card:
+                    _launch_state["card"] = _dlg_card
                     ui.label("Name Your Campaign").style(
                         f"font-size:18px;font-weight:700;color:{C['text_l']};"
                         f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
@@ -15307,7 +15544,16 @@ def _sq_loaded_campaign(s: AppState, rf):
                     with ui.element("div").style("display:flex;gap:10px;justify-content:flex-end;"):
                         ui.button("Cancel", on_click=dlg.close).props("flat").style(
                             f"color:{C['muted']};font-family:inherit;")
-                        def _confirm_launch():
+                        async def _confirm_launch():
+                            # Async because PDF generation makes 4 sequential
+                            # Anthropic API calls (~30-60s total). Running
+                            # that synchronously blocked the asyncio event
+                            # loop and killed NiceGUI's WebSocket heartbeat,
+                            # producing the "Connection lost. Trying to
+                            # reconnect..." banner that users reported on
+                            # 2026-05-10 / 2026-05-11. Heavy work is now
+                            # offloaded to a thread pool via run_in_executor
+                            # so the loop stays responsive.
                             new_name = launch_name_inp.value.strip()
                             if not new_name:
                                 ui.notify("Enter a sequence name.", type="warning")
@@ -15398,20 +15644,20 @@ def _sq_loaded_campaign(s: AppState, rf):
                                                 "click", _ac_dlg.close):
                                             ui.label("← Cancel launch")
 
-                                        def _decide_skip():
+                                        async def _decide_skip():
                                             camp["_ac_decision"] = "skip"
                                             _ac_dlg.close()
                                             ui.notify(
                                                 f"✓ {_n_flagged} active-client contact"
                                                 f"{'s' if _n_flagged != 1 else ''} will be skipped.",
                                                 type="positive", timeout=3500)
-                                            _confirm_launch()
+                                            await _confirm_launch()
                                         with ui.element("button").classes("fd-pb").style(
                                                 "padding:8px 18px;font-size:12px;font-weight:700;"
                                                 ).on("click", _decide_skip):
                                             ui.label(f"Skip {_n_flagged} — Launch with {_kept} →")
 
-                                        def _decide_send_all():
+                                        async def _decide_send_all():
                                             camp["_ac_decision"] = "send_all"
                                             _ac_dlg.close()
                                             ui.notify(
@@ -15419,7 +15665,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                                                 f"{_n_flagged} active-client contact"
                                                 f"{'s' if _n_flagged != 1 else ''}.",
                                                 type="warning", timeout=4500)
-                                            _confirm_launch()
+                                            await _confirm_launch()
                                         with ui.element("button").style(
                                                 f"padding:8px 16px;font-size:12px;"
                                                 f"background:transparent;border:1px solid {C['danger']}80;"
@@ -15429,6 +15675,46 @@ def _sq_loaded_campaign(s: AppState, rf):
                                             ui.label("Send to them anyway")
                                 _ac_dlg.open()
                                 return
+                            # Double-click guard. The button stays in the
+                            # dialog during the entire async run; without
+                            # this a second click would queue a second
+                            # _confirm_launch and double-fire everything.
+                            if _launch_state.get("in_flight"):
+                                return
+                            _launch_state["in_flight"] = True
+
+                            # Swap the dialog content to a "Generating…"
+                            # view so the user sees obvious progress
+                            # instead of a frozen-looking form (the heavy
+                            # PDF + queue work takes ~30-60s). The dialog
+                            # auto-closes when the async work finishes and
+                            # the user lands on the launch summary.
+                            try:
+                                _card = _launch_state.get("card")
+                                if _card is not None:
+                                    _card.clear()
+                                    with _card:
+                                        with ui.element("div").style(
+                                                "display:flex;flex-direction:column;"
+                                                "align-items:center;gap:14px;"
+                                                "padding:18px 6px;min-width:380px;"):
+                                            ui.spinner(size="44px", color=C["teal"])
+                                            ui.label("Generating your campaign…").style(
+                                                f"font-size:17px;font-weight:700;"
+                                                f"color:{C['text_l']};"
+                                                f"font-family:'Nunito',sans-serif;")
+                                            ui.label(
+                                                "Claude is building your sales assets and "
+                                                "scheduling the email queue. This usually "
+                                                "takes 30 to 60 seconds — please don't "
+                                                "close this tab."
+                                            ).style(
+                                                f"font-size:12px;color:{C['muted']};"
+                                                f"line-height:1.5;text-align:center;"
+                                                f"max-width:340px;")
+                            except Exception:
+                                pass
+
                             camp["name"] = new_name
                             camp["status"] = "active"
                             camp["start_date"] = _picked_dt.isoformat()
@@ -15436,13 +15722,20 @@ def _sq_loaded_campaign(s: AppState, rf):
                             # (str|None) so downstream builds a proper mailto header.
                             camp["unsubscribe_email"] = camp.get("_owner_email") or None
                             save_campaign(camp)
-                            # Auto-generate PDFs and attach to matching steps
+                            # Auto-generate PDFs and attach to matching steps.
+                            # Offloaded to a thread because _generate_squeeze_pdfs
+                            # makes 4 sequential Anthropic calls (~30-60s) and
+                            # was blocking the asyncio loop, killing the
+                            # WebSocket connection mid-launch.
+                            _loop = asyncio.get_event_loop()
                             try:
                                 v = {"TargetRole": camp.get("variables", {}).get("TargetRole", ""),
                                      "CompanyName": camp.get("variables", {}).get("CompanyName", new_name),
                                      "Geography": camp.get("variables", {}).get("Geography", "")}
                                 if v["TargetRole"]:
-                                    _generate_squeeze_pdfs(v)
+                                    await _loop.run_in_executor(
+                                        None, _generate_squeeze_pdfs, v
+                                    )
                                     _slug = v.get("_pdf_slug", "Campaign")
                                     _mp = f"Market_Pulse_{_slug}.pdf"
                                     _sc = f"Role_Scorecard_{_slug}.pdf"
@@ -15472,11 +15765,27 @@ def _sq_loaded_campaign(s: AppState, rf):
                             # unhandled handler errors and that disconnects
                             # the websocket — user sees 'Reconnecting to
                             # DripDrop...' instead of a useful message).
+                            # Also offloaded to thread for safety even
+                            # though queue_campaign_emails is mostly file I/O.
                             try:
-                                count = queue_campaign_emails(camp)
+                                count = await _loop.run_in_executor(
+                                    None, queue_campaign_emails, camp
+                                )
                             except ValueError as _ve:
                                 try:
                                     ui.notify(str(_ve)[:300], type="negative", timeout=10000)
+                                except Exception:
+                                    pass
+                                # Reset state + close the dialog. The cached
+                                # _launch_state["dialog"] is now stale (we
+                                # rebuilt its card content to the spinner
+                                # view); drop the cache so the next launch
+                                # attempt builds a fresh dialog.
+                                _launch_state["in_flight"] = False
+                                _launch_state["dialog"] = None
+                                _launch_state["card"] = None
+                                try:
+                                    dlg.close()
                                 except Exception:
                                     pass
                                 return
@@ -15485,6 +15794,13 @@ def _sq_loaded_campaign(s: AppState, rf):
                                 try:
                                     ui.notify(f"Launch failed: {str(_le)[:200]}",
                                               type="negative", timeout=10000)
+                                except Exception:
+                                    pass
+                                _launch_state["in_flight"] = False
+                                _launch_state["dialog"] = None
+                                _launch_state["card"] = None
+                                try:
+                                    dlg.close()
                                 except Exception:
                                     pass
                                 return
@@ -15500,6 +15816,12 @@ def _sq_loaded_campaign(s: AppState, rf):
                                             ui.notify(f"✓ {enrolled} contact{'s' if enrolled!=1 else ''} added to "
                                                       f"'{eg_name}'", type="positive", timeout=4000)
                             dlg.close()
+                            # Drop the cached dialog — its card now holds
+                            # the spinner view, not the form. A future
+                            # launch must build a fresh one.
+                            _launch_state["in_flight"] = False
+                            _launch_state["dialog"] = None
+                            _launch_state["card"] = None
                             s.launch_result = dict(
                                 name=new_name, count=count, contacts=len(contacts),
                                 emails=len(steps), steps=copy.deepcopy(steps),
@@ -15718,55 +16040,10 @@ def _sq_pick(s, rf):
 
     # ── Strategy Chooser — 5 starting places ──────────────────────────────
     if not s._tab:
-        # Resume-draft banner — appears above the chooser when a recent
-        # wizard draft exists for this user. Solves the "wizard restarts
-        # on me" complaint by giving users an explicit way back into
-        # their in-progress work, even after a refresh or a navigation
-        # bounce that fired _reset_wizard_state().
-        _draft = _load_wizard_draft()
-        if _draft:
-            _label = _draft.get("_label", "Untitled draft")
-            try:
-                _saved_at = datetime.fromisoformat(_draft.get("_saved_at", ""))
-                _mins = max(1, int((datetime.now() - _saved_at).total_seconds() / 60))
-                _ago = (f"{_mins} min ago" if _mins < 60
-                        else f"{_mins // 60} hr ago" if _mins < 1440
-                        else f"{_mins // 1440} day(s) ago")
-            except Exception:
-                _ago = "earlier"
-            with ui.element("div").style(
-                    f"background:{C['warn']}10;border:1px solid {C['warn']}40;"
-                    f"border-left:4px solid {C['warn']};border-radius:10px;"
-                    f"padding:14px 18px;margin-bottom:18px;"
-                    f"display:flex;align-items:center;justify-content:space-between;"
-                    f"gap:12px;flex-wrap:wrap;"):
-                with ui.element("div").style("flex:1;min-width:200px;"):
-                    ui.label(f"📝 Pick up where you left off: {_label}").style(
-                        f"font-size:13px;font-weight:700;color:{C['warn']};")
-                    ui.label(f"Saved {_ago}. Resume to restore your in-progress wizard.").style(
-                        f"font-size:11px;color:{C['muted']};margin-top:2px;")
-                with ui.element("div").style(
-                        "display:flex;gap:8px;flex-shrink:0;"):
-                    def _resume_draft(d=_draft):
-                        _restore_wizard_draft(s, d)
-                        # Land them back in the AICB wizard at whatever step
-                        # was active when the draft was saved.
-                        s.sp = "ai_campaign"
-                        rf()
-                    def _discard_draft():
-                        _clear_wizard_draft()
-                        rf()
-                    with ui.element("button").classes("fd-pb").style(
-                            "padding:6px 14px;font-size:12px;border-radius:99px;"
-                            "cursor:pointer;").on("click", _resume_draft):
-                        ui.label("Resume").style("pointer-events:none;")
-                    with ui.element("button").style(
-                            f"padding:6px 14px;font-size:12px;border-radius:99px;"
-                            f"border:1px solid {C['muted']};background:transparent;"
-                            f"color:{C['muted']};cursor:pointer;font-family:inherit;"
-                            ).on("click", _discard_draft):
-                        ui.label("Discard").style("pointer-events:none;")
-
+        # Resume-draft banner removed 2026-05-11 per user feedback. The
+        # autosave continues silently in the background; in-progress
+        # wizards now surface under the "Drafts & Saved" card instead
+        # of a separate top-of-page banner.
         ui.label("Choose a Sequence Type").style(
             f"font-size:20px;font-weight:700;color:{C['text_l']};margin-bottom:8px;"
             f"font-family:'Nunito',sans-serif;")
@@ -15781,7 +16058,7 @@ def _sq_pick(s, rf):
         ui.label(
             "Going to a single company? Pick Target a Company. "
             "Working a vertical or region? Target a Market. "
-            "Have a candidate to place? Target a Candidate. "
+            "Working a specific role? Find Candidates. "
             "Re-running something that worked? Saved Sequences. "
             "Want full manual control? Build from scratch."
         ).style(
@@ -15814,11 +16091,12 @@ def _sq_pick(s, rf):
             {
                 "key": "candidate",
                 "icon": "👤",
-                "title": "Target a Candidate",
-                "subtitle": "Place a candidate or fill a role",
-                "desc": ("Guided wizard. Paste a job description, upload candidates, "
-                         "pick a cadence. AI generates outreach in your voice tuned to the "
-                         "specific role you're filling."),
+                "title": "Find Candidates",
+                "subtitle": "Build outreach for a role you're filling",
+                "desc": ("Guided wizard. Optionally paste a job description, then pick "
+                         "a cadence. AI generates outreach tuned to the role and drops "
+                         "you in the email editor where you can add the candidates "
+                         "you've sourced on your own."),
                 "best_for": ["Specific role hiring", "Candidate placement", "MPC outreach"],
                 "border": "#F472B6",
             },
@@ -15983,9 +16261,71 @@ def _sq_pick(s, rf):
         saved_camps = [c for c in saved_camps
                        if not c.get("evergreen_only")
                        and c.get("emails")]
-        if not saved_camps:
+        # In-progress wizard draft surfaces here as a special entry so
+        # users can pick up where they left off without us needing a
+        # top-of-page Resume banner (removed 2026-05-11 per user
+        # feedback). The wizard autosaves to a single per-user JSON;
+        # if it exists, render it above the saved-campaigns list.
+        _wiz_draft = _load_wizard_draft()
+        if _wiz_draft:
+            _wd_label = _wiz_draft.get("_label", "Untitled draft")
+            try:
+                _wd_saved_at = datetime.fromisoformat(_wiz_draft.get("_saved_at", ""))
+                _wd_mins = max(1, int((datetime.now() - _wd_saved_at).total_seconds() / 60))
+                _wd_ago = (f"{_wd_mins} min ago" if _wd_mins < 60
+                           else f"{_wd_mins // 60} hr ago" if _wd_mins < 1440
+                           else f"{_wd_mins // 1440} day(s) ago")
+            except Exception:
+                _wd_ago = "earlier"
+            def _resume_wiz_draft(d=_wiz_draft):
+                _restore_wizard_draft(s, d)
+                # Force the editable wizard branch (aicb_step==2 = results
+                # screen needs aicb_docs which isn't persisted — landing
+                # there shows just the header). Clamp the internal step
+                # and clear stale per-attempt state.
+                s.aicb_step = 1
+                _ws = int(getattr(s, "aicb_wizard_step", 1) or 1)
+                s.aicb_wizard_step = _ws if _ws in (1, 2, 3, 4, 5) else 1
+                s.aicb_docs = {}
+                s.aicb_research = None
+                s.aicb_analysis = {}
+                s.aicb_auto_imported = False
+                s.sp = "ai_campaign"
+                rf()
+            def _discard_wiz_draft():
+                _clear_wizard_draft()
+                rf()
+            with ui.element("div").style(
+                    f"background:{C['warn']}10;border:1px solid {C['warn']}40;"
+                    f"border-left:3px solid {C['warn']};border-radius:0 10px 10px 0;"
+                    f"padding:14px 18px;margin-bottom:14px;max-width:860px;"
+                    f"display:flex;align-items:center;justify-content:space-between;"
+                    f"gap:12px;flex-wrap:wrap;"):
+                with ui.element("div").style("flex:1;min-width:200px;cursor:pointer;"
+                        ).on("click", _resume_wiz_draft):
+                    ui.label(f"📝 Draft in progress: {_wd_label}").style(
+                        f"font-size:14px;font-weight:600;color:{C['warn']};"
+                        f"font-family:'Nunito',sans-serif;")
+                    ui.label(f"Saved {_wd_ago} · click to resume the wizard.").style(
+                        f"font-size:11px;color:{C['muted']};margin-top:2px;")
+                with ui.element("div").style("display:flex;gap:8px;flex-shrink:0;"):
+                    with ui.element("span").style(
+                            f"color:{C['danger']};cursor:pointer;font-size:11px;padding:4px 8px;"
+                            f"border-radius:6px;border:1px solid {C['danger']}30;"
+                            f"background:{C['danger']}10;"
+                            ).on("click.stop", _discard_wiz_draft):
+                        ui.label("Discard")
+                    with ui.element("span").style(
+                            f"color:{C['warn']};cursor:pointer;font-size:16px;font-weight:700;"
+                            ).on("click", _resume_wiz_draft):
+                        ui.label("→")
+        if not saved_camps and not _wiz_draft:
             ui.label("No saved campaigns yet.").style(
                 f"font-size:13px;color:{C['muted']};padding:20px 0;")
+        elif not saved_camps:
+            # Draft exists but no full saved campaigns — still skip the
+            # sort/list block below.
+            pass
         else:
             ui.label("Pick a saved campaign to re-use its sequence with new contacts.").style(
                 f"font-size:13px;color:{C['muted']};margin-bottom:12px;")
@@ -18204,6 +18544,7 @@ def _sq_review_split(s: AppState, rf):
                             "Write concise, professional emails. Never be salesy. Use executive tone. "
                             "Do NOT include any sign-off or closing (no 'Best,', no sender name)  -  the signature is auto-appended at send time. "
                             "Follow each step's instructions exactly. Return valid JSON only."
+                            + _DRIPDROP_PLAYBOOK
                             + _style_guide_prompt()
                         )
                         user_prompt = (
@@ -19272,7 +19613,9 @@ def p_camp_gen(s, rf):
                         msg = await _claude_create_with_retry_async(client,
                             model="claude-haiku-4-5-20251001", max_tokens=4000,
                             system=_injection_guarded_system(
-                                "You are writing sales outreach emails for a staffing recruiter. Write concise, professional emails. Do NOT include any sign-off or closing (no 'Best,', no sender name)  -  the signature is auto-appended. Return valid JSON array with touch_number, subject, body for each." + _style_guide_prompt()),
+                                "You are writing sales outreach emails for a staffing recruiter. Write concise, professional emails. Do NOT include any sign-off or closing (no 'Best,', no sender name)  -  the signature is auto-appended. Return valid JSON array with touch_number, subject, body for each."
+                                + _DRIPDROP_PLAYBOOK
+                                + _style_guide_prompt()),
                             messages=[{"role": "user", "content":
                                 "Role: " + _wrap_untrusted("target_role", v.get('TargetRole',''), max_chars=200) + "\n"
                                 + "Geography: " + _wrap_untrusted("geography", v.get('Geography',''), max_chars=200) + "\n"
@@ -20192,6 +20535,30 @@ def _render_nl_first_gen_status(s, rf) -> None:
         return
     _done = bool(getattr(s, "_nl_first_gen_done", False))
 
+    # Defensive: if step 0 of the campaign has real content on disk, the
+    # first issue is effectively "ready" regardless of whether the bg
+    # thread reached its flag-flip line (it could have crashed, the
+    # process could have restarted mid-gen, or — pre-2026-05-16 — the
+    # flag was only flipped after ALL N months finished, so the spinner
+    # stayed for ~5min on a 12-month newsletter while the data was
+    # already visible below it). Treat content-on-disk as the source of
+    # truth and flip _done so the success state renders.
+    if not _done:
+        try:
+            _camp = next(
+                (c for c in load_campaigns() if c.get("name") == _camp_name),
+                None,
+            )
+            if _camp:
+                _steps = _camp.get("emails", []) or []
+                if _steps:
+                    _body0 = (_steps[0].get("body") or "").strip()
+                    if _body0 and "[AI:" not in _body0:
+                        s._nl_first_gen_done = True
+                        _done = True
+        except Exception:
+            pass
+
     if not _done:
         # In-flight: prominent centered card with big spinner.
         with ui.element("div").style(
@@ -20348,8 +20715,32 @@ def _create_newsletter_dialog(s, rf):
                     "experience, salary asks). You can swap in real candidates "
                     "per issue later."
                 )
-        _spotlight_options = {0: "None", 3: "3 per issue", 6: "6 per issue"}
+        # Minimum 3 spotlights — the new masthead tagline reads
+        # "Market Pulse & Top {Industry} Candidates" so an issue with zero
+        # candidate cards would contradict its own headline. "None" was
+        # dropped 2026-05-16 alongside the section-reorder redesign.
+        _spotlight_options = {3: "3 per issue", 6: "6 per issue"}
         spotlight_in = ui.select(options=_spotlight_options, value=3).classes("fd-input").style("margin-bottom:12px;width:100%;")
+
+        # City Life toggle — when ON, every issue includes 2 local city
+        # blurbs (food, sports, neighborhood, development) under the
+        # candidate spotlights. Off-by-default users still get a tight
+        # market-only newsletter. Locked at campaign creation; not
+        # editable per-issue.
+        with ui.element("div").style("display:flex;align-items:center;gap:8px;margin-bottom:14px;"):
+            city_life_in = ui.checkbox("Include City Life section", value=True).style("font-size:12px;")
+            with ui.element("span").style(
+                    f"display:inline-flex;align-items:center;justify-content:center;"
+                    f"width:16px;height:16px;border-radius:50%;"
+                    f"background:{C['teal']}20;border:1px solid {C['teal']}60;"
+                    f"color:{C['teal']};font-size:10px;font-weight:700;cursor:help;"
+                    f"font-family:'Nunito',sans-serif;"):
+                ui.label("?").style("line-height:1;")
+                ui.tooltip(
+                    "Adds 2 local city blurbs (events, food, neighborhood, "
+                    "development) under the candidate spotlights. Turn off "
+                    "for a market-only newsletter."
+                )
 
         # Start month + count on one row
         with ui.element("div").style("display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;"):
@@ -20481,11 +20872,14 @@ def _create_newsletter_dialog(s, rf):
                 })
 
             try:
-                _spotlight_count = int(spotlight_in.value or 0)
+                _spotlight_count = int(spotlight_in.value or 3)
             except Exception:
-                _spotlight_count = 0
-            if _spotlight_count not in (0, 3, 6):
-                _spotlight_count = 0
+                _spotlight_count = 3
+            # Floor at 3 — the new tagline ("Top {Industry} Candidates")
+            # requires candidate cards to exist; "None" was removed.
+            if _spotlight_count not in (3, 6):
+                _spotlight_count = 3
+            _show_city_life = bool(city_life_in.value)
             new_camp = dict(
                 schema=2,
                 name=nl_name,
@@ -20499,6 +20893,7 @@ def _create_newsletter_dialog(s, rf):
                 market_niche=niche,
                 market_region=region,
                 newsletter_spotlight_count=_spotlight_count,
+                newsletter_show_city_life=_show_city_life,
                 start_date=date.today().isoformat(),
                 contacts=[],
                 contact_count=0,
@@ -20518,20 +20913,33 @@ def _create_newsletter_dialog(s, rf):
             s._nl_first_gen_camp_name = nl_name
             s._nl_first_gen_done = False
             def _gen_first_issue():
+                # Generate step 0 first — that's what the banner promised
+                # ("Usually 20-30 seconds"). Flip _done immediately after
+                # so the banner switches to its success state before we
+                # start the much longer tail of months 1..N (which would
+                # otherwise keep the spinner running for ~5+ min on a
+                # 12-month campaign).
                 try:
-                    # Generate every scheduled issue, not just step 0.
-                    # The helper is idempotent — already-populated steps
-                    # are skipped. Sleeps briefly between each so we don't
-                    # hammer the Anthropic rate limit.
+                    _gen_one_issue_for_campaign(nl_name, 0)
+                except Exception as ex:
+                    print(f"[NewsletterAuto] first-issue gen failed: {ex}",
+                          flush=True)
+                # Flip _done unconditionally — even if step 0 errored, the
+                # banner can't stay stuck forever (the campaign still
+                # exists in the list, editable by hand).
+                s._nl_first_gen_done = True
+                try:
+                    _cache_campaigns.invalidate()
+                except Exception:
+                    pass
+                # Continue silently with the remaining months in the same
+                # thread. Idempotent — step 0 is skipped since we just
+                # populated it.
+                try:
                     _gen_all_issues_for_campaign(nl_name)
                 except Exception as ex:
-                    print(f"[NewsletterAuto] error: {ex}", flush=True)
-                finally:
-                    s._nl_first_gen_done = True
-                    try:
-                        _cache_campaigns.invalidate()
-                    except Exception:
-                        pass
+                    print(f"[NewsletterAuto] tail gen failed: {ex}",
+                          flush=True)
 
             _run_as_user(getattr(s, "_user_email", "") or "", _gen_first_issue, name="newsletter_first_issue_worker")
 
@@ -20585,8 +20993,16 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
     state: dict = {
         "subject": step.get("subject", "") or "",
         "body": step.get("body", "") or "",
+        # 3 cached Unsplash variants per region. `step_idx % 3` rotates
+        # the default across consecutive issues so back-to-back monthly
+        # sends don't reuse the same photo; user can click any
+        # thumbnail to override, or hit "Refresh photos" for a new batch.
         "hero_variant": int(step.get("_hero_variant", step_idx % 3) or 0),
-        "hero_total": 3,  # Unsplash batch size (3 candidates, all cached eagerly)
+        "hero_total": 3,
+        # Bumped on every "Refresh photos" so /city_image/... thumbnail URLs
+        # change (otherwise the 24h Cache-Control on that route makes the
+        # browser keep showing the previous batch's images).
+        "hero_batch_token": 0,
         "is_generating": _is_blank or force_generate,
         "error": "",
     }
@@ -20688,16 +21104,24 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
             # editor's hero <img> base64 is swapped in place.
 
             def _swap_hero_in_body(html_body: str, new_b64: str) -> str:
-                """Find the first 640×180 hero <img> tag and swap its
-                base64 src to the new variant. Returns modified HTML.
-                If no hero img found, returns the body unchanged."""
+                """Find the first 640-wide hero <img> tag and swap its src
+                to the new variant. Handles both src forms the body might
+                hold: an inline `data:image/jpeg;base64,...` URL (desktop
+                mode) or an `https://.../email_img/hero/{sha1}.jpg` URL
+                (server mode). Returns modified HTML, or the body unchanged
+                if no hero img is found."""
                 if not new_b64 or not html_body:
                     return html_body
+                new_src = _email_img_src(new_b64, "hero", mime="image/jpeg")
+                if not new_src:
+                    return html_body
                 pattern = re.compile(
-                    r'(<img\s+src="data:image/jpeg;base64,)([^"]+)("\s+width="640")',
+                    r'(<img\s+src=")[^"]+("\s+width="640")',
                     re.IGNORECASE,
                 )
-                return pattern.sub(rf'\g<1>{new_b64}\g<3>', html_body, count=1)
+                return pattern.sub(
+                    lambda m: m.group(1) + new_src + m.group(2),
+                    html_body, count=1)
 
             _hero_gallery_holder = ui.element("div").style("margin-bottom:12px;")
 
@@ -20745,6 +21169,104 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                 _p = _BASE_DATA_DIR / "city_images" / f"{_slug}.unsplash.{variant_idx}.hero.jpg"
                 return _p.is_file()
 
+            def _refresh_hero_batch():
+                """Wipe the current Unsplash cache for this campaign's
+                region and pull a fresh batch from the next page of
+                results so the user sees DIFFERENT photos. Runs the
+                fetch in a background thread so the modal stays
+                responsive (Unsplash search is ~1-2s, downloads can
+                add a few seconds more)."""
+                if not UNSPLASH_ACCESS_KEY:
+                    ui.notify(
+                        "UNSPLASH_ACCESS_KEY isn't configured — "
+                        "can't fetch new photos.", type="warning")
+                    return
+                _slug = _hero_thumb_slug()
+                if not _slug:
+                    ui.notify("Set a Market Region on this newsletter first.",
+                              type="warning")
+                    return
+                _region = (camp.get("market_region") or camp.get("location") or "").strip()
+                _parts = [p.strip() for p in _region.split(",")]
+                _city = _parts[0] if _parts else ""
+                _state = _parts[1][:2].upper() if len(_parts) > 1 else ""
+                if not _city:
+                    ui.notify("Region is empty — set a city before refreshing photos.",
+                              type="warning")
+                    return
+                _cache_dir = _BASE_DATA_DIR / "city_images"
+                _cache_dir.mkdir(parents=True, exist_ok=True)
+                _meta_path = _cache_dir / f"{_slug}.unsplash.meta.json"
+                # Read the previous page so the next refresh advances
+                # to a fresh page of Unsplash results. Wraps mod 5 since
+                # results thin out beyond ~60 hits for most cities.
+                _next_page = 1
+                try:
+                    if _meta_path.exists():
+                        _meta = json.loads(_meta_path.read_text(encoding="utf-8"))
+                        _next_page = (int(_meta.get("_page", 1) or 1) % 5) + 1
+                except Exception:
+                    _next_page = 1
+                ui.notify(
+                    f"Pulling a fresh batch of {_city} photos…",
+                    type="ongoing", timeout=8000)
+
+                def _do_refetch():
+                    # Wipe cached crops + meta for this slug so the next
+                    # render forces re-download.
+                    try:
+                        if _meta_path.exists():
+                            _meta_path.unlink()
+                    except Exception:
+                        pass
+                    for _i in range(20):
+                        _f = _cache_dir / f"{_slug}.unsplash.{_i}.hero.jpg"
+                        if _f.exists():
+                            try: _f.unlink()
+                            except Exception: pass
+                    ok = _unsplash_fetch_city_batch(
+                        _city, _state, _slug, _cache_dir, page=_next_page)
+                    if not ok:
+                        return
+                    # Eagerly download the first 3 variants so the gallery
+                    # thumbnails render immediately. Without this, the meta
+                    # file lands but no .hero.jpg exists yet — thumbnails
+                    # show "loading…" until something else triggers a
+                    # lazy download.
+                    for _v_idx in range(3):
+                        try:
+                            _unsplash_download_variant(_slug, _cache_dir, _v_idx)
+                        except Exception as _dx:
+                            print(f"[HeroRefresh] variant {_v_idx} download warn: {_dx}",
+                                  flush=True)
+                    # Reset selection to the first variant of the new batch
+                    state["hero_variant"] = 0
+                    # Bump so thumbnail URLs change (defeats the 24h cache
+                    # on /city_image/{slug}/{n}.jpg — same path otherwise).
+                    state["hero_batch_token"] = state.get("hero_batch_token", 0) + 1
+                    # Swap the body's hero <img> to the new variant 0 too;
+                    # otherwise the gallery shows fresh thumbs but the
+                    # body keeps the previous batch's photo.
+                    try:
+                        _new_b64 = _load_hero_variant_b64_for_camp(camp, 0)
+                        if _new_b64:
+                            _cur = _body_editor.value or state["body"]
+                            _new_body = _swap_hero_in_body(_cur, _new_b64)
+                            state["body"] = _new_body
+                            _body_editor.set_value(_new_body)
+                    except Exception as _ex:
+                        print(f"[HeroRefresh] body swap failed: {_ex}",
+                              flush=True)
+                _user = s._user_email
+                def _wrapper():
+                    _do_refetch()
+                    try:
+                        _render_hero_gallery()
+                    except Exception as ex:
+                        print(f"[HeroRefresh] gallery re-render failed: {ex}",
+                              flush=True)
+                _run_as_user(_user, _wrapper, name="hero_refresh_worker")
+
             def _render_hero_gallery():
                 _hero_gallery_holder.clear()
                 _total = max(1, state["hero_total"])
@@ -20775,8 +21297,9 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                                     # in the NiceGUI widget tree (was a real
                                     # contributor to OOM crashes on the 1GB
                                     # droplet).
+                                    _tok = state.get("hero_batch_token", 0)
                                     ui.html(
-                                        f'<img src="/city_image/{_slug}/{_idx}.jpg" '
+                                        f'<img src="/city_image/{_slug}/{_idx}.jpg?b={_tok}" '
                                         f'style="display:block;width:160px;'
                                         f'height:46px;object-fit:cover;'
                                         f'border-radius:6px;'
@@ -20800,32 +21323,33 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                                     f"color:{_label_color};"
                                     f"pointer-events:none;")
 
-                        # "Upload your own" tile sits as the 4th option
-                        # in the gallery — same size + position as a thumb,
-                        # dashed border to read as "add new" instead of
-                        # a real photo.
-                        _hero_upload = ui.upload(
-                            on_upload=_on_hero_upload,
-                            auto_upload=True,
-                            max_files=1,
-                        ).props('accept="image/*"').style("display:none;")
+                        # "Refresh photos" tile (replaces the old "Upload
+                        # your own" tile, removed 2026-05-12 per user
+                        # feedback — uploads weren't being used and
+                        # users wanted a way to swap the whole batch
+                        # when none of the cached photos appealed).
+                        # Click → wipe cache, fetch a NEW Unsplash batch
+                        # from the next page of results, re-render gallery.
+                        # Click handler lives directly on the tile (no
+                        # wrapping div), and the inner ui.label does NOT
+                        # carry pointer-events:none — Quasar's QLabel
+                        # eats the click event if the wrapper has it set,
+                        # which is what made the previous structure look
+                        # unresponsive. Reported 2026-05-17.
                         with ui.element("div").style(
-                                "display:flex;flex-direction:column;"
-                                "align-items:center;gap:3px;"
-                                "cursor:pointer;").on(
-                                "click",
-                                lambda _e=None: _hero_upload.run_method("pickFiles")):
-                            with ui.element("div").style(
-                                    f"width:160px;height:46px;"
-                                    f"border:1px dashed {C['border']};"
-                                    f"border-radius:6px;display:flex;"
-                                    f"align-items:center;justify-content:center;"
-                                    f"color:{C['muted']};font-size:11px;"
-                                    f"pointer-events:none;"):
-                                ui.label("🖼 Upload your own")
-                            ui.label("Custom").style(
-                                f"font-size:10px;font-weight:600;"
-                                f"color:{C['muted']};pointer-events:none;")
+                                f"width:160px;height:46px;"
+                                f"border:1px dashed {C['teal']}80;"
+                                f"background:{C['teal']}10;"
+                                f"border-radius:6px;display:flex;"
+                                f"align-items:center;justify-content:center;"
+                                f"color:{C['teal']};font-size:11px;"
+                                f"font-weight:600;cursor:pointer;"
+                                f"user-select:none;").on(
+                                "click", lambda _e=None: _refresh_hero_batch()):
+                            ui.html(
+                                '<span style="pointer-events:none;">'
+                                '🔄 Refresh photos</span>'
+                            )
 
             _render_hero_gallery()
 
@@ -21065,6 +21589,254 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
     dlg.open()
 
 
+def _send_now_dialog(s, rf, camps: list):
+    """One-off send dialog (added 2026-05-12). Lets the user pick which
+    newsletter to send and supply a custom recipient list — separate
+    from the regular scheduled enrolled-list cadence. The selected
+    issue's CURRENT rendered HTML is sent verbatim; if the issue's
+    body is still a [AI:] placeholder, we tell the user to View/Edit
+    + generate first.
+
+    Recipients can be pasted (newline OR comma-separated) OR copied
+    from the newsletter's own enrolled list (one-click).
+    """
+    # State for the dialog. Local dict keeps choices across re-renders
+    # without polluting AppState.
+    _state = {
+        "camp_idx": 0,
+        "recipients": "",
+        "sending": False,
+    }
+
+    with ui.dialog() as _dlg, ui.card().style(
+            f"background:{C['card']};border:1px solid {C['border']};"
+            f"min-width:520px;max-width:600px;padding:24px 26px;"):
+        ui.label("📨 Send a Newsletter Now").style(
+            f"font-size:18px;font-weight:800;color:{C['text_l']};"
+            f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
+        ui.label(
+            "One-off send to a recipient list you supply. Doesn't change "
+            "your scheduled monthly send."
+        ).style(f"font-size:12px;color:{C['muted']};margin-bottom:16px;line-height:1.5;")
+
+        # ── Step 1: Which newsletter? ────────────────────────────────
+        ui.label("1. Pick a newsletter").classes("fd-fl").style(
+            "margin-bottom:6px;")
+        _camp_options = {
+            i: f"{c.get('name', f'Newsletter {i+1}')}"
+            for i, c in enumerate(camps)
+        }
+        _camp_select = ui.select(
+            options=_camp_options,
+            value=0,
+        ).classes("fd-input").style("width:100%;margin-bottom:14px;")
+
+        # ── Step 2: Recipients ───────────────────────────────────────
+        ui.label("2. Recipients").classes("fd-fl").style("margin-bottom:6px;")
+        ui.label(
+            "Pick a saved contact list, load this newsletter's enrolled "
+            "contacts, or paste addresses directly — one per line OR "
+            "comma-separated."
+        ).style(f"font-size:11px;color:{C['muted']};margin-bottom:6px;line-height:1.4;")
+        _recip_ta = ui.textarea(
+            placeholder="alice@example.com\nbob@example.com\ncarol@example.com"
+        ).style(
+            f"width:100%;min-height:110px;background:{C['surface']};"
+            f"border:1px solid {C['border']};border-radius:6px;padding:8px;"
+            f"color:{C['text_l']};font-size:12px;font-family:inherit;resize:vertical;"
+            f"margin-bottom:6px;"
+        )
+
+        # Convenience: pull from the picked newsletter's enrolled list
+        def _fill_from_enrolled():
+            try:
+                _idx = int(_camp_select.value or 0)
+                _camp = camps[_idx]
+            except Exception:
+                return
+            _enr = [
+                (_ct.get("email") or "").strip()
+                for _ct in (_camp.get("contacts") or [])
+                if not _ct.get("removed") and (_ct.get("email") or "").strip()
+            ]
+            if not _enr:
+                ui.notify("This newsletter has no enrolled contacts yet.",
+                          type="warning")
+                return
+            _recip_ta.set_value("\n".join(_enr))
+            ui.notify(f"Loaded {len(_enr)} enrolled contact(s) — edit the list "
+                      f"if you want to send to a subset.", type="info", timeout=4000)
+
+        # Convenience: load any of the user's saved contact CSVs.
+        # list_saved_contact_lists() returns {stem: full_path} for every
+        # CSV under the per-user contacts dir except the default
+        # contacts.csv. We pull emails from the picked file's "Email"
+        # column (after _normalize_rows) and append/replace into the
+        # textarea.
+        _saved_lists = list_saved_contact_lists() or {}
+
+        def _fill_from_saved_list(e=None):
+            _name = (_saved_select.value or "").strip()
+            if not _name or _name not in _saved_lists:
+                return
+            try:
+                rows, _ = safe_read_csv_rows(_saved_lists[_name])
+                contacts = _normalize_rows(rows)
+            except Exception as ex:
+                ui.notify(f"Couldn't read '{_name}': {str(ex)[:80]}",
+                          type="negative")
+                return
+            _emails = []
+            _seen = set()
+            for c in contacts:
+                em = (c.get("Email") or "").strip()
+                if not em or em.lower() in _seen:
+                    continue
+                _seen.add(em.lower())
+                _emails.append(em)
+            if not _emails:
+                ui.notify(f"'{_name}' has no usable email addresses.",
+                          type="warning")
+                return
+            _recip_ta.set_value("\n".join(_emails))
+            ui.notify(f"Loaded {len(_emails)} contact(s) from '{_name}' — "
+                      f"edit the list if you want to send to a subset.",
+                      type="info", timeout=4000)
+
+        with ui.element("div").style(
+                "display:flex;gap:8px;align-items:center;flex-wrap:wrap;"
+                "margin-bottom:14px;"):
+            if _saved_lists:
+                _saved_select = ui.select(
+                    options=["", *sorted(_saved_lists.keys())],
+                    value="",
+                    label="Load from saved list",
+                    on_change=_fill_from_saved_list,
+                ).classes("fd-input").style(
+                    "min-width:240px;flex:1 1 240px;")
+            else:
+                # No saved lists yet — show a disabled stub so the layout
+                # is consistent and the user knows the feature exists.
+                with ui.element("div").style(
+                        f"padding:6px 10px;font-size:11px;"
+                        f"color:{C['muted']};border:1px dashed {C['border']};"
+                        f"border-radius:6px;min-width:240px;flex:1 1 240px;"):
+                    ui.label("No saved contact lists yet — "
+                             "upload CSVs in Contact Lists.")
+            with ui.element("button").style(
+                    f"padding:5px 12px;font-size:11px;background:transparent;"
+                    f"color:{C['muted']};border:1px solid {C['border']};"
+                    f"border-radius:6px;cursor:pointer;font-family:inherit;"
+                    ).on("click", _fill_from_enrolled):
+                ui.label("Load enrolled contacts ↓").style("pointer-events:none;")
+
+        # ── Bottom: Cancel / Send ────────────────────────────────────
+        with ui.element("div").style(
+                "display:flex;gap:8px;justify-content:flex-end;margin-top:8px;"):
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:8px 18px;font-size:12px;").on(
+                    "click", _dlg.close):
+                ui.label("Cancel")
+
+            def _do_send():
+                if _state["sending"]:
+                    return
+                # Resolve picked newsletter
+                try:
+                    _idx = int(_camp_select.value or 0)
+                    _camp = camps[_idx]
+                except Exception:
+                    ui.notify("Pick a newsletter first.", type="warning")
+                    return
+                # Parse recipient list — split on comma OR newline, dedupe.
+                _raw = (_recip_ta.value or "").replace(",", "\n")
+                _emails = []
+                _seen = set()
+                for _line in _raw.splitlines():
+                    _e = _line.strip()
+                    if not _e or _e.lower() in _seen:
+                        continue
+                    if "@" not in _e or "." not in _e.split("@")[-1]:
+                        continue  # skip malformed
+                    _seen.add(_e.lower())
+                    _emails.append(_e)
+                if not _emails:
+                    ui.notify("Add at least one valid recipient email.",
+                              type="warning")
+                    return
+
+                # Get the next-pending issue's body (rendered HTML).
+                _step_idx = _find_next_evergreen_step(_camp)
+                _emails_arr = _camp.get("emails") or []
+                if _step_idx >= len(_emails_arr):
+                    ui.notify(
+                        "All issues of this newsletter have already been sent. "
+                        "Refresh / open the next issue to render content first.",
+                        type="warning", timeout=6000)
+                    return
+                _step = _emails_arr[_step_idx]
+                _body_html = (_step.get("body") or "").strip()
+                if not _body_html or "[AI:" in _body_html:
+                    ui.notify(
+                        "This issue isn't generated yet — click Refresh on the "
+                        "card or open View/Edit and generate first, then send.",
+                        type="warning", timeout=6000)
+                    return
+                _subject = (_step.get("subject")
+                            or f"{_camp.get('name', 'Newsletter')}").strip()
+
+                _state["sending"] = True
+                _dlg.close()
+                ui.notify(
+                    f"Sending \"{_camp.get('name', 'newsletter')}\" to "
+                    f"{len(_emails)} recipient(s)…",
+                    type="ongoing", timeout=4000)
+
+                _user = s._user_email
+                def _do_run():
+                    _ok_count = 0
+                    _fail_count = 0
+                    for _addr in _emails:
+                        try:
+                            # Per-recipient FirstName personalization isn't
+                            # available (no name supplied). Replace the merge
+                            # token with empty string so it doesn't leak into
+                            # the rendered email as literal "{FirstName}".
+                            _personalized = _body_html.replace(
+                                "{FirstName}", "there"
+                            )
+                            ok, err = _send_email_universal(
+                                to=_addr,
+                                subject=_subject,
+                                html_body=_personalized,
+                                attachments=[],
+                                is_preview=False,
+                                _for_user_email=_user,
+                            )
+                            if ok:
+                                _ok_count += 1
+                            else:
+                                _fail_count += 1
+                                print(f"[NewsletterSendNow] {_addr} failed: {err}",
+                                      flush=True)
+                        except Exception as ex:
+                            _fail_count += 1
+                            print(f"[NewsletterSendNow] {_addr} crashed: {ex}",
+                                  flush=True)
+                    print(
+                        f"[NewsletterSendNow] Done — {_ok_count} sent, "
+                        f"{_fail_count} failed for "
+                        f"{_camp.get('name', '?')!r}", flush=True)
+                _run_as_user(_user, _do_run, name="newsletter_send_now_worker")
+
+            with ui.element("button").classes("fd-pb").style(
+                    f"padding:8px 22px;font-size:13px;font-weight:700;"
+                    f"background:{C['teal']};").on("click", _do_send):
+                ui.label("Send now →").style("pointer-events:none;")
+
+    _dlg.open()
+
+
 def p_newsletters(s, rf):
     """Dedicated Newsletters page. Shows ONLY newsletter campaigns —
     no slow drips, no amber reminder banner. Each card has a hero
@@ -21104,14 +21876,28 @@ def p_newsletters(s, rf):
             "Claude drafted, and tweak before it sends."
         ).classes("fd-sub").style("text-align:center;margin-bottom:18px;")
 
-        # New newsletter button — centered above the list.
+        # Top action row — New Newsletter + Send Now (one-off send to a
+        # custom recipient list, separate from the scheduled enrolled-list
+        # sends). Send Now disabled when no newsletters exist yet.
         with ui.element("div").style(
                 "display:flex;align-items:center;justify-content:center;"
-                "gap:10px;margin:0 0 22px;"):
+                "gap:10px;margin:0 0 22px;flex-wrap:wrap;"):
             with ui.element("button").classes("fd-pb").style(
                     "padding:9px 22px;font-size:13px;").on(
                     "click", lambda: _create_newsletter_dialog(s, rf)):
                 ui.label("+ New Newsletter")
+            _can_send = bool(camps)
+            with ui.element("button").style(
+                    f"padding:9px 22px;font-size:13px;font-weight:700;"
+                    f"background:{C['teal']}22;color:{C['teal']};"
+                    f"border:1px solid {C['teal']}80;border-radius:8px;"
+                    f"cursor:{'pointer' if _can_send else 'not-allowed'};"
+                    f"font-family:inherit;"
+                    f"opacity:{1 if _can_send else 0.5};"
+                    ).on("click",
+                         (lambda: _send_now_dialog(s, rf, camps))
+                         if _can_send else (lambda: None)):
+                ui.label("📨 Send a Newsletter Now").style("pointer-events:none;")
 
         # Deep link from preview email: ?edit_newsletter=<campaign_name>
         # Open the Edit modal for the named campaign on first render.
@@ -21196,6 +21982,70 @@ def p_newsletters(s, rf):
                     _needs_create = (not _body) or "[AI:" in _body
                     _edit_newsletter_modal(s, rf, c, _idx, force_generate=_needs_create)
 
+                # Refresh: re-run the AI generator on the upcoming issue so
+                # the body is rewritten with fresh market stats / news /
+                # spotlights before the user opens View/Edit. Same helper
+                # the auto-refresh scheduler uses, just user-triggered.
+                # Runs in a background thread so the UI doesn't block on
+                # the (slow) Anthropic + web-search call.
+                #
+                # 2026-05-12: tracks in-flight state on s._nl_refreshing
+                # (lazy-init set of campaign names) so the card can swap
+                # the 🔄 icon for a spinner that persists across renders
+                # until the worker finishes — fixing the "toast disappears
+                # before AI is done" complaint.
+                def _refresh(c=camp):
+                    _idx = _find_next_evergreen_step(c)
+                    _emails = c.get("emails", []) or []
+                    if _idx >= len(_emails):
+                        ui.notify("All newsletter issues have been sent — nothing to refresh.",
+                                  type="info")
+                        return
+                    if not ANTHROPIC_API_KEY:
+                        ui.notify("Add ANTHROPIC_API_KEY before refreshing — AI is required.",
+                                  type="warning")
+                        return
+                    _cname = c.get("name", "")
+                    if not hasattr(s, "_nl_refreshing"):
+                        s._nl_refreshing = set()
+                    if _cname in s._nl_refreshing:
+                        # Already in flight — ignore the click.
+                        return
+                    s._nl_refreshing.add(_cname)
+                    ui.notify(f"Refreshing \"{_cname}\" — pulling fresh stats…",
+                              type="ongoing", timeout=10000)
+                    rf()  # immediately swap icon → spinner
+                    _user = s._user_email
+                    def _do_refresh():
+                        try:
+                            _subject, _body_html = _generate_newsletter_content_for_step(c, _idx)
+                            if not _body_html:
+                                print(f"[NewsletterRefresh] Generation returned empty for {_cname!r}",
+                                      flush=True)
+                                return
+                            _emails_now = c.get("emails", []) or []
+                            if _idx >= len(_emails_now):
+                                return
+                            _emails_now[_idx]["body"] = _body_html
+                            if _subject:
+                                _emails_now[_idx]["subject"] = _subject
+                            _emails_now[_idx]["_auto_refreshed_at"] = (
+                                datetime.utcnow().isoformat()
+                            )
+                            try:
+                                save_campaign(c)
+                                _cache_campaigns.invalidate()
+                            except Exception as ex:
+                                print(f"[NewsletterRefresh] Save failed: {ex}", flush=True)
+                        except Exception as ex:
+                            print(f"[NewsletterRefresh] Worker failed: {ex}", flush=True)
+                        finally:
+                            try:
+                                s._nl_refreshing.discard(_cname)
+                            except Exception:
+                                pass
+                    _run_as_user(_user, _do_refresh, name="newsletter_refresh_worker")
+
                 # Delete handler: confirmation dialog before destructive op.
                 # Pattern mirrors _delete_camp on the Campaign management page.
                 def _delete_nl(c=camp):
@@ -21247,29 +22097,64 @@ def p_newsletters(s, rf):
                                 ui.label("Delete")
                     _dlg.open()
 
+                # Row simplification 2026-05-12: Enroll + View/Edit stay
+                # as labeled pills (the two most-used actions); Refresh
+                # and Delete shrink to icon-only buttons with tooltips so
+                # the row stops feeling cluttered.
                 with ui.element("div").style(
                         "flex-shrink:0;display:flex;gap:6px;align-items:center;"):
-                    # + Enroll button — same fg color as the card border for visual tie-in
+                    # + Enroll — primary CTA, full pill
                     with ui.element("button").classes("fd-pb").style(
                             f"padding:9px 18px;font-size:13px;background:{fg};").on(
                             "click", _enroll):
                         ui.label("＋ Enroll").style("pointer-events:none;")
-                    # View / Edit button (preserved)
+                    # Refresh — icon only, tooltip explains. While the
+                    # background worker is running for THIS campaign,
+                    # swap to a spinner + disable clicks so the user
+                    # gets persistent feedback. ui.timer keeps the page
+                    # re-rendering every 2.5s while the spinner is
+                    # showing so it disappears as soon as the worker
+                    # clears the in-flight flag.
+                    _is_refreshing = (
+                        camp.get("name", "") in
+                        getattr(s, "_nl_refreshing", set())
+                    )
+                    if _is_refreshing:
+                        with ui.element("div").style(
+                                f"padding:9px 11px;line-height:1;"
+                                f"background:transparent;color:{C['teal']};"
+                                f"border:1px solid {C['teal']}55;border-radius:8px;"
+                                f"display:flex;align-items:center;justify-content:center;"
+                                f"min-width:36px;cursor:wait;"):
+                            ui.spinner("dots", size="14px", color=C["teal"])
+                            ui.tooltip("Refreshing… AI is pulling fresh stats")
+                        ui.timer(2.5, rf, once=True)
+                    else:
+                        with ui.element("button").style(
+                                f"padding:9px 11px;font-size:14px;line-height:1;"
+                                f"background:transparent;color:{C['teal']};"
+                                f"border:1px solid {C['teal']}55;border-radius:8px;"
+                                f"cursor:pointer;font-family:inherit;").on(
+                                "click", _refresh):
+                            ui.label("🔄").style("pointer-events:none;")
+                            ui.tooltip("Refresh — pull fresh stats & spotlights")
+                    # View / Edit — secondary pill
                     with ui.element("button").style(
-                            f"padding:9px 22px;font-size:13px;font-weight:700;"
-                            f"background:{_btn_color}22;color:{_btn_color};"
-                            f"border:1px solid {_btn_color}80;border-radius:8px;"
+                            f"padding:9px 18px;font-size:13px;font-weight:600;"
+                            f"background:{_btn_color}18;color:{_btn_color};"
+                            f"border:1px solid {_btn_color}55;border-radius:8px;"
                             f"cursor:pointer;font-family:inherit;").on(
                             "click", _edit):
-                        ui.label("👁 View / Edit").style("pointer-events:none;")
-                    # Small delete button — subtle, danger-colored, last in row.
+                        ui.label("View / Edit").style("pointer-events:none;")
+                    # Delete — icon only, tooltip explains
                     with ui.element("button").style(
-                            f"padding:9px 12px;font-size:13px;font-weight:600;"
+                            f"padding:9px 11px;font-size:13px;line-height:1;"
                             f"background:transparent;color:{C['danger']};"
                             f"border:1px solid {C['danger']}40;border-radius:8px;"
-                            f"cursor:pointer;font-family:inherit;line-height:1;"
+                            f"cursor:pointer;font-family:inherit;"
                             ).on("click", _delete_nl):
                         ui.label("✕").style("pointer-events:none;")
+                        ui.tooltip("Delete this newsletter")
 
 
 def p_evergreen(s, rf):
@@ -23302,6 +24187,9 @@ def p_seq_mgr(s, rf):
     completed = [c for c in camps if c not in active
                  and (camp_q.get(c.get("name",""), {}).get("sent", 0) > 0
                       or len(c.get("contacts", [])) > 0)]
+    # Most-recent-first across the whole list (matches the sidebar
+    # _active_regular / _active_drips sort and the dashboard ordering).
+    completed.sort(key=_camp_recency_ts, reverse=True)
 
     with ui.element("div").style("display:flex;align-items:center;"):
         ui.label("Sequences").classes("fd-h1")
@@ -23345,9 +24233,20 @@ def p_seq_mgr(s, rf):
                 f"border:1px solid {C['border']};border-radius:12px 0 0 12px;"
                 f"overflow-y:auto;"):
 
-            # Split active into regular campaigns and slow drips
-            _active_regular = [c for c in active if not c.get("evergreen_only")]
-            _active_drips = [c for c in active if c.get("evergreen_only")]
+            # Split active into regular campaigns and slow drips. Sort
+            # most-recent-first so newly-launched sequences appear at the
+            # top — load_campaigns() returns alphabetical-by-filename
+            # which buried fresh campaigns under older ones (user-reported
+            # 2026-05-11). _camp_recency_ts prefers explicit created_*
+            # fields, falls back to file mtime.
+            _active_regular = sorted(
+                [c for c in active if not c.get("evergreen_only")],
+                key=_camp_recency_ts, reverse=True,
+            )
+            _active_drips = sorted(
+                [c for c in active if c.get("evergreen_only")],
+                key=_camp_recency_ts, reverse=True,
+            )
 
             def _render_camp_item(camp):
                 cname = camp.get("name","")
@@ -27512,7 +28411,7 @@ def _render_aicb_pool_picker(s, rf):
                 f"text-align:center;color:{C['muted']};font-size:13px;"):
             ui.label(
                 "No candidates match yet — try Auto-generate, or add candidates "
-                "from the Candidate Pool page."
+                "from the Candidate Job Finder page."
             )
         return
 
@@ -27919,14 +28818,32 @@ def _aicb_generate_candidates_run(s, count: int = 3):
     _letters_used = _AICB_CAND_LETTERS[:count]
     _letters_str = ", ".join(f"Candidate {l}" for l in _letters_used)
 
-    # If the caller pre-populated aicb_sel_roles, use ONE picked title per
-    # candidate (in order, wrapping if count exceeds title list). Otherwise
-    # the model is free to invent variety inside the requested role string.
+    # Title assignment — 2026-05-10: stop wrapping a single picked title
+    # across every candidate (user complaint: "Not 4 office managers").
+    # Each picked title is used AT MOST ONCE. If count > picked titles,
+    # the remaining slots are left unassigned so the AI fills them with
+    # complementary roles that match the company's industry + skill set.
     _picked_titles = [t for t in (s.aicb_sel_roles or []) if str(t).strip()]
     _per_letter_title = {}
+    _unfilled_letters = []
     if _picked_titles:
         for i, L in enumerate(_letters_used):
-            _per_letter_title[L] = _picked_titles[i % len(_picked_titles)]
+            if i < len(_picked_titles):
+                _per_letter_title[L] = _picked_titles[i]
+            else:
+                _unfilled_letters.append(L)
+    else:
+        # No user picks at all — every candidate slot is AI-chosen.
+        _unfilled_letters = list(_letters_used)
+    # Industry context the AI uses to pick complementary roles for any
+    # unfilled slots. Falls back through niche → primary industry → bare
+    # company name so the prompt always has something concrete to anchor on.
+    _industry_ctx = (
+        (getattr(s, "aicb_niche", "") or "").strip()
+        or (getattr(s, "aicb_primary_industry", "") or "").strip()
+        or (getattr(s, "aicb_industry", "") or "").strip()
+        or ""
+    )
 
     try:
         import anthropic as _anth
@@ -27942,7 +28859,10 @@ def _aicb_generate_candidates_run(s, count: int = 3):
         # all years at one employer reads like a lifer profile.
         _format_blocks = []
         for i, L in enumerate(_letters_used):
-            _hd_title = (_per_letter_title.get(L) or "Role Title")
+            _hd_title = (
+                _per_letter_title.get(L)
+                or f"[AI-CHOSEN ROLE for {_co} — see TITLE ASSIGNMENT below]"
+            )
             _format_blocks.append(
                 f"Candidate {L}: {_hd_title}, X+ yrs experience\n"
                 f"• Location: [a DIFFERENT nearby suburb/town in the {_primary_loc} metro — pick one that's distinct from the other candidates]\n"
@@ -27956,27 +28876,70 @@ def _aicb_generate_candidates_run(s, count: int = 3):
             )
         _format_str = "\n\n".join(_format_blocks)
 
-        # If the user picked specific titles, tell the model to use them
-        # one-per-candidate (in order). Otherwise it picks variety inside
-        # the requested role string on its own.
+        # Title assignment — each picked title used at most ONCE; any
+        # remaining slots get AI-chosen complementary titles for the
+        # company's industry. Never clone the same title across multiple
+        # candidates (user-reported 2026-05-10: "Not 4 office managers").
         _titles_block = ""
-        if _picked_titles:
+        _industry_phrase = (
+            f" in the {_industry_ctx} industry" if _industry_ctx else ""
+        )
+        if _picked_titles and not _unfilled_letters:
             _title_lines = "\n".join(
                 f"  - Candidate {L}: {_per_letter_title[L]}"
                 for L in _letters_used
             )
             _titles_block = (
                 "\nTITLE ASSIGNMENT — each candidate gets ONE specific title from the "
-                "user's picked list. Use exactly these titles in the headlines:\n"
+                "user's picked list. Use exactly these titles in the headlines (each "
+                "one used only once — DO NOT clone the same title across candidates):\n"
                 f"{_title_lines}\n\n"
+            )
+        elif _picked_titles and _unfilled_letters:
+            _filled_lines = "\n".join(
+                f"  - Candidate {L}: {_per_letter_title[L]}"
+                for L in _letters_used if L in _per_letter_title
+            )
+            _unfilled_str = ", ".join(f"Candidate {L}" for L in _unfilled_letters)
+            _titles_block = (
+                "\nTITLE ASSIGNMENT — mix of fixed and AI-chosen titles. Use exactly "
+                "these titles for the fixed candidates (each one used only once):\n"
+                f"{_filled_lines}\n"
+                f"For {_unfilled_str}: PICK A DIFFERENT, COMPLEMENTARY ROLE that "
+                f"{_co} would actually be hiring for{_industry_phrase} based on "
+                f"their actual operations and skill needs. The AI-chosen titles "
+                f"must be DISTINCT from each other and from the fixed titles "
+                f"above — never repeat. Examples of complementary roles for a "
+                f"construction firm: Project Manager, Estimator, Superintendent, "
+                f"Project Engineer, Safety Manager, Foreman. Use whatever roles "
+                f"genuinely match {_co}'s industry and skill set.\n\n"
+            )
+        else:
+            # No picks at all — AI invents every title, must vary them.
+            _titles_block = (
+                "\nTITLE ASSIGNMENT — no titles picked by the user. Choose "
+                f"{count} DIFFERENT, COMPLEMENTARY roles that {_co} would "
+                f"actually be hiring for{_industry_phrase}, based on their "
+                f"real operations and skill needs. Each candidate must have a "
+                f"DISTINCT role — NEVER use the same title twice in this set. "
+                f"Span the typical hiring needs for the company's actual "
+                f"industry rather than picking variations of one role.\n\n"
             )
 
         prompt = (
             f"Generate {count} anonymous candidate archetypes a recruiter could pitch "
             f"to {_co} for {_roles} in {_primary_loc}.\n\n"
+            f"CORE RULE — every candidate must MATCH {_co}'S EXACT INDUSTRY AND "
+            f"SKILL SET. Pull real industry-specific tools, software, "
+            f"certifications, and terminology that {_co}'s actual operations use. "
+            f"Generic admin/office candidates are a failure unless the company "
+            f"genuinely runs on admin/office work. Each candidate must hold a "
+            f"DIFFERENT role — never produce a set where multiple candidates "
+            f"share the same title (e.g. all 'Office Manager').\n\n"
             f"STEP 1: Use web search to identify 3-5 REAL direct competitor companies "
             f"of {_co}  -  same industry, similar clients, similar scale. "
-            f"DO NOT include {_co} itself.\n\n"
+            f"DO NOT include {_co} itself. Note their actual hiring patterns "
+            f"so the candidate roles you pick reflect real demand at {_co}.\n\n"
             f"STEP 2: For each candidate, you may optionally name-drop ONE real "
             f"competitor firm in the Experience bullet (e.g. 'most recently at "
             f"[Competitor]'). DO NOT anchor all years at one firm — spread tenure "
@@ -31408,19 +32371,23 @@ def _render_custom_pdf_modal(s: AppState, rf):
 # ── Target-a-Candidate Wizard ────────────────────────────────────────────────
 
 def p_target_candidate(s: AppState, rf):
-    """Target a Candidate guided wizard. 4 steps:
-    1. JD upload/paste
-    2. Candidate CSV upload
-    3. Sequence preset choice
-    4. AI generation + handoff to email editor
+    """Find Candidates guided wizard. 3 steps:
+    0. JD paste / upload (OPTIONAL — can skip)
+    1. Sequence preset choice (cadence)
+    2. AI generation + handoff to email editor
+
+    The user adds candidates to the campaign LATER via the email editor's
+    contacts step, not in this wizard. The legacy Step 2 "upload
+    candidates CSV" was removed 2026-05-12 per user direction — users
+    were sourcing candidates outside DripDrop and didn't want to also
+    re-format and upload a CSV.
 
     Each step uses an `_tc_render_step_*` helper. Wizard state lives
-    in s.tc_step (0..3) and the s.tc_* AppState slots."""
+    in s.tc_step (0..2) and the s.tc_* AppState slots."""
     with ui.element("div").style("max-width:920px;margin:0 auto;padding:24px;"):
         # Stepper UI
         steps_meta = [
-            {"label": "Job description"},
-            {"label": "Candidates"},
+            {"label": "Job description (optional)"},
             {"label": "Cadence"},
             {"label": "Generate"},
         ]
@@ -31429,7 +32396,7 @@ def p_target_candidate(s: AppState, rf):
             for i, meta in enumerate(steps_meta):
                 is_done = i < s.tc_step
                 is_current = i == s.tc_step
-                bg = C["teal"] if is_current else (C["good"] if is_done else "#E5E7EB")
+                bg = C["teal"] if is_current else (C["good"] if is_done else C["border"])
                 fg = "#fff" if (is_current or is_done) else C["muted"]
                 with ui.element("div").style(
                         "display:flex;align-items:center;gap:8px;"):
@@ -31440,96 +32407,148 @@ def p_target_candidate(s: AppState, rf):
                         f"{'&#10003;' if is_done else i+1}</div>"
                     )
                     ui.label(meta["label"]).style(
-                        f"font-size:12px;color:{C['ink'] if is_current else C['muted']};"
+                        f"font-size:12px;color:{C['text_l'] if is_current else C['muted']};"
                         f"font-weight:{600 if is_current else 400};")
                 if i < len(steps_meta) - 1:
                     ui.html(
-                        "<div style='flex:0 0 30px;height:1px;background:#E5E7EB;'></div>"
+                        f"<div style='flex:0 0 30px;height:1px;background:var(--dd-border);'></div>"
                     )
 
-        # Render current step
-        if s.tc_step == 0:
+        # Render current step. 3 steps now (was 4 — Candidates upload
+        # step removed 2026-05-12). Step 2 is the legacy index for
+        # Generate; old `tc_step == 3` saves get clamped on restore.
+        _ts = int(getattr(s, "tc_step", 0) or 0)
+        if _ts >= 3:
+            _ts = 2  # legacy: step 3 was Generate in the old 4-step flow
+            s.tc_step = _ts
+        if _ts == 0:
             _tc_render_step_jd(s, rf)
-        elif s.tc_step == 1:
-            _tc_render_step_candidates(s, rf)
-        elif s.tc_step == 2:
+        elif _ts == 1:
             _tc_render_step_preset(s, rf)
-        elif s.tc_step == 3:
+        else:
             _tc_render_step_generate(s, rf)
 
 
 def _tc_render_step_jd(s: AppState, rf):
-    """Step 1: JD upload/paste with AI parsing. Task 5."""
-    ui.label("Step 1 - Job description").style(
-        f"font-size:18px;font-weight:700;color:{C['ink']};margin-bottom:6px;")
-    ui.label("Upload the JD or paste the text. AI uses this to tailor "
-             "the candidate outreach.").style(
+    """Step 1: JD upload/paste with AI parsing — OPTIONAL.
+    Users can skip and proceed straight to cadence.
+
+    Cleaned 2026-05-16: choose-one cards (Upload | Paste) instead of
+    showing both inputs simultaneously. ``s.tc_jd_mode`` selects the
+    active input ("", "upload", or "paste") and defaults from existing
+    data on revisit."""
+    ui.label("Step 1 - Job description (optional)").style(
+        f"font-size:18px;font-weight:700;color:{C['text_l']};margin-bottom:6px;")
+    ui.label("Paste or upload a JD so AI can tailor the outreach. "
+             "No JD? Skip — AI will write a generic-but-solid sequence "
+             "you can edit afterward.").style(
         f"font-size:13px;color:{C['muted']};margin-bottom:18px;")
 
-    # Two input modes — upload OR paste, side-by-side
-    with ui.element("div").style("display:flex;gap:14px;margin-bottom:18px;"):
-        # Upload column
-        with ui.element("div").style(
-                f"flex:1;background:#fff;border:1px solid #E5E7EB;"
-                f"border-radius:8px;padding:18px;"):
-            ui.label("Upload (PDF or DOCX)").style(
-                f"font-size:13px;font-weight:700;color:{C['ink']};margin-bottom:8px;")
+    # Default mode from any prior data so revisits land on the right input.
+    if not getattr(s, "tc_jd_mode", ""):
+        if s.tc_jd_filename:
+            s.tc_jd_mode = "upload"
+        elif (s.tc_jd_text or "").strip():
+            s.tc_jd_mode = "paste"
+        else:
+            s.tc_jd_mode = ""
 
-            def _on_upload(e):
-                import tempfile, os as _os
+    def _set_mode(mode: str):
+        s.tc_jd_mode = mode
+        s.tc_error = ""
+        rf()
+
+    def _on_upload(e):
+        import tempfile, os as _os
+        try:
+            data = e.content.read() if hasattr(e.content, "read") else bytes(e.content)
+            fname = getattr(e, "name", None) or "jd.pdf"
+            ext = ("." + fname.rsplit(".", 1)[-1].lower()) if "." in fname else ".pdf"
+            s.tc_jd_filename = fname
+            s.tc_jd_generating = True
+            rf()
+            # _extract_resume_text takes a file path, not bytes — write to temp
+            fd, tmp_path = tempfile.mkstemp(suffix=ext, prefix="dd_jd_")
+            try:
+                with _os.fdopen(fd, "wb") as fh:
+                    fh.write(data)
+                extracted = _extract_resume_text(tmp_path)
+            finally:
                 try:
-                    data = e.content.read() if hasattr(e.content, "read") else bytes(e.content)
-                    fname = getattr(e, "name", None) or "jd.pdf"
-                    ext = ("." + fname.rsplit(".", 1)[-1].lower()) if "." in fname else ".pdf"
-                    s.tc_jd_filename = fname
-                    s.tc_jd_generating = True
-                    rf()
-                    # _extract_resume_text takes a file path, not bytes — write to temp
-                    fd, tmp_path = tempfile.mkstemp(suffix=ext, prefix="dd_jd_")
-                    try:
-                        with _os.fdopen(fd, "wb") as fh:
-                            fh.write(data)
-                        extracted = _extract_resume_text(tmp_path)
-                    finally:
-                        try:
-                            _os.unlink(tmp_path)
-                        except Exception:
-                            pass
-                    s.tc_jd_text = (extracted or "").strip()
-                    if s.tc_jd_text:
-                        s.tc_jd_parsed = _tc_parse_jd(s.tc_jd_text)
-                    s.tc_jd_generating = False
-                    rf()
-                except Exception as ex:
-                    s.tc_error = f"Upload failed: {ex}"
-                    s.tc_jd_generating = False
-                    rf()
+                    _os.unlink(tmp_path)
+                except Exception:
+                    pass
+            s.tc_jd_text = (extracted or "").strip()
+            if s.tc_jd_text:
+                s.tc_jd_parsed = _tc_parse_jd(s.tc_jd_text)
+            s.tc_jd_generating = False
+            rf()
+        except Exception as ex:
+            s.tc_error = f"Upload failed: {ex}"
+            s.tc_jd_generating = False
+            rf()
 
+    def _on_paste_change(e):
+        val = ""
+        if isinstance(e.args, str):
+            val = e.args
+        elif hasattr(e, "value"):
+            val = e.value or ""
+        s.tc_jd_text = val.strip()
+
+    if s.tc_jd_mode == "":
+        # Choice state — two equal-weight cards as buttons.
+        with ui.element("div").style(
+                "display:flex;gap:14px;margin-bottom:14px;"):
+            for _mode, _icon, _title, _sub in [
+                ("upload", "📄", "Upload a job description", "PDF or DOCX"),
+                ("paste", "📋", "Copy & paste a job description", "Paste the JD text"),
+            ]:
+                with ui.element("button").style(
+                        f"flex:1;background:{C['card']};border:1px solid {C['border']};"
+                        f"border-radius:10px;padding:24px 18px;cursor:pointer;"
+                        f"display:flex;flex-direction:column;align-items:center;"
+                        f"gap:6px;text-align:center;transition:all .15s ease;"
+                        ).on("click", lambda _e, m=_mode: _set_mode(m)):
+                    ui.html(f"<div style='font-size:30px;line-height:1;'>{_icon}</div>")
+                    ui.label(_title).style(
+                        f"font-size:14px;font-weight:700;color:{C['text_l']};"
+                        f"pointer-events:none;")
+                    ui.label(_sub).style(
+                        f"font-size:12px;color:{C['muted']};pointer-events:none;")
+
+    elif s.tc_jd_mode == "upload":
+        with ui.element("div").style(
+                f"background:{C['card']};border:1px solid {C['border']};"
+                f"border-radius:10px;padding:18px;margin-bottom:14px;"):
+            ui.label("📄  Upload a job description").style(
+                f"font-size:13px;font-weight:700;color:{C['text_l']};margin-bottom:10px;")
             ui.upload(on_upload=_on_upload, max_files=1,
                       auto_upload=True).props('accept=".pdf,.docx,.doc"')
             if s.tc_jd_filename:
                 ui.label(f"✓ {s.tc_jd_filename}").style(
                     f"font-size:11px;color:{C['good']};margin-top:6px;")
+            with ui.element("a").style(
+                    f"display:inline-block;margin-top:12px;font-size:12px;"
+                    f"color:{C['teal']};cursor:pointer;text-decoration:underline;"
+                    ).on("click", lambda _e: _set_mode("paste")):
+                ui.label("or copy & paste instead →").style("pointer-events:none;")
 
-        # Paste column
+    else:  # paste
         with ui.element("div").style(
-                f"flex:1;background:#fff;border:1px solid #E5E7EB;"
-                f"border-radius:8px;padding:18px;"):
-            ui.label("Or paste").style(
-                f"font-size:13px;font-weight:700;color:{C['ink']};margin-bottom:8px;")
+                f"background:{C['card']};border:1px solid {C['border']};"
+                f"border-radius:10px;padding:18px;margin-bottom:14px;"):
+            ui.label("📋  Paste a job description").style(
+                f"font-size:13px;font-weight:700;color:{C['text_l']};margin-bottom:10px;")
             _ta = ui.textarea(value=s.tc_jd_text,
                               placeholder="Paste the JD here...").props(
                 "rows=8 outlined dense").style("width:100%;")
-
-            def _on_paste_change(e):
-                val = ""
-                if isinstance(e.args, str):
-                    val = e.args
-                elif hasattr(e, "value"):
-                    val = e.value or ""
-                s.tc_jd_text = val.strip()
-
             _ta.on("update:model-value", _on_paste_change)
+            with ui.element("a").style(
+                    f"display:inline-block;margin-top:10px;font-size:12px;"
+                    f"color:{C['teal']};cursor:pointer;text-decoration:underline;"
+                    ).on("click", lambda _e: _set_mode("upload")):
+                ui.label("or upload a file instead →").style("pointer-events:none;")
 
     if s.tc_jd_generating:
         with ui.element("div").style(
@@ -31547,37 +32566,60 @@ def _tc_render_step_jd(s: AppState, rf):
                 f"font-size:13px;font-weight:600;color:{C['teal']};")
             if meta.get("key_skills"):
                 ui.label("Skills: " + ", ".join(meta["key_skills"][:6])).style(
-                    f"font-size:12px;color:{C['ink']};margin-top:4px;")
+                    f"font-size:12px;color:{C['text_l']};margin-top:4px;")
             if meta.get("comp_range"):
                 ui.label(f"Comp: {meta['comp_range']}").style(
-                    f"font-size:12px;color:{C['ink']};")
+                    f"font-size:12px;color:{C['text_l']};")
             if meta.get("location"):
                 ui.label(f"Location: {meta['location']}").style(
-                    f"font-size:12px;color:{C['ink']};")
+                    f"font-size:12px;color:{C['text_l']};")
 
     if s.tc_error:
         ui.label(s.tc_error).style(
-            f"font-size:12px;color:{C['bad']};margin-bottom:8px;")
+            f"font-size:12px;color:{C['danger']};margin-bottom:8px;")
 
-    # Continue button — gated on raw tc_jd_text (AI parse failure is non-fatal)
+    # Footer: Skip text link (left), Continue button (right, only when a JD
+    # is present). The generation step branches on tc_jd_text/tc_jd_parsed
+    # so Skip vs Continue both just advance to step 1.
+    _has_jd = bool((s.tc_jd_text or "").strip()) or bool(s.tc_jd_filename)
+
+    def _skip():
+        # Wipe any half-typed JD so generation doesn't pick up a
+        # one-line "asdf" by accident, then advance.
+        s.tc_jd_text = ""
+        s.tc_jd_filename = ""
+        s.tc_jd_parsed = {}
+        s.tc_jd_mode = ""
+        s.tc_error = ""
+        s.tc_step = 1
+        rf()
+
+    def _continue():
+        s.tc_error = ""
+        s.tc_step = 1
+        rf()
+
     with ui.element("div").style(
-            "display:flex;justify-content:flex-end;margin-top:20px;"):
-        def _continue():
-            if not (s.tc_jd_text or "").strip():
-                s.tc_error = "Upload or paste a JD before continuing."
-                rf()
-                return
-            s.tc_error = ""
-            s.tc_step = 1
-            rf()
-        with ui.element("button").classes("fd-pb").style(
-                "padding:10px 22px;font-size:13px;").on("click", _continue):
-            ui.label("Continue ->").style("pointer-events:none;")
+            "display:flex;justify-content:space-between;align-items:center;"
+            "margin-top:20px;gap:8px;"):
+        with ui.element("a").style(
+                f"font-size:13px;color:{C['muted']};cursor:pointer;"
+                f"text-decoration:underline;"
+                ).on("click", lambda _e: _skip()):
+            ui.label("Skip — I'll let AI write a generic sequence →").style(
+                "pointer-events:none;")
+        if _has_jd:
+            with ui.element("button").classes("fd-pb").style(
+                    "padding:10px 22px;font-size:13px;"
+                    ).on("click", lambda _e: _continue()):
+                ui.label("Continue with JD →").style("pointer-events:none;")
+        else:
+            ui.element("div").style("width:1px;")
 
 
 def _tc_render_step_candidates(s: AppState, rf):
     ui.label("Step 2 - Candidates").style(
-        f"font-size:18px;font-weight:700;color:{C['ink']};margin-bottom:6px;")
+        f"font-size:18px;font-weight:700;color:{C['text_l']};margin-bottom:6px;")
     ui.label("Upload a CSV of candidates to reach out to. Required columns: "
              "name, email. Optional: current_company, current_title, linkedin_url.").style(
         f"font-size:13px;color:{C['muted']};margin-bottom:18px;")
@@ -31621,16 +32663,16 @@ def _tc_render_step_candidates(s: AppState, rf):
 
     if s.tc_error:
         ui.label(s.tc_error).style(
-            f"font-size:12px;color:{C['bad']};margin-bottom:8px;")
+            f"font-size:12px;color:{C['danger']};margin-bottom:8px;")
 
     # Preview table (first 10 rows + count)
     if s.tc_candidates:
         ui.label(f"{len(s.tc_candidates)} candidates loaded").style(
-            f"font-size:13px;font-weight:600;color:{C['ink']};margin-bottom:8px;")
+            f"font-size:13px;font-weight:600;color:{C['text_l']};margin-bottom:8px;")
         with ui.element("table").style(
-                f"width:100%;border-collapse:collapse;background:#fff;"
-                f"border:1px solid #E5E7EB;border-radius:8px;overflow:hidden;"):
-            with ui.element("thead").style("background:#F9FAFB;"):
+                f"width:100%;border-collapse:collapse;background:{C['card']};"
+                f"border:1px solid {C['border']};border-radius:8px;overflow:hidden;"):
+            with ui.element("thead").style(f"background:{C['surface']};"):
                 with ui.element("tr"):
                     for col in ("Name", "Email", "Company", "Title", ""):
                         ui.html(
@@ -31646,7 +32688,7 @@ def _tc_render_step_candidates(s: AppState, rf):
                             val = (cand.get(field, "") or "").replace("<", "&lt;").replace(">", "&gt;")
                             ui.html(
                                 f"<td style='padding:8px 12px;font-size:12px;"
-                                f"color:{C['ink']};'>{val}</td>"
+                                f"color:{C['text_l']};'>{val}</td>"
                             )
                         def _remove(idx=i):
                             if 0 <= idx < len(s.tc_candidates):
@@ -31729,8 +32771,8 @@ TC_PRESETS = [
 
 
 def _tc_render_step_preset(s: AppState, rf):
-    ui.label("Step 3 - Cadence").style(
-        f"font-size:18px;font-weight:700;color:{C['ink']};margin-bottom:6px;")
+    ui.label("Step 2 - Cadence").style(
+        f"font-size:18px;font-weight:700;color:{C['text_l']};margin-bottom:6px;")
     ui.label("Pick the rhythm. You can review and adjust each email "
              "after generation.").style(
         f"font-size:13px;color:{C['muted']};margin-bottom:18px;")
@@ -31782,13 +32824,13 @@ def _tc_render_step_preset(s: AppState, rf):
             "display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px;"):
         for opt in _presets:
             is_sel = (s.tc_preset == opt["key"])
-            border_color = opt["border"] if is_sel else "#E5E7EB"
+            border_color = opt["border"] if is_sel else C["border"]
             border_width = "2px" if is_sel else "1px"
             def _pick(k=opt["key"]):
                 s.tc_preset = k
                 rf()
             with ui.element("div").style(
-                    f"background:#fff;border:{border_width} solid {border_color};"
+                    f"background:{C['card']};border:{border_width} solid {border_color};"
                     f"border-radius:10px;padding:16px 18px;cursor:pointer;"
                     f"transition:border-color 0.12s;"
                     ).on("click", _pick):
@@ -31803,19 +32845,21 @@ def _tc_render_step_preset(s: AppState, rf):
                     if is_sel:
                         ui.html(f"<span style='font-size:16px;color:{opt['border']};'>&#10003;</span>")
                 ui.label(opt["desc"]).style(
-                    f"font-size:12px;line-height:1.5;color:{C['ink']};margin-bottom:8px;")
+                    f"font-size:12px;line-height:1.5;color:{C['text_l']};margin-bottom:8px;")
                 ui.label(opt["best_for"]).style(
                     f"font-size:10px;color:{C['muted']};font-weight:500;")
 
     if s.tc_error:
         ui.label(s.tc_error).style(
-            f"font-size:12px;color:{C['bad']};margin-bottom:8px;")
+            f"font-size:12px;color:{C['danger']};margin-bottom:8px;")
 
-    # Back / Continue
+    # Back goes to Step 0 (JD), Continue advances to Step 2 (Generate).
+    # Step indices were renumbered 2026-05-12 — the old Candidates step
+    # was removed.
     with ui.element("div").style(
             "display:flex;justify-content:space-between;margin-top:6px;"):
         def _back():
-            s.tc_step = 1
+            s.tc_step = 0
             rf()
         with ui.element("button").classes("fd-gb").style(
                 "padding:10px 22px;font-size:13px;").on("click", _back):
@@ -31826,19 +32870,29 @@ def _tc_render_step_preset(s: AppState, rf):
                 rf()
                 return
             s.tc_error = ""
-            # 'custom' short-circuits to AICB Free Flow with JD pre-loaded
+            # 'custom' short-circuits to AICB Free Flow with JD pre-loaded.
+            # No candidate count anymore — user adds candidates later in the
+            # email editor.
             if s.tc_preset == "custom":
                 s._chooser_origin = ""
                 s.aicb_camp_type = "byos"
-                s.aicb_byos_desc = (
-                    f"Outreach to {len(s.tc_candidates)} candidates for the "
-                    f"role: {s.tc_jd_parsed.get('role_title', 'see JD below')}.\n\n"
-                    f"JD:\n{s.tc_jd_text[:2000]}"
-                )
+                _role = s.tc_jd_parsed.get("role_title", "")
+                if (s.tc_jd_text or "").strip():
+                    s.aicb_byos_desc = (
+                        f"Candidate outreach for the role: "
+                        f"{_role or 'see JD below'}.\n\n"
+                        f"JD:\n{s.tc_jd_text[:2000]}"
+                    )
+                else:
+                    s.aicb_byos_desc = (
+                        "Candidate outreach sequence — recruiter pitching "
+                        "an open role to passive candidates. No JD "
+                        "provided; write generic-but-warm sourcing copy."
+                    )
                 s.sp = "ai_campaign"
                 rf()
                 return
-            s.tc_step = 3
+            s.tc_step = 2
             rf()
         with ui.element("button").classes("fd-pb").style(
                 "padding:10px 22px;font-size:13px;").on("click", _continue):
@@ -31846,16 +32900,20 @@ def _tc_render_step_preset(s: AppState, rf):
 
 
 def _tc_render_step_generate(s: AppState, rf):
-    ui.label("Step 4 - Generate").style(
-        f"font-size:18px;font-weight:700;color:{C['ink']};margin-bottom:6px;")
-    ui.label("AI writes the sequence using your JD as context. After "
-             "generation you'll land in the email editor for review.").style(
+    ui.label("Step 3 - Generate").style(
+        f"font-size:18px;font-weight:700;color:{C['text_l']};margin-bottom:6px;")
+    ui.label("AI writes the sequence now. After generation you'll land "
+             "in the email editor where you can review the copy and add "
+             "the candidates you've sourced.").style(
         f"font-size:13px;color:{C['muted']};margin-bottom:18px;")
 
-    # Summary card
-    role = s.tc_jd_parsed.get("role_title", "(role from JD)")
+    # Summary card. Candidates count removed 2026-05-12 — users source
+    # candidates outside the wizard now and add them in the editor.
+    _has_jd = bool((s.tc_jd_text or "").strip())
+    role = s.tc_jd_parsed.get("role_title", "") or (
+        "(no JD — generic candidate outreach)" if not _has_jd
+        else "(role not parsed from JD)")
     seniority = s.tc_jd_parsed.get("seniority", "")
-    cand_n = len(s.tc_candidates)
     preset_labels = {
         "one_email": "1 email, sent at 9 AM",
         "two_emails_1day": "2 emails, 9 AM + 2 PM same day",
@@ -31867,15 +32925,18 @@ def _tc_render_step_generate(s: AppState, rf):
             f"background:{C['teal_dim']};border:1px solid {C['teal']}40;"
             f"border-radius:8px;padding:14px 18px;margin-bottom:18px;"):
         ui.label(f"Role: {role} {f'({seniority})' if seniority else ''}").style(
-            f"font-size:13px;font-weight:600;color:{C['ink']};")
-        ui.label(f"Candidates: {cand_n}").style(
-            f"font-size:13px;color:{C['ink']};margin-top:4px;")
+            f"font-size:13px;font-weight:600;color:{C['text_l']};")
         ui.label(f"Cadence: {preset_label}").style(
-            f"font-size:13px;color:{C['ink']};margin-top:4px;")
+            f"font-size:13px;color:{C['text_l']};margin-top:4px;")
+        if not _has_jd:
+            ui.label("JD: skipped — sequence will be generic. Edit each "
+                     "email after generation to tailor.").style(
+                f"font-size:11px;color:{C['muted']};margin-top:6px;"
+                f"font-style:italic;line-height:1.5;")
 
     if s.tc_error:
         ui.label(s.tc_error).style(
-            f"font-size:12px;color:{C['bad']};margin-bottom:8px;")
+            f"font-size:12px;color:{C['danger']};margin-bottom:8px;")
 
     if s.tc_generating:
         with ui.element("div").style(
@@ -31918,26 +32979,39 @@ def _tc_render_step_generate(s: AppState, rf):
                 else:
                     steps_meta = [{"delay_days": 0, "time": "9:00 AM"}]
 
-                role_title = s.tc_jd_parsed.get("role_title", "this role")
+                role_title = s.tc_jd_parsed.get("role_title", "") or "this role"
                 key_skills = ", ".join((s.tc_jd_parsed.get("key_skills") or [])[:5])
                 seniority = s.tc_jd_parsed.get("seniority", "")
                 comp = s.tc_jd_parsed.get("comp_range", "")
                 location = s.tc_jd_parsed.get("location", "")
+                _has_jd = bool((s.tc_jd_text or "").strip())
 
                 from anthropic import Anthropic
                 client = Anthropic(api_key=ANTHROPIC_API_KEY)
 
+                if _has_jd:
+                    _context_block = (
+                        f"ROLE CONTEXT:\n"
+                        f"- Title: {role_title}\n"
+                        f"- Seniority: {seniority}\n"
+                        f"- Key skills: {key_skills}\n"
+                        f"- Comp: {comp or 'not specified'}\n"
+                        f"- Location: {location or 'not specified'}\n\n"
+                        f"FULL JD (excerpt):\n{s.tc_jd_text[:1500]}\n\n"
+                    )
+                else:
+                    _context_block = (
+                        f"NO JD PROVIDED. Write generic-but-warm candidate "
+                        f"sourcing copy that the recruiter can personalize "
+                        f"in the editor afterward. Use neutral placeholders "
+                        f"like 'this role' / 'your background' so the copy "
+                        f"reads naturally even before edits.\n\n"
+                    )
                 prompt = (
                     f"Write {len(steps_meta)} candidate-outreach emails "
-                    f"for a recruiter pitching the role of {role_title} "
-                    f"({seniority}) to passive candidates.\n\n"
-                    f"ROLE CONTEXT:\n"
-                    f"- Title: {role_title}\n"
-                    f"- Seniority: {seniority}\n"
-                    f"- Key skills: {key_skills}\n"
-                    f"- Comp: {comp or 'not specified'}\n"
-                    f"- Location: {location or 'not specified'}\n\n"
-                    f"FULL JD (excerpt):\n{s.tc_jd_text[:1500]}\n\n"
+                    f"for a recruiter pitching {('the role of ' + role_title) if _has_jd else 'an open role'} "
+                    f"to passive candidates.\n\n"
+                    + _context_block +
                     f"CADENCE: {len(steps_meta)} emails over "
                     f"{1 + max((m['delay_days'] for m in steps_meta), default=0)} day(s).\n\n"
                     f"STRICT RULES:\n"
@@ -31975,28 +33049,14 @@ def _tc_render_step_generate(s: AppState, rf):
                         f"AI returned {len(emails)} emails, expected {len(steps_meta)}"
                     )
 
-                # Build the campaign dict
+                # Build the campaign dict. Empty contacts list — user
+                # adds the candidates they sourced in the email editor's
+                # contacts step (the Candidates wizard step was removed
+                # 2026-05-12 per user direction).
                 if role_title and role_title != "this role":
-                    camp_name = f"Target a Candidate - {role_title}"
+                    camp_name = f"Find Candidates - {role_title}"
                 else:
-                    camp_name = f"Target a Candidate - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
-                # Wire tc_candidates into the campaign's contacts list so
-                # queue_campaign_emails has actual recipients to send to.
-                # Without this the campaign would launch empty. Field
-                # mapping mirrors the contact normalizer in queue_campaign.
-                _contacts = []
-                for _cand in (s.tc_candidates or []):
-                    _name = (_cand.get("name") or "").strip()
-                    _first = _name.split()[0] if _name else ""
-                    _last = " ".join(_name.split()[1:]) if len(_name.split()) > 1 else ""
-                    _contacts.append({
-                        "email": (_cand.get("email") or "").strip(),
-                        "first_name": _first,
-                        "last_name": _last,
-                        "company": (_cand.get("current_company") or "").strip(),
-                        "title": (_cand.get("current_title") or "").strip(),
-                        "linkedin": (_cand.get("linkedin_url") or "").strip(),
-                    })
+                    camp_name = f"Find Candidates - {datetime.now().strftime('%Y-%m-%d %H:%M')}"
 
                 camp = {
                     "name": camp_name,
@@ -32004,17 +33064,15 @@ def _tc_render_step_generate(s: AppState, rf):
                     "_chooser_origin": "candidate",
                     "synopsis": (
                         f"Candidate outreach for {role_title}. "
-                        f"{len(s.tc_candidates)} candidates. "
-                        f"{preset_label}."
+                        f"{preset_label}. Add candidates in the editor."
                     ),
                     "emails": emails,
-                    "contacts": _contacts,
-                    "contact_count": len(_contacts),
+                    "contacts": [],
+                    "contact_count": 0,
                     "market_sector": s.tc_jd_parsed.get("seniority", ""),
                     "market_niche": role_title,
                     "market_region": location,
                     "tc_jd_parsed": s.tc_jd_parsed,
-                    "tc_candidates": s.tc_candidates,
                 }
                 save_campaign(camp)
                 # Load it as the active campaign and route to the email editor
@@ -32032,11 +33090,11 @@ def _tc_render_step_generate(s: AppState, rf):
 
         _run_as_user(s._user_email, _run, name="tc_generate_worker")
 
-    # Back / Generate
+    # Back goes to Step 1 (Cadence). Generate kicks off the AI run.
     with ui.element("div").style(
             "display:flex;justify-content:space-between;margin-top:6px;"):
         def _back():
-            s.tc_step = 2
+            s.tc_step = 1
             rf()
         with ui.element("button").classes("fd-gb").style(
                 "padding:10px 22px;font-size:13px;").on("click", _back):
@@ -33624,7 +34682,7 @@ def _render_pool_explainer(s, rf, compact: bool = False):
                 "gap:12px;margin-bottom:8px;flex-wrap:wrap;"):
             with ui.element("div").style("display:flex;align-items:center;gap:10px;"):
                 ui.label("🎯").style("font-size:18px;")
-                ui.label("What is the Candidate Pool?").style(
+                ui.label("What is the Candidate Job Finder?").style(
                     f"font-size:15px;font-weight:700;color:{C['text_l']};"
                     f"font-family:'Nunito',sans-serif;")
             if compact:
@@ -33639,11 +34697,12 @@ def _render_pool_explainer(s, rf, compact: bool = False):
                     ui.label("Hide" if _expanded else "Show me how it works")
 
         ui.label(
-            "Your Candidate Pool is a working roster of people you are actively trying to place. "
+            "Your Candidate Job Finder is a working roster of people you are actively trying to place. "
             "Add candidates as you work them, plug them into any sequence, newsletter spotlight, or "
-            "JD match run. Once a candidate is included in a launched sequence they're automatically "
-            "removed from the pool — DripDrop is not an ATS, and the pool stays small so you focus "
-            "on people you haven't reached yet."
+            "JD match run. Once a candidate is included in a launched sequence they stick around for "
+            "3 more days so you can re-pitch them to a different campaign without re-uploading. "
+            "After that they age out — DripDrop is not an ATS, the roster stays small so you focus on "
+            "people you haven't reached yet."
         ).style(
             f"font-size:12.5px;color:{C['muted']};line-height:1.55;margin-bottom:{'0' if compact and not _expanded else '14px'};")
 
@@ -33956,6 +35015,31 @@ def _p_candidate_pool_tab(s: AppState, rf, pool: list):
                                 f"font-weight:700;background:{_status_col}15;"
                                 f"color:{_status_col};text-transform:uppercase;"
                                 f"letter-spacing:.05em;white-space:nowrap;")
+                        # Shelf-life pill: candidates used in a launched
+                        # campaign linger 3 days, then auto-purge. Show
+                        # remaining days so users know what's about to drop.
+                        _used_at = cand.get("used_at", "")
+                        if _used_at:
+                            try:
+                                _u_dt = datetime.fromisoformat(_used_at)
+                                _age_days = (datetime.now() - _u_dt).total_seconds() / 86400
+                                _days_left = max(0, int(_CAND_USED_SHELF_DAYS - _age_days))
+                            except Exception:
+                                _days_left = _CAND_USED_SHELF_DAYS
+                            _used_camp = cand.get("used_in_campaign", "")
+                            _used_label = (
+                                f"Used \u00B7 {_days_left}d left"
+                                if _days_left > 0 else "Used \u00B7 expires today"
+                            )
+                            with ui.element("span").style(
+                                    f"font-size:8px;padding:2px 8px;border-radius:99px;"
+                                    f"font-weight:700;background:{C['warn']}18;"
+                                    f"color:{C['warn']};text-transform:uppercase;"
+                                    f"letter-spacing:.05em;white-space:nowrap;"
+                                    f"border:1px solid {C['warn']}40;"):
+                                ui.label(_used_label)
+                                if _used_camp:
+                                    ui.tooltip(f"Pitched in '{_used_camp}'")
                         ui.label("\u25BC" if _card_open else "\u25B6").style(
                             f"font-size:9px;color:{C['muted']};")
 
@@ -34260,6 +35344,26 @@ def p_candidate_finder(s: AppState, rf):
     # ══════════════════════════════════════════════════════════════════════
     #  TAB: QUICK SEARCH
     # ══════════════════════════════════════════════════════════════════════
+
+    # Back-to-pool control. Without this, clicking "+ Add New Candidate"
+    # from the pool stranded users in the Quick Search flow with no way
+    # back (user-reported 2026-05-11). Available from every step of the
+    # flow so users can bail at any point.
+    def _back_to_pool():
+        s.cf_tab = "pool"
+        s.cf_step = 0
+        # Reset the in-flight search inputs so re-entering the flow
+        # later starts clean, not on a stale half-filled form.
+        s.cf_resume_text = ""; s.cf_resume_filename = ""
+        s.cf_target_role = ""; s.cf_location = ""; s.cf_salary = ""
+        s.cf_candidate_name = ""; s._cf_pool_search_id = ""
+        s.cf_jobs = []; s.cf_summary = ""; s.cf_redacted_resume = ""
+        rf()
+    with ui.element("div").style("margin-bottom:14px;"):
+        with ui.element("button").classes("fd-gb").style(
+                "padding:7px 16px;font-size:12px;border-radius:99px;"
+                ).on("click", _back_to_pool):
+            ui.label("← Back to Candidate Job Finder")
 
     # ── Step 0: Input ──────────────────────────────────────────────────────
     if s.cf_step == 0:
@@ -36321,6 +37425,119 @@ def _email_img_src(b64_data: str, subdir: str, mime: str = "image/jpeg") -> str:
     return f"https://dripdripdrop.ai/email_img/{subdir}/{fname}"
 
 
+# ── Unsplash hero-image helpers (module-level) ────────────────────────────
+# These were previously nested inside `_render_newsletter_html`, which made
+# them invisible to other callers — the editor's "Refresh photos" button
+# raised `NameError: name '_unsplash_fetch_city_batch' is not defined` every
+# time it fired (caught in a background thread, so the user just saw nothing
+# happen + thumbnails go to "loading…" because the cache wipe completed but
+# the refetch died). Lifted to module scope 2026-05-17 so both the renderer
+# and the editor can fetch a fresh batch.
+def _unsplash_fetch_city_batch(city: str, state: str, slug: str, cache_dir,
+                                page: int = 1) -> bool:
+    """Fetch up to 12 Unsplash candidates for a city, save attribution
+    metadata at {slug}.unsplash.meta.json. Returns True on success.
+    Actual image bytes are downloaded lazily by _unsplash_download_variant."""
+    if not UNSPLASH_ACCESS_KEY:
+        return False
+    try:
+        import urllib.request, urllib.parse
+
+        def _search(q: str) -> list:
+            url = (
+                "https://api.unsplash.com/search/photos"
+                f"?query={urllib.parse.quote(q)}&per_page=12"
+                f"&page={max(1, int(page))}"
+                "&orientation=landscape&content_filter=high"
+            )
+            req = urllib.request.Request(url, headers={
+                "Accept-Version": "v1",
+                "Authorization": f"Client-ID {UNSPLASH_ACCESS_KEY}",
+                "User-Agent": "DripDrop-Newsletter/1.0",
+            })
+            with urllib.request.urlopen(req, timeout=8) as r:
+                return json.loads(r.read()).get("results", [])
+
+        q1 = f"{city} skyline" + (f" {state}" if state else "")
+        results = _search(q1)
+        if len(results) < 4:
+            results = _search(city + (f" {state}" if state else "")) or results
+        if not results:
+            return False
+
+        meta = {"variants": [], "_page": int(page)}
+        for r in results[:12]:
+            user = r.get("user", {}) or {}
+            meta["variants"].append({
+                "name": user.get("name", "") or "Unknown",
+                "profile_url": (user.get("links", {}) or {}).get("html", "https://unsplash.com"),
+                "photo_url": (r.get("urls", {}) or {}).get("regular", ""),
+                "download_location": (r.get("links", {}) or {}).get("download_location", ""),
+                "unsplash_url": (r.get("links", {}) or {}).get("html", "https://unsplash.com"),
+            })
+        (cache_dir / f"{slug}.unsplash.meta.json").write_text(
+            json.dumps(meta), encoding="utf-8")
+        return True
+    except Exception as e:
+        print(f"[Unsplash] batch fetch failed for {city}: {e}", flush=True)
+        return False
+
+
+def _unsplash_download_variant(slug: str, cache_dir, variant: int) -> bool:
+    """Download + crop the Nth Unsplash candidate on demand. Returns True
+    if the final cropped file exists after this call."""
+    meta_path = cache_dir / f"{slug}.unsplash.meta.json"
+    if not meta_path.exists():
+        return False
+    hero_path = cache_dir / f"{slug}.unsplash.{variant}.hero.jpg"
+    if hero_path.exists():
+        return True
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        variants = meta.get("variants", [])
+        if variant < 0 or variant >= len(variants):
+            return False
+        v = variants[variant]
+        photo_url = v.get("photo_url", "")
+        if not photo_url:
+            return False
+        import urllib.request
+        req = urllib.request.Request(photo_url, headers={
+            "User-Agent": "DripDrop-Newsletter/1.0"})
+        with urllib.request.urlopen(req, timeout=12) as fr:
+            raw_bytes = fr.read()
+        # Unsplash download-ping endpoint (per API ToS). Fire-and-forget.
+        try:
+            dl_loc = v.get("download_location", "")
+            if dl_loc and UNSPLASH_ACCESS_KEY:
+                ping = urllib.request.Request(dl_loc, headers={
+                    "Accept-Version": "v1",
+                    "Authorization": f"Client-ID {UNSPLASH_ACCESS_KEY}",
+                })
+                urllib.request.urlopen(ping, timeout=4).read()
+        except Exception:
+            pass
+        from PIL import Image
+        from io import BytesIO
+        with Image.open(BytesIO(raw_bytes)) as im:
+            im = im.convert("RGB")
+            tw, th = 640, 180
+            sw, sh = im.size
+            scale = max(tw / sw, th / sh)
+            nw, nh = int(sw * scale), int(sh * scale)
+            im = im.resize((nw, nh), Image.LANCZOS)
+            left = (nw - tw) // 2
+            top = (nh - th) // 2
+            im = im.crop((left, top, left + tw, top + th))
+            buf = BytesIO()
+            im.save(buf, format="JPEG", quality=82, optimize=True)
+            hero_path.write_bytes(buf.getvalue())
+        return True
+    except Exception as e:
+        print(f"[Unsplash] variant {variant} download failed: {e}", flush=True)
+        return False
+
+
 def _render_newsletter_html(data: dict, show: dict = None) -> str:
     """Render a complete HTML email newsletter from structured data."""
     if show is None:
@@ -36553,123 +37770,6 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             return base64.b64encode(cache_path.read_bytes()).decode()
         except Exception:
             return ""
-
-    def _unsplash_fetch_city_batch(city: str, state: str, slug: str, cache_dir) -> bool:
-        """Fetch up to 3 Unsplash candidates for a city, crop each to 640x180,
-        cache them at {slug}.unsplash.{i}.hero.jpg, and save attribution
-        metadata at {slug}.unsplash.meta.json. Returns True on success.
-
-        We issue ONE search API call and persist metadata for 3 candidates.
-        Downloads happen eagerly in the caller (_city_image_b64) so the user
-        can cycle through all 3 in the editor without "not cached yet"
-        fallbacks. (Earlier iterations cached 5 with lazy download — users
-        couldn't preview anything beyond variant 0 until auto-refresh ran.)
-        """
-        if not UNSPLASH_ACCESS_KEY:
-            return False
-        try:
-            import urllib.request, urllib.parse
-            # Query: "{city} skyline" first; fall back to "{city}" if too few
-            # results. Orientation=landscape matches our 640×180 crop.
-            def _search(q: str) -> list:
-                url = (
-                    "https://api.unsplash.com/search/photos"
-                    f"?query={urllib.parse.quote(q)}&per_page=3"
-                    "&orientation=landscape&content_filter=high"
-                )
-                req = urllib.request.Request(url, headers={
-                    "Accept-Version": "v1",
-                    "Authorization": f"Client-ID {UNSPLASH_ACCESS_KEY}",
-                    "User-Agent": "DripDrop-Newsletter/1.0",
-                })
-                with urllib.request.urlopen(req, timeout=8) as r:
-                    return json.loads(r.read()).get("results", [])
-
-            q1 = f"{city} skyline" + (f" {state}" if state else "")
-            results = _search(q1)
-            if len(results) < 2:
-                # Fall back to broader query if skyline search is thin
-                results = _search(city + (f" {state}" if state else "")) or results
-            if not results:
-                return False
-
-            # Persist attribution metadata so the render can surface a
-            # "Photo by {name} on Unsplash" credit line per Unsplash ToS.
-            meta = {"variants": []}
-            for r in results[:3]:
-                user = r.get("user", {}) or {}
-                meta["variants"].append({
-                    "name": user.get("name", "") or "Unknown",
-                    "profile_url": (user.get("links", {}) or {}).get("html", "https://unsplash.com"),
-                    "photo_url": (r.get("urls", {}) or {}).get("regular", ""),
-                    "download_location": (r.get("links", {}) or {}).get("download_location", ""),
-                    "unsplash_url": (r.get("links", {}) or {}).get("html", "https://unsplash.com"),
-                })
-            (cache_dir / f"{slug}.unsplash.meta.json").write_text(
-                json.dumps(meta), encoding="utf-8")
-            return True
-        except Exception as e:
-            print(f"[Unsplash] batch fetch failed for {city}: {e}", flush=True)
-            return False
-
-    def _unsplash_download_variant(slug: str, cache_dir, variant: int) -> bool:
-        """Download + crop the Nth Unsplash candidate on demand. Returns True
-        if the final cropped file exists after this call. Also hits the
-        Unsplash download_location endpoint (required by their API guidelines
-        whenever an image is actually used)."""
-        meta_path = cache_dir / f"{slug}.unsplash.meta.json"
-        if not meta_path.exists():
-            return False
-        hero_path = cache_dir / f"{slug}.unsplash.{variant}.hero.jpg"
-        if hero_path.exists():
-            return True
-        try:
-            meta = json.loads(meta_path.read_text(encoding="utf-8"))
-            variants = meta.get("variants", [])
-            if variant < 0 or variant >= len(variants):
-                return False
-            v = variants[variant]
-            photo_url = v.get("photo_url", "")
-            if not photo_url:
-                return False
-            import urllib.request
-            # Download the raw image
-            req = urllib.request.Request(photo_url, headers={
-                "User-Agent": "DripDrop-Newsletter/1.0"})
-            with urllib.request.urlopen(req, timeout=12) as fr:
-                raw_bytes = fr.read()
-            # Trigger the Unsplash download-ping endpoint (per API ToS).
-            # Fire-and-forget; don't fail the request if ping fails.
-            try:
-                dl_loc = v.get("download_location", "")
-                if dl_loc and UNSPLASH_ACCESS_KEY:
-                    ping = urllib.request.Request(dl_loc, headers={
-                        "Accept-Version": "v1",
-                        "Authorization": f"Client-ID {UNSPLASH_ACCESS_KEY}",
-                    })
-                    urllib.request.urlopen(ping, timeout=4).read()
-            except Exception:
-                pass
-            # Crop to 640×180 (same pipeline as Wikipedia path)
-            from PIL import Image
-            from io import BytesIO
-            with Image.open(BytesIO(raw_bytes)) as im:
-                im = im.convert("RGB")
-                tw, th = 640, 180
-                sw, sh = im.size
-                scale = max(tw / sw, th / sh)
-                nw, nh = int(sw * scale), int(sh * scale)
-                im = im.resize((nw, nh), Image.LANCZOS)
-                left = (nw - tw) // 2
-                top = (nh - th) // 2
-                im = im.crop((left, top, left + tw, top + th))
-                buf = BytesIO()
-                im.save(buf, format="JPEG", quality=82, optimize=True)
-                hero_path.write_bytes(buf.getvalue())
-            return True
-        except Exception as e:
-            print(f"[Unsplash] variant {variant} download failed: {e}", flush=True)
-            return False
 
     def _city_image_b64(city: str, state: str = "", variant: int = 0):
         """Fetch a hero image for the newsletter's city. Pre-crops to exactly
@@ -37217,15 +38317,24 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             continue
         _seen.add(_key)
         _deduped.append(_b)
-    _deduped = _deduped[:5]
+    _deduped = _deduped[:3]
 
     if _deduped and (_show("show_market_update") or _show("show_top_news")):
         _bg = _tint("market")
-        # Personalize the section label to the newsletter's region.
-        # "Denver, CO" → "Denver Update", "California" → "California Update",
-        # empty → "Market Update" (original behavior).
+        # Personalize the section label to the newsletter's region + industry,
+        # so the bullets read as scoped to *that* market:
+        #   "Denver, CO" + "construction" → "Denver Construction Update"
+        #   "Denver, CO" alone           → "Denver Update"
+        #   no location                  → "Market Update"
         _mu_loc = (data.get("location") or "").split(",")[0].strip()
-        _mu_label = f"{_mu_loc} Update" if _mu_loc else "Market Update"
+        _mu_ind_key = (data.get("industry") or "").strip().lower()
+        _mu_ind_label = (AICB_INDUSTRIES.get(_mu_ind_key, {}) or {}).get("label", "").strip()
+        if _mu_loc and _mu_ind_label:
+            _mu_label = f"{_mu_loc} {_mu_ind_label} Update"
+        elif _mu_loc:
+            _mu_label = f"{_mu_loc} Update"
+        else:
+            _mu_label = "Market Update"
         sections_html += f'''
         <tr><td style="padding:18px 40px;background:{_bg};">
           <div style="{_section_label}">{_label_with_icon(_mu_label)}</div>
@@ -37233,6 +38342,11 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
         </td></tr>'''
 
     # ── Around Town  -  2 relevant local articles ───────────────────────
+    # 2026-05-16: render order swapped — this block now BUILDS the HTML
+    # into `_around_town_html` and the actual append happens AFTER the
+    # Candidate Spotlights section below, so the city items sit under
+    # candidates (per redesign: candidates lead, city life supports).
+    _around_town_html = ""
     _around = data.get("around_town") or []
     _around = [b for b in _around if isinstance(b, dict)
                and (b.get("headline") or "").strip()
@@ -37318,7 +38432,7 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             for i, b in enumerate(_around)
         )
         _bg = _tint("around_town")
-        sections_html += f'''
+        _around_town_html = f'''
         <tr><td style="padding:18px 40px 14px;background:{_bg};">
           <div style="{_section_label}">{_label_with_icon(f"Around {_loc_short}")}</div>
           {_blurbs_html}
@@ -37456,26 +38570,69 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
                     + '</div>'
                 )
 
-            # Header label — the role/skill itself. Auto-mode sets `name` to
-            # the role ("Sr. Project Manager", "Superintendent", etc.); real
-            # mode leaves it as "Candidate A" which still reads correctly
-            # uppercased. Fall back to "Candidate X" only if name is missing.
-            _header_text = (_name or "").strip() or f"Candidate {_letter}"
-            # Loosen letter-spacing for longer role titles so they don't get
-            # crammed; keep the wider track only for short labels.
-            _ls = "1.8px" if len(_header_text) <= 14 else "1.0px"
-            # min-height reserves space for a 2-line header so short role
-            # titles ("Estimator") align with wrapping ones ("Construction
-            # Quality Assurance Manager") in the same row.
+            # 2026-05-12 (revised): three-line stack —
+            #   Line 1: "Candidate A"  → BOLD, primary navy (top header)
+            #   Line 2: title role     → bold, slightly smaller
+            #   Line 3: title tail     → italics, NOT bold (short summary)
+            # The AI populates the `title` field as "role + years + key
+            # cred" (e.g. "Senior CPM, 7 years, PMP-certified"). We split
+            # on the first comma to separate the role (bold) from the
+            # supporting summary (italic). If the AI returns no title or
+            # the `name` itself is the role string, fall back gracefully.
+            _header_label = (_name or "").strip()
+            if not _header_label or not re.match(
+                    r"^candidate\s+[a-z]$", _header_label, re.IGNORECASE):
+                # name is empty OR is itself a role string (some prompts
+                # write "Sr. Project Manager" into name). Use the letter
+                # as the canonical label.
+                _header_label = f"Candidate {_letter}"
+
+            # Pick the role+summary source: prefer the explicit `title`
+            # field; fall back to `name` if that's actually the role.
+            _role_src = (_title or "").strip()
+            if not _role_src:
+                _maybe_name = (_name or "").strip()
+                if _maybe_name and not re.match(
+                        r"^candidate\s+[a-z]$", _maybe_name, re.IGNORECASE):
+                    _role_src = _maybe_name
+
+            if _role_src and "," in _role_src:
+                _role_part, _summary_part = _role_src.split(",", 1)
+                _role_part = _role_part.strip()
+                _summary_part = _summary_part.strip()
+            else:
+                _role_part = _role_src
+                _summary_part = ""
+
+            _ls = "1.4px" if len(_header_label) <= 14 else "0.8px"
             _label_min_h = int(_chip_size * 1.2 * 2 + 2)
+            # Top: "Candidate A" — bold, uppercase, primary navy.
             _label_html = (
                 f'<div style="font-family:{_FONT};font-size:{_chip_size}px;'
                 f'font-weight:800;color:{nc["primary"]};'
                 f'text-transform:uppercase;letter-spacing:{_ls};'
-                f'line-height:1.2;min-height:{_label_min_h}px;">{_header_text}</div>'
+                f'line-height:1.2;min-height:{_label_min_h}px;">'
+                f'{_header_label}</div>'
             )
-            # No separate big-name row — the uppercase header already names
-            # the candidate by role, so a second name line would duplicate.
+            # Middle: role title — bold, normal case, slightly smaller.
+            if _role_part:
+                _label_html += (
+                    f'<div style="font-family:{_FONT};'
+                    f'font-size:{max(int(_chip_size * 0.85), 12)}px;'
+                    f'font-weight:700;color:{nc["text"]};'
+                    f'line-height:1.3;margin-top:4px;">'
+                    f'{_role_part}</div>'
+                )
+            # Bottom: summary tail — italics, regular weight, muted.
+            if _summary_part:
+                _label_html += (
+                    f'<div style="font-family:{_FONT};'
+                    f'font-size:{max(int(_chip_size * 0.7), 11)}px;'
+                    f'font-style:italic;font-weight:400;'
+                    f'color:{nc["muted"]};line-height:1.4;margin-top:2px;">'
+                    f'{_summary_part}</div>'
+                )
+            # No separate big-name row — the stack above is the headline.
             _name_block = ""
 
             # "I'm Interested" CTA button was removed — cards stay tight and
@@ -37514,16 +38671,12 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
                 f'height:{_content_h}px;vertical-align:top;">'
                 + _label_html
                 + _name_block
-                + (f'<div style="font-family:{_FONT};font-size:{_role_size}px;'
-                   f'color:{nc["muted"]};letter-spacing:0.3px;'
-                   f'line-height:1.4;margin-top:6px;'
-                   # Reserve only 2 lines, not 3 — 3 lines caused visible
-                   # white space below short role titles like "Estimator".
-                   f'min-height:{int(_role_size * 1.4 * 2)}px;'
-                   + (f'margin-bottom:0;' if _meta_html else
-                      f'margin-bottom:10px;padding-bottom:8px;border-bottom:1px solid {nc["hairline"]};')
-                   + f'">{_title}</div>'
-                   if _title else "")
+                # Old muted-title subline removed 2026-05-12 — the title
+                # is now the primary headline above (`_label_html`), and
+                # rendering it again here was creating a duplicate.
+                # A small spacer keeps the meta row's top edge from
+                # crashing into the italic "Candidate X" line.
+                + f'<div style="height:8px;line-height:0;font-size:0;">&nbsp;</div>'
                 + _meta_html
                 + _bullets_html
                 + f'</td></tr>'
@@ -37564,6 +38717,11 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             {_rows_html}
           </table>
         </td></tr>'''
+
+    # Deferred append: Around Town renders HERE (after Spotlights) so the
+    # local city items support the candidate cards rather than competing
+    # with them at the top of the issue.
+    sections_html += _around_town_html
 
     # ── "Meet Your Hiring Partner" section ─────────────────────────────────────
     # Personal update from the sender. Vertically stacked and horizontally
@@ -37638,45 +38796,25 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
     # Pre-CTA three-question block removed  -  the personal "From [Name]"
     # note above the CTA now carries the conversation hook on its own.
 
-    # ── CTA Button  -  oversized editorial pill, gradient + glow ──────────
+    # ── CTA: soft text-link only ──────────────────────────────────────────
+    # The pill button was dropped 2026-05-11 because it consistently failed
+    # to render in Outlook desktop (Word engine stripped the <td bgcolor>
+    # gradient, leaving white text on a white page = invisible button).
+    # The personal "Meet Your Hiring Partner" note above already carries
+    # the conversational hook; this single text line gives a subtle
+    # call-to-action without depending on any styled element. "Email me"
+    # is hyperlinked to the booking URL (or mailto:contact_email when
+    # none is configured).
     cta_text = data.get("cta_text", "")
     _default_cta = f"mailto:{contact_email}" if contact_email else (f"https://{website}" if website else "#")
     cta_url = data.get("cta_url", "") or _default_cta
-    if cta_text and _show("show_cta"):
-        # Bulletproof table-based CTA button. Replaces the earlier
-        # dual-branch conditional-comment trick (separate VML rendering
-        # for Outlook + modern <a> link for everyone else) — Gmail
-        # was unreliably hiding the MSO branch and users saw TWO
-        # buttons side-by-side. This single table renders the SAME
-        # in Gmail, Outlook 2016+, Apple Mail, Yahoo. Old Outlook
-        # 2007/2010 won't show the gradient (just solid bgcolor) or
-        # border-radius (square button) — acceptable trade for
-        # eliminating the duplicate-button bug.
+    if _show("show_cta"):
         sections_html += f'''
         <tr><td style="padding:14px 40px 40px;text-align:center;background:#FFFFFF;">
-          <table role="presentation" cellspacing="0" cellpadding="0" border="0" align="center"
-                 style="border-collapse:separate;margin:0 auto;">
-            <tr>
-              <td align="center" bgcolor="{nc["primary"]}"
-                  style="border-radius:999px;
-                         background-color:{nc["primary"]};
-                         background:linear-gradient(135deg,{nc["primary"]} 0%,#1E4E8C 100%);
-                         box-shadow:0 8px 24px rgba(43,108,176,0.38),0 2px 6px rgba(18,35,58,0.10);">
-                <a href="{cta_url}" target="_blank"
-                   style="display:inline-block;padding:18px 48px;
-                          color:#FFFFFF;font-size:18px;font-weight:400;
-                          text-decoration:none;border-radius:999px;
-                          font-family:{_DISPLAY_FONT};letter-spacing:0.4px;
-                          mso-padding-alt:0;
-                          border:1px solid rgba(255,255,255,0.18);">
-                  <span style="font-family:{_DISPLAY_FONT};font-style:italic;color:#FFFFFF;">{cta_text}</span>
-                  <span style="font-family:{_FONT};margin-left:8px;font-weight:500;color:#FFFFFF;">&rarr;</span>
-                </a>
-              </td>
-            </tr>
-          </table>
-          <div style="font-size:11px;color:{nc["muted"]};margin-top:10px;font-family:{_FONT};letter-spacing:0.4px;">
-            Reply to this email or book time with us.
+          <div style="font-size:13px;color:{nc["muted"]};font-family:{_FONT};letter-spacing:0.3px;">
+            Would you like to learn more about a candidate or just chat?
+            <a href="{cta_url}" target="_blank"
+               style="color:{nc["primary"]};text-decoration:underline;font-weight:600;">Email me</a>.
           </div>
         </td></tr>'''
 
@@ -38165,6 +39303,186 @@ def _splice_corner_into_body(body_html: str, new_inner: str) -> str:
     )
 
 
+# ── Spotlight role guidance ───────────────────────────────────────────────
+# Sector → list of manager-level-and-above roles that share a hiring
+# profile with the sector. Used to steer the AI's candidate spotlight
+# picks toward roles Arena Direct Hire actually places. Keys MUST match
+# the keys in AICB_INDUSTRIES.
+#
+# At least one entry per list is intentionally tech-flavored so the
+# prompt's "include 1 tech role per issue" rule has a target to draw
+# from.
+#
+# Spec: docs/superpowers/specs/2026-05-20-newsletter-spotlight-adjacent-roles-design.md
+_SPOTLIGHT_ADJACENT_ROLES = {
+    "construction": [
+        "Project Manager", "Superintendent", "Senior Estimator",
+        "Project Engineer", "Operations Manager",
+        "Preconstruction Director", "Safety Director",
+        "Construction Tech Manager",
+    ],
+    "architecture": [
+        "Project Architect", "BIM Manager", "Studio Lead",
+        "Senior Designer", "Project Manager", "Senior Estimator",
+        "Design Director", "Digital Design Lead",
+    ],
+    "engineering": [
+        "Senior Engineer", "Engineering Manager", "Project Manager",
+        "Lead Designer", "Principal Engineer", "Department Head",
+        "CAD/BIM Manager",
+    ],
+    "manufacturing": [
+        "Plant Manager", "Production Manager", "Operations Manager",
+        "Quality Manager", "Engineering Manager", "Maintenance Manager",
+        "Senior Manufacturing Engineer", "Manufacturing Systems Manager",
+    ],
+    "accounting": [
+        "Controller", "Audit Manager", "Tax Manager", "FP&A Manager",
+        "Senior Accountant", "Treasurer",
+        "ERP/Finance Systems Manager",
+    ],
+    "technology": [
+        "Engineering Manager", "Senior Software Engineer",
+        "Director of Engineering", "Tech Lead", "Product Manager",
+        "Solutions Architect", "VP Engineering",
+    ],
+    "healthcare": [
+        "Practice Manager", "Clinical Manager", "Department Director",
+        "Director of Nursing", "Physician Recruiter Manager",
+        "Operations Manager", "Healthcare IT Director",
+    ],
+    "finance_services": [
+        "Branch Manager", "Wealth Manager", "Portfolio Manager",
+        "Senior Analyst", "Director of Investments", "VP Operations",
+        "Fintech Solutions Manager",
+    ],
+    "real_estate": [
+        "Property Manager", "Director of Development", "Asset Manager",
+        "Acquisitions Manager", "VP of Real Estate", "Portfolio Manager",
+        "Real Estate Technology Manager",
+    ],
+    "legal": [
+        "Managing Partner", "Senior Associate", "Practice Group Leader",
+        "Director of Legal Operations", "General Counsel",
+        "Compliance Manager", "Legal Technology Director",
+    ],
+    "energy": [
+        "Plant Manager", "Operations Manager", "Senior Project Manager",
+        "Director of Engineering", "VP of Operations",
+        "Renewables Director", "Energy Systems Manager",
+    ],
+    "logistics": [
+        "Distribution Center Manager", "Supply Chain Manager",
+        "Director of Logistics", "VP of Operations",
+        "Senior Procurement Manager", "Fleet Manager",
+        "Supply Chain Technology Manager",
+    ],
+    "insurance": [
+        "Underwriting Manager", "Claims Director", "Branch Manager",
+        "VP of Operations", "Senior Actuary", "Compliance Manager",
+        "InsurTech Solutions Manager",
+    ],
+    "human_resources": [
+        "HR Director", "VP of Human Resources", "Talent Acquisition Manager",
+        "Compensation Manager", "Senior HR Business Partner",
+        "Director of Learning and Development",
+        "HRIS / HR Technology Manager",
+    ],
+    "marketing": [
+        "Marketing Director", "VP of Marketing", "Brand Manager",
+        "Senior Product Marketing Manager", "Director of Demand Generation",
+        "Creative Director", "Marketing Analytics Manager",
+    ],
+    "sales": [
+        "VP of Sales", "Sales Director", "Regional Sales Manager",
+        "Director of Business Development", "Senior Account Executive",
+        "Sales Operations Manager", "Revenue Technology Manager",
+    ],
+    "government": [
+        "Program Manager", "Division Director", "Deputy Director",
+        "Chief of Staff", "Senior Policy Advisor", "Contracting Officer",
+        "Government IT Manager",
+    ],
+    "life_sciences": [
+        "Regulatory Affairs Manager", "Clinical Operations Manager",
+        "Director of Quality Assurance", "VP of Clinical Development",
+        "Medical Affairs Director", "Senior Research Scientist",
+        "Bioinformatics Manager",
+    ],
+    "hospitality": [
+        "General Manager", "Director of Operations", "F&B Director",
+        "Hotel Revenue Manager", "VP of Hospitality",
+        "Senior Event Manager", "Hospitality Technology Manager",
+    ],
+    "retail": [
+        "Store Director", "Regional Manager", "VP of Merchandising",
+        "Director of E-Commerce", "Retail Operations Manager",
+        "Category Manager", "Retail Technology Manager",
+    ],
+    "private_equity": [
+        "Managing Director", "Principal", "VP of Investments",
+        "Portfolio Operations Manager", "Director of Finance",
+        "Senior Associate", "PE Technology & Analytics Manager",
+    ],
+    "education": [
+        "Principal", "Dean", "Director of Curriculum",
+        "VP of Academic Affairs", "Superintendent",
+        "Director of Admissions", "Education Technology Director",
+    ],
+    "agriculture": [
+        "Farm Manager", "AgTech Director", "Director of Operations",
+        "VP of Supply Chain", "Senior Agronomist",
+        "Commodity Trading Manager", "Agricultural Technology Manager",
+    ],
+    "media": [
+        "Executive Producer", "Director of Content", "VP of Programming",
+        "Senior Creative Director", "Head of Production",
+        "Director of Digital Strategy", "Media Technology Manager",
+    ],
+    "telecom": [
+        "Network Operations Manager", "Director of Engineering",
+        "VP of Infrastructure", "Senior Program Manager",
+        "Director of Product Management", "Solutions Architect",
+        "Telecom Technology Manager",
+    ],
+    "environmental": [
+        "Environmental Manager", "Director of Sustainability",
+        "Senior Project Manager", "VP of Operations",
+        "Remediation Manager", "Director of Environmental Compliance",
+        "Environmental Technology Manager",
+    ],
+    "automotive": [
+        "Plant Manager", "Director of Engineering", "VP of Operations",
+        "Quality Manager", "Senior Program Manager",
+        "Supply Chain Director", "Automotive Technology Manager",
+    ],
+}
+
+# Generic manager+ fallback for sectors not yet in the map above.
+# Intentionally bland so it's obvious in the AI output that a sector
+# entry needs to be added.
+_SPOTLIGHT_GENERIC_ADJACENCY = [
+    "Director", "VP", "General Manager", "Operations Manager",
+    "Senior Manager",
+]
+
+
+def _spotlight_prompt_block(sector: str, n: int,
+                            target_roles: list) -> tuple:
+    """Return (instruction_text, schema_text) for the spotlight section
+    of the newsletter generation prompt. Returns ('', '') when n is 0.
+
+    Pure function — no I/O, no AI calls — so the unit tests can hit it
+    directly without mocking Anthropic.
+
+    Spec: docs/superpowers/specs/2026-05-20-newsletter-spotlight-adjacent-roles-design.md
+    """
+    if not n or n <= 0:
+        return ("", "")
+    # Stub — real body comes in Task 2.
+    raise NotImplementedError("filled in next task")
+
+
 def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
     """Standalone newsletter content generator  -  no UI coupling.
     Used by both the manual Refresh flow and the auto-refresh scheduler.
@@ -38283,7 +39601,9 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         f'- around_town: exactly 3 blurbs about the CITY (not the industry). '
         f'  MIX the content: one industry-adjacent item PLUS at least one fun/'
         f'  cultural item (new restaurant, park, sports story, event). 2 short sentences each.\n'
-        f'- market_update: 3-5 bullets, each one sentence\n'
+        f'- market_update: EXACTLY 3 bullets, each one sentence, '
+        f'specifically about the {(niche or sector).strip()} market in {region} '
+        f'(comp moves, talent supply, what offers are winning  -  no generic news).\n'
         f'Be specific  -  name real companies, projects, places, salary ranges. '
         f'Use web search for current data.'
         + _spot_instruction +
@@ -38306,7 +39626,7 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         f'    {{"category":"...","headline":"...","blurb":"...","link":"..."}},\n'
         f'    {{"category":"...","headline":"...","blurb":"...","link":"..."}}\n'
         f'  ],\n'
-        f'  "market_update": "3-5 bullet points on comp, talent supply, what offers are winning. NOT paragraphs.",\n'
+        f'  "market_update": "EXACTLY 3 bullet points on comp, talent supply, what offers are winning  -  niche-specific, NOT paragraphs.",\n'
         f'  "personal_corner_note": "2-3 first-person sentences (~25-50 words) reflecting on the month in the sender\'s voice. NO greeting, NO sign-off, NO link, NO CTA. Just a short reflection.",\n'
         + _spot_schema_block +
         f'  "top_news": ["2-3 ONE-SENTENCE headlines"]\n'
@@ -38356,8 +39676,8 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
     nl_data = {
         "company": company,
         "newsletter_name": nl_name,
-        "tagline": (f"Market Pulse & City Life\n"
-                    f"{_industry_lbl.title()} Intelligence for {region}") if _industry_lbl and region else "",
+        "tagline": (f"Market Pulse & Top {_industry_lbl.title()} Candidates"
+                    if _industry_lbl else ""),
         "location": region,
         "website": website,
         "date": month_year,
@@ -38381,8 +39701,21 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         "personal_corner_caption": "",
         "personal_corner_photo_b64": "",
     }
+    # City Life toggle: defaults to True for legacy campaigns that
+    # predate the field. Off only when the user explicitly unchecked
+    # "Include City Life section" in the create dialog.
+    _show_city_life = bool(camp.get("newsletter_show_city_life", True))
+    _show_map = {
+        "show_intro":         True,
+        "show_jolts":         True,
+        "show_market_update": True,
+        "show_top_news":      True,
+        "show_spotlight":     True,
+        "show_around_town":   _show_city_life,
+        "show_cta":           True,
+    }
     try:
-        body_html = _render_newsletter_html(nl_data)
+        body_html = _render_newsletter_html(nl_data, show=_show_map)
     except Exception as e:
         print(f"[NewsletterAutoRefresh] Render failed: {e}", flush=True)
         return (None, None)
@@ -38417,7 +39750,7 @@ def _first_contact_company(camp: dict) -> str:
     return ""
 
 
-_CALL_BRIEFING_SCHEMA_VERSION = 3
+_CALL_BRIEFING_SCHEMA_VERSION = 5  # bumped 2026-05-12: voicemails use plain {phone} (rolled back spelled-out repeat)
 
 
 def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False) -> dict | None:
@@ -38597,12 +39930,19 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
         f"{_jobs_ctx}\n\n"
         f"{_news_ctx}\n\n"
         f"Produce JSON with FOUR keys:\n\n"
-        f"1) candidates: 2-4 anonymized candidate spotlights the recruiter "
-        f"can reference. If the email body explicitly mentions candidates, "
-        f"extract those. Otherwise, infer realistic candidates that match "
-        f"the {sector}/{niche} pitch. Each candidate has 'label' "
-        f"(role + years + 1 cred) and 'highlight' (1 short sentence). "
-        f"Use {region} comp ranges. NEVER use real names.\n\n"
+        f"1) candidates: anonymized candidate spotlights the recruiter "
+        f"can reference. CRITICAL — match the count to what's referenced "
+        f"in the email body. If the email mentions 'six profiles' / "
+        f"'5 candidates' / 'three PMs' (or labels like 'Candidate A, B, "
+        f"C, D, E, F'), produce EXACTLY that many spotlights, in order, "
+        f"so the recruiter can say \"I'm interested in Candidate C\" "
+        f"and look up the right one. Cap at 8. If the email doesn't "
+        f"reference any candidates, generate 3 representative ones. "
+        f"Each candidate's 'label' MUST start with 'Candidate A:' / "
+        f"'Candidate B:' / etc. in order, followed by role + years + "
+        f"1 cred (e.g. 'Candidate A: Sr. PM, 12 yrs healthcare construction'). "
+        f"'highlight' is 1 short sentence. Use {region} comp ranges. "
+        f"NEVER use real names.\n\n"
         f"2) talking_points: 3-5 short, punchy bullets the recruiter can "
         f"weave into the call. Each is one sentence. Tie at least one "
         f"to the open jobs / news above when present.\n\n"
@@ -38684,12 +40024,20 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
         f"You are writing 3 cold-call openers for a recruiter calling "
         f"{company} about {sector or niche or 'their hiring needs'}.\n\n"
         f"CONTEXT:\n{variant_context}\n"
-        f"WRITE EXACTLY 3 OPENERS, each in a distinct style:\n\n"
+        f"EMAIL ALREADY SENT (the recruiter just emailed this person):\n"
+        f"- Subject: {sample_subject}\n"
+        f"- Body excerpt: {sample_body}\n\n"
+        f"WRITE EXACTLY 3 OPENERS. The HARDEST part of any cold call is "
+        f"the opening line — give the user 3 options to test against "
+        f"each other. ALL THREE must be tied to the same context as the "
+        f"email above (same company, same sector, same project hooks); "
+        f"variants 2 and 3 are alternative angles on the same call.\n\n"
         f"VARIANT 1 — Project-Anchored Direct\n"
         f"  Self-aware honesty (acknowledge it's a cold call but a "
         f"researched one). Anchor on a specific project / open role / "
-        f"news item. Two questions ending in 'who's owning the hiring, "
-        f"and is it you?'\n\n"
+        f"news item — IDEALLY the same hook the email above used so the "
+        f"prospect feels continuity. Two questions ending in something "
+        f"like 'who's owning the hiring, and is it you?'\n\n"
         f"VARIANT 2 — Market-Data Contrarian\n"
         f"  Lead with a market data point (use the fill_window_days "
         f"stat above if available; if NOT available, use a structural "
@@ -38744,6 +40092,65 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
             "close": "",
         }
 
+    # ── Step 4: Generate 3 voicemail variants in Leigh's pitch DNA ──
+    # Same trial-options approach as the live-call openers: give the user
+    # 3 styles so they can A/B which voice connects in their market.
+    # Added 2026-05-12 per Leigh's feedback ("would be cool to do Live
+    # Call AND Voicemail and have a few different versions").
+    voicemail_variants: list = []
+    vm_prompt = (
+        f"You are writing 3 cold-call VOICEMAIL scripts for a recruiter "
+        f"calling {company} about {sector or niche or 'their hiring needs'}. "
+        f"These fire when no one picks up.\n\n"
+        f"CONTEXT:\n{variant_context}\n"
+        f"WRITE EXACTLY 3 VOICEMAILS, each in a distinct style:\n\n"
+        f"VARIANT 1 — Project-Anchored\n"
+        f"  Reference a specific project / open role at the company so "
+        f"the prospect knows the recruiter did real homework. Ends with "
+        f"the recruiter's phone number. ~25 seconds spoken.\n\n"
+        f"VARIANT 2 — Market-Insight\n"
+        f"  Lead with a market data point (fill_window_days stat above "
+        f"when available; otherwise a structural observation about "
+        f"passive talent in the sector). Tie it to the company's "
+        f"hiring profile. Ends with the recruiter's phone number. "
+        f"~25 seconds spoken.\n\n"
+        f"VARIANT 3 — Brief & Direct\n"
+        f"  Under 20 seconds. Direct: 'we run direct hire searches in "
+        f"[sector], your hiring profile lines up — worth a 15-min call.' "
+        f"Ends with the recruiter's phone number.\n\n"
+        f"PHONE NUMBER — end with a short call-back line that uses the "
+        f"placeholder {{phone}} once (e.g. 'Reach me at {{phone}}.'). "
+        f"The UI substitutes the recruiter's actual number at display "
+        f"time. Do NOT spell digits out, do NOT repeat the number, "
+        f"do NOT add hyphens between every word.\n\n"
+        f"STRICT RULES:\n"
+        f"- Each variant under 70 words.\n"
+        f"- Sound natural when spoken aloud. No corporate jargon.\n"
+        f"- Use placeholders {{recruiter_name}} and {{firm_name}}; "
+        f"address the prospect with {{first_name}}.\n"
+        f"- Do NOT fabricate market stats. If no stat available, drop it.\n"
+        f"- Do NOT use emoji, markdown, or numbered lists.\n\n"
+        f"Return ONLY valid JSON:\n"
+        f'{{"variants":['
+        f'{{"style":"vm_project_anchored","label":"Project-Anchored","script":"..."}},'
+        f'{{"style":"vm_market_insight","label":"Market-Insight","script":"..."}},'
+        f'{{"style":"vm_brief_direct","label":"Brief & Direct","script":"..."}}'
+        f']}}'
+    )
+    try:
+        vm_msg = _claude_create_with_retry(client,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1200,
+            messages=[{"role": "user", "content": vm_prompt}])
+        vm_text = "".join(b.text for b in vm_msg.content if hasattr(b, "text"))
+        vm_match = re.search(r'\{[\s\S]*\}', vm_text)
+        if vm_match:
+            vm_parsed = json.loads(vm_match.group(0))
+            voicemail_variants = vm_parsed.get("variants") or []
+    except Exception as ex:
+        print(f"[CallBriefing] voicemail variants failed: {ex}", flush=True)
+        voicemail_variants = []
+
     if not (open_jobs or news or candidates or talking_points or conversation_flow):
         return None
 
@@ -38756,6 +40163,7 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
         "talking_points": talking_points,
         "conversation_flow": conversation_flow,
         "variants": variants,
+        "voicemail_variants": voicemail_variants,
     }
     camp["call_briefing"] = briefing
     try:
@@ -38866,6 +40274,49 @@ def _generate_li_message_for_campaign(camp: dict) -> str | None:
     return out
 
 
+def _gen_one_issue_for_campaign(camp_name: str, idx: int) -> bool:
+    """Generate AI content for a single step of the named newsletter
+    campaign. Returns True if content was successfully written (or was
+    already present), False otherwise.
+
+    Used by the post-create background thread to populate the first issue
+    promptly (so the "Generating…" banner can flip to success after ~25s),
+    and reused by `_gen_all_issues_for_campaign` for the remaining months.
+    """
+    fresh = next((c for c in load_campaigns() if c.get("name") == camp_name), None)
+    if not fresh or not fresh.get("emails"):
+        print(f"[NewsletterAutoOne] campaign not found: {camp_name}", flush=True)
+        return False
+    steps = fresh.get("emails", []) or []
+    if idx < 0 or idx >= len(steps):
+        return False
+    st = steps[idx]
+    if (st.get("body") or "").strip() and "[AI:" not in (st.get("body") or ""):
+        return True  # already populated
+    try:
+        subj, body = _generate_newsletter_content_for_step(fresh, idx)
+    except Exception as ex:
+        print(f"[NewsletterAutoOne] step {idx} error for {camp_name}: {ex}",
+              flush=True)
+        return False
+    if not subj or not body:
+        print(f"[NewsletterAutoOne] step {idx} returned empty for {camp_name}",
+              flush=True)
+        return False
+    steps[idx]["subject"] = subj
+    steps[idx]["body"] = body
+    _stashed = _pop_last_generated_corner(
+        fresh.get("_owner_email", "")
+        or _email_from_user_path(fresh.get("_path", "")) or "",
+        camp_name, idx)
+    if _stashed:
+        steps[idx]["personal_corner_mode"] = _stashed.get("mode", "")
+        steps[idx]["personal_corner_note"] = _stashed.get("note", "")
+    save_campaign(fresh)
+    print(f"[NewsletterAutoOne] step {idx} ready for {camp_name}", flush=True)
+    return True
+
+
 def _gen_all_issues_for_campaign(camp_name: str) -> None:
     """Generate AI content for every step of the named newsletter campaign.
 
@@ -38881,30 +40332,7 @@ def _gen_all_issues_for_campaign(camp_name: str) -> None:
         return
     steps = fresh.get("emails", []) or []
     for idx in range(len(steps)):
-        st = steps[idx]
-        if (st.get("body") or "").strip() and "[AI:" not in (st.get("body") or ""):
-            continue
-        try:
-            subj, body = _generate_newsletter_content_for_step(fresh, idx)
-        except Exception as ex:
-            print(f"[NewsletterAutoAll] step {idx} error for {camp_name}: {ex}",
-                  flush=True)
-            continue
-        if not subj or not body:
-            print(f"[NewsletterAutoAll] step {idx} returned empty for {camp_name}",
-                  flush=True)
-            continue
-        steps[idx]["subject"] = subj
-        steps[idx]["body"] = body
-        _stashed = _pop_last_generated_corner(
-            fresh.get("_owner_email", "")
-            or _email_from_user_path(fresh.get("_path", "")) or "",
-            camp_name, idx)
-        if _stashed:
-            steps[idx]["personal_corner_mode"] = _stashed.get("mode", "")
-            steps[idx]["personal_corner_note"] = _stashed.get("note", "")
-        save_campaign(fresh)
-        print(f"[NewsletterAutoAll] step {idx} ready for {camp_name}", flush=True)
+        _gen_one_issue_for_campaign(camp_name, idx)
         _time.sleep(3)
     try:
         _cache_campaigns.invalidate()
@@ -39958,6 +41386,14 @@ def p_newsletter(s: AppState, rf):
                 ui.label("Tagline").classes("fd-fl")
                 _d_tag = ui.input(value=d.get("tagline", "")).classes("fd-input")
                 _d_tag.on("blur", lambda: (d.update({"tagline": _d_tag.value}), rf()))
+                # Region/location — drives the section labels ("Denver
+                # Update", "Around Denver"). Editable here so typos at
+                # creation time (e.g. "Demver") can be fixed without
+                # rebuilding the newsletter (added 2026-05-12).
+                ui.label("Market Region").classes("fd-fl")
+                _d_loc = ui.input(value=d.get("location", ""),
+                                  placeholder="e.g. Denver, CO").classes("fd-input")
+                _d_loc.on("blur", lambda: (d.update({"location": _d_loc.value.strip()}), rf()))
 
             # ── Intro Text ───────────────────────────────────────────────
             with ui.element("div").style(_card_style + ("" if setup.get("show_intro", True) else "display:none;")):
@@ -40095,18 +41531,23 @@ def p_newsletter(s: AppState, rf):
 
             # ── Open Roles editor removed per product decision ──────────
 
-            # ── CTA Button ───────────────────────────────────────────────
+            # ── Booking link ─────────────────────────────────────────────
+            # The pill button was removed 2026-05-11 (Outlook desktop kept
+            # rendering it as invisible white-on-white). The footer now
+            # carries a single text line: "Would you like to learn more
+            # about a candidate or just chat? Email me." with "Email me"
+            # hyperlinked to this URL — defaults to mailto:contact_email
+            # when empty.
             with ui.element("div").style(_card_style + ("" if setup.get("show_cta", True) else "display:none;")):
-                ui.label("Call to Action").style(_section_label)
-                with ui.element("div").style("display:grid;grid-template-columns:1fr 1fr;gap:8px;"):
-                    with ui.element("div"):
-                        ui.label("Button Text").classes("fd-fl")
-                        _cta_t = ui.input(value=d.get("cta_text", ""), placeholder="e.g. Let's Talk").classes("fd-input")
-                        _cta_t.on("blur", lambda: (d.update({"cta_text": _cta_t.value}), rf()))
-                    with ui.element("div"):
-                        ui.label("Button URL").classes("fd-fl")
-                        _cta_u = ui.input(value=d.get("cta_url", "")).classes("fd-input")
-                        _cta_u.on("blur", lambda: (d.update({"cta_url": _cta_u.value}), rf()))
+                ui.label("Booking Link").style(_section_label)
+                ui.label('Used as the link behind "Email me" in the footer line. '
+                         'Leave blank to default to the contact email.').style(
+                    "font-size:11px;color:#777;margin-bottom:8px;line-height:1.4;")
+                with ui.element("div"):
+                    ui.label("Booking URL").classes("fd-fl")
+                    _cta_u = ui.input(value=d.get("cta_url", ""),
+                                      placeholder="https://calendly.com/your-link").classes("fd-input")
+                    _cta_u.on("blur", lambda: (d.update({"cta_url": _cta_u.value}), rf()))
 
             # ── Footer Contact Info ──────────────────────────────────────
             with ui.element("div").style(_card_style):
@@ -45099,8 +46540,17 @@ def index():
         _cache_campaigns.invalidate()
         _cache_responded.invalidate()
         _cache_queue.invalidate()
-        # Snapshot AICB wizard state so a reconnect mid-flow rebuilds it.
+        # Snapshot wizard state + current page so a reconnect mid-flow
+        # rebuilds the user where they were. _save_current_page used to
+        # only fire from nav_go/nav_back, which missed direct s.sp =
+        # "..." assignments (chooser cards, AICB step transitions, etc.)
+        # — that gap caused user-reported "resets" mid-work on
+        # 2026-05-11.
         _save_aicb_state(s)
+        try:
+            _save_current_page(s)
+        except Exception:
+            pass
         for k in ["tb", "sb", "ct"]:
             if k in refs:
                 refs[k].clear()
@@ -45189,13 +46639,20 @@ def index():
     )
 
     async def _poll():
+        # CRITICAL: only call rf() when there's actually new reply data
+        # to surface. Earlier this called rf() unconditionally after every
+        # 5-min sleep, which forced a full page rebuild every 300 seconds
+        # — wiping unsaved input, closing modals, jumping scroll. Reported
+        # 2026-05-19 as "the app keeps refreshing every 5 minutes."
         try:
             while True:
                 await asyncio.sleep(REPLY_POLL_SEC)
                 new = outlook_monitor.pop()
-                if new:
-                    for r in new:
-                        ui.notify(f"{r['name']} replied - removed from all sequences", type="positive", timeout=8000)
+                if not new:
+                    continue
+                for r in new:
+                    ui.notify(f"{r['name']} replied - removed from all sequences",
+                              type="positive", timeout=8000)
                 rf()
         except Exception:
             pass  # client disconnected
@@ -46132,5 +47589,15 @@ if __name__ in {"__main__", "__mp_main__"}:
         # component files (like our editor.js toolbar fix). 1-hour cache
         # balances performance with the ability to deploy patches.
         cache_control_directives="public, max-age=3600",
+        # NiceGUI's default is 3 seconds — way too short. Cloudflare's
+        # free-plan WS proxy drops idle sockets at ~100s and any normal
+        # network blip is 5-30s, so the 3s default meant every reconnect
+        # was treated as a NEW client: page handler re-ran, widgets
+        # rebuilt, and anything the user had typed mid-sentence was wiped.
+        # 600s holds the server-side client state for 10 minutes so a
+        # reconnecting browser picks up exactly where it was. The JS
+        # overlay at the top of this file still shows "Reconnecting…"
+        # after 15s of failed reconnect — that UX is unchanged.
+        reconnect_timeout=600.0,
     )
 
