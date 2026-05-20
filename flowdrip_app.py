@@ -34313,7 +34313,11 @@ def p_candidate_campaign(s: AppState, rf):
                         f"   - The list items must be TIGHT — no <br> tags, no blank lines, no extra "
                         f"whitespace between consecutive <li> tags. Just <li>...</li><li>...</li>.\n"
                         f"   - For emphasis use <strong>text</strong>, NEVER ** asterisks ** or * single *.\n"
-                        f"   - For paragraph breaks use a blank line; do NOT wrap each line in <p> tags.\n"
+                        f"   - PARAGRAPH SPACING: separate paragraphs with EXACTLY ONE blank line. "
+                        f"Inside a paragraph, write the text as ONE CONTINUOUS LINE — do NOT insert "
+                        f"manual line breaks mid-sentence for readability. The editor wraps text "
+                        f"naturally. A hard \\n in the middle of a sentence renders as a visible "
+                        f"line break and looks broken.\n"
                         f"   - Do NOT mix markdown and HTML — pick HTML and stay consistent.\n\n"
                         + _style_guide_prompt() +
                         f"Return ONLY valid JSON:\n"
@@ -34355,6 +34359,19 @@ def p_candidate_campaign(s: AppState, rf):
                                 _b = re.sub(r"</li>\s*\n+\s*<li>", "</li><li>", _b, flags=re.I)
                                 # Also kill stray <br> tags inside lists.
                                 _b = re.sub(r"</li>\s*(?:<br\s*/?>\s*)+<li>", "</li><li>", _b, flags=re.I)
+                                # Collapse mid-paragraph soft wraps. The AI
+                                # sometimes hard-wraps prose at ~80 chars with
+                                # a single \n, which the rich-text editor then
+                                # renders as a visible mid-sentence line break.
+                                # Heuristic: a \n NOT preceded by sentence-
+                                # ending punctuation (. ? ! : > or another \n)
+                                # AND followed by a letter/digit is a soft
+                                # wrap inside a paragraph — replace with a
+                                # space. Preserves blank lines (\n\n+) which
+                                # are real paragraph breaks.
+                                _b = re.sub(
+                                    r"([^.\?\!:>\n])\n(?!\n)(?=[A-Za-z0-9])",
+                                    r"\1 ", _b)
                                 _em["body"] = _b
                             if _em.get("subject"):
                                 _em["subject"] = _strip_dashes(_em["subject"])
