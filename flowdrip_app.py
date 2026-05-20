@@ -22267,14 +22267,10 @@ def p_newsletters(s, rf):
                                 "click", _refresh):
                             ui.label("🔄").style("pointer-events:none;")
                             ui.tooltip("Refresh — pull fresh stats & spotlights")
-                    # View / Edit — secondary pill
-                    with ui.element("button").style(
-                            f"padding:9px 18px;font-size:13px;font-weight:600;"
-                            f"background:{_btn_color}18;color:{_btn_color};"
-                            f"border:1px solid {_btn_color}55;border-radius:8px;"
-                            f"cursor:pointer;font-family:inherit;").on(
-                            "click", _edit):
-                        ui.label("View / Edit").style("pointer-events:none;")
+                    # View / Edit pill removed 2026-05-20 — the newsletter
+                    # title above is now the clickable affordance (same
+                    # _edit handler). _btn_color stays defined further
+                    # up because other code paths in this file consume it.
                     # Delete — icon only, tooltip explains
                     with ui.element("button").style(
                             f"padding:9px 11px;font-size:13px;line-height:1;"
