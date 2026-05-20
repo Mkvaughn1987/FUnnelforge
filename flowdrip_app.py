@@ -11929,6 +11929,67 @@ def p_today_combined(s: AppState, rf):
                 with ui.element("div").classes("fd-progress"):
                     ui.element("div").classes("fd-progress-fill").style(f"width:{pct}%")
 
+        # ── Overdue: bulk "Mark all as done" ───────────────────────────────────
+        # Hundreds of overdue tasks pile up when a user steps away from the app
+        # for a week; tapping each Done individually is hostile. This button
+        # short-circuits the cleanup. Channel-aware result mapping mirrors the
+        # _mark_all_camp helper further down so the per-task outcome history
+        # stays consistent across single + bulk completion paths.
+        if is_overdue and pending:
+            def _bulk_mark_overdue_done():
+                _pending_snapshot = list(pending)
+                _today_iso = date.today().isoformat()
+                with ui.dialog() as _dlg, ui.card().style(
+                        f"background:{C['card']};border:1px solid {C['border']};"
+                        f"padding:20px 24px;min-width:380px;max-width:460px;"):
+                    ui.label(f"Mark {len(_pending_snapshot)} overdue task(s) as done?").style(
+                        f"font-size:15px;font-weight:700;color:{C['text_l']};"
+                        f"font-family:'Nunito',sans-serif;margin-bottom:6px;")
+                    ui.label(
+                        "This applies a channel-appropriate outcome to every "
+                        "overdue task: calls get 'voicemail', LinkedIn touches "
+                        "get 'connected', tasks get 'done'. You can still "
+                        "change individual outcomes after the fact."
+                    ).style(
+                        f"font-size:12px;color:{C['muted']};line-height:1.5;"
+                        f"margin-bottom:14px;")
+                    with ui.element("div").style(
+                            "display:flex;justify-content:flex-end;gap:8px;"):
+                        with ui.element("button").classes("fd-gb").style(
+                                "padding:6px 16px;font-size:12px;"
+                                ).on("click", _dlg.close):
+                            ui.label("Cancel")
+
+                        def _confirm():
+                            for _t in _pending_snapshot:
+                                _ch = _t.get("channel", "task")
+                                _result = ("connected" if _ch == "li"
+                                           else "vm" if _ch == "call"
+                                           else "done")
+                                s.outcomes[_t["id"]] = {
+                                    "result": _result,
+                                    "date": _today_iso,
+                                }
+                            save_outcomes(s.outcomes)
+                            ui.notify(
+                                f"Marked {len(_pending_snapshot)} overdue task(s) done.",
+                                type="positive", timeout=4000)
+                            _dlg.close()
+                            rf()
+                        with ui.element("button").classes("fd-pb").style(
+                                f"padding:6px 16px;font-size:12px;background:{C['good']};"
+                                ).on("click", _confirm):
+                            ui.label(f"✓ Mark all {len(_pending_snapshot)} done")
+                _dlg.open()
+
+            with ui.element("div").style(
+                    "display:flex;justify-content:flex-end;margin-bottom:14px;"):
+                with ui.element("button").classes("fd-gb").style(
+                        f"padding:8px 16px;font-size:12px;font-weight:600;"
+                        f"color:{C['good']};border:1px solid {C['good']}55;"
+                        ).on("click", _bulk_mark_overdue_done):
+                    ui.label(f"✓ Mark all {len(pending)} overdue as done")
+
         if not tasks:
             # On the Today tab, show the full empty state with a CTA to
             # peek at Tomorrow's drip. On Tomorrow/Overdue tabs the same
