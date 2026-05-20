@@ -15730,7 +15730,7 @@ def _sq_loaded_campaign(s: AppState, rf):
 
                     # Daily send limit warning
                     _lcfg = load_config()
-                    _daily_lim = _lcfg.get("daily_send_limit", 50)
+                    _daily_lim = _lcfg.get("daily_send_limit", 250)
                     _email_steps = [st for st in steps if st.get("step_type", "") in (ST.EMAIL_AUTO, ST.EMAIL_MANUAL, "email", "")]
                     # How many emails would queue for day 1 (delay_days=0)?
                     _day1_steps = sum(1 for st in _email_steps if st.get("delay_days", 0) == 0)
@@ -37604,7 +37604,7 @@ def p_ai_settings(s, rf):
                 ).style(f"font-size:11px;color:{C['muted']};margin-bottom:14px;line-height:1.5;")
 
                 _dcfg = load_config()
-                _cur_limit = _dcfg.get("daily_send_limit", 50)
+                _cur_limit = _dcfg.get("daily_send_limit", 250)
 
                 ui.label("Daily Send Limit").classes("fd-fl")
                 ui.label(
@@ -37616,24 +37616,27 @@ def p_ai_settings(s, rf):
                     f"width:120px;background:{C['surface']};border:1px solid {C['border']};"
                     f"border-radius:6px;color:{C['text_l']};margin-bottom:8px;")
 
-                # Dynamic warning based on current value
-                if _cur_limit > 100:
+                # Dynamic warning based on current value. Thresholds bumped
+                # 2026-05-20 alongside the default raise from 50 → 250: the
+                # old 50/100 cutoffs would have flagged the new default
+                # itself as "risky."
+                if _cur_limit > 400:
                     with ui.element("div").style(
                             f"padding:8px 12px;background:{C['danger']}10;border:1px solid {C['danger']}30;"
                             f"border-radius:8px;margin-bottom:10px;display:flex;align-items:center;gap:8px;"):
                         ui.label("⚠").style("font-size:14px;")
                         ui.label(
                             f"Sending {_cur_limit} emails/day from a single inbox is risky. "
-                            f"Microsoft and Google throttle accounts that spike above ~100/day. "
+                            f"Microsoft and Google throttle accounts that spike well above 300/day. "
                             f"Your deliverability will quietly degrade."
                         ).style(f"font-size:11px;color:{C['danger']};line-height:1.5;")
-                elif _cur_limit > 50:
+                elif _cur_limit > 250:
                     with ui.element("div").style(
                             f"padding:8px 12px;background:{C['warn']}10;border:1px solid {C['warn']}30;"
                             f"border-radius:8px;margin-bottom:10px;display:flex;align-items:center;gap:8px;"):
                         ui.label("⚠").style("font-size:14px;")
                         ui.label(
-                            f"{_cur_limit}/day is above the recommended 50. Monitor your deliverability closely."
+                            f"{_cur_limit}/day is above the recommended 250. Monitor your deliverability closely."
                         ).style(f"font-size:11px;color:{C['warn']};line-height:1.5;")
                 else:
                     with ui.element("div").style(
@@ -37645,7 +37648,7 @@ def p_ai_settings(s, rf):
                         ).style(f"font-size:11px;color:{C['good']};line-height:1.5;")
 
                 def _save_limit():
-                    val = int(_limit_inp.value or 50)
+                    val = int(_limit_inp.value or 250)
                     val = max(5, min(500, val))
                     cfg = load_config()
                     cfg["daily_send_limit"] = val
@@ -47622,7 +47625,8 @@ def _server_scheduler_tick():
         print(f"[ServerSend] {user_dir.name}: {len(due)} email(s) due", flush=True)
 
         # ── Daily send limit: respect per-user cap ────────────────────
-        _daily_limit = _user_cfg.get("daily_send_limit", 50)
+        # Default raised 50 → 250 on 2026-05-20 per user direction.
+        _daily_limit = _user_cfg.get("daily_send_limit", 250)
         # Count how many we already sent today (in user's timezone)
         _user_tz_obj = _resolve_tz(_user_default_tz)
         _user_today = datetime.now(ZoneInfo("UTC")).astimezone(_user_tz_obj).date().isoformat()
