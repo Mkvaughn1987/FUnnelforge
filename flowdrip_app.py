@@ -16313,6 +16313,18 @@ def _sq_pick(s, rf):
                 "border": "#F472B6",
             },
             {
+                "key": "mpc",
+                "icon": "⭐",
+                "title": "Start with an MPC",
+                "subtitle": "Most Placeable Candidate — pitch them to fitting companies",
+                "desc": ("Pick a candidate from your Candidate Job Finder pool. AI "
+                         "builds a 5-step placement outreach targeting hiring managers "
+                         "at relevant companies and drops you straight in the email "
+                         "editor — no in-between review page."),
+                "best_for": ["Hot candidates", "Direct-hire placement", "Candidate-first outreach"],
+                "border": "#34D399",
+            },
+            {
                 "key": "saved",
                 "icon": "📁",
                 "title": "Drafts & Saved",
@@ -16376,6 +16388,17 @@ def _sq_pick(s, rf):
                         s.tc_candidates = []
                         s.tc_preset = ""
                         s.sp = "target_candidate"
+                    elif k == "mpc":
+                        # Most Placeable Candidate flow: route to the
+                        # Candidate Job Finder pool so the user picks an
+                        # existing candidate. Their per-row "Start
+                        # Campaign" button (in p_candidate_finder) runs
+                        # the placement-campaign flow that, after my
+                        # 2026-05-20 review-page-skip change, lands them
+                        # straight in the email editor.
+                        s._nav_history.append(_nav_snapshot(s))
+                        _reset_wizard_state(s)
+                        s.sp = "candidate_finder"
                     elif k == "saved":
                         _reset_wizard_state(s)
                         s._tab = "saved"
