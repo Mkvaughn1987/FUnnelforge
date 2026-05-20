@@ -34318,6 +34318,15 @@ def p_candidate_campaign(s: AppState, rf):
                             "candidate_redacted_resume": cand.get("redacted_resume", ""),
                             "target_companies": [c.get("company", "") for c in companies],
                             "synopsis": campaign_data.get("synopsis", ""),
+                            # Standard field name 2026-05-20 — was "steps" which
+                            # left the email editor empty when the user clicked
+                            # "Save & Open in Editor". Every other campaign in
+                            # the app stores its sequence under "emails"; the
+                            # editor + save layer + queue dispatcher all read
+                            # camp["emails"].
+                            "emails": emails,
+                            # Keep "steps" populated too for any in-flight
+                            # placement-flow code that still reads it.
                             "steps": emails,
                             "contacts_path": "",
                         }
