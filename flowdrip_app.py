@@ -39479,8 +39479,82 @@ def _spotlight_prompt_block(sector: str, n: int,
     """
     if not n or n <= 0:
         return ("", "")
-    # Stub — real body comes in Task 2.
-    raise NotImplementedError("filled in next task")
+    sector_key = (sector or "").strip().lower()
+    adjacency = _SPOTLIGHT_ADJACENT_ROLES.get(
+        sector_key, _SPOTLIGHT_GENERIC_ADJACENCY)
+    adj_csv = ", ".join(adjacency)
+
+    target_clean = [str(r).strip() for r in (target_roles or [])
+                    if str(r).strip()]
+    if target_clean:
+        target_block = (
+            f"CAMPAIGN TARGET ROLES (must be reflected when possible):\n"
+            f"  {', '.join(target_clean)}\n\n"
+        )
+        if len(target_clean) >= 3:
+            mix_rule = (
+                "  - About half the spotlights should reflect the target "
+                "roles above; the rest should come from the adjacent "
+                "manager+ roles for this sector."
+            )
+        else:
+            mix_rule = (
+                "  - Include every target role above; fill the remaining "
+                "spotlight slots from the adjacent manager+ roles for "
+                "this sector."
+            )
+    else:
+        target_block = "CAMPAIGN TARGET ROLES: (none specified — draw from adjacent roles)\n\n"
+        mix_rule = (
+            "  - No target roles are set; draw all spotlights from the "
+            "adjacent manager+ roles for this sector."
+        )
+
+    instruction = (
+        f"\n\nCANDIDATE SPOTLIGHTS — auto-populate {n} anonymized "
+        f"candidate profiles for this sector and region.\n\n"
+        f"{target_block}"
+        f"ADJACENT MANAGER+ ROLES FOR THIS SECTOR:\n"
+        f"  {adj_csv}\n\n"
+        f"SELECTION RULES:\n"
+        f"  - Every spotlight must be a manager-level or above role "
+        f"(Senior IC, Manager, Director, VP, Principal). Do NOT include "
+        f"entry-level, junior, trades, or field/labor positions — "
+        f"Arena Direct Hire works manager+ only.\n"
+        f"  - At least one spotlight must be a tech-flavored manager+ "
+        f"role appropriate to the sector (BIM Manager, IT Director, "
+        f"Engineering Tech Lead, Manufacturing Systems Manager, etc.).\n"
+        f"{mix_rule}\n"
+        f"  - Each profile is a composite (NOT a real person), labeled "
+        f"\"Candidate A\", \"Candidate B\", etc. Titles + comp must "
+        f"reflect real local market pricing — use web search if needed "
+        f"to verify."
+    )
+
+    # JSON schema block — UNCHANGED from the pre-refactor version
+    # (lines 39393–39410 in flowdrip_app.py before this change). The
+    # downstream renderer reads the same fields.
+    bpc = {0: 0, 3: 3, 6: 3}.get(n, 0)
+    schema = (
+        '\nCANDIDATE SPOTLIGHTS — these are CANDIDATES looking for work, '
+        'NOT job postings. The salary_ask field is what the candidate '
+        'wants to earn, expressed as a single hourly range OR a single '
+        'annual base salary range. Do NOT tack on "plus $X bonus", '
+        '"plus benefits", "(eligible for...)", "OTE", "+ stock", or '
+        'anything that frames it like a job offer. Plain comp range only.\n'
+        '  "spotlights": [\n    '
+        + ",\n    ".join(
+            f'{{"name": "Candidate {chr(65 + i)}", '
+            f'"title": "manager+ role + years + key cred", '
+            f'"location": "this region", '
+            f'"salary_ask": "$XXk - $YYk (annual base only) OR $XX/hr - $YY/hr (hourly only) — real local range, NO bonuses, NO benefits, NO OTE, NO \\"plus $X\\"", '
+            f'"bullets": [{bpc} short single-sentence bullets, each a concrete skill or result]}}'
+            for i in range(n)
+        )
+        + '\n  ],\n'
+    )
+
+    return (instruction, schema)
 
 
 def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
