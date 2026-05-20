@@ -11842,15 +11842,26 @@ def p_today_combined(s: AppState, rf):
     # mask edits made elsewhere, so reset on every render.
     s._daily_camp_cache = {}
 
+    # Day-tab map: drip_day → offset in days from today. Extended 2026-05-20
+    # from just today/tomorrow to a 5-day forward window so recruiters can
+    # peek further out without leaving this page. Overdue stays special.
+    _DAY_KEYS = ['today', 'tomorrow', 'day_2', 'day_3', 'day_4']
+    _KEY_TO_OFFSET = {k: i for i, k in enumerate(_DAY_KEYS)}
+
     # Pick up tab from dashboard navigation if set
     dash_tab = getattr(s, 'dash_drip_tab', None)
-    if dash_tab in ('today', 'tomorrow', 'overdue'):
+    if dash_tab in tuple(_DAY_KEYS) + ('overdue',):
         s.drip_day = dash_tab
         s.dash_drip_tab = None
     drip_day = getattr(s, 'drip_day', 'today')
-    is_tomorrow = drip_day == 'tomorrow'
+    if drip_day not in tuple(_DAY_KEYS) + ('overdue',):
+        # Defensive: legacy value or typo lands the user on Today.
+        drip_day = 'today'
+        s.drip_day = 'today'
     is_overdue = drip_day == 'overdue'
-    target_date = date.today() + timedelta(days=1) if is_tomorrow else date.today()
+    days_out = _KEY_TO_OFFSET.get(drip_day, 0)
+    is_future = days_out >= 1
+    target_date = date.today() + timedelta(days=days_out)
     all_today_tasks = build_drip_tasks(target_date=date.today())
     overdue_tasks = [t for t in all_today_tasks if t["id"] not in s.outcomes and t.get("overdue")]
     overdue_count = len(overdue_tasks)
@@ -11859,8 +11870,8 @@ def p_today_combined(s: AppState, rf):
         pending = tasks[:]
         done = []
     else:
-        tasks = build_drip_tasks(target_date=target_date) if is_tomorrow else all_today_tasks
-        if is_tomorrow:
+        tasks = build_drip_tasks(target_date=target_date) if is_future else all_today_tasks
+        if is_future:
             pending = [t for t in tasks if t["id"] not in s.outcomes]
         else:
             pending = [t for t in tasks if t["id"] not in s.outcomes and not t.get("overdue")]
@@ -11873,10 +11884,21 @@ def p_today_combined(s: AppState, rf):
     today_str = now.strftime("%Y-%m-%d")
 
     # ── Day toggle ──────────────────────────────────────────────────────────
+    # Pills: Today | Tomorrow | <weekday> | <weekday> | <weekday> | Overdue
+    # The three "+N day" tabs render the weekday short name (e.g. "Thu")
+    # since "+2 / +3 / +4" reads worse once it's not adjacent to today.
     with ui.element("div").classes("fd-drip-pills").style("display:flex;align-items:center;gap:12px;margin-bottom:4px;"):
         _show_page_help(s, rf, "drip")
         with ui.element("div").style(f"display:inline-flex;gap:4px;background:{C['surface']};border-radius:10px;padding:4px;"):
-            pills = [("today", "Today"), ("tomorrow", "Tomorrow")]
+            pills = []
+            for _i, _key in enumerate(_DAY_KEYS):
+                if _i == 0:
+                    _lbl = "Today"
+                elif _i == 1:
+                    _lbl = "Tomorrow"
+                else:
+                    _lbl = (date.today() + timedelta(days=_i)).strftime("%a")
+                pills.append((_key, _lbl))
             if overdue_count:
                 pills.append(("overdue", f"Overdue ({overdue_count})"))
             for key, label in pills:
@@ -11901,18 +11923,16 @@ def p_today_combined(s: AppState, rf):
         calls_due = sum(1 for t in pending if t["channel"] == "call")
         li_due    = sum(1 for t in pending if t["channel"] == "li")
         task_due  = sum(1 for t in pending if t["channel"] == "task")
-        # Email count: for today show today's scheduled emails, for overdue don't show
+        # Email count: scheduled emails landing on the selected day.
+        # Overdue tab doesn't show this (it's about tasks already past
+        # their due date, not future sends).
         if is_overdue:
             auto_email_count = 0
-        elif is_tomorrow:
-            _tomorrow_str = (date.today() + timedelta(days=1)).isoformat()
-            auto_email_count = sum(1 for q in queue
-                                   if q.get("status") == "pending"
-                                   and (q.get("send_dt") or "")[:10] == _tomorrow_str)
         else:
+            _target_str = target_date.isoformat()
             auto_email_count = sum(1 for q in queue
                                    if q.get("status") == "pending"
-                                   and (q.get("send_dt") or "")[:10] == today_str)
+                                   and (q.get("send_dt") or "")[:10] == _target_str)
         _stats_list = [
                 (str(len(pending)), "Remaining",    C["warn"]),
                 (str(len(done)),    "Completed",    C["good"]),
@@ -12001,8 +12021,9 @@ def p_today_combined(s: AppState, rf):
 
         if not tasks:
             # On the Today tab, show the full empty state with a CTA to
-            # peek at Tomorrow's drip. On Tomorrow/Overdue tabs the same
-            # CTA wouldn't make sense, so fall back to the plain text.
+            # peek at Tomorrow's drip. On other tabs (Tomorrow / +N days /
+            # Overdue) the same CTA wouldn't make sense, so fall back to
+            # a plain message scoped to that day.
             if drip_day == "today":
                 s._empty_state_handlers = {
                     "@drip_tomorrow_tab": lambda: (
@@ -12010,9 +12031,17 @@ def p_today_combined(s: AppState, rf):
                 }
                 _render_empty_state(s, rf, "drip")
             else:
+                # Pick a friendly day label that matches the selected tab.
+                if is_overdue:
+                    _empty_msg = "No overdue tasks. Nice."
+                elif days_out == 1:
+                    _empty_msg = "Nothing queued for tomorrow yet."
+                else:
+                    _day_lbl = target_date.strftime("%A, %b %d")
+                    _empty_msg = f"Nothing queued for {_day_lbl} yet."
                 with ui.element("div").style(
                         f"text-align:center;padding:40px 0;color:{C['muted']};font-size:14px;"):
-                    ui.label("No manual tasks due today. All caught up!")
+                    ui.label(_empty_msg)
 
         # Pending tasks grouped by campaign (Tasks page layout)
         if pending:
