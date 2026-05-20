@@ -22056,14 +22056,38 @@ def p_newsletters(s, rf):
                              and _next_step.get("auto_confirmed")
                              and not _next_step.get("confirmed"))
 
+            # Hoisted above the title render so the title itself can use
+            # _edit as its click handler — clicking the name opens the
+            # same View / Edit modal the pill button does. Reported
+            # 2026-05-20 by user.
+            def _edit(c=camp):
+                _idx = _find_next_evergreen_step(c)
+                _emails = c.get("emails", []) or []
+                if _idx >= len(_emails):
+                    ui.notify("All newsletter issues have been sent.", type="info")
+                    return
+                _next = _emails[_idx]
+                _body = (_next.get("body") or "").strip()
+                _needs_create = (not _body) or "[AI:" in _body
+                _edit_newsletter_modal(s, rf, c, _idx, force_generate=_needs_create)
+
             with ui.element("div").style(
                     f"background:{bg};border:1px solid {border};"
                     f"border-left:4px solid {fg};border-radius:10px;"
                     f"padding:14px 18px;margin-bottom:10px;display:flex;"
                     f"align-items:center;justify-content:space-between;gap:14px;"):
                 with ui.element("div").style("flex:1;min-width:0;"):
-                    ui.label(camp.get("name", "")).style(
-                        f"font-size:15px;font-weight:700;color:{fg};")
+                    # Newsletter title — clickable, opens View / Edit modal.
+                    # Inline-block + hover underline so the affordance is
+                    # discoverable without a bordered button look.
+                    with ui.element("div").style(
+                            "display:inline-block;cursor:pointer;"
+                            ).on("click", _edit):
+                        ui.label(camp.get("name", "")).style(
+                            f"font-size:15px;font-weight:700;color:{fg};"
+                            f"pointer-events:none;text-decoration:underline;"
+                            f"text-decoration-color:{fg}55;"
+                            f"text-underline-offset:3px;")
                     _meta = (
                         f"{len(steps)} issues · {len(contacts)} enrolled"
                         + (f" · next: {_next_step.get('name','')}"
@@ -22086,17 +22110,6 @@ def p_newsletters(s, rf):
 
                 def _enroll(c=camp):
                     _enroll_dialog(c, s, rf)
-
-                def _edit(c=camp):
-                    _idx = _find_next_evergreen_step(c)
-                    _emails = c.get("emails", []) or []
-                    if _idx >= len(_emails):
-                        ui.notify("All newsletter issues have been sent.", type="info")
-                        return
-                    _next = _emails[_idx]
-                    _body = (_next.get("body") or "").strip()
-                    _needs_create = (not _body) or "[AI:" in _body
-                    _edit_newsletter_modal(s, rf, c, _idx, force_generate=_needs_create)
 
                 # Refresh: re-run the AI generator on the upcoming issue so
                 # the body is rewritten with fresh market stats / news /
