@@ -39338,7 +39338,7 @@ _SPOTLIGHT_ADJACENT_ROLES = {
     ],
     "accounting": [
         "Controller", "Audit Manager", "Tax Manager", "FP&A Manager",
-        "Senior Accountant", "Treasurer",
+        "Accounting Manager", "Treasurer",
         "ERP/Finance Systems Manager",
     ],
     "technology": [
@@ -39362,7 +39362,7 @@ _SPOTLIGHT_ADJACENT_ROLES = {
         "Real Estate Technology Manager",
     ],
     "legal": [
-        "Managing Partner", "Senior Associate", "Practice Group Leader",
+        "Managing Partner", "Senior Counsel", "Practice Group Leader",
         "Director of Legal Operations", "General Counsel",
         "Compliance Manager", "Legal Technology Director",
     ],
@@ -39422,7 +39422,7 @@ _SPOTLIGHT_ADJACENT_ROLES = {
     "private_equity": [
         "Managing Director", "Principal", "VP of Investments",
         "Portfolio Operations Manager", "Director of Finance",
-        "Senior Associate", "PE Technology & Analytics Manager",
+        "Investment Director", "PE Technology & Analytics Manager",
     ],
     "education": [
         "Principal", "Dean", "Director of Curriculum",
