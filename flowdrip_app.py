@@ -20894,7 +20894,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
     with ui.dialog() as dlg, ui.card().style(
             f"min-width:520px;max-width:580px;background:{C['card']};"
             f"border:1px solid {C['border']};padding:24px;"):
-        ui.label("Create Newsletter Campaign").style(
+        ui.label("Create Newsletter").style(
             f"font-size:16px;font-weight:700;color:{C['text_l']};"
             f"font-family:'Nunito',sans-serif;margin-bottom:2px;")
         ui.label("Create a branded monthly newsletter for a market you serve. "
@@ -21092,25 +21092,30 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             count = max(1, min(60, count))
 
             if not nl_name:
-                ui.notify("Give the newsletter a name.", type="warning"); return
+                ui.notify("Give the newsletter a name.",
+                          type="warning", timeout=6000); return
             if not _sector_label:
-                ui.notify("Pick a market sector.", type="warning"); return
+                ui.notify("Pick a market sector for the newsletter.",
+                          type="warning", timeout=6000); return
             if not region:
-                ui.notify("Enter a market region.", type="warning"); return
+                ui.notify("Enter a market region for the newsletter.",
+                          type="warning", timeout=6000); return
 
             try:
                 y, m = start_str.split("-")
                 start_from = date(int(y), int(m), 1)
             except Exception:
                 ui.notify("Start Month must be YYYY-MM (e.g. 2026-05).",
-                          type="warning"); return
+                          type="warning", timeout=6000); return
 
-            # Duplicate name check — the newsletter name IS the campaign name now
+            # Duplicate name check — the newsletter name IS the campaign name
+            # under the hood (both share the same on-disk store).
             existing = {c.get("name","") for c in load_campaigns()}
             if nl_name in existing:
                 ui.notify(
-                    f"A campaign named '{nl_name}' already exists. "
-                    f"Pick a different name.", type="negative"); return
+                    f"A newsletter or campaign named '{nl_name}' already "
+                    f"exists. Pick a different name.",
+                    type="negative", timeout=8000); return
 
             # Build one step per month with exact fixed_date
             thursdays = _monthly_first_thursdays(count, start_from)
@@ -21166,7 +21171,17 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                 # nothing reads this yet, but it's cheap audit data.
                 spun_from_campaign=_pre_source or "",
             )
-            save_campaign(new_camp)
+            try:
+                save_campaign(new_camp)
+            except Exception as _save_ex:
+                print(f"[Newsletter] save_campaign failed for "
+                      f"{nl_name!r}: {_save_ex}", flush=True)
+                ui.notify(
+                    f"Couldn't save the newsletter: {str(_save_ex)[:120]}. "
+                    f"The newsletter is NOT in your list — try a different "
+                    f"name or check the journal.",
+                    type="negative", timeout=10000)
+                return
 
             # Auto-generate the first issue right away so the user has
             # something real to look at instead of an empty shell. Runs
@@ -21220,7 +21235,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                 ui.label("Cancel")
             with ui.element("button").classes("fd-pb").style(
                     "padding:8px 20px;font-size:12px;").on("click", _create):
-                ui.label("Create Campaign")
+                ui.label("Create Newsletter")
 
     dlg.open()
 
