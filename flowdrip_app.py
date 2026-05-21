@@ -11091,25 +11091,52 @@ def sidebar(s: AppState, rf):
                 else:
                     s.ep = k
                 if k in ("start_seq", "create_camp"):
-                    # Reset to the chooser unless there's REAL in-progress
-                    # work to preserve. Note that `_tab` is NOT a signal
-                    # of work — it's just a UI cursor, and it gets
-                    # restored from session storage on reconnect, which
-                    # used to falsely trigger the preserve branch and
-                    # drop users onto Build-from-Scratch instead of the
-                    # chooser when they clicked Start a Sequence after
-                    # a brief Cloudflare timeout (user-reported
-                    # 2026-05-12). Real work signals: custom_steps,
-                    # custom_name, loaded_camp, sq > 1.
-                    _has_work = (s.custom_steps or s.custom_name or s.loaded_camp
-                                 or s.sq > 1)
-                    if not _has_work:
-                        s.loaded_camp = None; s.loaded_tab = 0; s.loaded_view = "emails"
-                        s.launch_result = None; s.custom_editing = False
-                        s.sq = 1; s._tab = ""; s.sq_review = False; s.stpl = None
-                        s.custom_steps = []; s.custom_name = ""; s.custom_preset_picked = False
-                        s.custom_selected_type = ""; s.custom_editing_idx = -1
-                        s.svars = {}; s.scon = []
+                    # 2026-05-21: ALWAYS reset to the chooser when the user
+                    # clicks Start a Sequence — and auto-save any in-progress
+                    # work first so it survives in Drafts & Saved. Previous
+                    # behavior (added 2026-05-12) was to PRESERVE work-in-
+                    # progress and re-route the user to wherever they left
+                    # off, which made Start a Sequence inconsistent: same
+                    # nav click did different things depending on session
+                    # state. User asked for the chooser every time, with a
+                    # silent draft save as the safety net.
+                    try:
+                        if s.loaded_camp:
+                            # In-place edit of a saved campaign — flush the
+                            # current dict back to disk so editor changes
+                            # the user typed but didn't explicitly save
+                            # don't disappear.
+                            save_campaign(s.loaded_camp)
+                        elif s.custom_steps or (s.custom_name or "").strip():
+                            # Never-saved custom-built sequence — save as
+                            # a draft so it shows under Drafts & Saved.
+                            _draft_name = (
+                                (s.custom_name or "").strip()
+                                or f"Untitled draft - {date.today().isoformat()}"
+                            )
+                            _draft = {
+                                "schema": 2,
+                                "name": _draft_name,
+                                "status": "draft",
+                                "emails": list(s.custom_steps or []),
+                                "contacts": [],
+                                "contact_count": 0,
+                                "variables": dict(s.svars or {}),
+                                "created_date": date.today().isoformat(),
+                                "_owner_email": getattr(s, "_user_email", "") or "",
+                            }
+                            save_campaign(_draft)
+                    except Exception as _save_ex:
+                        print(f"[Nav] auto-save draft on Start-a-Sequence "
+                              f"click failed: {_save_ex}", flush=True)
+
+                    # Always reset state and go to the chooser.
+                    s.loaded_camp = None; s.loaded_tab = 0; s.loaded_view = "emails"
+                    s.launch_result = None; s.custom_editing = False
+                    s.sq = 1; s._tab = ""; s.sq_review = False; s.stpl = None
+                    s.custom_steps = []; s.custom_name = ""; s.custom_preset_picked = False
+                    s.custom_selected_type = ""; s.custom_editing_idx = -1
+                    s.svars = {}; s.scon = []
                     s._nav_history.clear()
                 rf()
             # Determine if this nav item needs a "needs setup" badge
