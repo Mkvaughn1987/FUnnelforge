@@ -11022,6 +11022,15 @@ def sidebar(s: AppState, rf):
             ("⚙", "Admin Panel", "admin"),
         ])
     cur = s.sp if s.hub == "sales" else s.ep
+    # Sidebar highlight tweak (2026-05-21): the Drafts & Saved entry
+    # routes the user to s.sp="start_seq" with s._tab="saved" so it
+    # reuses the chooser's saved-list rendering. Without this override,
+    # clicking Drafts & Saved would leave "Start a Sequence" highlighted
+    # because cur == "start_seq" matched that entry first. Promote the
+    # highlight to drafts_saved when the saved tab is active so the
+    # sidebar reflects where the user actually is.
+    if s.hub == "sales" and cur == "start_seq" and getattr(s, "_tab", "") == "saved":
+        cur = "drafts_saved"
     # Setup status used for (a) red-dot badges on Company Profile & Email
     # & AI Setup nav items, and (b) gating "Start a Campaign" when required
     # setup is incomplete. Evaluated once per render.
