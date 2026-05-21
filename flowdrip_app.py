@@ -8931,6 +8931,29 @@ function ddToggleTheme() {
             var s = window.socket || (window.io && window.io.socket);
             if (s && s.on) {
                 clearInterval(timer);
+                // KEEPALIVE 2026-05-21: Cloudflare's free-plan WS proxy
+                // closes "idle" connections at ~100 seconds. Socket.IO's
+                // built-in ping/pong is sent as WS control frames, and
+                // Cloudflare apparently doesn't count those as activity
+                // — only data frames reset the idle timer. So we emit
+                // a real (but no-op) data event every 60 seconds. The
+                // server silently ignores unknown events; the point is
+                // just to give Cloudflare a data frame to count.
+                //
+                // Server-side journal showed index() re-firing every
+                // ~2 minutes for active sessions despite reconnect_timeout
+                // =600 being set; the WS was dying + reconnecting + the
+                // reconnect was treated as a fresh client load instead of
+                // a state-resumed reconnect. Sending data frames keeps
+                // the WS alive entirely, so the reconnect path doesn't
+                // run in the first place.
+                setInterval(function() {
+                    try {
+                        if (s.connected) {
+                            s.emit('dd_keepalive', {t: Date.now()});
+                        }
+                    } catch (e) { /* swallow */ }
+                }, 60000);
                 s.on('disconnect', function(reason) {
                     // 'io client disconnect' = user closed tab, not a crash
                     if (reason === 'io client disconnect') return;
