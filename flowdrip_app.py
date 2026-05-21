@@ -9107,6 +9107,7 @@ SALES_NAV = [
     # ── Sequences ────────────────────────────────
     (None, "SEQUENCES",         None),
     ("▷",  "Start a Sequence",  "start_seq"),
+    ("📁", "Drafts & Saved",    "drafts_saved"),
     ("≡",  "Contacts",          "contacts"),
     ("🚫", "Opt-Out List",     "dnc"),
     ("🛡", "Existing Customers", "active_clients"),
@@ -11064,6 +11065,18 @@ def sidebar(s: AppState, rf):
                 s._nav_history.append(_nav_snapshot(s))
                 if len(s._nav_history) > 20:
                     s._nav_history = s._nav_history[-20:]
+                # "Drafts & Saved" sidebar entry (added 2026-05-20) is a
+                # convenience shortcut to the existing Saved tab on the
+                # Start a Sequence chooser. Routes to start_seq with
+                # _tab pre-set so the user lands on the saved-list view
+                # instead of the chooser tile grid.
+                if k == "drafts_saved":
+                    if s.hub == "sales":
+                        s.sp = "start_seq"
+                    s._tab = "saved"
+                    s._nav_history.clear()
+                    rf()
+                    return
                 if s.hub == "sales":
                     s.sp = k
                 else:
