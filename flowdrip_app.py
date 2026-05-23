@@ -36455,7 +36455,11 @@ def p_candidate_finder(s: AppState, rf):
 
     # ── Step 0: Input ──────────────────────────────────────────────────────
     if s.cf_step == 0:
-        ui.label("Upload a resume and AI finds matching open jobs, generates talking points, and builds outreach.").classes("fd-sub")
+        ui.label(
+            "Upload a resume — AI extracts the candidate's highlights and "
+            "saves them to your Top Candidates roster. From the roster, "
+            "click Start MPC Campaign to build outreach."
+        ).classes("fd-sub")
 
         with ui.element("div").style("max-width:700px;"):
             # Resume upload
@@ -36700,18 +36704,71 @@ def p_candidate_finder(s: AppState, rf):
                 _sal_inp = ui.input(value=s.cf_salary,
                     placeholder="e.g. $80K-$100K or $45/hr").classes("fd-input").style("max-width:300px;")
 
-            # Candidate name + save to pool
+            # Candidate name (always saved to Top Candidates 2026-05-23 —
+            # the "Save to Job Match" checkbox is gone, candidates always
+            # land in the roster now that the Search Jobs feature has
+            # been retired).
             with ui.element("div").classes("fd-gc").style("margin-top:12px;"):
-                with ui.element("div").style("display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:end;"):
-                    with ui.element("div"):
-                        ui.label("Candidate Name *").classes("fd-fl")
-                        _name_inp = ui.input(value=s.cf_candidate_name,
-                            placeholder="Full name").classes("fd-input")
-                    with ui.element("div").style("padding-bottom:8px;"):
-                        _pool_cb = ui.checkbox("Save to Job Match", value=s._cf_save_to_pool).style(
-                            f"color:{C['text']};font-size:13px;")
+                ui.label("Candidate Name *").classes("fd-fl")
+                _name_inp = ui.input(value=s.cf_candidate_name,
+                    placeholder="Full name").classes("fd-input")
 
-            # Find Jobs button
+            # Save-candidate handler. No job search, no AI summary
+            # build here — the candidate is added with whatever the
+            # user typed; AI highlights generate lazily when the
+            # candidate row is first expanded on the roster.
+            def _save_candidate_only():
+                resume = _paste.value.strip() or s.cf_resume_text
+                if not resume:
+                    ui.notify("Upload or paste a resume first.",
+                              type="warning", timeout=6000); return
+                cand_name = _name_inp.value.strip()
+                if not cand_name:
+                    ui.notify("Enter the candidate's name.",
+                              type="warning", timeout=6000); return
+                role = _role_inp.value.strip()
+                loc = _loc_inp.value.strip()
+                if not role or not loc:
+                    ui.notify("Enter a target role and location.",
+                              type="warning", timeout=6000); return
+                try:
+                    add_candidate_to_pool({
+                        "name": cand_name,
+                        "target_role": role,
+                        "location": loc,
+                        "salary": _sal_inp.value.strip(),
+                        "resume_text": resume,
+                        "resume_filename": s.cf_resume_filename or "",
+                        "highlights": [],
+                        "results": [],
+                        "summary": "",
+                        "redacted_resume": "",
+                    })
+                except Exception as _ex:
+                    print(f"[CF] add_candidate_to_pool failed: {_ex}",
+                          flush=True)
+                    ui.notify(
+                        f"Couldn't save candidate: {str(_ex)[:120]}",
+                        type="negative", timeout=10000); return
+                ui.notify(
+                    f"Added {cand_name} to Top Candidates. AI highlights "
+                    f"will generate when you expand the row.",
+                    type="positive", timeout=5000)
+                # Reset the in-flight form so a follow-up Add starts clean,
+                # then route back to the roster.
+                s.cf_resume_text = ""; s.cf_resume_filename = ""
+                s.cf_target_role = ""; s.cf_location = ""; s.cf_salary = ""
+                s.cf_candidate_name = ""; s._cf_pool_search_id = ""
+                s.cf_jobs = []; s.cf_summary = ""; s.cf_redacted_resume = ""
+                s.cf_tab = "pool"; s.cf_step = 0; s._cf_error = ""
+                rf()
+
+            # Retained legacy path. Job-search "Find Matching Jobs →"
+            # button is no longer exposed in the UI (2026-05-23 cut), but
+            # the worker stays in place in case we need to re-enable a
+            # narrower variant of it later. Reachable only via the Save
+            # Candidate handler above when we choose to set cf_step = 1
+            # in the future.
             def _start_search():
                 resume = _paste.value.strip() or s.cf_resume_text
                 if not resume:
@@ -36728,7 +36785,7 @@ def p_candidate_finder(s: AppState, rf):
                 s.cf_location = loc
                 s.cf_salary = _sal_inp.value.strip()
                 s.cf_candidate_name = cand_name
-                s._cf_save_to_pool = _pool_cb.value
+                s._cf_save_to_pool = True
                 s.cf_step = 1
                 s.cf_generating = True
                 s._cf_error = ""
@@ -36878,8 +36935,9 @@ def p_candidate_finder(s: AppState, rf):
             with ui.element("div").style("margin-top:20px;"):
                 with ui.element("button").classes("fd-pb").style(
                         "padding:14px 28px;font-size:15px;width:100%;max-width:700px;"
-                        "justify-content:center;display:flex;border-radius:10px;").on("click", _start_search):
-                    ui.label("Find Matching Jobs →")
+                        "justify-content:center;display:flex;border-radius:10px;"
+                        ).on("click", _save_candidate_only):
+                    ui.label("Add to Top Candidates →")
         return
 
     # ── Step 1: Processing ─────────────────────────────────────────────────
