@@ -10045,7 +10045,7 @@ PAGE_HELP = {
         "next_action": "Click Bulk Import Resumes to add candidates, or use Who's the best fit? to score your pool against a role.",
         "sections": [
             ("What is this?", "Your roster of active candidates, grouped by industry. Bulk-import resumes, match them to a JD, and build submittals in minutes."),
-            ("Candidate Job Finder Tab", "Candidates grouped by industry (Construction, Manufacturing, Sales, etc.). Click any row to expand for AI-generated highlights, View Resume, Search Jobs, Start Campaign, or status changes."),
+            ("Top Candidates Tab", "Candidates grouped by industry (Construction, Manufacturing, Sales, etc.). Click any row to expand for AI-generated highlights, View Resume, Start MPC Campaign, or status changes."),
             ("Bulk Import Resumes", "Click the button, select up to 30 PDFs/Word docs/RTFs at once. AI extracts name, role, location, and pulls a 4-6 bullet highlights summary per resume. Goes into your pool as Active."),
             ("Who's the best fit? Tab", "Type a role (\"welder\", \"project manager\") or paste a full JD. AI scores your whole pool on a 0-100 scale using technical fit, industry, tenure, location, and comp weights. Only candidates scoring 70+ surface."),
             ("Create Submittal", "On any ranked candidate, click 'Create Submittal →'. AI writes a detailed pitch: Why They Fit, Gaps, Red Flags, Relocation / Counter-offer / Comp, 5 tailored interview questions, and a paste-ready submittal email for your client."),
@@ -10302,10 +10302,10 @@ EMPTY_STATES = {
         "icon": "👥",
         "headline": "No candidates yet",
         "body": (
-            "The Candidate Job Finder is your working roster of people "
-            "you're actively trying to place. Add candidates here once, "
-            "then plug them into any sequence, newsletter spotlight, or "
-            "JD match.\n\n"
+            "Top Candidates is your working roster of people you're "
+            "actively trying to place. Add candidates here once, then "
+            "plug them into any sequence, newsletter spotlight, or MPC "
+            "outreach.\n\n"
             "Two ways to add:\n"
             "• Add a Candidate — single resume, you fill in the details\n"
             "• Bulk Import — drop in many resumes (PDF/Word/RTF); Claude "
@@ -10699,7 +10699,7 @@ def topbar(s: AppState, rf):
             s.hub = "sales"; s.sp = "candidate_finder"; rf()
         _on_cf = s.hub == "sales" and s.sp == "candidate_finder"
         with ui.element("button").classes("fd-hub" + (" on" if _on_cf else "")).on("click", _cf):
-            ui.label("Candidate Job Finder")
+            ui.label("Top Candidates")
         # Market Intel hub button removed 2026-05-02 per user — "remove
         # for now". Page handler p_market_intel and the underlying
         # market_intel route stay in place so anyone with a deep link
@@ -16405,7 +16405,7 @@ def _sq_pick(s, rf):
                 "icon": "⭐",
                 "title": "Start with an MPC",
                 "subtitle": "Most Placeable Candidate — pitch them to fitting companies",
-                "desc": ("Pick a candidate from your Candidate Job Finder pool. AI "
+                "desc": ("Pick a candidate from your Top Candidates roster. AI "
                          "builds a 5-step placement outreach targeting hiring managers "
                          "at relevant companies and drops you straight in the email "
                          "editor — no in-between review page."),
@@ -28831,7 +28831,7 @@ def _render_aicb_pool_picker(s, rf):
                 f"text-align:center;color:{C['muted']};font-size:13px;"):
             ui.label(
                 "No candidates match yet — try Auto-generate, or add candidates "
-                "from the Candidate Job Finder page."
+                "from the Top Candidates page."
             )
         return
 
@@ -35256,7 +35256,7 @@ def _p_match_jd_tab(s: AppState, rf, pool: list):
     if not _active:
         ui.label(
             "Your pool has no active candidates with resume text yet. "
-            "Add a few via Quick Search first, then come back."
+            "Add a few candidates first, then come back."
         ).style(
             f"font-size:13px;color:{C['muted']};padding:14px 18px;"
             f"background:{C['card']};border:1px solid {C['border']};"
@@ -35793,7 +35793,7 @@ def _render_pool_explainer(s, rf, compact: bool = False):
                 "gap:12px;margin-bottom:8px;flex-wrap:wrap;"):
             with ui.element("div").style("display:flex;align-items:center;gap:10px;"):
                 ui.label("🎯").style("font-size:18px;")
-                ui.label("What is the Candidate Job Finder?").style(
+                ui.label("What is Top Candidates?").style(
                     f"font-size:15px;font-weight:700;color:{C['text_l']};"
                     f"font-family:'Nunito',sans-serif;")
             if compact:
@@ -35808,12 +35808,12 @@ def _render_pool_explainer(s, rf, compact: bool = False):
                     ui.label("Hide" if _expanded else "Show me how it works")
 
         ui.label(
-            "Your Candidate Job Finder is a working roster of people you are actively trying to place. "
-            "Add candidates as you work them, plug them into any sequence, newsletter spotlight, or "
-            "JD match run. Once a candidate is included in a launched sequence they stick around for "
-            "3 more days so you can re-pitch them to a different campaign without re-uploading. "
-            "After that they age out — DripDrop is not an ATS, the roster stays small so you focus on "
-            "people you haven't reached yet."
+            "Top Candidates is your working roster of people you are actively trying to place. "
+            "Add candidates as you work them, then spin up an MPC outreach campaign that pitches "
+            "them to hiring managers at fitting companies. Once a candidate is included in a "
+            "launched sequence they stick around for 3 more days so you can re-pitch them to a "
+            "different campaign without re-uploading. After that they age out — DripDrop is not "
+            "an ATS, the roster stays small so you focus on people you haven't reached yet."
         ).style(
             f"font-size:12.5px;color:{C['muted']};line-height:1.55;margin-bottom:{'0' if compact and not _expanded else '14px'};")
 
@@ -35839,7 +35839,7 @@ def _render_pool_explainer(s, rf, compact: bool = False):
                     f'<ul style="{_col_list}">'
                     f'<li><b>Bulk Import Resumes</b> — drag in a folder of PDFs. AI parses each one and creates a structured profile with role, industry, skills, and a short bio.</li>'
                     f'<li><b>+ Add New Candidate</b> — single-resume flow. Upload one PDF, confirm the parsed details, done.</li>'
-                    f'<li><b>Quick Search</b> — paste a resume to immediately find matching open jobs, then save the candidate at the end of that flow.</li>'
+                    f'<li><b>Add Candidate</b> — paste a resume; AI extracts the highlights and saves the candidate to your roster. Then spin up an MPC outreach from the candidate row.</li>'
                     f'</ul>'
                 )
             # ── Column 2: Organize ──────────────────────────────────────
@@ -35886,7 +35886,7 @@ def _p_candidate_pool_tab(s: AppState, rf, pool: list):
                 f"text-align:center;padding:40px 20px;"):
             ui.label("No candidates in your pool yet").style(
                 f"font-size:18px;font-weight:700;color:{C['text_l']};margin-bottom:8px;")
-            ui.label("Bulk-import resumes to build the pool fast, or run Quick Search for a single candidate.").style(
+            ui.label("Bulk-import resumes to build the roster fast, or add a single candidate at a time.").style(
                 f"font-size:13px;color:{C['muted']};margin-bottom:20px;")
             if _prog.get("active"):
                 ui.label(f"Importing... {_prog['done']} of {_prog['total']} done").style(
@@ -35902,7 +35902,7 @@ def _p_candidate_pool_tab(s: AppState, rf, pool: list):
                         s.cf_tab = "search"; rf()
                     with ui.element("button").classes("fd-gb").style(
                             "padding:12px 24px;font-size:13px;").on("click", _go_search):
-                        ui.label("Start a Quick Search")
+                        ui.label("Add a Candidate")
         return
 
     # Collapsible explainer — summary by default, click "Show me how it works"
@@ -36110,16 +36110,12 @@ def _p_candidate_pool_tab(s: AppState, rf, pool: list):
                         if _loc_disp:
                             ui.label(f"\u00B7 {_loc_disp}").style(
                                 f"font-size:11px;color:{C['muted']};white-space:nowrap;")
-                    # Right: inline stats, only when non-zero; compact toggle
+                    # Right: inline stats, only when non-zero; compact toggle.
+                    # 2026-05-22: "X co" / "X open" pills retired with the
+                    # Search Jobs cut — those counts came from job-board
+                    # search results that no longer get populated.
                     with ui.element("div").style(
                             "display:flex;gap:10px;align-items:center;flex-shrink:0;"):
-                        if _results:
-                            ui.label(f"{len(_results)} co").style(
-                                f"font-size:10px;color:{C['muted']};white-space:nowrap;")
-                        if _open_count:
-                            ui.label(f"{_open_count} open").style(
-                                f"font-size:10px;color:{C['good']};font-weight:700;"
-                                f"white-space:nowrap;")
                         if _status != "active":
                             ui.label(_status_label).style(
                                 f"font-size:8px;padding:2px 6px;border-radius:99px;"
@@ -36262,29 +36258,17 @@ def _p_candidate_pool_tab(s: AppState, rf, pool: list):
                             ui.label("Pulling highlights from resume...").style(
                                 f"font-size:11px;color:{C['muted']};")
                     elif not _resume_has_text:
-                        ui.label("No resume on file  -  add one via Quick Search to see highlights.").style(
+                        ui.label("No resume on file  -  add one via + Add New Candidate to see highlights.").style(
                             f"font-size:11px;color:{C['muted']};font-style:italic;margin-bottom:10px;")
 
                     # Action buttons
+                    # 2026-05-22: "Search Jobs" per-candidate button retired
+                    # with the Search Jobs feature cut. MPC outreach is the
+                    # primary path now — candidates are built into placement
+                    # campaigns directly via the Start MPC Campaign button
+                    # below; users supply the target company list on the
+                    # campaign page (saved lists / ZoomInfo upload).
                     with ui.element("div").style("display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;"):
-                        # Search jobs
-                        def _search_one(c=cand):
-                            s.cf_tab = "search"
-                            s.cf_step = 0
-                            s.cf_resume_text = c.get("resume_text", "")
-                            s.cf_resume_filename = c.get("resume_filename", "")
-                            s.cf_target_role = c.get("target_role", "")
-                            s.cf_location = c.get("location", "")
-                            s.cf_salary = c.get("salary", "")
-                            s.cf_candidate_name = c.get("name", "")
-                            s._cf_pool_search_id = c.get("id", "")
-                            s._cf_save_to_pool = True
-                            s.cf_jobs = []; s.cf_summary = ""; s.cf_redacted_resume = ""
-                            rf()
-                        with ui.element("button").classes("fd-pb").style(
-                                "padding:6px 14px;font-size:11px;").on("click", _search_one):
-                            ui.label("Search Jobs")
-
                         # View Resume  -  opens the full resume text in a modal so
                         # users can quickly scan what's actually on file for a
                         # candidate without needing the original PDF.
@@ -36340,23 +36324,26 @@ def _p_candidate_pool_tab(s: AppState, rf, pool: list):
                                 "padding:6px 14px;font-size:11px;").on("click", _view_resume):
                             ui.label("\U0001F4C4 View Resume")
 
-                        # Start campaign. A prior job search isn't required —
-                        # the campaign page renders with an empty target-company
-                        # list when results aren't populated yet, and the user
-                        # can run the search later (or supply companies another
-                        # way). Reported 2026-05-20 by user: forcing a search
-                        # gate before campaign creation didn't match how they
-                        # actually work.
+                        # Start MPC Campaign. Lands the user on the
+                        # placement campaign page where they build a target
+                        # list from saved contacts and/or a ZoomInfo upload
+                        # (the right-column "Target List" panel handles
+                        # this since 2026-05-22). cpc_companies seeds from
+                        # the candidate's stored results when present —
+                        # legacy data from before Search Jobs was cut.
                         def _camp_one(c=cand):
                             s._nav_history.append(_nav_snapshot(s))
                             s.cpc_candidate = c
                             s.cpc_companies = c.get("results", []) or []
+                            s.cpc_added_lists = []
+                            s.cpc_uploaded_contacts = []
+                            s.cpc_uploaded_sources = []
                             s.cpc_step = 0; s.cpc_campaign = None; s._cpc_error = ""
                             s.sp = "candidate_campaign"
                             rf()
-                        with ui.element("button").classes("fd-gb").style(
+                        with ui.element("button").classes("fd-pb").style(
                                 "padding:6px 14px;font-size:11px;").on("click", _camp_one):
-                            ui.label("Start Campaign")
+                            ui.label("Start MPC Campaign")
 
                         # Status toggles
                         for _st, _st_label, _st_col in [
@@ -36383,24 +36370,10 @@ def _p_candidate_pool_tab(s: AppState, rf, pool: list):
                                 f"cursor:pointer;font-family:inherit;").on("click", _remove):
                             ui.label("Remove")
 
-                    # Results preview (if they have past results)
-                    if _results:
-                        ui.label(f"{len(_results)} companies from last search:").style(
-                            f"font-size:11px;font-weight:700;color:{C['muted']};text-transform:uppercase;"
-                            f"letter-spacing:.06em;margin-bottom:6px;")
-                        with ui.element("div").style("display:flex;flex-wrap:wrap;gap:6px;"):
-                            for r in _results:
-                                _r_col = C["good"] if r.get("has_open_posting") else C["warn"]
-                                with ui.element("div").style(
-                                        f"display:flex;align-items:center;gap:4px;padding:4px 10px;"
-                                        f"border-radius:6px;background:{C['surface']};border:1px solid {C['border']};"):
-                                    ui.element("div").style(
-                                        f"width:6px;height:6px;border-radius:50%;background:{_r_col};")
-                                    ui.label(r.get("company", "")).style(
-                                        f"font-size:11px;color:{C['text']};")
-                                    if r.get("job_url"):
-                                        with ui.link(target=r["job_url"], new_tab=True).style("text-decoration:none;"):
-                                            ui.label("↗").style(f"font-size:10px;color:{C['teal']};")
+                    # "X companies from last search" preview removed
+                    # 2026-05-22 with the Search Jobs cut. The MPC
+                    # campaign page (Start MPC Campaign above) is where
+                    # users build target lists now.
 
 
 def p_candidate_finder(s: AppState, rf):
@@ -36478,7 +36451,7 @@ def p_candidate_finder(s: AppState, rf):
         with ui.element("button").classes("fd-gb").style(
                 "padding:7px 16px;font-size:12px;border-radius:99px;"
                 ).on("click", _back_to_pool):
-            ui.label("← Back to Candidate Job Finder")
+            ui.label("← Back to Top Candidates")
 
     # ── Step 0: Input ──────────────────────────────────────────────────────
     if s.cf_step == 0:
@@ -37085,7 +37058,7 @@ def p_candidate_finder(s: AppState, rf):
                                 rf()
                             with ui.element("button").classes("fd-pb").style(
                                     "padding:8px 16px;font-size:12px;").on("click", _start_camp):
-                                ui.label("Start Campaign")
+                                ui.label("Start MPC Campaign")
                             if job.get("job_url"):
                                 with ui.link(target=job["job_url"], new_tab=True).style("text-decoration:none;"):
                                     with ui.element("button").classes("fd-gb").style(
