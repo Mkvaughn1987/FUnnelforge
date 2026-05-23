@@ -7060,13 +7060,22 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
             is_html = bool("<" in body and ("</p>" in body or "</div>" in body
                            or "<br" in body or "</b>" in body))
 
-            # Append signature  -  convert newlines to <br> when body is HTML
+            # Plain-text body fix 2026-05-22: AI generators (placement,
+            # MPC, target-candidate) return plain text with \n\n between
+            # paragraphs. The sender ships every email as text/html, so
+            # raw \n inside an HTML payload collapses to a single space
+            # and the user sees their paragraphs jammed together — even
+            # though the on-page preview at _send_email_universal does
+            # the conversion and looks fine. Convert here too so the
+            # queued copy of the body matches what the preview showed.
+            if not is_html:
+                body = body.replace("\n", "<br>")
+                is_html = True
+
+            # Append signature  -  always treated as HTML at this point
             if signature:
-                if is_html:
-                    sig_html = signature.replace("\n", "<br>")
-                    full_body = body + "<br><br>" + sig_html.lstrip("<br>")
-                else:
-                    full_body = body + signature
+                sig_html = signature.replace("\n", "<br>")
+                full_body = body + "<br><br>" + sig_html.lstrip("<br>")
             else:
                 full_body = body
 
