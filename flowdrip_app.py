@@ -9351,6 +9351,13 @@ class AppState:
         self.cpc_campaign = None       # generated campaign dict
         self.cpc_generating = False
         self._cpc_error = ""
+        # 2026-05-22: target-list builder added on the placement campaign
+        # review screen. Users can pick from saved contact lists and/or
+        # upload a ZoomInfo (or any) CSV/XLSX so the AI campaign targets
+        # those companies + people.
+        self.cpc_added_lists: list = []        # saved-list stems already added
+        self.cpc_uploaded_contacts: list = []  # contact dicts from file uploads
+        self.cpc_uploaded_sources: list = []   # filenames of uploads, for display
 
         # Recruiting Campaign state
         self.rc_job_title = ""
@@ -34200,6 +34207,183 @@ def p_pdf_gen(s: AppState, rf):
 #  CANDIDATE PLACEMENT CAMPAIGN
 # ═══════════════════════════════════════════════════════════════════════════
 
+# ── CPC target-list helpers (added 2026-05-22) ────────────────────────────
+# Build a combined company-keyed view from pre-fetched job matches +
+# user-picked saved contact lists + uploaded ZoomInfo/CSV/XLSX files.
+# Used by p_candidate_campaign step 0 to render the Target List panel
+# and (before kickoff) to populate s.cpc_companies with the union.
+
+# Header aliases for contact upload parsing — covers ZoomInfo's typical
+# export columns plus generic "Email/Company" naming. Match is
+# case-insensitive on stripped lowercased header text.
+_CPC_HDR_COMPANY = (
+    "company", "company name", "company_name", "account",
+    "account name", "organization", "employer", "current company",
+)
+_CPC_HDR_EMAIL = (
+    "email", "email address", "work email", "business email",
+    "e-mail", "primary email",
+)
+_CPC_HDR_FIRST = ("first name", "firstname", "first", "given name")
+_CPC_HDR_LAST = ("last name", "lastname", "last", "surname", "family name")
+_CPC_HDR_TITLE = (
+    "title", "job title", "position", "role", "current title",
+)
+
+
+def _cpc_parse_contact_upload(file_bytes: bytes, filename: str) -> list:
+    """Parse a CSV/TSV/XLSX byte buffer into a list of contact dicts with
+    normalized keys: Company, Email, FirstName, LastName, Title.
+    Accepts ZoomInfo exports and any tabular file with at least a Company
+    column (everything else is optional). Drops rows with no Company AND
+    no Email. Returns the cleaned rows list (empty if nothing usable)."""
+    name_low = (filename or "").lower()
+    sheet_rows: list = []
+
+    if name_low.endswith((".xlsx", ".xls", ".xlsm")):
+        try:
+            from openpyxl import load_workbook
+            import io as _io
+            wb = load_workbook(_io.BytesIO(file_bytes),
+                               read_only=True, data_only=True)
+            ws = wb.active
+            sheet_rows = [
+                [(c.value if c.value is not None else "") for c in r]
+                for r in ws.iter_rows()
+            ]
+        except ImportError:
+            raise RuntimeError(
+                "openpyxl not installed — Excel upload disabled.")
+        except Exception as e:
+            raise RuntimeError(f"Could not read Excel file: {str(e)[:100]}")
+    else:
+        import csv as _csv
+        import io as _io
+        try:
+            text = file_bytes.decode("utf-8-sig", errors="replace")
+        except Exception:
+            text = file_bytes.decode("latin-1", errors="replace")
+        sample = text[:4096]
+        try:
+            dialect = _csv.Sniffer().sniff(sample, delimiters=",;\t|")
+            delim = dialect.delimiter
+        except Exception:
+            delim = ","
+        reader = _csv.reader(_io.StringIO(text), delimiter=delim)
+        sheet_rows = [list(r) for r in reader]
+
+    if len(sheet_rows) < 2:
+        return []
+
+    header_row = [str(c).strip().lower() for c in sheet_rows[0]]
+
+    def _find_col(aliases):
+        for i, h in enumerate(header_row):
+            if h in aliases:
+                return i
+        return -1
+
+    _ci_company = _find_col(_CPC_HDR_COMPANY)
+    _ci_email = _find_col(_CPC_HDR_EMAIL)
+    _ci_first = _find_col(_CPC_HDR_FIRST)
+    _ci_last = _find_col(_CPC_HDR_LAST)
+    _ci_title = _find_col(_CPC_HDR_TITLE)
+
+    if _ci_company < 0 and _ci_email < 0:
+        # Truly unusable — no column we can target on.
+        return []
+
+    def _cell(row, i):
+        if i < 0 or i >= len(row):
+            return ""
+        v = row[i]
+        return "" if v is None else str(v).strip()
+
+    out: list = []
+    for raw in sheet_rows[1:]:
+        if not raw or all((str(c).strip() == "") for c in raw):
+            continue
+        co = _cell(raw, _ci_company)
+        em = _cell(raw, _ci_email)
+        if not co and not em:
+            continue
+        out.append({
+            "Company": co,
+            "Email": em,
+            "FirstName": _cell(raw, _ci_first),
+            "LastName": _cell(raw, _ci_last),
+            "Title": _cell(raw, _ci_title),
+        })
+    return out
+
+
+def _cpc_combined_target_companies(s) -> list:
+    """Merge pre-fetched job-match companies + chosen saved-list contacts
+    + uploaded contacts into a single list of company dicts:
+        {company, contacts, talking_points, has_open_posting}
+
+    De-duplicated by company name (case-insensitive). Pre-fetched
+    company metadata wins when the same name appears in multiple
+    sources — saved-list / uploaded contacts are appended to that
+    company's contacts array."""
+    by_key: dict = {}
+
+    def _ensure(name: str, *, talking_points=None, has_open_posting=False):
+        key = (name or "").strip().lower()
+        if not key:
+            return None
+        if key not in by_key:
+            by_key[key] = {
+                "company": name.strip(),
+                "contacts": [],
+                "talking_points": list(talking_points or []),
+                "has_open_posting": bool(has_open_posting),
+            }
+        else:
+            # Promote talking_points / has_open_posting if the new entry
+            # carries richer pre-fetched metadata.
+            if talking_points and not by_key[key]["talking_points"]:
+                by_key[key]["talking_points"] = list(talking_points)
+            if has_open_posting:
+                by_key[key]["has_open_posting"] = True
+        return by_key[key]
+
+    for co in (s.cpc_companies or []):
+        _ensure(
+            co.get("company", ""),
+            talking_points=co.get("talking_points", []),
+            has_open_posting=bool(co.get("has_open_posting")),
+        )
+
+    _saved = list_saved_contact_lists() or {}
+    for stem in (s.cpc_added_lists or []):
+        if stem not in _saved:
+            continue
+        try:
+            rows, _ = safe_read_csv_rows(_saved[stem])
+            contacts = _normalize_rows(rows)
+        except Exception as _ex:
+            print(f"[CPC] couldn't read saved list {stem!r}: {_ex}", flush=True)
+            continue
+        for c in contacts:
+            cn = (c.get("Company") or "").strip()
+            if not cn:
+                continue
+            entry = _ensure(cn)
+            if entry is not None:
+                entry["contacts"].append(c)
+
+    for c in (s.cpc_uploaded_contacts or []):
+        cn = (c.get("Company") or "").strip()
+        if not cn:
+            continue
+        entry = _ensure(cn)
+        if entry is not None:
+            entry["contacts"].append(c)
+
+    return list(by_key.values())
+
+
 def p_candidate_campaign(s: AppState, rf):
     """Generate a placement campaign for a specific candidate targeting specific companies."""
 
@@ -34256,30 +34440,193 @@ def p_candidate_campaign(s: AppState, rf):
                                 "padding:4px 12px;font-size:10px;margin-top:4px;").on("click", _save_summary):
                             ui.label("Save Changes")
 
-            # Right: Target companies
+            # Right: Target List (companies + contacts). 2026-05-22 — was
+            # a read-only "Target Companies" list pre-filled from the job
+            # search step; now also accepts saved contact lists and
+            # ZoomInfo / CSV / XLSX uploads so users coming in from the
+            # MPC flow (no pre-fetched companies) can still build a
+            # target list right here.
             with ui.element("div"):
                 with ui.element("div").classes("fd-gc"):
-                    _open = [c for c in companies if c.get("has_open_posting")]
-                    ui.label(f"Target Companies ({len(companies)})").style(
-                        f"font-size:14px;font-weight:700;color:{C['text_l']};font-family:'Nunito',sans-serif;margin-bottom:4px;")
-                    if _open:
-                        ui.label(f"{len(_open)} with confirmed open postings").style(
+                    _combined = _cpc_combined_target_companies(s)
+                    _total_contacts = sum(len(co.get("contacts", [])) for co in _combined)
+                    _has_open = any(co.get("has_open_posting") for co in _combined)
+
+                    ui.label(
+                        f"Target List ({len(_combined)} "
+                        f"compan{'ies' if len(_combined) != 1 else 'y'}"
+                        + (f", {_total_contacts} contact{'s' if _total_contacts != 1 else ''}"
+                           if _total_contacts else "")
+                        + ")"
+                    ).style(
+                        f"font-size:14px;font-weight:700;color:{C['text_l']};"
+                        f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
+                    if _has_open:
+                        _open_n = sum(1 for c in _combined if c.get("has_open_posting"))
+                        ui.label(f"{_open_n} with confirmed open postings").style(
                             f"font-size:11px;color:{C['good']};margin-bottom:8px;")
-                    for co in companies:
-                        _co_col = C["good"] if co.get("has_open_posting") else C["warn"]
-                        with ui.element("div").style(
-                                f"display:flex;align-items:center;gap:8px;padding:6px 0;"
-                                f"border-bottom:1px solid {C['border']}20;"):
-                            ui.element("div").style(
-                                f"width:8px;height:8px;border-radius:50%;background:{_co_col};flex-shrink:0;")
-                            with ui.element("div").style("flex:1;"):
-                                ui.label(co.get("company", "")).style(
-                                    f"font-size:12px;font-weight:600;color:{C['text_l']};")
-                                _tp = co.get("talking_points", [])
-                                if _tp:
-                                    ui.label(_tp[0]).style(
-                                        f"font-size:10px;color:{C['muted']};overflow:hidden;"
-                                        f"text-overflow:ellipsis;white-space:nowrap;max-width:280px;")
+
+                    # ── Source picker: saved lists ─────────────────────────
+                    _saved_lists = list_saved_contact_lists() or {}
+                    _already = set(s.cpc_added_lists or [])
+                    _available = sorted([n for n in _saved_lists.keys()
+                                         if n not in _already])
+                    ui.label("Add target sources").style(
+                        f"font-size:11px;font-weight:700;color:{C['muted']};"
+                        f"text-transform:uppercase;letter-spacing:.06em;"
+                        f"margin-top:10px;margin-bottom:6px;")
+                    if _available:
+                        _list_select = ui.select(
+                            options=["", *_available],
+                            value="",
+                            label="Saved contact list",
+                        ).classes("fd-input").style("width:100%;margin-bottom:8px;")
+                        def _add_list(_e=None, _sel=_list_select):
+                            _n = (_sel.value or "").strip()
+                            if not _n: return
+                            if _n not in (s.cpc_added_lists or []):
+                                s.cpc_added_lists = list(s.cpc_added_lists or []) + [_n]
+                                ui.notify(f"Added '{_n}' to the target list.",
+                                          type="positive", timeout=3000)
+                                rf()
+                        _list_select.on("update:model-value", _add_list)
+                    elif _saved_lists:
+                        ui.label("All your saved lists are already in the "
+                                 "target list.").style(
+                            f"font-size:11px;color:{C['muted']};font-style:italic;"
+                            f"margin-bottom:8px;")
+                    else:
+                        ui.label("No saved contact lists yet — upload a CSV "
+                                 "below or save one from the Contacts page.").style(
+                            f"font-size:11px;color:{C['muted']};font-style:italic;"
+                            f"margin-bottom:8px;")
+
+                    # ── Source picker: file upload ─────────────────────────
+                    def _on_cpc_upload(e):
+                        try:
+                            _bytes = e.content.read()
+                        except Exception as _re:
+                            ui.notify(f"Couldn't read {e.name}: {str(_re)[:100]}",
+                                      type="negative", timeout=6000); return
+                        try:
+                            _new_contacts = _cpc_parse_contact_upload(_bytes, e.name)
+                        except Exception as _pe:
+                            ui.notify(f"Couldn't parse {e.name}: {str(_pe)[:100]}",
+                                      type="negative", timeout=6000); return
+                        if not _new_contacts:
+                            ui.notify(
+                                f"'{e.name}' had no rows with a Company or "
+                                f"Email column. Headers needed: Company "
+                                f"(or Account / Organization) at minimum.",
+                                type="warning", timeout=8000); return
+                        s.cpc_uploaded_contacts = (
+                            list(s.cpc_uploaded_contacts or []) + _new_contacts)
+                        s.cpc_uploaded_sources = (
+                            list(s.cpc_uploaded_sources or []) + [e.name])
+                        ui.notify(
+                            f"Loaded {len(_new_contacts)} contact"
+                            f"{'s' if len(_new_contacts) != 1 else ''} "
+                            f"from {e.name}.",
+                            type="positive", timeout=4000)
+                        rf()
+                    ui.upload(
+                        on_upload=_on_cpc_upload, multiple=True, max_files=10,
+                        label="Upload ZoomInfo or any CSV / XLSX",
+                    ).props(
+                        'accept=".csv,.tsv,.txt,.xlsx,.xls,.xlsm,'
+                        'text/csv,application/vnd.ms-excel,'
+                        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"'
+                    ).classes("fd-input").style("width:100%;margin-bottom:10px;")
+                    ui.label(
+                        "ZoomInfo export or any CSV/XLSX with a Company "
+                        "column. Email + name optional but used when present."
+                    ).style(f"font-size:10px;color:{C['muted']};margin-top:-4px;"
+                            f"margin-bottom:10px;line-height:1.4;")
+
+                    # ── Selected sources, each removable ───────────────────
+                    if s.cpc_added_lists or s.cpc_uploaded_sources:
+                        ui.label("Selected sources").style(
+                            f"font-size:11px;font-weight:700;color:{C['muted']};"
+                            f"text-transform:uppercase;letter-spacing:.06em;"
+                            f"margin-top:6px;margin-bottom:6px;")
+                        for _n in list(s.cpc_added_lists or []):
+                            with ui.element("div").style(
+                                    f"display:flex;align-items:center;gap:8px;"
+                                    f"padding:5px 8px;background:{C['surface']};"
+                                    f"border:1px solid {C['border']};border-radius:6px;"
+                                    f"margin-bottom:4px;"):
+                                ui.label(f"📋 {_n}").style(
+                                    f"flex:1;font-size:11px;color:{C['text_l']};")
+                                def _rm_list(name=_n):
+                                    s.cpc_added_lists = [
+                                        x for x in (s.cpc_added_lists or [])
+                                        if x != name]
+                                    rf()
+                                with ui.element("button").style(
+                                        f"background:transparent;border:none;"
+                                        f"color:{C['danger']};cursor:pointer;"
+                                        f"font-size:14px;line-height:1;"
+                                        f"padding:0 4px;"
+                                        ).on("click", _rm_list):
+                                    ui.label("✕")
+                        for _src in list(s.cpc_uploaded_sources or []):
+                            with ui.element("div").style(
+                                    f"display:flex;align-items:center;gap:8px;"
+                                    f"padding:5px 8px;background:{C['surface']};"
+                                    f"border:1px solid {C['border']};border-radius:6px;"
+                                    f"margin-bottom:4px;"):
+                                ui.label(f"📄 {_src}").style(
+                                    f"flex:1;font-size:11px;color:{C['text_l']};")
+                        if s.cpc_uploaded_sources:
+                            def _clear_uploads():
+                                s.cpc_uploaded_contacts = []
+                                s.cpc_uploaded_sources = []
+                                rf()
+                            with ui.element("button").classes("fd-gb").style(
+                                    "padding:4px 10px;font-size:10px;"
+                                    "margin-top:2px;"
+                                    ).on("click", _clear_uploads):
+                                ui.label("Clear all uploads")
+
+                    # ── Company preview (first 10) ─────────────────────────
+                    if _combined:
+                        ui.label("Companies").style(
+                            f"font-size:11px;font-weight:700;color:{C['muted']};"
+                            f"text-transform:uppercase;letter-spacing:.06em;"
+                            f"margin-top:12px;margin-bottom:6px;")
+                        for co in _combined[:10]:
+                            _co_col = (C["good"] if co.get("has_open_posting")
+                                       else C["warn"])
+                            _n_contacts = len(co.get("contacts", []))
+                            with ui.element("div").style(
+                                    f"display:flex;align-items:center;gap:8px;"
+                                    f"padding:6px 0;"
+                                    f"border-bottom:1px solid {C['border']}20;"):
+                                ui.element("div").style(
+                                    f"width:8px;height:8px;border-radius:50%;"
+                                    f"background:{_co_col};flex-shrink:0;")
+                                with ui.element("div").style("flex:1;"):
+                                    ui.label(co.get("company", "")).style(
+                                        f"font-size:12px;font-weight:600;"
+                                        f"color:{C['text_l']};")
+                                    _meta_bits = []
+                                    if _n_contacts:
+                                        _meta_bits.append(
+                                            f"{_n_contacts} contact"
+                                            f"{'s' if _n_contacts != 1 else ''}")
+                                    _tp = co.get("talking_points", [])
+                                    if _tp:
+                                        _meta_bits.append(_tp[0])
+                                    if _meta_bits:
+                                        ui.label(" · ".join(_meta_bits)).style(
+                                            f"font-size:10px;color:{C['muted']};"
+                                            f"overflow:hidden;text-overflow:ellipsis;"
+                                            f"white-space:nowrap;max-width:280px;")
+                        if len(_combined) > 10:
+                            ui.label(f"+ {len(_combined) - 10} more "
+                                     f"company{'ies' if len(_combined) - 10 != 1 else ''}").style(
+                                f"font-size:10px;color:{C['muted']};"
+                                f"font-style:italic;padding-top:6px;")
 
         # Info about what will be generated
         with ui.element("div").classes("fd-gc").style("max-width:1000px;margin-top:16px;"):
@@ -34296,6 +34643,19 @@ def p_candidate_campaign(s: AppState, rf):
 
         # Generate button
         def _generate():
+            # 2026-05-22: merge any sources the user added on this page
+            # (saved lists, uploaded files) into cpc_companies so the
+            # AI prompt sees the full combined target list. Pre-fetched
+            # job-match data (talking_points, has_open_posting) is
+            # preserved when present.
+            _merged = _cpc_combined_target_companies(s)
+            if _merged:
+                s.cpc_companies = _merged
+            if not s.cpc_companies:
+                ui.notify(
+                    "Add at least one target source — pick a saved list "
+                    "or upload a CSV/XLSX — before generating.",
+                    type="warning", timeout=6000); return
             s.cpc_step = 1; s.cpc_generating = True; s._cpc_error = ""; rf()
             def _run():
                 import anthropic
