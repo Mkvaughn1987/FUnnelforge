@@ -29220,6 +29220,73 @@ def _aicb_auto_fill_run(s):
         s._aicb_autofill_err = _friendly_ai_error(e)
 
 
+# ── AI Guided Sequence Builder helpers (2026-05-23) ──────────────────────
+# Pure functions broken out of p_seq_builder so step CRUD + label logic
+# can be tested without a NiceGUI harness. UI handlers call these and
+# then trigger rf().
+
+_SB_VALID_TYPES = ("email", "linkedin", "call", "sms", "task")
+
+_SB_TYPE_LABELS = {
+    "email":    "Email",
+    "linkedin": "LinkedIn",
+    "call":     "Call",
+    "sms":      "SMS",
+    "task":     "Task",
+}
+
+
+def _sb_add_step(steps: list, step_type: str) -> dict:
+    """Append a new step of the given type to `steps` (mutates).
+    First step defaults to Day 0; subsequent steps default to +1 day
+    after the previous. Returns the new step dict."""
+    if step_type not in _SB_VALID_TYPES:
+        raise ValueError(f"Unknown step type {step_type!r}; "
+                         f"expected one of {_SB_VALID_TYPES}")
+    import uuid as _uuid
+    _new = {
+        "id": _uuid.uuid4().hex,
+        "type": step_type,
+        "delay_days": 0 if not steps else 1,
+        "input": "",
+    }
+    steps.append(_new)
+    return _new
+
+
+def _sb_remove_step(steps: list, step_id: str) -> bool:
+    """Remove the step whose `id` matches `step_id`. Returns True if a
+    step was removed, False if no match. Mutates `steps`."""
+    for _i, _st in enumerate(steps):
+        if _st.get("id") == step_id:
+            del steps[_i]
+            return True
+    return False
+
+
+def _sb_move_step(steps: list, step_id: str, new_index: int) -> bool:
+    """Move the step with the given id to `new_index` (clamped to the
+    valid range). Returns True if reordered, False if id not found."""
+    _src = -1
+    for _i, _st in enumerate(steps):
+        if _st.get("id") == step_id:
+            _src = _i
+            break
+    if _src < 0:
+        return False
+    _moved = steps.pop(_src)
+    _dst = max(0, min(new_index, len(steps)))
+    steps.insert(_dst, _moved)
+    return True
+
+
+def _sb_step_label(step: dict) -> str:
+    """Render a step's short label, e.g. 'Email · Day 2'."""
+    _t = (step.get("type") or "").lower()
+    _label = _SB_TYPE_LABELS.get(_t, _t.title() or "Step")
+    return f"{_label} · Day {int(step.get('delay_days', 0))}"
+
+
 def _aicb_auto_fill_target_details(s, rf):
     """Background-thread wrapper around _aicb_auto_fill_run. Sets a
     spinner state flag while running and calls rf() on completion."""
