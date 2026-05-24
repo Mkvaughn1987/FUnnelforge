@@ -24714,10 +24714,68 @@ def p_seq_builder(s: AppState, rf):
         f"font-size:12.5px;color:{C['muted']};line-height:1.55;"
         f"margin-bottom:18px;max-width:920px;")
 
-    # Section placeholders — filled in by later tasks
     with ui.element("div").style("max-width:920px;"):
-        ui.label("Brief and steps sections land in Task 4 + 5.").style(
-            f"font-size:12px;color:{C['warn']};font-style:italic;")
+        # ── Section 1: Campaign brief ───────────────────────────────────
+        with ui.element("div").classes("fd-gc").style("margin-bottom:18px;"):
+            ui.label("1. Campaign brief").style(
+                f"font-size:14px;font-weight:700;color:{C['text_l']};"
+                f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
+            ui.label(
+                "All three fields are optional — they anchor the AI when "
+                "it writes step copy. Skip them and AI will guess from "
+                "each step's content."
+            ).style(
+                f"font-size:11px;color:{C['muted']};margin-bottom:14px;"
+                f"line-height:1.5;")
+
+            ui.label("Goal of this sequence").classes("fd-fl")
+            _goal_in = ui.textarea(
+                value=s.sb_goal,
+                placeholder=(
+                    "Example: Pitch a senior PM candidate to GC hiring "
+                    "managers in Denver and start a conversation"
+                ),
+            ).style(
+                f"width:100%;min-height:60px;background:{C['surface']};"
+                f"border:1px solid {C['border']};border-radius:6px;"
+                f"padding:8px 10px;color:{C['text_l']};font-size:12px;"
+                f"font-family:inherit;resize:vertical;margin-bottom:14px;")
+            _goal_in.on("blur", lambda: setattr(
+                s, "sb_goal", (_goal_in.value or "").strip()))
+
+            ui.label("Who you're sending to").classes("fd-fl")
+            _aud_in = ui.input(
+                value=s.sb_audience,
+                placeholder=(
+                    "Example: VPs of Construction at $50M-$500M GCs in CO"
+                ),
+            ).classes("fd-input").style("width:100%;margin-bottom:14px;")
+            _aud_in.on("blur", lambda: setattr(
+                s, "sb_audience", (_aud_in.value or "").strip()))
+
+            ui.label("Tone").classes("fd-fl")
+            _tone_options = [
+                ("consultative", "Consultative"),
+                ("direct", "Direct"),
+                ("casual", "Casual"),
+                ("formal", "Formal"),
+            ]
+            with ui.element("div").style(
+                    "display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;"):
+                for _key, _label in _tone_options:
+                    _is_sel = s.sb_tone == _key
+                    def _pick_tone(k=_key):
+                        s.sb_tone = k
+                        rf()
+                    with ui.element("button").style(
+                            f"padding:6px 14px;font-size:12px;border-radius:99px;"
+                            f"cursor:pointer;font-family:inherit;font-weight:600;"
+                            f"background:{C['teal'] if _is_sel else C['surface']};"
+                            f"color:{'#0D1520' if _is_sel else C['text']};"
+                            f"border:1px solid "
+                            f"{C['teal'] if _is_sel else C['border']};"
+                            ).on("click", _pick_tone):
+                        ui.label(_label).style("pointer-events:none;")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
