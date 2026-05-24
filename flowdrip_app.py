@@ -24777,6 +24777,148 @@ def p_seq_builder(s: AppState, rf):
                             ).on("click", _pick_tone):
                         ui.label(_label).style("pointer-events:none;")
 
+        # ── Section 2: Steps ────────────────────────────────────────────
+        with ui.element("div").classes("fd-gc").style("margin-bottom:18px;"):
+            with ui.element("div").style(
+                    "display:flex;align-items:center;justify-content:space-between;"
+                    "margin-bottom:4px;"):
+                ui.label("2. Steps").style(
+                    f"font-size:14px;font-weight:700;color:{C['text_l']};"
+                    f"font-family:'Nunito',sans-serif;")
+                _n = len(s.sb_steps)
+                _meta = f"{_n} of 15"
+                _meta_col = (C["danger"] if _n >= 15 else
+                             C["warn"] if _n >= 10 else
+                             C["muted"])
+                ui.label(_meta).style(
+                    f"font-size:11px;color:{_meta_col};font-weight:600;")
+
+            ui.label(
+                "Click a button below to add a step. Drag the ≡ handle "
+                "on any step card to reorder. Each step's input accepts "
+                "either AI direction or actual copy — the AI detects "
+                "which and writes or polishes accordingly."
+            ).style(
+                f"font-size:11px;color:{C['muted']};margin-bottom:14px;"
+                f"line-height:1.5;")
+
+            # Soft warning at 10+, hard block at 15
+            if 10 <= len(s.sb_steps) < 15:
+                with ui.element("div").style(
+                        f"background:{C['warn']}10;border:1px solid {C['warn']}40;"
+                        f"border-radius:6px;padding:8px 12px;margin-bottom:10px;"):
+                    ui.label(
+                        f"⚠ You're at {len(s.sb_steps)} steps — long "
+                        f"sequences risk reading as harassment. Most "
+                        f"recruiters keep it under 10."
+                    ).style(f"font-size:11px;color:{C['warn']};line-height:1.5;")
+            elif len(s.sb_steps) >= 15:
+                with ui.element("div").style(
+                        f"background:{C['danger']}10;border:1px solid {C['danger']}40;"
+                        f"border-radius:6px;padding:8px 12px;margin-bottom:10px;"):
+                    ui.label(
+                        "Max 15 steps. Remove one to add another."
+                    ).style(f"font-size:11px;color:{C['danger']};line-height:1.5;")
+
+            # Add-step button row — disabled at 15
+            _at_cap = len(s.sb_steps) >= 15
+            _add_buttons = [
+                ("email",    "+ Add Email",    "✉"),
+                ("linkedin", "+ Add LinkedIn", "in"),
+                ("call",     "+ Add Call",     "☎"),
+                ("sms",      "+ Add SMS",      "msg"),
+                ("task",     "+ Add Task",     "✓"),
+            ]
+            with ui.element("div").style(
+                    "display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;"):
+                for _stype, _label, _icon in _add_buttons:
+                    def _add(t=_stype):
+                        try:
+                            _sb_add_step(s.sb_steps, t)
+                        except ValueError as _ve:
+                            ui.notify(str(_ve), type="warning")
+                            return
+                        rf()
+                    with ui.element("button").classes(
+                            "fd-gb" + (" disabled" if _at_cap else "")
+                            ).style(
+                            f"padding:7px 14px;font-size:12px;"
+                            f"{'opacity:0.4;pointer-events:none;' if _at_cap else ''}"
+                            ).on("click", _add):
+                        ui.label(_label).style("pointer-events:none;")
+
+            # Step cards — container has a data attribute SortableJS hooks to
+            with ui.element("div").props('id="sb-steps-list"').style(
+                    "display:flex;flex-direction:column;gap:10px;"):
+                for _idx, _step in enumerate(list(s.sb_steps)):
+                    _sid = _step.get("id", "")
+                    _stype = _step.get("type", "")
+                    _icon = {"email": "✉", "linkedin": "in", "call": "☎",
+                             "sms": "msg", "task": "✓"}.get(_stype, "•")
+                    with ui.element("div").props(f'data-step-id="{_sid}"').style(
+                            f"background:{C['surface']};border:1px solid {C['border']};"
+                            f"border-left:3px solid {C['teal']};border-radius:0 8px 8px 0;"
+                            f"padding:12px 14px;"):
+                        # Header row
+                        with ui.element("div").style(
+                                "display:flex;align-items:center;gap:10px;margin-bottom:10px;"):
+                            ui.label("≡").classes("sb-drag-handle").style(
+                                f"font-size:16px;color:{C['muted']};"
+                                f"cursor:grab;font-weight:700;user-select:none;")
+                            ui.label(_icon).style(
+                                f"font-size:14px;color:{C['teal']};"
+                                f"font-weight:700;width:24px;text-align:center;")
+                            ui.label(_sb_step_label(_step)).style(
+                                f"font-size:12px;font-weight:700;color:{C['text_l']};"
+                                f"font-family:'Nunito',sans-serif;flex:1;")
+
+                            # Day-offset input
+                            ui.label("Day offset:").style(
+                                f"font-size:11px;color:{C['muted']};")
+                            _day_in = ui.number(
+                                value=int(_step.get("delay_days", 0)),
+                                min=0, step=1,
+                            ).style(
+                                f"width:70px;background:{C['card']};"
+                                f"border:1px solid {C['border']};border-radius:6px;"
+                                f"padding:4px 6px;color:{C['text_l']};")
+                            def _save_delay(sid=_sid, inp=_day_in):
+                                for _st in s.sb_steps:
+                                    if _st.get("id") == sid:
+                                        _st["delay_days"] = max(0, int(inp.value or 0))
+                                        break
+                                rf()
+                            _day_in.on("blur", _save_delay)
+
+                            # Remove
+                            def _remove(sid=_sid):
+                                _sb_remove_step(s.sb_steps, sid)
+                                rf()
+                            with ui.element("button").style(
+                                    f"background:transparent;border:none;"
+                                    f"color:{C['danger']};cursor:pointer;"
+                                    f"font-size:14px;line-height:1;"
+                                    f"padding:0 6px;"
+                                    ).on("click", _remove):
+                                ui.label("✕")
+
+                        # Textarea with type-specific placeholder
+                        _placeholder = _sb_placeholder_for(_stype)
+                        _input_ta = ui.textarea(
+                            value=_step.get("input", ""),
+                            placeholder=_placeholder,
+                        ).style(
+                            f"width:100%;min-height:90px;background:{C['card']};"
+                            f"border:1px solid {C['border']};border-radius:6px;"
+                            f"padding:8px 10px;color:{C['text_l']};font-size:12px;"
+                            f"font-family:inherit;resize:vertical;")
+                        def _save_input(sid=_sid, ta=_input_ta):
+                            for _st in s.sb_steps:
+                                if _st.get("id") == sid:
+                                    _st["input"] = (ta.value or "")
+                                    break
+                        _input_ta.on("blur", _save_input)
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  EMAIL SEQUENCER: SEQUENCE MANAGER (seq_mgr)
@@ -29380,6 +29522,54 @@ def _sb_step_label(step: dict) -> str:
     _t = (step.get("type") or "").lower()
     _label = _SB_TYPE_LABELS.get(_t, _t.title() or "Step")
     return f"{_label} · Day {int(step.get('delay_days', 0))}"
+
+
+def _sb_placeholder_for(step_type: str) -> str:
+    """Return the textarea placeholder for a given step type. Each
+    one shows BOTH a hint-mode example and a write-it-yourself
+    example so the user knows either input works."""
+    _t = (step_type or "").lower()
+    if _t == "email":
+        return (
+            "Hint mode: \"Warm opening that references their recent "
+            "Bisnow feature, then introduce a senior PM candidate I'm "
+            "representing. End with a question about their pipeline. "
+            "Keep it under 90 words.\"\n\n"
+            "— OR — write the actual email and AI will polish it / add "
+            "merge fields:\n"
+            "\"Hi {FirstName}, Saw your team's Bisnow feature last "
+            "week — congrats…\""
+        )
+    if _t == "linkedin":
+        return (
+            "Hint mode: \"Short connection request — say I sent an "
+            "email about a candidate.\"\n\n"
+            "— OR — write it yourself:\n"
+            "\"Sent you an email about a candidate in your space — "
+            "wanted to connect here as well.\""
+        )
+    if _t == "call":
+        return (
+            "Hint mode: \"Reference the email I sent. Ask if they had "
+            "a chance to look at the profile. Quick qualify: are they "
+            "hiring? Who owns the decision?\"\n\n"
+            "— OR — write a script verbatim and AI keeps it as-is."
+        )
+    if _t == "sms":
+        return (
+            "Hint mode: \"Brief follow-up to the email — gut check "
+            "whether the candidate looks like a fit.\"\n\n"
+            "— OR — write the SMS yourself:\n"
+            "\"Quick gut check on the candidate — does this look right "
+            "for your team?\""
+        )
+    if _t == "task":
+        return (
+            "What to do (just plain text — AI doesn't write tasks, "
+            "this is a reminder):\n"
+            "\"Pause and scan the response inbox before continuing.\""
+        )
+    return ""
 
 
 def _aicb_auto_fill_target_details(s, rf):
