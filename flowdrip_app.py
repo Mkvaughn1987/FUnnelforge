@@ -9488,6 +9488,17 @@ class AppState:
         self._cf_pool_search_id = ""   # ID of candidate being searched from pool
         self._cf_batch_queue = []      # list of candidate IDs for batch search
 
+        # AI Guided Sequence Builder state (2026-05-23). The Custom
+        # Build chooser tile routes to s.sp = "seq_builder" which
+        # renders p_seq_builder. State persists in app.storage.user
+        # so a Cloudflare WS blip doesn't wipe a half-built sequence.
+        self.sb_goal: str = ""                  # the campaign's goal blurb
+        self.sb_audience: str = ""              # who the user is targeting
+        self.sb_tone: str = "consultative"      # consultative|direct|casual|formal
+        self.sb_steps: list = []                # list of step dicts (see schema below)
+        self.sb_generating: bool = False        # spinner flag during Claude call
+        self.sb_error: str = ""                 # last-error string for inline display
+
         # Candidate Placement Campaign state
         self.cpc_step = 0              # 0=review, 1=generating, 2=done
         # 2026-05-23: cpc_candidate is now the PRIMARY (index 0) of a list
