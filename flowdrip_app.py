@@ -7665,6 +7665,39 @@ You are a market advisor who happens to place people, not a recruiter who
 happens to know the market. Every email should feel like a colleague
 forwarding a useful insight, not a vendor asking for a meeting.
 
+FIRST EMAIL EXCEPTION (step 1 of a sequence ONLY):
+The "never lead with yourself" rule below does NOT apply to step 1.
+The FIRST email of every sequence must open with a soft, warm intro
+so the recipient knows who's contacting them and why they're a fit.
+Structure for step 1:
+  1. Greet with "Hi {FirstName},"
+  2. In 1-2 sentences, introduce the sender as a recruiter at
+     [the user's firm name — use the company name from the BRIEF if
+     present, otherwise say "our firm"] who specializes in
+     [the sequence's niche / industry / role family — pull from the
+     BRIEF's market_sector, market_niche, target roles, or
+     primary_industry; pick the most specific available].
+     Example: "I'm a recruiter at Arena Direct Hire and we specialize
+     in Project Managers and Superintendents in the Denver commercial
+     construction market."
+  3. THEN transition to a substantive market observation, question,
+     candidate teaser, or insight tied to the recipient's company,
+     role, market, or recent activity. Keep the email substantive
+     beyond the intro — don't let it become a generic introduction.
+  4. Close with a soft, low-friction CTA (a question to invite a
+     reply, OR an offer to share something useful — NOT "schedule a
+     call" / "book a meeting"). Still follow the CTA VARIETY rules
+     below for which specific kind of close to use.
+
+Keep the warm-intro paragraph to 2-3 sentences max. The rest of the
+email still has real content (data, candidate teaser, project hook).
+The intro is a handshake, not the whole email.
+
+DO NOT add this warm intro to emails 2-N of a sequence. Those still
+follow the OPENING-LINE VARIETY rotation (DATA / EVENT / QUESTION /
+OBSERVATION / CANDIDATE / CONTRARIAN). Re-introducing yourself in
+every email reads as spam.
+
 VOICE & TONE:
 - EVERY email body MUST start with "Hi {FirstName}," on its own line.
   This is a merge variable that gets replaced with the recipient's name.
@@ -29784,7 +29817,9 @@ def _sb_build_prompt(goal: str, audience: str, tone: str,
 
     return (
         f"You are building a {_tone} outreach sequence for a recruiter.\n\n"
-        f"GOAL: {_goal}\n"
+        + _DRIPDROP_PLAYBOOK + "\n"
+        + _style_guide_prompt() + "\n"
+        + f"GOAL: {_goal}\n"
         f"AUDIENCE: {_aud}\n"
         f"TONE: {_tone}\n\n"
         f"STEPS the user defined (in order, with relative day offsets):\n\n"
@@ -35800,7 +35835,8 @@ def p_candidate_campaign(s: AppState, rf):
                         f"naturally. A hard \\n in the middle of a sentence renders as a visible "
                         f"line break and looks broken.\n"
                         f"   - Do NOT mix markdown and HTML — pick HTML and stay consistent.\n\n"
-                        + _style_guide_prompt() +
+                        + _DRIPDROP_PLAYBOOK + "\n"
+                        + _style_guide_prompt() + "\n"
                         + "Return ONLY valid JSON:\n"
                         + (
                             f'{{"campaign_name":"{cand_name} + {_slate_n_gen - 1} more - Slate Placement",'
