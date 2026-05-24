@@ -31881,63 +31881,63 @@ def p_ai_campaign(s: AppState, rf):
                                                         f"font-size:10px;color:{ccolor};font-weight:600;width:40px;")
                                                     ui.label(_step_name).style(
                                                         f"font-size:10px;color:{C['text']};")
-                                # BYOS description input
+                                # BYOS / Custom Build — 2026-05-23: the inline
+                                # textarea + Generate button was replaced with
+                                # a CTA that routes to the dedicated AI Guided
+                                # Sequence Builder page (s.sp = "seq_builder").
+                                # That page has step-by-step direction, drag-
+                                # to-reorder, and per-step hint/copy inputs —
+                                # nothing the AICB wizard's inline textarea
+                                # could match. Custom Build no longer expands
+                                # inline within the wizard.
                                 if ckey == "byos":
-                                    byos_inp = ui.textarea(
-                                        value=s.aicb_byos_desc,
-                                        placeholder="Example: 6 emails over 4 weeks. Start with a market insight, "
-                                        "then LinkedIn on day 3, weekly emails with comp data and candidate teasers."
-                                    ).style(
-                                        f"width:100%;min-height:80px;background:{C['surface']};"
-                                        f"border:1px solid {C['border']};"
-                                        f"border-radius:8px;padding:10px;font-size:12px;color:{C['text_l']};"
-                                        f"font-family:inherit;resize:none;margin-top:4px;")
-                                    # Sync back to state on blur so a rerender
-                                    # triggered by anything else (auto-gen, style
-                                    # click) doesn't wipe the user's typing.
-                                    byos_inp.on("blur", lambda: setattr(
-                                        s, "aicb_byos_desc", (byos_inp.value or "").strip()))
+                                    with ui.element("div").style(
+                                            f"background:{C['surface']};"
+                                            f"border:1px solid {C['border']};"
+                                            f"border-radius:8px;padding:14px 16px;"
+                                            f"margin-top:8px;"):
+                                        ui.label(
+                                            "Custom Build opens a dedicated "
+                                            "step-by-step page with per-step "
+                                            "examples, drag-to-reorder, and "
+                                            "an AI that either writes from "
+                                            "your directions OR polishes copy "
+                                            "you draft yourself."
+                                        ).style(
+                                            f"font-size:12px;color:{C['text']};"
+                                            f"line-height:1.55;margin-bottom:10px;")
 
-                                # Inline Next button on the selected style
-                                # card — same UX pattern as the Target Type
-                                # cards on Step 1 (one-click "I picked this,
-                                # take me forward"). Stops event propagation
-                                # so the card-level click doesn't double-fire.
-                                # For Free Flow (byos), validates that the
-                                # description is non-empty before advancing.
-                                # Inline "Generate Campaign" button — picking
-                                # a style is the same gesture as committing to
-                                # generate. Advances to step 5 (review) AND
-                                # kicks off _do_research so the spinner shows
-                                # immediately. (2026-04-26 user feedback —
-                                # "should just have a Generate button instead
-                                # of next; review shows while generating".)
-                                def _style_generate(k=ckey, _b=byos_inp):
-                                    if k == "byos":
-                                        _desc = (
-                                            (_b.value if _b is not None else "")
-                                            or s.aicb_byos_desc or ""
-                                        ).strip()
-                                        if not _desc:
-                                            ui.notify(
-                                                "Describe your custom Free Flow first.",
-                                                type="warning")
-                                            return
-                                        s.aicb_byos_desc = _desc
-                                    s.aicb_camp_type = k
-                                    s.aicb_wizard_step = 5
-                                    # Kick off generation; the spinner block
-                                    # at step 5 picks up s.aicb_generating.
-                                    _do_research()
-                                with ui.element("div").style(
-                                        "display:flex;justify-content:flex-end;"
-                                        "margin-top:12px;"):
-                                    with ui.element("button").classes("fd-pb").props(
-                                            "@click.stop").style(
-                                            "padding:9px 20px;font-size:13px;"
-                                            "font-weight:700;"
-                                            ).on("click", _style_generate):
-                                        ui.label("✦ Generate Campaign →")
+                                        def _go_seq_builder(k=ckey):
+                                            s.aicb_camp_type = k
+                                            s.sp = "seq_builder"
+                                            rf()
+
+                                        with ui.element("div").style(
+                                                "display:flex;justify-content:flex-end;"):
+                                            with ui.element("button").classes("fd-pb").props(
+                                                    "@click.stop").style(
+                                                    "padding:9px 20px;font-size:13px;"
+                                                    "font-weight:700;"
+                                                    ).on("click", _go_seq_builder):
+                                                ui.label("✦ Open Sequence Builder →")
+                                else:
+                                    # Non-byos styles keep the original
+                                    # "Generate Campaign →" inline flow.
+                                    def _style_generate(k=ckey):
+                                        s.aicb_camp_type = k
+                                        s.aicb_wizard_step = 5
+                                        # Kick off generation; the spinner block
+                                        # at step 5 picks up s.aicb_generating.
+                                        _do_research()
+                                    with ui.element("div").style(
+                                            "display:flex;justify-content:flex-end;"
+                                            "margin-top:12px;"):
+                                        with ui.element("button").classes("fd-pb").props(
+                                                "@click.stop").style(
+                                                "padding:9px 20px;font-size:13px;"
+                                                "font-weight:700;"
+                                                ).on("click", _style_generate):
+                                            ui.label("✦ Generate Campaign →")
 
                 # ── "My Campaign Styles"  -  saved Free Flow variants ──────────
                 _my_styles = _load_my_campaign_styles()
