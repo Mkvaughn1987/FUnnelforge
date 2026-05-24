@@ -23841,7 +23841,7 @@ def p_dashboard(s: AppState, rf):
                         f"background:{C['card']};border:1px solid {C['border']};"
                         f"border-radius:10px;padding:14px 16px;margin-top:8px;"):
                     with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;"):
-                        ui.label(f"Job Match ({len(_dash_active_pool)} active)").style(
+                        ui.label(f"Top Candidates ({len(_dash_active_pool)} active)").style(
                             f"font-size:13px;font-weight:600;color:{C['text_l']};")
                         def _go_pool():
                             nav_go(s, rf, hub="sales", page="candidate_finder")
@@ -29570,6 +29570,106 @@ def _sb_placeholder_for(step_type: str) -> str:
             "\"Pause and scan the response inbox before continuing.\""
         )
     return ""
+
+
+def _sb_build_prompt(goal: str, audience: str, tone: str,
+                    steps: list) -> str:
+    """Build the Claude prompt for generating sequence content from
+    the user's brief + per-step direction. Each step's `input` field
+    is passed through verbatim — Claude is instructed to detect
+    whether the text is INSTRUCTIONS (write fresh) or DRAFTED COPY
+    (lightly polish)."""
+    _tone = (tone or "consultative").strip().lower()
+    _goal = (goal or "").strip() or "(not specified — infer from steps)"
+    _aud = (audience or "").strip() or "(not specified — infer from steps)"
+
+    _step_blocks = []
+    for _i, _st in enumerate(steps, start=1):
+        _stype = (_st.get("type") or "").upper()
+        _delay = int(_st.get("delay_days", 0))
+        _inp = (_st.get("input") or "").strip() or "(no direction given — improvise)"
+        _step_blocks.append(
+            f"  Step {_i}: {_stype}, +{_delay} day(s) after previous\n"
+            f"    User direction or draft:\n    {_inp}"
+        )
+    _steps_block = "\n\n".join(_step_blocks) if _step_blocks else "  (no steps defined)"
+
+    return (
+        f"You are building a {_tone} outreach sequence for a recruiter.\n\n"
+        f"GOAL: {_goal}\n"
+        f"AUDIENCE: {_aud}\n"
+        f"TONE: {_tone}\n\n"
+        f"STEPS the user defined (in order, with relative day offsets):\n\n"
+        f"{_steps_block}\n\n"
+        f"For each step, decide whether the user's text is INSTRUCTIONS "
+        f"or DRAFTED COPY:\n\n"
+        f"- INSTRUCTIONS: text reads as guidance (\"warm opening that "
+        f"mentions...\", \"short connection request — say I...\"). "
+        f"Write the final copy from scratch.\n"
+        f"- DRAFTED COPY: text reads as final output (starts with "
+        f"\"Hi {{FirstName}}\", has merge fields, full sentences). "
+        f"Lightly polish: fix typos, ensure merge fields render, "
+        f"tighten wording. Do NOT rewrite the user's voice.\n\n"
+        f"Use merge fields {{FirstName}}, {{LastName}}, {{Company}}, "
+        f"{{JobTitle}} where appropriate.\n\n"
+        f"Output a JSON object with the following shape:\n\n"
+        f"{{\n"
+        f"  \"campaign_name\": \"...\",\n"
+        f"  \"synopsis\": \"...\",\n"
+        f"  \"emails\": [\n"
+        f"    {{\n"
+        f"      \"name\": \"Step 1 - ...\",\n"
+        f"      \"subject\": \"...\",            // only for email steps\n"
+        f"      \"body\": \"...\",               // email body / LinkedIn "
+        f"message / call script / SMS text / task description\n"
+        f"      \"delay_days\": <int>,\n"
+        f"      \"time\": \"9:00 AM\",\n"
+        f"      \"step_type\": \"email_auto\" | \"linkedin\" | \"call\" "
+        f"| \"sms\" | \"task_general\"\n"
+        f"    }},\n"
+        f"    ...\n"
+        f"  ]\n"
+        f"}}\n\n"
+        f"Return ONLY the JSON object. No markdown fences, no preamble."
+    )
+
+
+def _sb_parse_campaign(raw: str) -> dict:
+    """Pull the first JSON object out of Claude's response and
+    normalize the email list so every entry has subject, body,
+    delay_days, time, and step_type fields populated with sane
+    defaults. Returns {} when the response can't be parsed."""
+    if not raw:
+        return {}
+    _clean = raw.replace("```json", "").replace("```", "").strip()
+    _m = re.search(r"\{[\s\S]*\}", _clean)
+    if not _m:
+        return {}
+    try:
+        _obj = json.loads(_m.group())
+    except Exception:
+        return {}
+    if not isinstance(_obj, dict):
+        return {}
+    _emails = _obj.get("emails", []) or []
+    _normalized = []
+    for _e in _emails:
+        if not isinstance(_e, dict):
+            continue
+        _stype = _e.get("step_type", "email_auto")
+        _normalized.append({
+            "name": _e.get("name", "") or "Step",
+            "subject": _e.get("subject", "") or "",
+            "body": _e.get("body", "") or "",
+            "delay_days": int(_e.get("delay_days", 0) or 0),
+            "time": _e.get("time", "") or "9:00 AM",
+            "step_type": _stype,
+        })
+    return {
+        "campaign_name": _obj.get("campaign_name", "") or "Custom Sequence",
+        "synopsis": _obj.get("synopsis", "") or "",
+        "emails": _normalized,
+    }
 
 
 def _aicb_auto_fill_target_details(s, rf):
