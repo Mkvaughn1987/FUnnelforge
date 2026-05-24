@@ -9274,7 +9274,7 @@ SALES_NAV = [
     # ── Sequences ────────────────────────────────
     (None, "SEQUENCES",         None),
     ("▷",  "Start a Sequence",  "start_seq"),
-    ("📁", "Drafts & Saved",    "drafts_saved"),
+    ("📁", "Campaign Library",  "drafts_saved"),
     ("≡",  "Contacts",          "contacts"),
     ("🚫", "Opt-Out List",     "dnc"),
     ("🛡", "Existing Customers", "active_clients"),
@@ -16500,7 +16500,7 @@ def _sq_pick(s, rf):
             "Going to a single company? Pick Target a Company. "
             "Working a vertical or region? Target a Market. "
             "Working a specific role? Find Candidates. "
-            "Re-running something that worked? Saved Sequences. "
+            "Re-running something that worked? Campaign Library. "
             "Want full manual control? Build from scratch."
         ).style(
             f"font-size:12px;color:{C['muted']};margin-bottom:24px;line-height:1.55;"
@@ -16556,8 +16556,8 @@ def _sq_pick(s, rf):
             {
                 "key": "saved",
                 "icon": "📁",
-                "title": "Drafts & Saved",
-                "subtitle": "Resume in-progress or re-use a finished sequence",
+                "title": "Campaign Library",
+                "subtitle": "Resume a draft or re-use a finished sequence",
                 "desc": ("Pick up a draft you started earlier, or load a sequence "
                          "from your library. Swap in a fresh contact list and send. "
                          "Fast path for repeat outreach and unfinished work."),
@@ -16678,7 +16678,7 @@ def _sq_pick(s, rf):
     # ── INSIDE A TAB  -  back button + tab label ──────────────────────────────
     label_map = {
         "custom":    "Build from scratch",
-        "saved":     "Saved Sequences",
+        "saved":     "Campaign Library",
         "community": "Community",
         "templates": "Templates",
     }
