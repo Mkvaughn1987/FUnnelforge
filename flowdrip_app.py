@@ -355,6 +355,31 @@ def _serve_city_image(slug: str, variant: str):
     )
 
 
+@app.get("/sb_reorder")
+def _sb_reorder(ids: str = ""):
+    """SortableJS calls this after a drag. Reorders s.sb_steps for
+    the current user's session to match the new id sequence."""
+    from fastapi import Response as _Resp
+    try:
+        _email = (app.storage.user.get("email") or "").strip()
+    except Exception:
+        _email = ""
+    if not _email:
+        return _Resp(status_code=204)
+    _id_order = [i.strip() for i in (ids or "").split(",") if i.strip()]
+    _s = _find_appstate_for_email(_email)
+    if not _s or not getattr(_s, "sb_steps", None):
+        return _Resp(status_code=204)
+    _by_id = {st.get("id", ""): st for st in _s.sb_steps}
+    _new_order = [_by_id[i] for i in _id_order if i in _by_id]
+    # Preserve any steps the client didn't send (edge case: race)
+    for _st in _s.sb_steps:
+        if _st not in _new_order:
+            _new_order.append(_st)
+    _s.sb_steps = _new_order
+    return _Resp(status_code=204)
+
+
 # Newsletter email image cache. We used to inline every image as base64
 # directly in the email body — emails routinely hit 350+ KB and Gmail
 # would clip / mangle them. Now in server mode we write the bytes once
@@ -9548,6 +9573,22 @@ class AppState:
         # real implementation; no-op default prevents AttributeErrors in tests.
         self._register_qeditor = lambda editor, eid: editor
 
+
+def _find_appstate_for_email(email: str):
+    """Look up the AppState attached to a given user's NiceGUI session.
+    Used by the /sb_reorder route which can't see the @ui.page closure
+    state directly. Walks the live client registry."""
+    try:
+        from nicegui import Client as _NCli
+        for _client in list(_NCli.instances.values()):
+            _s = getattr(_client, "_dripdrop_state", None)
+            if _s and (getattr(_s, "_user_email", "") or "").lower() == email.lower():
+                return _s
+    except Exception:
+        pass
+    return None
+
+
 def _reset_wizard_state(s: "AppState") -> None:
     """Reset all wizard inputs to their defaults so a freshly-picked
     flow doesn't inherit Campaign A's research, locations, or steps.
@@ -16579,10 +16620,11 @@ def _sq_pick(s, rf):
                 "key": "scratch",
                 "icon": "✏️",
                 "title": "Build from scratch",
-                "subtitle": "You write every email",
-                "desc": ("Start with a blank slate. Add emails, calls, LinkedIn touches, "
-                         "tasks in any order. Write each message yourself. No AI. "
-                         "Full control."),
+                "subtitle": "Build your own with AI assistance",
+                "desc": ("Open the AI Guided Sequence Builder. Add steps "
+                         "(email, LinkedIn, call, SMS, task) in any order, drag "
+                         "to reorder, and give AI direction OR write each step "
+                         "yourself — AI polishes either way."),
                 "best_for": ["Hand-crafted outreach", "Personal voice", "Non-standard cadences"],
                 "border": "#F59E0B",
             },
@@ -16643,10 +16685,14 @@ def _sq_pick(s, rf):
                         _reset_wizard_state(s)
                         s._tab = "saved"
                     elif k == "scratch":
+                        # 2026-05-23: Custom Build now lands on the
+                        # AI Guided Sequence Builder (s.sp = "seq_builder")
+                        # instead of the old textarea-only _sq_custom_builder.
+                        # Old path stays in the file for any deep-link
+                        # to ?tab=custom.
                         _reset_wizard_state(s)
-                        s._chooser_origin = ""
-                        s.aicb_camp_type = "byos"
-                        s._tab = "custom"
+                        s.sp = "seq_builder"
+                        # Don't set _tab; the page handler reads sb_* state.
                     rf()
                 with ui.element("div").style(
                         f"background:{C['card']};border:1px solid {opt['border']}60;"
@@ -24918,6 +24964,148 @@ def p_seq_builder(s: AppState, rf):
                                     _st["input"] = (ta.value or "")
                                     break
                         _input_ta.on("blur", _save_input)
+
+        # ── Generate ────────────────────────────────────────────────────
+        if s.sb_generating:
+            with ui.element("div").classes("fd-gc").style(
+                    f"background:{C['teal']}10;border:1px solid {C['teal']}40;"
+                    f"text-align:center;padding:32px;margin-top:14px;"):
+                ui.spinner("dots", size="48px", color=C["teal"])
+                ui.label("Writing your sequence — usually 15-30 seconds…").style(
+                    f"font-size:14px;font-weight:600;color:{C['teal']};margin-top:12px;")
+                ui.label(
+                    "Claude is converting your direction into final copy. "
+                    "You can leave this page; we'll keep working."
+                ).style(f"font-size:11px;color:{C['muted']};margin-top:4px;")
+            async def _poll():
+                while s.sb_generating:
+                    await asyncio.sleep(2)
+                rf()
+            asyncio.ensure_future(_poll())
+        else:
+            if s.sb_error:
+                with ui.element("div").style(
+                        f"background:{C['danger']}10;border:1px solid {C['danger']}40;"
+                        f"border-radius:8px;padding:12px 16px;margin-top:14px;"):
+                    ui.label(f"⚠ {s.sb_error}").style(
+                        f"font-size:12px;color:{C['danger']};line-height:1.5;")
+
+            def _generate():
+                if not s.sb_steps:
+                    ui.notify("Add at least one step before generating.",
+                              type="warning", timeout=5000)
+                    return
+                s.sb_generating = True
+                s.sb_error = ""
+                rf()
+
+                def _run():
+                    try:
+                        import anthropic as _anth
+                        _client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
+                        _prompt = _sb_build_prompt(
+                            goal=s.sb_goal,
+                            audience=s.sb_audience,
+                            tone=s.sb_tone,
+                            steps=s.sb_steps,
+                        )
+                        _msg = _claude_create_with_retry(
+                            _client,
+                            model="claude-haiku-4-5-20251001",
+                            max_tokens=6000,
+                            messages=[{"role": "user", "content": _prompt}],
+                        )
+                        _raw = "".join(b.text for b in _msg.content
+                                       if hasattr(b, "text"))
+                        _camp = _sb_parse_campaign(_raw)
+                        if not _camp or not _camp.get("emails"):
+                            s.sb_error = (
+                                "AI returned an empty sequence. Try "
+                                "adding more direction to each step.")
+                            return
+
+                        # Clean up generated bodies the same way other
+                        # campaign generators do (em-dashes, sign-offs,
+                        # markdown→HTML normalization happens further
+                        # downstream in queue_campaign_emails).
+                        for _em in _camp["emails"]:
+                            if _em.get("body"):
+                                _em["body"] = _strip_dashes(
+                                    _strip_ai_signoff(_em["body"]))
+                            if _em.get("subject"):
+                                _em["subject"] = _strip_dashes(_em["subject"])
+
+                        # Stash on the loaded-camp slot the editor reads.
+                        _camp["status"] = "draft"
+                        _camp["created"] = date.today().isoformat()
+                        _camp["_owner_email"] = (
+                            getattr(s, "_user_email", "") or "")
+                        save_campaign(_camp)
+                        s.loaded_camp = _camp
+                        s.loaded_view = "emails"
+                        s.loaded_tab = 0
+                        s.sp = "start_seq"
+                        s._tab = "custom"
+                        # Reset builder state so re-entering starts clean.
+                        s.sb_steps = []
+                        s.sb_goal = ""
+                        s.sb_audience = ""
+                        s.sb_error = ""
+                    except Exception as _ex:
+                        s.sb_error = _friendly_ai_error(_ex)
+                        print(f"[SB] generate failed: {_ex}", flush=True)
+                    finally:
+                        s.sb_generating = False
+                        try: rf()
+                        except Exception: pass
+
+                _run_as_user(getattr(s, "_user_email", "") or "", _run,
+                             name="sb_generate_worker")
+
+            _dis = not s.sb_steps
+            with ui.element("button").classes("fd-pb").style(
+                    f"padding:14px 28px;font-size:15px;width:100%;"
+                    f"justify-content:center;display:flex;border-radius:10px;"
+                    f"margin-top:14px;"
+                    f"{'opacity:0.4;pointer-events:none;' if _dis else ''}"
+                    ).on("click", _generate):
+                ui.label(
+                    "Generate Sequence →" if not _dis
+                    else "Add a step to enable Generate"
+                ).style("pointer-events:none;")
+
+    # SortableJS for drag-to-reorder. Injects once per render; hooks
+    # onto the #sb-steps-list container and rewires s.sb_steps + rf()
+    # via a fetch to the /sb_reorder route registered at module scope.
+    ui.run_javascript("""
+        (function() {
+            if (!window._sortableLoaded) {
+                var _s = document.createElement('script');
+                _s.src = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js';
+                _s.onload = function() { window._sortableLoaded = true; _initSb(); };
+                document.head.appendChild(_s);
+            } else {
+                _initSb();
+            }
+            function _initSb() {
+                var el = document.getElementById('sb-steps-list');
+                if (!el || el._sortableBound) return;
+                el._sortableBound = true;
+                Sortable.create(el, {
+                    handle: '.sb-drag-handle',
+                    animation: 150,
+                    onEnd: function(evt) {
+                        var ids = [];
+                        el.querySelectorAll('[data-step-id]').forEach(
+                            function(c) { ids.push(c.getAttribute('data-step-id')); });
+                        fetch('/sb_reorder?ids=' + encodeURIComponent(ids.join(',')),
+                              {credentials: 'same-origin'})
+                            .then(function() { window.location.reload(); });
+                    }
+                });
+            }
+        })();
+    """)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -48763,6 +48951,14 @@ def index():
     _cache_queue.invalidate()
 
     s = AppState()
+    # Make the AppState findable from out-of-page-context routes
+    # (e.g. /sb_reorder for the Sequence Builder's drag handler).
+    try:
+        from nicegui import context as _ctx
+        _client = _ctx.client
+        setattr(_client, "_dripdrop_state", s)
+    except Exception:
+        pass
     s._user_email = _user_email
     s._user_name = app.storage.user.get("name", "")
 
