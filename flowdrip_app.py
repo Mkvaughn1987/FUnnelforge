@@ -3825,7 +3825,7 @@ AICB_ROLES = {
 }
 AICB_CAMPAIGN_TYPES = [
     # ── Shortest to longest ──
-    ("blitz", "The Splash", "5 steps - 5 days", "#EF4444",
+    ("blitz", "Quick Sprint", "5 steps - 5 days", "#EF4444",
      "All-out sprint. One step per day - email, LinkedIn, call, proof email, and breakup. "
      "Candidate summaries on every other email. Fast and aggressive. You'll know if they're interested by Friday.",
      "Hot leads - urgent roles - time-sensitive fills",
@@ -3846,7 +3846,7 @@ AICB_CAMPAIGN_TYPES = [
      "Soft close. Include a DIFFERENT angle on the same candidate  -  this time focus on availability "
      "and what makes them a fit for this specific company. 3 bullet points: availability, culture fit, "
      "and a unique differentiator. Then keep the door open."),
-    ("talentdrop", "The Talent Drop", "7 steps - 2 weeks", "#10B981",
+    ("talentdrop", "Candidate-Led Pitch", "7 steps - 2 weeks", "#10B981",
      "Lead with real candidates. Enter your candidate details and AI builds the outreach "
      "around them  -  intro with profiles, market data follow-ups, and value-add PDFs. "
      "High-touch with candidate-first positioning.",
@@ -3879,7 +3879,7 @@ AICB_CAMPAIGN_TYPES = [
      "(market demand, candidate availability window closing). 3 bullet points per candidate: "
      "current availability status, competing interest from other companies, and a closing urgency point. "
      "Then keep the door open."),
-    ("flood", "The Surge", "10 steps - 3 weeks", "#EC4899",
+    ("flood", "High-Volume Push", "10 steps - 3 weeks", "#EC4899",
      "Maximum volume. Daily steps across email, LinkedIn, and calls for three weeks. "
      "Multi-channel assault designed to break through to non-responsive prospects.",
      "Non-responsive prospects - competitive markets - must-fill roles",
@@ -3891,7 +3891,7 @@ AICB_CAMPAIGN_TYPES = [
      "Step 6 - New Angle email (delay_days:1, step_type:email_auto)\n"
      "Step 7 - Phone Call #2 (delay_days:1, step_type:call)\n"
      "Step 8 - Breakup email (delay_days:1, step_type:email_auto)"),
-    ("sidequest", "The Current", "13 steps - 8 weeks", "#00C9A7",
+    ("sidequest", "Steady BD Cadence", "13 steps - 8 weeks", "#00C9A7",
      "Balanced multi-channel approach. Steady flow of value over 8 weeks  -  emails, LinkedIn, "
      "calls, market data, and candidate teasers. Builds trust without pressure.",
      "Standard BD outreach - new prospects - balanced approach",
@@ -3907,7 +3907,7 @@ AICB_CAMPAIGN_TYPES = [
      "Step 10 - Candidate Teaser email (delay_days:4, step_type:email_auto) - brief profiles of 2 candidates available now\n"
      "Step 11 - Tenure Insight email (delay_days:5, step_type:email_auto)\n"
      "Step 12 - Close the Loop email (delay_days:5, step_type:email_auto) - soft close, keep the door open"),
-    ("fullstream", "The Waterfall", "18 steps - 3 months", "#818CF8",
+    ("fullstream", "Long-Game Nurture", "18 steps - 3 months", "#818CF8",
      "Long-game nurture campaign. Emails, calls, LinkedIn, and value drops spread across 3 months. "
      "Four strategic calls spaced throughout to build the relationship. "
      "Builds authority and trust over time with market insights and candidate teasers.",
@@ -3930,7 +3930,7 @@ AICB_CAMPAIGN_TYPES = [
      "Step 16 - Final Push Call (delay_days:3, step_type:call)\n"
      "Step 17 - Close the Loop email (delay_days:4, step_type:email_auto)\n"
      "Step 18 - Clean Breakup email (delay_days:7, step_type:email_auto)"),
-    ("victorycard", "The Victory Card", "6 steps - 10 days", "#D4AF37",
+    ("victorycard", "Cold BD Closer", "6 steps - 10 days", "#D4AF37",
      "Proven cold outreach framework. 4 emails, 1 LinkedIn, 1 call over 10 days. "
      "Candidates in every email (except breakup), PDFs on follow-ups, escalating "
      "urgency. Built from the best of Banayan, Ferriss, Hormozi, and high-volume BD tactics.",
@@ -3959,7 +3959,7 @@ AICB_CAMPAIGN_TYPES = [
      "Step 6 - The Breakup email, NO candidates, NO attachments (delay_days:3, step_type:email_auto) - "
      "Clean and short. 'Should I circle back next month, or would you prefer I route these candidates "
      "to other companies in your area?' Close with 'just want to close the loop either way.'"),
-    ("byos", "Free Flow", "You design it", "#F59E0B",
+    ("byos", "Custom Build", "You design it", "#F59E0B",
      "Describe what you want and AI will build it. Tell us the number of steps, "
      "channels (email, LinkedIn, call), timing, and style - AI handles the rest.",
      "Custom cadences - unique verticals - specific strategies",
@@ -4195,7 +4195,7 @@ STEADY_FLOW_MONTHS = [
 STEADY_FLOW_FLAT = [s for m in STEADY_FLOW_MONTHS for s in m["steps"]]
 
 TEMPLATES = {
-    "full_stream": dict(key="full_stream", name="The Waterfall", months=3,
+    "full_stream": dict(key="full_stream", name="Long-Game Nurture", months=3,
                         touches=19, description="3 months · 18 touches + re-engagement · 4 calls",
                         steps=FULL_STREAM_FLAT, months_data=FULL_STREAM_MONTHS),
     "steady_flow": dict(key="steady_flow", name="Steady Flow", months=2,
@@ -10134,10 +10134,10 @@ PAGE_HELP = {
     "start_seq": {
         "title": "Start a Sequence",
         "summary": "Build a multi-step outreach campaign — pick contacts, write the emails, set delays, and queue.",
-        "next_action": "Pick a preset on the right (Blitz, Steady Flow, etc.) or click + Free Flow to build from scratch.",
+        "next_action": "Pick a preset on the right (Quick Sprint, Steady BD Cadence, etc.) or click Custom Build to build from scratch.",
         "sections": [
             ("What is this?", "Build and launch email campaigns step by step. Use a preset or build from scratch."),
-            ("Campaign Types", "Pick a preset (Blitz, Steady Flow, etc.) or build a Free Flow  -  any mix of emails, calls, and LinkedIn touches. First-time Free Flows get offered as saved templates for reuse."),
+            ("Campaign Types", "Pick a preset (Quick Sprint, Steady BD Cadence, etc.) or use Custom Build  -  any mix of emails, calls, and LinkedIn touches. First-time Custom Builds get offered as saved templates for reuse."),
             ("The 4 Steps", "Follow the sidebar:\n1. Emails  -  Write or edit each step.\n2. Sequence  -  Set delay between steps.\n3. Contacts  -  Upload or pick a CSV list.\n4. Launch  -  Review and queue."),
             ("AI Campaign Builder", "Click 'AI Campaign Builder' for a Claude-written full campaign after researching the target company."),
             ("Merge Variables", "{FirstName}, {LastName}, {Company}, {JobTitle} get replaced with each contact's info at send time."),
@@ -16319,7 +16319,7 @@ def _sq_campaign_wizard_header(s: AppState, rf):
         cur_idx = 0
     elif is_templates:
         steps = [
-            ("pick",     "✦", "Choose Template",  "Pick a pre-built sequence  -  The Waterfall, The Splash, The Talent Drop, and more."),
+            ("pick",     "✦", "Choose Template",  "Pick a pre-built sequence  -  Long-Game Nurture, Quick Sprint, Candidate-Led Pitch, and more."),
             ("prompts",  "✎", "Personalise",       "Tell Claude about the role, market, and company so it can write targeted emails."),
             ("contacts", "👥","Add Contacts",       "Import a CSV or pick a saved list  -  contacts preview instantly."),
             ("launch",   "🚀","Review & Launch",    "Check everything looks right, then fire the campaign."),
@@ -31169,15 +31169,31 @@ def p_ai_campaign(s: AppState, rf):
                             f"border-left:3px solid {ccolor};border-radius:0 8px 8px 0;"
                             f"padding:8px 14px;margin-bottom:5px;cursor:pointer;"
                             f"transition:all .15s;"):
+                        # Collapsed header: title + step/duration meta +
+                        # inline "Best for" tagline so users can scan
+                        # every style without expanding each one.
+                        # 2026-05-23 per user — water-themed names were
+                        # opaque; the rename + always-on tagline make
+                        # the cards self-explanatory.
                         with ui.element("div").style(
-                                "display:flex;align-items:center;gap:8px;").on("click", _pick_type):
+                                "display:flex;align-items:center;gap:8px;"
+                                "flex-wrap:wrap;").on("click", _pick_type):
                             ui.label(cname).style(
                                 f"font-size:13px;font-weight:700;color:{ccolor};"
                                 f"font-family:'Nunito',sans-serif;")
                             ui.label(cmeta).style(f"font-size:10px;color:{C['muted']};")
+                            if cbest:
+                                ui.label("·").style(
+                                    f"font-size:10px;color:{C['muted']};opacity:0.5;")
+                                ui.label(f"Best for: {cbest}").style(
+                                    f"font-size:10px;color:{C['muted']};"
+                                    f"font-style:italic;flex:1;min-width:0;"
+                                    f"overflow:hidden;text-overflow:ellipsis;"
+                                    f"white-space:nowrap;")
                             if is_sel:
                                 ui.label("✓").style(
-                                    f"font-size:14px;color:{ccolor};font-weight:700;margin-left:auto;")
+                                    f"font-size:14px;color:{ccolor};font-weight:700;"
+                                    f"margin-left:auto;flex-shrink:0;")
 
                         # Expanded snapshot when selected
                         if is_sel:
