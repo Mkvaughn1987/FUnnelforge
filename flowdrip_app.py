@@ -24683,6 +24683,43 @@ def p_prev_launch(s: AppState, rf):
                 ui.label("📧 Preview Emails")
 
 
+def p_seq_builder(s: AppState, rf):
+    """AI Guided Sequence Builder.
+
+    Routed to from the Custom Build chooser tile (s.sp = "seq_builder").
+    User defines a campaign brief + a list of steps; AI writes or
+    polishes content per step and the user lands in the email editor.
+
+    Spec: docs/superpowers/specs/2026-05-23-ai-guided-sequence-builder-design.md
+    """
+    # Header + back-to-chooser
+    with ui.element("div").style(
+            "display:flex;align-items:center;justify-content:space-between;"
+            "margin-bottom:14px;max-width:920px;"):
+        ui.label("AI Guided Sequence Builder").classes("fd-h1")
+        def _back():
+            s.sp = "start_seq"
+            s._tab = ""
+            rf()
+        with ui.element("button").classes("fd-gb").style(
+                "padding:6px 14px;font-size:11px;").on("click", _back):
+            ui.label("← Back to Campaign Styles")
+
+    ui.label(
+        "Design your own outreach cadence step by step. AI helps you "
+        "write each message — you control the order and timing. You "
+        "can give instructions to the AI, or write the copy yourself "
+        "and AI will polish + add merge fields."
+    ).style(
+        f"font-size:12.5px;color:{C['muted']};line-height:1.55;"
+        f"margin-bottom:18px;max-width:920px;")
+
+    # Section placeholders — filled in by later tasks
+    with ui.element("div").style("max-width:920px;"):
+        ui.label("Brief and steps sections land in Task 4 + 5.").style(
+            f"font-size:12px;color:{C['warn']};font-style:italic;")
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  EMAIL SEQUENCER: SEQUENCE MANAGER (seq_mgr)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -47013,6 +47050,7 @@ def render_page(s: AppState, rf):
             elif page == "e_contacts":   p_contacts(s, rf)
             elif page == "prev_launch":  p_prev_launch(s, rf)
             elif page == "seq_mgr":      p_seq_mgr(s, rf)
+            elif page == "seq_builder": p_seq_builder(s, rf)
             elif page == "e_responses":  p_responses(s, rf)
             elif page == "e_evergreen":  p_evergreen(s, rf)
             elif page == "e_signature":  p_signature(s, rf)
