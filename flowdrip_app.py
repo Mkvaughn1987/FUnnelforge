@@ -9771,16 +9771,13 @@ def _nav_snapshot(s: AppState) -> dict:
     )
 
 def _save_current_page(s: AppState) -> None:
-    """Persist the current top-level page to app.storage.user so a
-    Cloudflare websocket idle-timeout + NiceGUI reconnect (which builds
-    a fresh AppState) doesn't snap the user back to the default page.
-    Only saves shallow hub/sp/ep — deeper state like loaded_camp is NOT
-    persisted (too heavy, changes constantly, and the render functions
-    fall back gracefully when it's missing)."""
+    """Stamp `_last_page_ts` on every render so `_restore_aicb_state`
+    can tell a brief WS reconnect (<5 min) apart from a cold open.
+
+    Page identity (hub/sp/ep) is intentionally NOT persisted anymore:
+    per 2026-05-25 user directive, root URL always lands on Dashboard
+    regardless of last page."""
     try:
-        app.storage.user["_last_hub"] = s.hub or "sales"
-        app.storage.user["_last_sp"]  = s.sp  or "dashboard"
-        app.storage.user["_last_ep"]  = s.ep  or "emails_home"
         app.storage.user["_last_page_ts"] = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
     except Exception:
         pass
@@ -9887,67 +9884,6 @@ def _restore_aicb_state(s: AppState) -> None:
             s.aicb_step = 1
     except Exception:
         pass
-
-
-def _restore_page_if_recent(s: AppState, ttl_hours: int = 24) -> bool:
-    """Restore saved hub/sp/ep onto a fresh AppState if the save is
-    recent (within 24h). Returns True if restored, False if stale or
-    missing.
-
-    Always preserves the user's last page within the TTL window.
-    Genuinely first-time users (no `_last_page_ts`) get the AppState
-    default of `sp = "dashboard"` — that path is unchanged.
-
-    Earlier versions of this function redirected "list pages" (Active
-    Campaigns, Sequence Manager, Replies, etc.) to Dashboard on any
-    visit older than 5 minutes — the goal was "land on Dashboard on
-    fresh open". That heuristic conflated "reconnect" and "cold open"
-    via timestamp age, which doesn't match user behavior: someone
-    who walks away from their desk for 10 minutes and clicks back in
-    is mid-session, not opening fresh, and being silently bounced to
-    Dashboard read as "the app refreshed itself again."
-    Removed 2026-05-02 per user report.
-
-    The only exception: pages that need transient `s.loaded_camp`
-    state (the campaign editor wizard) can't render coherently
-    without it; fall those back to the safe parent page so users
-    don't land on a half-broken view.
-    """
-    try:
-        ts = app.storage.user.get("_last_page_ts", "")
-        if not ts:
-            return False
-        saved_at = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ")
-        if (datetime.utcnow() - saved_at).total_seconds() > ttl_hours * 3600:
-            return False
-        _hub = app.storage.user.get("_last_hub", "sales") or "sales"
-        _sp  = app.storage.user.get("_last_sp",  "dashboard") or "dashboard"
-        _ep  = app.storage.user.get("_last_ep",  "emails_home") or "emails_home"
-        # Pages whose render relies on s.loaded_camp / transient state
-        # we don't persist. Fall back to the safe parent for those.
-        _needs_camp = {"start_seq", "sequence", "preview", "launch",
-                       "campaign_manager", "prev_launch"}
-        if _sp in _needs_camp:
-            _sp = "active_camps"
-        # Wizard pages: auto-restoring mid-wizard on a cold open after
-        # a long absence dropped users into broken half-state (e.g.,
-        # the AICB results screen with no docs to render — reported
-        # 2026-05-11). Within 5 min we treat it as a reconnect and
-        # keep the page; older = treat as cold open and land them on
-        # Dashboard so the chooser's Resume banner becomes the
-        # user-initiated path back into the wizard.
-        _wizard_pages = {"ai_campaign", "target_candidate", "recruiting_campaign"}
-        if _sp in _wizard_pages:
-            try:
-                _age_s = (datetime.utcnow() - saved_at).total_seconds()
-            except Exception:
-                _age_s = 1e9
-            if _age_s > 300:
-                _sp = "dashboard"
-        s.hub = _hub; s.sp = _sp; s.ep = _ep
-        return True
-    except Exception:
-        return False
 
 
 def nav_go(s: AppState, rf, *, hub=None, page=None,
@@ -47555,13 +47491,9 @@ def login_page(next: str = "/"):
             app.storage.user["authenticated"] = True
             app.storage.user["email"] = email.lower()
             app.storage.user["name"] = _get_user_name(email)
-            # Fresh login = land on Dashboard, regardless of where the
-            # user was last time. Uses the one-shot _pending_page hook
-            # in index() which takes precedence over _restore_page_if_recent.
-            # The earlier _last_sp = "dashboard" approach didn't reliably
-            # take effect across the navigate.to redirect (storage write
-            # vs response-cycle timing). 2026-05-02 user request:
-            # "when a user signs in they see dashboard? not directly to today"
+            # Fresh login = land on Dashboard. Same as any other root-URL
+            # visit (per 2026-05-25), but set explicitly via _pending_page
+            # so this stays correct if the default ever changes.
             app.storage.user["_pending_page"] = "dashboard"
             ui.navigate.to(_safe_next)
         else:
@@ -48912,19 +48844,21 @@ def index():
     ui.on('dd_qeditor_change', _on_qeditor_change)
 
     # Honor a pending page hand-off (e.g. from /setup → Email & AI Setup).
-    # This overrides any saved page because it's an explicit one-time
-    # intent from another flow.
+    # This overrides the default landing page because it's an explicit
+    # one-time intent from another flow.
+    #
+    # Otherwise: hitting the root URL ALWAYS lands the user on Dashboard
+    # (the AppState default). User directive 2026-05-25: "When a user
+    # opens the app it should go to their dashboard." The earlier
+    # restore-last-page behavior conflated cold open with WS reconnect
+    # and dropped users into list views (Active Sequences, Replies, etc.)
+    # instead of the home page. AICB / Target-Candidate wizard state
+    # still persists separately via _restore_aicb_state below for brief
+    # WS reconnects.
     _pending = app.storage.user.pop("_pending_page", None)
     if _pending:
         s.hub = "sales"
         s.sp = _pending
-    else:
-        # Restore the last page the user was on (if within 24h TTL). This
-        # matters because Cloudflare terminates idle websockets after
-        # ~100s; when NiceGUI reconnects it builds a fresh AppState,
-        # which would otherwise snap the user back to the default
-        # dashboard mid-workflow. With this, they land where they were.
-        _restore_page_if_recent(s)
     # Rehydrate the AICB ("Recruiting Campaign") wizard from session
     # storage so reconnects don't drop the user back to step 1 with
     # blank fields. Same root cause as _restore_page_if_recent — fresh

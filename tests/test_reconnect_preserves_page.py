@@ -1,204 +1,77 @@
-"""Regression: 2026-05-01 user report — pages "time out" and bounce
-back to dashboard if you sit on them too long. Root cause is a
-collision between two intents:
+"""Root URL always lands on Dashboard (2026-05-25 directive).
 
-1. First open (cold start, idle hours) → land on Dashboard (not the
-   user's last-viewed list page).
-2. Mid-session websocket reconnect (Cloudflare's ~100s WS idle timeout
-   fires) → preserve whatever page the user was on, otherwise it feels
-   like the app "kicked them out".
+History: 2026-04-27 we added a "list pages bounce to Dashboard on cold
+open after 5 min" heuristic. 2026-05-02 we reverted it because the age
+threshold conflated WS reconnect with cold open. 2026-05-25 the user
+asked for the rule we landed on: ALWAYS Dashboard at the root URL,
+regardless of where they were last time. AICB / Target-Candidate wizard
+state is preserved separately for brief WS reconnects via
+`_restore_aicb_state` (5-min TTL), so this contract doesn't lose
+mid-wizard work — it just stops persisting "what list view was I on."
 
-Both events hit `/` and rebuild AppState. We disambiguate by AGE of the
-last-page timestamp: if the user was active < ~5 minutes ago, treat it
-as a reconnect and preserve the page. If older, treat it as a fresh
-open and apply the list-page → dashboard redirect that came in 2026-04-27.
+These tests lock in that contract.
 """
-from datetime import datetime, timedelta, timezone
 
 
-class _FakeStorage(dict):
-    """Stand-in for app.storage.user — a plain dict with .get/.pop."""
-    pass
-
-
-def _install_fake_storage(monkeypatch, fa, store: dict):
-    """Patch fa.app.storage.user to return our fake dict."""
-    class _UserNS:
-        def get(self, k, default=None):  return store.get(k, default)
-        def __getitem__(self, k):        return store[k]
-        def __setitem__(self, k, v):     store[k] = v
-        def pop(self, k, default=None):  return store.pop(k, default)
-        def __contains__(self, k):       return k in store
-
-    class _StorageNS:
-        user = _UserNS()
-    class _AppNS:
-        storage = _StorageNS()
-    monkeypatch.setattr(fa, "app", _AppNS())
-
-
-def _utc_iso(dt: datetime) -> str:
-    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-# ── 1. RECENT timestamp + list page → page IS preserved (no bounce) ──
-
-def test_recent_reconnect_on_active_camps_preserves_page(isolated_appdata, with_user, monkeypatch):
-    """User on Active Campaigns, websocket dies after 100s, reconnects.
-    The reconnect MUST land them back on Active Campaigns, NOT bounce
-    to Dashboard. Anything else feels like the app "timed them out"."""
+def test_appstate_default_page_is_dashboard():
+    """Fresh AppState defaults to sp='dashboard'. index() relies on
+    this default for the root-URL landing — if the default ever
+    changes, the landing page silently changes too."""
     import flowdrip_app as fa
-    store = {
-        "_last_hub": "sales",
-        "_last_sp":  "active_camps",
-        "_last_ep":  "emails_home",
-        "_last_page_ts": _utc_iso(datetime.utcnow() - timedelta(seconds=90)),
-    }
-    _install_fake_storage(monkeypatch, fa, store)
     s = fa.AppState()
-    ok = fa._restore_page_if_recent(s)
-    assert ok is True
-    assert s.sp == "active_camps", (
-        f"Recent reconnect (90s ago) on Active Campaigns must preserve the "
-        f"page; got {s.sp!r}. This is the user-reported timeout-to-dashboard "
-        f"bug."
+    assert s.sp == "dashboard"
+    assert s.hub == "sales"
+
+
+def test_restore_page_helper_was_removed():
+    """The old `_restore_page_if_recent` helper is gone — root URL
+    always lands on the AppState default (Dashboard). Guard against
+    a future refactor reintroducing the restore-last-page indirection
+    without anyone noticing."""
+    import flowdrip_app as fa
+    assert not hasattr(fa, "_restore_page_if_recent"), (
+        "Restore-last-page logic was removed 2026-05-25 — root URL "
+        "should always land on Dashboard. If you reintroduced it, "
+        "read docs/superpowers/specs first."
     )
 
 
-def test_recent_reconnect_on_seq_mgr_preserves_page(isolated_appdata, with_user, monkeypatch):
-    """Same regression on the Sequence Manager page."""
+def test_save_current_page_only_writes_timestamp():
+    """`_save_current_page` no longer persists hub/sp/ep — only the
+    timestamp, which `_restore_aicb_state` uses as its freshness clock
+    for WS-reconnect-within-5-min wizard rehydration. If someone adds
+    back the page identity writes, the root-URL → Dashboard contract
+    breaks silently."""
     import flowdrip_app as fa
-    store = {
-        "_last_hub": "sales",
-        "_last_sp":  "seq_mgr",
-        "_last_ep":  "emails_home",
-        "_last_page_ts": _utc_iso(datetime.utcnow() - timedelta(seconds=30)),
-    }
-    _install_fake_storage(monkeypatch, fa, store)
-    s = fa.AppState()
-    fa._restore_page_if_recent(s)
-    assert s.sp == "seq_mgr"
 
+    written = {}
 
-def test_recent_reconnect_on_responses_preserves_page(isolated_appdata, with_user, monkeypatch):
-    """Same regression on the Replies / Responses page."""
-    import flowdrip_app as fa
-    store = {
-        "_last_hub": "sales",
-        "_last_sp":  "responses",
-        "_last_ep":  "emails_home",
-        "_last_page_ts": _utc_iso(datetime.utcnow() - timedelta(seconds=200)),
-    }
-    _install_fake_storage(monkeypatch, fa, store)
-    s = fa.AppState()
-    fa._restore_page_if_recent(s)
-    assert s.sp == "responses"
+    class _UserNS:
+        def get(self, k, default=None):
+            return written.get(k, default)
+        def __setitem__(self, k, v):
+            written[k] = v
 
+    class _StorageNS:
+        user = _UserNS()
 
-# ── 2. OLD timestamp + list page → ALSO preserves the page ─────────────
-# (2026-05-02 contract change: dropped the "old visits go to Dashboard"
-# heuristic. Users walking away for 10+ minutes and coming back were
-# being silently bounced to Dashboard, which read as "the app refreshed
-# itself again." Now ALWAYS preserve within the 24h TTL.)
+    class _AppNS:
+        storage = _StorageNS()
 
-def test_old_open_on_active_camps_still_preserves_page(isolated_appdata, with_user, monkeypatch):
-    """User closed the laptop yesterday on Active Campaigns; opens the
-    app today (within 24h TTL). They should land BACK on Active
-    Campaigns, not Dashboard. The 2026-04-27 "Dashboard on fresh open"
-    behavior was reverted 2026-05-02 because it conflated
-    'reconnect after a break' with 'fresh open' and bounced
-    actively-working users."""
-    import flowdrip_app as fa
-    store = {
-        "_last_hub": "sales",
-        "_last_sp":  "active_camps",
-        "_last_ep":  "emails_home",
-        "_last_page_ts": _utc_iso(datetime.utcnow() - timedelta(hours=8)),
-    }
-    _install_fake_storage(monkeypatch, fa, store)
-    s = fa.AppState()
-    fa._restore_page_if_recent(s)
-    assert s.sp == "active_camps"
+    _orig = fa.app
+    fa.app = _AppNS()
+    try:
+        s = fa.AppState()
+        s.hub = "sales"
+        s.sp = "responses"
+        s.ep = "emails_home"
+        fa._save_current_page(s)
+    finally:
+        fa.app = _orig
 
-
-def test_old_open_on_seq_mgr_still_preserves_page(isolated_appdata, with_user, monkeypatch):
-    """Same — Sequence Manager (a list page) is preserved within TTL
-    regardless of how long ago the visit was."""
-    import flowdrip_app as fa
-    store = {
-        "_last_hub": "sales",
-        "_last_sp":  "seq_mgr",
-        "_last_ep":  "emails_home",
-        "_last_page_ts": _utc_iso(datetime.utcnow() - timedelta(hours=2)),
-    }
-    _install_fake_storage(monkeypatch, fa, store)
-    s = fa.AppState()
-    fa._restore_page_if_recent(s)
-    assert s.sp == "seq_mgr"
-
-
-def test_first_time_user_no_saved_state_lands_on_dashboard(isolated_appdata, with_user, monkeypatch):
-    """Genuinely first-time user (no _last_page_ts) gets the
-    AppState's default `sp = "dashboard"` because _restore_page_if_recent
-    returns False and doesn't touch s.sp. Ensures we didn't accidentally
-    break the Dashboard-as-default-landing for new users."""
-    import flowdrip_app as fa
-    store = {}  # no _last_page_ts
-    _install_fake_storage(monkeypatch, fa, store)
-    s = fa.AppState()
-    # AppState default is dashboard — proven by reading the field.
-    assert s.sp == "dashboard"
-    ok = fa._restore_page_if_recent(s)
-    assert ok is False
-    assert s.sp == "dashboard"
-
-
-# ── 3. Deep workflow pages always preserved (any age within TTL) ──
-
-def test_recent_reconnect_on_ai_campaign_wizard_preserves(isolated_appdata, with_user, monkeypatch):
-    import flowdrip_app as fa
-    store = {
-        "_last_hub": "sales",
-        "_last_sp":  "ai_campaign",
-        "_last_ep":  "emails_home",
-        "_last_page_ts": _utc_iso(datetime.utcnow() - timedelta(seconds=45)),
-    }
-    _install_fake_storage(monkeypatch, fa, store)
-    s = fa.AppState()
-    fa._restore_page_if_recent(s)
-    assert s.sp == "ai_campaign"
-
-
-def test_old_open_on_ai_campaign_wizard_still_preserves(isolated_appdata, with_user, monkeypatch):
-    """Deep workflow pages — wizards, editors, settings — always
-    restore (within the 24h TTL) because losing wizard progress is far
-    worse than landing on a non-default page on cold open."""
-    import flowdrip_app as fa
-    store = {
-        "_last_hub": "sales",
-        "_last_sp":  "ai_campaign",
-        "_last_ep":  "emails_home",
-        "_last_page_ts": _utc_iso(datetime.utcnow() - timedelta(hours=6)),
-    }
-    _install_fake_storage(monkeypatch, fa, store)
-    s = fa.AppState()
-    fa._restore_page_if_recent(s)
-    assert s.sp == "ai_campaign"
-
-
-def test_stale_beyond_ttl_returns_false(isolated_appdata, with_user, monkeypatch):
-    """Saved >24h ago → ignore entirely (existing behavior, regression
-    guard)."""
-    import flowdrip_app as fa
-    store = {
-        "_last_hub": "sales",
-        "_last_sp":  "ai_campaign",
-        "_last_ep":  "emails_home",
-        "_last_page_ts": _utc_iso(datetime.utcnow() - timedelta(hours=48)),
-    }
-    _install_fake_storage(monkeypatch, fa, store)
-    s = fa.AppState()
-    s.sp = "dashboard"  # default; restore should be a no-op
-    ok = fa._restore_page_if_recent(s)
-    assert ok is False
-    assert s.sp == "dashboard"
+    assert "_last_page_ts" in written, "timestamp must be written"
+    assert "_last_sp" not in written, (
+        "_last_sp must NOT be persisted — would re-enable the old "
+        "restore-last-page behavior")
+    assert "_last_hub" not in written
+    assert "_last_ep" not in written
