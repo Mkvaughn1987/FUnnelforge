@@ -14119,13 +14119,16 @@ def _sq_loaded_campaign(s: AppState, rf):
                 if i < len(LOADED_STEPS) - 1:
                     ui.label("›").style(f"color:{C['border']};font-size:14px;")
 
-        # Next button
+        # Next button — "Next: <step name> →" framing so the affordance
+        # reads clearly as the forward action while still naming where
+        # it takes the user. Mirrored at the bottom of the page by the
+        # function-level block at the end of _sq_loaded_campaign.
         if cur_idx < len(LOADED_STEPS) - 1:
             def _next_step():
                 s.loaded_view = LOADED_STEPS[cur_idx + 1][0]; rf()
             with ui.element("button").classes("fd-pb").style(
                     "padding:6px 18px;font-size:13px;").on("click", _next_step):
-                ui.label(f"{LOADED_STEPS[cur_idx + 1][1]} →")
+                ui.label(f"Next: {LOADED_STEPS[cur_idx + 1][1]} →")
 
     # Header
     tpl_name = camp.get("template_name", "Custom")
@@ -16376,6 +16379,22 @@ def _sq_loaded_campaign(s: AppState, rf):
                     ui.label("⚠ Add contacts before launching").style(
                         f"font-size:12px;color:{C['danger']};font-weight:500;")
 
+    # ── Bottom "Next: <step> →" button (2026-05-23) ──────────────────────
+    # User feedback: long emails / sequences / contacts views forced users
+    # to scroll back up to the breadcrumb to advance. This mirrors the top
+    # Next button at the bottom of every non-launch view so the forward
+    # action is always one click away. Launch view skips it (its own
+    # Launch button IS the forward action).
+    if cur_idx < len(LOADED_STEPS) - 1:
+        def _next_step_bottom():
+            s.loaded_view = LOADED_STEPS[cur_idx + 1][0]; rf()
+        with ui.element("div").style(
+                "display:flex;justify-content:flex-end;margin-top:28px;"
+                "padding-top:18px;border-top:1px solid var(--fd-border, #2A3654);"):
+            with ui.element("button").classes("fd-pb").style(
+                    "padding:10px 24px;font-size:14px;").on(
+                    "click", _next_step_bottom):
+                ui.label(f"Next: {LOADED_STEPS[cur_idx + 1][1]} →")
 
 
 def _sq_campaign_wizard_header(s: AppState, rf):
