@@ -29170,7 +29170,7 @@ def _render_aicb_candidate_cards(s, rf):
     cards = s.aicb_cand_cards or []
     if not cards:
         return
-    can_reroll = s.aicb_cand_source in ("autogen", "autogen_quick", "autogen_titles")
+    can_reroll = s.aicb_cand_source in ("autogen", "autogen_titles")
 
     with ui.element("div").style(
             "display:grid;grid-template-columns:repeat(2, 1fr);"
@@ -30156,75 +30156,6 @@ def _aicb_generate_candidates_run(s, count: int = 3):
         s._aicb_cand_err = _friendly_ai_error(e)
 
 
-def _aicb_combined_titles_and_candidates(s, rf, count: int = 3,
-                                          force_fresh_titles: bool = False):
-    """Combined task for the step-3 Auto Gen flow: if no target roles
-    are set yet (or `force_fresh_titles=True`), web-search the company
-    for job titles first, then generate candidates against those
-    titles. One thread, one spinner, one user click.
-
-    `force_fresh_titles=True` is used by the "Auto Gen" card on Step 3
-    when the user wants AI-fetched titles even though they may have
-    previously typed some — preserving the user's typed titles in
-    state so they can switch to "Create titles + Auto Gen" later
-    without re-typing. We snapshot + clear roles before fetching, then
-    restore the snapshot if the fetch fails / returns nothing."""
-    import threading as _thr
-    # Run-id pattern lets a fresh call (e.g. user changed candidate count
-    # mid-generation) supersede an in-flight run instead of being blocked
-    # by it. Each call bumps the id; the bg thread captures its id at
-    # spawn and only commits results if it's still the active one.
-    s._aicb_cand_run_id = (getattr(s, "_aicb_cand_run_id", 0) or 0) + 1
-    _my_run = s._aicb_cand_run_id
-    s._aicb_cand_generating = True
-    s._aicb_cand_err = ""
-    s._aicb_titles_err = ""
-    try: rf()
-    except Exception: pass
-
-    def _bg():
-        # Snapshot user's typed roles so a force-fresh run doesn't lose
-        # them permanently if the AI fetch fails.
-        _saved_roles = list(s.aicb_sel_roles or []) if force_fresh_titles else None
-        try:
-            # 1. Auto-fetch titles if none set OR caller forced fresh.
-            #    For Market mode (no company) just skip — _aicb_generate_
-            #    candidates_run handles empty roles by using "the target
-            #    roles" as a generic fallback in its prompt.
-            if force_fresh_titles:
-                s.aicb_sel_roles = []  # so suggest helper appends from empty
-            if not s.aicb_sel_roles and (s.aicb_company or "").strip():
-                _aicb_suggest_titles_run(s)
-            # If a newer run started while we were on the network, abort
-            # before doing the (more expensive) candidate gen.
-            if s._aicb_cand_run_id != _my_run:
-                return
-            # 2. Generate the candidates.
-            _aicb_generate_candidates_run(s, count=count)
-            # 3. Parse text into editable cards for the UI — but ONLY if
-            #    we're still the active run. Otherwise discard our result
-            #    so a newer (different-count) run owns the final state.
-            if s._aicb_cand_run_id != _my_run:
-                return
-            if s._aicb_cand_text:
-                s.aicb_cand_cards = _aicb_cards_from_text(s._aicb_cand_text)
-        finally:
-            # If a force-fresh run produced no useful titles AND nothing
-            # else changed roles, restore the user's snapshot so a
-            # toggle back to "Create titles + Auto Gen" still has them.
-            if (force_fresh_titles and _saved_roles
-                    and not s.aicb_sel_roles):
-                s.aicb_sel_roles = _saved_roles
-            # Only the active run owns the generating flag; orphaned
-            # threads exit silently without flipping it (a newer run is
-            # in flight and will flip it itself when it finishes).
-            if s._aicb_cand_run_id == _my_run:
-                s._aicb_cand_generating = False
-                try: rf()
-                except Exception: pass
-    _thr.Thread(target=_bg, daemon=True).start()
-
-
 def p_ai_campaign(s: AppState, rf):
     """AI Campaign Builder  -  upload contacts first, AI analyzes and builds a campaign."""
 
@@ -30831,15 +30762,10 @@ def p_ai_campaign(s: AppState, rf):
                              "job title, location, skills, target salary. "
                              "Goes inside your emails so prospects see real "
                              "examples of who you can place."),
-                            ("✨ AI does it for me",
-                             "Fastest. AI looks up what the company is "
-                             "hiring for and writes 1-6 sample profiles. "
-                             "One click. Pick this if you're not sure."),
                             ("✏ I'll pick the titles",
-                             "You type the titles (\"CNC Machinist\", "
-                             "\"Project Manager\"), AI writes one profile "
-                             "per title. Use when you know which roles "
-                             "to pitch. Cap of 6."),
+                             "You type the titles or short descriptions "
+                             "(\"Project Manager, 7 yrs OSHPD experience\"). "
+                             "AI writes one profile per entry. Cap of 6."),
                             ("📋 Use my real candidates",
                              "Pull from your saved Pool — real names, "
                              "real backgrounds. Filter by title to narrow "
@@ -31315,14 +31241,14 @@ def p_ai_campaign(s: AppState, rf):
                 # Pool as a filter). Skip is demoted to a small text link
                 # below the cards since it's the rare path.
 
-                # Migrate legacy single "autogen" source value: if the
-                # user already has roles picked, they wanted title-driven
-                # generation; otherwise they wanted quick.
-                if s.aicb_cand_source == "autogen":
-                    s.aicb_cand_source = (
-                        "autogen_titles" if (s.aicb_sel_roles or [])
-                        else "autogen_quick"
-                    )
+                # Migrate legacy source values. The "autogen_quick"
+                # tile ("AI does it for me") was removed 2026-05-25 —
+                # user feedback: titles + descriptions were drifting
+                # off-target because the quick path had no per-candidate
+                # direction. Anyone whose saved state points at the old
+                # quick tile lands on the titles tile instead.
+                if s.aicb_cand_source in ("autogen", "autogen_quick"):
+                    s.aicb_cand_source = "autogen_titles"
 
                 TITLE_MAX = 6
 
@@ -31446,26 +31372,9 @@ def p_ai_campaign(s: AppState, rf):
                     if m == "skip":
                         s.aicb_cand_cards = []
                         s._aicb_cand_text = ""
-                    # Auto-fire generation for "AI does it for me" so the
-                    # user doesn't have to click Generate separately. Per
-                    # user feedback (2026-05-10): picking the card should
-                    # do the work, not just enable a deeper button.
-                    # Skip if cards already exist for this mode (avoid
-                    # re-running on re-clicks of the active card) or if
-                    # generation is already in flight.
-                    if (m == "autogen_quick"
-                            and not s.aicb_cand_cards
-                            and not getattr(s, "_aicb_cand_generating", False)):
-                        n = max(1, min(6, int(s.aicb_cand_count or 3)))
-                        _aicb_combined_titles_and_candidates(
-                            s, rf, count=n, force_fresh_titles=True)
                     rf()
 
                 _CARDS = [
-                    ("autogen_quick", "✨", "AI does it for me",
-                     "AI looks up what jobs the company is hiring for, "
-                     "then writes 1-6 sample candidate profiles. "
-                     "Fastest — one click and you're done."),
                     ("autogen_titles", "✏", "I'll pick the titles",
                      "You type the job titles you want (e.g. \"CNC "
                      "Machinist\"). AI writes one sample candidate "
@@ -31506,87 +31415,7 @@ def p_ai_campaign(s: AppState, rf):
                             ui.label("Or skip — market-only campaign (no candidates)")
 
                 # ── Mode-specific UI ─────────────────────────────────
-                if s.aicb_cand_source == "autogen_quick":
-                    # No title picker — AI fetches titles for us.
-                    # Just a count selector + Generate button.
-                    with ui.element("div").style(
-                            f"display:flex;align-items:center;gap:12px;margin-bottom:14px;"
-                            f"padding:10px 14px;background:{C['surface']};border-radius:8px;"
-                            f"flex-wrap:wrap;"):
-                        ui.label("Candidates:").style(
-                            f"font-size:12px;color:{C['muted']};white-space:nowrap;")
-                        with ui.element("div").style("display:flex;gap:4px;"):
-                            for _n in [1, 2, 3, 4, 5, 6]:
-                                _is_sel = (int(s.aicb_cand_count or 3) == _n)
-                                _bg = C.get("teal", "#1AE3D9") if _is_sel else "transparent"
-                                _color = "#0a1620" if _is_sel else C['text_l']
-                                _border = C.get("teal", "#1AE3D9") if _is_sel else C['border']
-                                def _pick_n(num=_n):
-                                    s.aicb_cand_count = num
-                                    # If a generation is in flight and the
-                                    # user just changed the count, supersede
-                                    # the in-flight run with a fresh one
-                                    # using the new count. The orphaned run
-                                    # exits silently via run-id check; this
-                                    # one becomes the active run. Without
-                                    # this, the user is stuck waiting for
-                                    # the old count's run to finish before
-                                    # they can re-Generate.
-                                    if getattr(s, "_aicb_cand_generating", False):
-                                        s.aicb_cand_cards = []
-                                        s._aicb_cand_text = ""
-                                        _aicb_combined_titles_and_candidates(
-                                            s, rf, count=num,
-                                            force_fresh_titles=True)
-                                    rf()
-                                with ui.element("button").style(
-                                        f"width:30px;height:30px;border-radius:6px;"
-                                        f"background:{_bg};border:1px solid {_border};"
-                                        f"color:{_color};font-family:inherit;"
-                                        f"font-size:13px;font-weight:700;cursor:pointer;"
-                                        f"padding:0;"
-                                        ).on("click", _pick_n):
-                                    ui.label(str(_n))
-
-                        def _gen_quick():
-                            if getattr(s, "_aicb_cand_generating", False):
-                                return
-                            s.aicb_cand_cards = []
-                            s._aicb_cand_text = ""
-                            n = max(1, min(6, int(s.aicb_cand_count or 3)))
-                            _aicb_combined_titles_and_candidates(
-                                s, rf, count=n, force_fresh_titles=True)
-
-                        if getattr(s, "_aicb_cand_generating", False):
-                            ui.spinner("dots", size="md")
-                            ui.label("Fetching titles + generating…").style(
-                                f"font-size:12px;color:{C['muted']};")
-                        else:
-                            with ui.element("button").classes("fd-pb").style(
-                                    "padding:8px 18px;font-size:13px;").on("click", _gen_quick):
-                                ui.label(f"Generate {int(s.aicb_cand_count or 3)} candidates")
-
-                    if s.aicb_cand_cards:
-                        _render_aicb_candidate_cards(s, rf)
-                        def _reroll_quick():
-                            n = max(1, min(6, int(s.aicb_cand_count or 3)))
-                            s.aicb_cand_cards = []
-                            s._aicb_cand_text = ""
-                            def _on_done():
-                                if s._aicb_cand_text:
-                                    s.aicb_cand_cards = _aicb_cards_from_text(s._aicb_cand_text)
-                                rf()
-                            _aicb_auto_generate_candidates(s, _on_done, count=n)
-                        with ui.element("div").style("margin-top:12px;text-align:center;"):
-                            with ui.element("button").classes("fd-gb").style(
-                                    "padding:8px 18px;font-size:12px;").on(
-                                    "click", _reroll_quick):
-                                ui.label("🔄 Re-roll all")
-                    if getattr(s, "_aicb_cand_err", ""):
-                        ui.label(f"⚠ {s._aicb_cand_err}").style(
-                            f"font-size:11px;color:{C['warn']};margin-top:6px;")
-
-                elif s.aicb_cand_source == "autogen_titles":
+                if s.aicb_cand_source == "autogen_titles":
                     _render_title_picker(
                         "Target Titles",
                         f"Pick up to {TITLE_MAX}. AI writes one candidate "
@@ -31605,36 +31434,36 @@ def p_ai_campaign(s: AppState, rf):
                             if getattr(s, "_aicb_cand_generating", False):
                                 print(f"[CAND-DBG] _gen_titles SKIP — flag stuck True user={_u}", flush=True)
                                 return
+                            picked = list(s.aicb_sel_roles or [])
+                            if not picked:
+                                ui.notify(
+                                    "Add at least one title or description "
+                                    "above before generating.",
+                                    type="warning", timeout=4000)
+                                return
                             s.aicb_cand_cards = []
                             s._aicb_cand_text = ""
-                            picked = list(s.aicb_sel_roles or [])
-                            if picked:
-                                n = max(1, min(TITLE_MAX, len(picked)))
-                                print(f"[CAND-DBG] _gen_titles -> auto_generate count={n} user={_u}", flush=True)
-                                _aicb_auto_generate_candidates(s, rf, count=n)
-                            else:
-                                # Title-mode but no titles yet — fall back
-                                # to the auto-fetch pipe so they still get
-                                # something useful.
-                                n = max(1, min(6, int(s.aicb_cand_count or 3)))
-                                print(f"[CAND-DBG] _gen_titles -> combined count={n} user={_u}", flush=True)
-                                _aicb_combined_titles_and_candidates(
-                                    s, rf, count=n)
+                            n = max(1, min(TITLE_MAX, len(picked)))
+                            print(f"[CAND-DBG] _gen_titles -> auto_generate count={n} user={_u}", flush=True)
+                            _aicb_auto_generate_candidates(s, rf, count=n)
 
                         if getattr(s, "_aicb_cand_generating", False):
                             ui.spinner("dots", size="md")
                             ui.label("Generating candidates…").style(
                                 f"font-size:12px;color:{C['muted']};")
                         else:
+                            _no_titles = not _picked_titles
                             with ui.element("button").classes("fd-pb").style(
-                                    "padding:8px 18px;font-size:13px;").on("click", _gen_titles):
+                                    f"padding:8px 18px;font-size:13px;"
+                                    f"{'opacity:0.4;pointer-events:none;' if _no_titles else ''}"
+                                    ).on("click", _gen_titles):
                                 if _picked_titles:
                                     ui.label(
                                         f"Generate {len(_picked_titles)} "
                                         f"candidate{'s' if len(_picked_titles) != 1 else ''}"
                                     )
                                 else:
-                                    ui.label("Generate (auto-fetch titles)")
+                                    ui.label("Add a title above to enable Generate")
 
                     if s.aicb_cand_cards:
                         _render_aicb_candidate_cards(s, rf)
