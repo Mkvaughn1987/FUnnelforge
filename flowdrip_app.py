@@ -355,31 +355,6 @@ def _serve_city_image(slug: str, variant: str):
     )
 
 
-@app.get("/sb_reorder")
-def _sb_reorder(ids: str = ""):
-    """SortableJS calls this after a drag. Reorders s.sb_steps for
-    the current user's session to match the new id sequence."""
-    from fastapi import Response as _Resp
-    try:
-        _email = (app.storage.user.get("email") or "").strip()
-    except Exception:
-        _email = ""
-    if not _email:
-        return _Resp(status_code=204)
-    _id_order = [i.strip() for i in (ids or "").split(",") if i.strip()]
-    _s = _find_appstate_for_email(_email)
-    if not _s or not getattr(_s, "sb_steps", None):
-        return _Resp(status_code=204)
-    _by_id = {st.get("id", ""): st for st in _s.sb_steps}
-    _new_order = [_by_id[i] for i in _id_order if i in _by_id]
-    # Preserve any steps the client didn't send (edge case: race)
-    for _st in _s.sb_steps:
-        if _st not in _new_order:
-            _new_order.append(_st)
-    _s.sb_steps = _new_order
-    return _Resp(status_code=204)
-
-
 # Newsletter email image cache. We used to inline every image as base64
 # directly in the email body — emails routinely hit 350+ KB and Gmail
 # would clip / mangle them. Now in server mode we write the bytes once
@@ -9550,10 +9525,25 @@ class AppState:
         # Build chooser tile routes to s.sp = "seq_builder" which
         # renders p_seq_builder. State persists in app.storage.user
         # so a Cloudflare WS blip doesn't wipe a half-built sequence.
+        # Brief
         self.sb_goal: str = ""                  # the campaign's goal blurb
         self.sb_audience: str = ""              # who the user is targeting
         self.sb_tone: str = "consultative"      # consultative|direct|casual|formal
-        self.sb_steps: list = []                # list of step dicts (see schema below)
+        # Cadence — per-type touch counts + a preset span. AI builds the
+        # full sequence honoring these counts. Spacing is derived from
+        # total touches + span.
+        self.sb_counts: dict = {
+            "email": 5,
+            "linkedin": 2,
+            "call": 1,
+            "sms": 0,
+            "task": 0,
+        }
+        self.sb_span: str = "3 weeks"           # 1 week|2 weeks|3 weeks|4 weeks|6 weeks|2 months|3 months
+        # Free-text instructions Claude folds into the prompt (warm
+        # intro placement, candidate teasers, breakup positioning,
+        # etc.).
+        self.sb_special: str = ""
         self.sb_generating: bool = False        # spinner flag during Claude call
         self.sb_error: str = ""                 # last-error string for inline display
 
@@ -9605,21 +9595,6 @@ class AppState:
         # C1 fix: per-session QEditor registry. Overwritten by index() with the
         # real implementation; no-op default prevents AttributeErrors in tests.
         self._register_qeditor = lambda editor, eid: editor
-
-
-def _find_appstate_for_email(email: str):
-    """Look up the AppState attached to a given user's NiceGUI session.
-    Used by the /sb_reorder route which can't see the @ui.page closure
-    state directly. Walks the live client registry."""
-    try:
-        from nicegui import Client as _NCli
-        for _client in list(_NCli.instances.values()):
-            _s = getattr(_client, "_dripdrop_state", None)
-            if _s and (getattr(_s, "_user_email", "") or "").lower() == email.lower():
-                return _s
-    except Exception:
-        pass
-    return None
 
 
 def _reset_wizard_state(s: "AppState") -> None:
@@ -24782,11 +24757,13 @@ def p_prev_launch(s: AppState, rf):
 
 
 def p_seq_builder(s: AppState, rf):
-    """AI Guided Sequence Builder.
+    """AI Guided Sequence Builder — simplified 2026-05-23.
 
-    Routed to from the Custom Build chooser tile (s.sp = "seq_builder").
-    User defines a campaign brief + a list of steps; AI writes or
-    polishes content per step and the user lands in the email editor.
+    Three-section flow: campaign brief, per-type touch counts + span,
+    optional special instructions. AI builds the entire sequence from
+    those inputs (no per-step add buttons, no drag-to-reorder). Lands
+    the user in the email editor with the generated sequence ready to
+    review.
 
     Spec: docs/superpowers/specs/2026-05-23-ai-guided-sequence-builder-design.md
     """
@@ -24804,10 +24781,10 @@ def p_seq_builder(s: AppState, rf):
             ui.label("← Back to Campaign Styles")
 
     ui.label(
-        "Design your own outreach cadence step by step. AI helps you "
-        "write each message — you control the order and timing. You "
-        "can give instructions to the AI, or write the copy yourself "
-        "and AI will polish + add merge fields."
+        "Tell us what you want — the goal, who you're sending to, how "
+        "many touches of each type, and anything specific to include. "
+        "AI writes the whole sequence end-to-end. You'll land in the "
+        "email editor where you can tweak any message before launch."
     ).style(
         f"font-size:12.5px;color:{C['muted']};line-height:1.55;"
         f"margin-bottom:18px;max-width:920px;")
@@ -24819,9 +24796,7 @@ def p_seq_builder(s: AppState, rf):
                 f"font-size:14px;font-weight:700;color:{C['text_l']};"
                 f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
             ui.label(
-                "All three fields are optional — they anchor the AI when "
-                "it writes step copy. Skip them and AI will guess from "
-                "each step's content."
+                "Optional — anchors the AI when it writes copy."
             ).style(
                 f"font-size:11px;color:{C['muted']};margin-bottom:14px;"
                 f"line-height:1.5;")
@@ -24875,147 +24850,126 @@ def p_seq_builder(s: AppState, rf):
                             ).on("click", _pick_tone):
                         ui.label(_label).style("pointer-events:none;")
 
-        # ── Section 2: Steps ────────────────────────────────────────────
+        # ── Section 2: Cadence ──────────────────────────────────────────
+        _counts = s.sb_counts or {}
+        _total = sum(int(_counts.get(_t, 0) or 0) for _t in _SB_VALID_TYPES)
         with ui.element("div").classes("fd-gc").style("margin-bottom:18px;"):
             with ui.element("div").style(
                     "display:flex;align-items:center;justify-content:space-between;"
                     "margin-bottom:4px;"):
-                ui.label("2. Steps").style(
+                ui.label("2. Cadence").style(
                     f"font-size:14px;font-weight:700;color:{C['text_l']};"
                     f"font-family:'Nunito',sans-serif;")
-                _n = len(s.sb_steps)
-                _meta = f"{_n} of 15"
-                _meta_col = (C["danger"] if _n >= 15 else
-                             C["warn"] if _n >= 10 else
-                             C["muted"])
-                ui.label(_meta).style(
-                    f"font-size:11px;color:{_meta_col};font-weight:600;")
+                _total_col = (C["danger"] if _total >= 15 else
+                              C["warn"] if _total >= 10 else
+                              C["muted"])
+                ui.label(f"{_total} of 15 total touches").style(
+                    f"font-size:11px;color:{_total_col};font-weight:600;")
 
             ui.label(
-                "Click a button below to add a step. Drag the ≡ handle "
-                "on any step card to reorder. Each step's input accepts "
-                "either AI direction or actual copy — the AI detects "
-                "which and writes or polishes accordingly."
+                "How many of each touch type, and over what span? AI "
+                "orders them sensibly and spaces them across the window."
             ).style(
                 f"font-size:11px;color:{C['muted']};margin-bottom:14px;"
                 f"line-height:1.5;")
 
             # Soft warning at 10+, hard block at 15
-            if 10 <= len(s.sb_steps) < 15:
+            if 10 <= _total < 15:
                 with ui.element("div").style(
                         f"background:{C['warn']}10;border:1px solid {C['warn']}40;"
                         f"border-radius:6px;padding:8px 12px;margin-bottom:10px;"):
                     ui.label(
-                        f"⚠ You're at {len(s.sb_steps)} steps — long "
-                        f"sequences risk reading as harassment. Most "
-                        f"recruiters keep it under 10."
+                        f"⚠ You're at {_total} touches — long sequences "
+                        f"risk reading as harassment. Most recruiters "
+                        f"keep it under 10."
                     ).style(f"font-size:11px;color:{C['warn']};line-height:1.5;")
-            elif len(s.sb_steps) >= 15:
+            elif _total >= 15:
                 with ui.element("div").style(
                         f"background:{C['danger']}10;border:1px solid {C['danger']}40;"
                         f"border-radius:6px;padding:8px 12px;margin-bottom:10px;"):
                     ui.label(
-                        "Max 15 steps. Remove one to add another."
+                        f"Max 15 total touches. You're at {_total} — "
+                        f"lower a count to enable Generate."
                     ).style(f"font-size:11px;color:{C['danger']};line-height:1.5;")
 
-            # Add-step button row — disabled at 15
-            _at_cap = len(s.sb_steps) >= 15
-            _add_buttons = [
-                ("email",    "+ Add Email",    "✉"),
-                ("linkedin", "+ Add LinkedIn", "in"),
-                ("call",     "+ Add Call",     "☎"),
-                ("sms",      "+ Add SMS",      "msg"),
-                ("task",     "+ Add Task",     "✓"),
+            # Per-type count rows
+            _types = [
+                ("email",    "Emails",   "✉"),
+                ("linkedin", "LinkedIn", "in"),
+                ("call",     "Calls",    "☎"),
+                ("sms",      "SMS",      "msg"),
+                ("task",     "Tasks",    "✓"),
             ]
             with ui.element("div").style(
-                    "display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;"):
-                for _stype, _label, _icon in _add_buttons:
-                    def _add(t=_stype):
-                        try:
-                            _sb_add_step(s.sb_steps, t)
-                        except ValueError as _ve:
-                            ui.notify(str(_ve), type="warning")
-                            return
+                    "display:grid;grid-template-columns:auto 1fr 80px;"
+                    "gap:10px 14px;align-items:center;margin-bottom:14px;"
+                    "max-width:480px;"):
+                for _stype, _label, _icon in _types:
+                    ui.label(_icon).style(
+                        f"font-size:14px;color:{C['teal']};font-weight:700;"
+                        f"width:24px;text-align:center;")
+                    ui.label(_label).style(
+                        f"font-size:13px;color:{C['text_l']};")
+                    _count_in = ui.number(
+                        value=int(_counts.get(_stype, 0) or 0),
+                        min=0, max=15, step=1,
+                    ).style(
+                        f"background:{C['surface']};border:1px solid {C['border']};"
+                        f"border-radius:6px;padding:4px 6px;color:{C['text_l']};")
+                    def _save_count(t=_stype, inp=_count_in):
+                        if not isinstance(s.sb_counts, dict):
+                            s.sb_counts = {}
+                        s.sb_counts[t] = max(0, min(15, int(inp.value or 0)))
                         rf()
-                    with ui.element("button").classes(
-                            "fd-gb" + (" disabled" if _at_cap else "")
-                            ).style(
-                            f"padding:7px 14px;font-size:12px;"
-                            f"{'opacity:0.4;pointer-events:none;' if _at_cap else ''}"
-                            ).on("click", _add):
-                        ui.label(_label).style("pointer-events:none;")
+                    _count_in.on("blur", _save_count)
 
-            # Step cards — container has a data attribute SortableJS hooks to
-            with ui.element("div").props('id="sb-steps-list"').style(
-                    "display:flex;flex-direction:column;gap:10px;"):
-                for _idx, _step in enumerate(list(s.sb_steps)):
-                    _sid = _step.get("id", "")
-                    _stype = _step.get("type", "")
-                    _icon = {"email": "✉", "linkedin": "in", "call": "☎",
-                             "sms": "msg", "task": "✓"}.get(_stype, "•")
-                    with ui.element("div").props(f'data-step-id="{_sid}"').style(
-                            f"background:{C['surface']};border:1px solid {C['border']};"
-                            f"border-left:3px solid {C['teal']};border-radius:0 8px 8px 0;"
-                            f"padding:12px 14px;"):
-                        # Header row
-                        with ui.element("div").style(
-                                "display:flex;align-items:center;gap:10px;margin-bottom:10px;"):
-                            ui.label("≡").classes("sb-drag-handle").style(
-                                f"font-size:16px;color:{C['muted']};"
-                                f"cursor:grab;font-weight:700;user-select:none;")
-                            ui.label(_icon).style(
-                                f"font-size:14px;color:{C['teal']};"
-                                f"font-weight:700;width:24px;text-align:center;")
-                            ui.label(_sb_step_label(_step)).style(
-                                f"font-size:12px;font-weight:700;color:{C['text_l']};"
-                                f"font-family:'Nunito',sans-serif;flex:1;")
+            # Span dropdown
+            with ui.element("div").style(
+                    "display:flex;align-items:center;gap:10px;"
+                    "margin-top:8px;"):
+                ui.label("Span").style(
+                    f"font-size:13px;color:{C['text_l']};font-weight:600;")
+                _span_sel = ui.select(
+                    options=list(_SB_SPAN_OPTIONS),
+                    value=s.sb_span or "3 weeks",
+                ).classes("fd-input").style("min-width:160px;")
+                def _save_span(_e=None, _sel=_span_sel):
+                    s.sb_span = (_sel.value or "3 weeks")
+                _span_sel.on("update:model-value", _save_span)
 
-                            # Day-offset input
-                            ui.label("Day offset:").style(
-                                f"font-size:11px;color:{C['muted']};")
-                            _day_in = ui.number(
-                                value=int(_step.get("delay_days", 0)),
-                                min=0, step=1,
-                            ).style(
-                                f"width:70px;background:{C['card']};"
-                                f"border:1px solid {C['border']};border-radius:6px;"
-                                f"padding:4px 6px;color:{C['text_l']};")
-                            def _save_delay(sid=_sid, inp=_day_in):
-                                for _st in s.sb_steps:
-                                    if _st.get("id") == sid:
-                                        _st["delay_days"] = max(0, int(inp.value or 0))
-                                        break
-                                rf()
-                            _day_in.on("blur", _save_delay)
+        # ── Section 3: Special instructions ─────────────────────────────
+        with ui.element("div").classes("fd-gc").style("margin-bottom:18px;"):
+            ui.label("3. Anything specific to include (optional)").style(
+                f"font-size:14px;font-weight:700;color:{C['text_l']};"
+                f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
+            ui.label(
+                "Tell AI anything special — opening style, candidate "
+                "teaser placement, breakup positioning, etc. Examples:"
+            ).style(
+                f"font-size:11px;color:{C['muted']};margin-bottom:6px;"
+                f"line-height:1.5;")
+            ui.label(
+                '• "Warm intro on email 1, candidate teasers on emails 3 '
+                'and 5, breakup on the last email"\n'
+                '• "Lead with market data, no candidate mentions"\n'
+                '• "Heavy follow-up — chase non-responders aggressively"'
+            ).style(
+                f"font-size:11px;color:{C['muted']};margin-bottom:10px;"
+                f"line-height:1.6;font-style:italic;white-space:pre-wrap;")
 
-                            # Remove
-                            def _remove(sid=_sid):
-                                _sb_remove_step(s.sb_steps, sid)
-                                rf()
-                            with ui.element("button").style(
-                                    f"background:transparent;border:none;"
-                                    f"color:{C['danger']};cursor:pointer;"
-                                    f"font-size:14px;line-height:1;"
-                                    f"padding:0 6px;"
-                                    ).on("click", _remove):
-                                ui.label("✕")
-
-                        # Textarea with type-specific placeholder
-                        _placeholder = _sb_placeholder_for(_stype)
-                        _input_ta = ui.textarea(
-                            value=_step.get("input", ""),
-                            placeholder=_placeholder,
-                        ).style(
-                            f"width:100%;min-height:90px;background:{C['card']};"
-                            f"border:1px solid {C['border']};border-radius:6px;"
-                            f"padding:8px 10px;color:{C['text_l']};font-size:12px;"
-                            f"font-family:inherit;resize:vertical;")
-                        def _save_input(sid=_sid, ta=_input_ta):
-                            for _st in s.sb_steps:
-                                if _st.get("id") == sid:
-                                    _st["input"] = (ta.value or "")
-                                    break
-                        _input_ta.on("blur", _save_input)
+            _special_in = ui.textarea(
+                value=s.sb_special,
+                placeholder=(
+                    "Anything specific you want the AI to know — "
+                    "leave blank if not."
+                ),
+            ).style(
+                f"width:100%;min-height:90px;background:{C['surface']};"
+                f"border:1px solid {C['border']};border-radius:6px;"
+                f"padding:8px 10px;color:{C['text_l']};font-size:12px;"
+                f"font-family:inherit;resize:vertical;")
+            _special_in.on("blur", lambda: setattr(
+                s, "sb_special", (_special_in.value or "").strip()))
 
         # ── Generate ────────────────────────────────────────────────────
         if s.sb_generating:
@@ -25026,8 +24980,8 @@ def p_seq_builder(s: AppState, rf):
                 ui.label("Writing your sequence — usually 15-30 seconds…").style(
                     f"font-size:14px;font-weight:600;color:{C['teal']};margin-top:12px;")
                 ui.label(
-                    "Claude is converting your direction into final copy. "
-                    "You can leave this page; we'll keep working."
+                    "Claude is laying out the cadence and writing each "
+                    "message. You can leave this page; we'll keep working."
                 ).style(f"font-size:11px;color:{C['muted']};margin-top:4px;")
             async def _poll():
                 while s.sb_generating:
@@ -25043,9 +24997,15 @@ def p_seq_builder(s: AppState, rf):
                         f"font-size:12px;color:{C['danger']};line-height:1.5;")
 
             def _generate():
-                if not s.sb_steps:
-                    ui.notify("Add at least one step before generating.",
-                              type="warning", timeout=5000)
+                if _total <= 0:
+                    ui.notify(
+                        "Set at least one touch count above 0 before "
+                        "generating.", type="warning", timeout=5000)
+                    return
+                if _total > 15:
+                    ui.notify(
+                        "Lower the total touches to 15 or fewer before "
+                        "generating.", type="warning", timeout=5000)
                     return
                 s.sb_generating = True
                 s.sb_error = ""
@@ -25059,7 +25019,9 @@ def p_seq_builder(s: AppState, rf):
                             goal=s.sb_goal,
                             audience=s.sb_audience,
                             tone=s.sb_tone,
-                            steps=s.sb_steps,
+                            counts=s.sb_counts,
+                            span=s.sb_span,
+                            special=s.sb_special,
                         )
                         _msg = _claude_create_with_retry(
                             _client,
@@ -25073,13 +25035,10 @@ def p_seq_builder(s: AppState, rf):
                         if not _camp or not _camp.get("emails"):
                             s.sb_error = (
                                 "AI returned an empty sequence. Try "
-                                "adding more direction to each step.")
+                                "adjusting the brief and try again.")
                             return
 
-                        # Clean up generated bodies the same way other
-                        # campaign generators do (em-dashes, sign-offs,
-                        # markdown→HTML normalization happens further
-                        # downstream in queue_campaign_emails).
+                        # Cleanup mirrors other campaign generators.
                         for _em in _camp["emails"]:
                             if _em.get("body"):
                                 _em["body"] = _strip_dashes(
@@ -25087,7 +25046,6 @@ def p_seq_builder(s: AppState, rf):
                             if _em.get("subject"):
                                 _em["subject"] = _strip_dashes(_em["subject"])
 
-                        # Stash on the loaded-camp slot the editor reads.
                         _camp["status"] = "draft"
                         _camp["created"] = date.today().isoformat()
                         _camp["_owner_email"] = (
@@ -25098,10 +25056,10 @@ def p_seq_builder(s: AppState, rf):
                         s.loaded_tab = 0
                         s.sp = "start_seq"
                         s._tab = "custom"
-                        # Reset builder state so re-entering starts clean.
-                        s.sb_steps = []
+                        # Reset so the next visit starts clean.
                         s.sb_goal = ""
                         s.sb_audience = ""
+                        s.sb_special = ""
                         s.sb_error = ""
                     except Exception as _ex:
                         s.sb_error = _friendly_ai_error(_ex)
@@ -25114,50 +25072,20 @@ def p_seq_builder(s: AppState, rf):
                 _run_as_user(getattr(s, "_user_email", "") or "", _run,
                              name="sb_generate_worker")
 
-            _dis = not s.sb_steps
+            _dis = (_total <= 0 or _total > 15)
             with ui.element("button").classes("fd-pb").style(
                     f"padding:14px 28px;font-size:15px;width:100%;"
                     f"justify-content:center;display:flex;border-radius:10px;"
                     f"margin-top:14px;"
                     f"{'opacity:0.4;pointer-events:none;' if _dis else ''}"
                     ).on("click", _generate):
-                ui.label(
-                    "Generate Sequence →" if not _dis
-                    else "Add a step to enable Generate"
-                ).style("pointer-events:none;")
-
-    # SortableJS for drag-to-reorder. Injects once per render; hooks
-    # onto the #sb-steps-list container and rewires s.sb_steps + rf()
-    # via a fetch to the /sb_reorder route registered at module scope.
-    ui.run_javascript("""
-        (function() {
-            if (!window._sortableLoaded) {
-                var _s = document.createElement('script');
-                _s.src = 'https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js';
-                _s.onload = function() { window._sortableLoaded = true; _initSb(); };
-                document.head.appendChild(_s);
-            } else {
-                _initSb();
-            }
-            function _initSb() {
-                var el = document.getElementById('sb-steps-list');
-                if (!el || el._sortableBound) return;
-                el._sortableBound = true;
-                Sortable.create(el, {
-                    handle: '.sb-drag-handle',
-                    animation: 150,
-                    onEnd: function(evt) {
-                        var ids = [];
-                        el.querySelectorAll('[data-step-id]').forEach(
-                            function(c) { ids.push(c.getAttribute('data-step-id')); });
-                        fetch('/sb_reorder?ids=' + encodeURIComponent(ids.join(',')),
-                              {credentials: 'same-origin'})
-                            .then(function() { window.location.reload(); });
-                    }
-                });
-            }
-        })();
-    """)
+                if _total <= 0:
+                    _btn_label = "Add at least one touch to enable Generate"
+                elif _total > 15:
+                    _btn_label = "Lower the total to 15 or fewer"
+                else:
+                    _btn_label = f"Generate {_total}-touch Sequence →"
+                ui.label(_btn_label).style("pointer-events:none;")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -29697,10 +29625,12 @@ def _aicb_auto_fill_run(s):
         s._aicb_autofill_err = _friendly_ai_error(e)
 
 
-# ── AI Guided Sequence Builder helpers (2026-05-23) ──────────────────────
-# Pure functions broken out of p_seq_builder so step CRUD + label logic
-# can be tested without a NiceGUI harness. UI handlers call these and
-# then trigger rf().
+# ── AI Guided Sequence Builder helpers (2026-05-23, simplified) ──────────
+# Per-step add/drag/remove was overengineering — users want to say "5
+# emails + 2 LinkedIns + 1 call over 3 weeks, warm intro on email 1"
+# and let AI build the whole sequence. The builder is now a brief
+# (goal/audience/tone) + per-type counts + span + a free-text
+# "special instructions" textarea. AI generates everything.
 
 _SB_VALID_TYPES = ("email", "linkedin", "call", "sms", "task")
 
@@ -29712,127 +29642,53 @@ _SB_TYPE_LABELS = {
     "task":     "Task",
 }
 
+_SB_SPAN_OPTIONS = (
+    "1 week", "2 weeks", "3 weeks", "4 weeks",
+    "6 weeks", "2 months", "3 months",
+)
 
-def _sb_add_step(steps: list, step_type: str) -> dict:
-    """Append a new step of the given type to `steps` (mutates).
-    First step defaults to Day 0; subsequent steps default to +1 day
-    after the previous. Returns the new step dict."""
-    if step_type not in _SB_VALID_TYPES:
-        raise ValueError(f"Unknown step type {step_type!r}; "
-                         f"expected one of {_SB_VALID_TYPES}")
-    import uuid as _uuid
-    _new = {
-        "id": _uuid.uuid4().hex,
-        "type": step_type,
-        "delay_days": 0 if not steps else 1,
-        "input": "",
-    }
-    steps.append(_new)
-    return _new
-
-
-def _sb_remove_step(steps: list, step_id: str) -> bool:
-    """Remove the step whose `id` matches `step_id`. Returns True if a
-    step was removed, False if no match. Mutates `steps`."""
-    for _i, _st in enumerate(steps):
-        if _st.get("id") == step_id:
-            del steps[_i]
-            return True
-    return False
-
-
-def _sb_move_step(steps: list, step_id: str, new_index: int) -> bool:
-    """Move the step with the given id to `new_index` (clamped to the
-    valid range). Returns True if reordered, False if id not found."""
-    _src = -1
-    for _i, _st in enumerate(steps):
-        if _st.get("id") == step_id:
-            _src = _i
-            break
-    if _src < 0:
-        return False
-    _moved = steps.pop(_src)
-    _dst = max(0, min(new_index, len(steps)))
-    steps.insert(_dst, _moved)
-    return True
-
-
-def _sb_step_label(step: dict) -> str:
-    """Render a step's short label, e.g. 'Email · Day 2'."""
-    _t = (step.get("type") or "").lower()
-    _label = _SB_TYPE_LABELS.get(_t, _t.title() or "Step")
-    return f"{_label} · Day {int(step.get('delay_days', 0))}"
-
-
-def _sb_placeholder_for(step_type: str) -> str:
-    """Return the textarea placeholder for a given step type. Each
-    one shows BOTH a hint-mode example and a write-it-yourself
-    example so the user knows either input works."""
-    _t = (step_type or "").lower()
-    if _t == "email":
-        return (
-            "Hint mode: \"Warm opening that references their recent "
-            "Bisnow feature, then introduce a senior PM candidate I'm "
-            "representing. End with a question about their pipeline. "
-            "Keep it under 90 words.\"\n\n"
-            "— OR — write the actual email and AI will polish it / add "
-            "merge fields:\n"
-            "\"Hi {FirstName}, Saw your team's Bisnow feature last "
-            "week — congrats…\""
-        )
-    if _t == "linkedin":
-        return (
-            "Hint mode: \"Short connection request — say I sent an "
-            "email about a candidate.\"\n\n"
-            "— OR — write it yourself:\n"
-            "\"Sent you an email about a candidate in your space — "
-            "wanted to connect here as well.\""
-        )
-    if _t == "call":
-        return (
-            "Hint mode: \"Reference the email I sent. Ask if they had "
-            "a chance to look at the profile. Quick qualify: are they "
-            "hiring? Who owns the decision?\"\n\n"
-            "— OR — write a script verbatim and AI keeps it as-is."
-        )
-    if _t == "sms":
-        return (
-            "Hint mode: \"Brief follow-up to the email — gut check "
-            "whether the candidate looks like a fit.\"\n\n"
-            "— OR — write the SMS yourself:\n"
-            "\"Quick gut check on the candidate — does this look right "
-            "for your team?\""
-        )
-    if _t == "task":
-        return (
-            "What to do (just plain text — AI doesn't write tasks, "
-            "this is a reminder):\n"
-            "\"Pause and scan the response inbox before continuing.\""
-        )
-    return ""
+# Maps a step_type from the schema back to the JSON Claude returns.
+_SB_TYPE_TO_QUEUE_TYPE = {
+    "email":    "email_auto",
+    "linkedin": "linkedin",
+    "call":     "call",
+    "sms":      "sms",
+    "task":     "task_general",
+}
 
 
 def _sb_build_prompt(goal: str, audience: str, tone: str,
-                    steps: list) -> str:
-    """Build the Claude prompt for generating sequence content from
-    the user's brief + per-step direction. Each step's `input` field
-    is passed through verbatim — Claude is instructed to detect
-    whether the text is INSTRUCTIONS (write fresh) or DRAFTED COPY
-    (lightly polish)."""
+                     counts: dict, span: str,
+                     special: str = "") -> str:
+    """Build the Claude prompt for generating the entire sequence
+    from a high-level brief + per-type touch counts + total span +
+    optional special instructions. AI handles step ordering, per-
+    step content, and day-offset spacing across the span."""
     _tone = (tone or "consultative").strip().lower()
-    _goal = (goal or "").strip() or "(not specified — infer from steps)"
-    _aud = (audience or "").strip() or "(not specified — infer from steps)"
+    _goal = (goal or "").strip() or "(not specified)"
+    _aud = (audience or "").strip() or "(not specified)"
+    _span = (span or "3 weeks").strip()
+    _special = (special or "").strip()
 
-    _step_blocks = []
-    for _i, _st in enumerate(steps, start=1):
-        _stype = (_st.get("type") or "").upper()
-        _delay = int(_st.get("delay_days", 0))
-        _inp = (_st.get("input") or "").strip() or "(no direction given — improvise)"
-        _step_blocks.append(
-            f"  Step {_i}: {_stype}, +{_delay} day(s) after previous\n"
-            f"    User direction or draft:\n    {_inp}"
+    # Per-type count lines — only enumerate types the user actually
+    # picked. Zero-count types just confuse the AI.
+    _count_lines = []
+    _total = 0
+    for _t in _SB_VALID_TYPES:
+        _n = int((counts or {}).get(_t, 0) or 0)
+        if _n <= 0:
+            continue
+        _label = _SB_TYPE_LABELS.get(_t, _t.title())
+        _count_lines.append(f"  - {_n} {_label} touch{'es' if _n != 1 else ''}")
+        _total += _n
+    _counts_block = "\n".join(_count_lines) if _count_lines else "  (no touches specified)"
+
+    _special_block = ""
+    if _special:
+        _special_block = (
+            f"\nSPECIAL INSTRUCTIONS from the user (fold into the sequence):\n"
+            f"  {_special}\n"
         )
-    _steps_block = "\n\n".join(_step_blocks) if _step_blocks else "  (no steps defined)"
 
     return (
         f"You are building a {_tone} outreach sequence for a recruiter.\n\n"
@@ -29841,20 +29697,26 @@ def _sb_build_prompt(goal: str, audience: str, tone: str,
         + f"GOAL: {_goal}\n"
         f"AUDIENCE: {_aud}\n"
         f"TONE: {_tone}\n\n"
-        f"STEPS the user defined (in order, with relative day offsets):\n\n"
-        f"{_steps_block}\n\n"
-        f"For each step, decide whether the user's text is INSTRUCTIONS "
-        f"or DRAFTED COPY:\n\n"
-        f"- INSTRUCTIONS: text reads as guidance (\"warm opening that "
-        f"mentions...\", \"short connection request — say I...\"). "
-        f"Write the final copy from scratch.\n"
-        f"- DRAFTED COPY: text reads as final output (starts with "
-        f"\"Hi {{FirstName}}\", has merge fields, full sentences). "
-        f"Lightly polish: fix typos, ensure merge fields render, "
-        f"tighten wording. Do NOT rewrite the user's voice.\n\n"
-        f"Use merge fields {{FirstName}}, {{LastName}}, {{Company}}, "
-        f"{{JobTitle}} where appropriate.\n\n"
-        f"Output a JSON object with the following shape:\n\n"
+        f"CADENCE — build a sequence with exactly these touch counts, "
+        f"spaced naturally across {_span}:\n"
+        f"{_counts_block}\n"
+        f"  TOTAL: {_total} touches over {_span}\n"
+        f"{_special_block}\n"
+        f"GUIDELINES:\n"
+        f"- Order the touches in a sensible flow (typical pattern: email "
+        f"first, LinkedIn connect after the first email, calls spaced 2-3 "
+        f"days after their related email, SMS as quick nudges between "
+        f"emails, tasks as reminders). Adjust if SPECIAL INSTRUCTIONS "
+        f"above suggest otherwise.\n"
+        f"- Space the touches naturally across the {_span}. Don't bunch "
+        f"everything in the first week unless the cadence is explicitly "
+        f"short.\n"
+        f"- delay_days on each step is DAYS AFTER THE PREVIOUS STEP "
+        f"(NOT total days from start).\n"
+        f"- Use merge fields {{FirstName}}, {{LastName}}, {{Company}}, "
+        f"{{JobTitle}} where appropriate.\n"
+        f"- Each email gets a subject; LinkedIn/Call/SMS/Task don't.\n\n"
+        f"Output a JSON object with this exact shape:\n\n"
         f"{{\n"
         f"  \"campaign_name\": \"...\",\n"
         f"  \"synopsis\": \"...\",\n"
@@ -49006,14 +48868,6 @@ def index():
     _cache_queue.invalidate()
 
     s = AppState()
-    # Make the AppState findable from out-of-page-context routes
-    # (e.g. /sb_reorder for the Sequence Builder's drag handler).
-    try:
-        from nicegui import context as _ctx
-        _client = _ctx.client
-        setattr(_client, "_dripdrop_state", s)
-    except Exception:
-        pass
     s._user_email = _user_email
     s._user_name = app.storage.user.get("name", "")
 
