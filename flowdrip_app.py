@@ -24717,10 +24717,10 @@ def p_seq_builder(s: AppState, rf):
             ui.label("← Back to Campaign Styles")
 
     ui.label(
-        "Tell us what you want — the goal, who you're sending to, how "
-        "many touches of each type, and anything specific to include. "
-        "AI writes the whole sequence end-to-end. You'll land in the "
-        "email editor where you can tweak any message before launch."
+        "Tell us what you want — the goal, who you're sending to, what "
+        "each email should cover, and how many of each touch. AI writes "
+        "the whole sequence end-to-end. You'll land in the email editor "
+        "where you can tweak any message before launch."
     ).style(
         f"font-size:12.5px;color:{C['muted']};line-height:1.55;"
         f"margin-bottom:18px;max-width:920px;")
@@ -24770,7 +24770,8 @@ def p_seq_builder(s: AppState, rf):
                 ("formal", "Formal"),
             ]
             with ui.element("div").style(
-                    "display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;"):
+                    "display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;"
+                    "margin-bottom:18px;"):
                 for _key, _label in _tone_options:
                     _is_sel = s.sb_tone == _key
                     def _pick_tone(k=_key):
@@ -24785,6 +24786,38 @@ def p_seq_builder(s: AppState, rf):
                             f"{C['teal'] if _is_sel else C['border']};"
                             ).on("click", _pick_tone):
                         ui.label(_label).style("pointer-events:none;")
+
+            ui.label("What each email should cover").classes("fd-fl")
+            ui.label(
+                "Optional — list per-email direction in any format. "
+                "AI uses this when writing each message. Examples:"
+            ).style(
+                f"font-size:11px;color:{C['muted']};margin-bottom:6px;"
+                f"line-height:1.5;")
+            ui.label(
+                "First email: warm intro that I'm a recruiter in CO "
+                "construction\n"
+                "Second email: pitch the candidate's standout skill\n"
+                "Third email: short market data tease\n"
+                "Fourth: breakup"
+            ).style(
+                f"font-size:11px;color:{C['muted']};margin-bottom:10px;"
+                f"line-height:1.6;font-style:italic;white-space:pre-wrap;")
+            _special_in = ui.textarea(
+                value=s.sb_special,
+                placeholder=(
+                    "First email: ...\n"
+                    "Second email: ...\n"
+                    "Third email: ...\n"
+                    "(any format works — leave blank if not)"
+                ),
+            ).style(
+                f"width:100%;min-height:120px;background:{C['surface']};"
+                f"border:1px solid {C['border']};border-radius:6px;"
+                f"padding:8px 10px;color:{C['text_l']};font-size:12px;"
+                f"font-family:inherit;resize:vertical;")
+            _special_in.on("blur", lambda: setattr(
+                s, "sb_special", (_special_in.value or "").strip()))
 
         # ── Section 2: Cadence ──────────────────────────────────────────
         _counts = s.sb_counts or {}
@@ -24872,40 +24905,6 @@ def p_seq_builder(s: AppState, rf):
                 def _save_span(_e=None, _sel=_span_sel):
                     s.sb_span = (_sel.value or "3 weeks")
                 _span_sel.on("update:model-value", _save_span)
-
-        # ── Section 3: Special instructions ─────────────────────────────
-        with ui.element("div").classes("fd-gc").style("margin-bottom:18px;"):
-            ui.label("3. Anything specific to include (optional)").style(
-                f"font-size:14px;font-weight:700;color:{C['text_l']};"
-                f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
-            ui.label(
-                "Tell AI anything special — opening style, candidate "
-                "teaser placement, breakup positioning, etc. Examples:"
-            ).style(
-                f"font-size:11px;color:{C['muted']};margin-bottom:6px;"
-                f"line-height:1.5;")
-            ui.label(
-                '• "Warm intro on email 1, candidate teasers on emails 3 '
-                'and 5, breakup on the last email"\n'
-                '• "Lead with market data, no candidate mentions"\n'
-                '• "Heavy follow-up — chase non-responders aggressively"'
-            ).style(
-                f"font-size:11px;color:{C['muted']};margin-bottom:10px;"
-                f"line-height:1.6;font-style:italic;white-space:pre-wrap;")
-
-            _special_in = ui.textarea(
-                value=s.sb_special,
-                placeholder=(
-                    "Anything specific you want the AI to know — "
-                    "leave blank if not."
-                ),
-            ).style(
-                f"width:100%;min-height:90px;background:{C['surface']};"
-                f"border:1px solid {C['border']};border-radius:6px;"
-                f"padding:8px 10px;color:{C['text_l']};font-size:12px;"
-                f"font-family:inherit;resize:vertical;")
-            _special_in.on("blur", lambda: setattr(
-                s, "sb_special", (_special_in.value or "").strip()))
 
         # ── Generate ────────────────────────────────────────────────────
         if s.sb_generating:
