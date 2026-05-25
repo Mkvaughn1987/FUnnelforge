@@ -29823,7 +29823,8 @@ def _aicb_auto_generate_candidates(s, rf, count: int = 3):
     Sets the spinner flag, calls rf() before/after, and dispatches a
     daemon thread. Tests can call _aicb_generate_candidates_run directly
     for synchronous behavior."""
-    import threading as _thr
+    _u = (getattr(s, "_user_email", "") or "?")[:40]
+    print(f"[CAND-DBG] auto_generate ENTER count={count} user={_u}", flush=True)
     if not hasattr(s, '_aicb_cand_text'):
         s._aicb_cand_text = ""
     if not hasattr(s, '_aicb_cand_generating'):
@@ -29836,23 +29837,29 @@ def _aicb_auto_generate_candidates(s, rf, count: int = 3):
     except Exception: pass
 
     def _bg():
+        print(f"[CAND-DBG] bg_thread START user={_u}", flush=True)
         try:
             _aicb_generate_candidates_run(s, count=count)
+        except Exception as _outer:
+            print(f"[CAND-DBG] bg_thread OUTER EXC user={_u}: {_outer!r}", flush=True)
+            s._aicb_cand_err = _friendly_ai_error(_outer)
         finally:
-            # Parse the AI text into card objects so the UI can render
-            # them. Previously this was done in caller-specific _on_done
-            # callbacks (e.g. _reroll_titles), but the initial _gen_titles
-            # path passed `rf` directly and skipped parsing — leaving the
-            # spinner cleared but no cards rendered ("nothing happens").
             try:
                 if getattr(s, "_aicb_cand_text", "") and not getattr(s, "aicb_cand_cards", None):
                     s.aicb_cand_cards = _aicb_cards_from_text(s._aicb_cand_text)
             except Exception as _ex:
                 print(f"[AICB] card parse failed: {_ex}", flush=True)
             s._aicb_cand_generating = False
+            _txt_len = len(getattr(s, "_aicb_cand_text", "") or "")
+            _cards_n = len(getattr(s, "aicb_cand_cards", []) or [])
+            _err = getattr(s, "_aicb_cand_err", "") or ""
+            print(f"[CAND-DBG] bg_thread DONE user={_u} text_len={_txt_len} "
+                  f"cards={_cards_n} err={_err[:80]!r}", flush=True)
             try: rf()
-            except Exception: pass
-    _thr.Thread(target=_bg, daemon=True).start()
+            except Exception as _rfx:
+                print(f"[CAND-DBG] rf() FAILED user={_u}: {_rfx!r}", flush=True)
+    _run_as_user(getattr(s, "_user_email", "") or "", _bg,
+                 name="aicb_cand_gen")
 
 
 def _aicb_generate_candidates_run(s, count: int = 3):
@@ -29861,6 +29868,8 @@ def _aicb_generate_candidates_run(s, count: int = 3):
     Used standalone (combined title+candidate flow) and via the
     background-thread wrapper above. Lazy-init's spinner state fields so
     direct callers (tests, combined helpers) don't crash."""
+    _u = (getattr(s, "_user_email", "") or "?")[:40]
+    print(f"[CAND-DBG] gen_run ENTER count={count} user={_u}", flush=True)
     if not hasattr(s, '_aicb_cand_text'):
         s._aicb_cand_text = ""
     if not hasattr(s, '_aicb_cand_generating'):
@@ -30051,6 +30060,7 @@ def _aicb_generate_candidates_run(s, count: int = 3):
             f"CRITICAL: Never use '{_co}' as any candidate's firm  -  only competitors. "
             f"Return only the {count} candidate blocks. Nothing else."
         )
+        print(f"[CAND-DBG] gen_run CALLING Claude count={count} co={_co!r} user={_u}", flush=True)
         msg = _claude_create_with_retry(client,
             model="claude-haiku-4-5-20251001",
             max_tokens=1800,
@@ -30061,6 +30071,7 @@ def _aicb_generate_candidates_run(s, count: int = 3):
             }],
             messages=[{"role": "user", "content": prompt}])
         text = "".join(b.text for b in msg.content if hasattr(b, "text")).strip()
+        print(f"[CAND-DBG] gen_run Claude DONE text_len={len(text)} user={_u}", flush=True)
         # Strip web-search cite tags that sometimes wrap brand names
         text = re.sub(r'</?cite[^>]*>', '', text)
 
@@ -30136,7 +30147,12 @@ def _aicb_generate_candidates_run(s, count: int = 3):
             "\n".join(blk) for blk in _cleaned_blocks
         )
         s._aicb_cand_err = ""
+        print(f"[CAND-DBG] gen_run OK text_len={len(s._aicb_cand_text)} "
+              f"blocks={len(_cleaned_blocks)} user={_u}", flush=True)
     except Exception as e:
+        import traceback as _tb
+        print(f"[CAND-DBG] gen_run EXC user={_u}: {e!r}\n"
+              f"{_tb.format_exc()}", flush=True)
         s._aicb_cand_err = _friendly_ai_error(e)
 
 
@@ -31582,19 +31598,26 @@ def p_ai_campaign(s: AppState, rf):
                             "display:flex;align-items:center;gap:12px;margin-bottom:14px;"
                             "flex-wrap:wrap;"):
                         def _gen_titles():
+                            _u = (getattr(s, "_user_email", "") or "?")[:40]
+                            print(f"[CAND-DBG] _gen_titles CLICK user={_u} "
+                                  f"already_gen={getattr(s, '_aicb_cand_generating', False)} "
+                                  f"picked={list(s.aicb_sel_roles or [])}", flush=True)
                             if getattr(s, "_aicb_cand_generating", False):
+                                print(f"[CAND-DBG] _gen_titles SKIP — flag stuck True user={_u}", flush=True)
                                 return
                             s.aicb_cand_cards = []
                             s._aicb_cand_text = ""
                             picked = list(s.aicb_sel_roles or [])
                             if picked:
                                 n = max(1, min(TITLE_MAX, len(picked)))
+                                print(f"[CAND-DBG] _gen_titles -> auto_generate count={n} user={_u}", flush=True)
                                 _aicb_auto_generate_candidates(s, rf, count=n)
                             else:
                                 # Title-mode but no titles yet — fall back
                                 # to the auto-fetch pipe so they still get
                                 # something useful.
                                 n = max(1, min(6, int(s.aicb_cand_count or 3)))
+                                print(f"[CAND-DBG] _gen_titles -> combined count={n} user={_u}", flush=True)
                                 _aicb_combined_titles_and_candidates(
                                     s, rf, count=n)
 
