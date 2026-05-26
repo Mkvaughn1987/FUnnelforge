@@ -27256,7 +27256,10 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
     common_shape = (
         "\nReturn JSON in this exact shape:\n"
         '{\n'
-        '  "title": "Specific page title naming company/industry/role/location",\n'
+        '  "title": "Location + Industry + document type ONLY. Example: '
+        '\\"Sacramento Healthcare Construction Market Pulse\\". DO NOT '
+        'list job titles, roles, or position names in the title — those '
+        'belong in the body. Keep it short (6-10 words).",\n'
         '  "badge": "UPPERCASE BADGE 2-4 WORDS",\n'
         '  "intro": "1-2 sentence opener establishing the market context.",\n'
         '  "sections": [ ... see required sections below ... ],\n'
@@ -33546,7 +33549,7 @@ def _render_custom_pdf_modal(s: AppState, rf):
                                 + _wrap_untrusted("user_description", p, max_chars=600) + "\n\n"
                                 f"CONTEXT (use to ground the outline in this specific company / market / role):\n{_ctx}\n"
                                 f"Propose an outline that fills a full page with rich content. Return ONLY valid JSON:\n"
-                                f'{{"title": "Specific, descriptive PDF title naming the company/market/role (10-14 words)",\n'
+                                f'{{"title": "Location + Industry/market + document type ONLY. Example: \\"Denver Manufacturing Market Snapshot\\". DO NOT list job titles, roles, or position names in the title — those go in the body. Keep it short (6-10 words).",\n'
                                 f' "badge": "UPPERCASE TAG, 2-4 words",\n'
                                 f' "sections": [\n'
                                 f'   {{"heading": "Section name", "type": "paragraph", "item_count": 1}},\n'
