@@ -6906,6 +6906,34 @@ def _monthly_first_thursdays(count: int, start_from=None) -> list:
     return out
 
 
+def _monthly_same_day(count: int, start_date) -> list:
+    """Return `count` consecutive monthly dates starting with `start_date`,
+    each on the SAME day-of-month in subsequent months. Used by the
+    newsletter dialog so the user can pick any first-send date and
+    have every subsequent issue land on the same day each month.
+
+    Month-end edge cases: if the target day doesn't exist in a given
+    month (e.g. start on Jan 31 → Feb has only 28/29 days), the date
+    is clamped to that month's last day for THAT month only. Months
+    that DO have the original day still get it. Example: Jan 31 start
+    → Jan 31, Feb 28, Mar 31, Apr 30, May 31. The original day-of-month
+    is the canonical anchor; clamps are local."""
+    from calendar import monthrange as _mr
+    out = []
+    if count <= 0 or start_date is None:
+        return out
+    y, m, d = start_date.year, start_date.month, start_date.day
+    for _ in range(int(count)):
+        # Clamp day to the actual length of this month.
+        _last = _mr(y, m)[1]
+        out.append(date(y, m, min(d, _last)))
+        m += 1
+        if m > 12:
+            m = 1
+            y += 1
+    return out
+
+
 def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
     """Queue all email steps for a campaign via funnelforge_core or direct Outlook.
     start_step: skip steps before this index (used for enrolling into ongoing campaigns).
@@ -9526,8 +9554,6 @@ class AppState:
         # renders p_seq_builder. State persists in app.storage.user
         # so a Cloudflare WS blip doesn't wipe a half-built sequence.
         # Brief
-        self.sb_goal: str = ""                  # the campaign's goal blurb
-        self.sb_audience: str = ""              # who the user is targeting
         self.sb_tone: str = "consultative"      # consultative|direct|casual|formal
         # Cadence — per-type touch counts + a preset span. AI builds the
         # full sequence honoring these counts. Spacing is derived from
@@ -16244,32 +16270,57 @@ def _sq_loaded_campaign(s: AppState, rf):
                                 except Exception:
                                     pass
                                 return
-                            # Enroll into all selected evergreen campaigns
+                            # Enroll into all selected evergreen campaigns.
+                            # 2026-05-25 — wrapped each ui.notify in
+                            # try/except. Prior bug: when the page slot
+                            # had been deleted (user navigated, dialog
+                            # rebuilt to spinner view, etc.), the notify
+                            # raised RuntimeError 'parent slot deleted'
+                            # which killed the background task before the
+                            # final state reset + summary transition
+                            # below ran. Result: spinner frozen forever.
                             if _eg_selected:
-                                all_eg = load_campaigns()
-                                for eg_name in _eg_selected:
-                                    eg_target = next((c for c in all_eg if c.get("name") == eg_name), None)
-                                    if eg_target:
-                                        enrolled = sum(1 for ct in contacts
-                                                       if enroll_contact_in_evergreen(ct, eg_target) == "enrolled")
-                                        if enrolled:
-                                            ui.notify(f"✓ {enrolled} contact{'s' if enrolled!=1 else ''} added to "
-                                                      f"'{eg_name}'", type="positive", timeout=4000)
-                            dlg.close()
+                                try:
+                                    all_eg = load_campaigns()
+                                    for eg_name in _eg_selected:
+                                        eg_target = next((c for c in all_eg if c.get("name") == eg_name), None)
+                                        if eg_target:
+                                            enrolled = sum(1 for ct in contacts
+                                                           if enroll_contact_in_evergreen(ct, eg_target) == "enrolled")
+                                            if enrolled:
+                                                try:
+                                                    ui.notify(f"✓ {enrolled} contact{'s' if enrolled!=1 else ''} added to "
+                                                              f"'{eg_name}'", type="positive", timeout=4000)
+                                                except Exception:
+                                                    pass
+                                except Exception as _ee:
+                                    print(f"[Launch] eg-enroll failed: {_ee}", flush=True)
+                            # Final state reset + summary transition.
+                            # Wrapped so any failure here still flips
+                            # in_flight=False (otherwise a future launch
+                            # is silently blocked by the double-click guard).
+                            try:
+                                dlg.close()
+                            except Exception:
+                                pass
                             # Drop the cached dialog — its card now holds
                             # the spinner view, not the form. A future
                             # launch must build a fresh one.
                             _launch_state["in_flight"] = False
                             _launch_state["dialog"] = None
                             _launch_state["card"] = None
-                            s.launch_result = dict(
-                                name=new_name, count=count, contacts=len(contacts),
-                                emails=len(steps), steps=copy.deepcopy(steps),
-                                contact_preview=contacts[:10],
-                                start_date=camp.get("start_date", date.today().isoformat()),
-                                launched_at=datetime.now().strftime("%I:%M %p").lstrip("0"),
-                            )
-                            s.loaded_view = "summary"; rf()
+                            try:
+                                s.launch_result = dict(
+                                    name=new_name, count=count, contacts=len(contacts),
+                                    emails=len(steps), steps=copy.deepcopy(steps),
+                                    contact_preview=contacts[:10],
+                                    start_date=camp.get("start_date", date.today().isoformat()),
+                                    launched_at=datetime.now().strftime("%I:%M %p").lstrip("0"),
+                                )
+                                s.loaded_view = "summary"
+                                rf()
+                            except Exception as _fe:
+                                print(f"[Launch] summary transition failed: {_fe}", flush=True)
                         with ui.element("button").classes("fd-pb").style(
                                 f"padding:10px 24px;font-size:14px;background:{C['good']};").on(
                                 "click", _confirm_launch):
@@ -21097,11 +21148,16 @@ def _render_nl_first_gen_status(s, rf) -> None:
 
 def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
     """Dialog for creating a new Newsletter evergreen campaign.
-    User picks name, sector, region, start month, and number of months.
-    The dialog seeds N monthly steps, each scheduled for the first
-    Thursday of its target month via `fixed_date`  -  so the emails go
-    out on the exact calendar dates (first Thursday of each month),
-    not on enrollment-relative offsets.
+    User picks name, sector, region, start date, and number of months.
+    The dialog seeds N monthly steps, each scheduled via `fixed_date`
+    on the same DAY of subsequent months (the day the user picked as
+    their start date). Default start date is the next first Thursday
+    so the historical default behavior is preserved.
+
+    2026-05-25 — switched from "Start Month" (YYYY-MM, forced to first
+    Thursday) to a user-pickable "Start Date" (YYYY-MM-DD) with
+    same-day-each-month cadence. The first-Thursday convention was
+    confusing users who wanted to choose any send day.
 
     Each step starts with an empty body; the existing "Refresh Next
     Email" flow on the Slow Drip page uses AI + web search to write
@@ -21134,8 +21190,9 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             f"font-size:16px;font-weight:700;color:{C['text_l']};"
             f"font-family:'Nunito',sans-serif;margin-bottom:2px;")
         ui.label("Create a branded monthly newsletter for a market you serve. "
-                 "Each issue sends on the first Thursday of the month. "
-                 "Refresh with AI-generated content before each send.").style(
+                 "Pick a start date — every subsequent issue sends on the "
+                 "same day each month. Refresh with AI-generated content "
+                 "before each send.").style(
             f"font-size:12px;color:{C['muted']};margin-bottom:18px;"
             f"line-height:1.5;")
 
@@ -21187,11 +21244,11 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             placeholder="e.g. Denver, CO  ·  San Diego, CA  ·  Southeast US"
         ).classes("fd-input").style("margin-bottom:12px;")
 
-        # Candidate Spotlights — user picks how many anonymized "hot in
-        # market" candidate profiles to auto-populate in each issue.
-        # AI researches in-demand roles/comp for the sector+region and
-        # builds composite profiles (no real PII). User can edit per-
-        # issue later if they want to highlight actual candidates.
+        # Candidate Spotlights section.
+        # 2026-05-25 order: Recommendations (the steering input) BEFORE
+        # the count dropdown — the recommendations are the "what to
+        # feature" question; the count is just "how many." Putting the
+        # specific guidance first reads more naturally.
         with ui.element("div").style("display:flex;align-items:center;gap:6px;margin-bottom:4px;"):
             ui.label("Candidate Spotlights").classes("fd-fl").style("margin:0;")
             with ui.element("span").style(
@@ -21207,10 +21264,39 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                     "experience, salary asks). You can swap in real candidates "
                     "per issue later."
                 )
-        # Minimum 3 spotlights — the new masthead tagline reads
-        # "Market Pulse & Top {Industry} Candidates" so an issue with zero
-        # candidate cards would contradict its own headline. "None" was
-        # dropped 2026-05-16 alongside the section-reorder redesign.
+
+        # Spotlight Recommendations — free-text guidance the AI folds
+        # into the spotlight generation prompt. Users wanted to steer
+        # which titles/seniorities/specialties get featured each month
+        # without editing every issue by hand.
+        ui.label("Spotlight Recommendations (optional)").classes("fd-fl")
+        ui.label(
+            "Tell AI which titles, seniority levels, or specialties to "
+            "feature in the candidate spotlights each issue. Leave blank "
+            "for AI's pick."
+        ).style(
+            f"font-size:10px;color:{C['muted']};margin-bottom:4px;")
+        spotlight_recs_in = ui.textarea(
+            value="",
+            placeholder=(
+                "e.g. Focus on Senior Project Managers, Estimators, and "
+                "Superintendents with healthcare or OSHPD experience. Skip "
+                "junior or field roles."
+            ),
+        ).style(
+            f"width:100%;min-height:64px;background:{C['surface']};"
+            f"border:1px solid {C['border']};border-radius:6px;"
+            f"padding:8px 10px;color:{C['text_l']};font-size:12px;"
+            f"font-family:inherit;resize:vertical;margin-bottom:12px;")
+
+        # Count dropdown — minimum 3 spotlights. The masthead tagline
+        # reads "Market Pulse & Top {Industry} Candidates", so an
+        # issue with zero candidate cards would contradict its own
+        # headline. "None" was dropped 2026-05-16 alongside the
+        # section-reorder redesign.
+        ui.label("How many per issue").style(
+            f"font-size:10px;color:{C['muted']};margin-bottom:4px;display:block;"
+            f"text-transform:uppercase;letter-spacing:.06em;font-weight:700;")
         _spotlight_options = {3: "3 per issue", 6: "6 per issue"}
         spotlight_in = ui.select(options=_spotlight_options, value=3).classes("fd-input").style("margin-bottom:12px;width:100%;")
 
@@ -21234,18 +21320,23 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                     "for a market-only newsletter."
                 )
 
-        # Start month + count on one row
+        # Start date + count on one row.
+        # 2026-05-25 — switched from "Start Month" YYYY-MM to a full
+        # "Start Date" YYYY-MM-DD. The day the user picks here is the
+        # day every subsequent issue sends each month. Default is the
+        # next first-Thursday so existing default behavior is preserved.
         with ui.element("div").style("display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;"):
             with ui.element("div"):
-                ui.label("Start Month").classes("fd-fl")
-                # Default: the month of the next first-Thursday from today
+                ui.label("Start Date").classes("fd-fl")
                 _default_start_ft = _next_first_thursday()
-                _default_start = _default_start_ft.strftime("%Y-%m")
+                _default_start = _default_start_ft.strftime("%Y-%m-%d")
                 start_in = ui.input(
                     value=_default_start,
-                    placeholder="YYYY-MM",
+                    placeholder="YYYY-MM-DD",
                 ).classes("fd-input")
-                ui.label("Format: YYYY-MM (e.g. 2026-05)").style(
+                ui.label(
+                    "Every issue sends on the same day each month."
+                ).style(
                     f"font-size:10px;color:{C['muted']};margin-top:4px;")
             with ui.element("div"):
                 ui.label("Number of Months").classes("fd-fl")
@@ -21272,27 +21363,27 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             preview_box.clear()
             with preview_box:
                 try:
-                    # Parse start month
+                    # Parse start date (YYYY-MM-DD)
                     start_str = (start_in.value or "").strip()
-                    year, month = start_str.split("-")
-                    start_from = date(int(year), int(month), 1)
+                    _y, _m, _d = start_str.split("-")
+                    start_from = date(int(_y), int(_m), int(_d))
                     n = max(1, min(60, int((count_in.value or "12").strip())))
-                    thursdays = _monthly_first_thursdays(n, start_from)
-                    if thursdays:
+                    sends = _monthly_same_day(n, start_from)
+                    if sends:
                         preview_lines = ", ".join(
-                            d.strftime("%b %Y") for d in thursdays[:6])
-                        if len(thursdays) > 6:
-                            preview_lines += f", ... ({len(thursdays)} total)"
+                            d.strftime("%b %Y") for d in sends[:6])
+                        if len(sends) > 6:
+                            preview_lines += f", ... ({len(sends)} total)"
                         ui.label(f"Will schedule: {preview_lines}").style(
                             f"color:{C['text_l']};font-weight:500;")
                         ui.label(
-                            f"First send: {thursdays[0].strftime('%a, %b %d, %Y')}  ·  "
-                            f"Last send: {thursdays[-1].strftime('%a, %b %d, %Y')}"
+                            f"First send: {sends[0].strftime('%a, %b %d, %Y')}  ·  "
+                            f"Last send: {sends[-1].strftime('%a, %b %d, %Y')}"
                         ).style(f"color:{C['muted']};")
                     else:
                         ui.label("No dates  -  adjust count.")
                 except Exception:
-                    ui.label("Enter a valid Start Month (YYYY-MM) and Number of Months.")
+                    ui.label("Enter a valid Start Date (YYYY-MM-DD) and Number of Months.")
 
         # Initial preview + re-render on input blur
         _rebuild_preview()
@@ -21338,10 +21429,10 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                           type="warning", timeout=6000); return
 
             try:
-                y, m = start_str.split("-")
-                start_from = date(int(y), int(m), 1)
+                _y, _m, _d = start_str.split("-")
+                start_from = date(int(_y), int(_m), int(_d))
             except Exception:
-                ui.notify("Start Month must be YYYY-MM (e.g. 2026-05).",
+                ui.notify("Start Date must be YYYY-MM-DD (e.g. 2026-06-04).",
                           type="warning", timeout=6000); return
 
             # Duplicate name check — the newsletter name IS the campaign name
@@ -21353,10 +21444,13 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                     f"exists. Pick a different name.",
                     type="negative", timeout=8000); return
 
-            # Build one step per month with exact fixed_date
-            thursdays = _monthly_first_thursdays(count, start_from)
+            # Build one step per month with exact fixed_date.
+            # 2026-05-25 — uses _monthly_same_day so every issue lands
+            # on the day the user picked (or the month's last day when
+            # the picked day doesn't exist that month).
+            sends = _monthly_same_day(count, start_from)
             emails = []
-            for idx, td in enumerate(thursdays):
+            for idx, td in enumerate(sends):
                 month_label = td.strftime("%B %Y")
                 emails.append({
                     "name": f"{month_label}  -  {nl_name}",
@@ -21377,6 +21471,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             if _spotlight_count not in (3, 6):
                 _spotlight_count = 3
             _show_city_life = bool(city_life_in.value)
+            _spotlight_recs = (spotlight_recs_in.value or "").strip()
             new_camp = dict(
                 schema=2,
                 name=nl_name,
@@ -21390,6 +21485,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                 market_niche=niche,
                 market_region=region,
                 newsletter_spotlight_count=_spotlight_count,
+                newsletter_spotlight_recommendations=_spotlight_recs,
                 newsletter_show_city_life=_show_city_life,
                 start_date=date.today().isoformat(),
                 # Pre-seed contacts when the dialog was opened with a
@@ -21472,6 +21568,204 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             with ui.element("button").classes("fd-pb").style(
                     "padding:8px 20px;font-size:12px;").on("click", _create):
                 ui.label("Create Newsletter")
+
+    dlg.open()
+
+
+def _edit_newsletter_settings_dialog(camp: dict, s, rf) -> None:
+    """Settings dialog for an existing newsletter. Lets users switch
+    up the candidate-spotlight recipe without recreating the campaign.
+
+    Editable fields:
+      - Spotlight Recommendations (free-text guidance for the AI)
+      - Candidate Spotlights (3 or 6 per issue)
+      - Include City Life section (toggle)
+
+    Saving updates the campaign JSON on disk. The change takes effect
+    on the NEXT issue refresh — either the auto-refresh sweep (~3
+    days before send) or an immediate manual "Refresh next" click.
+    Existing issue bodies are NOT regenerated automatically.
+
+    Spec context: 2026-05-25 user feedback — "Add a box under the
+    candidate spotlight so users can make recommendations on titles
+    etc." plus "let's make a way so users can switch up candidates
+    or re-roll them" (this dialog covers the editing half; the card's
+    Refresh-next icon covers the re-roll half).
+    """
+    _cur_count = camp.get("newsletter_spotlight_count", 3)
+    try:
+        _cur_count = int(_cur_count or 3)
+    except Exception:
+        _cur_count = 3
+    if _cur_count not in (3, 6):
+        _cur_count = 3
+    _cur_recs = (camp.get("newsletter_spotlight_recommendations") or "").strip()
+    _cur_city = bool(camp.get("newsletter_show_city_life", True))
+
+    with ui.dialog() as dlg, ui.card().style(
+            f"min-width:520px;max-width:580px;background:{C['card']};"
+            f"border:1px solid {C['border']};padding:24px;"):
+        nl_name = camp.get("newsletter_name") or camp.get("name", "")
+        ui.label(f"Settings — {nl_name}").style(
+            f"font-size:16px;font-weight:700;color:{C['text_l']};"
+            f"font-family:'Nunito',sans-serif;margin-bottom:2px;")
+        ui.label(
+            "Saving regenerates the next upcoming issue right away with "
+            "these settings (~20-30 seconds in the background). Later "
+            "issues auto-refresh ~3 days before each send. Already-sent "
+            "issues stay as they are."
+        ).style(
+            f"font-size:12px;color:{C['muted']};margin-bottom:18px;"
+            f"line-height:1.5;")
+
+        # Spotlight recommendations — the "what to feature" guidance.
+        # Order: recommendations BEFORE count (matches the Create
+        # dialog). The recommendations are the specific question;
+        # count is just "how many."
+        ui.label("Candidate Spotlights").classes("fd-fl")
+        ui.label("Spotlight Recommendations (optional)").style(
+            f"font-size:10px;color:{C['muted']};margin-top:6px;display:block;"
+            f"text-transform:uppercase;letter-spacing:.06em;font-weight:700;")
+        ui.label(
+            "Tell AI which titles, seniority levels, or specialties to "
+            "feature in the candidate spotlights each issue. Leave blank "
+            "for AI's pick."
+        ).style(
+            f"font-size:10px;color:{C['muted']};margin-bottom:4px;")
+        _recs_in = ui.textarea(
+            value=_cur_recs,
+            placeholder=(
+                "e.g. Focus on Senior Project Managers, Estimators, and "
+                "Superintendents with healthcare or OSHPD experience. "
+                "Skip junior or field roles."
+            ),
+        ).style(
+            f"width:100%;min-height:80px;background:{C['surface']};"
+            f"border:1px solid {C['border']};border-radius:6px;"
+            f"padding:8px 10px;color:{C['text_l']};font-size:12px;"
+            f"font-family:inherit;resize:vertical;margin-bottom:12px;")
+
+        # Count dropdown — comes after recommendations.
+        ui.label("How many per issue").style(
+            f"font-size:10px;color:{C['muted']};margin-bottom:4px;display:block;"
+            f"text-transform:uppercase;letter-spacing:.06em;font-weight:700;")
+        _count_in = ui.select(
+            options={3: "3 per issue", 6: "6 per issue"},
+            value=_cur_count,
+        ).classes("fd-input").style("margin-bottom:14px;width:100%;")
+
+        # City Life toggle
+        with ui.element("div").style("display:flex;align-items:center;gap:8px;margin-bottom:18px;"):
+            _city_in = ui.checkbox("Include City Life section", value=_cur_city).style("font-size:12px;")
+
+        def _save():
+            try:
+                _new_count = int(_count_in.value or 3)
+            except Exception:
+                _new_count = 3
+            if _new_count not in (3, 6):
+                _new_count = 3
+            camp["newsletter_spotlight_count"] = _new_count
+            camp["newsletter_spotlight_recommendations"] = (_recs_in.value or "").strip()
+            camp["newsletter_show_city_life"] = bool(_city_in.value)
+            try:
+                save_campaign(camp)
+                _cache_campaigns.invalidate()
+            except Exception as ex:
+                ui.notify(f"Save failed: {str(ex)[:120]}",
+                          type="negative", timeout=8000)
+                return
+
+            # Immediate regeneration of the next pending issue with the
+            # just-saved settings. 2026-05-25 — earlier flow only said
+            # "wait for auto-refresh 3 days before send," which the
+            # user (correctly) found unsatisfying — if they just edited
+            # the recommendations, they want to see them applied NOW.
+            # Same in-flight tracking + bg thread pattern as the
+            # original _refresh closure on the newsletter card.
+            _idx = _find_next_evergreen_step(camp)
+            _emails = camp.get("emails", []) or []
+            _cname = camp.get("name", "")
+            _kicked_regen = False
+            if _idx < len(_emails) and ANTHROPIC_API_KEY:
+                if not hasattr(s, "_nl_refreshing"):
+                    s._nl_refreshing = set()
+                if _cname not in s._nl_refreshing:
+                    s._nl_refreshing.add(_cname)
+                    _kicked_regen = True
+                    _user = getattr(s, "_user_email", "") or ""
+                    def _do_regen():
+                        try:
+                            _subj, _body = _generate_newsletter_content_for_step(camp, _idx)
+                            if not _body:
+                                print(f"[NewsletterSettings] regen empty for {_cname!r}",
+                                      flush=True)
+                                return
+                            _emails_now = camp.get("emails", []) or []
+                            if _idx >= len(_emails_now):
+                                return
+                            _emails_now[_idx]["body"] = _body
+                            if _subj:
+                                _emails_now[_idx]["subject"] = _subj
+                            _emails_now[_idx]["_auto_refreshed_at"] = (
+                                datetime.utcnow().isoformat()
+                            )
+                            # Clear `confirmed` so the user's prior
+                            # manual edits on this step (if any) don't
+                            # block subsequent auto-refresh sweeps.
+                            # The user just asked for a regen, so
+                            # they're explicitly OK with losing the
+                            # manual edits on this step.
+                            _emails_now[_idx]["confirmed"] = False
+                            try:
+                                save_campaign(camp)
+                                _cache_campaigns.invalidate()
+                            except Exception as ex:
+                                print(f"[NewsletterSettings] save fail: {ex}", flush=True)
+                        except Exception as ex:
+                            print(f"[NewsletterSettings] regen worker failed: {ex}",
+                                  flush=True)
+                        finally:
+                            try:
+                                s._nl_refreshing.discard(_cname)
+                            except Exception:
+                                pass
+                    _run_as_user(_user, _do_regen,
+                                 name="newsletter_settings_regen_worker")
+
+            if _kicked_regen:
+                ui.notify(
+                    "Settings saved — regenerating the next issue now "
+                    "(~20-30s). Refresh the page in a minute to see it.",
+                    type="positive", timeout=8000)
+            elif _idx >= len(_emails):
+                ui.notify(
+                    "Settings saved. All issues have already been sent "
+                    "— nothing to regenerate.",
+                    type="info", timeout=6000)
+            elif not ANTHROPIC_API_KEY:
+                ui.notify(
+                    "Settings saved. Add ANTHROPIC_API_KEY before the "
+                    "next auto-refresh to apply them.",
+                    type="warning", timeout=8000)
+            else:
+                # Already in-flight — settings were saved, regen will
+                # use them when the current worker finishes.
+                ui.notify(
+                    "Settings saved. A regeneration was already in "
+                    "progress; the next one will use these settings.",
+                    type="positive", timeout=6000)
+            dlg.close()
+            rf()
+
+        with ui.element("div").style(
+                "display:flex;gap:10px;justify-content:flex-end;"):
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:8px 18px;font-size:12px;").on("click", dlg.close):
+                ui.label("Cancel")
+            with ui.element("button").classes("fd-pb").style(
+                    "padding:8px 20px;font-size:12px;").on("click", _save):
+                ui.label("Save Settings")
 
     dlg.open()
 
@@ -22630,14 +22924,16 @@ def p_newsletters(s, rf):
                                 ui.label("Delete")
                     _dlg.open()
 
-                # Row simplification 2026-05-20: Enroll + Delete only.
-                # - View / Edit pill: removed — the newsletter title is
-                #   the click target now.
-                # - 🔄 Refresh: removed per user — auto-refresh fires 3
-                #   days before send and the user can manually open the
-                #   editor to regen if needed. The _refresh closure and
-                #   _is_refreshing state are kept defined above so other
-                #   call sites (preview emails, AI gen banner) still work.
+                # 2026-05-25 — added ⚙ Settings icon so users can edit
+                # the candidate spotlight recipe (recommendations, count,
+                # city-life toggle) on existing newsletters without
+                # recreating them. Manual "🔄 Re-roll" icon was added
+                # then removed the same day — auto-refresh already
+                # regenerates each upcoming issue once within 3 days of
+                # its send (see _auto_refresh_newsletter_tick), so
+                # candidates auto-roll month-to-month with no user click
+                # needed. The _refresh closure is kept defined above
+                # because other call sites still use it.
                 with ui.element("div").style(
                         "flex-shrink:0;display:flex;gap:6px;align-items:center;"):
                     # + Enroll — primary CTA, full pill
@@ -22645,6 +22941,21 @@ def p_newsletters(s, rf):
                             f"padding:9px 18px;font-size:13px;background:{fg};").on(
                             "click", _enroll):
                         ui.label("＋ Enroll").style("pointer-events:none;")
+                    # Settings — opens the per-campaign settings dialog
+                    # for spotlight recommendations, count, city life.
+                    def _open_settings(c=camp):
+                        _edit_newsletter_settings_dialog(c, s, rf)
+                    with ui.element("button").style(
+                            f"padding:9px 11px;font-size:13px;line-height:1;"
+                            f"background:transparent;color:{C['text']};"
+                            f"border:1px solid {C['border']};border-radius:8px;"
+                            f"cursor:pointer;font-family:inherit;"
+                            ).on("click", _open_settings):
+                        ui.label("⚙").style("pointer-events:none;")
+                        ui.tooltip(
+                            "Settings — edit spotlight recommendations, "
+                            "candidate count, and City Life toggle. "
+                            "Saving regenerates the next upcoming issue.")
                     # Delete — icon only, tooltip explains
                     with ui.element("button").style(
                             f"padding:9px 11px;font-size:13px;line-height:1;"
@@ -24717,50 +25028,30 @@ def p_seq_builder(s: AppState, rf):
             ui.label("← Back to Campaign Styles")
 
     ui.label(
-        "Tell us what you want — the goal, who you're sending to, what "
-        "each email should cover, and how many of each touch. AI writes "
-        "the whole sequence end-to-end. You'll land in the email editor "
-        "where you can tweak any message before launch."
+        "Tell us what each email should cover and how many of each "
+        "touch. AI writes the whole sequence end-to-end. You'll land "
+        "in the email editor where you can tweak any message before "
+        "launch."
     ).style(
         f"font-size:12.5px;color:{C['muted']};line-height:1.55;"
         f"margin-bottom:18px;max-width:920px;")
 
     with ui.element("div").style("max-width:920px;"):
-        # ── Section 1: Campaign brief ───────────────────────────────────
+        # ── Section 1: Tone & email plan ────────────────────────────────
+        # 2026-05-25 — "Goal of this sequence" and "Who you're sending to"
+        # were removed per user request. They were optional anyway and
+        # the per-email direction box ("What each email should cover")
+        # carries the same intent in a more useful form for the AI.
         with ui.element("div").classes("fd-gc").style("margin-bottom:18px;"):
-            ui.label("1. Campaign brief").style(
+            ui.label("1. Tone & email plan").style(
                 f"font-size:14px;font-weight:700;color:{C['text_l']};"
                 f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
             ui.label(
-                "Optional — anchors the AI when it writes copy."
+                "Pick a tone and (optionally) tell the AI what each "
+                "email should cover."
             ).style(
                 f"font-size:11px;color:{C['muted']};margin-bottom:14px;"
                 f"line-height:1.5;")
-
-            ui.label("Goal of this sequence").classes("fd-fl")
-            _goal_in = ui.textarea(
-                value=s.sb_goal,
-                placeholder=(
-                    "Example: Pitch a senior PM candidate to GC hiring "
-                    "managers in Denver and start a conversation"
-                ),
-            ).style(
-                f"width:100%;min-height:60px;background:{C['surface']};"
-                f"border:1px solid {C['border']};border-radius:6px;"
-                f"padding:8px 10px;color:{C['text_l']};font-size:12px;"
-                f"font-family:inherit;resize:vertical;margin-bottom:14px;")
-            _goal_in.on("blur", lambda: setattr(
-                s, "sb_goal", (_goal_in.value or "").strip()))
-
-            ui.label("Who you're sending to").classes("fd-fl")
-            _aud_in = ui.input(
-                value=s.sb_audience,
-                placeholder=(
-                    "Example: VPs of Construction at $50M-$500M GCs in CO"
-                ),
-            ).classes("fd-input").style("width:100%;margin-bottom:14px;")
-            _aud_in.on("blur", lambda: setattr(
-                s, "sb_audience", (_aud_in.value or "").strip()))
 
             ui.label("Tone").classes("fd-fl")
             _tone_options = [
@@ -24951,8 +25242,6 @@ def p_seq_builder(s: AppState, rf):
                         import anthropic as _anth
                         _client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
                         _prompt = _sb_build_prompt(
-                            goal=s.sb_goal,
-                            audience=s.sb_audience,
                             tone=s.sb_tone,
                             counts=s.sb_counts,
                             span=s.sb_span,
@@ -24992,8 +25281,6 @@ def p_seq_builder(s: AppState, rf):
                         s.sp = "start_seq"
                         s._tab = "custom"
                         # Reset so the next visit starts clean.
-                        s.sb_goal = ""
-                        s.sb_audience = ""
                         s.sb_special = ""
                         s.sb_error = ""
                     except Exception as _ex:
@@ -29592,16 +29879,18 @@ _SB_TYPE_TO_QUEUE_TYPE = {
 }
 
 
-def _sb_build_prompt(goal: str, audience: str, tone: str,
+def _sb_build_prompt(tone: str,
                      counts: dict, span: str,
                      special: str = "") -> str:
     """Build the Claude prompt for generating the entire sequence
-    from a high-level brief + per-type touch counts + total span +
-    optional special instructions. AI handles step ordering, per-
-    step content, and day-offset spacing across the span."""
+    from a tone + per-type touch counts + total span + optional
+    per-email direction. AI handles step ordering, per-step content,
+    and day-offset spacing across the span.
+
+    2026-05-25 — goal/audience params removed. They were optional
+    free-text fields whose intent is now carried by the per-email
+    direction box (`special`), which is what the AI actually needs."""
     _tone = (tone or "consultative").strip().lower()
-    _goal = (goal or "").strip() or "(not specified)"
-    _aud = (audience or "").strip() or "(not specified)"
     _span = (span or "3 weeks").strip()
     _special = (special or "").strip()
 
@@ -29629,9 +29918,7 @@ def _sb_build_prompt(goal: str, audience: str, tone: str,
         f"You are building a {_tone} outreach sequence for a recruiter.\n\n"
         + _DRIPDROP_PLAYBOOK + "\n"
         + _style_guide_prompt() + "\n"
-        + f"GOAL: {_goal}\n"
-        f"AUDIENCE: {_aud}\n"
-        f"TONE: {_tone}\n\n"
+        + f"TONE: {_tone}\n\n"
         f"CADENCE — build a sequence with exactly these touch counts, "
         f"spaced naturally across {_span}:\n"
         f"{_counts_block}\n"
@@ -29917,6 +30204,32 @@ def _aicb_generate_candidates_run(s, count: int = 3):
         or ""
     )
 
+    # Company summary from Quick Start (the AI-generated brief about what
+    # the company actually does — services, project types, scale, clients).
+    # Without this, the candidate generator falls back to stereotypes for
+    # the industry instead of the company's real operations.
+    # 2026-05-25: user complaint — "throwing out random Healthcare and
+    # Education background when I didn't ask for that." Root cause was the
+    # candidate prompt never receiving the rich company brief built during
+    # Quick Start; it only saw niche/industry labels.
+    _brief_data = getattr(s, "_aicb_company_brief", {}) or {}
+    _company_summary = (_brief_data.get("summary") or "").strip()
+    # Truncate to keep token count sane — the first ~800 chars carry the
+    # services / project-type info we actually need.
+    if len(_company_summary) > 800:
+        _company_summary = _company_summary[:800].rsplit(" ", 1)[0] + "…"
+
+    # Competitor-mode detection: if ANY of the user's briefs mentions
+    # competitor / competing / rival, we switch the prompt into a stronger
+    # research mode — pick a real named competitor, anchor the candidate's
+    # recent work to that competitor's actual portfolio (verified via web
+    # search), mirror project types from the company summary rather than
+    # inventing sub-verticals.
+    _COMPETITOR_RX = re.compile(r'\b(competitor|competing|rival)s?\b', re.IGNORECASE)
+    _has_competitor_brief = any(
+        _COMPETITOR_RX.search(t or "") for t in _picked_titles
+    )
+
     try:
         import anthropic as _anth
         client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
@@ -29931,12 +30244,12 @@ def _aicb_generate_candidates_run(s, count: int = 3):
         # all years at one employer reads like a lifer profile.
         _format_blocks = []
         for i, L in enumerate(_letters_used):
-            _hd_title = (
-                _per_letter_title.get(L)
-                or f"[AI-CHOSEN ROLE for {_co} — see TITLE ASSIGNMENT below]"
-            )
+            # Always leave the headline title for the AI to write. When the
+            # user provided a brief, the AI extracts a clean role title from
+            # it (see TITLE ASSIGNMENT). When they didn't, the AI invents
+            # one. Either way we never inject raw user text into the headline.
             _format_blocks.append(
-                f"Candidate {L}: {_hd_title}, X+ yrs experience\n"
+                f"Candidate {L}: [Title — see TITLE ASSIGNMENT below], X+ yrs experience\n"
                 f"• Location: [a DIFFERENT nearby suburb/town in the {_primary_loc} metro — pick one that's distinct from the other candidates]\n"
                 f"• Experience: [years total; spread across 2-3 firms; you may name "
                 f"ONE firm (e.g. 'most recently at [Competitor]') but DO NOT anchor "
@@ -29948,48 +30261,154 @@ def _aicb_generate_candidates_run(s, count: int = 3):
             )
         _format_str = "\n\n".join(_format_blocks)
 
-        # Title assignment — each picked title used at most ONCE; any
-        # remaining slots get AI-chosen complementary titles for the
-        # company's industry. Never clone the same title across multiple
-        # candidates (user-reported 2026-05-10: "Not 4 office managers").
+        # Title assignment — the user's picks are now BRIEFS, not raw titles.
+        # A brief can be terse ("CNC Machinist") or descriptive
+        # ("Project Manager, 5 yrs OSHPD"). The AI must extract a CLEAN
+        # professional job title for the headline and use the rest of the
+        # brief to inform the Experience / Skills / Certifications bullets.
+        # Never paste the brief verbatim into the headline.
+        # Each brief used at most ONCE; remaining slots get AI-chosen
+        # complementary roles for the company's industry.
+        # (User-reported 2026-05-10: "Not 4 office managers";
+        #  2026-05-25: stop using my sentence as the literal title.)
         _titles_block = ""
         _industry_phrase = (
             f" in the {_industry_ctx} industry" if _industry_ctx else ""
         )
+        _RULES = (
+            "RULES for converting a brief into a candidate:\n"
+            "  1. HEADLINE TITLE — ALWAYS extract and reconstruct a CLEAN, "
+            "professional 2-5 word title from the brief. NEVER paste the "
+            "brief sentence as the title.\n"
+            "     PROCESS: (a) Identify the role word(s) in the brief. "
+            "(b) Identify any specialty word(s) explicitly named in the "
+            "brief (healthcare, education, K-12, OSHPD, civic, aerospace, "
+            "etc.). (c) DROP everything else: 'with N years experience', "
+            "'from a competitor', 'candidate', 'yrs', numbers, articles, "
+            "filler. (d) Combine role + specialty into 2-5 words, Title Case.\n"
+            "     DO NOT add qualifiers the user didn't write — no Junior, "
+            "no Senior, no Lead. The user picks qualifiers; you don't add them.\n"
+            "     CORRECT EXAMPLES (study these — match this style):\n"
+            "       Brief 'Project Manager'                                          → Title 'Project Manager'\n"
+            "       Brief 'Project Manager from a competitor - 3 years experience'   → Title 'Project Manager'\n"
+            "       Brief 'OSHPD Project Manager'                                    → Title 'OSHPD Project Manager'\n"
+            "       Brief 'Healthcare PM, 5 yrs'                                     → Title 'Healthcare Project Manager'\n"
+            "       Brief 'Architect with 12 years experience healthcare and education' → Title 'Healthcare/Education Architect'\n"
+            "       Brief 'Senior Architect from a competitor'                       → Title 'Architect'  (drop 'Senior' — qualifier, not specialty)\n"
+            "       Brief 'CNC Machinist'                                            → Title 'CNC Machinist'\n"
+            "       Brief 'Estimator with K-12 bond experience'                      → Title 'K-12 Estimator'\n"
+            "     WRONG (NEVER do this — these are FAILURES):\n"
+            "       Brief 'Architect with 12 years experience healthcare and education'\n"
+            "         → 'Architect with 12 years experience healthcare and education'  (pasted verbatim — FAIL)\n"
+            "       Brief 'Project Manager from a competitor - 3 yrs'\n"
+            "         → 'Project Manager from a competitor - 3 yrs'  (pasted — FAIL)\n"
+            "       Brief 'Project Manager, 5 yrs OSHPD'\n"
+            "         → 'Senior Project Manager'  (added 'Senior' the user didn't write — FAIL)\n"
+            "  2. If the brief contains a years figure ('3 years', "
+            "'10 years experience'), put it in the headline as 'N+ yrs "
+            "experience'. Otherwise pick a realistic number for the role.\n"
+            "  3. Use the rest of the brief (years, certs, focus areas, "
+            "specialties, software) to drive the Experience, Skills, "
+            "Proficiencies, and Certifications bullets — NOT the headline.\n"
+            "  4. SPECIALTY SOURCING — what determines the candidate's "
+            "vertical / specialty (healthcare, education, K-12, OSHPD, "
+            "aerospace, civic, hospitality, etc.):\n"
+            "     • If the BRIEF names a specialty → embrace it. Research "
+            "real firms and project types in that specialty (web search "
+            "the target company's market + that vertical), and reference "
+            "REAL companies and REAL projects matching it in the Experience "
+            "bullet. E.g. brief 'Healthcare PM' → name an actual healthcare "
+            "construction firm in the metro and reference real hospital / "
+            "OSHPD / MOB project types.\n"
+            "     • If the COMPANY CONTEXT names verticals the company "
+            "works in → align the candidate to one of those verticals.\n"
+            "     • If NEITHER the brief nor the company context names a "
+            "specialty → DO NOT invent one. Stay general — describe "
+            "experience in terms of the company's actual operations "
+            "without forcing a 'healthcare / K-12 / civic' label.\n"
+            "  5. If the brief is just a role with no extra context AND "
+            "the company context is general, invent realistic experience "
+            "and skills GROUNDED in the target company's actual operations "
+            "— not generic industry tropes, not invented sub-verticals.\n"
+        )
+
+        # Competitor-research block — appended to the prompt when ANY brief
+        # mentions a competitor. Forces the AI to identify ONE real named
+        # competitor per such candidate and anchor the Experience bullet to
+        # that competitor's actual project portfolio (verified via web
+        # search), with project types that mirror the target company —
+        # not invented sub-verticals.
+        _competitor_block = ""
+        if _has_competitor_brief:
+            _competitor_block = (
+                "\nCOMPETITOR-MODE RESEARCH — one or more briefs above "
+                "mention a 'competitor'. For each of those candidates you "
+                "MUST:\n"
+                f"  a. Use web search to identify a REAL named direct "
+                f"competitor of {_co} — same industry, similar service "
+                f"mix, similar scale, same geography. The competitor must "
+                f"be a company that actually exists and is verifiably a "
+                f"peer of {_co} (not a stretch or adjacent industry). "
+                f"IF THE BRIEF ALSO NAMES A SPECIALTY (e.g. 'healthcare PM "
+                f"from a competitor', 'OSHPD PM from a competitor', 'K-12 "
+                f"Estimator from a competitor'), the competitor you pick "
+                f"MUST genuinely work in that specialty — research firms "
+                f"in the {_primary_loc} metro that actually do that work.\n"
+                f"  b. Name that specific competitor in the Experience "
+                f"bullet — e.g. 'currently 3 yrs at [Real Competitor "
+                f"Name] on [specific real-sounding project types]'. Use a "
+                f"DIFFERENT competitor for each competitor-tagged "
+                f"candidate (never reuse).\n"
+                "  c. The candidate's recent project examples must match "
+                "the SPECIALTY SOURCING rule (RULE 4 above): if the brief "
+                f"names a specialty, reference REAL projects in that "
+                f"specialty (real hospitals, real school districts, real "
+                f"OSHPD jobs, real airports, etc.); otherwise mirror "
+                f"what {_co} actually does (pulled from COMPANY CONTEXT). "
+                f"Do NOT default to a generic 'healthcare/K-12/civic' "
+                f"vertical unless the brief OR the company context puts "
+                f"it on the table.\n"
+                "  d. Skills, Proficiencies, and Certifications must "
+                "reflect what that specific competitor's job postings or "
+                "About page actually list as requirements — researched, "
+                "not stereotyped.\n\n"
+            )
         if _picked_titles and not _unfilled_letters:
-            _title_lines = "\n".join(
-                f"  - Candidate {L}: {_per_letter_title[L]}"
+            _brief_lines = "\n".join(
+                f"  - Candidate {L} brief: \"{_per_letter_title[L]}\""
                 for L in _letters_used
             )
             _titles_block = (
-                "\nTITLE ASSIGNMENT — each candidate gets ONE specific title from the "
-                "user's picked list. Use exactly these titles in the headlines (each "
-                "one used only once — DO NOT clone the same title across candidates):\n"
-                f"{_title_lines}\n\n"
+                "\nTITLE ASSIGNMENT — each candidate is built from ONE brief "
+                "the user wrote. Each brief used only once. The briefs:\n"
+                f"{_brief_lines}\n\n"
+                f"{_RULES}\n"
             )
         elif _picked_titles and _unfilled_letters:
             _filled_lines = "\n".join(
-                f"  - Candidate {L}: {_per_letter_title[L]}"
+                f"  - Candidate {L} brief: \"{_per_letter_title[L]}\""
                 for L in _letters_used if L in _per_letter_title
             )
             _unfilled_str = ", ".join(f"Candidate {L}" for L in _unfilled_letters)
             _titles_block = (
-                "\nTITLE ASSIGNMENT — mix of fixed and AI-chosen titles. Use exactly "
-                "these titles for the fixed candidates (each one used only once):\n"
-                f"{_filled_lines}\n"
+                "\nTITLE ASSIGNMENT — mix of user-written briefs and AI-chosen "
+                "candidates. The user's briefs (each used only once):\n"
+                f"{_filled_lines}\n\n"
+                f"{_RULES}\n"
                 f"For {_unfilled_str}: PICK A DIFFERENT, COMPLEMENTARY ROLE that "
                 f"{_co} would actually be hiring for{_industry_phrase} based on "
                 f"their actual operations and skill needs. The AI-chosen titles "
-                f"must be DISTINCT from each other and from the fixed titles "
-                f"above — never repeat. Examples of complementary roles for a "
-                f"construction firm: Project Manager, Estimator, Superintendent, "
-                f"Project Engineer, Safety Manager, Foreman. Use whatever roles "
-                f"genuinely match {_co}'s industry and skill set.\n\n"
+                f"must be DISTINCT from each other and from the headline titles "
+                f"extracted from the briefs above — never repeat. Examples of "
+                f"complementary roles for a construction firm: Project Manager, "
+                f"Estimator, Superintendent, Project Engineer, Safety Manager, "
+                f"Foreman. Use whatever roles genuinely match {_co}'s industry "
+                f"and skill set.\n\n"
             )
         else:
             # No picks at all — AI invents every title, must vary them.
             _titles_block = (
-                "\nTITLE ASSIGNMENT — no titles picked by the user. Choose "
+                "\nTITLE ASSIGNMENT — no briefs from the user. Choose "
                 f"{count} DIFFERENT, COMPLEMENTARY roles that {_co} would "
                 f"actually be hiring for{_industry_phrase}, based on their "
                 f"real operations and skill needs. Each candidate must have a "
@@ -29998,12 +30417,39 @@ def _aicb_generate_candidates_run(s, count: int = 3):
                 f"industry rather than picking variations of one role.\n\n"
             )
 
+        # COMPANY CONTEXT block — feeds the Quick Start company summary
+        # into the prompt so candidates are grounded in the company's REAL
+        # operations, not industry stereotypes. Empty when Quick Start
+        # wasn't used; in that case the AI must research via web search.
+        _company_context_block = ""
+        if _company_summary:
+            _company_context_block = (
+                f"COMPANY CONTEXT — {_co} (use this as the source of truth "
+                f"for what the company actually does; do NOT contradict it "
+                f"or invent verticals not mentioned here):\n"
+                f"\"{_company_summary}\"\n\n"
+            )
+        else:
+            _company_context_block = (
+                f"COMPANY CONTEXT — no pre-built summary available. Use web "
+                f"search FIRST to identify what {_co} actually does (their "
+                f"services, project types, scale, clients) BEFORE writing "
+                f"any candidate. Do NOT default to generic industry "
+                f"stereotypes.\n\n"
+            )
+
         prompt = (
             f"Generate {count} anonymous candidate archetypes a recruiter could pitch "
             f"to {_co} for {_roles} in {_primary_loc}.\n\n"
+            f"{_company_context_block}"
             f"CORE RULE — every candidate must MATCH {_co}'S EXACT INDUSTRY AND "
-            f"SKILL SET. Pull real industry-specific tools, software, "
-            f"certifications, and terminology that {_co}'s actual operations use. "
+            f"SKILL SET (as described in COMPANY CONTEXT above). Pull real "
+            f"industry-specific tools, software, certifications, and "
+            f"terminology that {_co}'s actual operations use. Sub-verticals "
+            f"(healthcare, K-12, civic, OSHPD, aerospace, etc.) are only "
+            f"appropriate when the USER'S BRIEF names them or COMPANY "
+            f"CONTEXT says {_co} works in them — see SPECIALTY SOURCING "
+            f"(RULE 4) under TITLE ASSIGNMENT below for the exact priority. "
             f"Generic admin/office candidates are a failure unless the company "
             f"genuinely runs on admin/office work. Each candidate must hold a "
             f"DIFFERENT role — never produce a set where multiple candidates "
@@ -30018,6 +30464,7 @@ def _aicb_generate_candidates_run(s, count: int = 3):
             f"across 2-3 employers in their work history. Use a DIFFERENT named "
             f"competitor for each candidate when you do name one.\n\n"
             f"{_titles_block}"
+            f"{_competitor_block}"
             "These are HYPOTHETICAL profiles  -  do NOT invent real person names. "
             f"Label them {_letters_str}.\n\n"
             f"OUTPUT FORMAT  -  follow this EXACTLY. Start your response with "
@@ -30061,13 +30508,16 @@ def _aicb_generate_candidates_run(s, count: int = 3):
             f"Return only the {count} candidate blocks. Nothing else."
         )
         print(f"[CAND-DBG] gen_run CALLING Claude count={count} co={_co!r} user={_u}", flush=True)
+        # 2026-05-25: bumped max_uses 2 → 5. With the new competitor-mode
+        # research path (identify a real competitor + check their job
+        # postings for skills/certs), 2 calls is not enough budget.
         msg = _claude_create_with_retry(client,
             model="claude-haiku-4-5-20251001",
             max_tokens=1800,
             tools=[{
                 "type": "web_search_20250305",
                 "name": "web_search",
-                "max_uses": 2,
+                "max_uses": 5,
             }],
             messages=[{"role": "user", "content": prompt}])
         text = "".join(b.text for b in msg.content if hasattr(b, "text")).strip()
@@ -30762,12 +31212,13 @@ def p_ai_campaign(s: AppState, rf):
                              "job title, location, skills, target salary. "
                              "Goes inside your emails so prospects see real "
                              "examples of who you can place."),
-                            ("✏ I'll pick the titles",
-                             "You type the titles or short descriptions "
+                            ("✨ Create profiles with AI",
+                             "You write a sentence about each candidate "
                              "(\"Project Manager, 7 yrs OSHPD experience\"). "
-                             "AI writes one profile per entry. Cap of 6."),
-                            ("📋 Use my real candidates",
-                             "Pull from your saved Pool — real names, "
+                             "AI extracts a clean title and builds a full "
+                             "sample profile per entry. Cap of 6."),
+                            ("📋 Pick from my Top Candidates",
+                             "Pull from your saved Top Candidates — real names, "
                              "real backgrounds. Filter by title to narrow "
                              "the list. Cap of 3 per campaign."),
                         ],
@@ -31017,44 +31468,51 @@ def p_ai_campaign(s: AppState, rf):
                 # auto-derived from those picker values further down so
                 # downstream prompts/PDFs keep working unchanged.
                 niche_inp = None
-                co_inp = None
                 web_inp = None
                 if _mode == "company":
                     if not hasattr(s, '_aicb_qs_running'): s._aicb_qs_running = False
 
-                    # Inverted autofill flow 2026-05-20: type the company,
-                    # click Autofill, AI finds the website + industry +
-                    # locations from the name alone. Website renders BELOW
-                    # the button as a confirmable input — user can correct
-                    # it before generation if AI guessed the wrong Acme.
-                    ui.label("Company").classes("fd-fl")
-                    ui.label("The specific account you want to target.").style(
+                    # 2026-05-26 — Company field removed per user request:
+                    # paste the website, click Autofill, AI derives the
+                    # company name + industry + locations from the URL.
+                    # One field instead of two; matches the way recruiters
+                    # actually start ("I'm targeting strataengineering.com").
+                    ui.label("Website").classes("fd-fl")
+                    ui.label(
+                        "Paste the target company's website. AI uses it to "
+                        "look up the company name, industry, and locations."
+                    ).style(
                         f"font-size:10px;color:{C['muted']};margin-bottom:4px;margin-top:-2px;")
-                    co_inp = ui.input(value=s.aicb_company, placeholder="e.g. Acme Corp").classes("fd-input").style("margin-bottom:10px;width:100%;")
-                    co_inp.on("blur", lambda: setattr(s, "aicb_company", (co_inp.value or "").strip()))
+                    web_inp = ui.input(value=s.aicb_website, placeholder="e.g. acmecorp.com").classes("fd-input").style("margin-bottom:10px;width:100%;")
+                    web_inp.on("blur", lambda: setattr(s, "aicb_website", (web_inp.value or "").strip()))
 
                     # ✨ Autofill button — calls _aicb_ai_extract in
                     # "company" mode. The extractor finds the company's
-                    # website, industry, niche, and operating locations
-                    # in one Anthropic call and writes them onto AppState
-                    # (s.aicb_website / aicb_primary_industry /
+                    # industry, niche, and operating locations and writes
+                    # them onto AppState (aicb_primary_industry /
                     # aicb_sel_locations / aicb_niche). When it completes,
                     # _aicb_qs_running flips False and the polling timer
                     # below re-renders the page with the fields populated.
                     def _af_click():
-                        # Commit pending company text first — on_blur may
+                        # Commit pending website text first — on_blur may
                         # not have fired if the user clicked the button
-                        # while still focused on the company input.
-                        s.aicb_company = (co_inp.value or "").strip()
-                        if not s.aicb_company:
-                            ui.notify("Enter a company name first.",
+                        # while still focused on the input.
+                        _site = (web_inp.value or "").strip()
+                        s.aicb_website = _site
+                        if not _site:
+                            ui.notify("Paste the company's website first.",
                                       type="warning")
                             return
                         if not ANTHROPIC_API_KEY:
                             ui.notify("Anthropic API key missing — see Email & AI Setup.",
                                       type="warning")
                             return
-                        _aicb_ai_extract(s, s.aicb_company, "company", rf)
+                        # Pass the URL itself to the extractor — its prompt
+                        # accepts either a company name or a domain. Claude
+                        # returns the official company name on the way back
+                        # and _aicb_apply_extracted writes it to
+                        # aicb_company for downstream code.
+                        _aicb_ai_extract(s, _site, "company", rf)
 
                     with ui.element("div").style("margin:0 0 16px;"):
                         if getattr(s, "_aicb_qs_running", False):
@@ -31062,8 +31520,8 @@ def p_ai_campaign(s: AppState, rf):
                                     "display:flex;align-items:center;gap:8px;"):
                                 ui.spinner("dots", size="sm")
                                 ui.label(
-                                    "Looking up the company — finding website, "
-                                    "industry, and locations…"
+                                    "Looking up the company — finding "
+                                    "industry and locations…"
                                 ).style(f"font-size:12px;color:{C['muted']};")
                             # RECURRING timer (no once=True) so it keeps
                             # checking until the bg worker flips the flag.
@@ -31081,6 +31539,14 @@ def p_ai_campaign(s: AppState, rf):
                                     except Exception: pass
                             ui.timer(1.5, _af_poll)
                         else:
+                            # Always full-color teal — the live "opacity:0.5"
+                            # gating used to require Company + Website both
+                            # set, but the field would stay dim while the
+                            # user was typing (NiceGUI doesn't re-render on
+                            # every keystroke). User reported it looked
+                            # broken. Now the button reads as ready at all
+                            # times; clicking with an empty input fires the
+                            # validation toast in _af_click.
                             with ui.element("button").classes("fd-pb").style(
                                     "padding:8px 16px;font-size:13px;border-radius:6px;"
                                     f"background:{C['teal']};color:#0D1520;"
@@ -31088,6 +31554,14 @@ def p_ai_campaign(s: AppState, rf):
                                     f"cursor:pointer;"
                                     ).on("click", _af_click):
                                 ui.label("✨ Autofill with AI").style("pointer-events:none;")
+                            if not (s.aicb_website or "").strip():
+                                ui.label(
+                                    "Paste the company's website above, then "
+                                    "click Autofill to populate industry and "
+                                    "locations."
+                                ).style(
+                                    f"font-size:11px;color:{C['muted']};"
+                                    f"margin-top:6px;display:block;line-height:1.4;")
                             if getattr(s, "_aicb_qs_err", ""):
                                 ui.label(f"⚠ {s._aicb_qs_err}").style(
                                     f"font-size:11px;color:{C['warn']};margin-top:4px;display:block;")
@@ -31095,14 +31569,17 @@ def p_ai_campaign(s: AppState, rf):
                                 ui.label(f"⚠ {s._aicb_autofill_err}").style(
                                     f"font-size:11px;color:{C['warn']};margin-top:4px;display:block;")
 
-                    ui.label("Website").classes("fd-fl")
-                    ui.label(
-                        "AI fills this from the company name above — confirm "
-                        "it's the right site, or edit if it picked the wrong Acme."
-                    ).style(
-                        f"font-size:10px;color:{C['muted']};margin-bottom:4px;margin-top:-2px;")
-                    web_inp = ui.input(value=s.aicb_website, placeholder="e.g. acmecorp.com").classes("fd-input").style("margin-bottom:10px;width:100%;")
-                    web_inp.on("blur", lambda: setattr(s, "aicb_website", (web_inp.value or "").strip()))
+                # 2026-05-25 — Industry + Location pickers in COMPANY mode
+                # are hidden until autofill has run (or the user lands here
+                # with state already populated from a saved sequence). This
+                # prevents the "wall of empty dropdowns" the user
+                # complained about. Market mode always shows them since
+                # there's no autofill flow there.
+                _t2_filled = (
+                    bool((getattr(s, "aicb_primary_industry", "") or "").strip())
+                    or bool(list(getattr(s, "aicb_sel_locations", []) or []))
+                )
+                _show_below_autofill = (_mode != "company") or _t2_filled
 
                 # ── Industry picker (Primary + Secondary) ────────────
                 # Replaces the legacy single-Industry dropdown. Primary
@@ -31115,15 +31592,16 @@ def p_ai_campaign(s: AppState, rf):
                         s.aicb_primary_industry = _industry_label_for_key(s.aicb_industry)
                 if not hasattr(s, "aicb_secondary_industries"):
                     s.aicb_secondary_industries = []
-                _render_industry_picker(
-                    s, rf,
-                    primary_state_key="aicb_primary_industry",
-                    secondary_state_key="aicb_secondary_industries",
-                    container_style="margin-bottom:12px;",
-                    label_primary="Primary Industry",
-                    label_secondary="Secondary Industry",
-                    required_primary=True,
-                )
+                if _show_below_autofill:
+                    _render_industry_picker(
+                        s, rf,
+                        primary_state_key="aicb_primary_industry",
+                        secondary_state_key="aicb_secondary_industries",
+                        container_style="margin-bottom:12px;",
+                        label_primary="Primary Industry",
+                        label_secondary="Secondary Industry",
+                        required_primary=True,
+                    )
                 # Keep the legacy s.aicb_industry (key form) in sync so
                 # downstream code that still references it (PDF prompts,
                 # campaign generation) keeps working. Use getattr — the
@@ -31161,55 +31639,56 @@ def p_ai_campaign(s: AppState, rf):
                 # cities.
                 LOC_MAX = 3
                 _cur_locs = list(getattr(s, "aicb_sel_locations", []) or [])
-                with ui.element("div").style("margin-bottom:12px;"):
-                    ui.label("Location").classes("fd-fl")
-                    ui.label(
-                        f"Pick up to {LOC_MAX}. Type a city + press Enter to add "
-                        f"a custom one. The first pick is the primary location "
-                        f"for the candidate prompt + PDFs."
-                    ).style(f"font-size:10px;color:{C['muted']};margin-bottom:4px;display:block;")
-                    _loc_opts = _region_options()
-                    _loc_opt_dict = {x: x for x in _loc_opts}
-                    # Surface any already-saved custom values at the top
-                    # of the dropdown so they remain visible/selectable.
-                    for _custom in _cur_locs:
-                        _c = (_custom or "").strip()
-                        if _c and _c not in _loc_opt_dict:
-                            _loc_opt_dict = {_c: f"{_c} (custom)", **_loc_opt_dict}
+                if _show_below_autofill:
+                    with ui.element("div").style("margin-bottom:12px;"):
+                        ui.label("Location").classes("fd-fl")
+                        ui.label(
+                            f"Pick up to {LOC_MAX}. Type a city + press Enter to add "
+                            f"a custom one. The first pick is the primary location "
+                            f"for the candidate prompt + PDFs."
+                        ).style(f"font-size:10px;color:{C['muted']};margin-bottom:4px;display:block;")
+                        _loc_opts = _region_options()
+                        _loc_opt_dict = {x: x for x in _loc_opts}
+                        # Surface any already-saved custom values at the top
+                        # of the dropdown so they remain visible/selectable.
+                        for _custom in _cur_locs:
+                            _c = (_custom or "").strip()
+                            if _c and _c not in _loc_opt_dict:
+                                _loc_opt_dict = {_c: f"{_c} (custom)", **_loc_opt_dict}
 
-                    def _on_loc_change(e=None):
-                        vals = list(_loc_sel.value or [])
-                        # De-dup, drop empties, cap at LOC_MAX. New typed
-                        # values arrive here too via new-value-mode.
-                        _seen = set()
-                        _clean = []
-                        for v in vals:
-                            v = (v or "").strip()
-                            if v and v not in _seen:
-                                _seen.add(v)
-                                _clean.append(v)
-                        # Save any newly-typed (not in the predefined
-                        # options) values to the user's personal regions
-                        # list so they appear next time.
-                        for v in _clean:
-                            if v not in _region_options():
-                                try:
-                                    _add_personal_region(v)
-                                except Exception:
-                                    pass
-                        if len(_clean) > LOC_MAX:
-                            ui.notify(f"Cap is {LOC_MAX} locations — keeping the first {LOC_MAX}.",
-                                      type="warning", timeout=2500)
-                            _clean = _clean[:LOC_MAX]
-                        s.aicb_sel_locations = _clean
+                        def _on_loc_change(e=None):
+                            vals = list(_loc_sel.value or [])
+                            # De-dup, drop empties, cap at LOC_MAX. New typed
+                            # values arrive here too via new-value-mode.
+                            _seen = set()
+                            _clean = []
+                            for v in vals:
+                                v = (v or "").strip()
+                                if v and v not in _seen:
+                                    _seen.add(v)
+                                    _clean.append(v)
+                            # Save any newly-typed (not in the predefined
+                            # options) values to the user's personal regions
+                            # list so they appear next time.
+                            for v in _clean:
+                                if v not in _region_options():
+                                    try:
+                                        _add_personal_region(v)
+                                    except Exception:
+                                        pass
+                            if len(_clean) > LOC_MAX:
+                                ui.notify(f"Cap is {LOC_MAX} locations — keeping the first {LOC_MAX}.",
+                                          type="warning", timeout=2500)
+                                _clean = _clean[:LOC_MAX]
+                            s.aicb_sel_locations = _clean
 
-                    _loc_sel = ui.select(
-                        options=list(_loc_opt_dict.keys()),
-                        value=list(_cur_locs),
-                        multiple=True,
-                        on_change=_on_loc_change,
-                        new_value_mode="add-unique",
-                    ).props('use-chips use-input input-debounce="200"').classes("fd-input").style("width:100%;")
+                        _loc_sel = ui.select(
+                            options=list(_loc_opt_dict.keys()),
+                            value=list(_cur_locs),
+                            multiple=True,
+                            on_change=_on_loc_change,
+                            new_value_mode="add-unique",
+                        ).props('use-chips use-input input-debounce="200"').classes("fd-input").style("width:100%;")
 
                 # Target Roles + Candidates moved to step 3 (2026-04-26 —
                 # see the candidates wizard step spec). Step 2 stays focused
@@ -31217,9 +31696,10 @@ def p_ai_campaign(s: AppState, rf):
                 # None so any downstream `getattr` checks degrade gracefully.
                 roles_inp = None
                 cand_inp = None
-                ui.label(
-                    "Target roles and candidates are picked on the next step."
-                ).classes("fd-sub").style(f"color:{C['muted']};margin-bottom:8px;")
+                if _show_below_autofill:
+                    ui.label(
+                        "Target roles and candidates are picked on the next step."
+                    ).classes("fd-sub").style(f"color:{C['muted']};margin-bottom:8px;")
 
             # ═══ Candidates panel — Step 3 in wizard mode (NEW 2026-04-26) ═══
             with ui.element("div").style(f"{_step_cand_hide}{_col2}"):
@@ -31255,7 +31735,8 @@ def p_ai_campaign(s: AppState, rf):
                 # Helper: render the title chip picker. Used by both
                 # "Create titles + Auto Gen" (full label) and "Choose
                 # from Pool" (compact, framed as a filter).
-                def _render_title_picker(label_text, help_text):
+                def _render_title_picker(label_text, help_text,
+                                        placeholder="Or type a title (e.g. CNC Machinist)"):
                     _picked = list(s.aicb_sel_roles or [])
                     with ui.element("div").style(
                             f"margin-bottom:14px;padding:12px 14px;"
@@ -31331,7 +31812,7 @@ def p_ai_campaign(s: AppState, rf):
                                 rf()
 
                             _custom_in = ui.input(
-                                placeholder="Or type a title (e.g. CNC Machinist)",
+                                placeholder=placeholder,
                             ).classes("fd-input").style(
                                 "flex:1;min-width:200px;padding:4px 10px;font-size:12px;")
                             _custom_in.on("keydown.enter",
@@ -31352,11 +31833,6 @@ def p_ai_campaign(s: AppState, rf):
                             ui.label(f"⚠ {s._aicb_titles_err}").style(
                                 f"font-size:11px;color:{C['warn']};margin-top:6px;")
 
-                # ── Primary question + three cards ───────────────────
-                ui.label("How would you like to add candidates?").style(
-                    f"font-size:13px;font-weight:700;color:{C['text_l']};"
-                    f"font-family:'Nunito',sans-serif;margin-bottom:10px;")
-
                 # Renamed from _set_mode → _set_cand_mode (2026-05-01) to
                 # avoid a closure-binding collision with Step 2's target
                 # mode toggle. See _set_target_mode comment in the panel
@@ -31374,53 +31850,86 @@ def p_ai_campaign(s: AppState, rf):
                         s._aicb_cand_text = ""
                     rf()
 
+                # ── Two-state UX (2026-05-25, per user feedback):
+                # State 1 = no mode chosen → show big question + 2 cards
+                #            + skip link, hide picker UI below.
+                # State 2 = mode chosen → hide cards, show compact mode
+                #            header with "Change" link, render the
+                #            mode-specific picker UI below.
+                # Previous flow rendered both at once which was confusing.
                 _CARDS = [
-                    ("autogen_titles", "✏", "I'll pick the titles",
-                     "You type the job titles you want (e.g. \"CNC "
-                     "Machinist\"). AI writes one sample candidate "
-                     "per title. Use when you know exactly which "
-                     "roles to pitch."),
-                    ("pool", "📋", "Use my real candidates",
+                    ("autogen_titles", "✨", "Create profiles with AI",
+                     "Write a sentence about each candidate (role, "
+                     "years, focus, certs). AI extracts a clean job "
+                     "title and builds a full sample profile from "
+                     "your brief."),
+                    ("pool", "📋", "Pick from my Top Candidates",
                      "Pull from candidates you've already saved in "
-                     "your Pool. Real names, real backgrounds. Filter "
+                     "your Top Candidates. Real names, real backgrounds. Filter "
                      "by job title to find them faster."),
                 ]
-                with ui.element("div").style(
-                        "display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap;"):
-                    for src_key, src_icon, src_title, src_desc in _CARDS:
-                        is_active = (s.aicb_cand_source == src_key)
-                        bg = C.get("teal", "#1AE3D9") + "15" if is_active else "transparent"
-                        border = C.get("teal", "#1AE3D9") if is_active else C["border"]
-                        with ui.element("button").style(
-                                f"flex:1;min-width:180px;padding:14px;text-align:left;"
-                                f"background:{bg};border:2px solid {border};"
-                                f"border-radius:10px;cursor:pointer;font-family:inherit;"
-                                ).on("click", lambda src=src_key: _set_cand_mode(src)):
-                            ui.label(f"{src_icon} {src_title}").style(
-                                f"font-size:14px;font-weight:700;color:{C['text_l']};")
-                            ui.label(src_desc).style(
-                                f"font-size:11px;color:{C['muted']};margin-top:4px;line-height:1.4;")
+                _CARDS_BY_KEY = {k: (i, t, d) for k, i, t, d in _CARDS}
 
-                # Skip demoted to a small text link below the cards.
-                _skip_active = (s.aicb_cand_source == "skip")
-                with ui.element("div").style("margin-bottom:18px;text-align:center;"):
-                    with ui.element("span").style(
-                            f"cursor:pointer;font-size:11px;"
-                            f"color:{C.get('teal', '#1AE3D9') if _skip_active else C['muted']};"
-                            f"text-decoration:underline;"
-                            ).on("click", lambda: _set_cand_mode("skip")):
-                        if _skip_active:
-                            ui.label("✓ Skip selected — market-only campaign")
-                        else:
+                if not s.aicb_cand_source:
+                    # ─── State 1: choose an approach ───────────────────
+                    ui.label("How would you like to add candidates?").style(
+                        f"font-size:13px;font-weight:700;color:{C['text_l']};"
+                        f"font-family:'Nunito',sans-serif;margin-bottom:10px;")
+                    with ui.element("div").style(
+                            "display:flex;gap:12px;margin-bottom:10px;flex-wrap:wrap;"):
+                        for src_key, src_icon, src_title, src_desc in _CARDS:
+                            with ui.element("button").style(
+                                    f"flex:1;min-width:180px;padding:14px;text-align:left;"
+                                    f"background:transparent;border:2px solid {C['border']};"
+                                    f"border-radius:10px;cursor:pointer;font-family:inherit;"
+                                    f"transition:border-color .15s;"
+                                    ).on("click", lambda src=src_key: _set_cand_mode(src)):
+                                ui.label(f"{src_icon} {src_title}").style(
+                                    f"font-size:14px;font-weight:700;color:{C['text_l']};")
+                                ui.label(src_desc).style(
+                                    f"font-size:11px;color:{C['muted']};margin-top:4px;line-height:1.4;")
+
+                    # Skip demoted to a small text link below the cards.
+                    with ui.element("div").style("margin-bottom:18px;text-align:center;"):
+                        with ui.element("span").style(
+                                f"cursor:pointer;font-size:11px;color:{C['muted']};"
+                                f"text-decoration:underline;"
+                                ).on("click", lambda: _set_cand_mode("skip")):
                             ui.label("Or skip — market-only campaign (no candidates)")
+                else:
+                    # ─── State 2: mode chosen — compact header + Change ─
+                    if s.aicb_cand_source == "skip":
+                        _hdr_icon, _hdr_title = "⏭", "Skip — market-only campaign"
+                    else:
+                        _ci = _CARDS_BY_KEY.get(s.aicb_cand_source)
+                        if _ci:
+                            _hdr_icon, _hdr_title, _ = _ci
+                        else:
+                            _hdr_icon, _hdr_title = "✨", "Create profiles with AI"
+                    with ui.element("div").style(
+                            f"display:flex;align-items:center;gap:10px;"
+                            f"margin-bottom:14px;padding:10px 14px;"
+                            f"background:{C.get('teal', '#1AE3D9') + '15'};"
+                            f"border:1px solid {C.get('teal', '#1AE3D9')};"
+                            f"border-radius:8px;"):
+                        ui.label(f"{_hdr_icon} {_hdr_title}").style(
+                            f"font-size:13px;font-weight:700;color:{C['text_l']};"
+                            f"font-family:'Nunito',sans-serif;flex:1;")
+                        with ui.element("span").style(
+                                f"cursor:pointer;font-size:11px;color:{C['muted']};"
+                                f"text-decoration:underline;flex-shrink:0;"
+                                ).on("click", lambda: _set_cand_mode("")):
+                            ui.label("← Change")
 
                 # ── Mode-specific UI ─────────────────────────────────
                 if s.aicb_cand_source == "autogen_titles":
                     _render_title_picker(
-                        "Target Titles",
-                        f"Pick up to {TITLE_MAX}. AI writes one candidate "
-                        f"per title. ✨ Suggest titles will pull from the "
-                        f"company's careers page.",
+                        "Describe your candidates",
+                        f"Add up to {TITLE_MAX}. Each sentence becomes one "
+                        f"candidate profile — AI extracts a clean job title "
+                        f"and fills in the rest. ✨ Suggest titles will pull "
+                        f"role ideas from the company's careers page.",
+                        placeholder='Describe a candidate (e.g. "Project Manager, 5 yrs OSHPD")',
                     )
                     _picked_titles = list(s.aicb_sel_roles or [])
                     with ui.element("div").style(
@@ -31437,7 +31946,7 @@ def p_ai_campaign(s: AppState, rf):
                             picked = list(s.aicb_sel_roles or [])
                             if not picked:
                                 ui.notify(
-                                    "Add at least one title or description "
+                                    "Describe at least one candidate "
                                     "above before generating.",
                                     type="warning", timeout=4000)
                                 return
@@ -31463,7 +31972,7 @@ def p_ai_campaign(s: AppState, rf):
                                         f"candidate{'s' if len(_picked_titles) != 1 else ''}"
                                     )
                                 else:
-                                    ui.label("Add a title above to enable Generate")
+                                    ui.label("Describe a candidate above to enable Generate")
 
                     if s.aicb_cand_cards:
                         _render_aicb_candidate_cards(s, rf)
@@ -31709,10 +32218,13 @@ def p_ai_campaign(s: AppState, rf):
                 # In market mode the standalone Market / Niche input was
                 # removed — niche is now auto-derived from the Industry /
                 # Sub-niche picker into s.aicb_niche during render.
-                company = (co_inp.value.strip() if co_inp is not None else "")
+                # In company mode the Company input was also removed
+                # (2026-05-26) — the value lives on s.aicb_company written
+                # by the Autofill extractor.
+                company = (s.aicb_company or "").strip()
                 niche = (s.aicb_niche or "").strip()
                 if _mode == "company" and not company:
-                    ui.notify("Enter a target company (or switch to Market mode).", type="warning")
+                    ui.notify("Paste the company website and click Autofill first (or switch to Market mode).", type="warning")
                     return
                 if _mode == "market" and not niche:
                     ui.notify("Pick an industry and at least one sub-niche (or switch to Company mode).", type="warning")
@@ -32369,18 +32881,20 @@ def p_ai_campaign(s: AppState, rf):
                     # no widget refs to read for those.
                     try:
                         if _wiz_step == 2:
-                            if _mode == "company" and co_inp is not None:
-                                s.aicb_company = (co_inp.value or "").strip()
-                                if web_inp is not None:
-                                    s.aicb_website = (web_inp.value or "").strip()
+                            if _mode == "company" and web_inp is not None:
+                                s.aicb_website = (web_inp.value or "").strip()
                             elif _mode == "market" and niche_inp is not None:
                                 s.aicb_niche = (niche_inp.value or "").strip()
                             if not _step2_ok:
                                 if not _primary_filled:
                                     ui.notify("Pick a Primary Industry.",
                                               type="warning"); return
-                                _tgt_word = "company name" if _mode == "company" else "market / niche"
-                                ui.notify(f"Enter a {_tgt_word}.",
+                                if _mode == "company":
+                                    ui.notify(
+                                        "Paste the company website and click "
+                                        "Autofill so AI can identify the target.",
+                                        type="warning"); return
+                                ui.notify("Enter a market / niche.",
                                           type="warning"); return
                         elif _wiz_step == 3:
                             if not _step3_ok:
@@ -40643,11 +41157,26 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             )
 
         # Compute the LEFT-rail holiday block for this issue's send month.
-        # Falls back to today's month if the data dict doesn't carry an
-        # explicit _send_month / _send_year (e.g. ad-hoc previews).
+        # Falls back to "current newsletter month" if the data dict
+        # doesn't carry an explicit _send_month / _send_year (e.g.
+        # ad-hoc previews).
+        # 2026-05-25 — "current newsletter month" rolls to NEXT month
+        # on the 15th, not the 1st. Recruiters draft / send their
+        # monthly newsletter mid-month for the upcoming month, so a
+        # June newsletter previewed on May 25 should show June's
+        # calendar, not May's.
         from datetime import date as _date_for_hol
-        _send_year = data.get("_send_year") or _date_for_hol.today().year
-        _send_month = data.get("_send_month") or _date_for_hol.today().month
+        _today_for_hol = _date_for_hol.today()
+        if _today_for_hol.day >= 15:
+            # Roll forward one month. Handle Dec → Jan year rollover.
+            if _today_for_hol.month == 12:
+                _default_year, _default_month = _today_for_hol.year + 1, 1
+            else:
+                _default_year, _default_month = _today_for_hol.year, _today_for_hol.month + 1
+        else:
+            _default_year, _default_month = _today_for_hol.year, _today_for_hol.month
+        _send_year = data.get("_send_year") or _default_year
+        _send_month = data.get("_send_month") or _default_month
         try:
             _hol_overrides = (load_config() or {}).get("holiday_note_overrides") or {}
         except Exception:
@@ -41358,12 +41887,20 @@ _SPOTLIGHT_GENERIC_ADJACENCY = [
 
 
 def _spotlight_prompt_block(sector: str, n: int,
-                            target_roles: list) -> tuple:
+                            target_roles: list,
+                            recommendations: str = "") -> tuple:
     """Return (instruction_text, schema_text) for the spotlight section
     of the newsletter generation prompt. Returns ('', '') when n is 0.
 
     Pure function — no I/O, no AI calls — so the unit tests can hit it
     directly without mocking Anthropic.
+
+    `recommendations` (2026-05-25): free-text guidance the user typed
+    in the Create Newsletter dialog ("Focus on Senior PMs and OSHPD
+    experience", "Skip junior roles", etc.). When non-empty, it
+    overrides the default selection rules — the AI must follow the
+    user's recommendation first, then fall back to the adjacent /
+    target-role logic for any slots the recommendation doesn't fill.
 
     Spec: docs/superpowers/specs/2026-05-20-newsletter-spotlight-adjacent-roles-design.md
     """
@@ -41373,6 +41910,18 @@ def _spotlight_prompt_block(sector: str, n: int,
     adjacency = _SPOTLIGHT_ADJACENT_ROLES.get(
         sector_key, _SPOTLIGHT_GENERIC_ADJACENCY)
     adj_csv = ", ".join(adjacency)
+
+    _recs_clean = (recommendations or "").strip()
+    recs_block = ""
+    if _recs_clean:
+        # Truncate to keep token count sane — long blocks add noise.
+        if len(_recs_clean) > 600:
+            _recs_clean = _recs_clean[:600].rsplit(" ", 1)[0] + "…"
+        recs_block = (
+            f"USER RECOMMENDATIONS (highest priority — follow these "
+            f"before the default selection rules below):\n"
+            f"  {_recs_clean}\n\n"
+        )
 
     target_clean = [str(r).strip() for r in (target_roles or [])
                     if str(r).strip()]
@@ -41403,6 +41952,7 @@ def _spotlight_prompt_block(sector: str, n: int,
     instruction = (
         f"\n\nCANDIDATE SPOTLIGHTS — auto-populate {n} anonymized "
         f"candidate profiles for this sector and region.\n\n"
+        f"{recs_block}"
         f"{target_block}"
         f"ADJACENT MANAGER+ ROLES FOR THIS SECTOR:\n"
         f"  {adj_csv}\n\n"
@@ -41501,7 +42051,20 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         _CURRENT_USER_EMAIL.set(_owner)
         _switch_to_user_paths(_owner)
 
-    month_year = date.today().strftime("%B %Y")
+    # 2026-05-25 — newsletter month rolls forward on the 15th, not the
+    # 1st. Recruiters draft / send their monthly newsletter mid-month
+    # for the UPCOMING month — so on May 25 the content prompt must
+    # tell Claude "write June content," not May. Mirrors the calendar
+    # rollover rule in _render_newsletter_html.
+    _today_nl = date.today()
+    if _today_nl.day >= 15:
+        if _today_nl.month == 12:
+            _nl_year, _nl_month = _today_nl.year + 1, 1
+        else:
+            _nl_year, _nl_month = _today_nl.year, _today_nl.month + 1
+    else:
+        _nl_year, _nl_month = _today_nl.year, _today_nl.month
+    month_year = date(_nl_year, _nl_month, 1).strftime("%B %Y")
     cfg = load_config()
     company = _get_company_name()
     contact_name = cfg.get("sig_name", "")
@@ -41532,8 +42095,10 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
     if _spot_n not in (0, 3, 6):
         _spot_n = 0
     _target_roles = camp.get("aicb_sel_roles") or []
+    _spot_recs = (camp.get("newsletter_spotlight_recommendations") or "").strip()
     _spot_instruction, _spot_schema_block = _spotlight_prompt_block(
-        sector=sector, n=_spot_n, target_roles=_target_roles)
+        sector=sector, n=_spot_n, target_roles=_target_roles,
+        recommendations=_spot_recs)
 
     prompt = (
         f'You are writing content for a branded monthly newsletter.\n\n'
