@@ -51,5 +51,6 @@ def test_permanent_invalid_recipient_markers():
         "SMTP 553 mailbox unavailable",
         "Delivery failed: address rejected",
         "Gmail send failed: no such user here",
+        "SMTP error: mailbox does not exist",
     ):
         assert fa._classify_send_error(err) == "permanent", err

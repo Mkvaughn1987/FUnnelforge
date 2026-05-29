@@ -49448,14 +49448,13 @@ _PERMANENT_SEND_MARKERS = (
     "recipient not found",
     "mailbox not found",
     "mailbox unavailable",
-    "does not exist",
+    "mailbox does not exist",
     "no such user",
     "address rejected",
     "550",
     "551",
     "553",
     "5.1.1",
-    "5.1.10",
 )
 
 
