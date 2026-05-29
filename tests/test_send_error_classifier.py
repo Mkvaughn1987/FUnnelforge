@@ -54,3 +54,27 @@ def test_permanent_invalid_recipient_markers():
         "SMTP error: mailbox does not exist",
     ):
         assert fa._classify_send_error(err) == "permanent", err
+
+
+import _unblock_transient_optouts as ubt
+
+
+def test_predicate_matches_transient_send_failures():
+    """Entries the scheduler wrote for transient send failures should
+    be un-blocked. The stored reason is f"Bounced: {err[:100]}" where
+    err began "MS Graph send failed" / "Gmail send failed"."""
+    assert ubt._is_transient_optout_reason(
+        "Bounced: MS Graph send failed: Graph API error: HTTP 500") is True
+    assert ubt._is_transient_optout_reason(
+        "Bounced: Gmail send failed: timed out") is True
+
+
+def test_predicate_preserves_real_bounces_and_optouts():
+    """Real NDR bounces and reply-driven opt-outs must NOT be removed."""
+    assert ubt._is_transient_optout_reason(
+        "Bounced (NDR): Undeliverable: Scorecard for ACME") is False
+    assert ubt._is_transient_optout_reason(
+        "Auto-detected opt-out from reply") is False
+    assert ubt._is_transient_optout_reason("Manual") is False
+    assert ubt._is_transient_optout_reason("") is False
+    assert ubt._is_transient_optout_reason(None) is False
