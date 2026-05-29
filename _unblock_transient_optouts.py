@@ -65,6 +65,17 @@ def main(argv) -> int:
 
     mode = "APPLY (writing changes)" if apply else "DRY-RUN (no changes)"
     print(f"Un-block transient opt-outs — {mode}")
+    if apply:
+        # Footgun guard: after the 2026-05-26 deploy, the scheduler's
+        # PERMANENT-failure path still writes "Bounced: MS Graph/Gmail
+        # send failed: ..." for genuinely-bad addresses. This script's
+        # predicate matches that same prefix, so a LATER run would
+        # un-block real permanent blocks. It's a one-time cleanup for
+        # historical transient-error blocks — run it once, right after
+        # deploy, then don't run it again.
+        print("WARNING: one-time migration. Running this AFTER new permanent-failure "
+              "blocks have accumulated will wrongly un-block real bad addresses. "
+              "Only proceed if this is the initial post-deploy cleanup.")
     print(f"Scanning: {users_dir}\n")
 
     total_removed = 0

@@ -28,7 +28,13 @@ def test_transient_rate_limit_timeout_and_auth():
         "MS Graph send failed: Graph API error: HTTP 429",
         "Gmail send failed: timed out",
         "MS Graph send failed: ReadTimeout",
-        "Microsoft connection expired or consent revoked. Reconnect in Email & AI Setup.",
+        # Exact strings _server_send_one returns when tokens are
+        # expired/revoked or no provider is connected (flowdrip_app.py
+        # ~49609-49614). These must classify transient — they say
+        # nothing about the recipient.
+        "Microsoft and Gmail connections both expired or revoked. Reconnect in Email & AI Setup.",
+        "Microsoft connection expired or consent revoked. Reconnect Microsoft in Email & AI Setup.",
+        "Gmail connection expired or consent revoked. Reconnect Gmail in Email & AI Setup.",
         "No email provider configured  -  connect Microsoft or Gmail in Email & AI Setup.",
     ):
         assert fa._classify_send_error(err) == "transient", err
