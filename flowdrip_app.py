@@ -49711,6 +49711,36 @@ def _server_scheduler_tick():
                 total_sent += 1
                 print(f"[ServerSend] ✓ {item.get('to')}  -  {item.get('subject','')[:50]}", flush=True)
             else:
+                # Decide whether this failure means the address is bad
+                # (permanent → opt-out + cancel) or just a server/network/
+                # auth hiccup (transient → retry up to _MAX_SEND_RETRIES).
+                # Real invalid-recipient bounces mostly arrive later as
+                # NDRs, which the reply monitor handles separately.
+                if _classify_send_error(err) == "transient":
+                    _rc = int(item.get("retry_count", 0)) + 1
+                    item["retry_count"] = _rc
+                    item["last_transient_error"] = err[:200]
+                    if _rc >= _MAX_SEND_RETRIES:
+                        item["status"] = "failed"
+                        item["failed_at"] = datetime.now().isoformat()
+                        item["error"] = f"Gave up after {_rc} transient failures: {err[:160]}"
+                        total_failed += 1
+                        print(f"[ServerSend] ✗ {item.get('to')}: gave up after "
+                              f"{_rc} transient attempts: {err}", flush=True)
+                    else:
+                        # Stay "pending" so this item is due again next tick
+                        # (~60s). No campaign cancel, no DNC — the contact is
+                        # not at fault.
+                        print(f"[ServerSend] ↻ {item.get('to')}: transient fail "
+                              f"(attempt {_rc}/{_MAX_SEND_RETRIES}), will retry: {err}",
+                              flush=True)
+                    changed = True
+                    time.sleep(_SERVER_INTER_EMAIL_PAUSE)
+                    continue
+
+                # Permanent failure — the address is bad. Mark failed,
+                # cancel the contact's remaining campaign emails, and
+                # opt them out so we never hit the bad address again.
                 item["status"] = "failed"
                 item["failed_at"] = datetime.now().isoformat()
                 item["error"] = err[:200]
