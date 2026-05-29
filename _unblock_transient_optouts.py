@@ -42,6 +42,7 @@ def _process_user(dnc_path: Path, apply: bool) -> list:
         print(f"  ! skip {dnc_path}: unreadable ({e})")
         return []
     if not isinstance(entries, list):
+        print(f"  ! skip {dnc_path}: not a JSON list (got {type(entries).__name__})")
         return []
     removed = [e for e in entries
                if _is_transient_optout_reason(e.get("reason", ""))]
