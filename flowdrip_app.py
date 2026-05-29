@@ -49435,6 +49435,51 @@ def index():
 _SERVER_SEND_INTERVAL = 60  # seconds between scheduler ticks
 _SERVER_INTER_EMAIL_PAUSE = 2  # seconds between individual emails
 
+_MAX_SEND_RETRIES = 3  # transient send failures retried this many times before giving up
+
+# Substrings (lowercased) that mean the RECIPIENT address is bad and
+# retrying won't help — these SHOULD opt-out the contact + cancel their
+# campaign. Everything else is treated as transient (server/network/auth
+# hiccup) and retried. See _classify_send_error.
+_PERMANENT_SEND_MARKERS = (
+    "errorinvalidrecipients",
+    "invalidrecipients",
+    "recipientnotfound",
+    "recipient not found",
+    "mailbox not found",
+    "mailbox unavailable",
+    "does not exist",
+    "no such user",
+    "address rejected",
+    "550",
+    "551",
+    "553",
+    "5.1.1",
+    "5.1.10",
+)
+
+
+def _classify_send_error(err: str) -> str:
+    """Classify a send-failure string as 'permanent' or 'transient'.
+
+    Permanent = the recipient address is bad and retrying won't help
+    (invalid recipient, mailbox not found, SMTP 55x). Caller should
+    opt-out the contact and cancel their campaign.
+
+    Transient = a server / network / auth hiccup that says nothing
+    about the recipient (HTTP 500/502/503/504, 429 throttling,
+    timeouts, expired/revoked tokens, "No email provider configured").
+    Caller should retry, never opt-out the contact.
+
+    Unknown errors default to TRANSIENT — it's far safer to retry an
+    email than to wrongly opt-out a valid contact.
+    """
+    e = (err or "").lower()
+    for marker in _PERMANENT_SEND_MARKERS:
+        if marker in e:
+            return "permanent"
+    return "transient"
+
 
 def _resolve_body_from_campaign(item: dict, user_dir: Path) -> str:
     """Lazy lookup of the rendered email body from the campaign file.
