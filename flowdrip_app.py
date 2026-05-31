@@ -29022,6 +29022,27 @@ def _aicb_is_multi_company(extractor_result: dict) -> bool:
     return (not company) and bool(niche)
 
 
+def _render_step2_upload(s, rf):
+    """Step 2 — Upload contact list (placeholder; filled in Task 4).
+
+    Renders a temporary message + a fallback link so the wizard stays
+    navigable while the contacts-first migration finishes landing.
+    Task 4 replaces this with the real upload UI.
+    """
+    from nicegui import ui as _ui
+    _ui.label(
+        "Upload step coming next — for now use manual entry."
+    ).style(
+        "font-size:13px;color:#8FA3C8;margin-bottom:10px;")
+    def _go_manual():
+        s.aicb_step2_mode = "manual"
+        rf()
+    with _ui.element("button").classes("fd-gb").style(
+            "padding:8px 16px;font-size:12px;").on("click", _go_manual):
+        _ui.label("No CSV yet? Enter details manually →").style(
+            "pointer-events:none;")
+
+
 def _aicb_apply_extracted(s, data: dict):
     """Write AI-extracted fields onto AppState so the form re-populates."""
     if not isinstance(data, dict):
@@ -31453,311 +31474,319 @@ def p_ai_campaign(s: AppState, rf):
                     f"{_step2_hide_details}{_col2}"
                     f"background:{C['card']};border:1px solid {C['border']};"
                     f"border-radius:12px;padding:16px 18px;"):
-                with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;"):
-                    ui.label("Target Details").style(
-                        f"font-size:14px;font-weight:700;color:{C['text_l']};"
-                        f"font-family:'Nunito',sans-serif;")
-                    if s.aicb_contacts:
-                        ui.label("auto-detected").style(
-                            f"font-size:10px;color:{C['teal']};font-weight:600;padding:2px 8px;"
-                            f"background:{C['teal']}15;border-radius:99px;")
+                _step2_mode = getattr(s, "aicb_step2_mode", "upload") or "upload"
+                if _step2_mode == "upload":
+                    _render_step2_upload(s, rf)
+                else:
+                    # Manual fallback (aicb_step2_mode == "manual") —
+                    # the legacy website + Autofill UI preserved as the
+                    # "No CSV yet?" path. Reached via the Upload screen's
+                    # inline link in upload sub-mode.
+                    with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;"):
+                        ui.label("Target Details").style(
+                            f"font-size:14px;font-weight:700;color:{C['text_l']};"
+                            f"font-family:'Nunito',sans-serif;")
+                        if s.aicb_contacts:
+                            ui.label("auto-detected").style(
+                                f"font-size:10px;color:{C['teal']};font-weight:600;padding:2px 8px;"
+                                f"background:{C['teal']}15;border-radius:99px;")
 
-                # ── Mode toggle: Company vs Market/Niche ─────────────────
-                # Mutually exclusive targets. Only the active mode's field
-                # flows into prompts and PDFs — the inactive field is kept
-                # in state (so switching back restores typed text) but is
-                # ignored by _effective_target() so stale values can't leak.
-                _mode = getattr(s, "aicb_target_mode", "company") or "company"
-                if _mode not in ("company", "market"):
-                    _mode = "company"; s.aicb_target_mode = "company"
+                    # ── Mode toggle: Company vs Market/Niche ─────────────────
+                    # Mutually exclusive targets. Only the active mode's field
+                    # flows into prompts and PDFs — the inactive field is kept
+                    # in state (so switching back restores typed text) but is
+                    # ignored by _effective_target() so stale values can't leak.
+                    _mode = getattr(s, "aicb_target_mode", "company") or "company"
+                    if _mode not in ("company", "market"):
+                        _mode = "company"; s.aicb_target_mode = "company"
 
-                # Renamed from _set_mode → _set_target_mode (2026-05-01) to
-                # avoid a closure-binding collision with the Step 3
-                # candidate-mode picker (which also previously defined a
-                # _set_mode in the same function scope). Python late-binds
-                # free variables in lambdas at call time, so the click
-                # handler here would silently dispatch to Step 3's helper
-                # — making "A Market" appear unclickable on Step 2.
-                def _set_target_mode(m):
-                    s.aicb_target_mode = m
-                    rf()
+                    # Renamed from _set_mode → _set_target_mode (2026-05-01) to
+                    # avoid a closure-binding collision with the Step 3
+                    # candidate-mode picker (which also previously defined a
+                    # _set_mode in the same function scope). Python late-binds
+                    # free variables in lambdas at call time, so the click
+                    # handler here would silently dispatch to Step 3's helper
+                    # — making "A Market" appear unclickable on Step 2.
+                    def _set_target_mode(m):
+                        s.aicb_target_mode = m
+                        rf()
 
-                # Hide the redundant Company/Market picker when the user
-                # came through the strategy chooser — _chooser_origin being
-                # set means they ALREADY answered this question one click
-                # ago. Showing it again is duplicative and confusing.
-                # Non-chooser entries (saved sequences, deep links) still
-                # see the picker so they can set the mode here.
-                _from_chooser = getattr(s, "_chooser_origin", "") in ("client", "market")
-                if not _from_chooser:
-                    ui.label("I want to target...").style(
-                        f"font-size:10px;font-weight:700;color:{C['muted']};"
-                        f"text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;")
-                    with ui.element("div").style(
-                            f"display:grid;grid-template-columns:1fr 1fr;gap:6px;"
-                            f"margin-bottom:12px;"):
-                        for _mk, _ml, _msub in [
-                            ("company", "A Company",  "One specific account"),
-                            ("market",  "A Market",   "An entire vertical / niche"),
-                        ]:
-                            _active = (_mode == _mk)
-                            with ui.element("div").style(
-                                    f"background:{C['teal'] + '15' if _active else C['surface']};"
-                                    f"border:1px solid {C['teal'] if _active else C['border']};"
-                                    f"border-radius:8px;padding:8px 10px;cursor:pointer;"
-                                    f"transition:all .12s;text-align:center;"
-                                    ).on("click", lambda mk=_mk: _set_target_mode(mk)):
-                                ui.label(("● " if _active else "○ ") + _ml).style(
-                                    f"font-size:12px;font-weight:700;"
-                                    f"color:{C['teal'] if _active else C['text_l']};"
-                                    f"font-family:'Nunito',sans-serif;margin-bottom:1px;")
-                                ui.label(_msub).style(
-                                    f"font-size:10px;color:{C['muted']};line-height:1.3;")
+                    # Hide the redundant Company/Market picker when the user
+                    # came through the strategy chooser — _chooser_origin being
+                    # set means they ALREADY answered this question one click
+                    # ago. Showing it again is duplicative and confusing.
+                    # Non-chooser entries (saved sequences, deep links) still
+                    # see the picker so they can set the mode here.
+                    _from_chooser = getattr(s, "_chooser_origin", "") in ("client", "market")
+                    if not _from_chooser:
+                        ui.label("I want to target...").style(
+                            f"font-size:10px;font-weight:700;color:{C['muted']};"
+                            f"text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;")
+                        with ui.element("div").style(
+                                f"display:grid;grid-template-columns:1fr 1fr;gap:6px;"
+                                f"margin-bottom:12px;"):
+                            for _mk, _ml, _msub in [
+                                ("company", "A Company",  "One specific account"),
+                                ("market",  "A Market",   "An entire vertical / niche"),
+                            ]:
+                                _active = (_mode == _mk)
+                                with ui.element("div").style(
+                                        f"background:{C['teal'] + '15' if _active else C['surface']};"
+                                        f"border:1px solid {C['teal'] if _active else C['border']};"
+                                        f"border-radius:8px;padding:8px 10px;cursor:pointer;"
+                                        f"transition:all .12s;text-align:center;"
+                                        ).on("click", lambda mk=_mk: _set_target_mode(mk)):
+                                    ui.label(("● " if _active else "○ ") + _ml).style(
+                                        f"font-size:12px;font-weight:700;"
+                                        f"color:{C['teal'] if _active else C['text_l']};"
+                                        f"font-family:'Nunito',sans-serif;margin-bottom:1px;")
+                                    ui.label(_msub).style(
+                                        f"font-size:10px;color:{C['muted']};line-height:1.3;")
 
-                # PDF-connection hint banner removed 2026-05-10 — the same
-                # information is already shown in the left-side directions
-                # column. Inline banner here was duplicative noise.
+                    # PDF-connection hint banner removed 2026-05-10 — the same
+                    # information is already shown in the left-side directions
+                    # column. Inline banner here was duplicative noise.
 
-                # ── Mode-scoped target field ─────
-                # Company mode shows Company + Website inputs.
-                # Market mode used to show a free-text "Market / Niche"
-                # box, but that's been removed — the Industry + Sub-niche
-                # picker below IS the market definition. aicb_niche is
-                # auto-derived from those picker values further down so
-                # downstream prompts/PDFs keep working unchanged.
-                niche_inp = None
-                web_inp = None
-                if _mode == "company":
-                    if not hasattr(s, '_aicb_qs_running'): s._aicb_qs_running = False
+                    # ── Mode-scoped target field ─────
+                    # Company mode shows Company + Website inputs.
+                    # Market mode used to show a free-text "Market / Niche"
+                    # box, but that's been removed — the Industry + Sub-niche
+                    # picker below IS the market definition. aicb_niche is
+                    # auto-derived from those picker values further down so
+                    # downstream prompts/PDFs keep working unchanged.
+                    niche_inp = None
+                    web_inp = None
+                    if _mode == "company":
+                        if not hasattr(s, '_aicb_qs_running'): s._aicb_qs_running = False
 
-                    # 2026-05-26 — Company field removed per user request:
-                    # paste the website, click Autofill, AI derives the
-                    # company name + industry + locations from the URL.
-                    # One field instead of two; matches the way recruiters
-                    # actually start ("I'm targeting strataengineering.com").
-                    ui.label("Website").classes("fd-fl")
-                    ui.label(
-                        "Paste the target company's website. AI uses it to "
-                        "look up the company name, industry, and locations."
-                    ).style(
-                        f"font-size:10px;color:{C['muted']};margin-bottom:4px;margin-top:-2px;")
-                    web_inp = ui.input(value=s.aicb_website, placeholder="e.g. acmecorp.com").classes("fd-input").style("margin-bottom:10px;width:100%;")
-                    web_inp.on("blur", lambda: setattr(s, "aicb_website", (web_inp.value or "").strip()))
-
-                    # ✨ Autofill button — calls _aicb_ai_extract in
-                    # "company" mode. The extractor finds the company's
-                    # industry, niche, and operating locations and writes
-                    # them onto AppState (aicb_primary_industry /
-                    # aicb_sel_locations / aicb_niche). When it completes,
-                    # _aicb_qs_running flips False and the polling timer
-                    # below re-renders the page with the fields populated.
-                    def _af_click():
-                        # Commit pending website text first — on_blur may
-                        # not have fired if the user clicked the button
-                        # while still focused on the input.
-                        _site = (web_inp.value or "").strip()
-                        s.aicb_website = _site
-                        if not _site:
-                            ui.notify("Paste the company's website first.",
-                                      type="warning")
-                            return
-                        if not ANTHROPIC_API_KEY:
-                            ui.notify("Anthropic API key missing — see Email & AI Setup.",
-                                      type="warning")
-                            return
-                        # Pass the URL itself to the extractor — its prompt
-                        # accepts either a company name or a domain. Claude
-                        # returns the official company name on the way back
-                        # and _aicb_apply_extracted writes it to
-                        # aicb_company for downstream code.
-                        _aicb_ai_extract(s, _site, "company", rf)
-
-                    with ui.element("div").style("margin:0 0 16px;"):
-                        if getattr(s, "_aicb_qs_running", False):
-                            with ui.element("div").style(
-                                    "display:flex;align-items:center;gap:8px;"):
-                                ui.spinner("dots", size="sm")
-                                ui.label(
-                                    "Looking up the company — finding "
-                                    "industry and locations…"
-                                ).style(f"font-size:12px;color:{C['muted']};")
-                            # RECURRING timer (no once=True) so it keeps
-                            # checking until the bg worker flips the flag.
-                            # Earlier this used once=True and only fired
-                            # at t=1.5s — if the AI call took longer (which
-                            # it always does), the spinner sat forever
-                            # because no later check ever re-rendered.
-                            # Mirrors the Quick Start panel's _qs_poll
-                            # pattern further down. NiceGUI auto-cancels
-                            # the timer when the page re-renders past
-                            # the spinner branch.
-                            def _af_poll():
-                                if not getattr(s, "_aicb_qs_running", False):
-                                    try: rf()
-                                    except Exception: pass
-                            ui.timer(1.5, _af_poll)
-                        else:
-                            # Always full-color teal — the live "opacity:0.5"
-                            # gating used to require Company + Website both
-                            # set, but the field would stay dim while the
-                            # user was typing (NiceGUI doesn't re-render on
-                            # every keystroke). User reported it looked
-                            # broken. Now the button reads as ready at all
-                            # times; clicking with an empty input fires the
-                            # validation toast in _af_click.
-                            with ui.element("button").classes("fd-pb").style(
-                                    "padding:8px 16px;font-size:13px;border-radius:6px;"
-                                    f"background:{C['teal']};color:#0D1520;"
-                                    f"border:none;font-weight:700;font-family:inherit;"
-                                    f"cursor:pointer;"
-                                    ).on("click", _af_click):
-                                ui.label("✨ Autofill with AI").style("pointer-events:none;")
-                            if not (s.aicb_website or "").strip():
-                                ui.label(
-                                    "Paste the company's website above, then "
-                                    "click Autofill to populate industry and "
-                                    "locations."
-                                ).style(
-                                    f"font-size:11px;color:{C['muted']};"
-                                    f"margin-top:6px;display:block;line-height:1.4;")
-                            if getattr(s, "_aicb_qs_err", ""):
-                                ui.label(f"⚠ {s._aicb_qs_err}").style(
-                                    f"font-size:11px;color:{C['warn']};margin-top:4px;display:block;")
-                            if getattr(s, "_aicb_autofill_err", ""):
-                                ui.label(f"⚠ {s._aicb_autofill_err}").style(
-                                    f"font-size:11px;color:{C['warn']};margin-top:4px;display:block;")
-
-                # 2026-05-25 — Industry + Location pickers in COMPANY mode
-                # are hidden until autofill has run (or the user lands here
-                # with state already populated from a saved sequence). This
-                # prevents the "wall of empty dropdowns" the user
-                # complained about. Market mode always shows them since
-                # there's no autofill flow there.
-                _t2_filled = (
-                    bool((getattr(s, "aicb_primary_industry", "") or "").strip())
-                    or bool(list(getattr(s, "aicb_sel_locations", []) or []))
-                )
-                _show_below_autofill = (_mode != "company") or _t2_filled
-
-                # ── Industry picker (Primary + Secondary) ────────────
-                # Replaces the legacy single-Industry dropdown. Primary
-                # is single-select with an "Other..." escape; Secondary
-                # is multi-select chips scoped to the chosen Primary.
-                # Sync existing s.aicb_industry (a key) into the picker's
-                # label-based field if Primary hasn't been set yet.
-                if not (getattr(s, "aicb_primary_industry", "") or "").strip():
-                    if s.aicb_industry:
-                        s.aicb_primary_industry = _industry_label_for_key(s.aicb_industry)
-                if not hasattr(s, "aicb_secondary_industries"):
-                    s.aicb_secondary_industries = []
-                if _show_below_autofill:
-                    _render_industry_picker(
-                        s, rf,
-                        primary_state_key="aicb_primary_industry",
-                        secondary_state_key="aicb_secondary_industries",
-                        container_style="margin-bottom:12px;",
-                        label_primary="Primary Industry",
-                        label_secondary="Secondary Industry",
-                        required_primary=True,
-                    )
-                # Keep the legacy s.aicb_industry (key form) in sync so
-                # downstream code that still references it (PDF prompts,
-                # campaign generation) keeps working. Use getattr — the
-                # picker may not have been rendered yet on a fresh wizard
-                # session, so aicb_primary_industry isn't guaranteed to
-                # exist as an attribute. Crashed the AI Campaign page on
-                # a fresh start before this guard was added (2026-04-26).
-                _primary_ind = getattr(s, "aicb_primary_industry", "") or ""
-                _new_pkey = _industry_key_for_label_or_key(_primary_ind)
-                if _new_pkey and _new_pkey != s.aicb_industry:
-                    s.aicb_industry = _new_pkey
-                # Auto-derive aicb_niche from the picker now that the
-                # standalone Market / Niche text input has been removed.
-                # Prefer the (more specific) sub-niche selections; fall
-                # back to the primary industry label if none picked yet.
-                # Many downstream paths read aicb_niche directly (PDF
-                # prompts at L22390+, AI campaign generation, step-2
-                # validation), so this keeps them working with no edits.
-                _sec_list = getattr(s, "aicb_secondary_industries", []) or []
-                if _sec_list:
-                    s.aicb_niche = ", ".join(str(x).strip() for x in _sec_list if str(x).strip())
-                elif _primary_ind.strip():
-                    s.aicb_niche = _primary_ind.strip()
-
-                # Location MULTI-select (2026-05-01 — user reported the
-                # single-select with "Other..." sentinel made it
-                # impossible to delete or add inline). Mirrors the
-                # Secondary Industries picker exactly: chips with × to
-                # remove, and Quasar's new-value-mode="add-unique" so
-                # typing a city + Enter adds it directly. First pick is
-                # the "primary" location used by the candidate prompt
-                # and PDF subtitle (downstream readers of [0] keep
-                # working). Cap at 3 — beyond that the candidate prompt
-                # tells the model NOT to spread candidates across
-                # cities.
-                LOC_MAX = 3
-                _cur_locs = list(getattr(s, "aicb_sel_locations", []) or [])
-                if _show_below_autofill:
-                    with ui.element("div").style("margin-bottom:12px;"):
-                        ui.label("Location").classes("fd-fl")
+                        # 2026-05-26 — Company field removed per user request:
+                        # paste the website, click Autofill, AI derives the
+                        # company name + industry + locations from the URL.
+                        # One field instead of two; matches the way recruiters
+                        # actually start ("I'm targeting strataengineering.com").
+                        ui.label("Website").classes("fd-fl")
                         ui.label(
-                            f"Pick up to {LOC_MAX}. Type a city + press Enter to add "
-                            f"a custom one. The first pick is the primary location "
-                            f"for the candidate prompt + PDFs."
-                        ).style(f"font-size:10px;color:{C['muted']};margin-bottom:4px;display:block;")
-                        _loc_opts = _region_options()
-                        _loc_opt_dict = {x: x for x in _loc_opts}
-                        # Surface any already-saved custom values at the top
-                        # of the dropdown so they remain visible/selectable.
-                        for _custom in _cur_locs:
-                            _c = (_custom or "").strip()
-                            if _c and _c not in _loc_opt_dict:
-                                _loc_opt_dict = {_c: f"{_c} (custom)", **_loc_opt_dict}
+                            "Paste the target company's website. AI uses it to "
+                            "look up the company name, industry, and locations."
+                        ).style(
+                            f"font-size:10px;color:{C['muted']};margin-bottom:4px;margin-top:-2px;")
+                        web_inp = ui.input(value=s.aicb_website, placeholder="e.g. acmecorp.com").classes("fd-input").style("margin-bottom:10px;width:100%;")
+                        web_inp.on("blur", lambda: setattr(s, "aicb_website", (web_inp.value or "").strip()))
 
-                        def _on_loc_change(e=None):
-                            vals = list(_loc_sel.value or [])
-                            # De-dup, drop empties, cap at LOC_MAX. New typed
-                            # values arrive here too via new-value-mode.
-                            _seen = set()
-                            _clean = []
-                            for v in vals:
-                                v = (v or "").strip()
-                                if v and v not in _seen:
-                                    _seen.add(v)
-                                    _clean.append(v)
-                            # Save any newly-typed (not in the predefined
-                            # options) values to the user's personal regions
-                            # list so they appear next time.
-                            for v in _clean:
-                                if v not in _region_options():
-                                    try:
-                                        _add_personal_region(v)
-                                    except Exception:
-                                        pass
-                            if len(_clean) > LOC_MAX:
-                                ui.notify(f"Cap is {LOC_MAX} locations — keeping the first {LOC_MAX}.",
-                                          type="warning", timeout=2500)
-                                _clean = _clean[:LOC_MAX]
-                            s.aicb_sel_locations = _clean
+                        # ✨ Autofill button — calls _aicb_ai_extract in
+                        # "company" mode. The extractor finds the company's
+                        # industry, niche, and operating locations and writes
+                        # them onto AppState (aicb_primary_industry /
+                        # aicb_sel_locations / aicb_niche). When it completes,
+                        # _aicb_qs_running flips False and the polling timer
+                        # below re-renders the page with the fields populated.
+                        def _af_click():
+                            # Commit pending website text first — on_blur may
+                            # not have fired if the user clicked the button
+                            # while still focused on the input.
+                            _site = (web_inp.value or "").strip()
+                            s.aicb_website = _site
+                            if not _site:
+                                ui.notify("Paste the company's website first.",
+                                          type="warning")
+                                return
+                            if not ANTHROPIC_API_KEY:
+                                ui.notify("Anthropic API key missing — see Email & AI Setup.",
+                                          type="warning")
+                                return
+                            # Pass the URL itself to the extractor — its prompt
+                            # accepts either a company name or a domain. Claude
+                            # returns the official company name on the way back
+                            # and _aicb_apply_extracted writes it to
+                            # aicb_company for downstream code.
+                            _aicb_ai_extract(s, _site, "company", rf)
 
-                        _loc_sel = ui.select(
-                            options=list(_loc_opt_dict.keys()),
-                            value=list(_cur_locs),
-                            multiple=True,
-                            on_change=_on_loc_change,
-                            new_value_mode="add-unique",
-                        ).props('use-chips use-input input-debounce="200"').classes("fd-input").style("width:100%;")
+                        with ui.element("div").style("margin:0 0 16px;"):
+                            if getattr(s, "_aicb_qs_running", False):
+                                with ui.element("div").style(
+                                        "display:flex;align-items:center;gap:8px;"):
+                                    ui.spinner("dots", size="sm")
+                                    ui.label(
+                                        "Looking up the company — finding "
+                                        "industry and locations…"
+                                    ).style(f"font-size:12px;color:{C['muted']};")
+                                # RECURRING timer (no once=True) so it keeps
+                                # checking until the bg worker flips the flag.
+                                # Earlier this used once=True and only fired
+                                # at t=1.5s — if the AI call took longer (which
+                                # it always does), the spinner sat forever
+                                # because no later check ever re-rendered.
+                                # Mirrors the Quick Start panel's _qs_poll
+                                # pattern further down. NiceGUI auto-cancels
+                                # the timer when the page re-renders past
+                                # the spinner branch.
+                                def _af_poll():
+                                    if not getattr(s, "_aicb_qs_running", False):
+                                        try: rf()
+                                        except Exception: pass
+                                ui.timer(1.5, _af_poll)
+                            else:
+                                # Always full-color teal — the live "opacity:0.5"
+                                # gating used to require Company + Website both
+                                # set, but the field would stay dim while the
+                                # user was typing (NiceGUI doesn't re-render on
+                                # every keystroke). User reported it looked
+                                # broken. Now the button reads as ready at all
+                                # times; clicking with an empty input fires the
+                                # validation toast in _af_click.
+                                with ui.element("button").classes("fd-pb").style(
+                                        "padding:8px 16px;font-size:13px;border-radius:6px;"
+                                        f"background:{C['teal']};color:#0D1520;"
+                                        f"border:none;font-weight:700;font-family:inherit;"
+                                        f"cursor:pointer;"
+                                        ).on("click", _af_click):
+                                    ui.label("✨ Autofill with AI").style("pointer-events:none;")
+                                if not (s.aicb_website or "").strip():
+                                    ui.label(
+                                        "Paste the company's website above, then "
+                                        "click Autofill to populate industry and "
+                                        "locations."
+                                    ).style(
+                                        f"font-size:11px;color:{C['muted']};"
+                                        f"margin-top:6px;display:block;line-height:1.4;")
+                                if getattr(s, "_aicb_qs_err", ""):
+                                    ui.label(f"⚠ {s._aicb_qs_err}").style(
+                                        f"font-size:11px;color:{C['warn']};margin-top:4px;display:block;")
+                                if getattr(s, "_aicb_autofill_err", ""):
+                                    ui.label(f"⚠ {s._aicb_autofill_err}").style(
+                                        f"font-size:11px;color:{C['warn']};margin-top:4px;display:block;")
 
-                # Target Roles + Candidates moved to step 3 (2026-04-26 —
-                # see the candidates wizard step spec). Step 2 stays focused
-                # on company + market identity. roles_inp / cand_inp set to
-                # None so any downstream `getattr` checks degrade gracefully.
-                roles_inp = None
-                cand_inp = None
-                if _show_below_autofill:
-                    ui.label(
-                        "Target roles and candidates are picked on the next step."
-                    ).classes("fd-sub").style(f"color:{C['muted']};margin-bottom:8px;")
+                    # 2026-05-25 — Industry + Location pickers in COMPANY mode
+                    # are hidden until autofill has run (or the user lands here
+                    # with state already populated from a saved sequence). This
+                    # prevents the "wall of empty dropdowns" the user
+                    # complained about. Market mode always shows them since
+                    # there's no autofill flow there.
+                    _t2_filled = (
+                        bool((getattr(s, "aicb_primary_industry", "") or "").strip())
+                        or bool(list(getattr(s, "aicb_sel_locations", []) or []))
+                    )
+                    _show_below_autofill = (_mode != "company") or _t2_filled
+
+                    # ── Industry picker (Primary + Secondary) ────────────
+                    # Replaces the legacy single-Industry dropdown. Primary
+                    # is single-select with an "Other..." escape; Secondary
+                    # is multi-select chips scoped to the chosen Primary.
+                    # Sync existing s.aicb_industry (a key) into the picker's
+                    # label-based field if Primary hasn't been set yet.
+                    if not (getattr(s, "aicb_primary_industry", "") or "").strip():
+                        if s.aicb_industry:
+                            s.aicb_primary_industry = _industry_label_for_key(s.aicb_industry)
+                    if not hasattr(s, "aicb_secondary_industries"):
+                        s.aicb_secondary_industries = []
+                    if _show_below_autofill:
+                        _render_industry_picker(
+                            s, rf,
+                            primary_state_key="aicb_primary_industry",
+                            secondary_state_key="aicb_secondary_industries",
+                            container_style="margin-bottom:12px;",
+                            label_primary="Primary Industry",
+                            label_secondary="Secondary Industry",
+                            required_primary=True,
+                        )
+                    # Keep the legacy s.aicb_industry (key form) in sync so
+                    # downstream code that still references it (PDF prompts,
+                    # campaign generation) keeps working. Use getattr — the
+                    # picker may not have been rendered yet on a fresh wizard
+                    # session, so aicb_primary_industry isn't guaranteed to
+                    # exist as an attribute. Crashed the AI Campaign page on
+                    # a fresh start before this guard was added (2026-04-26).
+                    _primary_ind = getattr(s, "aicb_primary_industry", "") or ""
+                    _new_pkey = _industry_key_for_label_or_key(_primary_ind)
+                    if _new_pkey and _new_pkey != s.aicb_industry:
+                        s.aicb_industry = _new_pkey
+                    # Auto-derive aicb_niche from the picker now that the
+                    # standalone Market / Niche text input has been removed.
+                    # Prefer the (more specific) sub-niche selections; fall
+                    # back to the primary industry label if none picked yet.
+                    # Many downstream paths read aicb_niche directly (PDF
+                    # prompts at L22390+, AI campaign generation, step-2
+                    # validation), so this keeps them working with no edits.
+                    _sec_list = getattr(s, "aicb_secondary_industries", []) or []
+                    if _sec_list:
+                        s.aicb_niche = ", ".join(str(x).strip() for x in _sec_list if str(x).strip())
+                    elif _primary_ind.strip():
+                        s.aicb_niche = _primary_ind.strip()
+
+                    # Location MULTI-select (2026-05-01 — user reported the
+                    # single-select with "Other..." sentinel made it
+                    # impossible to delete or add inline). Mirrors the
+                    # Secondary Industries picker exactly: chips with × to
+                    # remove, and Quasar's new-value-mode="add-unique" so
+                    # typing a city + Enter adds it directly. First pick is
+                    # the "primary" location used by the candidate prompt
+                    # and PDF subtitle (downstream readers of [0] keep
+                    # working). Cap at 3 — beyond that the candidate prompt
+                    # tells the model NOT to spread candidates across
+                    # cities.
+                    LOC_MAX = 3
+                    _cur_locs = list(getattr(s, "aicb_sel_locations", []) or [])
+                    if _show_below_autofill:
+                        with ui.element("div").style("margin-bottom:12px;"):
+                            ui.label("Location").classes("fd-fl")
+                            ui.label(
+                                f"Pick up to {LOC_MAX}. Type a city + press Enter to add "
+                                f"a custom one. The first pick is the primary location "
+                                f"for the candidate prompt + PDFs."
+                            ).style(f"font-size:10px;color:{C['muted']};margin-bottom:4px;display:block;")
+                            _loc_opts = _region_options()
+                            _loc_opt_dict = {x: x for x in _loc_opts}
+                            # Surface any already-saved custom values at the top
+                            # of the dropdown so they remain visible/selectable.
+                            for _custom in _cur_locs:
+                                _c = (_custom or "").strip()
+                                if _c and _c not in _loc_opt_dict:
+                                    _loc_opt_dict = {_c: f"{_c} (custom)", **_loc_opt_dict}
+
+                            def _on_loc_change(e=None):
+                                vals = list(_loc_sel.value or [])
+                                # De-dup, drop empties, cap at LOC_MAX. New typed
+                                # values arrive here too via new-value-mode.
+                                _seen = set()
+                                _clean = []
+                                for v in vals:
+                                    v = (v or "").strip()
+                                    if v and v not in _seen:
+                                        _seen.add(v)
+                                        _clean.append(v)
+                                # Save any newly-typed (not in the predefined
+                                # options) values to the user's personal regions
+                                # list so they appear next time.
+                                for v in _clean:
+                                    if v not in _region_options():
+                                        try:
+                                            _add_personal_region(v)
+                                        except Exception:
+                                            pass
+                                if len(_clean) > LOC_MAX:
+                                    ui.notify(f"Cap is {LOC_MAX} locations — keeping the first {LOC_MAX}.",
+                                              type="warning", timeout=2500)
+                                    _clean = _clean[:LOC_MAX]
+                                s.aicb_sel_locations = _clean
+
+                            _loc_sel = ui.select(
+                                options=list(_loc_opt_dict.keys()),
+                                value=list(_cur_locs),
+                                multiple=True,
+                                on_change=_on_loc_change,
+                                new_value_mode="add-unique",
+                            ).props('use-chips use-input input-debounce="200"').classes("fd-input").style("width:100%;")
+
+                    # Target Roles + Candidates moved to step 3 (2026-04-26 —
+                    # see the candidates wizard step spec). Step 2 stays focused
+                    # on company + market identity. roles_inp / cand_inp set to
+                    # None so any downstream `getattr` checks degrade gracefully.
+                    roles_inp = None
+                    cand_inp = None
+                    if _show_below_autofill:
+                        ui.label(
+                            "Target roles and candidates are picked on the next step."
+                        ).classes("fd-sub").style(f"color:{C['muted']};margin-bottom:8px;")
 
             # ═══ Candidates panel — Step 3 in wizard mode (NEW 2026-04-26) ═══
             with ui.element("div").style(f"{_step_cand_hide}{_col2}"):
@@ -32979,6 +33008,13 @@ def p_ai_campaign(s: AppState, rf):
                     # forward re-run regenerates from current inputs.
                     # Inputs preserved.
                     _wiz_back_clear_outputs(s)
+                    # Step 2 manual sub-mode: Back returns to Upload sub-mode
+                    # instead of dropping the user to Step 1 (Target type —
+                    # which is pre-set by the chooser and not user-visible).
+                    if _wiz_step == 2 and getattr(s, "aicb_step2_mode", "upload") == "manual":
+                        s.aicb_step2_mode = "upload"
+                        rf()
+                        return
                     s.aicb_wizard_step = max(1, _wiz_step - 1); rf()
 
                 with ui.element("div").style(
