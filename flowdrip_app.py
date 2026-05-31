@@ -31193,11 +31193,12 @@ def p_ai_campaign(s: AppState, rf):
         # stay bound to state (switching steps is free — no re-render
         # of inputs means no lost in-progress text).
         # Legacy hide-token names retained for diff stability. Mapping
-        # after the 2026-04-26 Candidates insert:
-        #   _step1_hide → Target Details panel (Step 2)
-        #   _step_cand_hide → Candidates panel (Step 3 — NEW)
-        #   _step2_hide → Campaign Style panel (Step 4 — was 3)
-        #   _step3_hide → Review + Generate panel (Step 5 — was 4)
+        # after the 2026-05-31 Upload + Confirm insert:
+        #   _step1_hide → Target Details / Confirm panel (Step 2 in
+        #                 manual sub-mode, Step 3 in upload sub-mode)
+        #   _step_cand_hide → Candidates panel (Step 4 — was 3)
+        #   _step2_hide → Campaign Style panel (Step 5 — was 4)
+        #   _step3_hide → Review + Generate panel (Step 6 — was 5)
         _step1_hide = "" if _show_step2 else "display:none;"
         _step_cand_hide = "" if _show_step4 else "display:none;"
         _step2_hide = "" if _show_step5 else "display:none;"
@@ -32911,12 +32912,17 @@ def p_ai_campaign(s: AppState, rf):
             # required fields are filled, so users can't skip ahead with
             # an empty target or no campaign style picked.
             if _wiz_mode == "wizard":
-                # Required-field gating, per step (5-step wizard, 2026-04-26):
+                # Required-field gating, per step (6-step wizard, 2026-05-31):
                 #   Step 1 (target type) — always OK, mode defaults to "company"
-                #   Step 2 (target details) — target field only (roles moved to step 3)
-                #   Step 3 (candidates) — at least one role + a candidate source
-                #   Step 4 (campaign style) — style picked
-                #   Step 5 (review) — no Next, Generate button is the forward action
+                #   Step 2 (upload contact list) — CSV uploaded OR manual sub-mode
+                #   Step 3 (confirm details) — Primary Industry + company OR niche
+                #   Step 4 (candidates) — a candidate source picked
+                #   Step 5 (campaign style) — style picked
+                #   Step 6 (review) — no Next, Generate button is the forward action
+                # Note: the legacy _stepN_ok variable names below correspond to
+                # the OLD step numbering. Logic is correct; names map as:
+                #   _step1_ok -> step 1, _step2_ok -> steps 2/3 (same fields),
+                #   _step3_ok -> step 4, _step4_ok -> step 5.
                 _step1_ok = True  # always valid (default mode = company)
                 # Step 2: Primary Industry is REQUIRED on top of the
                 # mode-specific signal (company name OR market niche).
