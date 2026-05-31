@@ -29165,6 +29165,178 @@ def _render_step2_upload(s, rf):
             ui.label("No CSV yet? Enter details manually →")
 
 
+def _render_step3_confirm(s, rf):
+    """Step 3 — Confirm AI-inferred campaign details.
+
+    Shows the AI-pre-filled fields the Step-2 analyzer wrote
+    (industry / locations / roles / company OR niche). User edits
+    in place; clicking Next advances to Step 4 (Candidates).
+
+    In Target-a-Company mode, if the analyzer signaled a multi-company
+    list (via _aicb_is_multi_company), a yellow banner offers to
+    switch to Target-a-Market or continue with a chosen primary
+    company.
+    """
+    mode = getattr(s, "aicb_target_mode", "company") or "company"
+    if mode not in ("company", "market"):
+        mode = "company"
+
+    # Header
+    ui.label("Confirm campaign details").style(
+        f"font-size:18px;font-weight:700;color:{C['text_l']};"
+        f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
+    ui.label(
+        "AI pulled these from your contact list. Tweak anything that "
+        "looks off, then click Next."
+    ).style(
+        f"font-size:12.5px;color:{C['muted']};line-height:1.55;"
+        f"margin-bottom:14px;max-width:680px;")
+
+    # Stats strip: contact count + re-upload + re-run AI extraction
+    _n = len(getattr(s, "aicb_contacts", []) or [])
+    with ui.element("div").style(
+            "display:flex;align-items:center;gap:14px;flex-wrap:wrap;"
+            f"font-size:12px;color:{C['muted']};margin-bottom:14px;"):
+        ui.label(f"📋 {_n} contacts loaded")
+        def _back_to_upload():
+            s.aicb_wizard_step = 2
+            s.aicb_step2_mode = "upload"
+            rf()
+        with ui.element("span").style(
+                f"cursor:pointer;color:{C['teal']};text-decoration:underline;"
+                ).on("click", _back_to_upload):
+            ui.label("re-upload")
+        def _rerun_ai():
+            rows = list(getattr(s, "aicb_contacts", []) or [])
+            if not rows:
+                ui.notify("No contacts loaded — re-upload first.",
+                          type="warning")
+                return
+            s._aicb_upload_analyzing = True
+
+            def _run():
+                try:
+                    _analyze_contacts_with_ai(s, rows)
+                finally:
+                    s._aicb_upload_analyzing = False
+
+            _run_as_user(
+                getattr(s, "_user_email", "") or "",
+                _run,
+                name="aicb_rerun_analysis_worker",
+            )
+            s.aicb_wizard_step = 2  # back to spinner state on Step 2
+            rf()
+        with ui.element("span").style(
+                f"cursor:pointer;color:{C['teal']};text-decoration:underline;"
+                ).on("click", _rerun_ai):
+            ui.label("re-run AI extraction")
+
+    # Multi-company guard (Target-a-Company mode only)
+    _extracted = {
+        "company": getattr(s, "aicb_company", "") or "",
+        "niche":   getattr(s, "aicb_niche", "") or "",
+    }
+    if mode == "company" and _aicb_is_multi_company(_extracted):
+        with ui.element("div").style(
+                f"background:{C['warn']}15;border:1px solid {C['warn']}55;"
+                f"border-radius:8px;padding:14px 16px;margin-bottom:18px;"):
+            ui.label(
+                "⚠ Looks like this list has multiple companies."
+            ).style(f"font-size:13px;font-weight:700;color:{C['warn']};")
+            ui.label(
+                "Target a Company is built for one named account. Want "
+                "to switch the campaign type, or pick a primary company "
+                "to focus on?"
+            ).style(
+                f"font-size:11.5px;color:{C['text_l']};margin-top:4px;"
+                f"line-height:1.55;")
+            with ui.element("div").style(
+                    "display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;"):
+                def _switch_to_market():
+                    s.aicb_target_mode = "market"
+                    rf()
+                def _continue_company():
+                    # Banner suppresses itself once company is non-empty.
+                    s.aicb_company = ""
+                    rf()
+                with ui.element("button").classes("fd-pb").style(
+                        "padding:6px 14px;font-size:12px;"
+                        ).on("click", _switch_to_market):
+                    ui.label("Switch to Target a Market")
+                with ui.element("button").classes("fd-gb").style(
+                        "padding:6px 14px;font-size:12px;"
+                        ).on("click", _continue_company):
+                    ui.label("Continue with a primary company")
+
+    # Editable form
+    if mode == "company":
+        ui.label("Company").classes("fd-fl")
+        _co_in = ui.input(
+            value=getattr(s, "aicb_company", "") or "",
+            placeholder="e.g. Acme Corp",
+        ).classes("fd-input").style("width:100%;margin-bottom:10px;")
+        _co_in.on("blur", lambda: setattr(
+            s, "aicb_company", (_co_in.value or "").strip()))
+
+        ui.label("Website").classes("fd-fl")
+        _web_in = ui.input(
+            value=getattr(s, "aicb_website", "") or "",
+            placeholder="e.g. acmecorp.com",
+        ).classes("fd-input").style("width:100%;margin-bottom:12px;")
+        _web_in.on("blur", lambda: setattr(
+            s, "aicb_website", (_web_in.value or "").strip()))
+    else:
+        # market mode
+        ui.label("Niche / market").classes("fd-fl")
+        ui.label(
+            "Short description AI uses when writing emails (e.g. "
+            "\"Colorado Manufacturing\", \"Denver Healthcare Construction\")."
+        ).style(
+            f"font-size:10px;color:{C['muted']};margin-bottom:4px;margin-top:-2px;")
+        _ni_in = ui.input(
+            value=getattr(s, "aicb_niche", "") or "",
+            placeholder="e.g. Colorado Manufacturing",
+        ).classes("fd-input").style("width:100%;margin-bottom:12px;")
+        _ni_in.on("blur", lambda: setattr(
+            s, "aicb_niche", (_ni_in.value or "").strip()))
+
+    # Industry picker
+    if not hasattr(s, "aicb_secondary_industries"):
+        s.aicb_secondary_industries = []
+    _render_industry_picker(
+        s, rf,
+        primary_state_key="aicb_primary_industry",
+        secondary_state_key="aicb_secondary_industries",
+        container_style="margin-bottom:12px;",
+        label_primary="Primary Industry",
+        label_secondary="Secondary Industry",
+        required_primary=True,
+    )
+
+    # Locations + Roles — lightweight comma-separated inputs bound to
+    # the same state slots the chip pickers use.
+    ui.label("Locations").classes("fd-fl")
+    _loc_csv = ", ".join(getattr(s, "aicb_sel_locations", []) or [])
+    _loc_in = ui.input(
+        value=_loc_csv,
+        placeholder="e.g. Denver, CO; Boulder, CO",
+    ).classes("fd-input").style("width:100%;margin-bottom:12px;")
+    _loc_in.on("blur", lambda: setattr(
+        s, "aicb_sel_locations",
+        [x.strip() for x in (_loc_in.value or "").split(",") if x.strip()]))
+
+    ui.label("Roles").classes("fd-fl")
+    _role_csv = ", ".join(getattr(s, "aicb_sel_roles", []) or [])
+    _role_in = ui.input(
+        value=_role_csv,
+        placeholder="e.g. Project Manager, Estimator",
+    ).classes("fd-input").style("width:100%;margin-bottom:12px;")
+    _role_in.on("blur", lambda: setattr(
+        s, "aicb_sel_roles",
+        [x.strip() for x in (_role_in.value or "").split(",") if x.strip()][:6]))
+
+
 def _aicb_apply_extracted(s, data: dict):
     """Write AI-extracted fields onto AppState so the form re-populates."""
     if not isinstance(data, dict):
@@ -31856,6 +32028,10 @@ def p_ai_campaign(s: AppState, rf):
                         ui.label(
                             "Target roles and candidates are picked on the next step."
                         ).classes("fd-sub").style(f"color:{C['muted']};margin-bottom:8px;")
+
+            # ═══ Step 3 — Confirm AI-inferred details ═══
+            if _show_step3:
+                _render_step3_confirm(s, rf)
 
             # ═══ Candidates panel — Step 3 in wizard mode (NEW 2026-04-26) ═══
             with ui.element("div").style(f"{_step_cand_hide}{_col2}"):
