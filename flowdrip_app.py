@@ -9461,6 +9461,12 @@ class AppState:
         # in the wizard even if they accidentally hit the toggle).
         self.aicb_wizard_step = 1
         self.aicb_wizard_mode = "wizard"
+        # Sub-mode for Step 2 of the wizard, 2026-05-31:
+        #   "upload" — show the new Upload Contact List UI (default).
+        #   "manual" — show the legacy website + Autofill UI (reachable
+        #              via the "No CSV yet? Enter details manually →"
+        #              link on the Upload screen).
+        self.aicb_step2_mode = "upload"
         self.aicb_company = ""
         self.aicb_website = ""
         self.aicb_industry = ""
@@ -9825,6 +9831,7 @@ _AICB_PERSISTED_FIELDS = (
     # AICB ("AI Campaign Builder") wizard
     "aicb_wizard_step", "aicb_wizard_mode", "aicb_step", "aicb_type_picked",
     "aicb_target_mode",
+    "aicb_step2_mode",
     "aicb_company", "aicb_website", "aicb_industry", "aicb_niche",
     "aicb_primary_industry", "aicb_secondary_industries",
     "aicb_sel_locations", "aicb_sel_roles",
@@ -16819,8 +16826,8 @@ def _sq_pick(s, rf):
                 # there shows just the header). Clamp the internal step
                 # and clear stale per-attempt state.
                 s.aicb_step = 1
-                _ws = int(getattr(s, "aicb_wizard_step", 1) or 1)
-                s.aicb_wizard_step = _ws if _ws in (1, 2, 3, 4, 5) else 1
+                s.aicb_wizard_step = _aicb_clamp_wizard_step(
+                    getattr(s, "aicb_wizard_step", 1))
                 s.aicb_docs = {}
                 s.aicb_research = None
                 s.aicb_analysis = {}
@@ -28980,6 +28987,38 @@ def _effective_target(s) -> dict:
     }
 
 
+def _aicb_clamp_wizard_step(n) -> int:
+    """Coerce a wizard-step value to a valid 1..6 step number.
+
+    Bumped from 1..5 → 1..6 when Upload + Confirm were inserted between
+    Target type and Candidates (2026-05-31). Anything invalid falls
+    back to step 1, the safe wizard entry point — matches the pre-
+    restructure defensive behavior.
+    """
+    try:
+        v = int(n)
+    except (TypeError, ValueError):
+        return 1
+    return v if v in (1, 2, 3, 4, 5, 6) else 1
+
+
+def _aicb_is_multi_company(extractor_result: dict) -> bool:
+    """True if AI's contact-list analysis indicates multiple companies.
+
+    Used in Target-a-Company mode to surface a "switch to Target a
+    Market?" banner on the Confirm step. The shape comes from
+    _analyze_contacts_with_ai's JSON: empty `company` + non-empty
+    `niche` means the model couldn't pick a single account because
+    the list spans multiple. Both empty means AI couldn't identify
+    anything — that's NOT multi-company, just unidentified.
+    """
+    if not isinstance(extractor_result, dict):
+        return False
+    company = (extractor_result.get("company") or "").strip()
+    niche = (extractor_result.get("niche") or "").strip()
+    return (not company) and bool(niche)
+
+
 def _aicb_apply_extracted(s, data: dict):
     """Write AI-extracted fields onto AppState so the form re-populates."""
     if not isinstance(data, dict):
@@ -30817,13 +30856,8 @@ def p_ai_campaign(s: AppState, rf):
         _wiz_mode = getattr(s, "aicb_wizard_mode", "wizard") or "wizard"
         if _wiz_mode not in ("wizard", "expanded"):
             _wiz_mode = "wizard"
-        _wiz_step = int(getattr(s, "aicb_wizard_step", 1) or 1)
-        # 5-step wizard since 2026-04-26 (Candidates inserted at step 3).
-        # Earlier code clamped to (1,2,3,4) which silently kicked anyone
-        # advancing to step 5 (Review + generate) back to step 1, making
-        # the wizard appear to "loop" right when they hit Generate.
-        if _wiz_step not in (1, 2, 3, 4, 5):
-            _wiz_step = 1
+        _wiz_step = _aicb_clamp_wizard_step(
+            getattr(s, "aicb_wizard_step", 1))
 
         # Title + top-right Next button. The Next button is a discoverable
         # forward control so users never have to scroll the page to find a
