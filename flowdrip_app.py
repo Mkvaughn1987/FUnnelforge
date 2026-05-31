@@ -29029,17 +29029,16 @@ def _render_step2_upload(s, rf):
     navigable while the contacts-first migration finishes landing.
     Task 4 replaces this with the real upload UI.
     """
-    from nicegui import ui as _ui
-    _ui.label(
+    ui.label(
         "Upload step coming next — for now use manual entry."
     ).style(
         "font-size:13px;color:#8FA3C8;margin-bottom:10px;")
     def _go_manual():
         s.aicb_step2_mode = "manual"
         rf()
-    with _ui.element("button").classes("fd-gb").style(
+    with ui.element("button").classes("fd-gb").style(
             "padding:8px 16px;font-size:12px;").on("click", _go_manual):
-        _ui.label("No CSV yet? Enter details manually →").style(
+        ui.label("No CSV yet? Enter details manually →").style(
             "pointer-events:none;")
 
 
@@ -31474,6 +31473,11 @@ def p_ai_campaign(s: AppState, rf):
                     f"{_step2_hide_details}{_col2}"
                     f"background:{C['card']};border:1px solid {C['border']};"
                     f"border-radius:12px;padding:16px 18px;"):
+                # Defaults so upload sub-mode doesn't NameError downstream
+                # (the manual branch overwrites these inside its `else:`).
+                _mode = getattr(s, "aicb_target_mode", "company") or "company"
+                web_inp = None
+                niche_inp = None
                 _step2_mode = getattr(s, "aicb_step2_mode", "upload") or "upload"
                 if _step2_mode == "upload":
                     _render_step2_upload(s, rf)
@@ -33003,18 +33007,20 @@ def p_ai_campaign(s: AppState, rf):
                     s.aicb_wizard_step = min(6, _wiz_step + 1); rf()
 
                 def _wiz_back():
+                    # Step 2 manual sub-mode: Back is a view flip, NOT a
+                    # data-clearing event. Return before the prelude that
+                    # wipes research/generated outputs.
+                    if _wiz_step == 2 and getattr(s, "aicb_step2_mode", "upload") == "manual":
+                        s.aicb_step2_mode = "upload"
+                        rf()
+                        return
+                    # Original prelude (clears computed outputs) — only
+                    # runs for real step decrements.
                     # H16: clear computed outputs (research, generated
                     # campaign, generated docs, candidate cards) so a
                     # forward re-run regenerates from current inputs.
                     # Inputs preserved.
                     _wiz_back_clear_outputs(s)
-                    # Step 2 manual sub-mode: Back returns to Upload sub-mode
-                    # instead of dropping the user to Step 1 (Target type —
-                    # which is pre-set by the chooser and not user-visible).
-                    if _wiz_step == 2 and getattr(s, "aicb_step2_mode", "upload") == "manual":
-                        s.aicb_step2_mode = "upload"
-                        rf()
-                        return
                     s.aicb_wizard_step = max(1, _wiz_step - 1); rf()
 
                 with ui.element("div").style(
