@@ -9474,6 +9474,13 @@ class AppState:
         # Not persisted — every reconnect re-renders the spinner state
         # from scratch.
         self._aicb_upload_analyzing = False
+        # Set when the user acknowledges the multi-company guard banner
+        # on Step 3 (Confirm). Once acknowledged, the banner stays
+        # suppressed for the rest of the wizard session. Transient flag
+        # (not persisted — reconnects re-show the banner if the AI
+        # signal still indicates multi-company, which is the safe
+        # default).
+        self._aicb_multi_company_ack = False
         self.aicb_company = ""
         self.aicb_website = ""
         self.aicb_industry = ""
@@ -29181,6 +29188,11 @@ def _render_step3_confirm(s, rf):
     if mode not in ("company", "market"):
         mode = "company"
 
+    # Widget refs stashed on `s` so _wiz_next / _top_wiz_next can
+    # commit unblurred edits at click time (same pattern Step 2's
+    # manual mode uses for web_inp / niche_inp).
+    s._aicb_step3_refs = {}
+
     # Header
     ui.label("Confirm campaign details").style(
         f"font-size:18px;font-weight:700;color:{C['text_l']};"
@@ -29201,6 +29213,7 @@ def _render_step3_confirm(s, rf):
         def _back_to_upload():
             s.aicb_wizard_step = 2
             s.aicb_step2_mode = "upload"
+            s._aicb_multi_company_ack = False
             rf()
         with ui.element("span").style(
                 f"cursor:pointer;color:{C['teal']};text-decoration:underline;"
@@ -29226,6 +29239,7 @@ def _render_step3_confirm(s, rf):
                 name="aicb_rerun_analysis_worker",
             )
             s.aicb_wizard_step = 2  # back to spinner state on Step 2
+            s._aicb_multi_company_ack = False
             rf()
         with ui.element("span").style(
                 f"cursor:pointer;color:{C['teal']};text-decoration:underline;"
@@ -29237,7 +29251,9 @@ def _render_step3_confirm(s, rf):
         "company": getattr(s, "aicb_company", "") or "",
         "niche":   getattr(s, "aicb_niche", "") or "",
     }
-    if mode == "company" and _aicb_is_multi_company(_extracted):
+    if (mode == "company"
+            and _aicb_is_multi_company(_extracted)
+            and not getattr(s, "_aicb_multi_company_ack", False)):
         with ui.element("div").style(
                 f"background:{C['warn']}15;border:1px solid {C['warn']}55;"
                 f"border-radius:8px;padding:14px 16px;margin-bottom:18px;"):
@@ -29255,10 +29271,13 @@ def _render_step3_confirm(s, rf):
                     "display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;"):
                 def _switch_to_market():
                     s.aicb_target_mode = "market"
+                    s._aicb_multi_company_ack = False
                     rf()
                 def _continue_company():
-                    # Banner suppresses itself once company is non-empty.
-                    s.aicb_company = ""
+                    # User acknowledges they'll pick a primary company
+                    # manually; suppress the banner for this session
+                    # without blanking any state.
+                    s._aicb_multi_company_ack = True
                     rf()
                 with ui.element("button").classes("fd-pb").style(
                         "padding:6px 14px;font-size:12px;"
@@ -29278,6 +29297,7 @@ def _render_step3_confirm(s, rf):
         ).classes("fd-input").style("width:100%;margin-bottom:10px;")
         _co_in.on("blur", lambda: setattr(
             s, "aicb_company", (_co_in.value or "").strip()))
+        s._aicb_step3_refs["company"] = _co_in
 
         ui.label("Website").classes("fd-fl")
         _web_in = ui.input(
@@ -29286,6 +29306,7 @@ def _render_step3_confirm(s, rf):
         ).classes("fd-input").style("width:100%;margin-bottom:12px;")
         _web_in.on("blur", lambda: setattr(
             s, "aicb_website", (_web_in.value or "").strip()))
+        s._aicb_step3_refs["website"] = _web_in
     else:
         # market mode
         ui.label("Niche / market").classes("fd-fl")
@@ -29300,6 +29321,7 @@ def _render_step3_confirm(s, rf):
         ).classes("fd-input").style("width:100%;margin-bottom:12px;")
         _ni_in.on("blur", lambda: setattr(
             s, "aicb_niche", (_ni_in.value or "").strip()))
+        s._aicb_step3_refs["niche"] = _ni_in
 
     # Industry picker
     if not hasattr(s, "aicb_secondary_industries"):
@@ -29314,17 +29336,21 @@ def _render_step3_confirm(s, rf):
         required_primary=True,
     )
 
-    # Locations + Roles — lightweight comma-separated inputs bound to
-    # the same state slots the chip pickers use.
+    # Locations + Roles — lightweight semicolon-separated inputs bound
+    # to the same state slots the chip pickers use. Semicolons are used
+    # for locations so "City, State" values (e.g. "Denver, CO") are not
+    # split into two tokens. Roles stay on comma (role names don't
+    # typically contain commas).
     ui.label("Locations").classes("fd-fl")
-    _loc_csv = ", ".join(getattr(s, "aicb_sel_locations", []) or [])
+    _loc_csv = "; ".join(getattr(s, "aicb_sel_locations", []) or [])
     _loc_in = ui.input(
         value=_loc_csv,
         placeholder="e.g. Denver, CO; Boulder, CO",
     ).classes("fd-input").style("width:100%;margin-bottom:12px;")
     _loc_in.on("blur", lambda: setattr(
         s, "aicb_sel_locations",
-        [x.strip() for x in (_loc_in.value or "").split(",") if x.strip()]))
+        [x.strip() for x in (_loc_in.value or "").split(";") if x.strip()]))
+    s._aicb_step3_refs["locations"] = _loc_in
 
     ui.label("Roles").classes("fd-fl")
     _role_csv = ", ".join(getattr(s, "aicb_sel_roles", []) or [])
@@ -29335,6 +29361,7 @@ def _render_step3_confirm(s, rf):
     _role_in.on("blur", lambda: setattr(
         s, "aicb_sel_roles",
         [x.strip() for x in (_role_in.value or "").split(",") if x.strip()][:6]))
+    s._aicb_step3_refs["roles"] = _role_in
 
 
 def _aicb_apply_extracted(s, data: dict):
@@ -31193,6 +31220,26 @@ def p_ai_campaign(s: AppState, rf):
                         ui.notify("Pick a sub-niche or secondary industry.", type="warning")
                     return
             elif _wiz_step == 3:
+                # Commit any unblurred Step 3 edits before validating.
+                _refs = getattr(s, "_aicb_step3_refs", {}) or {}
+                if "company" in _refs:
+                    s.aicb_company = (_refs["company"].value or "").strip()
+                if "website" in _refs:
+                    s.aicb_website = (_refs["website"].value or "").strip()
+                if "niche" in _refs:
+                    s.aicb_niche = (_refs["niche"].value or "").strip()
+                if "locations" in _refs:
+                    s.aicb_sel_locations = [
+                        x.strip()
+                        for x in (_refs["locations"].value or "").split(";")
+                        if x.strip()
+                    ]
+                if "roles" in _refs:
+                    s.aicb_sel_roles = [
+                        x.strip()
+                        for x in (_refs["roles"].value or "").split(",")
+                        if x.strip()
+                    ][:6]
                 # Confirm step: validate the same fields the old Target
                 # Details step did (Primary Industry + company-or-niche).
                 if not _step2_target_filled():
@@ -33245,6 +33292,40 @@ def p_ai_campaign(s: AppState, rf):
                                         type="warning"); return
                                 ui.notify("Enter a market / niche.",
                                           type="warning"); return
+                        elif _wiz_step == 3:
+                            # Commit any unblurred Step 3 (Confirm) edits
+                            # before validating — widget refs are stashed on
+                            # s by _render_step3_confirm at render time.
+                            _refs = getattr(s, "_aicb_step3_refs", {}) or {}
+                            if "company" in _refs:
+                                s.aicb_company = (_refs["company"].value or "").strip()
+                            if "website" in _refs:
+                                s.aicb_website = (_refs["website"].value or "").strip()
+                            if "niche" in _refs:
+                                s.aicb_niche = (_refs["niche"].value or "").strip()
+                            if "locations" in _refs:
+                                s.aicb_sel_locations = [
+                                    x.strip()
+                                    for x in (_refs["locations"].value or "").split(";")
+                                    if x.strip()
+                                ]
+                            if "roles" in _refs:
+                                s.aicb_sel_roles = [
+                                    x.strip()
+                                    for x in (_refs["roles"].value or "").split(",")
+                                    if x.strip()
+                                ][:6]
+                            if not _step2_target_filled():
+                                _m = getattr(s, "aicb_target_mode", "company") or "company"
+                                if not _step2_primary_industry_filled():
+                                    ui.notify("Pick a Primary Industry.",
+                                              type="warning"); return
+                                elif _m == "company" and not (s.aicb_company or "").strip():
+                                    ui.notify("Enter a company name.",
+                                              type="warning"); return
+                                else:
+                                    ui.notify("Pick a sub-niche or secondary industry.",
+                                              type="warning"); return
                         elif _wiz_step == 4:
                             if not _step3_ok:
                                 ui.notify("Pick how to add candidates first.",
