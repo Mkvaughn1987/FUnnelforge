@@ -48954,14 +48954,17 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
     <div class="dd-hero-left">
       <h1>Turn cold outreach into <span class="dd-grad">warm conversations.</span></h1>
       <p class="lead">
-        DripDrop is the AI-powered sales outreach platform that sends from your
-        <strong>real Outlook or Gmail inbox</strong>, same deliverability,
-        same Sent folder, same sending reputation. Build multi-channel drip
-        campaigns in minutes, let AI write the hard parts, and never lose a
-        lead to a forgotten follow-up again.
+        AI-powered sales outreach that sends from your
+        <strong>real Outlook or Gmail inbox</strong> — same deliverability,
+        same Sent folder, same reputation. Build multi-channel campaigns in
+        minutes, let AI write the hard parts, and never lose a lead to a
+        forgotten follow-up again.
       </p>
       <div class="dd-hero-cta">
-        <a href="/register" class="dd-btn dd-btn-primary">Invite only — got the code? →</a>
+        <a href="/register" class="dd-btn dd-btn-primary">Have an invite? Get started →</a>
+      </div>
+      <div style="margin-top:10px;font-size:12px;color:#8FA3C8;">
+        No invite yet? <a href="mailto:support@dripdripdrop.ai?subject=Beta%20access%20for%20DripDrop" style="color:#1AE3D9;text-decoration:underline;">Tell us about your team →</a>
       </div>
       <div style="font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8FA3C8;margin-top:14px;">
         Built by recruiters, for recruiters.
@@ -48994,6 +48997,11 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
         <div class="dd-feat-icon">✦</div>
         <h3>AI Campaign Builder</h3>
         <p>Drop in a company name. DripDrop researches them on the live web, identifies their hiring patterns and decision makers, then writes a full 7-touch sequence, emails, LinkedIn messages, call scripts, tuned to that company's industry.</p>
+      </div>
+      <div class="dd-feat">
+        <div class="dd-feat-icon">🧩</div>
+        <h3>AI Guided Sequence Builder</h3>
+        <p>Tell DripDrop your goal, audience, tone, and how many of each touch you want — emails, LinkedIn, calls, SMS, tasks. Add per-email direction if you have it. AI writes the whole cadence in seconds and drops you straight into the editor to tweak any message before launch.</p>
       </div>
       <div class="dd-feat">
         <div class="dd-feat-icon">📑</div>
@@ -49102,9 +49110,10 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
 
   <section class="dd-cta">
     <h2>Your leads aren't going to warm themselves.</h2>
-    <p>DripDrop is in invite-only beta. If you have an invite code, create an account in under a minute and start sending from your real inbox today.</p>
+    <p>DripDrop is in invite-only beta. Got a code? Create your account in under a minute and start sending from your real inbox today. No code yet? Tell us about your team and we'll get back to you.</p>
     <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
       <a href="/register" class="dd-btn dd-btn-primary">Create Your Account →</a>
+      <a href="mailto:support@dripdripdrop.ai?subject=Beta%20access%20for%20DripDrop" class="dd-btn dd-btn-ghost">Request an Invite →</a>
     </div>
   </section>
 
