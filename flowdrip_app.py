@@ -9451,9 +9451,12 @@ class AppState:
         # generation time; the inactive field is ignored so stale text can't
         # leak into prompts or PDFs.
         self.aicb_target_mode = "company"
-        # Create-a-Campaign wizard (5 steps after 2026-04-26 restructure):
-        #   aicb_wizard_step: 1=target type, 2=target details, 3=candidates,
-        #                     4=campaign style, 5=review+generate
+        # Create-a-Campaign wizard (6 steps after 2026-05-31 contacts-first
+        # restructure — Upload + Confirm inserted between Target type and
+        # the prior Candidates step):
+        #   aicb_wizard_step: 1=target type, 2=upload contact list,
+        #                     3=confirm details, 4=candidates,
+        #                     5=campaign style, 6=review+generate
         #   aicb_wizard_mode: "wizard" (guided) or "expanded" (legacy all-at-once)
         # Users default to the guided wizard. Power users can flip to
         # expanded via a toggle link and the site remembers the choice
@@ -47807,7 +47810,8 @@ def render_page(s: AppState, rf):
             # through to the nav-history stack. Users expect Back to
             # "undo the last thing I did", not jump up an arbitrary level.
             _in_aicb_wizard = (page == "ai_campaign"
-                               and int(getattr(s, "aicb_wizard_step", 1) or 1) > 1)
+                               and _aicb_clamp_wizard_step(
+                                   getattr(s, "aicb_wizard_step", 1)) > 1)
             # Loaded campaign editor (start_seq with s.loaded_camp set) has
             # its own 4-step flow: emails → sequence → contacts → launch.
             # When the user is on any step BEYOND emails, Back should go
@@ -47829,7 +47833,8 @@ def render_page(s: AppState, rf):
                 def _do_back():
                     if _in_aicb_wizard:
                         s.aicb_wizard_step = max(
-                            1, int(getattr(s, "aicb_wizard_step", 1) or 1) - 1)
+                            1, _aicb_clamp_wizard_step(
+                                getattr(s, "aicb_wizard_step", 1)) - 1)
                         rf()
                     elif _in_loaded_camp_step:
                         try:

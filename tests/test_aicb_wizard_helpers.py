@@ -58,6 +58,21 @@ def test_is_multi_company_false_when_niche_also_empty():
     assert fa._aicb_is_multi_company(None) is False
 
 
+def test_is_multi_company_handles_none_valued_keys():
+    """Some JSON parses produce {"company": null} rather than "". The
+    helper coerces via `(get(...) or "").strip()` so None-valued keys
+    behave identically to empty strings."""
+    assert fa._aicb_is_multi_company({
+        "company": None,
+        "niche": "Manufacturing",
+    }) is True
+    assert fa._aicb_is_multi_company({
+        "company": "Acme Corp",
+        "niche": None,
+    }) is False
+    assert fa._aicb_is_multi_company({"company": None, "niche": None}) is False
+
+
 def test_appstate_has_step2_mode_default_upload():
     """Fresh AppState must initialize aicb_step2_mode = 'upload' so the
     new wizard branches into the Upload UI by default."""
