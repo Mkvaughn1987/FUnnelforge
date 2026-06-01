@@ -29148,28 +29148,61 @@ def _render_step2_upload(s, rf):
                 f"font-size:11.5px;color:{C['text_l']};margin-top:4px;"
                 f"line-height:1.55;")
 
-    with ui.element("div").style(
-            f"border:1.5px dashed {C['border']};border-radius:10px;"
-            f"padding:28px 22px;text-align:center;background:{C['card']};"
-            f"margin-bottom:12px;"):
-        ui.upload(on_upload=_on_step2_upload, auto_upload=True,
-                  label="Click to browse, or drop a CSV here").style(
-            "max-width:520px;margin:0 auto;")
-        ui.label(
-            "Accepted: .csv, .tsv, .txt — up to 50 MB."
-        ).style(
-            f"font-size:11px;color:{C['muted']};margin-top:8px;")
-
-    # Fallback link to the manual sub-mode
+    # Two equal-weight options side by side. Picking either is a one-
+    # click decision; the small "what is a CSV?" hint sits underneath
+    # the upload card without competing for attention. User feedback
+    # 2026-05-31: the single drop-zone + tiny fallback link read as
+    # one path with an afterthought — making both paths look like
+    # buttons removes the asymmetry.
     def _go_manual():
         s.aicb_step2_mode = "manual"
         rf()
-    with ui.element("div").style("text-align:center;margin-top:6px;"):
-        with ui.element("span").style(
-                f"cursor:pointer;font-size:12px;color:{C['teal']};"
-                f"text-decoration:underline;"
+
+    with ui.element("div").style(
+            "display:flex;gap:14px;justify-content:center;"
+            "flex-wrap:wrap;max-width:680px;margin:0 auto 8px;"):
+        # Option A — Upload CSV (primary)
+        with ui.element("div").style(
+                f"flex:1 1 240px;background:{C['teal']}15;"
+                f"border:2px solid {C['teal']};border-radius:10px;"
+                f"padding:20px 16px;text-align:center;"):
+            ui.label("📤").style("font-size:32px;line-height:1;")
+            ui.label("Upload CSV").style(
+                f"font-size:15px;font-weight:700;color:{C['teal']};"
+                f"font-family:'Nunito',sans-serif;margin-top:6px;")
+            ui.label(
+                "AI reads your contact list and fills in the company, "
+                "market, industry, and locations for you."
+            ).style(
+                f"font-size:11px;color:{C['muted']};margin-top:4px;"
+                f"line-height:1.45;")
+            ui.upload(
+                on_upload=_on_step2_upload, auto_upload=True,
+                label="Choose file"
+            ).props('flat dense color=teal').style(
+                "margin-top:10px;")
+            ui.label(
+                "Accepted: .csv, .tsv, .txt — up to 50 MB."
+            ).style(
+                f"font-size:10px;color:{C['muted']};margin-top:6px;")
+
+        # Option B — Enter details manually (secondary)
+        with ui.element("div").style(
+                f"flex:1 1 240px;background:{C['card']};"
+                f"border:2px solid {C['border']};border-radius:10px;"
+                f"padding:20px 16px;text-align:center;cursor:pointer;"
                 ).on("click", _go_manual):
-            ui.label("No CSV yet? Enter details manually →")
+            ui.label("✎").style(
+                f"font-size:32px;line-height:1;color:{C['muted']};")
+            ui.label("Enter details manually").style(
+                f"font-size:15px;font-weight:700;color:{C['text_l']};"
+                f"font-family:'Nunito',sans-serif;margin-top:6px;")
+            ui.label(
+                "Don't have a CSV yet? Type the company / market, "
+                "industry, and location yourself."
+            ).style(
+                f"font-size:11px;color:{C['muted']};margin-top:4px;"
+                f"line-height:1.45;")
 
 
 def _render_step3_confirm(s, rf):
