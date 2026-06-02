@@ -30961,6 +30961,22 @@ def _aicb_generate_candidates_run(s, count: int = 3):
         # Strip web-search cite tags that sometimes wrap brand names
         text = re.sub(r'</?cite[^>]*>', '', text)
 
+        # Strip markdown emphasis wrapping that Claude haiku sometimes
+        # adds around candidate headers despite the prompt asking for
+        # plain text. "**Candidate A**", "## Candidate A", and
+        # "__Candidate A__" all need to match downstream — without this
+        # strip, the strict `^Candidate\s+[A-F]\b` regex misses every
+        # candidate and parsing yields 0 blocks (user report
+        # 2026-06-02: Leigh's count=6 runs returned 1.7-2.7KB but
+        # parsed to 0 cards).
+        _text_md_stripped = re.sub(
+            r'(?im)^(?:\*\*|__|#+)\s*(?=Candidate\s+[A-F]\b)',
+            '', text)
+        _text_md_stripped = re.sub(
+            r'(?im)(Candidate\s+[A-F][^\n]*?)\s*(?:\*\*|__)\s*$',
+            r'\1', _text_md_stripped)
+        text = _text_md_stripped
+
         # Hard-trim any preamble before the first "Candidate A" occurrence.
         # Models sometimes prepend "Based on my research..." despite the
         # prompt telling them not to  -  we cut everything before the real
@@ -30977,6 +30993,13 @@ def _aicb_generate_candidates_run(s, count: int = 3):
         _current = None
         for ln in raw_lines:
             stripped = ln.strip()
+            if not stripped:
+                continue
+            # Strip any remaining markdown bold/italic wrappers per-line
+            # (handles cases where the header survived the global strip
+            # but bullets are also wrapped, e.g. "**• Location:** ...").
+            stripped = re.sub(r'^(?:\*\*|__)\s*', '', stripped)
+            stripped = re.sub(r'\s*(?:\*\*|__)\s*$', '', stripped)
             if not stripped:
                 continue
             # New candidate block starts at "Candidate X  - " or "Candidate X:"
@@ -31035,6 +31058,14 @@ def _aicb_generate_candidates_run(s, count: int = 3):
         s._aicb_cand_err = ""
         print(f"[CAND-DBG] gen_run OK text_len={len(s._aicb_cand_text)} "
               f"blocks={len(_cleaned_blocks)} user={_u}", flush=True)
+        # Forensic dump when Claude returned content but parsing
+        # extracted nothing — captures whatever weird format the
+        # model used so we can extend the parser. 400-char cap keeps
+        # the log line readable.
+        if len(_cleaned_blocks) == 0 and text.strip():
+            _sample = text.strip().replace("\n", " | ")[:400]
+            print(f"[CAND-DBG] gen_run PARSE-FAIL user={_u} "
+                  f"raw_first_400={_sample!r}", flush=True)
     except Exception as e:
         import traceback as _tb
         print(f"[CAND-DBG] gen_run EXC user={_u}: {e!r}\n"
