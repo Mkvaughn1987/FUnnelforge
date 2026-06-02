@@ -29158,50 +29158,66 @@ def _render_step2_upload(s, rf):
         s.aicb_step2_mode = "manual"
         rf()
 
+    # Hidden file input lives outside the visible cards. Quasar's
+    # QUploader contains a real <input type=file>; we keep the
+    # uploader functional but visually invisible, then trigger its
+    # file picker by JS-clicking the input when the user clicks the
+    # visible "Upload CSV" card. (User report 2026-06-02: the styled
+    # uploader inside the card had no clickable surface — users
+    # couldn't pick a file.)
+    ui.upload(
+        on_upload=_on_step2_upload, auto_upload=True,
+    ).classes("dd-step2-uploader").style(
+        "display:none;position:absolute;visibility:hidden;")
+
+    def _trigger_file_picker():
+        ui.run_javascript(
+            "const el = document.querySelector('.dd-step2-uploader input[type=file]'); "
+            "if (el) el.click();"
+        )
+
     with ui.element("div").style(
             "display:flex;gap:14px;justify-content:center;"
             "flex-wrap:wrap;max-width:680px;margin:0 auto 8px;"):
-        # Option A — Upload CSV (primary)
+        # Option A — Upload CSV (primary, whole card clickable)
         with ui.element("div").style(
                 f"flex:1 1 240px;background:{C['teal']}15;"
                 f"border:2px solid {C['teal']};border-radius:10px;"
-                f"padding:20px 16px;text-align:center;"):
-            ui.label("📤").style("font-size:32px;line-height:1;")
+                f"padding:24px 18px;text-align:center;cursor:pointer;"
+                f"transition:transform .12s ease, box-shadow .12s ease;"
+                ).on("click", _trigger_file_picker):
+            ui.label("📤").style("font-size:36px;line-height:1;")
             ui.label("Upload CSV").style(
                 f"font-size:15px;font-weight:700;color:{C['teal']};"
-                f"font-family:'Nunito',sans-serif;margin-top:6px;")
+                f"font-family:'Nunito',sans-serif;margin-top:8px;")
             ui.label(
                 "AI reads your contact list and fills in the company, "
                 "market, industry, and locations for you."
             ).style(
-                f"font-size:11px;color:{C['muted']};margin-top:4px;"
+                f"font-size:11px;color:{C['muted']};margin-top:6px;"
                 f"line-height:1.45;")
-            ui.upload(
-                on_upload=_on_step2_upload, auto_upload=True,
-                label="Choose file"
-            ).props('flat dense color=teal').style(
-                "margin-top:10px;")
             ui.label(
                 "Accepted: .csv, .tsv, .txt — up to 50 MB."
             ).style(
-                f"font-size:10px;color:{C['muted']};margin-top:6px;")
+                f"font-size:10px;color:{C['muted']};margin-top:8px;")
 
-        # Option B — Enter details manually (secondary)
+        # Option B — Enter details manually (secondary, whole card clickable)
         with ui.element("div").style(
                 f"flex:1 1 240px;background:{C['card']};"
                 f"border:2px solid {C['border']};border-radius:10px;"
-                f"padding:20px 16px;text-align:center;cursor:pointer;"
+                f"padding:24px 18px;text-align:center;cursor:pointer;"
+                f"transition:transform .12s ease, box-shadow .12s ease;"
                 ).on("click", _go_manual):
             ui.label("✎").style(
-                f"font-size:32px;line-height:1;color:{C['muted']};")
+                f"font-size:36px;line-height:1;color:{C['muted']};")
             ui.label("Enter details manually").style(
                 f"font-size:15px;font-weight:700;color:{C['text_l']};"
-                f"font-family:'Nunito',sans-serif;margin-top:6px;")
+                f"font-family:'Nunito',sans-serif;margin-top:8px;")
             ui.label(
                 "Don't have a CSV yet? Type the company / market, "
                 "industry, and location yourself."
             ).style(
-                f"font-size:11px;color:{C['muted']};margin-top:4px;"
+                f"font-size:11px;color:{C['muted']};margin-top:6px;"
                 f"line-height:1.45;")
 
 
