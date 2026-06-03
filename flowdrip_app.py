@@ -6082,6 +6082,23 @@ def _campaign_last_send_date(camp: dict):
     return last
 
 
+def _filter_new_enrollees(camp: dict, contacts: list) -> list:
+    """Return the contacts from `contacts` that are NOT already enrolled in
+    `camp` and have a non-blank email. Dedups case-insensitively against the
+    campaign's existing contacts AND within the incoming batch. Returned
+    dicts are the originals (not copied/mutated)."""
+    existing = {(c.get("email", "") or "").lower().strip()
+                for c in camp.get("contacts", [])}
+    new = []
+    for c in contacts:
+        email = (c.get("email", "") or "").strip().lower()
+        if not email or email in existing:
+            continue
+        new.append(c)
+        existing.add(email)
+    return new
+
+
 def _parse_time_str(time_str: str) -> tuple:
     """Parse '9:00 AM' or '2:30 PM' into (hour24, minute)."""
     try:
