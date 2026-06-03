@@ -34723,10 +34723,19 @@ def _tc_render_step_jd(s: AppState, rf):
                 f"padding-top:10px;border-top:1px dashed {C['border']};"):
             ui.label("Or upload a file:").style(
                 f"font-size:11px;color:{C['muted']};font-weight:600;")
-            ui.upload(on_upload=_on_upload, max_files=1,
-                      auto_upload=True).props(
-                'accept=".pdf,.docx,.doc" flat dense').style(
-                "flex:1;min-width:0;")
+            # NiceGUI's default ui.upload renders nearly invisibly on the
+            # dark theme (flat/dense leaves no visible target — users
+            # reported "nowhere to upload"). Hide it in a zero-height
+            # wrapper and drive it from a visible button via pickFiles(),
+            # the same pattern the Contacts importer uses.
+            with ui.element("div").style("height:0;overflow:hidden;"):
+                _jd_upload = ui.upload(on_upload=_on_upload, max_files=1,
+                                       auto_upload=True).props(
+                    'accept=".pdf,.docx,.doc"')
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:6px 16px;font-size:12px;").on(
+                    "click", lambda: _jd_upload.run_method("pickFiles")):
+                ui.label("⬆ Upload PDF / DOCX")
 
     if s.tc_jd_generating:
         with ui.element("div").style(
@@ -34756,11 +34765,9 @@ def _tc_render_step_jd(s: AppState, rf):
         ui.label(s.tc_error).style(
             f"font-size:12px;color:{C['danger']};margin-bottom:8px;")
 
-    # Footer: Skip text link (left), Continue button (right, only when a JD
-    # is present). The generation step branches on tc_jd_text/tc_jd_parsed
-    # so Skip vs Continue both just advance to step 1.
-    _has_jd = bool((s.tc_jd_text or "").strip()) or bool(s.tc_jd_filename)
-
+    # Footer: Skip text link (left), Continue button (right — always
+    # shown). The generation step branches on tc_jd_text/tc_jd_parsed so
+    # Skip vs Continue both just advance to step 1.
     def _skip():
         # Wipe any half-typed JD so generation doesn't pick up a
         # one-line "asdf" by accident, then advance.
@@ -34786,13 +34793,16 @@ def _tc_render_step_jd(s: AppState, rf):
                 ).on("click", lambda _e: _skip()):
             ui.label("Skip — I'll let AI write a generic sequence →").style(
                 "pointer-events:none;")
-        if _has_jd:
-            with ui.element("button").classes("fd-pb").style(
-                    "padding:10px 22px;font-size:13px;"
-                    ).on("click", lambda _e: _continue()):
-                ui.label("Continue with JD →").style("pointer-events:none;")
-        else:
-            ui.element("div").style("width:1px;")
+        # Continue is ALWAYS shown so there's always a next step. Pasting
+        # the JD updates s.tc_jd_text via update:model-value but doesn't
+        # re-render the page (we don't rerender per keystroke), so gating
+        # this button on _has_jd left pasted JDs with no way forward.
+        # _continue() keeps whatever JD text is present; the generate step
+        # falls back to a generic sequence when it's empty.
+        with ui.element("button").classes("fd-pb").style(
+                "padding:10px 22px;font-size:13px;"
+                ).on("click", lambda _e: _continue()):
+            ui.label("Continue →").style("pointer-events:none;")
 
 
 def _tc_render_step_candidates(s: AppState, rf):
