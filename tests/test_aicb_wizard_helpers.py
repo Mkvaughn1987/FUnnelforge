@@ -73,11 +73,15 @@ def test_is_multi_company_handles_none_valued_keys():
     assert fa._aicb_is_multi_company({"company": None, "niche": None}) is False
 
 
-def test_appstate_has_step2_mode_default_upload():
-    """Fresh AppState must initialize aicb_step2_mode = 'upload' so the
-    new wizard branches into the Upload UI by default."""
+def test_appstate_has_step2_mode_default_manual():
+    """Fresh AppState must initialize aicb_step2_mode = 'manual'.
+
+    2026-06-03: the CSV importer was removed from the Step-2 flow (too
+    glitchy) and the wizard now defaults to manual target-details entry.
+    The upload code path is kept on the back end but no UI routes into it,
+    so a fresh wizard must land on manual."""
     s = fa.AppState()
-    assert s.aicb_step2_mode == "upload"
+    assert s.aicb_step2_mode == "manual"
 
 
 def test_appstate_step2_mode_in_persisted_fields():

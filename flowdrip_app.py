@@ -9579,12 +9579,15 @@ class AppState:
         # in the wizard even if they accidentally hit the toggle).
         self.aicb_wizard_step = 1
         self.aicb_wizard_mode = "wizard"
-        # Sub-mode for Step 2 of the wizard, 2026-05-31:
-        #   "upload" — show the new Upload Contact List UI (default).
-        #   "manual" — show the legacy website + Autofill UI (reachable
-        #              via the "No CSV yet? Enter details manually →"
-        #              link on the Upload screen).
-        self.aicb_step2_mode = "upload"
+        # Sub-mode for Step 2 of the wizard:
+        #   "manual" — website + Autofill / company-or-market entry (default).
+        #   "upload" — the CSV/XLSX contact-list importer + AI extraction.
+        # 2026-06-03: defaulted to "manual" and removed the in-flow UI
+        # routes into "upload" (the CSV importer was too glitchy). The
+        # upload code path (_render_step2_upload / _on_step2_upload /
+        # _analyze_contacts_with_ai) is kept intact for the back end /
+        # future re-enable — only the UI entry points were removed.
+        self.aicb_step2_mode = "manual"
         # Transient flag set while the Step-2 upload analyzer is running.
         # Not persisted — every reconnect re-renders the spinner state
         # from scratch.
@@ -29444,54 +29447,65 @@ def _render_step3_confirm(s, rf):
     ui.label("Confirm campaign details").style(
         f"font-size:18px;font-weight:700;color:{C['text_l']};"
         f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
+    # Manual entry is the default Step-2 path (the CSV importer was removed
+    # from the flow 2026-06-03), so the copy + the upload-only controls
+    # below only make sense when an actual contact list was uploaded.
+    _has_upload = bool(getattr(s, "aicb_contacts", None))
     ui.label(
-        "AI pulled these from your contact list. Tweak anything that "
-        "looks off, then click Next."
+        ("AI pulled these from your contact list. Tweak anything that "
+         "looks off, then click Next.")
+        if _has_upload else
+        ("Review your target details below — edit anything that looks "
+         "off, then click Next.")
     ).style(
         f"font-size:12.5px;color:{C['muted']};line-height:1.55;"
         f"margin-bottom:14px;max-width:680px;")
 
-    # Stats strip: contact count + re-upload + re-run AI extraction
-    _n = len(getattr(s, "aicb_contacts", []) or [])
-    with ui.element("div").style(
-            "display:flex;align-items:center;gap:14px;flex-wrap:wrap;"
-            f"font-size:12px;color:{C['muted']};margin-bottom:14px;"):
-        ui.label(f"📋 {_n} contacts loaded")
-        def _back_to_upload():
-            s.aicb_wizard_step = 2
-            s.aicb_step2_mode = "upload"
-            s._aicb_multi_company_ack = False
-            rf()
-        with ui.element("span").style(
-                f"cursor:pointer;color:{C['teal']};text-decoration:underline;"
-                ).on("click", _back_to_upload):
-            ui.label("re-upload")
-        def _rerun_ai():
-            rows = list(getattr(s, "aicb_contacts", []) or [])
-            if not rows:
-                ui.notify("No contacts loaded — re-upload first.",
-                          type="warning")
-                return
-            s._aicb_upload_analyzing = True
+    # Stats strip: contact count + re-upload + re-run AI extraction.
+    # Only shown for the upload path — the "re-upload" link would route
+    # back into the removed CSV importer, so it must stay hidden for the
+    # manual (default) flow.
+    if _has_upload:
+        _n = len(getattr(s, "aicb_contacts", []) or [])
+        with ui.element("div").style(
+                "display:flex;align-items:center;gap:14px;flex-wrap:wrap;"
+                f"font-size:12px;color:{C['muted']};margin-bottom:14px;"):
+            ui.label(f"📋 {_n} contacts loaded")
+            def _back_to_upload():
+                s.aicb_wizard_step = 2
+                s.aicb_step2_mode = "upload"
+                s._aicb_multi_company_ack = False
+                rf()
+            with ui.element("span").style(
+                    f"cursor:pointer;color:{C['teal']};text-decoration:underline;"
+                    ).on("click", _back_to_upload):
+                ui.label("re-upload")
+            def _rerun_ai():
+                rows = list(getattr(s, "aicb_contacts", []) or [])
+                if not rows:
+                    ui.notify("No contacts loaded — re-upload first.",
+                              type="warning")
+                    return
+                s._aicb_upload_analyzing = True
 
-            def _run():
-                try:
-                    _analyze_contacts_with_ai(s, rows)
-                finally:
-                    s._aicb_upload_analyzing = False
+                def _run():
+                    try:
+                        _analyze_contacts_with_ai(s, rows)
+                    finally:
+                        s._aicb_upload_analyzing = False
 
-            _run_as_user(
-                getattr(s, "_user_email", "") or "",
-                _run,
-                name="aicb_rerun_analysis_worker",
-            )
-            s.aicb_wizard_step = 2  # back to spinner state on Step 2
-            s._aicb_multi_company_ack = False
-            rf()
-        with ui.element("span").style(
-                f"cursor:pointer;color:{C['teal']};text-decoration:underline;"
-                ).on("click", _rerun_ai):
-            ui.label("re-run AI extraction")
+                _run_as_user(
+                    getattr(s, "_user_email", "") or "",
+                    _run,
+                    name="aicb_rerun_analysis_worker",
+                )
+                s.aicb_wizard_step = 2  # back to spinner state on Step 2
+                s._aicb_multi_company_ack = False
+                rf()
+            with ui.element("span").style(
+                    f"cursor:pointer;color:{C['teal']};text-decoration:underline;"
+                    ).on("click", _rerun_ai):
+                ui.label("re-run AI extraction")
 
     # Multi-company guard (Target-a-Company mode only)
     _extracted = {
@@ -31614,13 +31628,15 @@ def p_ai_campaign(s: AppState, rf):
                             "click", (lambda: None) if not _top_gen_ok else _top_generate):
                         ui.label("✦ Generate Campaign →")
 
-        # Progress bar — only in wizard mode (6 steps after 2026-05-31
-        # Upload+Confirm insert)
+        # Progress bar — only in wizard mode (6 internal steps).
+        # Step 2's CSV importer was removed from the flow 2026-06-03 (kept
+        # on the back end); it's now manual target-details entry, so the
+        # pill reads "Target details" instead of "Upload".
         if _wiz_mode == "wizard":
             _steps = [
                 (1, "Target type"),    # pre-set by chooser; never the active pill in practice
-                (2, "Upload"),         # NEW 2026-05-31 — Upload contact list
-                (3, "Confirm"),        # NEW 2026-05-31 — Confirm AI-inferred details
+                (2, "Target details"), # manual company/market + industry entry
+                (3, "Confirm"),        # review the entered/inferred details
                 (4, "Candidates"),
                 (5, "Campaign style"),
                 (6, "Review & generate"),
@@ -32040,7 +32056,7 @@ def p_ai_campaign(s: AppState, rf):
                 _mode = getattr(s, "aicb_target_mode", "company") or "company"
                 web_inp = None
                 niche_inp = None
-                _step2_mode = getattr(s, "aicb_step2_mode", "upload") or "upload"
+                _step2_mode = getattr(s, "aicb_step2_mode", "manual") or "manual"
                 if _step2_mode == "upload":
                     _render_step2_upload(s, rf)
                 else:
@@ -33534,7 +33550,7 @@ def p_ai_campaign(s: AppState, rf):
                 # user's primary forward action. But _step2_ok is also read by the
                 # top-Next and pill jumps — gate on "AI extraction produced enough
                 # data" so the Next button reflects readiness.
-                _step2_sub = getattr(s, "aicb_step2_mode", "upload") or "upload"
+                _step2_sub = getattr(s, "aicb_step2_mode", "manual") or "manual"
                 if _step2_sub == "upload":
                     # Upload mode: ready when AI extraction populated a primary
                     # industry AND at least one of (company, niche).
@@ -33619,15 +33635,10 @@ def p_ai_campaign(s: AppState, rf):
                     s.aicb_wizard_step = min(6, _wiz_step + 1); rf()
 
                 def _wiz_back():
-                    # Step 2 manual sub-mode: Back is a view flip, NOT a
-                    # data-clearing event. Return before the prelude that
-                    # wipes research/generated outputs.
-                    if _wiz_step == 2 and getattr(s, "aicb_step2_mode", "upload") == "manual":
-                        s.aicb_step2_mode = "upload"
-                        rf()
-                        return
-                    # Original prelude (clears computed outputs) — only
-                    # runs for real step decrements.
+                    # Manual is now the only Step 2 sub-mode (the CSV
+                    # importer was removed from the flow 2026-06-03), so
+                    # Back from Step 2 simply decrements to Step 1 (target
+                    # type) like every other step — no manual→upload flip.
                     # H16: clear computed outputs (research, generated
                     # campaign, generated docs, candidate cards) so a
                     # forward re-run regenerates from current inputs.
