@@ -15924,6 +15924,7 @@ def _sq_loaded_campaign(s: AppState, rf):
             )
 
             _cn = camp.get("name", "Campaign")
+            _last_send = _campaign_last_send_date(camp)
             _create_newsletter_dialog(s, rf, prefill={
                 "name": f"{_cn} - Monthly Newsletter",
                 "sector_key": _sec_key,
@@ -15931,6 +15932,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                 "region": _region,
                 "contacts": camp.get("contacts", []) or [],
                 "source_campaign_name": _cn,
+                "start_after": _last_send.isoformat() if _last_send else "",
             })
 
         # Whole-card click target (no side button). User feedback 2026-05-20:
@@ -21236,6 +21238,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
     _pre_region = (prefill.get("region") or "").strip()
     _pre_contacts = list(prefill.get("contacts") or [])
     _pre_source = (prefill.get("source_campaign_name") or "").strip()
+    _pre_start_after = (prefill.get("start_after") or "").strip()
     with ui.dialog() as dlg, ui.card().style(
             f"min-width:520px;max-width:580px;background:{C['card']};"
             f"border:1px solid {C['border']};padding:24px;"):
@@ -21381,16 +21384,38 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
         with ui.element("div").style("display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;"):
             with ui.element("div"):
                 ui.label("Start Date").classes("fd-fl")
-                _default_start_ft = _next_first_thursday()
+                # When spun up from a campaign, default the first issue to the
+                # first Thursday AFTER that campaign's projected last email so
+                # the newsletter picks up where the campaign leaves off. The
+                # +1 day guarantees it lands strictly after the campaign wraps
+                # (and rolls to next month if the last email itself fell on a
+                # first Thursday). Field stays editable.
+                if _pre_start_after:
+                    try:
+                        _sa_date = date.fromisoformat(_pre_start_after)
+                        _default_start_ft = _next_first_thursday(
+                            _sa_date + timedelta(days=1))
+                    except Exception:
+                        _default_start_ft = _next_first_thursday()
+                else:
+                    _default_start_ft = _next_first_thursday()
                 _default_start = _default_start_ft.strftime("%Y-%m-%d")
                 start_in = ui.input(
                     value=_default_start,
                     placeholder="YYYY-MM-DD",
                 ).classes("fd-input")
-                ui.label(
-                    "Every issue sends on the same day each month."
-                ).style(
-                    f"font-size:10px;color:{C['muted']};margin-top:4px;")
+                if _pre_start_after and _pre_source:
+                    ui.label(
+                        f"Defaulted to the first Thursday after "
+                        f"'{_pre_source}' finishes "
+                        f"({_default_start_ft.strftime('%b %d, %Y')})."
+                    ).style(
+                        f"font-size:10px;color:{C['muted']};margin-top:4px;")
+                else:
+                    ui.label(
+                        "Every issue sends on the same day each month."
+                    ).style(
+                        f"font-size:10px;color:{C['muted']};margin-top:4px;")
             with ui.element("div"):
                 ui.label("Number of Months").classes("fd-fl")
                 count_in = ui.input(
