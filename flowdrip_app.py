@@ -20742,75 +20742,131 @@ def _placement_dialog(camp, s, rf):
 
 
 def _enroll_dialog(camp, s, rf):
-    """Open a dialog to pick a contact list and enroll contacts into an evergreen campaign."""
+    """Enroll contacts into an evergreen/newsletter campaign.
+
+    Two ways to supply contacts:
+      1. Pick an existing saved contact list.
+      2. Upload a new CSV right here (reuses _contact_upload_and_name, which
+         validates, normalizes, and saves the list for reuse).
+
+    A "Start from which issue" picker controls which monthly issue the new
+    enrollees begin at (default: the next upcoming issue)."""
     saved = list_saved_contact_lists()
-    dlg_state = {"selected": ""}
+    start_opts = _newsletter_enroll_start_options(camp)
+    dlg_state = {}
+
+    def _selected_start_step():
+        w = dlg_state.get("start_widget")
+        try:
+            if w is not None:
+                return int(w.value)
+        except Exception:
+            pass
+        return start_opts[0][0] if start_opts else 0
 
     with ui.dialog() as dlg, ui.card().style(
             f"min-width:420px;background:{C['card']};border:1px solid {C['border']};padding:24px;"):
-        ui.label(f"Enroll Contacts").style(f"font-size:16px;font-weight:700;color:{C['text_l']};margin-bottom:4px;")
-        ui.label(f"Into: {camp.get('name', '')}").style(f"font-size:12px;color:{C['teal']};margin-bottom:16px;")
+        ui.label("Enroll Contacts").style(
+            f"font-size:16px;font-weight:700;color:{C['text_l']};margin-bottom:4px;")
+        ui.label(f"Into: {camp.get('name', '')}").style(
+            f"font-size:12px;color:{C['teal']};margin-bottom:16px;")
 
-        if not saved:
-            ui.label("No saved contact lists found. Import a list from Contact List first.").style(
+        # No upcoming issues -> nothing to enroll into.
+        if not start_opts:
+            ui.label("This newsletter has no upcoming issues left — every "
+                     "scheduled issue has already sent. Add more months "
+                     "before enrolling new contacts.").style(
                 f"font-size:13px;color:{C['muted']};margin-bottom:16px;")
+            with ui.element("div").style("display:flex;justify-content:flex-end;"):
+                with ui.element("button").classes("fd-gb").style(
+                        "padding:6px 16px;font-size:12px;").on("click", dlg.close):
+                    ui.label("Close")
+            dlg.open()
+            return
+
+        # Shared enroll routine — both the saved-list and upload paths use it.
+        def _do_enroll_contacts(incoming, start_step):
+            new_contacts = _filter_new_enrollees(camp, incoming)
+            if not new_contacts:
+                ui.notify("No new contacts to enroll (all already enrolled "
+                          "or no emails found).", type="info")
+                return
+            camp.setdefault("contacts", []).extend(new_contacts)
+            camp["contact_count"] = len(camp["contacts"])
+            save_campaign(camp)
+            _cache_campaigns.invalidate()
+            enroll_camp = dict(camp)
+            enroll_camp["contacts"] = new_contacts  # queue only the new ones
+            queued = queue_campaign_emails(enroll_camp, start_step=start_step)
+            dlg.close()
+            ui.notify(f"Enrolled {len(new_contacts)} contacts - {queued} "
+                      f"emails queued!", type="positive", timeout=4000)
+            rf()
+
+        # ── Start-from-which-issue picker ────────────────────────────────
+        ui.label("Start from which issue").classes("fd-fl")
+        _start_options = {idx: lbl for idx, lbl in start_opts}
+        dlg_state["start_widget"] = ui.select(
+            options=_start_options, value=start_opts[0][0]
+        ).classes("fd-input").style("margin-bottom:16px;")
+
+        # ── Path 1: pick a saved list ────────────────────────────────────
+        ui.label("Pick a saved contact list").classes("fd-fl")
+        if not saved:
+            ui.label("No saved lists yet — upload a CSV below to get started.").style(
+                f"font-size:12px;color:{C['muted']};margin-bottom:12px;")
         else:
-            ui.label("Select a contact list:").classes("fd-fl")
             options = list(saved.keys())
             sel = ui.select(options=options, value=options[0] if options else "").classes("fd-input").style(
-                "margin-bottom:16px;")
+                "margin-bottom:12px;")
             dlg_state["sel_widget"] = sel
 
-        with ui.element("div").style("display:flex;gap:8px;justify-content:flex-end;"):
-            with ui.element("button").classes("fd-gb").style("padding:6px 16px;font-size:12px;").on("click", dlg.close):
-                ui.label("Cancel")
-            if saved:
-                def _do_enroll():
-                    sel_widget = dlg_state.get("sel_widget")
-                    list_name = sel_widget.value if sel_widget else ""
-                    csv_path = saved.get(list_name, "")
-                    if not csv_path or not Path(csv_path).exists():
-                        ui.notify("Contact list not found.", type="warning"); return
+            def _enroll_from_saved():
+                sel_widget = dlg_state.get("sel_widget")
+                list_name = sel_widget.value if sel_widget else ""
+                csv_path = saved.get(list_name, "")
+                if not csv_path or not Path(csv_path).exists():
+                    ui.notify("Contact list not found.", type="warning"); return
+                rows, _ = safe_read_csv_rows(csv_path)
+                incoming = [dict(
+                    email=(r.get("Email", r.get("email", "")) or "").strip(),
+                    first_name=r.get("FirstName", r.get("first_name", "")),
+                    last_name=r.get("LastName", r.get("last_name", "")),
+                    company=r.get("Company", r.get("company", "")),
+                    title=r.get("JobTitle", r.get("title", "")),
+                ) for r in rows]
+                _do_enroll_contacts(incoming, _selected_start_step())
 
-                    # Read contacts from CSV
-                    rows, _ = safe_read_csv_rows(csv_path)
-                    new_contacts = []
-                    existing_emails = {c.get("email", "").lower().strip() for c in camp.get("contacts", [])}
-                    for r in rows:
-                        email = (r.get("Email", r.get("email", "")) or "").strip()
-                        if not email or email.lower() in existing_emails:
-                            continue
-                        new_contacts.append(dict(
-                            email=email,
-                            first_name=r.get("FirstName", r.get("first_name", "")),
-                            last_name=r.get("LastName", r.get("last_name", "")),
-                            company=r.get("Company", r.get("company", "")),
-                            title=r.get("JobTitle", r.get("title", "")),
-                        ))
-                        existing_emails.add(email.lower())
+            with ui.element("button").classes("fd-pb").style(
+                    "padding:6px 16px;font-size:12px;margin-bottom:16px;"
+                    ).on("click", _enroll_from_saved):
+                ui.label("Enroll from list")
 
-                    if not new_contacts:
-                        ui.notify("No new contacts to enroll (all already enrolled or no emails found).",
-                                  type="info"); return
+        # ── Path 2: upload a new CSV ─────────────────────────────────────
+        ui.element("div").style(
+            f"height:1px;background:{C['border']};margin:4px 0 12px;")
+        ui.label("…or upload a new CSV").classes("fd-fl")
+        ui.label("Validated, saved for reuse, and enrolled into the issue "
+                 "selected above.").style(
+            f"font-size:11px;color:{C['muted']};margin-bottom:8px;")
 
-                    # Add contacts to campaign and save
-                    camp.setdefault("contacts", []).extend(new_contacts)
-                    camp["contact_count"] = len(camp["contacts"])
-                    save_campaign(camp)
-                    _cache_campaigns.invalidate()
+        def _on_uploaded(contacts):
+            _do_enroll_contacts(contacts, _selected_start_step())
 
-                    # Queue only upcoming emails  -  skip past steps for evergreen/Slow Drip
-                    next_step = _find_next_evergreen_step(camp) if camp.get("evergreen_only") else 0
-                    enroll_camp = dict(camp)
-                    enroll_camp["contacts"] = new_contacts  # only queue for new contacts
-                    queued = queue_campaign_emails(enroll_camp, start_step=next_step)
+        # _contact_upload_and_name renders a hidden uploader and returns it;
+        # a visible button triggers it via pickFiles() (same pattern as the
+        # Contacts page importer).
+        _upload_el = _contact_upload_and_name(s, rf, _on_uploaded)
+        with ui.element("button").classes("fd-pb").style(
+                "padding:6px 16px;font-size:12px;margin-bottom:8px;"
+                ).on("click", lambda: _upload_el.run_method("pickFiles")):
+            ui.label("⬆ Upload CSV")
 
-                    dlg.close()
-                    ui.notify(f"Enrolled {len(new_contacts)} contacts - {queued} emails queued!",
-                              type="positive", timeout=4000)
-                    rf()
-                with ui.element("button").classes("fd-pb").style("padding:6px 16px;font-size:12px;").on("click", _do_enroll):
-                    ui.label("Enroll")
+        with ui.element("div").style(
+                "display:flex;gap:8px;justify-content:flex-end;margin-top:8px;"):
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:6px 16px;font-size:12px;").on("click", dlg.close):
+                ui.label("Close")
     dlg.open()
 
 
