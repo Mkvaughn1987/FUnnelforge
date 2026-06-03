@@ -6483,6 +6483,51 @@ def _get_signature_first_name(default: str = "there") -> str:
     return default
 
 
+def _preview_self_contact(s=None) -> dict:
+    """Build the 'recipient' contact used to fill merge fields in PREVIEW
+    emails — from the logged-in USER's own identity, not a real contact.
+
+    Previews are sent to the user to review, so they should read as if
+    addressed to the user ("Hi Lindsay,"). Previously previews used
+    `load_contacts()[0]` — the first contact in the list — which leaked an
+    arbitrary contact's name into the preview (looked like "random names")
+    and showed the literal "[FirstName]" fallback when that contact had no
+    first name.
+
+    Name resolution: the user's profile display name (s._user_name) →
+    the first non-delimiter line of their signature (which is their full
+    name). Company comes from their configured company name.
+
+    Only fields we actually know are returned; any field omitted falls
+    back to its labeled "[Field]" placeholder via the caller's
+    `.get(key, "[Field]")` defaults, so unknown per-recipient merge fields
+    stay clearly marked. first_name is always present (falls back to
+    "there") so the greeting never shows a bare "[FirstName]"."""
+    full = (getattr(s, "_user_name", "") or "").strip() if s is not None else ""
+    if not full:
+        try:
+            _sig = _user_sig_path()
+            if _sig.exists():
+                for _ln in _sig.read_text(encoding="utf-8").splitlines():
+                    _ln = _ln.strip()
+                    if _ln and _ln != "--":
+                        full = _ln
+                        break
+        except Exception:
+            pass
+    parts = full.split()
+    pc = {"first_name": parts[0] if parts else "there"}
+    if len(parts) > 1:
+        pc["last_name"] = " ".join(parts[1:])
+    try:
+        _co = _get_company_name()
+        if _co and _co != "Your Company":
+            pc["company"] = _co
+    except Exception:
+        pass
+    return pc
+
+
 def _strip_signature_from_body(body: str) -> str:
     """Remove existing signature block from email body to prevent duplication."""
     if not body:
@@ -14980,8 +15025,10 @@ def _sq_loaded_campaign(s: AppState, rf):
                 steps[idx]["body"] = body_area.value or ""
                 subj = subj_inp.value or "(no subject)"
                 body_html = body_area.value or ""
-                # Merge variables with sample contact
-                _pc = (load_contacts() or [{}])[0]
+                # Merge variables using the user's own identity — previews
+                # go to the user, so they read "Hi <you>," instead of
+                # leaking the first contact in the list.
+                _pc = _preview_self_contact(s)
                 for _k, _v in [("{FirstName}", _pc.get("first_name","[FirstName]")), ("{LastName}", _pc.get("last_name","[LastName]")),
                                ("{Company}", _pc.get("company","[Company]")), ("{CompanyName}", _pc.get("company","[Company]")), ("{JobTitle}", _pc.get("title","[JobTitle]"))]:
                     subj = subj.replace(_k, _v)
@@ -15591,7 +15638,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                             for i, step in enumerate(_snap, 1):
                                 subj = step.get("subject", "") or f"(Step {i})"
                                 body_html = step.get("body", "")
-                                _pc = (load_contacts() or [{}])[0]
+                                _pc = _preview_self_contact(s)
                                 for _k, _v in [("{FirstName}", _pc.get("first_name","[FirstName]")), ("{LastName}", _pc.get("last_name","[LastName]")),
                                                ("{Company}", _pc.get("company","[Company]")), ("{CompanyName}", _pc.get("company","[Company]")), ("{JobTitle}", _pc.get("title","[JobTitle]"))]:
                                     subj = subj.replace(_k, _v)
