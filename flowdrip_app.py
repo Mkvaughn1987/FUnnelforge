@@ -6099,6 +6099,27 @@ def _filter_new_enrollees(camp: dict, contacts: list) -> list:
     return new
 
 
+def _newsletter_enroll_start_options(camp: dict):
+    """Return [(step_index, 'Month YYYY'), ...] for every issue from the
+    next upcoming step through the last. Empty when the campaign has no
+    steps or every issue has already sent. The step_index is the position
+    in camp['emails'] — used as `start_step` for queue_campaign_emails so a
+    new enrollee can begin at this month or a later one."""
+    steps = camp.get("emails", []) or []
+    if not steps:
+        return []
+    start_idx = _find_next_evergreen_step(camp)
+    out = []
+    for idx in range(start_idx, len(steps)):
+        fx = (steps[idx].get("fixed_date") or "").strip()
+        try:
+            lbl = date.fromisoformat(fx).strftime("%B %Y")
+        except Exception:
+            lbl = steps[idx].get("name", "") or f"Issue {idx + 1}"
+        out.append((idx, lbl))
+    return out
+
+
 def _parse_time_str(time_str: str) -> tuple:
     """Parse '9:00 AM' or '2:30 PM' into (hour24, minute)."""
     try:

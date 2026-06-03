@@ -32,3 +32,47 @@ def test_filter_empty_when_all_known():
     camp = {"contacts": [{"email": "a@x.com"}, {"email": "b@x.com"}]}
     incoming = [{"email": "a@x.com"}, {"email": "b@x.com"}]
     assert fa._filter_new_enrollees(camp, incoming) == []
+
+
+from datetime import date, timedelta
+
+
+def _future_iso(days):
+    return (date.today() + timedelta(days=days)).isoformat()
+
+
+def test_start_options_empty_when_no_steps():
+    assert fa._newsletter_enroll_start_options({"emails": []}) == []
+
+
+def test_start_options_list_upcoming_only_with_month_labels():
+    # One past issue, two future issues. Only the future ones are offered.
+    past = (date.today() - timedelta(days=40))
+    fut1 = (date.today() + timedelta(days=20))
+    fut2 = (date.today() + timedelta(days=50))
+    camp = {
+        "start_date": date.today().isoformat(),
+        "emails": [
+            {"name": "I0", "fixed_date": past.isoformat()},
+            {"name": "I1", "fixed_date": fut1.isoformat()},
+            {"name": "I2", "fixed_date": fut2.isoformat()},
+        ],
+    }
+    opts = fa._newsletter_enroll_start_options(camp)
+    # Indices preserved (1 and 2), labels are "Month YYYY".
+    assert [idx for idx, _ in opts] == [1, 2]
+    assert opts[0][1] == fut1.strftime("%B %Y")
+    assert opts[1][1] == fut2.strftime("%B %Y")
+
+
+def test_start_options_empty_when_all_past():
+    past1 = (date.today() - timedelta(days=60)).isoformat()
+    past2 = (date.today() - timedelta(days=30)).isoformat()
+    camp = {
+        "start_date": (date.today() - timedelta(days=90)).isoformat(),
+        "emails": [
+            {"name": "I0", "fixed_date": past1},
+            {"name": "I1", "fixed_date": past2},
+        ],
+    }
+    assert fa._newsletter_enroll_start_options(camp) == []
