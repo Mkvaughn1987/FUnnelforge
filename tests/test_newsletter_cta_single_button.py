@@ -1,21 +1,28 @@
-"""Newsletter CTA must render exactly ONE button, not two.
+"""Newsletter CTA must render exactly ONE call-to-action, never the old
+dual-button VML trick.
 
-Earlier the renderer used a dual-branch conditional-comment trick:
-  <!--[if mso]>...VML <v:roundrect>...<![endif]-->
-  <!--[if !mso]><!-- -->...modern <a>...<!--<![endif]-->
+History:
+  1. Originally the renderer used a dual-branch conditional-comment trick:
+       <!--[if mso]>...VML <v:roundrect>...<![endif]-->
+       <!--[if !mso]><!-- -->...modern <a>...<!--<![endif]-->
+     Gmail unreliably parsed the [if mso] block, so many users saw BOTH
+     buttons side-by-side at the bottom of every newsletter.
+  2. That was replaced with a single bulletproof <td bgcolor> pill button.
+  3. 2026-05-11: the pill button was dropped entirely — it failed to
+     render in Outlook desktop (the Word engine stripped the bgcolor /
+     gradient, leaving white text on a white pill = invisible). The CTA is
+     now a soft inline text link ("... Email me"), which renders identically
+     everywhere because it depends on no styled background.
 
-Gmail was unreliably parsing the [if mso] block — many users saw
-BOTH buttons rendered side-by-side at the bottom of every newsletter.
-
-Fix: single bulletproof table-based button. No conditional comments,
-no VML, identical rendering across Gmail / Outlook / Apple / Yahoo.
+These tests lock in the current design — a single text-link CTA — and
+guard against any return of the dual VML/mso button (the original bug).
 """
 import inspect
 
 
 def _render_simple_newsletter_html() -> str:
     """Helper: render the newsletter HTML with minimum required data
-    so we can grep the output for CTA-related markers."""
+    so we can inspect the CTA output."""
     import flowdrip_app as fa
     data = {
         "company": "Acme Recruiting",
@@ -39,62 +46,53 @@ def _render_simple_newsletter_html() -> str:
     return fa._render_newsletter_html(data)
 
 
-def test_no_mso_conditional_comments_in_cta_path():
-    """The CTA section of _render_newsletter_html must not use
-    `[if mso]` conditional comments. Source-grep ensures we don't
-    accidentally re-introduce the dual-button pattern."""
+def test_no_mso_conditional_comments_in_render():
+    """The newsletter render must never reintroduce the dual-button VML /
+    [if mso] trick that caused Gmail to show two buttons. Grep the whole
+    render source — these markers must not appear anywhere."""
     import flowdrip_app as fa
     src = inspect.getsource(fa._render_newsletter_html)
-    # Find the cta_text rendering block. Look at the section between
-    # "cta_text and _show" and the next major section comment.
-    cta_marker = "if cta_text and _show"
-    assert cta_marker in src, "Could not find CTA block in source"
-    cta_start = src.index(cta_marker)
-    # Take the next ~3000 chars (the CTA block)
-    cta_block = src[cta_start : cta_start + 3000]
-    assert "[if mso]" not in cta_block, (
-        "CTA block must not use [if mso] conditional comments — Gmail "
-        "doesn't reliably hide them and users see two buttons"
+    assert "[if mso]" not in src, (
+        "newsletter render must not use [if mso] conditional comments — "
+        "Gmail doesn't reliably hide them and users see two buttons"
     )
-    assert "[if !mso]" not in cta_block, (
-        "CTA block must not use [if !mso] conditional comments either"
+    assert "[if !mso]" not in src, (
+        "newsletter render must not use [if !mso] conditional comments either"
     )
-    assert "v:roundrect" not in cta_block, (
-        "CTA block must not use VML <v:roundrect> — bulletproof table "
-        "button replaces the VML fallback"
+    assert "v:roundrect" not in src, (
+        "newsletter render must not use VML <v:roundrect> — the soft text "
+        "link replaces the VML button entirely"
     )
 
 
-def test_rendered_newsletter_has_single_cta_button():
-    """End-to-end: render with a non-empty cta_text and verify the
-    output contains exactly ONE anchor with the cta text inside."""
+def test_rendered_newsletter_has_single_cta_link():
+    """End-to-end: the CTA renders as exactly ONE inline text link
+    ("Email me"), not a duplicated button."""
     html = _render_simple_newsletter_html()
-    # Count occurrences of "Let's Talk" — should be small (not duplicated
-    # via dual VML+anchor render). Allow up to 2 occurrences (one inside
-    # the inner <span>, one possibly inside an alt or aria attribute).
-    count = html.count("Let&#39;s Talk") + html.count("Let's Talk")
-    # The cta_text 'Let's Talk' appears once for the button label.
-    # If the dual-branch bug is back, it'd appear at least 2x more.
-    assert 1 <= count <= 2, (
-        f"Expected 1-2 occurrences of 'Let's Talk' in rendered HTML, "
-        f"got {count}. The dual-button bug would produce 4+ "
-        f"(one each in VML <center> + modern <a> branches)."
+    assert html.count(">Email me</a>") == 1, (
+        "Expected exactly one 'Email me' CTA link in the rendered HTML. "
+        "More than one would mean the dual-render bug is back; zero means "
+        "the CTA stopped rendering."
     )
+    assert "v:roundrect" not in html, "rendered HTML must not contain VML buttons"
+    assert "[if mso]" not in html, "rendered HTML must not contain [if mso] blocks"
 
 
-def test_cta_uses_bulletproof_table_pattern():
-    """The bulletproof button pattern uses a <table> with a colored
-    <td bgcolor=...> wrapping a single <a>. Source-grep for the
-    structural markers."""
+def test_cta_is_text_link_not_pill_button():
+    """The CTA is a soft inline text link, not a styled pill button. It
+    hyperlinks to cta_url and renders as underlined text. Guards against a
+    silent regression back to the Outlook-fragile bgcolor pill."""
     import flowdrip_app as fa
     src = inspect.getsource(fa._render_newsletter_html)
-    cta_start = src.index("if cta_text and _show")
-    cta_block = src[cta_start : cta_start + 3000]
-    assert 'role="presentation"' in cta_block, (
-        "CTA should use role='presentation' on the wrapper table "
-        "(accessibility hint that it's a layout table, not data)"
+    cta_start = src.index('if _show("show_cta")')
+    cta_block = src[cta_start: cta_start + 800]
+    assert 'href="{cta_url}"' in cta_block, (
+        "CTA must hyperlink to cta_url"
     )
-    assert "bgcolor=" in cta_block, (
-        "CTA should set bgcolor on the <td> (works in old Outlook "
-        "where CSS background-color via inline style sometimes fails)"
+    assert "text-decoration:underline" in cta_block, (
+        "CTA should render as an underlined text link, not a filled button"
+    )
+    assert "bgcolor=" not in cta_block, (
+        "CTA must not use a bgcolor pill — it renders invisibly in Outlook "
+        "desktop (the reason the pill was dropped 2026-05-11)"
     )

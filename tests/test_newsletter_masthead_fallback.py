@@ -3,10 +3,11 @@ the rendered masthead used to literally say "Newsletter" — a customer
 got an issue last night with that ugly header. The fallback chain now:
 newsletter_name → sector + " Report" → camp.name → "Newsletter".
 
-The CTA button used to render with only a CSS gradient background.
-Outlook strips unsupported gradients, leaving white text on a white
-pill (invisible). Now there's a solid background-color BEFORE the
-gradient so the solid color survives gradient stripping.
+The CTA went through several iterations to survive Outlook: a CSS
+gradient pill (Outlook stripped it → invisible white-on-white), then a
+solid bgcolor pill (Outlook desktop still stripped it). As of 2026-05-11
+the CTA is a plain underlined text link that depends on no background at
+all, so it renders the same in every client.
 """
 import inspect
 
@@ -24,22 +25,22 @@ def test_nl_name_falls_back_to_camp_name_before_literal_newsletter():
     )
 
 
-def test_cta_button_has_solid_background_color_for_outlook():
-    """CTA pill must have a solid background-color that survives Outlook's
-    gradient stripping. Without it, the pill renders as white-text-on-white."""
+def test_cta_is_outlook_safe_text_link():
+    """The CTA must not depend on a background-color / gradient pill, which
+    Outlook desktop strips (white-on-white = invisible). As of 2026-05-11
+    it is a plain underlined text link that renders the same in every
+    client."""
     import flowdrip_app as fa
-    # The CTA HTML is in _render_newsletter_html. Source-grep for the
-    # background-color line that comes before the linear-gradient.
     src = inspect.getsource(fa._render_newsletter_html)
-    assert "background-color:" in src, (
-        "CTA button must declare a solid background-color so Outlook has "
-        "something to render when it strips the linear-gradient"
+    cta_start = src.index('if _show("show_cta")')
+    cta_block = src[cta_start: cta_start + 800]
+    assert "background-color:" not in cta_block, (
+        "CTA must not use a background-color pill — Outlook desktop strips "
+        "it, leaving an invisible white-on-white button"
     )
-    # Check that it appears BEFORE background:linear-gradient in source order
-    bg_color_pos = src.find("background-color:")
-    bg_grad_pos = src.find("background:linear-gradient")
-    assert 0 <= bg_color_pos < bg_grad_pos, (
-        "background-color must appear BEFORE background:linear-gradient so "
-        "the gradient (when honored) clobbers it, but when the gradient is "
-        "stripped (Outlook) the solid color remains"
+    assert "linear-gradient" not in cta_block, (
+        "CTA must not use a gradient pill — Outlook strips it"
+    )
+    assert "text-decoration:underline" in cta_block, (
+        "CTA should be a visible underlined text link in all clients"
     )
