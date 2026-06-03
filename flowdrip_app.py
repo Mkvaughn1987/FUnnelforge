@@ -6050,6 +6050,38 @@ def _add_business_days(start: date, n: int) -> date:
     return current
 
 
+def _campaign_last_send_date(camp: dict):
+    """Projected send date of the LAST step in `camp`.
+
+    Mirrors the launch preview's date logic: honor a per-step `fixed_date`
+    (ISO) when set, otherwise `start_date` + cumulative business-day delay.
+    Returns the maximum such date across all steps, or None when the
+    campaign has no steps. Used to default a spun-up newsletter's first
+    issue to after the source campaign finishes."""
+    steps = camp.get("emails", []) or []
+    if not steps:
+        return None
+    try:
+        start_dt = date.fromisoformat((camp.get("start_date") or "").strip())
+    except Exception:
+        start_dt = date.today()
+    last = None
+    cum = 0
+    for st in steps:
+        cum += int(st.get("delay_days", 0) or 0)
+        fx = (st.get("fixed_date") or "").strip()
+        if fx:
+            try:
+                sd = date.fromisoformat(fx)
+            except Exception:
+                sd = _add_business_days(start_dt, cum)
+        else:
+            sd = _add_business_days(start_dt, cum)
+        if last is None or sd > last:
+            last = sd
+    return last
+
+
 def _parse_time_str(time_str: str) -> tuple:
     """Parse '9:00 AM' or '2:30 PM' into (hour24, minute)."""
     try:
