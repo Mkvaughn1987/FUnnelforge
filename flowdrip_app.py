@@ -36240,18 +36240,40 @@ def p_candidate_campaign(s: AppState, rf):
                             f"from {e.name}.",
                             type="positive", timeout=4000)
                         rf()
+                    # Hidden file input — the visible button below clicks
+                    # it via JS. The styled ui.upload widget was rendering
+                    # nearly invisibly (same Quasar QUploader issue we fixed
+                    # on the AICB Step 2 card 2026-06-02); users couldn't
+                    # see they had an upload option in the MPC flow.
                     ui.upload(
                         on_upload=_on_cpc_upload, multiple=True, max_files=10,
-                        label="Upload ZoomInfo or any CSV / XLSX",
                     ).props(
                         'accept=".csv,.tsv,.txt,.xlsx,.xls,.xlsm,'
                         'text/csv,application/vnd.ms-excel,'
                         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"'
-                    ).classes("fd-input").style("width:100%;margin-bottom:10px;")
+                    ).classes("dd-cpc-uploader").style(
+                        "display:none;position:absolute;visibility:hidden;")
+
+                    def _cpc_trigger_picker():
+                        ui.run_javascript(
+                            "const el = document.querySelector('.dd-cpc-uploader input[type=file]'); "
+                            "if (el) el.click();"
+                        )
+
+                    with ui.element("button").style(
+                            f"display:flex;align-items:center;justify-content:center;"
+                            f"gap:8px;width:100%;padding:10px 14px;"
+                            f"background:{C['teal']}15;border:1.5px solid {C['teal']};"
+                            f"border-radius:8px;color:{C['teal']};font-weight:700;"
+                            f"font-size:12.5px;font-family:'Nunito',sans-serif;"
+                            f"cursor:pointer;margin-bottom:6px;"
+                            ).on("click", _cpc_trigger_picker):
+                        ui.label("📤 Upload CSV / XLSX").style(
+                            "pointer-events:none;")
                     ui.label(
                         "ZoomInfo export or any CSV/XLSX with a Company "
                         "column. Email + name optional but used when present."
-                    ).style(f"font-size:10px;color:{C['muted']};margin-top:-4px;"
+                    ).style(f"font-size:10px;color:{C['muted']};"
                             f"margin-bottom:10px;line-height:1.4;")
 
                     # ── Selected sources, each removable ───────────────────
