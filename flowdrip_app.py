@@ -40916,13 +40916,20 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
                 _logo_h_attr = max(20, min(60, _fit_h))
         except Exception:
             pass
+    # Serve the logo from a URL (same as the hero / thumbnails) instead of a
+    # base64 data URI. Outlook desktop's Word rendering engine does NOT
+    # render `data:image/*` <img> sources, so the masthead logo showed as a
+    # broken / cut-off placeholder while the URL-based hero rendered fine.
+    # (2026-06-04 "her Arena logo is cut off when sent" report.) In desktop
+    # mode _email_img_src returns the data URI so local preview still works.
+    _logo_src = _email_img_src(logo_b64, "logo", mime="image/png") if logo_b64 else ""
     _compact_logo_img = (
-        f'<img src="data:image/png;base64,{logo_b64}" alt="{company}" '
+        f'<img src="{_logo_src}" alt="{company}" '
         f'width="{_logo_w_attr}" height="{_logo_h_attr}" '
         f'style="display:block;margin-left:auto;'
         f'width:{_logo_w_attr}px;height:{_logo_h_attr}px;'
         f'max-width:220px;border:0;outline:none;">'
-        if logo_b64 else
+        if _logo_src else
         f'<span style="font-size:13px;font-weight:800;color:{nc["navy"]};'
         f'letter-spacing:0.4px;font-family:{_FONT};text-align:right;'
         f'display:block;">{company}</span>'
