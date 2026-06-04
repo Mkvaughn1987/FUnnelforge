@@ -50384,6 +50384,23 @@ def _classify_send_error(err: str) -> str:
     return "transient"
 
 
+def _body_is_html(body: str) -> bool:
+    """Heuristic: does this body already contain HTML structure?
+
+    Used so the sender NEVER HTML-escapes a real HTML payload that arrived
+    with a missing/false is_html flag (legacy queue entry, auto-refresh
+    re-queue, etc.). Escaping such a body ships "<!DOCTYPE html>…" to the
+    recipient as visible raw markup."""
+    if not body or "<" not in body:
+        return False
+    low = body.lower()
+    return (
+        "<!doctype" in low or "<html" in low or "<table" in low
+        or "</div>" in low or "</td>" in low or "</p>" in low
+        or "<br" in low or "</b>" in low
+    )
+
+
 def _resolve_body_from_campaign(item: dict, user_dir: Path) -> str:
     """Lazy lookup of the rendered email body from the campaign file.
     Used when queue items are written without an inlined body — currently
@@ -50399,14 +50416,36 @@ def _resolve_body_from_campaign(item: dict, user_dir: Path) -> str:
     step_idx = item.get("_step_idx")
     if not camp_name or step_idx is None:
         return ""
-    # Campaign file path mirrors save_campaign's slug logic.
-    safe_name = re.sub(r'[^\w]+', '_', camp_name).strip('_') or "campaign"
+    # The filename slug MUST match save_campaign's: re.sub(r"[^\w\-]","_")
+    # truncated to 60 chars. The previous re.sub(r"[^\w]+","_") collapsed
+    # runs and dropped hyphens differently, so names with "&", multiple
+    # spaces, or hyphens (e.g. "SoCal Schools & Staffing") resolved to the
+    # WRONG filename → empty body → "Missing email body" → the newsletter
+    # silently never sent.
+    camp = None
+    safe_name = re.sub(r"[^\w\-]", "_", camp_name)[:60]
     camp_path = user_dir / "Campaigns" / f"{safe_name}.json"
-    if not camp_path.exists():
-        return ""
-    try:
-        camp = json.loads(camp_path.read_text(encoding="utf-8"))
-    except Exception:
+    if camp_path.exists():
+        try:
+            camp = json.loads(camp_path.read_text(encoding="utf-8"))
+        except Exception:
+            camp = None
+    if camp is None:
+        # Authoritative fallback: scan for a campaign whose stored `name`
+        # matches exactly, so resolution survives any past/future slug
+        # formula change.
+        try:
+            for _f in (user_dir / "Campaigns").glob("*.json"):
+                try:
+                    _c = json.loads(_f.read_text(encoding="utf-8"))
+                except Exception:
+                    continue
+                if (_c.get("name") or "") == camp_name:
+                    camp = _c
+                    break
+        except Exception:
+            camp = None
+    if camp is None:
         return ""
     steps = camp.get("emails", []) or []
     try:
@@ -50445,7 +50484,13 @@ def _server_send_one(item: dict, config_path: Path, user_dir: Path = None) -> tu
     if not body.strip():
         return False, "Missing email body (campaign step body unavailable)"
 
-    # Ensure body is HTML
+    # Ensure body is HTML. Trust the flag, but ALSO sniff the body: a
+    # mislabeled item (legacy queue entry, auto-refresh re-queue, etc.) can
+    # carry real HTML with is_html missing/false. Escaping it would ship
+    # "<!DOCTYPE html>…" to the recipient as visible raw markup (the
+    # San Diego Scoop incident, 2026-06-04). Never escape real HTML.
+    if not is_html and _body_is_html(body):
+        is_html = True
     if not is_html:
         body = body.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         body = body.replace("\n", "<br>")
