@@ -1475,13 +1475,13 @@ def _resume_preview(ff, st, refresh):
                 n, safe = send_to_dripdrop([i], "ATS - " + _fullname(d)[:32])
                 if not n:
                     ui.notify("This candidate has no email on file.", type="warning"); return
-                app.storage.user["_pending_page"] = "start_seq"
-                ui.notify(f"Added to DripDrop as contact list \"{safe}\". Build your "
-                          f"job-pitch sequence and pick that list.", type="positive", timeout=7000)
+                app.storage.user["_pending_page"] = "target_candidate"
+                ui.notify(f"Added to DripDrop as contact list \"{safe}\". Paste a job "
+                          f"description (or skip), then pick that list when you add "
+                          f"recipients.", type="positive", timeout=7000)
                 ui.navigate.to("/")
             with ui.element("button").style(
-                    f"background:transparent;color:{_c(C,'teal','#1AE3D9')};"
-                    f"border:1.5px solid {_c(C,'teal','#1AE3D9')};border-radius:8px;"
+                    f"background:#EC4899;color:#FFFFFF;border:0;border-radius:8px;"
                     f"padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;"
                     f"font-family:inherit;").on("click", _send_job_one):
                 ui.label("✉ Send a Job Opening")
@@ -1622,16 +1622,15 @@ def _view_candidates(ff, st, refresh):
                         ui.notify("None of the selected candidates have an email on file.",
                                   type="warning")
                         return
-                    app.storage.user["_pending_page"] = "start_seq"
+                    app.storage.user["_pending_page"] = "target_candidate"
                     _sel.clear()
                     ui.notify(f"Added {n} candidate(s) to DripDrop as contact list "
-                              f"\"{safe}\". Build your job-pitch sequence and pick that list "
-                              f"in the contacts step.", type="positive", timeout=7000)
+                              f"\"{safe}\". Paste a job description (or skip), then pick that "
+                              f"list when you add recipients.", type="positive", timeout=7000)
                     ui.navigate.to("/")
                 with ui.element("button").style(
-                        f"background:transparent;color:{_c(C,'teal','#1AE3D9')};"
-                        f"border:1.5px solid {_c(C,'teal','#1AE3D9')};"
-                        f"border-radius:8px;padding:6px 16px;font-size:13px;font-weight:700;"
+                        f"background:#EC4899;color:#FFFFFF;border:0;"
+                        f"border-radius:8px;padding:7px 18px;font-size:13px;font-weight:700;"
                         f"cursor:pointer;font-family:inherit;").on("click", _send_job):
                     ui.label("✉ Send a Job Opening")
 

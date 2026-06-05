@@ -50295,6 +50295,14 @@ def index():
                 s.cpc_step = 0
                 s.cpc_campaign = None
                 s._cpc_error = ""
+        elif _pending == "target_candidate":
+            # ATS "Send a Job Opening" → land on the Find Candidates wizard at
+            # step 0 (paste a JD), clean — mirrors the chooser's "candidate" pick.
+            s.tc_step = 0
+            s.tc_jd_text = ""
+            s.tc_jd_parsed = {}
+            s.tc_candidates = []
+            s.tc_preset = ""
     # Rehydrate the AICB ("Recruiting Campaign") wizard from session
     # storage so reconnects don't drop the user back to step 1 with
     # blank fields. Same root cause as _restore_page_if_recent — fresh
