@@ -973,6 +973,43 @@ def start_mpc_campaign(candidate_ids) -> tuple:
     return len(pool), total
 
 
+def _talent_to_contact(d: dict) -> dict:
+    """ATS talent → DripDrop campaign-contact dict (recipient)."""
+    return {
+        "first_name": d.get("first_name", "") or "",
+        "last_name": d.get("last_name", "") or "",
+        "email": (d.get("email") or "").strip(),
+        "company": d.get("current_employer", "") or "",
+        "title": d.get("current_title", "") or "",
+        "phone_mobile": (d.get("phone") or "").strip(),
+        "phone_office": "",
+        "city": d.get("city", "") or "",
+        "state": d.get("state", "") or "",
+        "linkedin": "",
+    }
+
+
+def campaign_contacts_from_ats(candidate_ids) -> list:
+    """Build recipient contact dicts (only those with an email) from the
+    selected candidates — recovering an email from résumé text when blank."""
+    out = []
+    for i in candidate_ids:
+        d = get_one(i)
+        if not d:
+            continue
+        em = (d.get("email") or "").strip()
+        if not em:
+            ex_e, ex_p = _extract_contacts(d.get("resume_text") or "")
+            if ex_e:
+                d["email"] = ex_e
+                em = ex_e
+            if ex_p and not (d.get("phone") or "").strip():
+                d["phone"] = ex_p
+        if em:
+            out.append(_talent_to_contact(d))
+    return out
+
+
 # ── Pool aggregation (Dashboard) ─────────────────────────────────────────
 _STATES = {
     "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR",
@@ -1657,13 +1694,14 @@ def _resume_preview(ff, st, refresh):
                 ui.label("✦ Start an MPC Campaign")
 
             def _send_job_one(_e=None, i=pid):
-                n, safe = send_to_dripdrop([i], "ATS - " + _fullname(d)[:32])
-                if not n:
+                contacts = campaign_contacts_from_ats([i])
+                if not contacts:
                     ui.notify("This candidate has no email on file.", type="warning"); return
+                app.storage.user["_pending_campaign_contacts"] = contacts
                 app.storage.user["_pending_page"] = "target_candidate"
-                ui.notify(f"Added to DripDrop as contact list \"{safe}\". Paste a job "
-                          f"description (or skip), then pick that list when you add "
-                          f"recipients.", type="positive", timeout=7000)
+                ui.notify("Loading this candidate into a new campaign as the recipient. "
+                          "Describe the role (or skip) and we'll auto-fill them.",
+                          type="positive", timeout=7000)
                 ui.navigate.to("/")
             with ui.element("button").style(
                     f"background:#EC4899;color:#FFFFFF;border:0;border-radius:8px;"
@@ -1878,18 +1916,17 @@ def _view_candidates(ff, st, refresh):
                 # (recruiting outreach). Writes them as a DripDrop contact list
                 # and drops into the campaign builder.
                 def _send_job():
-                    ids = list(_sel)
-                    nm = "ATS - " + ((st.get("query") or "").strip()[:32] or "candidates")
-                    n, safe = send_to_dripdrop(ids, nm)
-                    if not n:
+                    contacts = campaign_contacts_from_ats(list(_sel))
+                    if not contacts:
                         ui.notify("None of the selected candidates have an email on file.",
                                   type="warning")
                         return
+                    app.storage.user["_pending_campaign_contacts"] = contacts
                     app.storage.user["_pending_page"] = "target_candidate"
                     _sel.clear()
-                    ui.notify(f"Added {n} candidate(s) to DripDrop as contact list "
-                              f"\"{safe}\". Paste a job description (or skip), then pick that "
-                              f"list when you add recipients.", type="positive", timeout=7000)
+                    ui.notify(f"Loading {len(contacts)} candidate(s) into a new campaign as "
+                              f"recipients. Describe the role (or skip) and we'll auto-fill "
+                              f"them.", type="positive", timeout=7000)
                     ui.navigate.to("/")
                 with ui.element("button").style(
                         f"background:#EC4899;color:#FFFFFF;border:0;"

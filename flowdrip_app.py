@@ -9662,6 +9662,7 @@ class AppState:
         self.tc_jd_generating: bool = False      # spinner during background AI parse
         self.tc_jd_mode: str = ""                # "" (choice), "upload", or "paste" — Step 1 input mode
         self.tc_candidates: list = []            # list of candidate dicts from CSV
+        self.tc_contacts: list = []              # recipients pre-loaded from the ATS (auto-fill)
         self.tc_preset: str = ""                 # "one_email" | "two_emails_1day" | "three_emails_3days" | "custom"
         self.tc_generating: bool = False         # spinner during sequence gen
         self.tc_error: str = ""                  # last error message for the wizard
@@ -9986,7 +9987,7 @@ _AICB_PERSISTED_FIELDS = (
     # and tc_generating — transient spinner flags. Skip tc_error — should
     # re-derive on next render. tc_candidates is bounded (CSV upload).
     "tc_step", "tc_jd_text", "tc_jd_filename", "tc_jd_parsed",
-    "tc_candidates", "tc_preset",
+    "tc_candidates", "tc_preset", "tc_contacts",
     # Build-from-scratch / custom wizard
     "custom_steps", "custom_name", "custom_preset_picked",
     "custom_editing", "custom_selected_type", "custom_editing_idx",
@@ -16850,6 +16851,8 @@ def _sq_pick(s, rf):
                         s.tc_jd_text = ""
                         s.tc_jd_parsed = {}
                         s.tc_candidates = []
+                        s.tc_contacts = []
+                        app.storage.user.pop("_pending_campaign_contacts", None)
                         s.tc_preset = ""
                         s.sp = "target_candidate"
                     elif k == "mpc":
@@ -35317,11 +35320,16 @@ def _tc_render_step_generate(s: AppState, rf):
                     raise ValueError(
                         f"AI returned {len(emails)} emails, expected {len(steps_meta)}"
                     )
+                # Replace any {recruiter_name}-style placeholder with the real
+                # name, then strip the AI's sign-off (signature is auto-appended
+                # at send — same as the MPC flow) so there's no double sign-off.
+                _fill_recruiter_placeholders(emails, _recruiter_signoff_name(s))
+                for _em in emails:
+                    if _em.get("body"):
+                        _em["body"] = _strip_ai_signoff(_em["body"])
 
-                # Build the campaign dict. Empty contacts list — user
-                # adds the candidates they sourced in the email editor's
-                # contacts step (the Candidates wizard step was removed
-                # 2026-05-12 per user direction).
+                # Recipients pre-loaded from the ATS (Send a Job Opening), if any.
+                _ats_contacts = list(getattr(s, "tc_contacts", []) or [])
                 if role_title and role_title != "this role":
                     camp_name = f"Find Candidates - {role_title}"
                 else:
@@ -35332,18 +35340,21 @@ def _tc_render_step_generate(s: AppState, rf):
                     "_owner_email": s._user_email,
                     "_chooser_origin": "candidate",
                     "synopsis": (
-                        f"Candidate outreach for {role_title}. "
-                        f"{preset_label}. Add candidates in the editor."
+                        f"Candidate outreach for {role_title}. {preset_label}. "
+                        + (f"{len(_ats_contacts)} candidate(s) loaded from the ATS."
+                           if _ats_contacts else "Add candidates in the editor.")
                     ),
                     "emails": emails,
-                    "contacts": [],
-                    "contact_count": 0,
+                    "contacts": _ats_contacts,
+                    "contact_count": len(_ats_contacts),
+                    "contact_emails": [c.get("email", "") for c in _ats_contacts if c.get("email")],
                     "market_sector": s.tc_jd_parsed.get("seniority", ""),
                     "market_niche": role_title,
                     "market_region": location,
                     "tc_jd_parsed": s.tc_jd_parsed,
                 }
                 save_campaign(camp)
+                s.tc_contacts = []  # consumed
                 # Load it as the active campaign and route to the email editor
                 s.loaded_camp = camp
                 s.loaded_view = "emails"
@@ -37000,6 +37011,9 @@ def p_candidate_campaign(s: AppState, rf):
                     if json_match:
                         campaign_data = json.loads(json_match.group())
                         emails = campaign_data.get("emails", [])
+                        # Replace any {recruiter_name}-style sender placeholder
+                        # with the real name before sign-offs are stripped.
+                        _fill_recruiter_placeholders(emails, _recruiter_signoff_name(s))
                         # Strip any AI-generated sign-offs  -  signature is auto-appended at send time
                         for _em in emails:
                             if _em.get("body"):
@@ -45925,6 +45939,42 @@ def _save_company_profile(profile: dict):
         cfg[k] = v
     save_config(cfg)
 
+def _recruiter_signoff_name(s) -> str:
+    """Name to sign outreach with — the user's signature first line, else
+    their profile name, else a safe fallback. Never a placeholder."""
+    try:
+        p = _user_sig_path()
+        if p.exists():
+            first = (p.read_text(encoding="utf-8").strip().split("\n")[0]).strip()
+            first = re.sub(r"<[^>]+>", "", first).strip()  # drop HTML if any
+            if first:
+                return first
+    except Exception:
+        pass
+    try:
+        nm = (getattr(s, "user_name", "") or "").strip()
+        if nm:
+            return nm
+    except Exception:
+        pass
+    return "the team"
+
+
+_RECRUITER_PLACEHOLDER_RE = re.compile(
+    r"\{\s*(recruiter_name|recruiter|your_name|sender_name|my_name|name)\s*\}", re.I)
+
+
+def _fill_recruiter_placeholders(emails, name):
+    """Replace {recruiter_name}-style sender placeholders in generated email
+    subjects/bodies with the real recruiter name."""
+    for e in (emails or []):
+        for k in ("subject", "body"):
+            v = e.get(k)
+            if v:
+                e[k] = _RECRUITER_PLACEHOLDER_RE.sub(name, v)
+    return emails
+
+
 def _get_company_name() -> str:
     """Get the company name. Resolution order:
       1. The user's own company_name in their config (if they overrode).
@@ -50311,6 +50361,9 @@ def index():
             s.tc_jd_parsed = {}
             s.tc_candidates = []
             s.tc_preset = ""
+            # Pre-load the ATS-selected candidates as the campaign's recipients
+            # so generation auto-fills them (no "CONTACTS (0)").
+            s.tc_contacts = app.storage.user.pop("_pending_campaign_contacts", []) or []
     # Rehydrate the AICB ("Recruiting Campaign") wizard from session
     # storage so reconnects don't drop the user back to step 1 with
     # blank fields. Same root cause as _restore_page_if_recent — fresh
