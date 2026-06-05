@@ -371,6 +371,75 @@ def get_one(tid: int) -> dict:
         con.close()
 
 
+# ── Contact extraction (email / phone straight from résumé text) ──────────
+_EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
+_PHONE_RE = re.compile(
+    r"(?<!\d)(?:\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}(?!\d)")
+# The recruiter's own address shows up in some résumés / fit-summaries — never
+# treat it as the candidate's email.
+_EMAIL_SKIP_DOMAINS = ("arenastaffing.net",)
+
+
+def _extract_contacts(text: str) -> tuple:
+    """Best-effort (email, phone) pulled straight from raw résumé text.
+
+    Picks the candidate's own address (skips the recruiter's arenastaffing.net
+    address that some docs carry in a header) and the first plausible phone.
+    Never guesses — returns '' for anything it can't find."""
+    text = text or ""
+    email = ""
+    for m in _EMAIL_RE.finditer(text):
+        cand = m.group().strip().rstrip(".,;:")
+        low = cand.lower()
+        if any(low.endswith("@" + d) for d in _EMAIL_SKIP_DOMAINS):
+            continue
+        if low.endswith((".png", ".jpg", ".jpeg", ".gif")):
+            continue
+        email = cand
+        break
+    phone = ""
+    pm = _PHONE_RE.search(text)
+    if pm:
+        phone = re.sub(r"\s+", " ", pm.group()).strip()
+    return email, phone
+
+
+def backfill_contacts() -> dict:
+    """Fill blank email/phone columns from each candidate's résumé text.
+
+    Deterministic, idempotent, and NON-destructive — never overwrites a value
+    that's already set, only fills blanks. Safe to re-run any time (e.g. after
+    a fresh ingest). Returns {'emails': n, 'phones': n, 'no_text': n}."""
+    con = _con()
+    out = {"emails": 0, "phones": 0, "no_text": 0}
+    try:
+        rows = con.execute(
+            "SELECT id, email, phone, resume_text FROM talents").fetchall()
+        for r in rows:
+            cur_e = (r["email"] or "").strip()
+            cur_p = (r["phone"] or "").strip()
+            if cur_e and cur_p:
+                continue
+            txt = r["resume_text"] or ""
+            if len(txt) < 40:
+                out["no_text"] += 1
+                continue
+            ex_e, ex_p = _extract_contacts(txt)
+            sets, vals = [], []
+            if not cur_e and ex_e:
+                sets.append("email=?"); vals.append(ex_e); out["emails"] += 1
+            if not cur_p and ex_p:
+                sets.append("phone=?"); vals.append(ex_p); out["phones"] += 1
+            if sets:
+                vals.append(r["id"])
+                con.execute(
+                    "UPDATE talents SET %s WHERE id=?" % ", ".join(sets), vals)
+        con.commit()
+    finally:
+        con.close()
+    return out
+
+
 def companies_from_campaigns() -> list:
     """Live list of companies the user has reached out to via DripDrop
     campaigns — aggregated from campaign contacts + each campaign's target
@@ -429,7 +498,16 @@ def send_to_dripdrop(candidate_ids, list_name) -> tuple:
     rows = []
     for i in candidate_ids:
         d = get_one(i)
-        if d and (d.get("email") or "").strip():
+        if not d:
+            continue
+        if not (d.get("email") or "").strip():
+            # Last-ditch: pull an email straight from the résumé text.
+            ex_e, ex_p = _extract_contacts(d.get("resume_text") or "")
+            if ex_e:
+                d["email"] = ex_e
+                if not (d.get("phone") or "").strip() and ex_p:
+                    d["phone"] = ex_p
+        if (d.get("email") or "").strip():
             rows.append(d)
     if not rows:
         return 0, ""
@@ -1170,6 +1248,14 @@ def _view_profile(ff, st, refresh):
     if not d:
         ui.label("Candidate not found.").style(f"color:{_c(C,'warn','#F59E0B')};")
         return
+    # Surface contact details pulled from the résumé even if the stored columns
+    # were blank (display-only; backfill_contacts persists them for real).
+    if not (d.get("email") or "").strip() or not (d.get("phone") or "").strip():
+        ex_e, ex_p = _extract_contacts(d.get("resume_text") or "")
+        if not (d.get("email") or "").strip() and ex_e:
+            d["email"] = ex_e
+        if not (d.get("phone") or "").strip() and ex_p:
+            d["phone"] = ex_p
 
     def _back():
         st["view"] = "candidates"; st["sel"] = None; refresh()
@@ -1234,8 +1320,32 @@ def _view_profile(ff, st, refresh):
             else:
                 ui.label("Coming soon.").style(f"color:{_c(C,'muted','#94A3B8')};font-size:12px;")
 
-        # RIGHT rail: fit / status / owner / send, then Recruiter Notes
+        # RIGHT rail: contact / fit / status / owner / send, then Recruiter Notes
         with ui.element("div").style("display:flex;flex-direction:column;gap:14px;"):
+            # Contact details — pulled from the résumé.
+            with ui.element("div").style(
+                    f"background:{_c(C,'card','#15203A')};border:1px solid {_c(C,'border','#243049')};"
+                    f"border-radius:12px;padding:16px;"):
+                ui.label("CONTACT DETAILS").style(
+                    f"font-size:10px;font-weight:700;letter-spacing:.06em;"
+                    f"color:{_c(C,'muted','#94A3B8')};margin-bottom:10px;display:block;")
+                _contact = [
+                    ("✉", "Email", (d.get("email") or "").strip()),
+                    ("☎", "Phone", (d.get("phone") or "").strip()),
+                    ("📍", "Location", _loc(d)),
+                ]
+                for ic, lbl, val in _contact:
+                    with ui.element("div").style(
+                            "display:flex;align-items:center;gap:9px;margin-bottom:9px;"):
+                        ui.label(ic).style("font-size:13px;width:16px;text-align:center;")
+                        if val:
+                            ui.label(val).style(
+                                f"font-size:12px;color:{_c(C,'text_l','#E6EDF7')};"
+                                f"word-break:break-all;")
+                        else:
+                            ui.label(f"No {lbl.lower()} in résumé").style(
+                                f"font-size:12px;color:{_c(C,'muted','#94A3B8')};font-style:italic;")
+
             with ui.element("div").style(
                     f"background:{_c(C,'card','#15203A')};border:1px solid {_c(C,'border','#243049')};"
                     f"border-radius:12px;padding:16px;"):
