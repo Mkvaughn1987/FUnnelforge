@@ -442,6 +442,19 @@ def _loc(d):
     return ", ".join(x for x in [d.get('city', ''), d.get('state', '')] if x)
 
 
+def _fit_pct(row, terms):
+    """% of the active search terms this candidate matches (None if no search)."""
+    if not terms:
+        return None
+    return int(round(len(match_reasons(row, terms)) / max(1, len(terms)) * 100))
+
+
+def _fit_color(C, fit):
+    return (_c(C, 'good', '#16A34A') if fit >= 75
+            else _c(C, 'warn', '#D97706') if fit >= 40
+            else _c(C, 'muted', '#94A3B8'))
+
+
 def _ago(iso):
     from datetime import datetime
     try:
@@ -690,8 +703,13 @@ def _candidate_rows(C, st, refresh, rows, terms=None):
             ui.label(r.get("added_by", "") or "—").style(
                 f"font-size:12px;color:{_c(C,'text','#CBD5E1')};"
                 f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
-            ui.label(r.get("status", "Candidate") or "Candidate").style(
-                f"font-size:11px;font-weight:600;color:{_c(C,'teal','#1AE3D9')};")
+            with ui.element("div").style("text-align:right;"):
+                fit = _fit_pct(r, terms)
+                if fit is not None:
+                    ui.label(f"{fit}% fit").style(
+                        f"font-size:13px;font-weight:800;color:{_fit_color(C, fit)};line-height:1.1;")
+                ui.label(r.get("status", "Candidate") or "Candidate").style(
+                    f"font-size:10px;font-weight:600;color:{_c(C,'teal','#1AE3D9')};")
 
 
 def _view_candidates(ff, st, refresh):
@@ -805,7 +823,7 @@ def _view_profile(ff, st, refresh):
             f"font-size:12px;color:{_c(C,'teal','#1AE3D9')};cursor:pointer;").on("click", _back):
         ui.label("← Candidates")
 
-    with ui.element("div").style("display:grid;grid-template-columns:1fr 280px;gap:16px;margin-top:12px;"):
+    with ui.element("div").style("display:grid;grid-template-columns:1fr 330px;gap:16px;margin-top:12px;"):
         # LEFT: header + tabs
         with ui.element("div"):
             with ui.element("div").style(
@@ -820,29 +838,6 @@ def _view_profile(ff, st, refresh):
                     for ic, val in (("📍", _loc(d)), ("✉", d.get('email', '')), ("☎", d.get('phone', ''))):
                         if val:
                             ui.label(f"{ic} {val}").style(f"font-size:12px;color:{_c(C,'text','#CBD5E1')};")
-
-            # Recruiter Notes — top of the profile, editable, saved to the DB.
-            with ui.element("div").style(
-                    f"background:{_c(C,'card','#15203A')};border:1px solid {_c(C,'border','#243049')};"
-                    f"border-radius:12px;padding:14px 16px;margin-bottom:14px;"):
-                ui.label("RECRUITER NOTES").style(
-                    f"font-size:10px;font-weight:700;letter-spacing:.06em;"
-                    f"color:{_c(C,'muted','#94A3B8')};margin-bottom:8px;display:block;")
-                _notes_in = ui.textarea(
-                    value=d.get("notes", "") or "",
-                    placeholder="Calls, availability, fit, rate, next steps…").props("outlined").style(
-                    "width:100%;min-height:84px;")
-
-                def _save_notes(_e=None, _i=d.get("id")):
-                    save_notes(_i, _notes_in.value or "")
-                    ui.notify("Notes saved.", type="positive", timeout=1500)
-                _notes_in.on("blur", _save_notes)
-                with ui.element("div").style("display:flex;justify-content:flex-end;margin-top:8px;"):
-                    with ui.element("button").style(
-                            f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;"
-                            f"border-radius:8px;padding:6px 16px;font-size:12px;font-weight:700;"
-                            f"cursor:pointer;font-family:inherit;").on("click", _save_notes):
-                        ui.label("Save Notes")
 
             # Tabs — Resume first.
             tabs = [("resume", "Resume"), ("summary", "Summary"), ("skills", "Skills"),
@@ -885,11 +880,21 @@ def _view_profile(ff, st, refresh):
             else:
                 ui.label("Coming soon.").style(f"color:{_c(C,'muted','#94A3B8')};font-size:12px;")
 
-        # RIGHT rail
-        with ui.element("div"):
+        # RIGHT rail: fit / status / owner / send, then Recruiter Notes
+        with ui.element("div").style("display:flex;flex-direction:column;gap:14px;"):
             with ui.element("div").style(
                     f"background:{_c(C,'card','#15203A')};border:1px solid {_c(C,'border','#243049')};"
                     f"border-radius:12px;padding:16px;"):
+                # Fit for the active search (if any)
+                _terms = st.get("terms") or []
+                _fit = _fit_pct(d, _terms) if _terms else None
+                if _fit is not None:
+                    ui.label("FIT FOR THIS SEARCH").style(
+                        f"font-size:10px;font-weight:700;letter-spacing:.06em;color:{_c(C,'muted','#94A3B8')};")
+                    ui.label(f"{_fit}%").style(
+                        f"font-size:30px;font-weight:800;color:{_fit_color(C, _fit)};"
+                        f"font-family:'Nunito',sans-serif;line-height:1;margin:2px 0 12px;")
+                    ui.element("div").style(f"height:1px;background:{_c(C,'border','#243049')};margin:0 0 12px;")
                 ui.label("STATUS").style(
                     f"font-size:10px;font-weight:700;letter-spacing:.06em;color:{_c(C,'muted','#94A3B8')};")
                 ui.label(d.get("status", "Candidate") or "Candidate").style(
@@ -905,6 +910,29 @@ def _view_profile(ff, st, refresh):
                         f"font-family:inherit;").on(
                         "click", lambda: ui.notify("Send to DripDrop outreach — coming next.", type="info")):
                     ui.label("✦ Send to Outreach")
+
+            # Recruiter Notes — now on the right rail; saved notes show here.
+            with ui.element("div").style(
+                    f"background:{_c(C,'card','#15203A')};border:1px solid {_c(C,'border','#243049')};"
+                    f"border-radius:12px;padding:16px;"):
+                ui.label("RECRUITER NOTES").style(
+                    f"font-size:10px;font-weight:700;letter-spacing:.06em;"
+                    f"color:{_c(C,'muted','#94A3B8')};margin-bottom:8px;display:block;")
+                _notes_in = ui.textarea(
+                    value=d.get("notes", "") or "",
+                    placeholder="Calls, availability, fit, rate, next steps…").props("outlined").style(
+                    "width:100%;min-height:120px;")
+
+                def _save_notes(_e=None, _i=d.get("id")):
+                    save_notes(_i, _notes_in.value or "")
+                    ui.notify("Notes saved.", type="positive", timeout=1500)
+                _notes_in.on("blur", _save_notes)
+                with ui.element("div").style("display:flex;justify-content:flex-end;margin-top:8px;"):
+                    with ui.element("button").style(
+                            f"width:100%;background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;"
+                            f"border-radius:8px;padding:8px;font-size:12px;font-weight:700;"
+                            f"cursor:pointer;font-family:inherit;").on("click", _save_notes):
+                        ui.label("Save Notes")
 
 
 def _view_stub(ff, st, title, blurb):
