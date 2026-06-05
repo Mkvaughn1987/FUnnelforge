@@ -297,26 +297,72 @@ _DEFAULT_PIPELINES = [
 ]
 
 
+def auto_smart_tearsheets(owner: str, top_n: int = 6) -> int:
+    """Create SMART tearsheets for an owner from THEIR OWN candidate pool — the
+    top role-family × state niches present in their résumés. Idempotent (skips
+    names they already have). Returns how many were created."""
+    if not owner:
+        return 0
+    from collections import Counter
+    con = _con()
+    try:
+        rows = con.execute(
+            "SELECT current_title, state FROM talents WHERE owner_email=?", (owner,)).fetchall()
+        existing = {r[0] for r in con.execute(
+            "SELECT name FROM pipelines WHERE owner=?", (owner,))}
+    except Exception:
+        return 0
+    finally:
+        con.close()
+    combos = Counter()
+    for r in rows:
+        fam = _role_family(r["current_title"] or "")
+        stt = _state_name(_norm_state(r["state"] or ""))
+        if fam and fam != "Other" and stt:
+            combos[(fam, stt)] += 1
+    created = 0
+    for (fam, stt), cnt in combos.most_common(top_n):
+        if cnt < 2:  # skip one-off niches
+            continue
+        name = f"{fam} · {stt}"
+        if name in existing:
+            continue
+        add_pipeline(name, f"{fam} {stt}", owner)  # smart tearsheet
+        created += 1
+    return created
+
+
 def ensure_default_pipelines(owner: str):
-    """Seed starter pipelines for THIS owner once (per-user, idempotent via a
-    per-owner meta flag), skipping any name they already have so their own
-    pipelines and deletions are respected."""
+    """For a NEW user: don't seed generic presets. Wait until they've uploaded
+    candidates, then auto-create SMART tearsheets from their OWN pool. Users
+    who already have tearsheets (incl. Michael's legacy presets) are left alone.
+    Idempotent via a per-owner 'smartseed' flag."""
+    if not owner:
+        return
     con = _con()
     try:
         con.execute("CREATE TABLE IF NOT EXISTS ats_meta(key TEXT PRIMARY KEY, value TEXT)")
-        flag = "defaults::" + (owner or "")
-        if con.execute("SELECT value FROM ats_meta WHERE key=?", (flag,)).fetchone():
+        flag = "smartseed::" + owner
+        if con.execute("SELECT 1 FROM ats_meta WHERE key=?", (flag,)).fetchone():
             return
-        existing = {r[0] for r in con.execute(
-            "SELECT name FROM pipelines WHERE owner=?", (owner,))}
-        import time
-        now = time.strftime("%Y-%m-%dT%H:%M:%S")
-        for nm, q in _DEFAULT_PIPELINES:
-            if nm in existing:
-                continue
-            con.execute("INSERT INTO pipelines(name,query,owner,created_at) VALUES(?,?,?,?)",
-                        (nm, q, owner, now))
-        con.execute("INSERT OR REPLACE INTO ats_meta(key,value) VALUES(?,'1')", (flag,))
+        # Respect users who already have tearsheets — mark done, never auto-seed.
+        if con.execute("SELECT 1 FROM pipelines WHERE owner=? LIMIT 1", (owner,)).fetchone():
+            con.execute("INSERT OR REPLACE INTO ats_meta(key,value) VALUES(?,'1')", (flag,))
+            con.commit()
+            return
+        n = con.execute("SELECT COUNT(*) FROM talents WHERE owner_email=?", (owner,)).fetchone()[0]
+        if n < 5:
+            return  # not enough candidates yet — re-check on a later render
+    except Exception:
+        return
+    finally:
+        con.close()
+    # Has candidates and no tearsheets → build smart ones from their pool.
+    auto_smart_tearsheets(owner)
+    con = _con()
+    try:
+        con.execute("INSERT OR REPLACE INTO ats_meta(key,value) VALUES(?,'1')",
+                    ("smartseed::" + owner,))
         con.commit()
     except Exception:
         pass
@@ -2436,6 +2482,11 @@ def _view_upload(ff, st, refresh):
             st["upload_done"] = st.get("upload_done", 0) + len(chunk)
             refresh()
         await _run.io_bound(rebuild_fts)
+        # Auto-build smart tearsheets from the candidates they just added.
+        try:
+            await _run.io_bound(auto_smart_tearsheets, owner)
+        except Exception:
+            pass
         st["upload_running"] = False
         st["upload_queue"] = []
         refresh()
