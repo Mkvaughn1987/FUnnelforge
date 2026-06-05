@@ -50150,6 +50150,21 @@ def index():
     if _pending:
         s.hub = "sales"
         s.sp = _pending
+        # ATS → "Start an MPC Campaign" hands off a candidate slate (1-3) via
+        # storage. Hydrate the MPC builder so it opens ON those candidates
+        # instead of the empty Top-Candidates picker.
+        if _pending == "candidate_campaign":
+            _mpc = app.storage.user.pop("_pending_mpc_candidates", None)
+            if _mpc:
+                s.cpc_candidates = list(_mpc)
+                s.cpc_candidate = s.cpc_candidates[0]
+                s.cpc_companies = []
+                s.cpc_added_lists = []
+                s.cpc_uploaded_contacts = []
+                s.cpc_uploaded_sources = []
+                s.cpc_step = 0
+                s.cpc_campaign = None
+                s._cpc_error = ""
     # Rehydrate the AICB ("Recruiting Campaign") wizard from session
     # storage so reconnects don't drop the user back to step 1 with
     # blank fields. Same root cause as _restore_page_if_recent — fresh
