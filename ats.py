@@ -45,10 +45,35 @@ def _db_path() -> Path:
         return Path(os.path.expandvars(r"%LOCALAPPDATA%\DripDrop")) / "ats.db"
 
 
+_notes_col_ensured = False
+
+
 def _con():
+    global _notes_col_ensured
     con = sqlite3.connect(str(_db_path()))
     con.row_factory = sqlite3.Row
+    if not _notes_col_ensured:
+        # One-time, idempotent: make sure the recruiter-notes column exists.
+        try:
+            con.execute("ALTER TABLE talents ADD COLUMN notes TEXT DEFAULT ''")
+            con.commit()
+        except Exception:
+            pass  # already exists
+        _notes_col_ensured = True
     return con
+
+
+def save_notes(tid: int, text: str):
+    import time
+    con = _con()
+    try:
+        con.execute("UPDATE talents SET notes=?, updated_at=? WHERE id=?",
+                    (text or "", time.strftime("%Y-%m-%dT%H:%M:%S"), tid))
+        con.commit()
+    except Exception:
+        pass
+    finally:
+        con.close()
 
 
 def _api_key() -> str:
@@ -449,7 +474,7 @@ def _candidate_rows(C, st, refresh, rows, terms=None):
 
         def _open(_e=None, i=tid):
             st["sel"] = i
-            st["tab"] = "summary"
+            st["tab"] = "resume"
             st["view"] = "profile"
             refresh()
         with ui.element("div").style(
@@ -604,13 +629,36 @@ def _view_profile(ff, st, refresh):
                         if val:
                             ui.label(f"{ic} {val}").style(f"font-size:12px;color:{_c(C,'text','#CBD5E1')};")
 
-            # Tabs
-            tabs = [("summary", "Summary"), ("skills", "Skills"),
-                    ("resume", "Resume"), ("experience", "Experience"), ("activity", "Activity")]
+            # Recruiter Notes — top of the profile, editable, saved to the DB.
+            with ui.element("div").style(
+                    f"background:{_c(C,'card','#15203A')};border:1px solid {_c(C,'border','#243049')};"
+                    f"border-radius:12px;padding:14px 16px;margin-bottom:14px;"):
+                ui.label("RECRUITER NOTES").style(
+                    f"font-size:10px;font-weight:700;letter-spacing:.06em;"
+                    f"color:{_c(C,'muted','#94A3B8')};margin-bottom:8px;display:block;")
+                _notes_in = ui.textarea(
+                    value=d.get("notes", "") or "",
+                    placeholder="Calls, availability, fit, rate, next steps…").props("outlined").style(
+                    "width:100%;min-height:84px;")
+
+                def _save_notes(_e=None, _i=d.get("id")):
+                    save_notes(_i, _notes_in.value or "")
+                    ui.notify("Notes saved.", type="positive", timeout=1500)
+                _notes_in.on("blur", _save_notes)
+                with ui.element("div").style("display:flex;justify-content:flex-end;margin-top:8px;"):
+                    with ui.element("button").style(
+                            f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;"
+                            f"border-radius:8px;padding:6px 16px;font-size:12px;font-weight:700;"
+                            f"cursor:pointer;font-family:inherit;").on("click", _save_notes):
+                        ui.label("Save Notes")
+
+            # Tabs — Resume first.
+            tabs = [("resume", "Resume"), ("summary", "Summary"), ("skills", "Skills"),
+                    ("experience", "Experience"), ("activity", "Activity")]
             with ui.element("div").style(
                     f"display:flex;gap:4px;border-bottom:1px solid {_c(C,'border','#243049')};margin-bottom:12px;"):
                 for tk, tl in tabs:
-                    on = (st.get("tab", "summary") == tk)
+                    on = (st.get("tab", "resume") == tk)
                     def _set_tab(_e=None, k=tk):
                         st["tab"] = k; refresh()
                     with ui.element("div").style(
@@ -620,7 +668,7 @@ def _view_profile(ff, st, refresh):
                             ).on("click", _set_tab):
                         ui.label(tl)
 
-            tab = st.get("tab", "summary")
+            tab = st.get("tab", "resume")
             if tab == "summary":
                 ui.label(d.get("summary", "") or "No summary parsed.").style(
                     f"font-size:13px;color:{_c(C,'text','#CBD5E1')};line-height:1.6;")
