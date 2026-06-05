@@ -386,13 +386,16 @@ def companies_from_campaigns() -> list:
         return []
     agg = {}
 
-    def _add(co, camp_name, contact=None):
+    def _add(co, camp_name, contact=None, website=""):
         co = (str(co) if co is not None else "").strip()
         if not co or co.lower() in ("n/a", "none", "-"):
             return
         e = agg.setdefault(co.lower(), {"name": co, "contacts": 0,
-                                        "campaigns": set(), "location": ""})
-        e["campaigns"].add(camp_name)
+                                        "campaigns": set(), "location": "", "website": ""})
+        if camp_name:
+            e["campaigns"].add(camp_name)
+        if website and not e["website"]:
+            e["website"] = website.strip()
         if contact is not None:
             e["contacts"] += 1
             if not e["location"]:
@@ -401,15 +404,19 @@ def companies_from_campaigns() -> list:
 
     for c in (camps or []):
         cname = c.get("name", "") or ""
+        _vars = c.get("variables") or {}
+        _web = (_vars.get("Website") or c.get("aicb_website") or c.get("website") or "")
         for ct in (c.get("contacts") or []):
-            _add(ct.get("company"), cname, ct)
-        _add((c.get("variables") or {}).get("Company"), cname)
-        _add(c.get("market_company"), cname)
+            _add(ct.get("company"), cname, ct,
+                 website=(ct.get("website") or ct.get("Website") or ""))
+        _add(_vars.get("Company"), cname, website=_web)
+        _add(c.get("market_company"), cname, website=_web)
 
     out = [{"name": v["name"], "contacts": v["contacts"],
-            "campaigns": len(v["campaigns"]), "location": v["location"]}
+            "campaigns": sorted(v["campaigns"]), "location": v["location"],
+            "website": v["website"]}
            for v in agg.values()]
-    out.sort(key=lambda x: (x["contacts"], x["campaigns"]), reverse=True)
+    out.sort(key=lambda x: (x["contacts"], len(x["campaigns"])), reverse=True)
     return out
 
 
@@ -1056,30 +1063,105 @@ def _view_companies(ff, st, refresh):
                      "you contact will appear here automatically.").style(
                 f"font-size:13px;color:{_c(C,'muted','#94A3B8')};padding:8px 0;")
             return
-        _cols = "2fr 1.2fr 0.7fr 0.7fr"
+        _cols = "1.9fr 1.2fr 1.4fr 0.7fr"
         with ui.element("div").style(
                 f"display:grid;grid-template-columns:{_cols};gap:12px;"
                 f"padding:8px 6px;border-bottom:1px solid {_c(C,'border','#E2E8F0')};"
                 f"font-size:10px;font-weight:700;letter-spacing:.05em;"
                 f"text-transform:uppercase;color:{_c(C,'muted','#94A3B8')};"):
-            for h in ("Company", "Location", "Contacts", "Campaigns"):
+            for h in ("Company", "Location", "Website", "Campaigns"):
                 ui.label(h)
         for co in cos:
-            def _drill_co(_e=None, q=co["name"]):
-                _drill(st, refresh, q, strict=True)
+            def _open_co(_e=None, c=co):
+                st["company"] = c
+                st["view"] = "company_detail"
+                refresh()
             with ui.element("div").style(
                     f"display:grid;grid-template-columns:{_cols};gap:12px;align-items:center;"
                     f"padding:10px 6px;border-bottom:1px solid {_c(C,'border','#EEF2F8')};cursor:pointer;"
-                    ).on("click", _drill_co):
+                    ).on("click", _open_co):
                 ui.label(co["name"]).style(
                     f"font-size:13px;font-weight:700;color:{_c(C,'text_l','#0F172A')};"
                     f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
                 ui.label(co["location"] or "—").style(
                     f"font-size:12px;color:{_c(C,'text','#334155')};")
-                ui.label(f"{co['contacts']:,}").style(
-                    f"font-size:12px;font-weight:600;color:{_c(C,'text_l','#0F172A')};")
-                ui.label(f"{co['campaigns']:,}").style(
+                ui.label(co["website"] or "—").style(
+                    f"font-size:12px;color:{_c(C,'muted','#94A3B8')};"
+                    f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
+                ui.label(f"{len(co['campaigns']):,}").style(
                     f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
+
+
+def _view_company_detail(ff, st, refresh):
+    """Read-only company profile — name, location, website, and outreach
+    footprint from DripDrop campaigns. No people listed under it (by design,
+    for now). Reached from the Companies list."""
+    C = ff.C
+    co = st.get("company") or {}
+    if not co:
+        st["view"] = "companies"; refresh(); return
+
+    def _back():
+        st["view"] = "companies"; st["company"] = None; refresh()
+    with ui.element("span").style(
+            f"font-size:12px;color:{_c(C,'teal','#1AE3D9')};cursor:pointer;").on("click", _back):
+        ui.label("← Companies")
+
+    camps = co.get("campaigns") or []
+    web = (co.get("website") or "").strip()
+    web_url = web if (web.startswith("http://") or web.startswith("https://")) else ("https://" + web if web else "")
+
+    # Header card
+    with ui.element("div").style(
+            f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
+            f"border-radius:12px;padding:20px 22px;margin-top:12px;margin-bottom:14px;"):
+        ui.label(co.get("name", "")).style(
+            f"font-size:22px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
+            f"font-family:'Nunito',sans-serif;")
+        with ui.element("div").style("display:flex;gap:22px;flex-wrap:wrap;margin-top:8px;align-items:center;"):
+            ui.label(f"📍 {co.get('location') or '—'}").style(
+                f"font-size:12px;color:{_c(C,'text','#334155')};")
+            if web:
+                with ui.element("a").props(f'href="{web_url}" target="_blank"').style(
+                        f"font-size:12px;color:{_c(C,'teal','#1AE3D9')};text-decoration:none;"):
+                    ui.label(f"🌐 {web}")
+            else:
+                ui.label("🌐 No website on file").style(
+                    f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
+
+    # Stat tiles
+    with ui.element("div").style("display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;"):
+        for val, lbl in ((f"{len(camps):,}", "Campaigns reached"),
+                         (f"{co.get('contacts', 0):,}", "People contacted")):
+            with ui.element("div").style(
+                    f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
+                    f"border-radius:12px;padding:16px 18px;"):
+                ui.label(val).style(
+                    f"font-size:26px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
+                    f"font-family:'Nunito',sans-serif;line-height:1;")
+                ui.label(lbl).style(
+                    f"font-size:11px;color:{_c(C,'muted','#94A3B8')};margin-top:4px;display:block;")
+
+    # Campaigns this company appeared in
+    with ui.element("div").style(
+            f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
+            f"border-radius:12px;padding:16px 18px;"):
+        ui.label("REACHED VIA CAMPAIGNS").style(
+            f"font-size:10px;font-weight:700;letter-spacing:.06em;"
+            f"color:{_c(C,'muted','#94A3B8')};margin-bottom:10px;display:block;")
+        if camps:
+            with ui.element("div").style("display:flex;flex-wrap:wrap;gap:8px;"):
+                for nm in camps:
+                    ui.label(nm).style(
+                        f"background:{_c(C,'teal','#1AE3D9')}14;color:{_c(C,'text_l','#0F172A')};"
+                        f"border:1px solid {_c(C,'teal','#1AE3D9')}40;border-radius:99px;"
+                        f"padding:4px 12px;font-size:12px;")
+        else:
+            ui.label("—").style(f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
+
+    ui.label("People and open jobs can be linked to this company soon — for now this is "
+             "the company record.").style(
+        f"font-size:11px;color:{_c(C,'muted','#94A3B8')};margin-top:14px;display:block;")
 
 
 def _view_profile(ff, st, refresh):
@@ -1255,7 +1337,8 @@ def _render_app(ff, st, refresh):
                 f"border-right:1px solid {_c(C,'border','#243049')};padding:14px 10px;"
                 f"display:flex;flex-direction:column;gap:2px;"):
             for key, icon, label in _NAV:
-                on = (st["view"] == key) or (key == "candidates" and st["view"] == "profile")
+                on = (st["view"] == key) or (key == "candidates" and st["view"] == "profile") \
+                    or (key == "companies" and st["view"] == "company_detail")
 
                 def _nav(_e=None, k=key):
                     st["view"] = k
@@ -1288,6 +1371,8 @@ def _render_app(ff, st, refresh):
                 _view_stub(ff, st, "Jobs", "Open requisitions — link candidates to roles and track submittals.")
             elif v == "companies":
                 _view_companies(ff, st, refresh)
+            elif v == "company_detail":
+                _view_company_detail(ff, st, refresh)
             elif v == "searches":
                 _view_stub(ff, st, "Saved Searches", "Save a search or JD-match to re-run later.")
             elif v == "reports":
