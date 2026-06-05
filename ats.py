@@ -53,12 +53,19 @@ def _con():
     con = sqlite3.connect(str(_db_path()))
     con.row_factory = sqlite3.Row
     if not _notes_col_ensured:
-        # One-time, idempotent: make sure the recruiter-notes column exists.
+        # One-time, idempotent schema top-ups.
         try:
             con.execute("ALTER TABLE talents ADD COLUMN notes TEXT DEFAULT ''")
-            con.commit()
         except Exception:
             pass  # already exists
+        try:
+            con.execute(
+                "CREATE TABLE IF NOT EXISTS pipelines("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, query TEXT, "
+                "owner TEXT, created_at TEXT)")
+        except Exception:
+            pass
+        con.commit()
         _notes_col_ensured = True
     return con
 
@@ -74,6 +81,68 @@ def save_notes(tid: int, text: str):
         pass
     finally:
         con.close()
+
+
+# ── Pipelines (saved talent segments) ────────────────────────────────────
+def list_pipelines() -> list:
+    con = _con()
+    try:
+        return [dict(r) for r in con.execute("SELECT * FROM pipelines ORDER BY id")]
+    except Exception:
+        return []
+    finally:
+        con.close()
+
+
+def add_pipeline(name: str, query: str, owner: str):
+    import time
+    con = _con()
+    try:
+        con.execute("INSERT INTO pipelines(name,query,owner,created_at) VALUES(?,?,?,?)",
+                    (name.strip(), query.strip(), owner, time.strftime("%Y-%m-%dT%H:%M:%S")))
+        con.commit()
+    except Exception:
+        pass
+    finally:
+        con.close()
+
+
+def delete_pipeline(pid: int):
+    con = _con()
+    try:
+        con.execute("DELETE FROM pipelines WHERE id=?", (pid,))
+        con.commit()
+    except Exception:
+        pass
+    finally:
+        con.close()
+
+
+def search_count(query: str) -> int:
+    """Strict (AND) count of FTS matches for a pipeline — every term must hit."""
+    terms = _terms(query)
+    if not terms:
+        return 0
+    con = _con()
+    try:
+        expr = " AND ".join('"%s"' % t.replace('"', '') for t in terms)
+        return con.execute(
+            "SELECT COUNT(*) FROM talents_fts WHERE talents_fts MATCH ?",
+            (expr,)).fetchone()[0]
+    except Exception:
+        return 0
+    finally:
+        con.close()
+
+
+def seed_pipelines_if_empty(owner: str):
+    """First-run starter pipelines so the dashboard isn't empty."""
+    if list_pipelines():
+        return
+    for nm, q in (("CNC Machinist · Utah", "CNC machinist Utah"),
+                  ("Los Angeles Construction", "Los Angeles construction"),
+                  ("Denver Construction", "Denver construction")):
+        add_pipeline(nm, q, owner)
 
 
 def _api_key() -> str:
@@ -107,7 +176,7 @@ def _terms(text: str) -> list:
     return out
 
 
-def keyword_search(q: str, limit: int = 80) -> list:
+def keyword_search(q: str, limit: int = 80, strict: bool = False) -> list:
     terms = _terms(q)
     if not terms:
         return []
@@ -121,7 +190,8 @@ def keyword_search(q: str, limit: int = 80) -> list:
                    WHERE talents_fts MATCH ? ORDER BY rank LIMIT ?""",
                 (expr, limit)).fetchall()
         rows = run(" AND ")
-        if not rows:
+        # General search broadens to OR for recall; strict (pipelines) does not.
+        if not rows and not strict:
             rows = run(" OR ")
         return [dict(r) for r in rows]
     except Exception:
@@ -372,6 +442,62 @@ def _loc(d):
     return ", ".join(x for x in [d.get('city', ''), d.get('state', '')] if x)
 
 
+def _ago(iso):
+    from datetime import datetime
+    try:
+        dt = datetime.fromisoformat((iso or "")[:19])
+    except Exception:
+        return ""
+    s = (datetime.now() - dt).total_seconds()
+    if s < 3600:
+        return f"{max(1, int(s // 60))}m ago"
+    if s < 86400:
+        return f"{int(s // 3600)}h ago"
+    return f"{int(s // 86400)}d ago"
+
+
+def _drill(st, refresh, query, strict=False):
+    """Run a keyword search and jump to the Candidates view."""
+    st["mode"] = "keywords"
+    st["query"] = query
+    st["results"] = keyword_search(query, strict=strict)
+    st["terms"] = _terms(query)
+    st["crit"] = {}
+    st["view"] = "candidates"
+    refresh()
+
+
+def _add_pipeline_dialog(ff, st, refresh):
+    C = ff.C
+    with ui.dialog() as dlg, ui.card().style(
+            f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
+            f"min-width:440px;padding:22px 24px;"):
+        ui.label("New Pipeline").style(
+            f"font-size:16px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
+            f"font-family:'Nunito',sans-serif;margin-bottom:2px;")
+        ui.label("A saved talent segment — name it and give it search terms "
+                 "(role + location work great).").style(
+            f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:14px;")
+        ui.label("Name").style(f"font-size:11px;font-weight:700;color:{_c(C,'muted','#94A3B8')};")
+        name_in = ui.input(placeholder="e.g. CNC Machinist · Utah").props("outlined dense").style("width:100%;margin-bottom:10px;")
+        ui.label("Search terms").style(f"font-size:11px;font-weight:700;color:{_c(C,'muted','#94A3B8')};")
+        q_in = ui.input(placeholder="e.g. CNC Machinist Utah").props("outlined dense").style("width:100%;margin-bottom:6px;")
+
+        def _save():
+            nm = (name_in.value or "").strip()
+            q = (q_in.value or "").strip()
+            if not nm or not q:
+                ui.notify("Give it a name and search terms.", type="warning"); return
+            add_pipeline(nm, q, st.get("name", "") or "")
+            dlg.close()
+            refresh()
+        with ui.element("div").style("display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"):
+            ui.button("Cancel", on_click=dlg.close).props("flat").style(f"color:{_c(C,'muted','#94A3B8')};")
+            ui.button("Add Pipeline", on_click=_save).props("unelevated").style(
+                f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;font-weight:700;")
+    dlg.open()
+
+
 # ── Views ────────────────────────────────────────────────────────────────
 def _bars(C, items, st, refresh):
     if not items:
@@ -408,6 +534,7 @@ def _bars(C, items, st, refresh):
 
 def _view_dashboard(ff, st, refresh):
     C = ff.C
+    seed_pipelines_if_empty(st.get("name", "") or "Mike Vaughn")
     stats = dashboard_stats()
     ui.label("Your Talent Pool").style(
         f"font-size:22px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
@@ -431,16 +558,78 @@ def _view_dashboard(ff, st, refresh):
                     f"font-size:11px;font-weight:600;color:{_c(C,'muted','#94A3B8')};"
                     f"text-transform:uppercase;letter-spacing:.06em;margin-top:6px;")
 
-    # By Industry (full width)
-    with ui.element("div").style(
-            f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
-            f"border-radius:12px;padding:18px 20px;margin-bottom:14px;"):
-        ui.label("By Industry").style(
-            f"font-size:13px;font-weight:700;color:{_c(C,'text_l','#0F172A')};"
-            f"font-family:'Nunito',sans-serif;margin-bottom:12px;")
-        _bars(C, stats["industries"], st, refresh)
+    # ── Pipelines (saved talent segments) ──
+    with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;"):
+        ui.label("Pipelines").style(
+            f"font-size:15px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
+            f"font-family:'Nunito',sans-serif;")
+        with ui.element("button").style(
+                f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;border-radius:8px;"
+                f"padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;"
+                ).on("click", lambda: _add_pipeline_dialog(ff, st, refresh)):
+            ui.label("+ Add Pipeline")
+    pls = list_pipelines()
+    with ui.element("div").style("display:flex;flex-wrap:wrap;gap:12px;margin-bottom:18px;"):
+        if not pls:
+            ui.label("No pipelines yet — add one to track a niche (role + location).").style(
+                f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
+        for p in pls:
+            cnt = search_count(p.get("query", ""))
 
-    # By Location + By Role
+            def _go(_e=None, q=p.get("query", "")):
+                _drill(st, refresh, q, strict=True)
+
+            def _del(_e=None, pid=p.get("id")):
+                delete_pipeline(pid); refresh()
+            with ui.element("div").style(
+                    f"position:relative;flex:0 0 auto;min-width:190px;background:{_c(C,'card','#FFFFFF')};"
+                    f"border:1px solid {_c(C,'border','#E2E8F0')};border-radius:12px;"
+                    f"padding:14px 16px;cursor:pointer;").on("click", _go):
+                ui.label(f"{cnt:,}").style(
+                    f"font-size:24px;font-weight:800;color:{_c(C,'teal','#1AE3D9')};"
+                    f"font-family:'Nunito',sans-serif;line-height:1;")
+                ui.label(p.get("name", "")).style(
+                    f"font-size:12px;font-weight:600;color:{_c(C,'text_l','#0F172A')};margin-top:4px;")
+                with ui.element("div").style(
+                        f"position:absolute;top:8px;right:10px;font-size:12px;color:{_c(C,'muted','#94A3B8')};"
+                        f"cursor:pointer;").on("click.stop", _del):
+                    ui.label("✕")
+
+    # ── By Industry + Recently Added ──
+    with ui.element("div").style("display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;"):
+        with ui.element("div").style(
+                f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
+                f"border-radius:12px;padding:18px 20px;"):
+            ui.label("By Industry").style(
+                f"font-size:13px;font-weight:700;color:{_c(C,'text_l','#0F172A')};"
+                f"font-family:'Nunito',sans-serif;margin-bottom:12px;")
+            _bars(C, stats["industries"], st, refresh)
+        with ui.element("div").style(
+                f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
+                f"border-radius:12px;padding:18px 20px;"):
+            ui.label("Recently Added").style(
+                f"font-size:13px;font-weight:700;color:{_c(C,'text_l','#0F172A')};"
+                f"font-family:'Nunito',sans-serif;margin-bottom:10px;")
+            recents = recent(10)
+            if not recents:
+                ui.label("Nothing yet.").style(f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
+            for r in recents:
+                def _open_r(_e=None, i=r.get("id")):
+                    st["sel"] = i; st["tab"] = "resume"; st["view"] = "profile"; refresh()
+                with ui.element("div").style(
+                        f"display:flex;align-items:center;justify-content:space-between;gap:10px;"
+                        f"padding:7px 0;border-bottom:1px solid {_c(C,'border','#EEF2F8')};cursor:pointer;"
+                        ).on("click", _open_r):
+                    with ui.element("div").style("min-width:0;"):
+                        ui.label(_fullname(r)).style(
+                            f"font-size:12px;font-weight:700;color:{_c(C,'text_l','#0F172A')};")
+                        ui.label(f"{r.get('current_title','') or '—'} · {r.get('added_by','') or '—'}").style(
+                            f"font-size:11px;color:{_c(C,'muted','#94A3B8')};"
+                            f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
+                    ui.label(_ago(r.get("created_at", ""))).style(
+                        f"font-size:10px;color:{_c(C,'muted','#94A3B8')};flex-shrink:0;")
+
+    # ── By Location + By Role ──
     with ui.element("div").style("display:grid;grid-template-columns:1fr 1fr;gap:14px;"):
         with ui.element("div").style(
                 f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
