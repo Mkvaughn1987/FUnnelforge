@@ -24,18 +24,30 @@ def _ff():
     return m
 
 
+# Fallback allowlist. The SINGLE SOURCE OF TRUTH is flowdrip_app's
+# _ATS_ALLOWED_EMAILS (it gates the nav button); _allowed_set() unions it in so
+# adding a user there grants BOTH the button and /ats page access in one edit.
 ALLOWED_EMAILS = {
     "michael.vaughn@arenastaffing.net",
     "mkvaughn1987@gmail.com",
-    # Add Sarah & Elizabeth here once we have their DripDrop login emails.
 }
 
 # Legacy candidates + pipelines (pre multi-user) belong to Michael.
 _OWNER_BACKFILL_EMAIL = "michael.vaughn@arenastaffing.net"
 
 
+def _allowed_set() -> set:
+    try:
+        flo = _ff()._ATS_ALLOWED_EMAILS
+        if flo:
+            return {e.lower() for e in flo} | ALLOWED_EMAILS
+    except Exception:
+        pass
+    return ALLOWED_EMAILS
+
+
 def is_allowed(email: str) -> bool:
-    return bool(email) and email.strip().lower() in ALLOWED_EMAILS
+    return bool(email) and email.strip().lower() in _allowed_set()
 
 
 # ── Resources ─────────────────────────────────────────────────────────────
@@ -1440,6 +1452,34 @@ def _view_dashboard(ff, st, refresh):
              "see those candidates.").style(
         f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:16px;")
 
+    # First-run welcome — shown until this user has added their own candidates.
+    if not stats.get("total"):
+        _name1 = (st.get("name", "") or "").split()[0] if st.get("name") else "there"
+        with ui.element("div").style(
+                f"background:{_c(C,'teal','#1AE3D9')}12;border:1px solid {_c(C,'teal','#1AE3D9')}40;"
+                f"border-radius:12px;padding:18px 20px;margin-bottom:18px;"):
+            ui.label(f"👋 Welcome to Arena ATS, {_name1}!").style(
+                f"font-size:16px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
+                f"font-family:'Nunito',sans-serif;margin-bottom:6px;")
+            ui.label("Your dashboard and tearsheets are your own and start empty. "
+                     "Two things to know:").style(
+                f"font-size:13px;color:{_c(C,'text','#334155')};margin-bottom:8px;display:block;")
+            for _t in ("Search sees the whole team's pool — go to Candidates and use "
+                       "“All candidates”.",
+                       "Your own candidates, dashboard, and tearsheets fill in as you "
+                       "add résumés (switch to “My candidates” to see just yours)."):
+                ui.label("• " + _t).style(
+                    f"font-size:12.5px;color:{_c(C,'text','#334155')};line-height:1.6;"
+                    f"display:block;margin-left:4px;")
+            with ui.element("div").style("display:flex;gap:9px;margin-top:12px;"):
+                def _go_cands(_e=None):
+                    st["view"] = "candidates"; refresh()
+                with ui.element("button").style(
+                        f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;border-radius:8px;"
+                        f"padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;"
+                        f"font-family:inherit;").on("click", _go_cands):
+                    ui.label("Search candidates →")
+
     # Stat tiles
     with ui.element("div").style("display:flex;gap:14px;margin-bottom:18px;flex-wrap:wrap;"):
         for val, lbl in ((f"{stats['total']:,}", "Total talents"),
@@ -2554,11 +2594,12 @@ def _render_app(ff, st, refresh):
 
 @ui.page("/ats")
 def ats_page():
-    """Full-screen Arena ATS. Gated to ALLOWED_EMAILS."""
+    """Full-screen Arena ATS. Gated to the ATS allowlist (single source =
+    flowdrip_app._ATS_ALLOWED_EMAILS, see _allowed_set)."""
     if not app.storage.user.get("authenticated"):
         ui.navigate.to("/login"); return
     email = (app.storage.user.get("email") or "").strip().lower()
-    if email not in ALLOWED_EMAILS:
+    if not is_allowed(email):
         ui.navigate.to("/"); return
     ff = _ff()
     try:
