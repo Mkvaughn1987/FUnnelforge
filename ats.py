@@ -90,6 +90,13 @@ def _con():
                 con.execute("ALTER TABLE pipelines ADD COLUMN kind TEXT DEFAULT 'smart'")
             except Exception:
                 pass
+            # Auto smart tearsheets are role-family × state niches; counted
+            # structurally (not FTS) so abbrev/full state mismatches don't zero them.
+            for _col in ("niche_role", "niche_state"):
+                try:
+                    con.execute(f"ALTER TABLE pipelines ADD COLUMN {_col} TEXT DEFAULT ''")
+                except Exception:
+                    pass
             con.execute(
                 "CREATE TABLE IF NOT EXISTS tearsheet_members("
                 "ts_id INTEGER, talent_id INTEGER, added_at TEXT, "
@@ -252,10 +259,33 @@ def tearsheet_members_rows(ts_id: int) -> list:
         con.close()
 
 
+def _niche_rows(owner: str, fam: str, state_abbrev: str) -> list:
+    """Owner's candidates matching a role-family × state niche (structural —
+    role_family + normalized state, so 'CO' vs 'Colorado' both count)."""
+    con = _con()
+    try:
+        rows = [dict(r) for r in con.execute(
+            "SELECT * FROM talents WHERE owner_email=?", (owner,))]
+    except Exception:
+        return []
+    finally:
+        con.close()
+    out = []
+    for r in rows:
+        if (_role_family(r.get("current_title") or "") == fam
+                and _norm_state(r.get("state") or "") == state_abbrev):
+            out.append(r)
+    return out
+
+
 def tearsheet_count(p: dict, owner: str = None) -> int:
-    """Member count for manual tearsheets; live search count for smart ones."""
+    """Member count for manual tearsheets; structural niche count for auto
+    role×state tearsheets; live FTS search count for other smart ones."""
     if (p.get("kind") or "smart") == "manual":
         return len(tearsheet_member_ids(p.get("id")))
+    nr, ns = (p.get("niche_role") or ""), (p.get("niche_state") or "")
+    if nr and ns and owner:
+        return len(_niche_rows(owner, nr, ns))
     return search_count(p.get("query", ""), owner)
 
 
@@ -314,21 +344,34 @@ def auto_smart_tearsheets(owner: str, top_n: int = 6) -> int:
         return 0
     finally:
         con.close()
+    import time
     combos = Counter()
     for r in rows:
         fam = _role_family(r["current_title"] or "")
-        stt = _state_name(_norm_state(r["state"] or ""))
-        if fam and fam != "Other" and stt:
-            combos[(fam, stt)] += 1
+        abbr = _norm_state(r["state"] or "")
+        if fam and fam != "Other" and abbr:
+            combos[(fam, abbr)] += 1
     created = 0
-    for (fam, stt), cnt in combos.most_common(top_n):
-        if cnt < 2:  # skip one-off niches
-            continue
-        name = f"{fam} · {stt}"
-        if name in existing:
-            continue
-        add_pipeline(name, f"{fam} {stt}", owner)  # smart tearsheet
-        created += 1
+    con = _con()
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    try:
+        for (fam, abbr), cnt in combos.most_common(top_n):
+            if cnt < 2:  # skip one-off niches
+                continue
+            stt = _state_name(abbr)
+            name = f"{fam} · {stt}"
+            if name in existing:
+                continue
+            con.execute(
+                "INSERT INTO pipelines(name,query,owner,created_at,kind,niche_role,niche_state) "
+                "VALUES(?,?,?,?,'smart',?,?)",
+                (name, f"{fam} {stt}", owner, now, fam, abbr))
+            created += 1
+        con.commit()
+    except Exception:
+        pass
+    finally:
+        con.close()
     return created
 
 
@@ -1782,13 +1825,25 @@ def _view_dashboard(ff, st, refresh):
                 cnt = tearsheet_count(p, _owner)
 
                 def _go(_e=None, _p=p):
-                    if (_p.get("kind") or "smart") == "manual":
+                    _kind = _p.get("kind") or "smart"
+                    _nr, _ns = (_p.get("niche_role") or ""), (_p.get("niche_state") or "")
+                    if _kind == "manual":
                         st["tearsheet_id"] = _p.get("id")
                         st["tearsheet_name"] = _p.get("name", "")
                         st["results"] = tearsheet_members_rows(_p.get("id"))
                         st["terms"] = []
                         st["query"] = ""
                         st["preview"] = None
+                        st["view"] = "candidates"
+                        refresh()
+                    elif _nr and _ns:
+                        # Auto niche tearsheet — structural role×state match.
+                        st["results"] = _niche_rows(_owner, _nr, _ns)
+                        st["terms"] = _terms(f"{_nr}")
+                        st["query"] = ""
+                        st["crit"] = {}
+                        st["preview"] = None
+                        st.pop("tearsheet_id", None)
                         st["view"] = "candidates"
                         refresh()
                     else:
