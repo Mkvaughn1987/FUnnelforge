@@ -29748,7 +29748,7 @@ def _render_step3_confirm(s, rf):
         [x.strip() for x in (_loc_in.value or "").split(";") if x.strip()]))
     s._aicb_step3_refs["locations"] = _loc_in
 
-    ui.label("Roles").classes("fd-fl")
+    ui.label("Target Positions").classes("fd-fl")
     _role_csv = ", ".join(getattr(s, "aicb_sel_roles", []) or [])
     _role_in = ui.input(
         value=_role_csv,
