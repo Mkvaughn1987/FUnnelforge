@@ -644,9 +644,10 @@ def dedup_talents(dry_run: bool = True) -> dict:
 
 
 def companies_from_campaigns() -> list:
-    """Live list of companies the user has reached out to via DripDrop
-    campaigns — aggregated from campaign contacts + each campaign's target
-    company. Reads campaigns fresh, so new campaigns show up automatically."""
+    """Companies the user has reached out to through DripDrop campaigns,
+    built STRICTLY from the campaign CSV contacts (the people uploaded for
+    each campaign). Each company carries the list of contacts that were added
+    via CSV. Does NOT touch the ATS candidate pool — campaign data only."""
     ff = _ff()
     try:
         ff._cache_campaigns.invalidate()
@@ -657,39 +658,121 @@ def companies_from_campaigns() -> list:
     except Exception:
         return []
     agg = {}
-
-    def _add(co, camp_name, contact=None, website=""):
-        co = (str(co) if co is not None else "").strip()
-        if not co or co.lower() in ("n/a", "none", "-"):
-            return
-        e = agg.setdefault(co.lower(), {"name": co, "contacts": 0,
-                                        "campaigns": set(), "location": "", "website": ""})
-        if camp_name:
-            e["campaigns"].add(camp_name)
-        if website and not e["website"]:
-            e["website"] = website.strip()
-        if contact is not None:
-            e["contacts"] += 1
-            if not e["location"]:
-                e["location"] = ", ".join(
-                    x for x in [(contact.get("city") or ""), (contact.get("state") or "")] if x)
-
     for c in (camps or []):
         cname = c.get("name", "") or ""
-        _vars = c.get("variables") or {}
-        _web = (_vars.get("Website") or c.get("aicb_website") or c.get("website") or "")
         for ct in (c.get("contacts") or []):
-            _add(ct.get("company"), cname, ct,
-                 website=(ct.get("website") or ct.get("Website") or ""))
-        _add(_vars.get("Company"), cname, website=_web)
-        _add(c.get("market_company"), cname, website=_web)
+            co = (str(ct.get("company") or "")).strip()
+            if not co or co.lower() in ("n/a", "none", "-", "unknown"):
+                continue
+            e = agg.setdefault(co.lower(), {
+                "name": co, "location": "", "campaigns": set(), "contacts": {}})
+            if cname:
+                e["campaigns"].add(cname)
+            nm = ((ct.get("first_name") or "") + " " + (ct.get("last_name") or "")).strip()
+            email = (ct.get("email") or "").strip()
+            ckey = email.lower() or nm.lower()
+            if ckey and ckey not in e["contacts"]:
+                e["contacts"][ckey] = {
+                    "name": nm or email or "(no name)",
+                    "title": (ct.get("title") or "").strip(),
+                    "email": email,
+                    "phone": (ct.get("phone_mobile") or ct.get("phone_office") or "").strip(),
+                    "city": (ct.get("city") or "").strip(),
+                    "state": (ct.get("state") or "").strip(),
+                    "linkedin": (ct.get("linkedin") or "").strip(),
+                    "campaign": cname,
+                }
+            if not e["location"]:
+                e["location"] = ", ".join(
+                    x for x in [(ct.get("city") or ""), (ct.get("state") or "")] if x)
 
-    out = [{"name": v["name"], "contacts": v["contacts"],
-            "campaigns": sorted(v["campaigns"]), "location": v["location"],
-            "website": v["website"]}
+    out = [{"name": v["name"], "location": v["location"],
+            "campaigns": sorted(v["campaigns"]),
+            "contacts": list(v["contacts"].values())}
            for v in agg.values()]
-    out.sort(key=lambda x: (x["contacts"], len(x["campaigns"])), reverse=True)
+    out.sort(key=lambda x: (len(x["contacts"]), len(x["campaigns"])), reverse=True)
     return out
+
+
+# ── Company web-lookup insight (AI + web search, cached) ──────────────────
+def _company_key(name: str) -> str:
+    return re.sub(r"\s+", " ", (name or "").strip().lower())
+
+
+def get_company_insight(name: str) -> str:
+    """Cached AI insight for a company (empty string if not generated yet)."""
+    con = _con()
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS company_insights("
+                    "name_key TEXT PRIMARY KEY, name TEXT, insight TEXT, updated_at TEXT)")
+        row = con.execute("SELECT insight FROM company_insights WHERE name_key=?",
+                          (_company_key(name),)).fetchone()
+        return (row[0] if row else "") or ""
+    except Exception:
+        return ""
+    finally:
+        con.close()
+
+
+def _save_company_insight(name: str, insight: str):
+    import time
+    con = _con()
+    try:
+        con.execute("CREATE TABLE IF NOT EXISTS company_insights("
+                    "name_key TEXT PRIMARY KEY, name TEXT, insight TEXT, updated_at TEXT)")
+        con.execute("INSERT OR REPLACE INTO company_insights(name_key,name,insight,updated_at) "
+                    "VALUES(?,?,?,?)",
+                    (_company_key(name), name, insight, time.strftime("%Y-%m-%dT%H:%M:%S")))
+        con.commit()
+    except Exception:
+        pass
+    finally:
+        con.close()
+
+
+def _strip_insight_preamble(txt: str) -> str:
+    """Drop a leading 'I'll search…/Let me look up…' sentence the web-search
+    model sometimes emits before the actual summary."""
+    txt = (txt or "").strip()
+    for _ in range(2):
+        low = txt.lower()
+        if low.startswith(("i'll search", "i will search", "let me search",
+                           "let me look", "i'll look", "searching", "based on my search",
+                           "here's", "here is")):
+            # cut to the next sentence boundary
+            cut = txt.find(". ")
+            if 0 < cut < 160:
+                txt = txt[cut + 2:].strip()
+                continue
+        break
+    return txt
+
+
+def generate_company_insight(name: str, location: str = "") -> str:
+    """Web-lookup the company with Claude's web-search tool and cache a short
+    insight. Blocking (~few seconds) — call via run.io_bound in the UI."""
+    ff = _ff()
+    try:
+        import anthropic
+        cl = anthropic.Anthropic(api_key=ff.ANTHROPIC_API_KEY)
+        q = (f'Research the company "{name}"'
+             + (f' (located in {location})' if location else "")
+             + ". In 3-4 sentences summarize what the company does, its industry, "
+             "approximate size/scale, and anything notable (recent projects, news, "
+             "or reputation). Write ONLY the summary as plain prose — no preamble, "
+             "no 'I'll search', no bullet points, no headings.")
+        msg = cl.messages.create(
+            model="claude-haiku-4-5-20251001", max_tokens=600,
+            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
+            messages=[{"role": "user", "content": q}])
+        txt = "".join(getattr(b, "text", "") for b in msg.content
+                      if getattr(b, "type", "") == "text").strip()
+        txt = _strip_insight_preamble(txt)
+        if txt:
+            _save_company_insight(name, txt)
+        return txt
+    except Exception as e:
+        return "__ERROR__" + str(e)[:160]
 
 
 def send_to_dripdrop(candidate_ids, list_name) -> tuple:
@@ -1480,8 +1563,9 @@ def _view_companies(ff, st, refresh):
     ui.label("Companies").style(
         f"font-size:22px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
         f"font-family:'Nunito',sans-serif;")
-    ui.label("Companies you've reached out to through DripDrop campaigns — "
-             "updates automatically as you run new campaigns.").style(
+    ui.label("Companies you've reached through DripDrop campaigns — pulled from "
+             "your campaign contact lists. Click one for an AI company brief and "
+             "the contacts you uploaded.").style(
         f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:16px;")
     cos = companies_from_campaigns()
     with ui.element("div").style(
@@ -1490,22 +1574,26 @@ def _view_companies(ff, st, refresh):
         ui.label(f"{len(cos):,} companies").style(
             f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:10px;display:block;")
         if not cos:
-            ui.label("No companies yet — run a DripDrop campaign and the companies "
-                     "you contact will appear here automatically.").style(
+            ui.label("No companies yet — run a DripDrop campaign (with a CSV contact "
+                     "list) and the companies you contact will appear here.").style(
                 f"font-size:13px;color:{_c(C,'muted','#94A3B8')};padding:8px 0;")
             return
-        _cols = "1.9fr 1.2fr 1.4fr 0.7fr"
+        _cols = "2fr 1.3fr 0.8fr 0.8fr"
         with ui.element("div").style(
                 f"display:grid;grid-template-columns:{_cols};gap:12px;"
                 f"padding:8px 6px;border-bottom:1px solid {_c(C,'border','#E2E8F0')};"
                 f"font-size:10px;font-weight:700;letter-spacing:.05em;"
                 f"text-transform:uppercase;color:{_c(C,'muted','#94A3B8')};"):
-            for h in ("Company", "Location", "Website", "Campaigns"):
+            for h in ("Company", "Location", "Contacts", "Campaigns"):
                 ui.label(h)
         for co in cos:
             def _open_co(_e=None, c=co):
                 st["company"] = c
                 st["view"] = "company_detail"
+                # Reset per-company insight session state.
+                for _k in ("_co_insight_busy", "_co_insight_started",
+                           "_co_insight_result", "_co_insight_err"):
+                    st.pop(_k, None)
                 refresh()
             with ui.element("div").style(
                     f"display:grid;grid-template-columns:{_cols};gap:12px;align-items:center;"
@@ -1516,83 +1604,161 @@ def _view_companies(ff, st, refresh):
                     f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
                 ui.label(co["location"] or "—").style(
                     f"font-size:12px;color:{_c(C,'text','#334155')};")
-                ui.label(co["website"] or "—").style(
-                    f"font-size:12px;color:{_c(C,'muted','#94A3B8')};"
-                    f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
+                ui.label(f"{len(co['contacts']):,}").style(
+                    f"font-size:12px;font-weight:600;color:{_c(C,'text_l','#0F172A')};")
                 ui.label(f"{len(co['campaigns']):,}").style(
                     f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
 
 
 def _view_company_detail(ff, st, refresh):
-    """Read-only company profile — name, location, website, and outreach
-    footprint from DripDrop campaigns. No people listed under it (by design,
-    for now). Reached from the Companies list."""
+    """Company record from DripDrop campaign CSVs: an AI web-lookup brief plus
+    the contacts that were uploaded for that company. Reached from Companies."""
     C = ff.C
     co = st.get("company") or {}
     if not co:
         st["view"] = "companies"; refresh(); return
 
     def _back():
-        st["view"] = "companies"; st["company"] = None; refresh()
+        st["view"] = "companies"; st["company"] = None
+        st.pop("_co_insight_busy", None); st.pop("_co_insight_started", None)
+        refresh()
     with ui.element("span").style(
             f"font-size:12px;color:{_c(C,'teal','#1AE3D9')};cursor:pointer;").on("click", _back):
         ui.label("← Companies")
 
+    name = co.get("name", "")
     camps = co.get("campaigns") or []
-    web = (co.get("website") or "").strip()
-    web_url = web if (web.startswith("http://") or web.startswith("https://")) else ("https://" + web if web else "")
+    contacts = co.get("contacts") or []
 
-    # Header card
+    # Header
     with ui.element("div").style(
             f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
             f"border-radius:12px;padding:20px 22px;margin-top:12px;margin-bottom:14px;"):
-        ui.label(co.get("name", "")).style(
+        ui.label(name).style(
             f"font-size:22px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
             f"font-family:'Nunito',sans-serif;")
-        with ui.element("div").style("display:flex;gap:22px;flex-wrap:wrap;margin-top:8px;align-items:center;"):
+        with ui.element("div").style("display:flex;gap:22px;flex-wrap:wrap;margin-top:8px;"):
             ui.label(f"📍 {co.get('location') or '—'}").style(
                 f"font-size:12px;color:{_c(C,'text','#334155')};")
-            if web:
-                with ui.element("a").props(f'href="{web_url}" target="_blank"').style(
-                        f"font-size:12px;color:{_c(C,'teal','#1AE3D9')};text-decoration:none;"):
-                    ui.label(f"🌐 {web}")
-            else:
-                ui.label("🌐 No website on file").style(
-                    f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
+            ui.label(f"👥 {len(contacts)} contact{'s' if len(contacts) != 1 else ''} "
+                     f"from {len(camps)} campaign{'s' if len(camps) != 1 else ''}").style(
+                f"font-size:12px;color:{_c(C,'text','#334155')};")
 
-    # Stat tiles
-    with ui.element("div").style("display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;"):
-        for val, lbl in ((f"{len(camps):,}", "Campaigns reached"),
-                         (f"{co.get('contacts', 0):,}", "People contacted")):
-            with ui.element("div").style(
-                    f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
-                    f"border-radius:12px;padding:16px 18px;"):
-                ui.label(val).style(
-                    f"font-size:26px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
-                    f"font-family:'Nunito',sans-serif;line-height:1;")
-                ui.label(lbl).style(
-                    f"font-size:11px;color:{_c(C,'muted','#94A3B8')};margin-top:4px;display:block;")
+    # ── AI Company Brief (web lookup, cached) ──
+    _insight = get_company_insight(name)
+    _busy = st.get("_co_insight_busy", False)
 
-    # Campaigns this company appeared in
+    async def _gen_insight():
+        from nicegui import run as _run
+        try:
+            txt = await _run.io_bound(generate_company_insight, name, co.get("location", ""))
+        except Exception as e:
+            txt = "__ERROR__" + str(e)[:160]
+        st["_co_insight_busy"] = False
+        if txt and not txt.startswith("__ERROR__"):
+            st["_co_insight_result"] = txt
+        else:
+            st["_co_insight_err"] = (txt or "").replace("__ERROR__", "") or "lookup failed"
+        refresh()
+
     with ui.element("div").style(
             f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
-            f"border-radius:12px;padding:16px 18px;"):
-        ui.label("REACHED VIA CAMPAIGNS").style(
-            f"font-size:10px;font-weight:700;letter-spacing:.06em;"
-            f"color:{_c(C,'muted','#94A3B8')};margin-bottom:10px;display:block;")
-        if camps:
-            with ui.element("div").style("display:flex;flex-wrap:wrap;gap:8px;"):
-                for nm in camps:
-                    ui.label(nm).style(
-                        f"background:{_c(C,'teal','#1AE3D9')}14;color:{_c(C,'text_l','#0F172A')};"
-                        f"border:1px solid {_c(C,'teal','#1AE3D9')}40;border-radius:99px;"
-                        f"padding:4px 12px;font-size:12px;")
+            f"border-radius:12px;padding:18px 20px;margin-bottom:14px;"):
+        with ui.element("div").style(
+                "display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;"):
+            ui.label("COMPANY BRIEF").style(
+                f"font-size:10px;font-weight:700;letter-spacing:.06em;"
+                f"color:{_c(C,'muted','#94A3B8')};")
+            if _insight and not _busy:
+                def _refresh_insight(_e=None):
+                    st["_co_insight_busy"] = True
+                    st["_co_insight_started"] = True
+                    st.pop("_co_insight_err", None)
+                    refresh()
+                    ui.timer(0.1, _gen_insight, once=True)
+                with ui.element("button").style(
+                        f"background:transparent;border:1px solid {_c(C,'border','#E2E8F0')};"
+                        f"color:{_c(C,'muted','#94A3B8')};border-radius:7px;padding:4px 11px;"
+                        f"font-size:11px;cursor:pointer;font-family:inherit;").on("click", _refresh_insight):
+                    ui.label("↻ Refresh")
+        # Use the freshly generated result if we have one this render.
+        _insight = st.get("_co_insight_result") or _insight
+        if _insight:
+            ui.label("🌐 AI web lookup").style(
+                f"font-size:10px;color:{_c(C,'teal','#1AE3D9')};margin-bottom:6px;display:block;")
+            ui.label(_insight).style(
+                f"font-size:13.5px;color:{_c(C,'text','#334155')};line-height:1.65;")
+        elif _busy:
+            with ui.element("div").style("display:flex;align-items:center;gap:10px;padding:6px 0;"):
+                ui.spinner("dots", size="20px", color=_c(C, 'teal', '#1AE3D9'))
+                ui.label(f"Looking up {name} on the web…").style(
+                    f"font-size:13px;color:{_c(C,'teal','#1AE3D9')};")
         else:
-            ui.label("—").style(f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
+            if st.get("_co_insight_err"):
+                ui.label("Couldn't fetch a brief: " + st["_co_insight_err"]).style(
+                    f"font-size:12px;color:{_c(C,'warn','#D97706')};margin-bottom:8px;display:block;")
+            # Auto-kick the lookup once on first view.
+            if not st.get("_co_insight_started") and not st.get("_co_insight_err"):
+                st["_co_insight_started"] = True
+                st["_co_insight_busy"] = True
+                refresh()
+                ui.timer(0.1, _gen_insight, once=True)
+            else:
+                def _do_insight(_e=None):
+                    st["_co_insight_busy"] = True
+                    st["_co_insight_started"] = True
+                    st.pop("_co_insight_err", None)
+                    refresh()
+                    ui.timer(0.1, _gen_insight, once=True)
+                with ui.element("button").style(
+                        f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;"
+                        f"border-radius:8px;padding:7px 16px;font-size:12px;font-weight:700;"
+                        f"cursor:pointer;font-family:inherit;").on("click", _do_insight):
+                    ui.label("🌐 Look up this company")
 
-    ui.label("People and open jobs can be linked to this company soon — for now this is "
-             "the company record.").style(
-        f"font-size:11px;color:{_c(C,'muted','#94A3B8')};margin-top:14px;display:block;")
+    # ── Contacts (added via campaign CSV) ──
+    with ui.element("div").style(
+            f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
+            f"border-radius:12px;padding:18px 20px;"):
+        ui.label(f"CONTACTS ({len(contacts)})").style(
+            f"font-size:10px;font-weight:700;letter-spacing:.06em;"
+            f"color:{_c(C,'muted','#94A3B8')};margin-bottom:4px;display:block;")
+        ui.label("People added for this company through your campaign contact lists.").style(
+            f"font-size:11px;color:{_c(C,'muted','#94A3B8')};margin-bottom:12px;display:block;")
+        if not contacts:
+            ui.label("No contacts on file.").style(
+                f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
+        else:
+            _cc = "1.5fr 1.5fr 1.6fr 1fr"
+            with ui.element("div").style(
+                    f"display:grid;grid-template-columns:{_cc};gap:12px;"
+                    f"padding:6px 4px;border-bottom:1px solid {_c(C,'border','#E2E8F0')};"
+                    f"font-size:10px;font-weight:700;letter-spacing:.04em;"
+                    f"text-transform:uppercase;color:{_c(C,'muted','#94A3B8')};"):
+                for h in ("Name", "Title", "Email", "Phone"):
+                    ui.label(h)
+            for ct in contacts:
+                with ui.element("div").style(
+                        f"display:grid;grid-template-columns:{_cc};gap:12px;align-items:center;"
+                        f"padding:9px 4px;border-bottom:1px solid {_c(C,'border','#EEF2F8')};"):
+                    _nm_cell = ui.element("div").style("min-width:0;")
+                    with _nm_cell:
+                        ui.label(ct.get("name", "") or "—").style(
+                            f"font-size:13px;font-weight:700;color:{_c(C,'text_l','#0F172A')};"
+                            f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
+                        _loc2 = ", ".join(x for x in [ct.get("city", ""), ct.get("state", "")] if x)
+                        if _loc2:
+                            ui.label(_loc2).style(
+                                f"font-size:10px;color:{_c(C,'muted','#94A3B8')};")
+                    ui.label(ct.get("title", "") or "—").style(
+                        f"font-size:12px;color:{_c(C,'text','#334155')};"
+                        f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
+                    ui.label(ct.get("email", "") or "—").style(
+                        f"font-size:12px;color:{_c(C,'text','#334155')};"
+                        f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
+                    ui.label(ct.get("phone", "") or "—").style(
+                        f"font-size:12px;color:{_c(C,'text','#334155')};"
+                        f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
 
 
 def _view_profile(ff, st, refresh):
