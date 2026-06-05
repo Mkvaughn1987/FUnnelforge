@@ -343,19 +343,25 @@ def _terms(text: str) -> list:
     return out
 
 
-def keyword_search(q: str, limit: int = 80, strict: bool = False) -> list:
+def keyword_search(q: str, limit: int = 80, strict: bool = False,
+                   owner: str = None) -> list:
+    """FTS keyword search. Global by default (whole team's pool); scoped to
+    one owner's candidates when owner is given ('My candidates' filter)."""
     terms = _terms(q)
     if not terms:
         return []
     con = _con()
     try:
+        _own = " AND t.owner_email=?" if owner else ""
+
         def run(joiner):
             expr = joiner.join('"%s"' % t.replace('"', '') for t in terms)
+            params = [expr] + ([owner] if owner else []) + [limit]
             return con.execute(
                 """SELECT t.*, bm25(talents_fts) AS rank
                    FROM talents_fts f JOIN talents t ON t.id=f.rowid
-                   WHERE talents_fts MATCH ? ORDER BY rank LIMIT ?""",
-                (expr, limit)).fetchall()
+                   WHERE talents_fts MATCH ?%s ORDER BY rank LIMIT ?""" % _own,
+                params).fetchall()
         rows = run(" AND ")
         # General search broadens to OR for recall; strict (pipelines) does not.
         if not rows and not strict:
@@ -389,7 +395,7 @@ def jd_extract(jd_text: str) -> dict:
         return {}
 
 
-def jd_search(jd_text: str, limit: int = 80):
+def jd_search(jd_text: str, limit: int = 80, owner: str = None):
     crit = jd_extract(jd_text)
     terms = list(_terms(crit.get("title", "")))
     for s in (crit.get("must_have_skills") or []):
@@ -406,12 +412,14 @@ def jd_search(jd_text: str, limit: int = 80):
         return crit, [], []
     con = _con()
     try:
+        _own = " AND t.owner_email=?" if owner else ""
         expr = " OR ".join('"%s"' % t.replace('"', '') for t in uterms)
+        params = [expr] + ([owner] if owner else []) + [limit]
         rows = con.execute(
             """SELECT t.*, bm25(talents_fts) AS rank
                FROM talents_fts f JOIN talents t ON t.id=f.rowid
-               WHERE talents_fts MATCH ? ORDER BY rank LIMIT ?""",
-            (expr, limit)).fetchall()
+               WHERE talents_fts MATCH ?%s ORDER BY rank LIMIT ?""" % _own,
+            params).fetchall()
         return crit, [dict(r) for r in rows], uterms
     except Exception:
         return crit, [], uterms
@@ -1722,17 +1730,57 @@ def _view_candidates(ff, st, refresh):
             f"border-radius:12px;padding:16px 18px;margin-bottom:16px;"):
         def _set_mode(m):
             st["mode"] = m; refresh()
-        with ui.element("div").style("display:flex;gap:8px;margin-bottom:12px;"):
-            for mk, ml in (("keywords", "🔍 Keywords"), ("jd", "📄 Match a Job Description")):
-                on = (st["mode"] == mk)
-                with ui.element("button").style(
-                        f"padding:7px 16px;font-size:12px;font-weight:600;border-radius:8px;"
-                        f"cursor:pointer;font-family:inherit;border:1px solid "
-                        f"{_c(C,'teal','#1AE3D9') if on else _c(C,'border','#243049')};"
-                        f"background:{(_c(C,'teal','#1AE3D9')+'22') if on else 'transparent'};"
-                        f"color:{_c(C,'teal','#1AE3D9') if on else _c(C,'text','#CBD5E1')};"
-                        ).on("click", lambda _e, m=mk: _set_mode(m)):
-                    ui.label(ml).style("pointer-events:none;")
+
+        _scope_owner = lambda: (st.get("email") if st.get("scope") == "mine" else None)
+
+        async def _apply_scope(scope):
+            st["scope"] = scope
+            from nicegui import run as _run
+            owner = st.get("email") if scope == "mine" else None
+            if st.get("query") and st.get("mode") == "keywords":
+                st["searching"] = True; refresh()
+                q = st["query"]
+                st["results"] = await _run.io_bound(
+                    lambda: score_results(q, keyword_search(q, owner=owner)))
+                st["searching"] = False; refresh()
+            elif st.get("jd") and st.get("mode") == "jd":
+                st["searching"] = True; refresh()
+                jd = st["jd"]
+                crit, results, terms = await _run.io_bound(jd_search, jd, 80, owner)
+                results = await _run.io_bound(lambda: score_results(jd, results))
+                st["crit"], st["results"], st["terms"] = crit, results, terms
+                st["searching"] = False; refresh()
+            else:
+                refresh()
+
+        with ui.element("div").style(
+                "display:flex;align-items:center;justify-content:space-between;"
+                "gap:10px;margin-bottom:12px;flex-wrap:wrap;"):
+            with ui.element("div").style("display:flex;gap:8px;"):
+                for mk, ml in (("keywords", "🔍 Keywords"), ("jd", "📄 Match a Job Description")):
+                    on = (st["mode"] == mk)
+                    with ui.element("button").style(
+                            f"padding:7px 16px;font-size:12px;font-weight:600;border-radius:8px;"
+                            f"cursor:pointer;font-family:inherit;border:1px solid "
+                            f"{_c(C,'teal','#1AE3D9') if on else _c(C,'border','#243049')};"
+                            f"background:{(_c(C,'teal','#1AE3D9')+'22') if on else 'transparent'};"
+                            f"color:{_c(C,'teal','#1AE3D9') if on else _c(C,'text','#CBD5E1')};"
+                            ).on("click", lambda _e, m=mk: _set_mode(m)):
+                        ui.label(ml).style("pointer-events:none;")
+            # Scope filter: everyone's pool vs. just mine.
+            _scope = st.get("scope", "all")
+            with ui.element("div").style(
+                    f"display:flex;gap:3px;background:{_c(C,'surface','#0E1726')};"
+                    f"border:1px solid {_c(C,'border','#243049')};border-radius:8px;padding:3px;"):
+                for sk, sl in (("all", "All candidates"), ("mine", "My candidates")):
+                    _son = (_scope == sk)
+                    with ui.element("button").style(
+                            f"padding:6px 13px;font-size:12px;font-weight:700;border-radius:6px;"
+                            f"cursor:pointer;font-family:inherit;border:0;"
+                            f"background:{_c(C,'teal','#1AE3D9') if _son else 'transparent'};"
+                            f"color:{'#08121f' if _son else _c(C,'text','#CBD5E1')};"
+                            ).on("click", lambda _e, x=sk: _apply_scope(x)):
+                        ui.label(sl).style("pointer-events:none;")
 
         if st["mode"] == "keywords":
             _inp = ui.input(value=st.get("query", ""),
@@ -1749,8 +1797,9 @@ def _view_candidates(ff, st, refresh):
                 st["searching"] = True; refresh()
                 from nicegui import run as _run
                 q = st["query"]
+                owner = _scope_owner()
                 st["results"] = await _run.io_bound(
-                    lambda: score_results(q, keyword_search(q)))
+                    lambda: score_results(q, keyword_search(q, owner=owner)))
                 st["searching"] = False
                 refresh()
             _inp.on("keydown.enter", lambda _e: _do_kw())
@@ -1773,7 +1822,8 @@ def _view_candidates(ff, st, refresh):
                     ui.notify("Paste a job description first.", type="warning"); return
                 st["searching"] = True; refresh()
                 from nicegui import run as _run
-                crit, results, terms = await _run.io_bound(jd_search, jd)
+                owner = _scope_owner()
+                crit, results, terms = await _run.io_bound(jd_search, jd, 80, owner)
                 results = await _run.io_bound(lambda: score_results(jd, results))
                 st["crit"], st["results"], st["terms"] = crit, results, terms
                 st["searching"] = False
@@ -1906,11 +1956,14 @@ def _view_candidates(ff, st, refresh):
         list_label = (f"{len(rows)} candidate(s)"
                       + (" · ranked by fit" if _has_fit else ""))
     else:
-        rows = recent()
+        _scope_o = st.get("email") if st.get("scope") == "mine" else None
+        rows = recent(owner=_scope_o)
         terms = None
-        list_label = "Recently added"
+        list_label = ("Recently added · my candidates" if _scope_o else "Recently added")
     if not rows:
-        ui.label("No candidates yet.").style(
+        ui.label("No candidates here yet."
+                 + (" You haven't added any candidates — switch to All candidates "
+                    "to search the team's pool." if st.get("scope") == "mine" else "")).style(
             f"font-size:13px;color:{_c(C,'muted','#94A3B8')};padding:18px 2px;")
         return
     # Default the preview to the first row (and keep its fit in sync).
