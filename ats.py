@@ -1791,34 +1791,34 @@ def _view_candidates(ff, st, refresh):
             else:
                 refresh()
 
-        with ui.element("div").style(
-                "display:flex;align-items:center;justify-content:space-between;"
-                "gap:10px;margin-bottom:12px;flex-wrap:wrap;"):
-            with ui.element("div").style("display:flex;gap:8px;"):
-                for mk, ml in (("keywords", "🔍 Keywords"), ("jd", "📄 Match a Job Description")):
-                    on = (st["mode"] == mk)
-                    with ui.element("button").style(
-                            f"padding:7px 16px;font-size:12px;font-weight:600;border-radius:8px;"
-                            f"cursor:pointer;font-family:inherit;border:1px solid "
-                            f"{_c(C,'teal','#1AE3D9') if on else _c(C,'border','#243049')};"
-                            f"background:{(_c(C,'teal','#1AE3D9')+'22') if on else 'transparent'};"
-                            f"color:{_c(C,'teal','#1AE3D9') if on else _c(C,'text','#CBD5E1')};"
-                            ).on("click", lambda _e, m=mk: _set_mode(m)):
-                        ui.label(ml).style("pointer-events:none;")
-            # Scope filter: everyone's pool vs. just mine.
+        # Scope toggle builder — reused next to the "Recently added" header.
+        def _scope_toggle(compact=True):
             _scope = st.get("scope", "all")
             with ui.element("div").style(
-                    f"display:flex;gap:3px;background:{_c(C,'surface','#0E1726')};"
-                    f"border:1px solid {_c(C,'border','#243049')};border-radius:8px;padding:3px;"):
-                for sk, sl in (("all", "All candidates"), ("mine", "My candidates")):
+                    f"display:flex;gap:2px;background:{_c(C,'surface','#0E1726')};"
+                    f"border:1px solid {_c(C,'border','#243049')};border-radius:7px;"
+                    f"padding:2px;flex-shrink:0;"):
+                for sk, sl in (("all", "All"), ("mine", "Mine")):
                     _son = (_scope == sk)
                     with ui.element("button").style(
-                            f"padding:6px 13px;font-size:12px;font-weight:700;border-radius:6px;"
+                            f"padding:4px 11px;font-size:11px;font-weight:700;border-radius:5px;"
                             f"cursor:pointer;font-family:inherit;border:0;"
                             f"background:{_c(C,'teal','#1AE3D9') if _son else 'transparent'};"
                             f"color:{'#08121f' if _son else _c(C,'text','#CBD5E1')};"
                             ).on("click", lambda _e, x=sk: _apply_scope(x)):
                         ui.label(sl).style("pointer-events:none;")
+
+        with ui.element("div").style("display:flex;gap:8px;margin-bottom:12px;"):
+            for mk, ml in (("keywords", "🔍 Keywords"), ("jd", "📄 Match a Job Description")):
+                on = (st["mode"] == mk)
+                with ui.element("button").style(
+                        f"padding:7px 16px;font-size:12px;font-weight:600;border-radius:8px;"
+                        f"cursor:pointer;font-family:inherit;border:1px solid "
+                        f"{_c(C,'teal','#1AE3D9') if on else _c(C,'border','#243049')};"
+                        f"background:{(_c(C,'teal','#1AE3D9')+'22') if on else 'transparent'};"
+                        f"color:{_c(C,'teal','#1AE3D9') if on else _c(C,'text','#CBD5E1')};"
+                        ).on("click", lambda _e, m=mk: _set_mode(m)):
+                    ui.label(ml).style("pointer-events:none;")
 
         if st["mode"] == "keywords":
             _inp = ui.input(value=st.get("query", ""),
@@ -2015,8 +2015,14 @@ def _view_candidates(ff, st, refresh):
         with ui.element("div").style(
                 "flex:0 0 430px;max-width:430px;height:calc(100vh - 300px);"
                 "min-height:380px;overflow-y:auto;padding-right:4px;"):
-            ui.label(list_label).style(
-                f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:8px;display:block;")
+            with ui.element("div").style(
+                    "display:flex;align-items:center;justify-content:space-between;"
+                    "gap:8px;margin-bottom:8px;"):
+                ui.label(list_label).style(
+                    f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
+                # All / Mine scope filter — lives next to the list header.
+                if not _tsid:
+                    _scope_toggle()
             _candidate_rows(C, st, refresh, rows, terms)
         # RIGHT: résumé preview
         with ui.element("div").style(
