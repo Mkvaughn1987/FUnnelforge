@@ -709,6 +709,16 @@ def _ago(iso):
     return f"{int(s // 86400)}d ago"
 
 
+def _fmt_date(iso):
+    """Absolute date like 'Mar 14, 2026' (Windows-safe — no %-d)."""
+    from datetime import datetime
+    try:
+        dt = datetime.fromisoformat((iso or "")[:19])
+    except Exception:
+        return "—"
+    return f"{dt.strftime('%b')} {dt.day}, {dt.year}"
+
+
 def _drill(st, refresh, query, strict=False):
     """Run a keyword search and jump to the Candidates view."""
     st["mode"] = "keywords"
@@ -915,7 +925,7 @@ def _candidate_rows(C, st, refresh, rows, terms=None):
                 ).on("click", _toggle_all):
             if all_sel:
                 ui.label("✓").style("font-size:10px;color:#fff;line-height:1;")
-        for h in ("Name", "Title / Employer", "Location", "Owner", "Status"):
+        for h in ("Name", "Title / Employer", "Location", "Owner", "Date Added"):
             ui.label(h)
     for r in rows:
         tid = r.get("id")
@@ -974,8 +984,8 @@ def _candidate_rows(C, st, refresh, rows, terms=None):
                 if fit is not None:
                     ui.label(f"{fit}% fit").style(
                         f"font-size:14px;font-weight:800;color:{_fit_color(C, fit)};line-height:1.1;")
-                ui.label(r.get("status", "Candidate") or "Candidate").style(
-                    f"font-size:10px;font-weight:600;color:{_c(C,'teal','#1AE3D9')};")
+                ui.label(_fmt_date(r.get("created_at", ""))).style(
+                    f"font-size:11px;font-weight:600;color:{_c(C,'text','#CBD5E1')};")
 
 
 def _view_candidates(ff, st, refresh):
