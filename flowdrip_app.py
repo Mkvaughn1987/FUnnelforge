@@ -31573,6 +31573,20 @@ def p_ai_campaign(s: AppState, rf):
         _wiz_step = _aicb_clamp_wizard_step(
             getattr(s, "aicb_wizard_step", 1))
 
+        # Scroll back to the top whenever the wizard moves to a DIFFERENT
+        # step. Without this, advancing from a tall step (e.g. Confirm) to a
+        # short one (Campaign style) leaves the page scrolled at the bottom,
+        # stranding the user in empty space. Guarded on step-change so it
+        # doesn't fire on every field-blur re-render.
+        if _wiz_mode == "wizard":
+            _last_wiz = getattr(s, "_aicb_last_rendered_wiz_step", None)
+            if _last_wiz != _wiz_step:
+                s._aicb_last_rendered_wiz_step = _wiz_step
+                try:
+                    ui.run_javascript("window.scrollTo(0, 0);")
+                except Exception:
+                    pass
+
         # Title + top-right Next button. The Next button is a discoverable
         # forward control so users never have to scroll the page to find a
         # way to advance. Validation mirrors the bottom Next: state-only,
