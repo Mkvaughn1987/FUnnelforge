@@ -903,7 +903,7 @@ def _candidate_rows(C, st, refresh, rows, terms=None):
             f"font-size:13px;color:{_c(C,'muted','#94A3B8')};padding:18px 2px;")
         return
     sel = st.setdefault("selected", set())
-    _grid = "30px 1.3fr 1.4fr 0.85fr 0.85fr 0.7fr"
+    _grid = "54px 1.3fr 1.4fr 0.85fr 0.85fr 0.7fr"
     all_ids = [r.get("id") for r in rows]
     all_sel = bool(all_ids) and all(i in sel for i in all_ids)
 
@@ -918,13 +918,15 @@ def _candidate_rows(C, st, refresh, rows, terms=None):
             f"font-size:10px;font-weight:700;letter-spacing:.05em;"
             f"text-transform:uppercase;color:{_c(C,'muted','#94A3B8')};"):
         with ui.element("div").style(
-                f"width:16px;height:16px;border-radius:4px;border:1.5px solid "
-                f"{_c(C,'teal','#1AE3D9') if all_sel else _c(C,'muted','#94A3B8')};"
-                f"background:{_c(C,'teal','#1AE3D9') if all_sel else 'transparent'};"
-                f"display:flex;align-items:center;justify-content:center;cursor:pointer;"
+                "display:flex;align-items:center;height:100%;cursor:pointer;"
                 ).on("click", _toggle_all):
-            if all_sel:
-                ui.label("✓").style("font-size:10px;color:#fff;line-height:1;")
+            with ui.element("div").style(
+                    f"width:20px;height:20px;border-radius:5px;border:1.5px solid "
+                    f"{_c(C,'teal','#1AE3D9') if all_sel else _c(C,'muted','#94A3B8')};"
+                    f"background:{_c(C,'teal','#1AE3D9') if all_sel else 'transparent'};"
+                    f"display:flex;align-items:center;justify-content:center;"):
+                if all_sel:
+                    ui.label("✓").style("font-size:12px;color:#fff;line-height:1;")
         for h in ("Name", "Title / Employer", "Location", "Owner", "Date Added"):
             ui.label(h)
     for r in rows:
@@ -944,16 +946,19 @@ def _candidate_rows(C, st, refresh, rows, terms=None):
             refresh()
         with ui.element("div").style(
                 f"display:grid;grid-template-columns:{_grid};gap:12px;"
-                f"padding:11px 14px;border-bottom:1px solid {_c(C,'border','#1c2740')};"
+                f"padding:13px 14px;border-bottom:1px solid {_c(C,'border','#1c2740')};"
                 f"cursor:pointer;align-items:center;").on("click", _open):
+            # Big, full-cell hit area so a near-miss checks instead of opening.
             with ui.element("div").style(
-                    f"width:16px;height:16px;border-radius:4px;border:1.5px solid "
-                    f"{_c(C,'teal','#1AE3D9') if _checked else _c(C,'muted','#94A3B8')};"
-                    f"background:{_c(C,'teal','#1AE3D9') if _checked else 'transparent'};"
-                    f"display:flex;align-items:center;justify-content:center;cursor:pointer;"
-                    ).on("click.stop", _toggle):
-                if _checked:
-                    ui.label("✓").style("font-size:10px;color:#fff;line-height:1;")
+                    f"display:flex;align-items:center;height:100%;margin:-13px 0;padding:13px 0;"
+                    f"cursor:pointer;").on("click.stop", _toggle):
+                with ui.element("div").style(
+                        f"width:20px;height:20px;border-radius:5px;border:1.5px solid "
+                        f"{_c(C,'teal','#1AE3D9') if _checked else _c(C,'muted','#94A3B8')};"
+                        f"background:{_c(C,'teal','#1AE3D9') if _checked else 'transparent'};"
+                        f"display:flex;align-items:center;justify-content:center;"):
+                    if _checked:
+                        ui.label("✓").style("font-size:12px;color:#fff;line-height:1;")
             with ui.element("div"):
                 ui.label(_fullname(r)).style(
                     f"font-size:13px;font-weight:700;color:{_c(C,'text_l','#E6EDF7')};"
