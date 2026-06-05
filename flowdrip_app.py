@@ -51,6 +51,14 @@ _logging.getLogger("nicegui").addFilter(_NiceGUIClientWarningFilter())
 # can forge a session cookie for any user.
 _STORAGE_SECRET = os.getenv("DRIPDROP_SECRET", "dripdrop-local-dev-secret-change-me")
 
+# ── ATS (in-development, gated) ────────────────────────────────────────────
+# The ATS resume-search section is visible ONLY to these accounts while it's
+# being built. Everyone else's app shows no trace of it. Flip to open it up.
+_ATS_ALLOWED_EMAILS = {
+    "michael.vaughn@arenastaffing.net",
+    "mkvaughn1987@gmail.com",
+}
+
 # Desktop installer download URL  -  set to a real CDN URL once the installer
 # is built and uploaded (Cloudflare R2 recommended). The landing page
 # "Download for Windows" button uses this. If the env var isn't set we fall
@@ -10989,7 +10997,7 @@ def topbar(s: AppState, rf):
         # in the exclude list (pre-2026-05-11) caused both Sales Hub
         # and Candidate Pool to highlight together. New hub pages
         # added below MUST also be added to this exclusion tuple.
-        _other_hub_pages = ("seq_mgr", "newsletters", "candidate_finder")
+        _other_hub_pages = ("seq_mgr", "newsletters", "candidate_finder", "ats")
         _on_sales       = s.hub == "sales" and s.sp not in _other_hub_pages
         _on_emails      = s.hub == "emails"
         _on_camp_mgr    = s.hub == "sales" and s.sp == "seq_mgr"
@@ -11006,6 +11014,14 @@ def topbar(s: AppState, rf):
         _on_cf = s.hub == "sales" and s.sp == "candidate_finder"
         with ui.element("button").classes("fd-hub" + (" on" if _on_cf else "")).on("click", _cf):
             ui.label("Top Candidates")
+        # ── ATS (gated to allowlisted accounts while in development) ──
+        if (getattr(s, '_user_email', '') or '').strip().lower() in _ATS_ALLOWED_EMAILS:
+            def _ats_nav():
+                s._nav_history.clear()
+                s.hub = "sales"; s.sp = "ats"; rf()
+            _on_ats = s.hub == "sales" and s.sp == "ats"
+            with ui.element("button").classes("fd-hub" + (" on" if _on_ats else "")).on("click", _ats_nav):
+                ui.label("ATS")
         # Market Intel hub button removed 2026-05-02 per user — "remove
         # for now". Page handler p_market_intel and the underlying
         # market_intel route stay in place so anyone with a deep link
@@ -48721,6 +48737,20 @@ def render_page(s: AppState, rf):
             # newsletters are created via the Slow Drip → Create
             # Newsletter dialog (_create_newsletter_dialog) instead.
             elif page == "admin":        p_admin(s, rf)
+            elif page == "ats":
+                # Gated resume-search ATS. Lazy-imported + guarded so any
+                # issue in ats.py can never break the rest of the app.
+                if (getattr(s, '_user_email', '') or '').strip().lower() in _ATS_ALLOWED_EMAILS:
+                    try:
+                        import ats as _atsmod
+                        _atsmod.render(s, rf)
+                    except Exception as _ats_ex:
+                        print(f"[ATS] render error: {_ats_ex}", flush=True)
+                        ui.label(f"ATS error: {str(_ats_ex)[:200]}").style(
+                            f"font-size:13px;color:{C['danger']};padding:20px 0;")
+                else:
+                    ui.label("Not available.").style(
+                        f"font-size:14px;color:{C['muted']};padding:20px 0;")
             else:
                 ui.label(f"Page '{page}' not found").style(
                     f"font-size:14px;color:{C['warn']};padding:20px 0;")
