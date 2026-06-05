@@ -1831,14 +1831,18 @@ def _view_dashboard(ff, st, refresh):
                         f"font-family:inherit;").on("click", _go_cands):
                     ui.label("Search the team pool →")
 
-    # Stat tiles
+    # Stat tiles — your own pool + the team-wide pool.
+    _team_total = total_count()
     with ui.element("div").style("display:flex;gap:14px;margin-bottom:18px;flex-wrap:wrap;"):
-        for val, lbl in ((f"{stats['total']:,}", "Total talents"),
-                         (f"{stats['added_week']:,}", "Added this week")):
+        for val, lbl, accent in ((f"{stats['total']:,}", "My candidates", False),
+                                 (f"{stats['added_week']:,}", "Added this week", False),
+                                 (f"{_team_total:,}", "All candidates · team", True)):
             with ui.element("div").style(
-                    f"flex:1;min-width:160px;background:{_c(C,'card','#FFFFFF')};"
-                    f"border:1px solid {_c(C,'border','#E2E8F0')};border-radius:12px;"
-                    f"padding:16px 18px;"):
+                    f"flex:1;min-width:160px;background:"
+                    f"{(_c(C,'teal','#1AE3D9')+'12') if accent else _c(C,'card','#FFFFFF')};"
+                    f"border:1px solid "
+                    f"{(_c(C,'teal','#1AE3D9')+'40') if accent else _c(C,'border','#E2E8F0')};"
+                    f"border-radius:12px;padding:16px 18px;"):
                 ui.label(val).style(
                     f"font-size:26px;font-weight:800;color:{_c(C,'teal','#1AE3D9')};"
                     f"font-family:'Nunito',sans-serif;line-height:1;")
