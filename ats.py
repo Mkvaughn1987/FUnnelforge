@@ -67,10 +67,21 @@ def _con():
         except Exception:
             pass
         try:
+            # "pipelines" table now backs Tearsheets. kind='smart' = saved
+            # search (auto count); kind='manual' = hand-picked candidate list
+            # whose members live in tearsheet_members.
             con.execute(
                 "CREATE TABLE IF NOT EXISTS pipelines("
                 "id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, query TEXT, "
                 "owner TEXT, created_at TEXT)")
+            try:
+                con.execute("ALTER TABLE pipelines ADD COLUMN kind TEXT DEFAULT 'smart'")
+            except Exception:
+                pass
+            con.execute(
+                "CREATE TABLE IF NOT EXISTS tearsheet_members("
+                "ts_id INTEGER, talent_id INTEGER, added_at TEXT, "
+                "UNIQUE(ts_id, talent_id))")
             con.execute("CREATE TABLE IF NOT EXISTS ats_meta(key TEXT PRIMARY KEY, value TEXT)")
             # One-time: every pre-existing record + pipeline belongs to the
             # original owner (Michael). New uploads set owner_email explicitly,
@@ -104,16 +115,19 @@ def save_notes(tid: int, text: str):
         con.close()
 
 
-# ── Pipelines (saved talent segments) ────────────────────────────────────
+# ── Tearsheets (curated talent lists; legacy table name "pipelines") ──────
 def list_pipelines(owner: str = None) -> list:
-    """Pipelines for one user (owner email). Pipelines are per-user."""
+    """Tearsheets for one user (owner email). Per-user. Manual tearsheets
+    come first, then smart ones, newest within each group."""
     con = _con()
     try:
         if owner:
             rows = con.execute("SELECT * FROM pipelines WHERE owner=? ORDER BY id", (owner,))
         else:
             rows = con.execute("SELECT * FROM pipelines ORDER BY id")
-        return [dict(r) for r in rows]
+        out = [dict(r) for r in rows]
+        out.sort(key=lambda p: (0 if (p.get("kind") or "smart") == "manual" else 1,))
+        return out
     except Exception:
         return []
     finally:
@@ -121,10 +135,12 @@ def list_pipelines(owner: str = None) -> list:
 
 
 def add_pipeline(name: str, query: str, owner: str):
+    """Add a SMART tearsheet (saved search). Used by the default seeds."""
     import time
     con = _con()
     try:
-        con.execute("INSERT INTO pipelines(name,query,owner,created_at) VALUES(?,?,?,?)",
+        con.execute("INSERT INTO pipelines(name,query,owner,created_at,kind) "
+                    "VALUES(?,?,?,?,'smart')",
                     (name.strip(), query.strip(), owner, time.strftime("%Y-%m-%dT%H:%M:%S")))
         con.commit()
     except Exception:
@@ -133,15 +149,102 @@ def add_pipeline(name: str, query: str, owner: str):
         con.close()
 
 
+def add_tearsheet(name: str, owner: str) -> int:
+    """Create an empty MANUAL tearsheet (hand-picked candidate list).
+    Returns the new tearsheet id (0 on failure)."""
+    import time
+    con = _con()
+    try:
+        cur = con.execute(
+            "INSERT INTO pipelines(name,query,owner,created_at,kind) "
+            "VALUES(?,?,?,?,'manual')",
+            (name.strip(), "", owner, time.strftime("%Y-%m-%dT%H:%M:%S")))
+        con.commit()
+        return cur.lastrowid
+    except Exception:
+        return 0
+    finally:
+        con.close()
+
+
 def delete_pipeline(pid: int):
     con = _con()
     try:
         con.execute("DELETE FROM pipelines WHERE id=?", (pid,))
+        con.execute("DELETE FROM tearsheet_members WHERE ts_id=?", (pid,))
         con.commit()
     except Exception:
         pass
     finally:
         con.close()
+
+
+def tearsheet_add_members(ts_id: int, talent_ids) -> int:
+    """Add candidates to a manual tearsheet (idempotent). Returns # newly added."""
+    import time
+    con = _con()
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    added = 0
+    try:
+        for tid in talent_ids:
+            cur = con.execute(
+                "INSERT OR IGNORE INTO tearsheet_members(ts_id,talent_id,added_at) "
+                "VALUES(?,?,?)", (ts_id, tid, now))
+            added += cur.rowcount or 0
+        con.commit()
+    except Exception:
+        pass
+    finally:
+        con.close()
+    return added
+
+
+def tearsheet_remove_member(ts_id: int, talent_id: int):
+    con = _con()
+    try:
+        con.execute("DELETE FROM tearsheet_members WHERE ts_id=? AND talent_id=?",
+                    (ts_id, talent_id))
+        con.commit()
+    except Exception:
+        pass
+    finally:
+        con.close()
+
+
+def tearsheet_member_ids(ts_id: int) -> list:
+    con = _con()
+    try:
+        return [r[0] for r in con.execute(
+            "SELECT talent_id FROM tearsheet_members WHERE ts_id=? "
+            "ORDER BY added_at DESC, talent_id DESC", (ts_id,))]
+    except Exception:
+        return []
+    finally:
+        con.close()
+
+
+def tearsheet_members_rows(ts_id: int) -> list:
+    """Full candidate rows for a tearsheet's members, in add order (newest first)."""
+    ids = tearsheet_member_ids(ts_id)
+    if not ids:
+        return []
+    con = _con()
+    try:
+        qmarks = ",".join("?" * len(ids))
+        by_id = {r["id"]: dict(r) for r in con.execute(
+            "SELECT * FROM talents WHERE id IN (%s)" % qmarks, ids)}
+        return [by_id[i] for i in ids if i in by_id]
+    except Exception:
+        return []
+    finally:
+        con.close()
+
+
+def tearsheet_count(p: dict, owner: str = None) -> int:
+    """Member count for manual tearsheets; live search count for smart ones."""
+    if (p.get("kind") or "smart") == "manual":
+        return len(tearsheet_member_ids(p.get("id")))
+    return search_count(p.get("query", ""), owner)
 
 
 def search_count(query: str, owner: str = None) -> int:
@@ -1110,32 +1213,87 @@ def _drill(st, refresh, query, strict=False):
 
 
 def _add_pipeline_dialog(ff, st, refresh):
+    """Create a new MANUAL tearsheet (empty; candidates added by hand)."""
     C = ff.C
     with ui.dialog() as dlg, ui.card().style(
             f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
             f"min-width:440px;padding:22px 24px;"):
-        ui.label("New Pipeline").style(
+        ui.label("New Tearsheet").style(
             f"font-size:16px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
             f"font-family:'Nunito',sans-serif;margin-bottom:2px;")
-        ui.label("A saved talent segment — name it and give it search terms "
-                 "(role + location work great).").style(
+        ui.label("A hand-picked list of candidates for a role or client. Name it now, "
+                 "then add candidates from the Candidates page.").style(
             f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:14px;")
         ui.label("Name").style(f"font-size:11px;font-weight:700;color:{_c(C,'muted','#94A3B8')};")
-        name_in = ui.input(placeholder="e.g. CNC Machinist · Utah").props("outlined dense").style("width:100%;margin-bottom:10px;")
-        ui.label("Search terms").style(f"font-size:11px;font-weight:700;color:{_c(C,'muted','#94A3B8')};")
-        q_in = ui.input(placeholder="e.g. CNC Machinist Utah").props("outlined dense").style("width:100%;margin-bottom:6px;")
+        name_in = ui.input(
+            placeholder="e.g. Denver Super — Mortenson").props("outlined dense").style(
+            "width:100%;margin-bottom:6px;")
 
         def _save():
             nm = (name_in.value or "").strip()
-            q = (q_in.value or "").strip()
-            if not nm or not q:
-                ui.notify("Give it a name and search terms.", type="warning"); return
-            add_pipeline(nm, q, st.get("email", "") or "")
+            if not nm:
+                ui.notify("Give the tearsheet a name.", type="warning"); return
+            add_tearsheet(nm, st.get("email", "") or "")
             dlg.close()
             refresh()
         with ui.element("div").style("display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"):
             ui.button("Cancel", on_click=dlg.close).props("flat").style(f"color:{_c(C,'muted','#94A3B8')};")
-            ui.button("Add Pipeline", on_click=_save).props("unelevated").style(
+            ui.button("Create Tearsheet", on_click=_save).props("unelevated").style(
+                f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;font-weight:700;")
+    dlg.open()
+
+
+def _add_to_tearsheet_dialog(ff, st, refresh, talent_ids):
+    """Pick an existing manual tearsheet (or create one) and add candidate(s)."""
+    C = ff.C
+    owner = st.get("email", "") or ""
+    talent_ids = [i for i in talent_ids if i]
+    with ui.dialog() as dlg, ui.card().style(
+            f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
+            f"min-width:460px;max-width:520px;padding:22px 24px;"):
+        ui.label(f"Add {len(talent_ids)} candidate(s) to a tearsheet").style(
+            f"font-size:16px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
+            f"font-family:'Nunito',sans-serif;margin-bottom:12px;")
+        manuals = [p for p in list_pipelines(owner)
+                   if (p.get("kind") or "smart") == "manual"]
+        if manuals:
+            ui.label("Add to existing").style(
+                f"font-size:11px;font-weight:700;color:{_c(C,'muted','#94A3B8')};"
+                f"text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;display:block;")
+            for p in manuals:
+                def _add(_e=None, pid=p.get("id"), pn=p.get("name", "")):
+                    n = tearsheet_add_members(pid, talent_ids)
+                    dlg.close()
+                    ui.notify(f"Added {n} to \"{pn}\"." if n else
+                              f"Already in \"{pn}\".", type="positive", timeout=4000)
+                    refresh()
+                with ui.element("div").style(
+                        f"display:flex;align-items:center;justify-content:space-between;"
+                        f"padding:10px 12px;border:1px solid {_c(C,'border','#E2E8F0')};"
+                        f"border-radius:8px;margin-bottom:6px;cursor:pointer;").on("click", _add):
+                    ui.label(p.get("name", "")).style(
+                        f"font-size:13px;font-weight:700;color:{_c(C,'text_l','#0F172A')};")
+                    ui.label(f"{len(tearsheet_member_ids(p.get('id'))):,}").style(
+                        f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
+        ui.label("Or create a new one").style(
+            f"font-size:11px;font-weight:700;color:{_c(C,'muted','#94A3B8')};"
+            f"text-transform:uppercase;letter-spacing:.05em;margin:12px 0 6px;display:block;")
+        _new = ui.input(placeholder="New tearsheet name").props("outlined dense").style(
+            "width:100%;margin-bottom:6px;")
+
+        def _create_add():
+            nm = (_new.value or "").strip()
+            if not nm:
+                ui.notify("Name the new tearsheet.", type="warning"); return
+            pid = add_tearsheet(nm, owner)
+            n = tearsheet_add_members(pid, talent_ids) if pid else 0
+            dlg.close()
+            ui.notify(f"Created \"{nm}\" with {n} candidate(s).", type="positive", timeout=4000)
+            refresh()
+        with ui.element("div").style("display:flex;gap:8px;justify-content:flex-end;margin-top:10px;"):
+            ui.button("Cancel", on_click=dlg.close).props("flat").style(
+                f"color:{_c(C,'muted','#94A3B8')};")
+            ui.button("Create & Add", on_click=_create_add).props("unelevated").style(
                 f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;font-weight:700;")
     dlg.open()
 
@@ -1208,25 +1366,40 @@ def _view_dashboard(ff, st, refresh):
     _sub_title = (f"font-size:12px;font-weight:700;color:{_c(C,'muted','#94A3B8')};"
                   f"text-transform:uppercase;letter-spacing:.05em;margin-bottom:12px;")
 
-    # ── Pipelines box ──
+    # ── Tearsheets box ──
     with ui.element("div").style(_box + "margin-bottom:14px;"):
-        with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;"):
-            ui.label("Pipelines").style(_box_title)
+        with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;"):
+            ui.label("Tearsheets").style(_box_title)
             with ui.element("button").style(
                     f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;border-radius:8px;"
                     f"padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;"
                     ).on("click", lambda: _add_pipeline_dialog(ff, st, refresh)):
-                ui.label("+ Add Pipeline")
+                ui.label("+ New Tearsheet")
+        ui.label("Hand-picked candidate lists for a role or client. Smart ones (auto) "
+                 "update from a saved search.").style(
+            f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:14px;display:block;")
         pls = list_pipelines(_owner)
         with ui.element("div").style("display:flex;flex-wrap:wrap;gap:12px;"):
             if not pls:
-                ui.label("No pipelines yet — add one to track a niche (role + location).").style(
+                ui.label("No tearsheets yet — create one, then add candidates from the "
+                         "Candidates page.").style(
                     f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
             for p in pls:
-                cnt = search_count(p.get("query", ""), _owner)
+                _manual = (p.get("kind") or "smart") == "manual"
+                cnt = tearsheet_count(p, _owner)
 
-                def _go(_e=None, q=p.get("query", "")):
-                    _drill(st, refresh, q, strict=True)
+                def _go(_e=None, _p=p):
+                    if (_p.get("kind") or "smart") == "manual":
+                        st["tearsheet_id"] = _p.get("id")
+                        st["tearsheet_name"] = _p.get("name", "")
+                        st["results"] = tearsheet_members_rows(_p.get("id"))
+                        st["terms"] = []
+                        st["query"] = ""
+                        st["preview"] = None
+                        st["view"] = "candidates"
+                        refresh()
+                    else:
+                        _drill(st, refresh, _p.get("query", ""), strict=True)
 
                 def _del(_e=None, pid=p.get("id")):
                     delete_pipeline(pid); refresh()
@@ -1238,7 +1411,11 @@ def _view_dashboard(ff, st, refresh):
                         f"font-size:24px;font-weight:800;color:{_c(C,'teal','#1AE3D9')};"
                         f"font-family:'Nunito',sans-serif;line-height:1;")
                     ui.label(p.get("name", "")).style(
-                        f"font-size:12px;font-weight:600;color:{_c(C,'text_l','#0F172A')};margin-top:4px;")
+                        f"font-size:12px;font-weight:600;color:{_c(C,'text_l','#0F172A')};margin-top:4px;"
+                        f"max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
+                    ui.label("✋ manual" if _manual else "⚡ smart").style(
+                        f"font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;"
+                        f"color:{_c(C,'muted','#94A3B8')};margin-top:3px;")
                     with ui.element("div").style(
                             f"position:absolute;top:8px;right:10px;font-size:12px;color:{_c(C,'muted','#94A3B8')};"
                             f"cursor:pointer;").on("click.stop", _del):
@@ -1486,6 +1663,31 @@ def _resume_preview(ff, st, refresh):
                     f"font-family:inherit;").on("click", _send_job_one):
                 ui.label("✉ Send a Job Opening")
 
+            # Tearsheet: add (normally) or remove (when viewing a tearsheet)
+            _tsid = st.get("tearsheet_id")
+            if _tsid:
+                def _remove_ts(_e=None, i=pid, tsid=_tsid):
+                    tearsheet_remove_member(tsid, i)
+                    st["results"] = tearsheet_members_rows(tsid)
+                    st["preview"] = None
+                    ui.notify("Removed from tearsheet.", type="info", timeout=2500)
+                    refresh()
+                with ui.element("button").style(
+                        f"background:transparent;border:1px solid {_c(C,'warn','#D97706')};"
+                        f"color:{_c(C,'warn','#D97706')};border-radius:8px;padding:9px 16px;"
+                        f"font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;"
+                        ).on("click", _remove_ts):
+                    ui.label("− Remove from tearsheet")
+            else:
+                def _add_ts(_e=None, i=pid):
+                    _add_to_tearsheet_dialog(ff, st, refresh, [i])
+                with ui.element("button").style(
+                        f"background:transparent;border:1px solid {_c(C,'teal','#1AE3D9')};"
+                        f"color:{_c(C,'teal','#1AE3D9')};border-radius:8px;padding:9px 16px;"
+                        f"font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;"
+                        ).on("click", _add_ts):
+                    ui.label("📋 Add to Tearsheet")
+
             def _full(_e=None, i=pid):
                 st["sel"] = i; st["tab"] = "resume"; st["view"] = "profile"; refresh()
             with ui.element("button").style(
@@ -1538,6 +1740,7 @@ def _view_candidates(ff, st, refresh):
                 f"width:100%;")
 
             async def _do_kw():
+                st.pop("tearsheet_id", None)
                 st["query"] = (_inp.value or "").strip()
                 st["crit"] = {}
                 st["terms"] = _terms(st["query"])
@@ -1563,6 +1766,7 @@ def _view_candidates(ff, st, refresh):
                 "width:100%;min-height:140px;")
 
             async def _do_jd():
+                st.pop("tearsheet_id", None)
                 jd = (_ta.value or "").strip()
                 st["jd"] = jd
                 if not jd:
@@ -1611,6 +1815,15 @@ def _view_candidates(ff, st, refresh):
                         f"font-size:12px;cursor:pointer;font-family:inherit;").on("click", _clear_sel):
                     ui.label("Clear")
 
+                def _add_ts_bulk():
+                    _add_to_tearsheet_dialog(ff, st, refresh, list(_sel))
+                with ui.element("button").style(
+                        f"background:transparent;border:1px solid {_c(C,'teal','#1AE3D9')};"
+                        f"color:{_c(C,'teal','#1AE3D9')};border-radius:8px;padding:6px 14px;"
+                        f"font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;"
+                        ).on("click", _add_ts_bulk):
+                    ui.label("📋 Add to Tearsheet")
+
                 # Send a Job Opening — pitch a role TO the selected candidates
                 # (recruiting outreach). Writes them as a DripDrop contact list
                 # and drops into the campaign builder.
@@ -1658,7 +1871,35 @@ def _view_candidates(ff, st, refresh):
             ui.label("Reading résumés and scoring fit…").style(
                 f"font-size:13px;color:{_c(C,'teal','#1AE3D9')};")
         return
-    if st.get("results"):
+    _tsid = st.get("tearsheet_id")
+    if _tsid:
+        with ui.element("div").style(
+                f"display:flex;align-items:center;justify-content:space-between;gap:12px;"
+                f"background:{_c(C,'teal','#1AE3D9')}18;border:1px solid {_c(C,'teal','#1AE3D9')}60;"
+                f"border-radius:10px;padding:10px 16px;margin-bottom:12px;"):
+            ui.label(f"📋 Tearsheet — {st.get('tearsheet_name','')}").style(
+                f"font-size:13px;font-weight:800;color:{_c(C,'teal','#1AE3D9')};")
+
+            def _exit_ts(_e=None):
+                for k in ("tearsheet_id", "tearsheet_name"):
+                    st.pop(k, None)
+                st["results"] = []
+                st["preview"] = None
+                refresh()
+            with ui.element("button").style(
+                    f"background:transparent;border:1px solid {_c(C,'border','#CBD5E1')};"
+                    f"color:{_c(C,'text','#334155')};border-radius:8px;padding:6px 14px;"
+                    f"font-size:12px;cursor:pointer;font-family:inherit;").on("click", _exit_ts):
+                ui.label("Exit tearsheet")
+        rows = st.get("results") or []
+        terms = None
+        list_label = f"{len(rows)} candidate(s) in this tearsheet"
+        if not rows:
+            ui.label("This tearsheet is empty. Run a search, select candidates, then "
+                     "use “📋 Add to Tearsheet” to build it.").style(
+                f"font-size:13px;color:{_c(C,'muted','#94A3B8')};padding:18px 2px;")
+            return
+    elif st.get("results"):
         rows = st["results"]
         terms = st.get("terms")
         _has_fit = any(r.get("fit_score") is not None for r in rows)
@@ -2113,6 +2354,12 @@ def _render_app(ff, st, refresh):
                     st["view"] = k
                     if k != "profile":
                         st["sel"] = None
+                    if k == "candidates" and st.get("tearsheet_id"):
+                        # Leaving a tearsheet view → back to a normal search page.
+                        for _k in ("tearsheet_id", "tearsheet_name"):
+                            st.pop(_k, None)
+                        st["results"] = []
+                        st["preview"] = None
                     refresh()
                 with ui.element("div").style(
                         f"display:flex;align-items:center;gap:10px;padding:9px 12px;"
