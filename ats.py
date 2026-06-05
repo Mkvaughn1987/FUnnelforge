@@ -27,7 +27,11 @@ def _ff():
 ALLOWED_EMAILS = {
     "michael.vaughn@arenastaffing.net",
     "mkvaughn1987@gmail.com",
+    # Add Sarah & Elizabeth here once we have their DripDrop login emails.
 }
+
+# Legacy candidates + pipelines (pre multi-user) belong to Michael.
+_OWNER_BACKFILL_EMAIL = "michael.vaughn@arenastaffing.net"
 
 
 def is_allowed(email: str) -> bool:
@@ -59,10 +63,27 @@ def _con():
         except Exception:
             pass  # already exists
         try:
+            con.execute("ALTER TABLE talents ADD COLUMN owner_email TEXT DEFAULT ''")
+        except Exception:
+            pass
+        try:
             con.execute(
                 "CREATE TABLE IF NOT EXISTS pipelines("
                 "id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, query TEXT, "
                 "owner TEXT, created_at TEXT)")
+            con.execute("CREATE TABLE IF NOT EXISTS ats_meta(key TEXT PRIMARY KEY, value TEXT)")
+            # One-time: every pre-existing record + pipeline belongs to the
+            # original owner (Michael). New uploads set owner_email explicitly,
+            # so only the legacy rows are blank here.
+            if not con.execute("SELECT 1 FROM ats_meta WHERE key='owner_backfill_v1'").fetchone():
+                con.execute("UPDATE talents SET owner_email=? "
+                            "WHERE owner_email IS NULL OR owner_email=''",
+                            (_OWNER_BACKFILL_EMAIL,))
+                con.execute("UPDATE pipelines SET owner=? "
+                            "WHERE owner IS NOT NULL AND owner!=''",
+                            (_OWNER_BACKFILL_EMAIL,))
+                con.execute("INSERT OR REPLACE INTO ats_meta(key,value) "
+                            "VALUES('owner_backfill_v1','1')")
         except Exception:
             pass
         con.commit()
@@ -84,10 +105,15 @@ def save_notes(tid: int, text: str):
 
 
 # ── Pipelines (saved talent segments) ────────────────────────────────────
-def list_pipelines() -> list:
+def list_pipelines(owner: str = None) -> list:
+    """Pipelines for one user (owner email). Pipelines are per-user."""
     con = _con()
     try:
-        return [dict(r) for r in con.execute("SELECT * FROM pipelines ORDER BY id")]
+        if owner:
+            rows = con.execute("SELECT * FROM pipelines WHERE owner=? ORDER BY id", (owner,))
+        else:
+            rows = con.execute("SELECT * FROM pipelines ORDER BY id")
+        return [dict(r) for r in rows]
     except Exception:
         return []
     finally:
@@ -118,14 +144,22 @@ def delete_pipeline(pid: int):
         con.close()
 
 
-def search_count(query: str) -> int:
-    """Strict (AND) count of FTS matches for a pipeline — every term must hit."""
+def search_count(query: str, owner: str = None) -> int:
+    """Strict (AND) count of FTS matches for a pipeline — every term must hit.
+    Scoped to one owner's candidates when owner is given (pipelines are
+    per-user)."""
     terms = _terms(query)
     if not terms:
         return 0
     con = _con()
     try:
         expr = " AND ".join('"%s"' % t.replace('"', '') for t in terms)
+        if owner:
+            return con.execute(
+                "SELECT COUNT(*) FROM talents_fts "
+                "JOIN talents t ON t.id=talents_fts.rowid "
+                "WHERE talents_fts MATCH ? AND t.owner_email=?",
+                (expr, owner)).fetchone()[0]
         return con.execute(
             "SELECT COUNT(*) FROM talents_fts WHERE talents_fts MATCH ?",
             (expr,)).fetchone()[0]
@@ -149,15 +183,17 @@ _DEFAULT_PIPELINES = [
 
 
 def ensure_default_pipelines(owner: str):
-    """Populate a richer set of starter pipelines once (idempotent via a meta
-    flag), skipping any name that already exists so the user's own pipelines
-    and deletions are respected."""
+    """Seed starter pipelines for THIS owner once (per-user, idempotent via a
+    per-owner meta flag), skipping any name they already have so their own
+    pipelines and deletions are respected."""
     con = _con()
     try:
         con.execute("CREATE TABLE IF NOT EXISTS ats_meta(key TEXT PRIMARY KEY, value TEXT)")
-        if con.execute("SELECT value FROM ats_meta WHERE key='defaults_v2'").fetchone():
+        flag = "defaults::" + (owner or "")
+        if con.execute("SELECT value FROM ats_meta WHERE key=?", (flag,)).fetchone():
             return
-        existing = {r[0] for r in con.execute("SELECT name FROM pipelines")}
+        existing = {r[0] for r in con.execute(
+            "SELECT name FROM pipelines WHERE owner=?", (owner,))}
         import time
         now = time.strftime("%Y-%m-%dT%H:%M:%S")
         for nm, q in _DEFAULT_PIPELINES:
@@ -165,7 +201,7 @@ def ensure_default_pipelines(owner: str):
                 continue
             con.execute("INSERT INTO pipelines(name,query,owner,created_at) VALUES(?,?,?,?)",
                         (nm, q, owner, now))
-        con.execute("INSERT OR REPLACE INTO ats_meta(key,value) VALUES('defaults_v2','1')")
+        con.execute("INSERT OR REPLACE INTO ats_meta(key,value) VALUES(?,'1')", (flag,))
         con.commit()
     except Exception:
         pass
@@ -339,20 +375,33 @@ def score_results(intent: str, results: list, top_n: int = 25) -> list:
     return results
 
 
-def recent(limit: int = 50) -> list:
+def recent(limit: int = 50, owner: str = None) -> list:
+    """Most recently added candidates. Scoped to one owner when given (the
+    dashboard's 'Recently Added' is per-user; the Candidates page is global)."""
     con = _con()
     try:
-        return [dict(r) for r in con.execute(
-            "SELECT * FROM talents ORDER BY id DESC LIMIT ?", (limit,)).fetchall()]
+        if owner:
+            rows = con.execute(
+                "SELECT * FROM talents WHERE owner_email=? ORDER BY id DESC LIMIT ?",
+                (owner, limit)).fetchall()
+        else:
+            rows = con.execute(
+                "SELECT * FROM talents ORDER BY id DESC LIMIT ?", (limit,)).fetchall()
+        return [dict(r) for r in rows]
     except Exception:
         return []
     finally:
         con.close()
 
 
-def total_count() -> int:
+def total_count(owner: str = None) -> int:
+    """Candidate count. Global by default (the search universe); per-user when
+    owner is given (the dashboard tile)."""
     con = _con()
     try:
+        if owner:
+            return con.execute(
+                "SELECT COUNT(*) FROM talents WHERE owner_email=?", (owner,)).fetchone()[0]
         return con.execute("SELECT COUNT(*) FROM talents").fetchone()[0]
     except Exception:
         return 0
@@ -826,17 +875,23 @@ def _role_family(title: str) -> str:
     return ((title or "").strip()[:24]) or "Other"
 
 
-def dashboard_stats() -> dict:
+def dashboard_stats(owner: str = None) -> dict:
+    """Dashboard rollups. Scoped to one owner's candidates when given — the
+    dashboard is per-user."""
     from collections import Counter
     from datetime import date, timedelta
+    _w = "WHERE owner_email=?" if owner else ""
+    _p = (owner,) if owner else ()
     con = _con()
     try:
-        total = con.execute("SELECT COUNT(*) FROM talents").fetchone()[0]
+        total = con.execute("SELECT COUNT(*) FROM talents %s" % _w, _p).fetchone()[0]
         wk = (date.today() - timedelta(days=7)).strftime("%Y-%m-%d")
         added_week = con.execute(
-            "SELECT COUNT(*) FROM talents WHERE substr(created_at,1,10) >= ?", (wk,)
-        ).fetchone()[0]
-        rows = con.execute("SELECT current_title, skills, state FROM talents").fetchall()
+            "SELECT COUNT(*) FROM talents WHERE substr(created_at,1,10) >= ?"
+            + (" AND owner_email=?" if owner else ""),
+            ((wk, owner) if owner else (wk,))).fetchone()[0]
+        rows = con.execute(
+            "SELECT current_title, skills, state FROM talents %s" % _w, _p).fetchall()
     except Exception:
         return {"total": 0, "added_week": 0, "industries": [], "locations": [], "roles": []}
     finally:
@@ -862,14 +917,18 @@ def dashboard_stats() -> dict:
     }
 
 
-def pool_by_location(top_states: int = 6, top_inds: int = 5) -> list:
+def pool_by_location(top_states: int = 6, top_inds: int = 5, owner: str = None) -> list:
     """Cross-tab the pool by state, then industry within each state — the
-    location-first dashboard view. Returns a list of
-    {state, name, total, industries:[(industry, count), ...]} sorted by size."""
+    location-first dashboard view. Scoped to one owner when given. Returns a
+    list of {state, name, total, industries:[(industry, count), ...]}."""
     from collections import Counter, defaultdict
     con = _con()
     try:
-        rows = con.execute("SELECT current_title, skills, state FROM talents").fetchall()
+        if owner:
+            rows = con.execute("SELECT current_title, skills, state FROM talents "
+                               "WHERE owner_email=?", (owner,)).fetchall()
+        else:
+            rows = con.execute("SELECT current_title, skills, state FROM talents").fetchall()
     except Exception:
         return []
     finally:
@@ -988,7 +1047,7 @@ def _add_pipeline_dialog(ff, st, refresh):
             q = (q_in.value or "").strip()
             if not nm or not q:
                 ui.notify("Give it a name and search terms.", type="warning"); return
-            add_pipeline(nm, q, st.get("name", "") or "")
+            add_pipeline(nm, q, st.get("email", "") or "")
             dlg.close()
             refresh()
         with ui.element("div").style("display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"):
@@ -1034,8 +1093,9 @@ def _bars(C, items, st, refresh):
 
 def _view_dashboard(ff, st, refresh):
     C = ff.C
-    ensure_default_pipelines(st.get("name", "") or "Mike Vaughn")
-    stats = dashboard_stats()
+    _owner = st.get("email") or None
+    ensure_default_pipelines(_owner or "")
+    stats = dashboard_stats(_owner)
     ui.label("Your Talent Pool").style(
         f"font-size:22px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
         f"font-family:'Nunito',sans-serif;")
@@ -1074,13 +1134,13 @@ def _view_dashboard(ff, st, refresh):
                     f"padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;"
                     ).on("click", lambda: _add_pipeline_dialog(ff, st, refresh)):
                 ui.label("+ Add Pipeline")
-        pls = list_pipelines()
+        pls = list_pipelines(_owner)
         with ui.element("div").style("display:flex;flex-wrap:wrap;gap:12px;"):
             if not pls:
                 ui.label("No pipelines yet — add one to track a niche (role + location).").style(
                     f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
             for p in pls:
-                cnt = search_count(p.get("query", ""))
+                cnt = search_count(p.get("query", ""), _owner)
 
                 def _go(_e=None, q=p.get("query", "")):
                     _drill(st, refresh, q, strict=True)
@@ -1107,7 +1167,7 @@ def _view_dashboard(ff, st, refresh):
         ui.label("Where your candidates are — and what they do. Click a state or "
                  "an industry to pull those candidates up.").style(
             f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin:4px 0 16px;display:block;")
-        locs = pool_by_location()
+        locs = pool_by_location(owner=_owner)
         if not locs:
             ui.label("No location data yet.").style(
                 f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
@@ -1159,7 +1219,7 @@ def _view_dashboard(ff, st, refresh):
     # ── Recently Added box ──
     with ui.element("div").style(_box):
         ui.label("Recently Added").style(_box_title + "display:block;margin-bottom:10px;")
-        recents = recent(10)
+        recents = recent(10, owner=_owner)
         if not recents:
             ui.label("Nothing yet.").style(f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
         for r in recents:
@@ -1811,6 +1871,7 @@ def ats_page():
         "query": "", "jd": "", "results": [], "terms": [], "crit": {},
         "searching": False, "sel": None,
         "name": app.storage.user.get("name", "") or email,
+        "email": email,  # owner key for per-user dashboard + pipelines
     }
     root = ui.element("div").style(
         f"position:fixed;inset:0;overflow:hidden;display:flex;flex-direction:column;"
