@@ -2366,13 +2366,26 @@ def _view_upload(ff, st, refresh):
     stats = st.get("upload_stats")
     queue = st.get("upload_queue") or []
 
+    _cnt = {"el": None}
+
     def _on_up(e):
+        # CRITICAL: never refresh() here. Files arrive rapidly during a bulk
+        # upload; a full re-render mid-upload deletes the uploader element
+        # ("parent slot has been deleted"). Update only the count label.
         try:
             data = e.content.read() if hasattr(e.content, "read") else bytes(e.content)
         except Exception:
             return
-        st.setdefault("upload_queue", []).append((getattr(e, "name", "resume"), data))
-        refresh()
+        name = getattr(e, "name", "") or "resume"
+        ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+        if ext not in ("pdf", "docx", "txt", "text", "doc"):
+            return  # ignore non-résumé files when a whole folder is picked
+        st.setdefault("upload_queue", []).append((name, data))
+        if _cnt["el"] is not None:
+            try:
+                _cnt["el"].set_text(f"{len(st['upload_queue'])} résumé(s) ready to import")
+            except Exception:
+                pass
 
     async def _run_import():
         files = list(st.get("upload_queue") or [])
@@ -2416,41 +2429,63 @@ def _view_upload(ff, st, refresh):
                      f"skipped {_s.get('dup',0)+_s.get('junk',0)+_s.get('scanned',0)+_s.get('error',0)}").style(
                 f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
         else:
-            # Hidden uploader driven by a visible button (reliable on this theme).
+            # Two hidden uploaders (files + folder), driven by visible buttons.
             with ui.element("div").style("height:0;overflow:hidden;"):
-                _up = ui.upload(on_upload=_on_up, multiple=True, auto_upload=True).props(
-                    'accept=".pdf,.docx,.txt"')
-            with ui.element("button").style(
-                    f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;border-radius:8px;"
-                    f"padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;"
-                    f"font-family:inherit;").on(
-                    "click", lambda: _up.run_method("pickFiles")):
-                ui.label("⬆ Choose résumés (PDF / DOCX)")
-            ui.label("Tip: in the picker, open your résumé folder and press Ctrl+A to "
-                     "grab them all at once.").style(
+                _up = ui.upload(on_upload=_on_up, multiple=True, auto_upload=True,
+                                max_file_size=30_000_000).props(
+                    'accept=".pdf,.docx,.txt"').classes("dd-resume-up")
+            with ui.element("div").style("height:0;overflow:hidden;"):
+                _upf = ui.upload(on_upload=_on_up, multiple=True, auto_upload=True,
+                                 max_file_size=30_000_000).classes("dd-resume-upf")
+
+            def _pick_folder(_e=None):
+                ui.run_javascript(
+                    "const el=document.querySelector('.dd-resume-upf input[type=file]');"
+                    "if(el){el.setAttribute('webkitdirectory','');"
+                    "el.setAttribute('directory','');el.click();}")
+
+            with ui.element("div").style("display:flex;gap:10px;flex-wrap:wrap;"):
+                with ui.element("button").style(
+                        f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;border-radius:8px;"
+                        f"padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;"
+                        f"font-family:inherit;").on("click", lambda: _up.run_method("pickFiles")):
+                    ui.label("⬆ Choose files (PDF / DOCX)")
+                with ui.element("button").style(
+                        f"background:transparent;border:1.5px solid {_c(C,'teal','#1AE3D9')};"
+                        f"color:{_c(C,'teal','#1AE3D9')};border-radius:8px;padding:12px 22px;"
+                        f"font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;"
+                        ).on("click", _pick_folder):
+                    ui.label("📁 Choose a whole folder")
+            ui.label("“Choose a whole folder” grabs every résumé inside it. PDF and .docx "
+                     "parse best; scanned/image PDFs and old .doc files are skipped.").style(
                 f"font-size:11px;color:{_c(C,'muted','#94A3B8')};margin-top:8px;display:block;")
 
-            if queue:
-                ui.element("div").style(
-                    f"height:1px;background:{_c(C,'border','#E2E8F0')};margin:16px 0;")
-                ui.label(f"{len(queue)} résumé(s) ready to import").style(
-                    f"font-size:14px;font-weight:700;color:{_c(C,'text_l','#0F172A')};display:block;margin-bottom:10px;")
-                with ui.element("div").style("display:flex;gap:9px;align-items:center;"):
-                    with ui.element("button").style(
-                            f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;border-radius:8px;"
-                            f"padding:11px 22px;font-size:14px;font-weight:700;cursor:pointer;"
-                            f"font-family:inherit;").on("click", _run_import):
-                        ui.label(f"Import {len(queue)} résumé(s)")
+            ui.element("div").style(
+                f"height:1px;background:{_c(C,'border','#E2E8F0')};margin:16px 0;")
+            _cnt["el"] = ui.label(f"{len(queue)} résumé(s) ready to import").style(
+                f"font-size:14px;font-weight:700;color:{_c(C,'text_l','#0F172A')};"
+                f"display:block;margin-bottom:10px;")
+            with ui.element("div").style("display:flex;gap:9px;align-items:center;"):
+                with ui.element("button").style(
+                        f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;border-radius:8px;"
+                        f"padding:11px 22px;font-size:14px;font-weight:700;cursor:pointer;"
+                        f"font-family:inherit;").on("click", _run_import):
+                    ui.label("Import résumés")
 
-                    def _clear_q(_e=None):
-                        st["upload_queue"] = []; refresh()
-                    with ui.element("button").style(
-                            f"background:transparent;border:1px solid {_c(C,'border','#E2E8F0')};"
-                            f"color:{_c(C,'text','#334155')};border-radius:8px;padding:11px 18px;"
-                            f"font-size:13px;cursor:pointer;font-family:inherit;").on("click", _clear_q):
-                        ui.label("Clear")
+                def _clear_q(_e=None):
+                    st["upload_queue"] = []
+                    if _cnt["el"] is not None:
+                        try:
+                            _cnt["el"].set_text("0 résumé(s) ready to import")
+                        except Exception:
+                            pass
+                with ui.element("button").style(
+                        f"background:transparent;border:1px solid {_c(C,'border','#E2E8F0')};"
+                        f"color:{_c(C,'text','#334155')};border-radius:8px;padding:11px 18px;"
+                        f"font-size:13px;cursor:pointer;font-family:inherit;").on("click", _clear_q):
+                    ui.label("Clear")
 
-            elif stats:
+            if stats and not queue:
                 # Results of the last completed import.
                 ui.element("div").style(
                     f"height:1px;background:{_c(C,'border','#E2E8F0')};margin:16px 0;")
