@@ -855,6 +855,64 @@ def dedup_talents(dry_run: bool = True) -> dict:
         con.close()
 
 
+def dedup_owner(owner: str, dry_run: bool = True) -> dict:
+    """Per-owner dedup of same-name duplicates, KEEPING the most complete
+    record (email/phone weighted). Conservative: a same-name copy is dropped
+    ONLY when it has no contact info, or shares the keeper's email — so two
+    different people who merely share a name are never merged. Backfills any
+    contact field the keeper is missing from a dropped same-email copy."""
+    from collections import defaultdict
+    con = _con()
+    try:
+        rows = [dict(r) for r in con.execute(
+            "SELECT * FROM talents WHERE owner_email=?", (owner,))]
+        by_name = defaultdict(list)
+        for r in rows:
+            k = _norm_name_key(r)
+            if k != "|":
+                by_name[k].append(r)
+        to_delete, backfills = [], []
+        for k, g in by_name.items():
+            if len(g) < 2:
+                continue
+            g.sort(key=lambda d: (_completeness(d),
+                                  len(d.get("resume_text") or ""), -d["id"]),
+                   reverse=True)
+            keep = g[0]
+            keep_e = (keep.get("email") or "").strip().lower()
+            fill = {}
+            for d in g[1:]:
+                de = (d.get("email") or "").strip().lower()
+                dp = (d.get("phone") or "").strip()
+                redundant = (not de and not dp) or (de and de == keep_e)
+                if not redundant:
+                    continue  # likely a different person sharing the name — keep
+                # Salvage contact the keeper lacks before dropping.
+                if not keep_e and de:
+                    fill["email"] = d.get("email")
+                if not (keep.get("phone") or "").strip() and dp:
+                    fill["phone"] = dp
+                to_delete.append(d["id"])
+            if fill:
+                backfills.append((keep["id"], fill))
+        report = {"owner": owner, "scanned": len(rows),
+                  "to_delete": len(to_delete), "remaining": len(rows) - len(to_delete)}
+        if not dry_run and to_delete:
+            for keep_id, fill in backfills:
+                sets = ", ".join("%s=?" % c for c in fill)
+                con.execute("UPDATE talents SET %s WHERE id=?" % sets,
+                            (*fill.values(), keep_id))
+            con.executemany("DELETE FROM talents WHERE id=?",
+                            [(i,) for i in to_delete])
+            con.execute("INSERT INTO talents_fts(talents_fts) VALUES('rebuild')")
+            con.commit()
+            report["deleted"] = len(to_delete)
+            report["backfilled"] = len(backfills)
+        return report
+    finally:
+        con.close()
+
+
 def companies_from_campaigns() -> list:
     """Companies the user has reached out to through DripDrop campaigns,
     built STRICTLY from the campaign CSV contacts (the people uploaded for
