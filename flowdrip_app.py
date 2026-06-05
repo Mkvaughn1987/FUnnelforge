@@ -11014,13 +11014,11 @@ def topbar(s: AppState, rf):
         _on_cf = s.hub == "sales" and s.sp == "candidate_finder"
         with ui.element("button").classes("fd-hub" + (" on" if _on_cf else "")).on("click", _cf):
             ui.label("Top Candidates")
-        # ── ATS (gated to allowlisted accounts while in development) ──
+        # ── ATS (gated). Its own full-screen app at /ats — clicking here
+        # leaves the DripDrop chrome entirely. ──
         if (getattr(s, '_user_email', '') or '').strip().lower() in _ATS_ALLOWED_EMAILS:
-            def _ats_nav():
-                s._nav_history.clear()
-                s.hub = "sales"; s.sp = "ats"; rf()
-            _on_ats = s.hub == "sales" and s.sp == "ats"
-            with ui.element("button").classes("fd-hub" + (" on" if _on_ats else "")).on("click", _ats_nav):
+            with ui.element("button").classes("fd-hub").on(
+                    "click", lambda: ui.navigate.to("/ats")):
                 ui.label("ATS")
         # Market Intel hub button removed 2026-05-02 per user — "remove
         # for now". Page handler p_market_intel and the underlying
@@ -48738,19 +48736,9 @@ def render_page(s: AppState, rf):
             # Newsletter dialog (_create_newsletter_dialog) instead.
             elif page == "admin":        p_admin(s, rf)
             elif page == "ats":
-                # Gated resume-search ATS. Lazy-imported + guarded so any
-                # issue in ats.py can never break the rest of the app.
-                if (getattr(s, '_user_email', '') or '').strip().lower() in _ATS_ALLOWED_EMAILS:
-                    try:
-                        import ats as _atsmod
-                        _atsmod.render(s, rf)
-                    except Exception as _ats_ex:
-                        print(f"[ATS] render error: {_ats_ex}", flush=True)
-                        ui.label(f"ATS error: {str(_ats_ex)[:200]}").style(
-                            f"font-size:13px;color:{C['danger']};padding:20px 0;")
-                else:
-                    ui.label("Not available.").style(
-                        f"font-size:14px;color:{C['muted']};padding:20px 0;")
+                # ATS is now its own page (/ats). Redirect any stale in-app
+                # route there.
+                ui.navigate.to("/ats")
             else:
                 ui.label(f"Page '{page}' not found").style(
                     f"font-size:14px;color:{C['warn']};padding:20px 0;")
@@ -51298,6 +51286,16 @@ def _start_server_reply_monitor():
 
 
 # Entry point
+# Register the gated Arena ATS page (/ats). Imported at module load so its
+# @ui.page route registers before ui.run(). Guarded so an ats.py problem can
+# never stop the main app from booting. ats.py reaches back into this module
+# via sys.modules (never `import flowdrip_app`), so this is not circular.
+try:
+    import ats as _ats_module  # noqa: F401  (registers @ui.page("/ats"))
+except Exception as _ats_imp_ex:
+    print(f"[ATS] module import failed (ATS page disabled): {_ats_imp_ex}", flush=True)
+
+
 if __name__ in {"__main__", "__mp_main__"}:
     # Silently archive queue entries older than 30 days before the UI starts.
     # This keeps the live queue file lean without any user action required.
