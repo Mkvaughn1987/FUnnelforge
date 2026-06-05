@@ -50335,6 +50335,7 @@ def index():
     # still persists separately via _restore_aicb_state below for brief
     # WS reconnects.
     _pending = app.storage.user.pop("_pending_page", None)
+    _ats_tc_contacts = None
     if _pending:
         s.hub = "sales"
         s.sp = _pending
@@ -50354,21 +50355,26 @@ def index():
                 s.cpc_campaign = None
                 s._cpc_error = ""
         elif _pending == "target_candidate":
-            # ATS "Send a Job Opening" → land on the Find Candidates wizard at
-            # step 0 (paste a JD), clean — mirrors the chooser's "candidate" pick.
-            s.tc_step = 0
-            s.tc_jd_text = ""
-            s.tc_jd_parsed = {}
-            s.tc_candidates = []
-            s.tc_preset = ""
-            # Pre-load the ATS-selected candidates as the campaign's recipients
-            # so generation auto-fills them (no "CONTACTS (0)").
-            s.tc_contacts = app.storage.user.pop("_pending_campaign_contacts", []) or []
+            # ATS "Send a Job Opening" — grab the pre-loaded recipients now; the
+            # clean Step-1 reset is applied AFTER _restore_aicb_state below (it
+            # would otherwise resurrect a stale tc_step and skip the JD step).
+            _ats_tc_contacts = app.storage.user.pop("_pending_campaign_contacts", []) or []
     # Rehydrate the AICB ("Recruiting Campaign") wizard from session
     # storage so reconnects don't drop the user back to step 1 with
     # blank fields. Same root cause as _restore_page_if_recent — fresh
     # AppState on every websocket reconnect — but for in-wizard state.
     _restore_aicb_state(s)
+    # ATS Find-Candidates handoff: force a clean Step 1 AFTER the restore, so a
+    # stale persisted tc_step can't drop the user straight on Generate.
+    if _pending == "target_candidate":
+        s.tc_step = 0
+        s.tc_jd_text = ""
+        s.tc_jd_filename = ""
+        s.tc_jd_parsed = {}
+        s.tc_candidates = []
+        s.tc_preset = ""
+        s.tc_jd_mode = ""
+        s.tc_contacts = _ats_tc_contacts or []
     refs = {}
 
     def rf():
