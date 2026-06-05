@@ -57,6 +57,8 @@ _STORAGE_SECRET = os.getenv("DRIPDROP_SECRET", "dripdrop-local-dev-secret-change
 _ATS_ALLOWED_EMAILS = {
     "michael.vaughn@arenastaffing.net",
     "mkvaughn1987@gmail.com",
+    "sarah.henze@arenastaffing.net",
+    "elizabeth.simonov@arenastaffing.net",
 }
 
 # Desktop installer download URL  -  set to a real CDN URL once the installer
