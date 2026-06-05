@@ -757,6 +757,14 @@ def _norm_state(s: str) -> str:
     return _STATES.get(s.lower(), s[:14])
 
 
+# Reverse: abbrev → full state name for display headers ("CA" → "California").
+_STATE_NAMES = {abbr: full.title() for full, abbr in _STATES.items()}
+
+
+def _state_name(abbr: str) -> str:
+    return _STATE_NAMES.get(abbr, abbr)
+
+
 # Ordered industry rules (first whole-word keyword hit wins). Tuned for a
 # skilled-trades / construction / manufacturing pool.
 _INDUSTRY_RULES = [
@@ -852,6 +860,36 @@ def dashboard_stats() -> dict:
         "locations": loc.most_common(10),
         "roles": role.most_common(10),
     }
+
+
+def pool_by_location(top_states: int = 6, top_inds: int = 5) -> list:
+    """Cross-tab the pool by state, then industry within each state — the
+    location-first dashboard view. Returns a list of
+    {state, name, total, industries:[(industry, count), ...]} sorted by size."""
+    from collections import Counter, defaultdict
+    con = _con()
+    try:
+        rows = con.execute("SELECT current_title, skills, state FROM talents").fetchall()
+    except Exception:
+        return []
+    finally:
+        con.close()
+    by_state = defaultdict(Counter)
+    state_total = Counter()
+    for r in rows:
+        stt = _norm_state(r["state"] or "")
+        if not stt:
+            continue
+        ind = _industry_of(r["current_title"] or "", r["skills"] or "")
+        by_state[stt][ind] += 1
+        state_total[stt] += 1
+    out = []
+    for stt, cnt in state_total.most_common(top_states):
+        named = [(k, v) for k, v in by_state[stt].most_common() if k != "Other"]
+        inds = named[:top_inds] if named else by_state[stt].most_common(top_inds)
+        out.append({"state": stt, "name": _state_name(stt),
+                    "total": cnt, "industries": inds})
+    return out
 
 
 # ── UI helpers ──────────────────────────────────────────────────────────
@@ -1063,16 +1101,60 @@ def _view_dashboard(ff, st, refresh):
                             f"cursor:pointer;").on("click.stop", _del):
                         ui.label("✕")
 
-    # ── Talent Pool box: the 3 bar charts combined ──
+    # ── Talent Pool by Location: state header + industry breakdown ──
     with ui.element("div").style(_box + "margin-bottom:14px;"):
-        ui.label("Talent Pool").style(_box_title + "display:block;margin-bottom:14px;")
-        with ui.element("div").style("display:grid;grid-template-columns:1fr 1fr 1fr;gap:28px;"):
-            for sub, items in (("By Industry", stats["industries"]),
-                               ("By Location", stats["locations"]),
-                               ("By Role", stats["roles"])):
-                with ui.element("div").style("min-width:0;"):
-                    ui.label(sub).style(_sub_title)
-                    _bars(C, items, st, refresh)
+        ui.label("Talent Pool by Location").style(_box_title + "display:block;")
+        ui.label("Where your candidates are — and what they do. Click a state or "
+                 "an industry to pull those candidates up.").style(
+            f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin:4px 0 16px;display:block;")
+        locs = pool_by_location()
+        if not locs:
+            ui.label("No location data yet.").style(
+                f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
+        with ui.element("div").style(
+                "display:grid;grid-template-columns:repeat(3,1fr);gap:14px;"):
+            for L in locs:
+                with ui.element("div").style(
+                        f"background:{_c(C,'surface','#F8FAFC')};"
+                        f"border:1px solid {_c(C,'border','#E2E8F0')};"
+                        f"border-radius:12px;padding:15px 17px;"):
+                    # State header — clickable
+                    def _go_state(_e=None, q=L["name"]):
+                        _drill(st, refresh, q)
+                    with ui.element("div").style(
+                            "display:flex;align-items:baseline;justify-content:space-between;"
+                            "gap:8px;cursor:pointer;margin-bottom:13px;").on("click", _go_state):
+                        ui.label(L["name"]).style(
+                            f"font-size:16px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
+                            f"font-family:'Nunito',sans-serif;"
+                            f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
+                        ui.label(f"{L['total']:,}").style(
+                            f"font-size:16px;font-weight:800;color:{_c(C,'teal','#1AE3D9')};"
+                            f"font-family:'Nunito',sans-serif;flex-shrink:0;")
+                    # Industry breakdown within the state
+                    _maxc = max((c for _, c in L["industries"]), default=1) or 1
+                    for ind, c in L["industries"]:
+                        _pct = max(6, int(round(c / _maxc * 100)))
+
+                        def _go_ind(_e=None, q=f'{L["name"]} {ind}'):
+                            _drill(st, refresh, q)
+                        with ui.element("div").style(
+                                "display:flex;align-items:center;gap:10px;"
+                                "margin-bottom:8px;cursor:pointer;").on("click", _go_ind):
+                            ui.label(ind).style(
+                                f"width:104px;flex-shrink:0;font-size:12px;"
+                                f"color:{_c(C,'text','#334155')};overflow:hidden;"
+                                f"text-overflow:ellipsis;white-space:nowrap;")
+                            with ui.element("div").style(
+                                    f"flex:1;background:{_c(C,'card','#FFFFFF')};"
+                                    f"border:1px solid {_c(C,'border','#E2E8F0')};"
+                                    f"border-radius:5px;height:16px;overflow:hidden;"):
+                                ui.element("div").style(
+                                    f"width:{_pct}%;height:100%;"
+                                    f"background:{_c(C,'teal','#1AE3D9')};border-radius:5px;")
+                            ui.label(f"{c:,}").style(
+                                f"width:38px;text-align:right;font-size:12px;font-weight:700;"
+                                f"color:{_c(C,'text_l','#0F172A')};flex-shrink:0;")
 
     # ── Recently Added box ──
     with ui.element("div").style(_box):
