@@ -2378,12 +2378,36 @@ def _view_upload(ff, st, refresh):
             return
         name = getattr(e, "name", "") or "resume"
         ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
-        if ext not in ("pdf", "docx", "txt", "text", "doc"):
-            return  # ignore non-résumé files when a whole folder is picked
-        st.setdefault("upload_queue", []).append((name, data))
+        q = st.setdefault("upload_queue", [])
+        if ext == "zip":
+            # One .zip → expand it server-side into many queued résumés. Far
+            # more reliable than 600 individual browser uploads.
+            import zipfile, io as _io
+            n0 = len(q)
+            try:
+                with zipfile.ZipFile(_io.BytesIO(data)) as zf:
+                    for info in zf.infolist():
+                        if info.is_dir():
+                            continue
+                        fn = info.filename
+                        fext = fn.rsplit(".", 1)[-1].lower() if "." in fn else ""
+                        if fext in ("pdf", "docx", "doc", "txt", "text"):
+                            try:
+                                q.append((fn.split("/")[-1], zf.read(info)))
+                            except Exception:
+                                pass
+            except Exception as ex:
+                print(f"[ATS-upload] zip extract failed: {ex}", flush=True)
+            print(f"[ATS-upload] zip {name}: +{len(q)-n0} résumés (queue={len(q)})", flush=True)
+        elif ext in ("pdf", "docx", "doc", "txt", "text"):
+            q.append((name, data))
+            if len(q) % 50 == 0:
+                print(f"[ATS-upload] queued {len(q)} files", flush=True)
+        else:
+            return  # skip non-résumé files (e.g. junk inside a picked folder)
         if _cnt["el"] is not None:
             try:
-                _cnt["el"].set_text(f"{len(st['upload_queue'])} résumé(s) ready to import")
+                _cnt["el"].set_text(f"{len(q)} résumé(s) ready to import")
             except Exception:
                 pass
 
@@ -2429,11 +2453,22 @@ def _view_upload(ff, st, refresh):
                      f"skipped {_s.get('dup',0)+_s.get('junk',0)+_s.get('scanned',0)+_s.get('error',0)}").style(
                 f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
         else:
-            # Two hidden uploaders (files + folder), driven by visible buttons.
+            # Big-folder tip: zip is the reliable path (one upload, not 600).
+            with ui.element("div").style(
+                    f"background:{_c(C,'teal','#1AE3D9')}14;border:1px solid {_c(C,'teal','#1AE3D9')}40;"
+                    f"border-radius:10px;padding:12px 16px;margin-bottom:14px;"):
+                ui.label("📦 Big folder (100+ résumés)? Zip it first — it's one fast, "
+                         "reliable upload instead of hundreds.").style(
+                    f"font-size:13px;font-weight:700;color:{_c(C,'text_l','#0F172A')};display:block;")
+                ui.label("In File Explorer: right-click your résumé folder → Send to → "
+                         "Compressed (zipped) folder → then upload that single .zip below.").style(
+                    f"font-size:11.5px;color:{_c(C,'text','#334155')};margin-top:4px;display:block;line-height:1.5;")
+
+            # Two hidden uploaders (files/zip + folder), driven by visible buttons.
             with ui.element("div").style("height:0;overflow:hidden;"):
                 _up = ui.upload(on_upload=_on_up, multiple=True, auto_upload=True,
-                                max_file_size=30_000_000).props(
-                    'accept=".pdf,.docx,.txt"').classes("dd-resume-up")
+                                max_file_size=200_000_000).props(
+                    'accept=".pdf,.docx,.txt,.zip"').classes("dd-resume-up")
             with ui.element("div").style("height:0;overflow:hidden;"):
                 _upf = ui.upload(on_upload=_on_up, multiple=True, auto_upload=True,
                                  max_file_size=30_000_000).classes("dd-resume-upf")
@@ -2449,15 +2484,16 @@ def _view_upload(ff, st, refresh):
                         f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;border-radius:8px;"
                         f"padding:12px 24px;font-size:14px;font-weight:700;cursor:pointer;"
                         f"font-family:inherit;").on("click", lambda: _up.run_method("pickFiles")):
-                    ui.label("⬆ Choose files (PDF / DOCX)")
+                    ui.label("⬆ Choose files or a .zip")
                 with ui.element("button").style(
                         f"background:transparent;border:1.5px solid {_c(C,'teal','#1AE3D9')};"
                         f"color:{_c(C,'teal','#1AE3D9')};border-radius:8px;padding:12px 22px;"
                         f"font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;"
                         ).on("click", _pick_folder):
-                    ui.label("📁 Choose a whole folder")
-            ui.label("“Choose a whole folder” grabs every résumé inside it. PDF and .docx "
-                     "parse best; scanned/image PDFs and old .doc files are skipped.").style(
+                    ui.label("📁 Choose a folder (small)")
+            ui.label("PDF and .docx parse best; scanned/image PDFs and old .doc files are "
+                     "skipped. The folder button is fine for small batches; use a .zip for "
+                     "big ones.").style(
                 f"font-size:11px;color:{_c(C,'muted','#94A3B8')};margin-top:8px;display:block;")
 
             ui.element("div").style(
