@@ -1471,6 +1471,21 @@ def _resume_preview(ff, st, refresh):
                     f"font-family:inherit;").on("click", _mpc):
                 ui.label("✦ Start an MPC Campaign")
 
+            def _send_job_one(_e=None, i=pid):
+                n, safe = send_to_dripdrop([i], "ATS - " + _fullname(d)[:32])
+                if not n:
+                    ui.notify("This candidate has no email on file.", type="warning"); return
+                app.storage.user["_pending_page"] = "start_seq"
+                ui.notify(f"Added to DripDrop as contact list \"{safe}\". Build your "
+                          f"job-pitch sequence and pick that list.", type="positive", timeout=7000)
+                ui.navigate.to("/")
+            with ui.element("button").style(
+                    f"background:transparent;color:{_c(C,'teal','#1AE3D9')};"
+                    f"border:1.5px solid {_c(C,'teal','#1AE3D9')};border-radius:8px;"
+                    f"padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;"
+                    f"font-family:inherit;").on("click", _send_job_one):
+                ui.label("✉ Send a Job Opening")
+
             def _full(_e=None, i=pid):
                 st["sel"] = i; st["tab"] = "resume"; st["view"] = "profile"; refresh()
             with ui.element("button").style(
@@ -1595,6 +1610,30 @@ def _view_candidates(ff, st, refresh):
                         f"color:{_c(C,'text','#334155')};border-radius:8px;padding:6px 14px;"
                         f"font-size:12px;cursor:pointer;font-family:inherit;").on("click", _clear_sel):
                     ui.label("Clear")
+
+                # Send a Job Opening — pitch a role TO the selected candidates
+                # (recruiting outreach). Writes them as a DripDrop contact list
+                # and drops into the campaign builder.
+                def _send_job():
+                    ids = list(_sel)
+                    nm = "ATS - " + ((st.get("query") or "").strip()[:32] or "candidates")
+                    n, safe = send_to_dripdrop(ids, nm)
+                    if not n:
+                        ui.notify("None of the selected candidates have an email on file.",
+                                  type="warning")
+                        return
+                    app.storage.user["_pending_page"] = "start_seq"
+                    _sel.clear()
+                    ui.notify(f"Added {n} candidate(s) to DripDrop as contact list "
+                              f"\"{safe}\". Build your job-pitch sequence and pick that list "
+                              f"in the contacts step.", type="positive", timeout=7000)
+                    ui.navigate.to("/")
+                with ui.element("button").style(
+                        f"background:transparent;color:{_c(C,'teal','#1AE3D9')};"
+                        f"border:1.5px solid {_c(C,'teal','#1AE3D9')};"
+                        f"border-radius:8px;padding:6px 16px;font-size:13px;font-weight:700;"
+                        f"cursor:pointer;font-family:inherit;").on("click", _send_job):
+                    ui.label("✉ Send a Job Opening")
 
                 def _start_mpc():
                     used, total = start_mpc_campaign(list(_sel))
