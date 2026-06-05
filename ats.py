@@ -371,6 +371,48 @@ def get_one(tid: int) -> dict:
         con.close()
 
 
+def companies_from_campaigns() -> list:
+    """Live list of companies the user has reached out to via DripDrop
+    campaigns — aggregated from campaign contacts + each campaign's target
+    company. Reads campaigns fresh, so new campaigns show up automatically."""
+    ff = _ff()
+    try:
+        ff._cache_campaigns.invalidate()
+    except Exception:
+        pass
+    try:
+        camps = ff.load_campaigns()
+    except Exception:
+        return []
+    agg = {}
+
+    def _add(co, camp_name, contact=None):
+        co = (str(co) if co is not None else "").strip()
+        if not co or co.lower() in ("n/a", "none", "-"):
+            return
+        e = agg.setdefault(co.lower(), {"name": co, "contacts": 0,
+                                        "campaigns": set(), "location": ""})
+        e["campaigns"].add(camp_name)
+        if contact is not None:
+            e["contacts"] += 1
+            if not e["location"]:
+                e["location"] = ", ".join(
+                    x for x in [(contact.get("city") or ""), (contact.get("state") or "")] if x)
+
+    for c in (camps or []):
+        cname = c.get("name", "") or ""
+        for ct in (c.get("contacts") or []):
+            _add(ct.get("company"), cname, ct)
+        _add((c.get("variables") or {}).get("Company"), cname)
+        _add(c.get("market_company"), cname)
+
+    out = [{"name": v["name"], "contacts": v["contacts"],
+            "campaigns": len(v["campaigns"]), "location": v["location"]}
+           for v in agg.values()]
+    out.sort(key=lambda x: (x["contacts"], x["campaigns"]), reverse=True)
+    return out
+
+
 # ── Pool aggregation (Dashboard) ─────────────────────────────────────────
 _STATES = {
     "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR",
@@ -894,6 +936,51 @@ def _view_candidates(ff, st, refresh):
         _candidate_rows(C, st, refresh, recent())
 
 
+def _view_companies(ff, st, refresh):
+    C = ff.C
+    ui.label("Companies").style(
+        f"font-size:22px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
+        f"font-family:'Nunito',sans-serif;")
+    ui.label("Companies you've reached out to through DripDrop campaigns — "
+             "updates automatically as you run new campaigns.").style(
+        f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:16px;")
+    cos = companies_from_campaigns()
+    with ui.element("div").style(
+            f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
+            f"border-radius:12px;padding:18px 20px;"):
+        ui.label(f"{len(cos):,} companies").style(
+            f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:10px;display:block;")
+        if not cos:
+            ui.label("No companies yet — run a DripDrop campaign and the companies "
+                     "you contact will appear here automatically.").style(
+                f"font-size:13px;color:{_c(C,'muted','#94A3B8')};padding:8px 0;")
+            return
+        _cols = "2fr 1.2fr 0.7fr 0.7fr"
+        with ui.element("div").style(
+                f"display:grid;grid-template-columns:{_cols};gap:12px;"
+                f"padding:8px 6px;border-bottom:1px solid {_c(C,'border','#E2E8F0')};"
+                f"font-size:10px;font-weight:700;letter-spacing:.05em;"
+                f"text-transform:uppercase;color:{_c(C,'muted','#94A3B8')};"):
+            for h in ("Company", "Location", "Contacts", "Campaigns"):
+                ui.label(h)
+        for co in cos:
+            def _drill_co(_e=None, q=co["name"]):
+                _drill(st, refresh, q, strict=True)
+            with ui.element("div").style(
+                    f"display:grid;grid-template-columns:{_cols};gap:12px;align-items:center;"
+                    f"padding:10px 6px;border-bottom:1px solid {_c(C,'border','#EEF2F8')};cursor:pointer;"
+                    ).on("click", _drill_co):
+                ui.label(co["name"]).style(
+                    f"font-size:13px;font-weight:700;color:{_c(C,'text_l','#0F172A')};"
+                    f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
+                ui.label(co["location"] or "—").style(
+                    f"font-size:12px;color:{_c(C,'text','#334155')};")
+                ui.label(f"{co['contacts']:,}").style(
+                    f"font-size:12px;font-weight:600;color:{_c(C,'text_l','#0F172A')};")
+                ui.label(f"{co['campaigns']:,}").style(
+                    f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
+
+
 def _view_profile(ff, st, refresh):
     C = ff.C
     d = get_one(st.get("sel"))
@@ -1099,7 +1186,7 @@ def _render_app(ff, st, refresh):
             elif v == "jobs":
                 _view_stub(ff, st, "Jobs", "Open requisitions — link candidates to roles and track submittals.")
             elif v == "companies":
-                _view_stub(ff, st, "Companies", "Your client / CRM records.")
+                _view_companies(ff, st, refresh)
             elif v == "searches":
                 _view_stub(ff, st, "Saved Searches", "Save a search or JD-match to re-run later.")
             elif v == "reports":
