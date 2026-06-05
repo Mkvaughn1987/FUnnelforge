@@ -1313,6 +1313,57 @@ def rebuild_fts():
         con.close()
 
 
+def ingest_parsed_records(records, owner_email: str, added_by: str,
+                          rebuild: bool = True) -> dict:
+    """Insert PRE-PARSED candidate records for one owner (used by the local
+    bulk-parse → server-merge path). Per-owner dedup with keep-best. Each record
+    is a dict with talent fields + resume_text + source_file. Returns stats."""
+    import time
+    con = _con()
+    stats = {"total": len(records), "added": 0, "merged": 0, "dup": 0}
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    try:
+        for d in records:
+            text = d.get("resume_text", "") or ""
+            cols = {
+                "first_name": d.get("first_name", "") or "",
+                "last_name": d.get("last_name", "") or "",
+                "email": (d.get("email") or "").strip(),
+                "phone": (d.get("phone") or "").strip(),
+                "city": d.get("city", "") or "", "state": d.get("state", "") or "",
+                "current_title": d.get("current_title", "") or "",
+                "current_employer": d.get("current_employer", "") or "",
+                "years_experience": d.get("years_experience", "") or "",
+                "seniority": d.get("seniority", "") or "",
+                "skills": d.get("skills", "") or "", "summary": d.get("summary", "") or "",
+                "status": "Candidate", "source_file": d.get("source_file", "") or "",
+                "resume_text": text, "added_by": added_by, "owner_email": owner_email,
+                "created_at": now, "updated_at": now,
+            }
+            existing = _find_owner_dup(con, d, owner_email)
+            if existing:
+                if _completeness(cols) > _completeness(dict(existing)):
+                    sets = ", ".join("%s=?" % k for k in cols if k != "created_at")
+                    vals = [v for k, v in cols.items() if k != "created_at"]
+                    con.execute("UPDATE talents SET %s WHERE id=?" % sets,
+                                (*vals, existing["id"]))
+                    stats["merged"] += 1
+                else:
+                    stats["dup"] += 1
+            else:
+                con.execute(
+                    "INSERT INTO talents(%s) VALUES(%s)" % (
+                        ", ".join(cols.keys()), ", ".join("?" * len(cols))),
+                    tuple(cols.values()))
+                stats["added"] += 1
+        if rebuild and (stats["added"] or stats["merged"]):
+            con.execute("INSERT INTO talents_fts(talents_fts) VALUES('rebuild')")
+        con.commit()
+    finally:
+        con.close()
+    return stats
+
+
 # ── Pool aggregation (Dashboard) ─────────────────────────────────────────
 _STATES = {
     "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR",
