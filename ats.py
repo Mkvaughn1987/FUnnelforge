@@ -2346,6 +2346,16 @@ def _render_app(ff, st, refresh):
                 f"flex:0 0 210px;background:{_c(C,'surface','#0E1726')};"
                 f"border-right:1px solid {_c(C,'border','#243049')};padding:14px 10px;"
                 f"display:flex;flex-direction:column;gap:2px;"):
+            # Candidate count — pinned at the top so it's always visible.
+            with ui.element("div").style(
+                    f"background:{_c(C,'teal','#1AE3D9')}14;border:1px solid {_c(C,'teal','#1AE3D9')}33;"
+                    f"border-radius:10px;padding:10px 12px;margin-bottom:10px;"):
+                ui.label(f"{total_count():,}").style(
+                    f"font-size:22px;font-weight:800;color:{_c(C,'teal','#1AE3D9')};"
+                    f"font-family:'Nunito',sans-serif;line-height:1;")
+                ui.label("candidates in database").style(
+                    f"font-size:10px;font-weight:600;color:{_c(C,'muted','#94A3B8')};"
+                    f"text-transform:uppercase;letter-spacing:.04em;margin-top:3px;display:block;")
             for key, icon, label in _NAV:
                 on = (st["view"] == key) or (key == "candidates" and st["view"] == "profile") \
                     or (key == "companies" and st["view"] == "company_detail")
@@ -2371,8 +2381,6 @@ def _render_app(ff, st, refresh):
                         f"font-size:13px;font-weight:{700 if on else 500};"
                         f"color:{_c(C,'teal','#1AE3D9') if on else _c(C,'text','#CBD5E1')};")
             ui.element("div").style("flex:1;")
-            ui.label(f"{total_count():,} talents").style(
-                f"font-size:11px;color:{_c(C,'muted','#94A3B8')};padding:8px 12px;")
 
         # Content
         with ui.element("div").style("flex:1;min-width:0;overflow:auto;padding:24px 28px;"):
