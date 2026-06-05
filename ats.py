@@ -196,6 +196,130 @@ def get_one(tid: int) -> dict:
         con.close()
 
 
+# ── Pool aggregation (Dashboard) ─────────────────────────────────────────
+_STATES = {
+    "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR",
+    "california": "CA", "colorado": "CO", "connecticut": "CT", "delaware": "DE",
+    "florida": "FL", "georgia": "GA", "hawaii": "HI", "idaho": "ID",
+    "illinois": "IL", "indiana": "IN", "iowa": "IA", "kansas": "KS",
+    "kentucky": "KY", "louisiana": "LA", "maine": "ME", "maryland": "MD",
+    "massachusetts": "MA", "michigan": "MI", "minnesota": "MN", "mississippi": "MS",
+    "missouri": "MO", "montana": "MT", "nebraska": "NE", "nevada": "NV",
+    "new hampshire": "NH", "new jersey": "NJ", "new mexico": "NM", "new york": "NY",
+    "north carolina": "NC", "north dakota": "ND", "ohio": "OH", "oklahoma": "OK",
+    "oregon": "OR", "pennsylvania": "PA", "rhode island": "RI", "south carolina": "SC",
+    "south dakota": "SD", "tennessee": "TN", "texas": "TX", "utah": "UT",
+    "vermont": "VT", "virginia": "VA", "washington": "WA", "west virginia": "WV",
+    "wisconsin": "WI", "wyoming": "WY", "district of columbia": "DC",
+}
+
+
+def _norm_state(s: str) -> str:
+    s = (s or "").strip()
+    if not s:
+        return ""
+    if len(s) == 2 and s.isalpha():
+        return s.upper()
+    return _STATES.get(s.lower(), s[:14])
+
+
+# Ordered industry rules (first whole-word keyword hit wins). Tuned for a
+# skilled-trades / construction / manufacturing pool.
+_INDUSTRY_RULES = [
+    ("Construction", ["superintendent", "project manager", "project mgr", "estimator",
+        "estimating", "project engineer", "construction", "foreman", "civil", "concrete",
+        "oshpd", "precon", "preconstruction", "general contractor", "field engineer",
+        "carpenter", "drywall", "framing", "masonry", "contractor", "subcontractor"]),
+    ("Manufacturing", ["plant manager", "plant director", "production", "manufacturing",
+        "assembly", "fabrication", "machining", "cnc", "molding", "extrusion",
+        "process engineer", "production supervisor"]),
+    ("Skilled Trades", ["electrician", "welder", "plumber", "hvac", "pipefitter",
+        "millwright", "machinist", "journeyman", "mechanic", "installer", "ironworker",
+        "sheet metal", "boilermaker", "lineman", "apprentice"]),
+    ("Engineering", ["engineer", "design", "drafter", "cad", "structural"]),
+    ("Finance & Admin", ["controller", "accountant", "accounting", "cfo", "finance",
+        "payroll", "bookkeeper", "audit", "human resources", "office manager",
+        "administrative", "executive assistant", "recruiter"]),
+    ("Sales & BD", ["sales", "business development", "account executive",
+        "account manager", "marketing"]),
+    ("Logistics & Supply", ["logistics", "supply chain", "distribution", "procurement",
+        "warehouse", "materials", "inventory", "fleet"]),
+    ("Healthcare", ["nurse", "clinical", "medical", "healthcare", "physician", "caregiver"]),
+]
+
+
+def _industry_of(title: str, skills: str) -> str:
+    hay = ((title or "") + " " + (skills or "")).lower()
+    for ind, kws in _INDUSTRY_RULES:
+        for kw in kws:
+            if re.search(r"\b" + re.escape(kw) + r"\b", hay):
+                return ind
+    return "Other"
+
+
+_ROLE_RULES = [
+    ("Superintendent", ["superintendent"]),
+    ("Project Manager", ["project manager", "project mgr"]),
+    ("Project Engineer", ["project engineer"]),
+    ("Estimator", ["estimator", "estimating"]),
+    ("Construction Manager", ["construction manager"]),
+    ("Plant Manager", ["plant manager", "plant director"]),
+    ("Production Manager", ["production manager", "production supervisor"]),
+    ("Operations Manager", ["operations manager", "director of operations", "operations director"]),
+    ("Foreman", ["foreman"]),
+    ("Electrician", ["electrician"]),
+    ("Controller", ["controller"]),
+    ("Engineer", ["engineer"]),
+    ("Director / VP", ["director", "vice president", "vp", "president", "chief", "executive"]),
+    ("Manager", ["manager"]),
+]
+
+
+def _role_family(title: str) -> str:
+    t = (title or "").lower()
+    for fam, kws in _ROLE_RULES:
+        for kw in kws:
+            if re.search(r"\b" + re.escape(kw) + r"\b", t):
+                return fam
+    return ((title or "").strip()[:24]) or "Other"
+
+
+def dashboard_stats() -> dict:
+    from collections import Counter
+    from datetime import date, timedelta
+    con = _con()
+    try:
+        total = con.execute("SELECT COUNT(*) FROM talents").fetchone()[0]
+        wk = (date.today() - timedelta(days=7)).strftime("%Y-%m-%d")
+        added_week = con.execute(
+            "SELECT COUNT(*) FROM talents WHERE substr(created_at,1,10) >= ?", (wk,)
+        ).fetchone()[0]
+        rows = con.execute("SELECT current_title, skills, state FROM talents").fetchall()
+    except Exception:
+        return {"total": 0, "added_week": 0, "industries": [], "locations": [], "roles": []}
+    finally:
+        con.close()
+    ind, role, loc = Counter(), Counter(), Counter()
+    for r in rows:
+        title = r["current_title"] or ""
+        skills = r["skills"] or ""
+        ind[_industry_of(title, skills)] += 1
+        if title.strip():
+            role[_role_family(title)] += 1
+        stt = _norm_state(r["state"] or "")
+        if stt:
+            loc[stt] += 1
+    inds = [(k, v) for k, v in ind.most_common() if k != "Other"]
+    if ind.get("Other"):
+        inds.append(("Other", ind["Other"]))
+    return {
+        "total": total, "added_week": added_week,
+        "industries": inds,
+        "locations": loc.most_common(10),
+        "roles": role.most_common(10),
+    }
+
+
 # ── UI helpers ──────────────────────────────────────────────────────────
 def _c(C, k, d):
     try:
@@ -224,6 +348,89 @@ def _loc(d):
 
 
 # ── Views ────────────────────────────────────────────────────────────────
+def _bars(C, items, st, refresh):
+    if not items:
+        ui.label("No data yet.").style(f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
+        return
+    maxc = max((c for _, c in items), default=1) or 1
+    for label, count in items:
+        pct = max(4, int(round(count / maxc * 100)))
+
+        def _drill(_e=None, q=label):
+            st["mode"] = "keywords"
+            st["query"] = q
+            st["results"] = keyword_search(q)
+            st["terms"] = _terms(q)
+            st["crit"] = {}
+            st["view"] = "candidates"
+            refresh()
+        with ui.element("div").style(
+                "display:flex;align-items:center;gap:12px;margin-bottom:9px;cursor:pointer;"
+                ).on("click", _drill):
+            ui.label(label).style(
+                f"width:150px;flex-shrink:0;font-size:12px;color:{_c(C,'text','#334155')};"
+                f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
+            with ui.element("div").style(
+                    f"flex:1;background:{_c(C,'surface','#EEF2F8')};border-radius:6px;"
+                    f"height:20px;overflow:hidden;"):
+                ui.element("div").style(
+                    f"width:{pct}%;height:100%;background:{_c(C,'teal','#1AE3D9')};"
+                    f"border-radius:6px;")
+            ui.label(f"{count:,}").style(
+                f"width:50px;text-align:right;font-size:12px;font-weight:700;"
+                f"color:{_c(C,'text_l','#0F172A')};")
+
+
+def _view_dashboard(ff, st, refresh):
+    C = ff.C
+    stats = dashboard_stats()
+    ui.label("Your Talent Pool").style(
+        f"font-size:22px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
+        f"font-family:'Nunito',sans-serif;")
+    ui.label("A high-level snapshot of what's in your database. Click any bar to "
+             "see those candidates.").style(
+        f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:16px;")
+
+    # Stat tiles
+    with ui.element("div").style("display:flex;gap:14px;margin-bottom:18px;flex-wrap:wrap;"):
+        for val, lbl in ((f"{stats['total']:,}", "Total talents"),
+                         (f"{stats['added_week']:,}", "Added this week")):
+            with ui.element("div").style(
+                    f"flex:1;min-width:160px;background:{_c(C,'card','#FFFFFF')};"
+                    f"border:1px solid {_c(C,'border','#E2E8F0')};border-radius:12px;"
+                    f"padding:16px 18px;"):
+                ui.label(val).style(
+                    f"font-size:26px;font-weight:800;color:{_c(C,'teal','#1AE3D9')};"
+                    f"font-family:'Nunito',sans-serif;line-height:1;")
+                ui.label(lbl).style(
+                    f"font-size:11px;font-weight:600;color:{_c(C,'muted','#94A3B8')};"
+                    f"text-transform:uppercase;letter-spacing:.06em;margin-top:6px;")
+
+    # By Industry (full width)
+    with ui.element("div").style(
+            f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
+            f"border-radius:12px;padding:18px 20px;margin-bottom:14px;"):
+        ui.label("By Industry").style(
+            f"font-size:13px;font-weight:700;color:{_c(C,'text_l','#0F172A')};"
+            f"font-family:'Nunito',sans-serif;margin-bottom:12px;")
+        _bars(C, stats["industries"], st, refresh)
+
+    # By Location + By Role
+    with ui.element("div").style("display:grid;grid-template-columns:1fr 1fr;gap:14px;"):
+        with ui.element("div").style(
+                f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
+                f"border-radius:12px;padding:18px 20px;"):
+            ui.label("By Location").style(
+                f"font-size:13px;font-weight:700;color:{_c(C,'text_l','#0F172A')};"
+                f"font-family:'Nunito',sans-serif;margin-bottom:12px;")
+            _bars(C, stats["locations"], st, refresh)
+        with ui.element("div").style(
+                f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
+                f"border-radius:12px;padding:18px 20px;"):
+            ui.label("By Role").style(
+                f"font-size:13px;font-weight:700;color:{_c(C,'text_l','#0F172A')};"
+                f"font-family:'Nunito',sans-serif;margin-bottom:12px;")
+            _bars(C, stats["roles"], st, refresh)
 def _candidate_rows(C, st, refresh, rows, terms=None):
     if not rows:
         ui.label("No matches — try fewer or different keywords.").style(
@@ -534,7 +741,7 @@ def _render_app(ff, st, refresh):
             elif v == "candidates":
                 _view_candidates(ff, st, refresh)
             elif v == "dashboard":
-                _view_stub(ff, st, "Dashboard", "Pipeline counts, recent adds, and your active candidates land here.")
+                _view_dashboard(ff, st, refresh)
             elif v == "jobs":
                 _view_stub(ff, st, "Jobs", "Open requisitions — link candidates to roles and track submittals.")
             elif v == "companies":
@@ -566,7 +773,7 @@ def ats_page():
         pass
 
     st = {
-        "view": "candidates", "tab": "summary", "mode": "keywords",
+        "view": "dashboard", "tab": "summary", "mode": "keywords",
         "query": "", "jd": "", "results": [], "terms": [], "crit": {},
         "searching": False, "sel": None,
         "name": app.storage.user.get("name", "") or email,
