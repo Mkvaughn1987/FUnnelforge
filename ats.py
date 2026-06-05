@@ -463,11 +463,11 @@ def _candidate_rows(C, st, refresh, rows, terms=None):
         return
     # header
     with ui.element("div").style(
-            f"display:grid;grid-template-columns:1.4fr 1.6fr 1fr 0.8fr;gap:12px;"
+            f"display:grid;grid-template-columns:1.4fr 1.5fr 0.9fr 0.9fr 0.7fr;gap:12px;"
             f"padding:8px 14px;border-bottom:1px solid {_c(C,'border','#243049')};"
             f"font-size:10px;font-weight:700;letter-spacing:.05em;"
             f"text-transform:uppercase;color:{_c(C,'muted','#94A3B8')};"):
-        for h in ("Name", "Title / Employer", "Location", "Status"):
+        for h in ("Name", "Title / Employer", "Location", "Owner", "Status"):
             ui.label(h)
     for r in rows:
         tid = r.get("id")
@@ -478,7 +478,7 @@ def _candidate_rows(C, st, refresh, rows, terms=None):
             st["view"] = "profile"
             refresh()
         with ui.element("div").style(
-                f"display:grid;grid-template-columns:1.4fr 1.6fr 1fr 0.8fr;gap:12px;"
+                f"display:grid;grid-template-columns:1.4fr 1.5fr 0.9fr 0.9fr 0.7fr;gap:12px;"
                 f"padding:11px 14px;border-bottom:1px solid {_c(C,'border','#1c2740')};"
                 f"cursor:pointer;align-items:center;").on("click", _open):
             with ui.element("div"):
@@ -498,6 +498,9 @@ def _candidate_rows(C, st, refresh, rows, terms=None):
                     f"font-size:11px;color:{_c(C,'muted','#94A3B8')};"
                     f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
             ui.label(_loc(r) or "—").style(f"font-size:12px;color:{_c(C,'text','#CBD5E1')};")
+            ui.label(r.get("added_by", "") or "—").style(
+                f"font-size:12px;color:{_c(C,'text','#CBD5E1')};"
+                f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
             ui.label(r.get("status", "Candidate") or "Candidate").style(
                 f"font-size:11px;font-weight:600;color:{_c(C,'teal','#1AE3D9')};")
 
