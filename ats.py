@@ -440,6 +440,160 @@ def backfill_contacts() -> dict:
     return out
 
 
+# ── Deduplication ─────────────────────────────────────────────────────────
+def _norm_name_key(d: dict) -> str:
+    fn = re.sub(r"[^a-z]", "", (d.get("first_name") or "").lower())
+    ln = re.sub(r"[^a-z]", "", (d.get("last_name") or "").lower())
+    return fn + "|" + ln
+
+
+def _completeness(d: dict) -> float:
+    """How much real info a record carries — used to keep the best of a set
+    of duplicates. Email/phone dominate; a longer résumé and filled fields
+    add; auto-generated 'Fit Summary' docs are penalised so a real résumé
+    always wins."""
+    score = 0.0
+    if (d.get("email") or "").strip():
+        score += 1000
+    if (d.get("phone") or "").strip():
+        score += 200
+    score += min(len(d.get("resume_text") or ""), 20000) / 100.0
+    for f in ("current_title", "current_employer", "skills", "summary", "city", "state"):
+        if (d.get(f) or "").strip():
+            score += 30
+    sf = (d.get("source_file") or "").lower()
+    if "fit_summary" in sf or "fit summary" in sf or "fit-summary" in sf:
+        score -= 500
+    return score
+
+
+def _dup_clusters(rows: list) -> list:
+    """Group records into same-person clusters via union-find.
+
+    Same person if: same non-empty email, OR same normalized name + state.
+    Records with a blank state merge into that name's group when the name maps
+    to a single state; names spanning multiple states are split by state so
+    two different people who share a name aren't merged."""
+    from collections import defaultdict
+    by_id = {r["id"]: r for r in rows}
+    parent = {r["id"]: r["id"] for r in rows}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a, b):
+        ra, rb = find(a), find(b)
+        if ra != rb:
+            parent[ra] = rb
+
+    by_email = defaultdict(list)
+    for r in rows:
+        em = (r.get("email") or "").strip().lower()
+        if em:
+            by_email[em].append(r["id"])
+    for ids in by_email.values():
+        for i in ids[1:]:
+            union(ids[0], i)
+
+    by_name = defaultdict(list)
+    for r in rows:
+        by_name[_norm_name_key(r)].append(r)
+    for nk, recs in by_name.items():
+        if nk == "|":  # no name at all — never merge on name
+            continue
+        states = {_norm_state(x.get("state") or "") for x in recs}
+        states.discard("")
+        if len(states) <= 1:
+            for x in recs[1:]:
+                union(recs[0]["id"], x["id"])
+        else:
+            bystate = defaultdict(list)
+            for x in recs:
+                st = _norm_state(x.get("state") or "")
+                if st:
+                    bystate[st].append(x)
+            for st, g in bystate.items():
+                for x in g[1:]:
+                    union(g[0]["id"], x["id"])
+
+    clusters = defaultdict(list)
+    for r in rows:
+        clusters[find(r["id"])].append(by_id[r["id"]])
+    return list(clusters.values())
+
+
+def dedup_talents(dry_run: bool = True) -> dict:
+    """Collapse duplicate candidate records to one per person — keeping the
+    most complete résumé and backfilling any contact fields it's missing from
+    the dropped copies.
+
+    dry_run=True only reports the plan. dry_run=False deletes the extras and
+    rebuilds the FTS index. Idempotent and safe to re-run after any bulk add.
+    Returns a report dict (counts + example groups)."""
+    con = _con()
+    try:
+        rows = [dict(r) for r in con.execute("SELECT * FROM talents")]
+        clusters = _dup_clusters(rows)
+
+        to_delete, merges, backfills = [], [], []
+        for recs in clusters:
+            if len(recs) < 2:
+                continue
+            recs.sort(key=lambda d: (_completeness(d),
+                                     len(d.get("resume_text") or ""), -d["id"]),
+                      reverse=True)
+            keep, drop = recs[0], recs[1:]
+            fill = {}
+            for f in ("email", "phone", "current_title", "current_employer",
+                      "city", "state", "skills", "summary"):
+                if not (keep.get(f) or "").strip():
+                    for dr in drop:
+                        if (dr.get(f) or "").strip():
+                            fill[f] = dr[f]
+                            break
+            name = ((keep.get("first_name") or "") + " " +
+                    (keep.get("last_name") or "")).strip()
+            merges.append((keep, [d["id"] for d in drop], name))
+            if fill:
+                backfills.append((keep["id"], fill))
+            to_delete.extend(d["id"] for d in drop)
+
+        report = {
+            "total": len(rows),
+            "dup_groups": len(merges),
+            "to_delete": len(to_delete),
+            "remaining": len(rows) - len(to_delete),
+            "examples": [],
+        }
+        for keep, dropped, name in sorted(merges, key=lambda m: len(m[1]),
+                                          reverse=True)[:12]:
+            report["examples"].append({
+                "name": name or "(no name)",
+                "kept": "%s | %s | %s" % (
+                    keep.get("current_title", "") or "—",
+                    keep.get("email", "") or "no-email",
+                    keep.get("source_file", "")),
+                "dropped": len(dropped),
+            })
+
+        if not dry_run and to_delete:
+            for keep_id, fill in backfills:
+                sets = ", ".join("%s=?" % k for k in fill)
+                con.execute("UPDATE talents SET %s WHERE id=?" % sets,
+                            (*fill.values(), keep_id))
+            con.executemany("DELETE FROM talents WHERE id=?",
+                            [(i,) for i in to_delete])
+            con.execute("INSERT INTO talents_fts(talents_fts) VALUES('rebuild')")
+            con.commit()
+            report["deleted"] = len(to_delete)
+        return report
+    finally:
+        con.close()
+
+
 def companies_from_campaigns() -> list:
     """Live list of companies the user has reached out to via DripDrop
     campaigns — aggregated from campaign contacts + each campaign's target
