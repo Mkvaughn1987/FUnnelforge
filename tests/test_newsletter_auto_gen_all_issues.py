@@ -115,16 +115,18 @@ def test_first_gen_banner_renderer_unsticks_when_step0_has_content():
     )
 
 
-def test_create_newsletter_generates_step0_before_tail_then_previews_in_dialog():
+def test_create_newsletter_generates_step0_before_tail_and_hands_off_to_banner():
     """The create-newsletter dialog must generate the first issue (step 0)
-    BEFORE the long all-months sweep so the in-dialog preview appears fast,
-    then keep the dialog open to show that preview for the user to save or
-    discard. Source-inspection is the right test here — the closures live
-    inside _create_newsletter_dialog and aren't independently importable.
+    BEFORE the long all-months sweep, then hand off to the page-level status
+    banner (_nl_first_gen_camp_name) which shows the live generating state
+    and the inline preview. Source-inspection is the right test here — the
+    closures live inside _create_newsletter_dialog and aren't independently
+    importable.
 
-    2026-06-03: replaced the old page-banner flag flow (_nl_first_gen_done)
-    with an in-dialog generating → preview → save/discard flow that polls
-    disk content."""
+    2026-06-04: reverted the in-dialog wait/preview (the dialog card got
+    destroyed by a background page re-render mid-generation — "parent element
+    slot deleted" — and the preview never appeared). The page banner
+    re-renders WITH the page, so it survives that."""
     import flowdrip_app as fa
     src = inspect.getsource(fa._create_newsletter_dialog)
     # Step 0 first (for the fast preview), then the all-months sweep.
@@ -135,16 +137,27 @@ def test_create_newsletter_generates_step0_before_tail_then_previews_in_dialog()
         "Must generate step 0 (for the fast preview) before sweeping the "
         "remaining months."
     )
-    # The dialog stays open and shows an in-dialog preview the user saves
-    # or discards — driven by a disk-readiness poll, not the old flag.
-    assert "_first_issue_ready" in src, (
-        "Dialog must poll disk for the first issue instead of the removed "
-        "_nl_first_gen_done flag"
+    # Hands off to the page-level banner, and does NOT keep the dialog open
+    # to swap content (that was the fragile path).
+    assert "_nl_first_gen_camp_name" in src, (
+        "Dialog must hand off to the page status banner via "
+        "_nl_first_gen_camp_name"
     )
-    assert "card.clear()" in src, (
-        "Dialog must transition phases in place (form -> generating -> "
-        "preview)"
+    assert "card.clear()" not in src, (
+        "Dialog must NOT swap its own content in place — that path was "
+        "destroyed by background re-renders"
     )
-    assert "delete_campaign" in src, (
-        "Preview phase must offer a Discard that deletes the draft"
+
+
+def test_first_gen_banner_renders_inline_preview():
+    """The page status banner must render the first issue's HTML inline
+    (not just a button) so the user sees the preview where they spun the
+    newsletter up."""
+    import flowdrip_app as fa
+    src = inspect.getsource(fa._render_nl_first_gen_status)
+    assert 'emails", []' in src or "emails" in src, (
+        "banner must read the campaign's issue body to preview it"
+    )
+    assert "ui.html(" in src, (
+        "banner must render the issue HTML inline as a preview"
     )

@@ -15699,6 +15699,13 @@ def _sq_loaded_campaign(s: AppState, rf):
                     inp.set_value(_acct)
             _preview_state["dialog"].open()
 
+        # Newsletter first-issue generating / preview banner. When the user
+        # spins a newsletter up from this campaign (the card lower down), the
+        # dialog closes and this banner shows the live "Generating…" state and
+        # then an inline preview — right here on the campaign page. Rendered
+        # at page level (not in the dialog) so it survives re-renders.
+        _render_nl_first_gen_status(s, rf)
+
         with ui.element("div").style("display:flex;justify-content:flex-end;margin-bottom:16px;"):
             ui.button(f"📧 Send Preview Emails ({len(email_steps)})",
                 on_click=_open_preview).classes("fd-pb").style(
@@ -21282,39 +21289,62 @@ def _render_nl_first_gen_status(s, rf) -> None:
         ui.timer(2.0, _poll_nl_gen)
         return
 
-    # Done: success card with a direct Preview button + dismiss. The old
-    # copy pointed at the View / Edit pill on the newsletter card below;
-    # that pill was removed 2026-05-20 (title is the click target now),
-    # so the card here gives the user the entry directly instead of
-    # describing where to find it.
+    # Done: success card with an INLINE preview of the first issue + actions.
+    # The inline preview is the point — the user spun the newsletter up from
+    # the campaign page and wants to SEE it right there, not just a button.
+    _ready_camp = None
+    _body0 = ""
+    try:
+        _ready_camp = next(
+            (c for c in load_campaigns() if c.get("name") == _camp_name), None)
+        if _ready_camp:
+            _st = _ready_camp.get("emails", []) or []
+            if _st:
+                _body0 = (_st[0].get("body") or "").strip()
+    except Exception:
+        pass
+
     with ui.element("div").style(
-            f"background:{C['good']}15;border:1px solid {C['good']}60;"
+            f"background:{C['good']}10;border:1px solid {C['good']}55;"
             f"border-left:5px solid {C['good']};border-radius:12px;"
-            f"padding:18px 24px;margin:14px 0 18px;display:flex;"
-            f"align-items:center;gap:18px;"):
-        ui.label("✓").style(
-            f"font-size:32px;color:{C['good']};flex-shrink:0;line-height:1;")
-        with ui.element("div").style("flex:1;min-width:0;"):
-            ui.label(f"Your first issue of '{_camp_name}' is ready.").style(
-                f"font-size:15px;font-weight:800;color:{C['good']};"
-                f"font-family:'Nunito',sans-serif;display:block;"
-                f"margin-bottom:2px;")
+            f"padding:18px 22px;margin:14px 0 18px;"):
+        with ui.element("div").style(
+                "display:flex;align-items:flex-start;gap:14px;margin-bottom:12px;"):
+            ui.label("✓").style(
+                f"font-size:28px;color:{C['good']};flex-shrink:0;line-height:1;")
+            with ui.element("div").style("flex:1;min-width:0;"):
+                ui.label(f"Your first issue of '{_camp_name}' is ready.").style(
+                    f"font-size:15px;font-weight:800;color:{C['good']};"
+                    f"font-family:'Nunito',sans-serif;display:block;"
+                    f"margin-bottom:2px;")
+                ui.label(
+                    "Here's the preview. Open it in the editor to tweak before "
+                    "it sends. Future issues auto-refresh ~3 days before each send."
+                ).style(
+                    f"font-size:11px;color:{C['muted']};line-height:1.5;"
+                    f"display:block;")
+
+        if _body0:
+            # The saved body IS the fully-rendered newsletter HTML — render it
+            # in a white, scrollable panel (inline email styles render cleanly
+            # without an iframe).
+            ui.html(
+                f'<div style="background:#FFFFFF;color:#0F172A;'
+                f'border:1px solid {C["border"]};border-radius:8px;'
+                f'max-height:52vh;overflow:auto;padding:16px;'
+                f'font-family:Arial,sans-serif;">{_body0}</div>'
+            )
+        else:
             ui.label(
-                "Preview it now to review and tweak before it sends. "
-                "Future issues auto-refresh 3 days before each send."
-            ).style(
-                f"font-size:11px;color:{C['muted']};line-height:1.5;"
-                f"display:block;")
+                "The issue generated but has no preview body yet — open it in "
+                "the editor to take a look."
+            ).style(f"font-size:12px;color:{C['warn']};")
 
         def _preview_first_issue():
-            # Open the View / Edit modal on step 0 of the just-generated
-            # newsletter so the user can review the AI's first draft.
             try:
                 _camp = next(
                     (c for c in load_campaigns()
-                     if c.get("name") == _camp_name),
-                    None,
-                )
+                     if c.get("name") == _camp_name), None)
             except Exception:
                 _camp = None
             if not _camp:
@@ -21334,15 +21364,16 @@ def _render_nl_first_gen_status(s, rf) -> None:
             rf()
 
         with ui.element("div").style(
-                "display:flex;gap:8px;flex-shrink:0;align-items:center;"):
+                "display:flex;gap:8px;justify-content:flex-end;"
+                "align-items:center;margin-top:12px;"):
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:8px 16px;font-size:12px;").on(
+                    "click", _dismiss_done):
+                ui.label("Dismiss").style("pointer-events:none;")
             with ui.element("button").classes("fd-pb").style(
                     "padding:8px 18px;font-size:12px;").on(
                     "click", _preview_first_issue):
-                ui.label("✦ Preview Newsletter").style("pointer-events:none;")
-            with ui.element("button").classes("fd-gb").style(
-                    "padding:8px 14px;font-size:12px;").on(
-                    "click", _dismiss_done):
-                ui.label("Dismiss").style("pointer-events:none;")
+                ui.label("✎ Open in Editor").style("pointer-events:none;")
 
 
 def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
@@ -21385,7 +21416,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
     _pre_start_after = (prefill.get("start_after") or "").strip()
     with ui.dialog() as dlg, ui.card().style(
             f"min-width:520px;max-width:580px;background:{C['card']};"
-            f"border:1px solid {C['border']};padding:24px;") as card:
+            f"border:1px solid {C['border']};padding:24px;"):
         ui.label("Create Newsletter").style(
             f"font-size:16px;font-weight:700;color:{C['text_l']};"
             f"font-family:'Nunito',sans-serif;margin-bottom:2px;")
@@ -21737,20 +21768,30 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                     type="negative", timeout=10000)
                 return
 
-            # Generate the first issue in the background. Instead of closing
-            # the dialog and bouncing the user to a page banner, the dialog
-            # STAYS OPEN and transitions: form → "Generating…" (stay on
-            # screen) → an in-dialog preview of issue #1 the user reviews and
-            # then Saves (or Discards) right here. (2026-06-03 user request.)
+            # Generate the first issue in the background, then hand off to the
+            # page-level status banner (_render_nl_first_gen_status) which
+            # shows a live "Generating…" state and then an inline PREVIEW.
+            #
+            # 2026-06-04: an earlier version kept THIS dialog open to wait +
+            # preview, but a background page re-render during the ~30s
+            # generation destroyed the dialog's card ("parent element slot
+            # deleted") so the preview never appeared and the spinner hung.
+            # The page banner re-renders WITH the page, so it survives that —
+            # and it's rendered on the campaign launch page too, so the
+            # preview shows right where the user spun the newsletter up.
+            s._nl_first_gen_camp_name = nl_name
+            s._nl_first_gen_done = False
+
             def _gen_first_issue():
-                # Step 0 first (what the spinner promises), then the long
-                # tail of months 1..N silently. Idempotent — step 0 is
+                # Step 0 first (fast preview), flip the done flag, then sweep
+                # the remaining months silently. Idempotent — step 0 is
                 # skipped on the tail pass since we just populated it.
                 try:
                     _gen_one_issue_for_campaign(nl_name, 0)
                 except Exception as ex:
                     print(f"[NewsletterAuto] first-issue gen failed: {ex}",
                           flush=True)
+                s._nl_first_gen_done = True
                 try:
                     _cache_campaigns.invalidate()
                 except Exception:
@@ -21765,157 +21806,11 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                          _gen_first_issue,
                          name="newsletter_first_issue_worker")
 
-            _gen_ui = {"timer": None}
-
-            def _first_issue_ready() -> bool:
-                """True once step 0 has real (non-placeholder) body on disk."""
-                try:
-                    _c = next((c for c in load_campaigns()
-                               if c.get("name") == nl_name), None)
-                    if _c:
-                        _st = _c.get("emails", []) or []
-                        if _st:
-                            _b = (_st[0].get("body") or "").strip()
-                            return bool(_b) and "[AI:" not in _b
-                except Exception:
-                    pass
-                return False
-
-            def _render_ready_phase():
-                _c = next((c for c in load_campaigns()
-                           if c.get("name") == nl_name), None)
-                _body0 = ""
-                if _c:
-                    _st = _c.get("emails", []) or []
-                    if _st:
-                        _body0 = (_st[0].get("body") or "").strip()
-                ui.label("✓ Your first issue is ready").style(
-                    f"font-size:16px;font-weight:800;color:{C['good']};"
-                    f"font-family:'Nunito',sans-serif;margin-bottom:2px;")
-                ui.label(
-                    "Review the preview below, then save it — or discard and "
-                    "tweak the settings. Future issues auto-refresh ~3 days "
-                    "before each send."
-                ).style(
-                    f"font-size:12px;color:{C['muted']};line-height:1.5;"
-                    f"margin-bottom:12px;")
-                if _body0:
-                    # The saved body IS the fully-rendered newsletter HTML.
-                    # Render it in a white, scrollable panel (inline styles
-                    # in the email HTML render cleanly without an iframe).
-                    ui.html(
-                        f'<div style="background:#FFFFFF;color:#0F172A;'
-                        f'border:1px solid {C["border"]};border-radius:8px;'
-                        f'max-height:48vh;overflow:auto;padding:16px;'
-                        f'font-family:Arial,sans-serif;">{_body0}</div>'
-                    )
-                else:
-                    ui.label(
-                        "The issue generated but has no preview body — open it "
-                        "in the editor to take a look."
-                    ).style(f"font-size:12px;color:{C['warn']};margin-bottom:8px;")
-
-                def _discard():
-                    try:
-                        _p = new_camp.get("_path", "")
-                        if _p:
-                            delete_campaign(_p)
-                    except Exception as ex:
-                        print(f"[Newsletter] discard failed: {ex}", flush=True)
-                    try:
-                        _cache_campaigns.invalidate()
-                    except Exception:
-                        pass
-                    dlg.close()
-                    ui.notify(f"Discarded '{nl_name}'.", type="info")
-                    rf()
-
-                def _open_editor():
-                    _c2 = next((c for c in load_campaigns()
-                                if c.get("name") == nl_name), None)
-                    dlg.close()
-                    if _c2:
-                        _edit_newsletter_modal(s, rf, _c2, 0)
-                    else:
-                        rf()
-
-                def _save_close():
-                    dlg.close()
-                    ui.notify(
-                        f"Saved '{nl_name}'. Find it under Newsletters.",
-                        type="positive")
-                    rf()
-
-                with ui.element("div").style(
-                        "display:flex;gap:8px;justify-content:space-between;"
-                        "align-items:center;margin-top:14px;"):
-                    with ui.element("a").style(
-                            f"font-size:12px;color:{C['muted']};cursor:pointer;"
-                            f"text-decoration:underline;"
-                            ).on("click", lambda _e: _discard()):
-                        ui.label("Discard").style("pointer-events:none;")
-                    with ui.element("div").style("display:flex;gap:8px;"):
-                        with ui.element("button").classes("fd-gb").style(
-                                "padding:8px 16px;font-size:12px;"
-                                ).on("click", lambda _e: _open_editor()):
-                            ui.label("✎ Edit").style("pointer-events:none;")
-                        with ui.element("button").classes("fd-pb").style(
-                                "padding:8px 18px;font-size:12px;"
-                                ).on("click", lambda _e: _save_close()):
-                            ui.label("✓ Save & Close").style("pointer-events:none;")
-
-            def _show_ready_phase():
-                _t = _gen_ui.get("timer")
-                if _t is not None:
-                    try:
-                        _t.active = False
-                    except Exception:
-                        pass
-                card.clear()
-                with card:
-                    _render_ready_phase()
-
-            def _poll_gen():
-                # Stop polling if the user closed the dialog mid-generation
-                # (the background thread still finishes writing the issue).
-                if not getattr(dlg, "value", True):
-                    _t = _gen_ui.get("timer")
-                    if _t is not None:
-                        try:
-                            _t.active = False
-                        except Exception:
-                            pass
-                    return
-                if _first_issue_ready():
-                    _show_ready_phase()
-
-            # Transition the dialog to the "Generating…" phase and start
-            # polling. If the issue is already on disk (re-create of an
-            # existing name, fast cache), jump straight to the preview.
-            card.clear()
-            with card:
-                ui.label(f"Creating '{nl_name}'").style(
-                    f"font-size:16px;font-weight:700;color:{C['text_l']};"
-                    f"font-family:'Nunito',sans-serif;margin-bottom:12px;")
-                with ui.element("div").style(
-                        "display:flex;flex-direction:column;align-items:center;"
-                        "text-align:center;gap:14px;padding:10px 4px 4px;"):
-                    ui.spinner("dots", size="44px", color=C["teal"])
-                    ui.label("Generating the first issue…").style(
-                        f"font-size:15px;font-weight:800;color:{C['teal']};"
-                        f"font-family:'Nunito',sans-serif;")
-                    ui.label(
-                        "Claude is researching the market and writing your "
-                        "first issue. Usually 20-30 seconds — stay on this "
-                        "screen and it'll appear right here for you to review."
-                    ).style(
-                        f"font-size:12px;color:{C['muted']};line-height:1.55;"
-                        f"max-width:430px;")
-                    with ui.element("button").classes("fd-pb").style(
-                            "padding:9px 22px;font-size:13px;opacity:.55;"
-                            "cursor:wait;margin-top:4px;"):
-                        ui.label("⏳ Generating…").style("pointer-events:none;")
-            _gen_ui["timer"] = ui.timer(2.0, _poll_gen)
+            ui.notify(
+                f"Creating '{nl_name}' — generating the first issue now…",
+                type="positive", timeout=3500)
+            dlg.close()
+            rf()
 
         with ui.element("div").style(
                 "display:flex;gap:10px;justify-content:flex-end;"):
