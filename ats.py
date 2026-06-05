@@ -2347,6 +2347,8 @@ def _view_candidates(ff, st, refresh):
 def _view_upload(ff, st, refresh):
     """Bulk résumé upload → parse → add to THIS user's candidate pool."""
     C = ff.C
+    print(f"[ATS-upload] upload page rendered for {st.get('email')} "
+          f"(queue={len(st.get('upload_queue') or [])})", flush=True)
 
     def _back():
         st["view"] = "candidates"; refresh()
@@ -2467,7 +2469,7 @@ def _view_upload(ff, st, refresh):
             # Two hidden uploaders (files/zip + folder), driven by visible buttons.
             with ui.element("div").style("height:0;overflow:hidden;"):
                 _up = ui.upload(on_upload=_on_up, multiple=True, auto_upload=True,
-                                max_file_size=200_000_000).props(
+                                max_file_size=1_000_000_000).props(
                     'accept=".pdf,.docx,.txt,.zip"').classes("dd-resume-up")
             with ui.element("div").style("height:0;overflow:hidden;"):
                 _upf = ui.upload(on_upload=_on_up, multiple=True, auto_upload=True,
