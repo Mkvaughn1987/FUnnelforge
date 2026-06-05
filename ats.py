@@ -2034,6 +2034,15 @@ def _candidate_rows(C, st, refresh, rows, terms=None):
                     if why:
                         ui.label("matched: " + ", ".join(why)).style(
                             f"font-size:10px;color:{_c(C,'good','#34D399')};margin-top:3px;")
+                # Owner · Added date — muted footer line.
+                _owner_lbl = (r.get("added_by") or "").strip()
+                _date_lbl = _fmt_date(r.get("created_at", ""))
+                _meta = [x for x in (_owner_lbl,
+                                     (f"Added {_date_lbl}" if _date_lbl and _date_lbl != "—" else "")) if x]
+                if _meta:
+                    ui.label(" · ".join(_meta)).style(
+                        f"font-size:10px;color:{_c(C,'muted','#94A3B8')};margin-top:4px;"
+                        f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
 
 
 def _resume_preview(ff, st, refresh):
