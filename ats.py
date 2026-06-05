@@ -730,19 +730,12 @@ def _candidate_rows(C, st, refresh, rows, terms=None):
 
 def _view_candidates(ff, st, refresh):
     C = ff.C
-    with ui.element("div").style("display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:14px;"):
-        with ui.element("div").style("display:flex;align-items:baseline;gap:10px;"):
-            ui.label("Candidates").style(
-                f"font-size:22px;font-weight:800;color:{_c(C,'text_l','#E6EDF7')};"
-                f"font-family:'Nunito',sans-serif;")
-            ui.label(f"{total_count():,} in database").style(
-                f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
-        with ui.element("button").style(
-                f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;"
-                f"border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;"
-                f"cursor:pointer;font-family:inherit;").on(
-                "click", lambda: ui.notify("Add Candidate / upload — coming next.", type="info")):
-            ui.label("+ Add Candidate")
+    with ui.element("div").style("display:flex;align-items:baseline;gap:10px;margin-bottom:14px;"):
+        ui.label("Candidates").style(
+            f"font-size:22px;font-weight:800;color:{_c(C,'text_l','#E6EDF7')};"
+            f"font-family:'Nunito',sans-serif;")
+        ui.label(f"{total_count():,} in database").style(
+            f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
 
     # Search card
     with ui.element("div").style(
@@ -775,8 +768,11 @@ def _view_candidates(ff, st, refresh):
                 refresh()
             _inp.on("keydown.enter", lambda _e: _do_kw())
             with ui.element("div").style("display:flex;justify-content:flex-end;margin-top:10px;"):
-                ui.button("Search", on_click=_do_kw).props("unelevated").style(
-                    f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;font-weight:700;")
+                with ui.element("button").style(
+                        f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;"
+                        f"border-radius:8px;padding:8px 24px;font-size:13px;font-weight:700;"
+                        f"cursor:pointer;font-family:inherit;").on("click", _do_kw):
+                    ui.label("Search")
         else:
             _ta = ui.textarea(value=st.get("jd", ""),
                               placeholder="Paste the full job description here…").props("outlined").style(
@@ -794,8 +790,11 @@ def _view_candidates(ff, st, refresh):
                 st["searching"] = False
                 refresh()
             with ui.element("div").style("display:flex;justify-content:flex-end;margin-top:10px;"):
-                ui.button("✦ Find Matches", on_click=_do_jd).props("unelevated").style(
-                    f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;font-weight:700;")
+                with ui.element("button").style(
+                        f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;"
+                        f"border-radius:8px;padding:8px 24px;font-size:13px;font-weight:700;"
+                        f"cursor:pointer;font-family:inherit;").on("click", _do_jd):
+                    ui.label("✦ Find Matches")
             if st.get("searching"):
                 with ui.element("div").style("display:flex;align-items:center;gap:8px;margin-top:10px;"):
                     ui.spinner("dots", size="18px", color=_c(C, 'teal', '#1AE3D9'))
