@@ -287,6 +287,58 @@ def match_reasons(row: dict, terms: list) -> list:
     return [t for t in terms if t.lower() in hay]
 
 
+def ai_score_fit(intent: str, resume_text: str):
+    """Ask AI to actually read the resume and rate 0-100 how well it fits the
+    search. Returns (score:int|None, reason:str)."""
+    key = _api_key()
+    if not key or not (resume_text or "").strip():
+        return None, ""
+    try:
+        import anthropic
+        msg = anthropic.Anthropic(api_key=key).messages.create(
+            model="claude-haiku-4-5-20251001", max_tokens=120,
+            system="You are a recruiter scoring how well a candidate's resume fits "
+                   "a search. Be discerning and honest — most candidates are only a "
+                   "partial fit. JSON only.",
+            messages=[{"role": "user", "content":
+                "Rate from 0-100 how well this candidate fits the search below. "
+                "Weigh role/title match, relevant skills & experience, seniority, and "
+                "location. Scoring guide: 85-100 = strong fit, 60-84 = decent, "
+                "35-59 = weak, under 35 = not a fit. Do NOT give everyone a high score.\n"
+                'Return ONLY JSON: {"score": <int 0-100>, "reason": "<max 8 words>"}\n\n'
+                "SEARCH: " + (intent or "")[:600] + "\n\nRESUME:\n<<<\n"
+                + (resume_text or "")[:4500] + "\n>>>"}])
+        m = re.search(r"\{.*\}", msg.content[0].text, re.DOTALL)
+        if m:
+            d = json.loads(m.group())
+            sc = int(d.get("score", 0))
+            return max(0, min(100, sc)), str(d.get("reason", ""))[:60]
+    except Exception:
+        pass
+    return None, ""
+
+
+def score_results(intent: str, results: list, top_n: int = 25) -> list:
+    """AI-score the top results against the search intent (parallel), attach
+    fit_score/fit_reason, and sort scored-best-first."""
+    from concurrent.futures import ThreadPoolExecutor
+    head = results[:top_n]
+
+    def _work(r):
+        sc, why = ai_score_fit(intent, r.get("resume_text", ""))
+        r["fit_score"] = sc
+        r["fit_reason"] = why
+        return r
+    try:
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            list(ex.map(_work, head))
+    except Exception:
+        pass
+    results.sort(key=lambda r: (r.get("fit_score") is not None, r.get("fit_score") or 0),
+                 reverse=True)
+    return results
+
+
 def recent(limit: int = 50) -> list:
     con = _con()
     try:
@@ -661,7 +713,8 @@ def _view_dashboard(ff, st, refresh):
             ui.label("Nothing yet.").style(f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
         for r in recents:
             def _open_r(_e=None, i=r.get("id")):
-                st["sel"] = i; st["tab"] = "resume"; st["view"] = "profile"; refresh()
+                st["sel"] = i; st["tab"] = "resume"; st["view"] = "profile"
+                st["sel_fit"] = None; st["sel_reason"] = None; refresh()
             with ui.element("div").style(
                     f"display:flex;align-items:center;justify-content:space-between;gap:10px;"
                     f"padding:8px 0;border-bottom:1px solid {_c(C,'border','#EEF2F8')};cursor:pointer;"
@@ -690,10 +743,12 @@ def _candidate_rows(C, st, refresh, rows, terms=None):
     for r in rows:
         tid = r.get("id")
 
-        def _open(_e=None, i=tid):
+        def _open(_e=None, i=tid, _fit=r.get("fit_score"), _rsn=r.get("fit_reason")):
             st["sel"] = i
             st["tab"] = "resume"
             st["view"] = "profile"
+            st["sel_fit"] = _fit
+            st["sel_reason"] = _rsn
             refresh()
         with ui.element("div").style(
                 f"display:grid;grid-template-columns:1.4fr 1.5fr 0.9fr 0.9fr 0.7fr;gap:12px;"
@@ -703,7 +758,12 @@ def _candidate_rows(C, st, refresh, rows, terms=None):
                 ui.label(_fullname(r)).style(
                     f"font-size:13px;font-weight:700;color:{_c(C,'text_l','#E6EDF7')};"
                     f"font-family:'Nunito',sans-serif;")
-                if terms:
+                _reason = r.get("fit_reason")
+                if _reason:
+                    ui.label(_reason).style(
+                        f"font-size:10px;color:{_c(C,'good','#34D399')};margin-top:2px;"
+                        f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
+                elif terms:
                     why = match_reasons(r, terms)[:6]
                     if why:
                         ui.label("matched: " + ", ".join(why)).style(
@@ -720,10 +780,10 @@ def _candidate_rows(C, st, refresh, rows, terms=None):
                 f"font-size:12px;color:{_c(C,'text','#CBD5E1')};"
                 f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
             with ui.element("div").style("text-align:right;"):
-                fit = _fit_pct(r, terms)
+                fit = r.get("fit_score")
                 if fit is not None:
                     ui.label(f"{fit}% fit").style(
-                        f"font-size:13px;font-weight:800;color:{_fit_color(C, fit)};line-height:1.1;")
+                        f"font-size:14px;font-weight:800;color:{_fit_color(C, fit)};line-height:1.1;")
                 ui.label(r.get("status", "Candidate") or "Candidate").style(
                     f"font-size:10px;font-weight:600;color:{_c(C,'teal','#1AE3D9')};")
 
@@ -760,11 +820,18 @@ def _view_candidates(ff, st, refresh):
                             placeholder="e.g.  superintendent data center San Diego").props("outlined dense").style(
                 f"width:100%;")
 
-            def _do_kw():
+            async def _do_kw():
                 st["query"] = (_inp.value or "").strip()
-                st["results"] = keyword_search(st["query"]) if st["query"] else []
-                st["terms"] = _terms(st["query"])
                 st["crit"] = {}
+                st["terms"] = _terms(st["query"])
+                if not st["query"]:
+                    st["results"] = []; refresh(); return
+                st["searching"] = True; refresh()
+                from nicegui import run as _run
+                q = st["query"]
+                st["results"] = await _run.io_bound(
+                    lambda: score_results(q, keyword_search(q)))
+                st["searching"] = False
                 refresh()
             _inp.on("keydown.enter", lambda _e: _do_kw())
             with ui.element("div").style("display:flex;justify-content:flex-end;margin-top:10px;"):
@@ -786,6 +853,7 @@ def _view_candidates(ff, st, refresh):
                 st["searching"] = True; refresh()
                 from nicegui import run as _run
                 crit, results, terms = await _run.io_bound(jd_search, jd)
+                results = await _run.io_bound(lambda: score_results(jd, results))
                 st["crit"], st["results"], st["terms"] = crit, results, terms
                 st["searching"] = False
                 refresh()
@@ -795,12 +863,7 @@ def _view_candidates(ff, st, refresh):
                         f"border-radius:8px;padding:8px 24px;font-size:13px;font-weight:700;"
                         f"cursor:pointer;font-family:inherit;").on("click", _do_jd):
                     ui.label("✦ Find Matches")
-            if st.get("searching"):
-                with ui.element("div").style("display:flex;align-items:center;gap:8px;margin-top:10px;"):
-                    ui.spinner("dots", size="18px", color=_c(C, 'teal', '#1AE3D9'))
-                    ui.label("AI is reading the JD and ranking candidates…").style(
-                        f"font-size:12px;color:{_c(C,'teal','#1AE3D9')};")
-            elif st.get("crit"):
+            if st.get("crit"):
                 cr = st["crit"]
                 sk = ", ".join((cr.get("must_have_skills") or [])[:8])
                 with ui.element("div").style(
@@ -814,11 +877,17 @@ def _view_candidates(ff, st, refresh):
                             f"font-size:11px;color:{_c(C,'text_l','#E6EDF7')};margin-top:3px;")
 
     # Results / recent
-    if st.get("results"):
-        ui.label(f"{len(st['results'])} candidate(s)").style(
+    if st.get("searching"):
+        with ui.element("div").style("display:flex;align-items:center;gap:10px;padding:26px 2px;"):
+            ui.spinner("dots", size="22px", color=_c(C, 'teal', '#1AE3D9'))
+            ui.label("Reading résumés and scoring fit…").style(
+                f"font-size:13px;color:{_c(C,'teal','#1AE3D9')};")
+    elif st.get("results"):
+        _has_fit = any(r.get("fit_score") is not None for r in st["results"])
+        ui.label(f"{len(st['results'])} candidate(s)" + (" · ranked by fit" if _has_fit else "")).style(
             f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:6px;")
         _candidate_rows(C, st, refresh, st["results"], st.get("terms"))
-    elif not st.get("searching"):
+    else:
         ui.label("Recently added").style(
             f"font-size:11px;font-weight:700;color:{_c(C,'muted','#94A3B8')};"
             f"text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;")
@@ -900,16 +969,18 @@ def _view_profile(ff, st, refresh):
             with ui.element("div").style(
                     f"background:{_c(C,'card','#15203A')};border:1px solid {_c(C,'border','#243049')};"
                     f"border-radius:12px;padding:16px;"):
-                # Fit for the active search (if any)
-                _terms = st.get("terms") or []
-                _fit = _fit_pct(d, _terms) if _terms else None
+                # AI fit for the search this candidate was opened from (if any)
+                _fit = st.get("sel_fit")
                 if _fit is not None:
                     ui.label("FIT FOR THIS SEARCH").style(
                         f"font-size:10px;font-weight:700;letter-spacing:.06em;color:{_c(C,'muted','#94A3B8')};")
                     ui.label(f"{_fit}%").style(
                         f"font-size:30px;font-weight:800;color:{_fit_color(C, _fit)};"
-                        f"font-family:'Nunito',sans-serif;line-height:1;margin:2px 0 12px;")
-                    ui.element("div").style(f"height:1px;background:{_c(C,'border','#243049')};margin:0 0 12px;")
+                        f"font-family:'Nunito',sans-serif;line-height:1;margin:2px 0 4px;")
+                    if st.get("sel_reason"):
+                        ui.label(st["sel_reason"]).style(
+                            f"font-size:11px;color:{_c(C,'text','#CBD5E1')};margin-bottom:12px;display:block;")
+                    ui.element("div").style(f"height:1px;background:{_c(C,'border','#243049')};margin:6px 0 12px;")
                 ui.label("STATUS").style(
                     f"font-size:10px;font-weight:700;letter-spacing:.06em;color:{_c(C,'muted','#94A3B8')};")
                 ui.label(d.get("status", "Candidate") or "Candidate").style(
