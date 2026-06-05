@@ -480,9 +480,15 @@ def _render_app(ff, st, refresh):
             f"flex:0 0 auto;height:56px;background:{_c(C,'card','#15203A')};"
             f"border-bottom:1px solid {_c(C,'border','#243049')};display:flex;"
             f"align-items:center;gap:14px;padding:0 20px;"):
-        ui.label("◆ Arena ATS").style(
-            f"font-size:16px;font-weight:800;color:{_c(C,'teal','#1AE3D9')};"
-            f"font-family:'Nunito',sans-serif;")
+        # DripDrop logo + Arena ATS brand (logo click → back to DripDrop home)
+        with ui.element("div").style(
+                "display:flex;align-items:center;gap:10px;cursor:pointer;").on(
+                "click", lambda: ui.navigate.to("/")):
+            ui.html('<img src="/static/dripdrop_logo.png?v=3" alt="DripDrop" '
+                    'style="height:34px;display:block;" />')
+            ui.label("Arena ATS").style(
+                f"font-size:16px;font-weight:800;color:{_c(C,'teal','#1AE3D9')};"
+                f"font-family:'Nunito',sans-serif;")
         ui.element("div").style("flex:1;")
         ui.label(st.get("name", "")).style(f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
         with ui.element("button").style(
