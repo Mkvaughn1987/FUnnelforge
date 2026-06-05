@@ -50529,6 +50529,17 @@ def index():
 _SERVER_SEND_INTERVAL = 60  # seconds between scheduler ticks
 _SERVER_INTER_EMAIL_PAUSE = 2  # seconds between individual emails
 
+# ── Deliverability pacing ────────────────────────────────────────────────
+# Sending a whole batch of due emails at once (e.g. a step scheduled for 50
+# contacts) bursts ~30/min and gets accounts blocked. Instead, trickle: send
+# at most _SERVER_SENDS_PER_TICK email(s) per eligible tick PER USER, with a
+# jittered gap of ~_SERVER_MIN_SEND_GAP seconds between sends, so a batch is
+# spread over time. Tunable per user via config key "send_gap_seconds"
+# (seconds; 0 disables pacing). Default 90s ≈ a 50-email batch over ~1.5 hours.
+_SERVER_MIN_SEND_GAP = 90      # base seconds between a user's sends (jittered up to 2x)
+_SERVER_SENDS_PER_TICK = 1     # emails sent per eligible tick per user
+_next_user_send_at = {}        # user_dir.name -> epoch when next eligible (in-memory)
+
 _MAX_SEND_RETRIES = 3  # transient send failures retried this many times before giving up
 
 # Substrings (lowercased) that mean the RECIPIENT address is bad and
@@ -50843,6 +50854,29 @@ def _server_scheduler_tick():
         if len(due) > _remaining_budget:
             print(f"[ServerSend] {user_dir.name}: throttling to {_remaining_budget} of {len(due)} due (limit {_daily_limit}/day, {_sent_today} already sent)", flush=True)
             due = due[:_remaining_budget]
+
+        # ── Deliverability pacing: trickle, don't burst ──────────────────
+        # Send ≤_SERVER_SENDS_PER_TICK email(s) per eligible tick per user, with
+        # a jittered gap between sends, so a batch of due emails is spread out
+        # instead of fired all at once (bursts get accounts blocked).
+        _gap = _user_cfg.get("send_gap_seconds", _SERVER_MIN_SEND_GAP)
+        try:
+            _gap = int(_gap)
+        except Exception:
+            _gap = _SERVER_MIN_SEND_GAP
+        if _gap > 0:
+            import random as _rng
+            _uname = user_dir.name
+            _now_epoch = time.time()
+            if _now_epoch < _next_user_send_at.get(_uname, 0):
+                # Not eligible yet — hold this user's batch for a later tick.
+                continue
+            if len(due) > _SERVER_SENDS_PER_TICK:
+                print(f"[ServerSend] {_uname}: pacing — sending {_SERVER_SENDS_PER_TICK} of "
+                      f"{len(due)} due now, next in ~{_gap}s (deliverability throttle)", flush=True)
+                due = due[:_SERVER_SENDS_PER_TICK]
+            # Next eligible send time for this user (jittered 1x–2x the gap).
+            _next_user_send_at[_uname] = _now_epoch + _gap + _rng.uniform(0, _gap)
 
         # Send each due item
         changed = False
