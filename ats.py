@@ -1258,30 +1258,81 @@ def _drill(st, refresh, query, strict=False):
 
 
 def _add_pipeline_dialog(ff, st, refresh):
-    """Create a new MANUAL tearsheet (empty; candidates added by hand)."""
+    """Create a new tearsheet — Manual (hand-pick) or Smart (saved search)."""
     C = ff.C
+    kind = {"v": "manual"}
     with ui.dialog() as dlg, ui.card().style(
             f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
-            f"min-width:440px;padding:22px 24px;"):
+            f"min-width:460px;padding:22px 24px;"):
         ui.label("New Tearsheet").style(
             f"font-size:16px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
-            f"font-family:'Nunito',sans-serif;margin-bottom:2px;")
-        ui.label("A hand-picked list of candidates for a role or client. Name it now, "
-                 "then add candidates from the Candidates page.").style(
-            f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:14px;")
+            f"font-family:'Nunito',sans-serif;margin-bottom:10px;")
+
+        # Type chooser — Manual vs Smart.
+        _opts = [
+            ("manual", "✋ Manual", "Hand-pick candidates yourself"),
+            ("smart", "⚡ Smart", "Auto-fills from a saved search"),
+        ]
+        _q_wrap = {"el": None}
+
+        def _set_kind(k):
+            kind["v"] = k
+            _render_opts()
+            if _q_wrap["el"] is not None:
+                _q_wrap["el"].set_visibility(k == "smart")
+
+        opt_row = ui.element("div").style("display:flex;gap:10px;margin-bottom:14px;")
+
+        def _render_opts():
+            opt_row.clear()
+            with opt_row:
+                for k, lbl, desc in _opts:
+                    _on = kind["v"] == k
+                    with ui.element("div").style(
+                            f"flex:1;border:1.5px solid "
+                            f"{_c(C,'teal','#1AE3D9') if _on else _c(C,'border','#E2E8F0')};"
+                            f"background:{(_c(C,'teal','#1AE3D9')+'14') if _on else 'transparent'};"
+                            f"border-radius:10px;padding:12px 14px;cursor:pointer;"
+                            ).on("click", lambda _e, kk=k: _set_kind(kk)):
+                        ui.label(lbl).style(
+                            f"font-size:13px;font-weight:800;color:{_c(C,'text_l','#0F172A')};")
+                        ui.label(desc).style(
+                            f"font-size:11px;color:{_c(C,'muted','#94A3B8')};margin-top:2px;")
+        _render_opts()
+
         ui.label("Name").style(f"font-size:11px;font-weight:700;color:{_c(C,'muted','#94A3B8')};")
         name_in = ui.input(
             placeholder="e.g. Denver Super — Mortenson").props("outlined dense").style(
-            "width:100%;margin-bottom:6px;")
+            "width:100%;margin-bottom:10px;")
+
+        # Search terms — only used / shown for Smart tearsheets.
+        _q_wrap["el"] = ui.element("div")
+        _q_wrap["el"].set_visibility(False)
+        with _q_wrap["el"]:
+            ui.label("Search terms").style(
+                f"font-size:11px;font-weight:700;color:{_c(C,'muted','#94A3B8')};")
+            q_in = ui.input(
+                placeholder="e.g. superintendent OSHPD California").props("outlined dense").style(
+                "width:100%;margin-bottom:4px;")
+            ui.label("Smart tearsheets re-count automatically as matching candidates "
+                     "are added.").style(
+                f"font-size:10px;color:{_c(C,'muted','#94A3B8')};margin-bottom:6px;display:block;")
 
         def _save():
             nm = (name_in.value or "").strip()
             if not nm:
                 ui.notify("Give the tearsheet a name.", type="warning"); return
-            add_tearsheet(nm, st.get("email", "") or "")
+            owner = st.get("email", "") or ""
+            if kind["v"] == "smart":
+                q = (q_in.value or "").strip()
+                if not q:
+                    ui.notify("A smart tearsheet needs search terms.", type="warning"); return
+                add_pipeline(nm, q, owner)
+            else:
+                add_tearsheet(nm, owner)
             dlg.close()
             refresh()
-        with ui.element("div").style("display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"):
+        with ui.element("div").style("display:flex;gap:8px;justify-content:flex-end;margin-top:8px;"):
             ui.button("Cancel", on_click=dlg.close).props("flat").style(f"color:{_c(C,'muted','#94A3B8')};")
             ui.button("Create Tearsheet", on_click=_save).props("unelevated").style(
                 f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;font-weight:700;")
