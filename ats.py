@@ -11,9 +11,25 @@ flowdrip_app so this module can be imported by flowdrip_app without a circular
 import at load time, and tested standalone (set ATS_DB_PATH + ANTHROPIC_API_KEY
 env to skip the heavy import).
 """
-import os, re, json, sqlite3
+import os, re, json, sqlite3, sys
 from pathlib import Path
 from nicegui import ui
+
+
+def _ff():
+    """Return the ALREADY-LOADED flowdrip_app module without re-importing it.
+
+    The server runs `python flowdrip_app.py`, so the app lives in sys.modules
+    as '__main__' — NOT 'flowdrip_app'. A plain `import flowdrip_app` would
+    re-execute the entire app as a second module, re-running its middleware
+    setup → "Cannot add middleware after an application has started". So fetch
+    the running module by identity instead."""
+    for name in ("flowdrip_app", "__main__"):
+        m = sys.modules.get(name)
+        if m is not None and hasattr(m, "_BASE_DATA_DIR") and hasattr(m, "C"):
+            return m
+    import flowdrip_app as m  # standalone/test fallback (safe: not the main script)
+    return m
 
 # Emails allowed to see the ATS while it's in development. Mirror this in
 # flowdrip_app's nav gate.
@@ -33,8 +49,7 @@ def _db_path() -> Path:
     if p:
         return Path(p)
     try:
-        import flowdrip_app as ff
-        return ff._BASE_DATA_DIR / "ats.db"
+        return _ff()._BASE_DATA_DIR / "ats.db"
     except Exception:
         return Path(os.path.expandvars(r"%LOCALAPPDATA%\DripDrop")) / "ats.db"
 
@@ -50,7 +65,7 @@ def _api_key() -> str:
     if k:
         return k
     try:
-        import flowdrip_app as ff
+        ff = _ff()
         if ff.ANTHROPIC_API_KEY:
             return ff.ANTHROPIC_API_KEY
     except Exception:
@@ -265,7 +280,7 @@ def _results_table(C, rf, results: list, terms=None):
 
 def render(s, rf):
     """ATS page — gated entry point called from flowdrip_app's dispatcher."""
-    import flowdrip_app as ff
+    ff = _ff()
     C = ff.C
 
     # Per-session ATS state
