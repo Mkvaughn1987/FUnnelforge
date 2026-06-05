@@ -2655,6 +2655,10 @@ def _send_email_universal(to: str, subject: str, html_body: str,
         else:
             html_body = html_body + _sig
 
+    # Externalize inline base64 images (logos baked into older bodies, etc.)
+    # so Outlook desktop renders them. No-op when there are none / desktop.
+    html_body = _externalize_data_uri_images(html_body)
+
     if is_preview:
         subject = f"[PREVIEW] {subject}"
 
@@ -40631,6 +40635,36 @@ def _email_img_src(b64_data: str, subdir: str, mime: str = "image/jpeg") -> str:
     return f"https://dripdripdrop.ai/email_img/{subdir}/{fname}"
 
 
+def _externalize_data_uri_images(html: str) -> str:
+    """Rewrite inline base64 `data:image/*` <img> sources to hosted URLs.
+
+    Outlook desktop's Word engine does NOT render `data:` image sources, so
+    any base64-embedded image (notably newsletter logos baked into issue
+    bodies generated BEFORE the URL switch) shows broken / cut off. Hosting
+    them via _email_img_src at SEND time fixes every user's pending AND future
+    sends without mutating stored bodies — defense-in-depth at the send
+    boundary. No-op in desktop mode (no public host) or when there are no
+    data URIs. Content-addressed, so repeated sends of the same image reuse
+    one file."""
+    if not html or "data:image/" not in html or not _SERVER_MODE:
+        return html
+    import re as _re
+
+    def _repl(m):
+        quote, mime, b64 = m.group(1), m.group(2), m.group(3)
+        subdir = "logo" if mime == "image/png" else "hero"
+        url = _email_img_src(b64, subdir, mime=mime)
+        return f"src={quote}{url}{quote}" if url else m.group(0)
+
+    try:
+        return _re.sub(
+            r'src=(["\'])data:(image/[a-zA-Z0-9.+-]+);base64,(.*?)\1',
+            _repl, html, flags=_re.DOTALL,
+        )
+    except Exception:
+        return html
+
+
 # ── Unsplash hero-image helpers (module-level) ────────────────────────────
 # These were previously nested inside `_render_newsletter_html`, which made
 # them invisible to other callers — the editor's "Refresh photos" button
@@ -50410,6 +50444,10 @@ def _server_send_one(item: dict, config_path: Path, user_dir: Path = None) -> tu
     if not is_html:
         body = body.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         body = body.replace("\n", "<br>")
+
+    # Externalize any inline base64 images (e.g. logos baked into older issue
+    # bodies) so Outlook renders them. No-op when there are none.
+    body = _externalize_data_uri_images(body)
 
     # Build attachment list (only existing files, skip broken paths)
     valid_atts = [a for a in attachments if a and Path(a).is_file()]

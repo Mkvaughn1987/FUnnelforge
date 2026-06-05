@@ -68,3 +68,39 @@ def test_resolve_returns_empty_for_unknown_campaign(with_user):
     user_dir = fa._resolve_user_root()
     item = {"campaign": "Does Not Exist", "_step_idx": 0}
     assert fa._resolve_body_from_campaign(item, user_dir) == ""
+
+
+# A valid 1x1 PNG, base64-encoded (decodes cleanly; need not be a "real"
+# logo — _email_img_src just b64-decodes and writes the bytes).
+_PNG_1x1 = (
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk"
+    "+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+)
+
+
+def test_externalize_data_uri_to_url_in_server_mode(with_user, monkeypatch):
+    """Inline base64 logos (baked into older issue bodies) must be rewritten
+    to hosted URLs at send time so Outlook renders them."""
+    import flowdrip_app as fa
+    monkeypatch.setattr(fa, "_SERVER_MODE", True)
+    html = (f'<table><tr><td><img src="data:image/png;base64,{_PNG_1x1}" '
+            f'alt="logo" width="220" height="50"></td></tr></table>')
+    out = fa._externalize_data_uri_images(html)
+    assert "https://dripdripdrop.ai/email_img/logo/" in out
+    assert "data:image/png;base64," not in out
+    # Non-image markup is untouched.
+    assert "<table><tr><td>" in out
+
+
+def test_externalize_is_noop_in_desktop_mode(monkeypatch):
+    import flowdrip_app as fa
+    monkeypatch.setattr(fa, "_SERVER_MODE", False)
+    html = f'<img src="data:image/png;base64,{_PNG_1x1}">'
+    assert fa._externalize_data_uri_images(html) == html
+
+
+def test_externalize_noop_when_no_data_uris(monkeypatch):
+    import flowdrip_app as fa
+    monkeypatch.setattr(fa, "_SERVER_MODE", True)
+    html = '<img src="https://dripdripdrop.ai/email_img/hero/x.jpg">'
+    assert fa._externalize_data_uri_images(html) == html
