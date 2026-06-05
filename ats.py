@@ -413,6 +413,39 @@ def companies_from_campaigns() -> list:
     return out
 
 
+def send_to_dripdrop(candidate_ids, list_name) -> tuple:
+    """Write the selected candidates as a DripDrop contact list (CSV in the
+    user's Contacts dir) so they're pickable in the campaign builder.
+    Returns (count_written, safe_list_name)."""
+    ff = _ff()
+    import csv, io, re as _re
+    rows = []
+    for i in candidate_ids:
+        d = get_one(i)
+        if d and (d.get("email") or "").strip():
+            rows.append(d)
+    if not rows:
+        return 0, ""
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=ff.CONTACT_FIELDS, restval="", extrasaction="ignore")
+    w.writeheader()
+    for d in rows:
+        w.writerow({
+            "Email": d.get("email", ""), "FirstName": d.get("first_name", ""),
+            "LastName": d.get("last_name", ""), "Company": d.get("current_employer", ""),
+            "JobTitle": d.get("current_title", ""), "MobilePhone": d.get("phone", ""),
+            "City": d.get("city", ""), "State": d.get("state", ""),
+        })
+    safe = (_re.sub(r"[^\w\-]", "_", list_name)[:60].strip("_")) or "ATS_Selection"
+    try:
+        dest = ff._user_contacts_dir() / f"{safe}.csv"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_text(buf.getvalue(), encoding="utf-8")
+    except Exception:
+        return 0, ""
+    return len(rows), safe
+
+
 # ── Pool aggregation (Dashboard) ─────────────────────────────────────────
 _STATES = {
     "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR",
@@ -774,16 +807,38 @@ def _candidate_rows(C, st, refresh, rows, terms=None):
         ui.label("No matches — try fewer or different keywords.").style(
             f"font-size:13px;color:{_c(C,'muted','#94A3B8')};padding:18px 2px;")
         return
+    sel = st.setdefault("selected", set())
+    _grid = "30px 1.3fr 1.4fr 0.85fr 0.85fr 0.7fr"
+    all_ids = [r.get("id") for r in rows]
+    all_sel = bool(all_ids) and all(i in sel for i in all_ids)
+
+    def _toggle_all(_e=None):
+        for i in all_ids:
+            (sel.discard if all_sel else sel.add)(i)
+        refresh()
     # header
     with ui.element("div").style(
-            f"display:grid;grid-template-columns:1.4fr 1.5fr 0.9fr 0.9fr 0.7fr;gap:12px;"
+            f"display:grid;grid-template-columns:{_grid};gap:12px;align-items:center;"
             f"padding:8px 14px;border-bottom:1px solid {_c(C,'border','#243049')};"
             f"font-size:10px;font-weight:700;letter-spacing:.05em;"
             f"text-transform:uppercase;color:{_c(C,'muted','#94A3B8')};"):
+        with ui.element("div").style(
+                f"width:16px;height:16px;border-radius:4px;border:1.5px solid "
+                f"{_c(C,'teal','#1AE3D9') if all_sel else _c(C,'muted','#94A3B8')};"
+                f"background:{_c(C,'teal','#1AE3D9') if all_sel else 'transparent'};"
+                f"display:flex;align-items:center;justify-content:center;cursor:pointer;"
+                ).on("click", _toggle_all):
+            if all_sel:
+                ui.label("✓").style("font-size:10px;color:#fff;line-height:1;")
         for h in ("Name", "Title / Employer", "Location", "Owner", "Status"):
             ui.label(h)
     for r in rows:
         tid = r.get("id")
+        _checked = tid in sel
+
+        def _toggle(_e=None, i=tid):
+            (sel.discard if i in sel else sel.add)(i)
+            refresh()
 
         def _open(_e=None, i=tid, _fit=r.get("fit_score"), _rsn=r.get("fit_reason")):
             st["sel"] = i
@@ -793,9 +848,17 @@ def _candidate_rows(C, st, refresh, rows, terms=None):
             st["sel_reason"] = _rsn
             refresh()
         with ui.element("div").style(
-                f"display:grid;grid-template-columns:1.4fr 1.5fr 0.9fr 0.9fr 0.7fr;gap:12px;"
+                f"display:grid;grid-template-columns:{_grid};gap:12px;"
                 f"padding:11px 14px;border-bottom:1px solid {_c(C,'border','#1c2740')};"
                 f"cursor:pointer;align-items:center;").on("click", _open):
+            with ui.element("div").style(
+                    f"width:16px;height:16px;border-radius:4px;border:1.5px solid "
+                    f"{_c(C,'teal','#1AE3D9') if _checked else _c(C,'muted','#94A3B8')};"
+                    f"background:{_c(C,'teal','#1AE3D9') if _checked else 'transparent'};"
+                    f"display:flex;align-items:center;justify-content:center;cursor:pointer;"
+                    ).on("click.stop", _toggle):
+                if _checked:
+                    ui.label("✓").style("font-size:10px;color:#fff;line-height:1;")
             with ui.element("div"):
                 ui.label(_fullname(r)).style(
                     f"font-size:13px;font-weight:700;color:{_c(C,'text_l','#E6EDF7')};"
@@ -917,6 +980,44 @@ def _view_candidates(ff, st, refresh):
                     if sk:
                         ui.label("Looking for: " + sk).style(
                             f"font-size:11px;color:{_c(C,'text_l','#E6EDF7')};margin-top:3px;")
+
+    # Selection action bar — appears when candidates are checked.
+    _sel = st.setdefault("selected", set())
+    if _sel:
+        with ui.element("div").style(
+                f"display:flex;align-items:center;justify-content:space-between;gap:12px;"
+                f"background:{_c(C,'teal','#1AE3D9')}18;border:1px solid {_c(C,'teal','#1AE3D9')}60;"
+                f"border-radius:10px;padding:10px 16px;margin-bottom:12px;"):
+            ui.label(f"{len(_sel)} candidate(s) selected").style(
+                f"font-size:13px;font-weight:700;color:{_c(C,'teal','#1AE3D9')};")
+            with ui.element("div").style("display:flex;gap:8px;align-items:center;"):
+                def _clear_sel():
+                    _sel.clear(); refresh()
+                with ui.element("button").style(
+                        f"background:transparent;border:1px solid {_c(C,'border','#CBD5E1')};"
+                        f"color:{_c(C,'text','#334155')};border-radius:8px;padding:6px 14px;"
+                        f"font-size:12px;cursor:pointer;font-family:inherit;").on("click", _clear_sel):
+                    ui.label("Clear")
+
+                def _send_sel():
+                    ids = list(_sel)
+                    nm = "ATS - " + ((st.get("query") or "").strip()[:32] or "selection")
+                    n, safe = send_to_dripdrop(ids, nm)
+                    if not n:
+                        ui.notify("None of the selected candidates have an email on file.",
+                                  type="warning")
+                        return
+                    app.storage.user["_pending_page"] = "start_seq"
+                    _sel.clear()
+                    ui.notify(f"Sent {n} candidate(s) to DripDrop (contact list \"{safe}\"). "
+                              f"Pick it in the campaign's contacts step.",
+                              type="positive", timeout=7000)
+                    ui.navigate.to("/")
+                with ui.element("button").style(
+                        f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;"
+                        f"border-radius:8px;padding:7px 18px;font-size:13px;font-weight:700;"
+                        f"cursor:pointer;font-family:inherit;").on("click", _send_sel):
+                    ui.label("✦ Send to DripDrop")
 
     # Results / recent
     if st.get("searching"):
