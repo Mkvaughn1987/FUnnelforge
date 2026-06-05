@@ -1322,12 +1322,14 @@ def _view_dashboard(ff, st, refresh):
                 ui.label(_ago(r.get("created_at", ""))).style(
                     f"font-size:10px;color:{_c(C,'muted','#94A3B8')};flex-shrink:0;")
 def _candidate_rows(C, st, refresh, rows, terms=None):
+    """Compact left-pane list. Clicking a row previews the résumé on the right
+    (st['preview']); the checkbox still multi-selects for an MPC campaign."""
     if not rows:
         ui.label("No matches — try fewer or different keywords.").style(
             f"font-size:13px;color:{_c(C,'muted','#94A3B8')};padding:18px 2px;")
         return
     sel = st.setdefault("selected", set())
-    _grid = "54px 1.3fr 1.4fr 0.85fr 0.85fr 0.7fr"
+    _prev = st.get("preview")
     all_ids = [r.get("id") for r in rows]
     all_sel = bool(all_ids) and all(i in sel for i in all_ids)
 
@@ -1335,86 +1337,157 @@ def _candidate_rows(C, st, refresh, rows, terms=None):
         for i in all_ids:
             (sel.discard if all_sel else sel.add)(i)
         refresh()
-    # header
-    with ui.element("div").style(
-            f"display:grid;grid-template-columns:{_grid};gap:12px;align-items:center;"
-            f"padding:8px 14px;border-bottom:1px solid {_c(C,'border','#243049')};"
-            f"font-size:10px;font-weight:700;letter-spacing:.05em;"
-            f"text-transform:uppercase;color:{_c(C,'muted','#94A3B8')};"):
-        with ui.element("div").style(
-                "display:flex;align-items:center;height:100%;cursor:pointer;"
-                ).on("click", _toggle_all):
+    # Select-all header
+    with ui.element("div").style("display:flex;align-items:center;gap:9px;padding:2px 4px 10px;"):
+        with ui.element("div").style("display:flex;cursor:pointer;").on("click", _toggle_all):
             with ui.element("div").style(
-                    f"width:20px;height:20px;border-radius:5px;border:1.5px solid "
+                    f"width:18px;height:18px;border-radius:5px;border:1.5px solid "
                     f"{_c(C,'teal','#1AE3D9') if all_sel else _c(C,'muted','#94A3B8')};"
                     f"background:{_c(C,'teal','#1AE3D9') if all_sel else 'transparent'};"
                     f"display:flex;align-items:center;justify-content:center;"):
                 if all_sel:
-                    ui.label("✓").style("font-size:12px;color:#fff;line-height:1;")
-        for h in ("Name", "Title / Employer", "Location", "Owner", "Date Added"):
-            ui.label(h)
+                    ui.label("✓").style("font-size:11px;color:#fff;line-height:1;")
+        ui.label("Select all").style(
+            f"font-size:11px;font-weight:600;color:{_c(C,'muted','#94A3B8')};")
     for r in rows:
         tid = r.get("id")
         _checked = tid in sel
+        _is_prev = (tid == _prev)
 
         def _toggle(_e=None, i=tid):
             (sel.discard if i in sel else sel.add)(i)
             refresh()
 
         def _open(_e=None, i=tid, _fit=r.get("fit_score"), _rsn=r.get("fit_reason")):
-            st["sel"] = i
-            st["tab"] = "resume"
-            st["view"] = "profile"
+            st["preview"] = i
             st["sel_fit"] = _fit
             st["sel_reason"] = _rsn
             refresh()
         with ui.element("div").style(
-                f"display:grid;grid-template-columns:{_grid};gap:12px;"
-                f"padding:13px 14px;border-bottom:1px solid {_c(C,'border','#1c2740')};"
-                f"cursor:pointer;align-items:center;").on("click", _open):
-            # Big, full-cell hit area so a near-miss checks instead of opening.
+                f"display:flex;gap:10px;align-items:flex-start;padding:11px 12px;"
+                f"border:1px solid {_c(C,'teal','#1AE3D9') if _is_prev else _c(C,'border','#1c2740')};"
+                f"background:{(_c(C,'teal','#1AE3D9')+'14') if _is_prev else 'transparent'};"
+                f"border-radius:10px;margin-bottom:7px;cursor:pointer;").on("click", _open):
             with ui.element("div").style(
-                    f"display:flex;align-items:center;height:100%;margin:-13px 0;padding:13px 0;"
-                    f"cursor:pointer;").on("click.stop", _toggle):
+                    "display:flex;align-items:center;padding-top:2px;cursor:pointer;"
+                    ).on("click.stop", _toggle):
                 with ui.element("div").style(
-                        f"width:20px;height:20px;border-radius:5px;border:1.5px solid "
+                        f"width:18px;height:18px;border-radius:5px;border:1.5px solid "
                         f"{_c(C,'teal','#1AE3D9') if _checked else _c(C,'muted','#94A3B8')};"
                         f"background:{_c(C,'teal','#1AE3D9') if _checked else 'transparent'};"
                         f"display:flex;align-items:center;justify-content:center;"):
                     if _checked:
-                        ui.label("✓").style("font-size:12px;color:#fff;line-height:1;")
-            with ui.element("div"):
-                ui.label(_fullname(r)).style(
-                    f"font-size:13px;font-weight:700;color:{_c(C,'text_l','#E6EDF7')};"
-                    f"font-family:'Nunito',sans-serif;")
+                        ui.label("✓").style("font-size:11px;color:#fff;line-height:1;")
+            with ui.element("div").style("flex:1;min-width:0;"):
+                with ui.element("div").style(
+                        "display:flex;justify-content:space-between;gap:8px;align-items:baseline;"):
+                    ui.label(_fullname(r)).style(
+                        f"font-size:13px;font-weight:700;color:{_c(C,'text_l','#E6EDF7')};"
+                        f"font-family:'Nunito',sans-serif;overflow:hidden;"
+                        f"text-overflow:ellipsis;white-space:nowrap;")
+                    fit = r.get("fit_score")
+                    if fit is not None:
+                        ui.label(f"{fit}%").style(
+                            f"font-size:13px;font-weight:800;color:{_fit_color(C, fit)};"
+                            f"flex-shrink:0;")
+                _te = " · ".join(x for x in [r.get("current_title", ""),
+                                             r.get("current_employer", "")] if x)
+                if _te:
+                    ui.label(_te).style(
+                        f"font-size:12px;color:{_c(C,'text','#CBD5E1')};margin-top:1px;"
+                        f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
+                ui.label("📍 " + (_loc(r) or "—")).style(
+                    f"font-size:11px;color:{_c(C,'muted','#94A3B8')};margin-top:2px;"
+                    f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
                 _reason = r.get("fit_reason")
                 if _reason:
                     ui.label(_reason).style(
-                        f"font-size:10px;color:{_c(C,'good','#34D399')};margin-top:2px;"
+                        f"font-size:10px;color:{_c(C,'good','#34D399')};margin-top:3px;"
                         f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
                 elif terms:
                     why = match_reasons(r, terms)[:6]
                     if why:
                         ui.label("matched: " + ", ".join(why)).style(
-                            f"font-size:10px;color:{_c(C,'good','#34D399')};margin-top:2px;")
+                            f"font-size:10px;color:{_c(C,'good','#34D399')};margin-top:3px;")
+
+
+def _resume_preview(ff, st, refresh):
+    """Right-pane résumé viewer for the currently-previewed candidate."""
+    C = ff.C
+    pid = st.get("preview")
+    d = get_one(pid) if pid else None
+    if not d:
+        with ui.element("div").style(
+                f"background:{_c(C,'card','#FFFFFF')};border:1px dashed {_c(C,'border','#E2E8F0')};"
+                f"border-radius:12px;padding:48px 24px;text-align:center;"):
+            ui.label("👈").style("font-size:30px;")
+            ui.label("Select a candidate to preview their résumé.").style(
+                f"font-size:13px;color:{_c(C,'muted','#94A3B8')};margin-top:8px;")
+        return
+    # Recover contact info from résumé text if the columns are blank.
+    if not (d.get("email") or "").strip() or not (d.get("phone") or "").strip():
+        ex_e, ex_p = _extract_contacts(d.get("resume_text") or "")
+        if not (d.get("email") or "").strip() and ex_e:
+            d["email"] = ex_e
+        if not (d.get("phone") or "").strip() and ex_p:
+            d["phone"] = ex_p
+
+    with ui.element("div").style(
+            f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
+            f"border-radius:12px;padding:20px 22px;"):
+        # Header
+        with ui.element("div").style(
+                "display:flex;align-items:flex-start;justify-content:space-between;gap:12px;"):
             with ui.element("div").style("min-width:0;"):
-                ui.label(r.get("current_title", "") or "—").style(
-                    f"font-size:12px;color:{_c(C,'text','#CBD5E1')};"
-                    f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
-                ui.label(r.get("current_employer", "") or "").style(
-                    f"font-size:11px;color:{_c(C,'muted','#94A3B8')};"
-                    f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
-            ui.label(_loc(r) or "—").style(f"font-size:12px;color:{_c(C,'text','#CBD5E1')};")
-            ui.label(r.get("added_by", "") or "—").style(
-                f"font-size:12px;color:{_c(C,'text','#CBD5E1')};"
-                f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
-            with ui.element("div").style("text-align:right;"):
-                fit = r.get("fit_score")
-                if fit is not None:
-                    ui.label(f"{fit}% fit").style(
-                        f"font-size:14px;font-weight:800;color:{_fit_color(C, fit)};line-height:1.1;")
-                ui.label(_fmt_date(r.get("created_at", ""))).style(
-                    f"font-size:11px;font-weight:600;color:{_c(C,'text','#CBD5E1')};")
+                ui.label(_fullname(d)).style(
+                    f"font-size:20px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
+                    f"font-family:'Nunito',sans-serif;")
+                ui.label(f"{d.get('current_title','') or '—'}"
+                         + (f"  ·  {d.get('current_employer','')}" if d.get('current_employer') else "")).style(
+                    f"font-size:13px;color:{_c(C,'muted','#94A3B8')};margin-top:2px;")
+            _fit = st.get("sel_fit")
+            if _fit is not None:
+                ui.label(f"{_fit}% fit").style(
+                    f"font-size:18px;font-weight:800;color:{_fit_color(C, _fit)};flex-shrink:0;")
+        # Contact chips
+        with ui.element("div").style("display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;"):
+            for ic, val in (("📍", _loc(d)), ("✉", d.get("email", "")), ("☎", d.get("phone", ""))):
+                if val:
+                    ui.label(f"{ic} {val}").style(
+                        f"font-size:12px;color:{_c(C,'text','#334155')};")
+        if st.get("sel_reason"):
+            ui.label("✦ " + st["sel_reason"]).style(
+                f"font-size:11.5px;color:{_c(C,'good','#16A34A')};margin-top:8px;display:block;")
+        # Actions
+        with ui.element("div").style("display:flex;gap:9px;margin-top:14px;flex-wrap:wrap;"):
+            def _mpc(_e=None, i=pid):
+                used, _ = start_mpc_campaign([i])
+                if not used:
+                    ui.notify("Couldn't load this candidate.", type="warning"); return
+                ui.navigate.to("/")
+            with ui.element("button").style(
+                    f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;border-radius:8px;"
+                    f"padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;"
+                    f"font-family:inherit;").on("click", _mpc):
+                ui.label("✦ Start an MPC Campaign")
+
+            def _full(_e=None, i=pid):
+                st["sel"] = i; st["tab"] = "resume"; st["view"] = "profile"; refresh()
+            with ui.element("button").style(
+                    f"background:transparent;border:1px solid {_c(C,'border','#E2E8F0')};"
+                    f"color:{_c(C,'text','#334155')};border-radius:8px;padding:9px 16px;"
+                    f"font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;"
+                    ).on("click", _full):
+                ui.label("Open full profile ↗")
+        # Résumé document
+        ui.element("div").style(
+            f"height:1px;background:{_c(C,'border','#E2E8F0')};margin:16px 0;")
+        ui.html(
+            '<div style="background:#FFFFFF;color:#0F172A;border:1px solid #E2E8F0;'
+            'border-radius:8px;padding:22px 24px;white-space:pre-wrap;'
+            'font-family:Arial,sans-serif;font-size:12.5px;line-height:1.6;">'
+            + (d.get("resume_text") or "(no résumé text on file)").replace("<", "&lt;").replace(">", "&gt;")
+            + '</div>')
 
 
 def _view_candidates(ff, st, refresh):
@@ -1540,22 +1613,47 @@ def _view_candidates(ff, st, refresh):
                         f"cursor:pointer;font-family:inherit;").on("click", _start_mpc):
                     ui.label("✦ Start an MPC Campaign")
 
-    # Results / recent
+    # Results / recent — split: compact list (left) + résumé preview (right)
     if st.get("searching"):
         with ui.element("div").style("display:flex;align-items:center;gap:10px;padding:26px 2px;"):
             ui.spinner("dots", size="22px", color=_c(C, 'teal', '#1AE3D9'))
             ui.label("Reading résumés and scoring fit…").style(
                 f"font-size:13px;color:{_c(C,'teal','#1AE3D9')};")
-    elif st.get("results"):
-        _has_fit = any(r.get("fit_score") is not None for r in st["results"])
-        ui.label(f"{len(st['results'])} candidate(s)" + (" · ranked by fit" if _has_fit else "")).style(
-            f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:6px;")
-        _candidate_rows(C, st, refresh, st["results"], st.get("terms"))
+        return
+    if st.get("results"):
+        rows = st["results"]
+        terms = st.get("terms")
+        _has_fit = any(r.get("fit_score") is not None for r in rows)
+        list_label = (f"{len(rows)} candidate(s)"
+                      + (" · ranked by fit" if _has_fit else ""))
     else:
-        ui.label("Recently added").style(
-            f"font-size:11px;font-weight:700;color:{_c(C,'muted','#94A3B8')};"
-            f"text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;")
-        _candidate_rows(C, st, refresh, recent())
+        rows = recent()
+        terms = None
+        list_label = "Recently added"
+    if not rows:
+        ui.label("No candidates yet.").style(
+            f"font-size:13px;color:{_c(C,'muted','#94A3B8')};padding:18px 2px;")
+        return
+    # Default the preview to the first row (and keep its fit in sync).
+    _ids = [r.get("id") for r in rows]
+    if st.get("preview") not in _ids:
+        st["preview"] = _ids[0]
+        st["sel_fit"] = rows[0].get("fit_score")
+        st["sel_reason"] = rows[0].get("fit_reason")
+
+    with ui.element("div").style("display:flex;gap:16px;align-items:flex-start;"):
+        # LEFT: list
+        with ui.element("div").style(
+                "flex:0 0 430px;max-width:430px;height:calc(100vh - 300px);"
+                "min-height:380px;overflow-y:auto;padding-right:4px;"):
+            ui.label(list_label).style(
+                f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:8px;display:block;")
+            _candidate_rows(C, st, refresh, rows, terms)
+        # RIGHT: résumé preview
+        with ui.element("div").style(
+                "flex:1;min-width:0;height:calc(100vh - 300px);"
+                "min-height:380px;overflow-y:auto;"):
+            _resume_preview(ff, st, refresh)
 
 
 def _view_companies(ff, st, refresh):
