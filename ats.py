@@ -98,6 +98,11 @@ def _con():
                 except Exception:
                     pass
             con.execute(
+                "CREATE TABLE IF NOT EXISTS jobs("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, owner TEXT, title TEXT, "
+                "company TEXT, location TEXT, jd_text TEXT, status TEXT DEFAULT 'open', "
+                "match_count INTEGER DEFAULT 0, created_at TEXT)")
+            con.execute(
                 "CREATE TABLE IF NOT EXISTS tearsheet_members("
                 "ts_id INTEGER, talent_id INTEGER, added_at TEXT, "
                 "UNIQUE(ts_id, talent_id))")
@@ -909,6 +914,104 @@ def dedup_owner(owner: str, dry_run: bool = True) -> dict:
             report["deleted"] = len(to_delete)
             report["backfilled"] = len(backfills)
         return report
+    finally:
+        con.close()
+
+
+# ── Jobs (open requisitions; auto-match to the candidate pool) ────────────
+def list_jobs(owner: str = None) -> list:
+    con = _con()
+    try:
+        if owner:
+            rows = con.execute("SELECT * FROM jobs WHERE owner=? ORDER BY id DESC", (owner,))
+        else:
+            rows = con.execute("SELECT * FROM jobs ORDER BY id DESC")
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+    finally:
+        con.close()
+
+
+def get_job(job_id: int) -> dict:
+    con = _con()
+    try:
+        r = con.execute("SELECT * FROM jobs WHERE id=?", (job_id,)).fetchone()
+        return dict(r) if r else {}
+    except Exception:
+        return {}
+    finally:
+        con.close()
+
+
+def _job_match_text(job: dict) -> str:
+    """Text the matcher runs on — JD if given, else title + location."""
+    jd = (job.get("jd_text") or "").strip()
+    if jd:
+        return jd
+    return " ".join(x for x in [job.get("title", ""), job.get("location", "")] if x)
+
+
+def job_match_count(job: dict) -> int:
+    """Quick pool match count for a job (FTS, no AI) — global pool."""
+    txt = _job_match_text(job)
+    if not txt:
+        return 0
+    try:
+        crit, results, terms = jd_search(txt, limit=200)
+        return len(results)
+    except Exception:
+        return 0
+
+
+def add_job(owner: str, title: str, company: str, location: str, jd_text: str) -> int:
+    """Create a job + cache its pool match count. Returns new id (0 on failure)."""
+    import time
+    con = _con()
+    try:
+        cur = con.execute(
+            "INSERT INTO jobs(owner,title,company,location,jd_text,status,created_at) "
+            "VALUES(?,?,?,?,?,'open',?)",
+            (owner, title.strip(), company.strip(), location.strip(),
+             jd_text.strip(), time.strftime("%Y-%m-%dT%H:%M:%S")))
+        jid = cur.lastrowid
+        con.commit()
+    except Exception:
+        return 0
+    finally:
+        con.close()
+    # Cache a match count (best-effort).
+    try:
+        cnt = job_match_count(get_job(jid))
+        con = _con()
+        con.execute("UPDATE jobs SET match_count=? WHERE id=?", (cnt, jid))
+        con.commit()
+        con.close()
+    except Exception:
+        pass
+    return jid
+
+
+def update_job_match_count(job_id: int) -> int:
+    cnt = job_match_count(get_job(job_id))
+    con = _con()
+    try:
+        con.execute("UPDATE jobs SET match_count=? WHERE id=?", (cnt, job_id))
+        con.commit()
+    except Exception:
+        pass
+    finally:
+        con.close()
+    return cnt
+
+
+def delete_job(job_id: int):
+    con = _con()
+    try:
+        con.execute("DELETE FROM jobs WHERE id=?", (job_id,))
+        con.commit()
+    except Exception:
+        pass
     finally:
         con.close()
 
@@ -2363,6 +2466,7 @@ def _view_candidates(ff, st, refresh):
 
             async def _do_kw():
                 st.pop("tearsheet_id", None)
+                st.pop("job_title", None); st.pop("job_id", None)
                 st["query"] = (_inp.value or "").strip()
                 st["crit"] = {}
                 st["terms"] = _terms(st["query"])
@@ -2390,6 +2494,7 @@ def _view_candidates(ff, st, refresh):
 
             async def _do_jd():
                 st.pop("tearsheet_id", None)
+                st.pop("job_title", None); st.pop("job_id", None)
                 jd = (_ta.value or "").strip()
                 st["jd"] = jd
                 if not jd:
@@ -2494,6 +2599,27 @@ def _view_candidates(ff, st, refresh):
             ui.label("Reading résumés and scoring fit…").style(
                 f"font-size:13px;color:{_c(C,'teal','#1AE3D9')};")
         return
+    # Job-match banner (results came from clicking a Job).
+    if st.get("job_title"):
+        with ui.element("div").style(
+                f"display:flex;align-items:center;justify-content:space-between;gap:12px;"
+                f"background:{_c(C,'teal','#1AE3D9')}18;border:1px solid {_c(C,'teal','#1AE3D9')}60;"
+                f"border-radius:10px;padding:10px 16px;margin-bottom:12px;"):
+            ui.label(f"🧲 Matches for: {st.get('job_title','')}").style(
+                f"font-size:13px;font-weight:800;color:{_c(C,'teal','#1AE3D9')};")
+
+            def _exit_job(_e=None):
+                for k in ("job_title", "job_id"):
+                    st.pop(k, None)
+                st["results"] = []
+                st["jd"] = ""
+                st["preview"] = None
+                refresh()
+            with ui.element("button").style(
+                    f"background:transparent;border:1px solid {_c(C,'border','#CBD5E1')};"
+                    f"color:{_c(C,'text','#334155')};border-radius:8px;padding:6px 14px;"
+                    f"font-size:12px;cursor:pointer;font-family:inherit;").on("click", _exit_job):
+                ui.label("Exit job match")
     _tsid = st.get("tearsheet_id")
     if _tsid:
         with ui.element("div").style(
@@ -2773,6 +2899,127 @@ def _view_upload(ff, st, refresh):
                         f"padding:10px 20px;font-size:13px;font-weight:700;cursor:pointer;"
                         f"font-family:inherit;").on("click", _go_mine):
                     ui.label("View My Candidates →")
+
+
+def _add_job_dialog(ff, st, refresh):
+    """Create an open req. Paste a JD (or just title+location) — it auto-matches
+    against the whole candidate pool."""
+    C = ff.C
+    with ui.dialog() as dlg, ui.card().style(
+            f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
+            f"min-width:520px;max-width:600px;padding:22px 24px;"):
+        ui.label("New Job").style(
+            f"font-size:16px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
+            f"font-family:'Nunito',sans-serif;margin-bottom:2px;")
+        ui.label("Add an open req — paste the job description and we'll auto-match "
+                 "candidates from the database.").style(
+            f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:14px;")
+        title_in = ui.input(placeholder="Job title — e.g. Senior Superintendent").props(
+            "outlined dense").style("width:100%;margin-bottom:8px;")
+        with ui.element("div").style("display:flex;gap:8px;margin-bottom:8px;"):
+            co_in = ui.input(placeholder="Company / client (optional)").props(
+                "outlined dense").style("flex:1;")
+            loc_in = ui.input(placeholder="Location (optional)").props(
+                "outlined dense").style("flex:1;")
+        ui.label("Job description").style(
+            f"font-size:11px;font-weight:700;color:{_c(C,'muted','#94A3B8')};")
+        jd_in = ui.textarea(
+            placeholder="Paste the full job description here — the more detail, the "
+                        "better the match.").props("outlined").style(
+            "width:100%;min-height:160px;margin-bottom:6px;")
+
+        def _save():
+            t = (title_in.value or "").strip()
+            if not t:
+                ui.notify("Give the job a title.", type="warning"); return
+            if not (jd_in.value or "").strip() and not (loc_in.value or "").strip():
+                ui.notify("Add a job description (or at least a location) to match on.",
+                          type="warning"); return
+            add_job(st.get("email", "") or "", t, co_in.value or "",
+                    loc_in.value or "", jd_in.value or "")
+            dlg.close()
+            refresh()
+        with ui.element("div").style("display:flex;gap:8px;justify-content:flex-end;margin-top:12px;"):
+            ui.button("Cancel", on_click=dlg.close).props("flat").style(
+                f"color:{_c(C,'muted','#94A3B8')};")
+            ui.button("Add Job & Match", on_click=_save).props("unelevated").style(
+                f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;font-weight:700;")
+    dlg.open()
+
+
+def _view_jobs(ff, st, refresh):
+    C = ff.C
+    _owner = st.get("email") or None
+    with ui.element("div").style(
+            "display:flex;align-items:center;justify-content:space-between;"
+            "gap:10px;margin-bottom:6px;"):
+        ui.label("Jobs").style(
+            f"font-size:22px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
+            f"font-family:'Nunito',sans-serif;")
+        with ui.element("button").style(
+                f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;border-radius:8px;"
+                f"padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;"
+                f"font-family:inherit;").on("click", lambda: _add_job_dialog(ff, st, refresh)):
+            ui.label("+ Add Job")
+    ui.label("Open requisitions. Each job auto-matches against the whole candidate "
+             "pool — click one to see ranked candidates.").style(
+        f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:16px;display:block;")
+
+    jobs = list_jobs(_owner)
+    if not jobs:
+        with ui.element("div").style(
+                f"background:{_c(C,'card','#FFFFFF')};border:1px dashed {_c(C,'border','#E2E8F0')};"
+                f"border-radius:12px;padding:40px 24px;text-align:center;"):
+            ui.label("📋").style("font-size:30px;")
+            ui.label("No jobs yet — add an open req and we'll match candidates to it.").style(
+                f"font-size:13px;color:{_c(C,'muted','#94A3B8')};margin-top:8px;")
+        return
+
+    async def _match_job(_e=None, _job=None):
+        st["mode"] = "jd"
+        st["jd"] = _job_match_text(_job)
+        st["job_title"] = _job.get("title", "")
+        st["job_id"] = _job.get("id")
+        st["view"] = "candidates"
+        st["searching"] = True
+        st["preview"] = None
+        st.pop("tearsheet_id", None)
+        refresh()
+        from nicegui import run as _run
+        jd = st["jd"]
+        crit, results, terms = await _run.io_bound(jd_search, jd, 80, None)
+        results = await _run.io_bound(lambda: score_results(jd, results))
+        st["crit"], st["results"], st["terms"] = crit, results, terms
+        st["searching"] = False
+        refresh()
+
+    with ui.element("div").style("display:grid;grid-template-columns:repeat(2,1fr);gap:14px;"):
+        for j in jobs:
+            with ui.element("div").style(
+                    f"position:relative;background:{_c(C,'card','#FFFFFF')};"
+                    f"border:1px solid {_c(C,'border','#E2E8F0')};border-radius:12px;"
+                    f"padding:16px 18px;cursor:pointer;").on(
+                    "click", lambda _e, _j=j: _match_job(_e, _j)):
+                ui.label(j.get("title", "") or "Untitled role").style(
+                    f"font-size:15px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
+                    f"font-family:'Nunito',sans-serif;max-width:90%;"
+                    f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
+                _sub = " · ".join(x for x in [j.get("company", ""), j.get("location", "")] if x)
+                if _sub:
+                    ui.label(_sub).style(
+                        f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-top:2px;")
+                with ui.element("div").style("display:flex;align-items:center;gap:8px;margin-top:10px;"):
+                    ui.label(f"🧲 {j.get('match_count', 0):,} matches").style(
+                        f"font-size:13px;font-weight:700;color:{_c(C,'teal','#1AE3D9')};")
+                    ui.label("· tap to view ranked").style(
+                        f"font-size:11px;color:{_c(C,'muted','#94A3B8')};")
+
+                def _del(_e=None, jid=j.get("id")):
+                    delete_job(jid); refresh()
+                with ui.element("div").style(
+                        f"position:absolute;top:10px;right:12px;font-size:13px;"
+                        f"color:{_c(C,'muted','#94A3B8')};cursor:pointer;").on("click.stop", _del):
+                    ui.label("✕")
 
 
 def _view_companies(ff, st, refresh):
@@ -3204,9 +3451,9 @@ def _render_app(ff, st, refresh):
                     st["view"] = k
                     if k != "profile":
                         st["sel"] = None
-                    if k == "candidates" and st.get("tearsheet_id"):
-                        # Leaving a tearsheet view → back to a normal search page.
-                        for _k in ("tearsheet_id", "tearsheet_name"):
+                    if k == "candidates" and (st.get("tearsheet_id") or st.get("job_title")):
+                        # Leaving a tearsheet/job-match view → normal search page.
+                        for _k in ("tearsheet_id", "tearsheet_name", "job_title", "job_id"):
                             st.pop(_k, None)
                         st["results"] = []
                         st["preview"] = None
@@ -3234,7 +3481,7 @@ def _render_app(ff, st, refresh):
             elif v == "dashboard":
                 _view_dashboard(ff, st, refresh)
             elif v == "jobs":
-                _view_stub(ff, st, "Jobs", "Open requisitions — link candidates to roles and track submittals.")
+                _view_jobs(ff, st, refresh)
             elif v == "companies":
                 _view_companies(ff, st, refresh)
             elif v == "company_detail":
