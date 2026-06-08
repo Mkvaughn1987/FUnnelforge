@@ -2675,9 +2675,15 @@ def _view_candidates(ff, st, refresh):
         rows = recent(owner=_scope_o)
         terms = None
         list_label = ("Recently added · my candidates" if _scope_o else "Recently added")
+    # "Has email" filter — show only emailable candidates when on.
+    if st.get("email_only") and rows:
+        rows = [r for r in rows if (r.get("email") or "").strip()]
+        list_label += " · with email"
     if not rows:
         ui.label("No candidates here yet."
-                 + (" You haven't added any candidates — switch to All candidates "
+                 + (" Turn off “Has email” to see contact-less candidates too."
+                    if st.get("email_only") else
+                    " You haven't added any candidates — switch to All candidates "
                     "to search the team's pool." if st.get("scope") == "mine" else "")).style(
             f"font-size:13px;color:{_c(C,'muted','#94A3B8')};padding:18px 2px;")
         return
@@ -2695,12 +2701,29 @@ def _view_candidates(ff, st, refresh):
                 "min-height:380px;overflow-y:auto;padding-right:4px;"):
             with ui.element("div").style(
                     "display:flex;align-items:center;justify-content:space-between;"
-                    "gap:8px;margin-bottom:8px;"):
+                    "gap:8px;margin-bottom:8px;flex-wrap:wrap;"):
                 ui.label(list_label).style(
                     f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
-                # All / Mine scope filter — lives next to the list header.
-                if not _tsid:
-                    _scope_toggle()
+                with ui.element("div").style("display:flex;gap:6px;align-items:center;"):
+                    # Has-email filter — show only emailable candidates.
+                    _eon = bool(st.get("email_only"))
+
+                    def _toggle_email(_e=None):
+                        st["email_only"] = not st.get("email_only")
+                        st["preview"] = None
+                        refresh()
+                    with ui.element("button").style(
+                            f"display:flex;align-items:center;gap:5px;padding:4px 11px;"
+                            f"font-size:11px;font-weight:700;border-radius:7px;cursor:pointer;"
+                            f"font-family:inherit;border:1px solid "
+                            f"{_c(C,'teal','#1AE3D9') if _eon else _c(C,'border','#243049')};"
+                            f"background:{(_c(C,'teal','#1AE3D9')+'22') if _eon else 'transparent'};"
+                            f"color:{_c(C,'teal','#1AE3D9') if _eon else _c(C,'text','#CBD5E1')};"
+                            ).on("click", _toggle_email):
+                        ui.label(("✓ " if _eon else "✉ ") + "Has email").style("pointer-events:none;")
+                    # All / Mine scope filter.
+                    if not _tsid:
+                        _scope_toggle()
             _candidate_rows(C, st, refresh, rows, terms)
         # RIGHT: résumé preview
         with ui.element("div").style(
