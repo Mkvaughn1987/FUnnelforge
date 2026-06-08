@@ -35289,7 +35289,7 @@ def _tc_render_step_generate(s: AppState, rf):
                     f"CADENCE: {len(steps_meta)} emails over "
                     f"{1 + max((m['delay_days'] for m in steps_meta), default=0)} day(s).\n\n"
                     f"STRICT RULES:\n"
-                    f"- Address candidate as {{first_name}}.\n"
+                    f"- Address candidate as {{FirstName}} (exactly that token).\n"
                     f"- Respectful, no fake urgency. Treat them as a peer.\n"
                     f"- Each email under 150 words.\n"
                     f"- Subject lines distinct and specific.\n"
@@ -35300,7 +35300,7 @@ def _tc_render_step_generate(s: AppState, rf):
                     f'{{"emails":['
                     + ",".join(
                         f'{{"name":"Step {i+1}","subject":"...",'
-                        f'"body":"Hi {{first_name}},<br><br>...",'
+                        f'"body":"Hi {{FirstName}},<br><br>...",'
                         f'"delay_days":{m["delay_days"]},'
                         f'"time":"{m["time"]}",'
                         f'"step_type":"email_auto"}}'
@@ -35326,6 +35326,7 @@ def _tc_render_step_generate(s: AppState, rf):
                 # name, then strip the AI's sign-off (signature is auto-appended
                 # at send — same as the MPC flow) so there's no double sign-off.
                 _fill_recruiter_placeholders(emails, _recruiter_signoff_name(s))
+                _normalize_email_merge_tokens(emails)  # {first_name} -> {FirstName}
                 for _em in emails:
                     if _em.get("body"):
                         _em["body"] = _strip_ai_signoff(_em["body"])
@@ -37016,6 +37017,7 @@ def p_candidate_campaign(s: AppState, rf):
                         # Replace any {recruiter_name}-style sender placeholder
                         # with the real name before sign-offs are stripped.
                         _fill_recruiter_placeholders(emails, _recruiter_signoff_name(s))
+                        _normalize_email_merge_tokens(emails)  # {first_name} -> {FirstName}
                         # Strip any AI-generated sign-offs  -  signature is auto-appended at send time
                         for _em in emails:
                             if _em.get("body"):
@@ -45964,6 +45966,33 @@ def _recruiter_signoff_name(s) -> str:
 
 _RECRUITER_PLACEHOLDER_RE = re.compile(
     r"\{\s*(recruiter_name|recruiter|your_name|sender_name|my_name|name)\s*\}", re.I)
+
+# Canonicalize recipient merge tokens to DripDrop's CamelCase form. AI
+# generators sometimes emit snake_case like {first_name}, which the merge
+# system (which fills {FirstName}) leaves un-substituted — so previews and
+# sends show the literal placeholder. These rewrites fix that.
+_MERGE_TOKEN_FIXES = [
+    (re.compile(r"\{\s*first[\s_]?name\s*\}", re.I), "{FirstName}"),
+    (re.compile(r"\{\s*last[\s_]?name\s*\}", re.I), "{LastName}"),
+    (re.compile(r"\{\s*job[\s_]?title\s*\}", re.I), "{JobTitle}"),
+]
+
+
+def _normalize_merge_tokens(text):
+    if not text:
+        return text
+    for pat, repl in _MERGE_TOKEN_FIXES:
+        text = pat.sub(repl, text)
+    return text
+
+
+def _normalize_email_merge_tokens(emails):
+    """Fix snake_case recipient merge tokens in generated email subjects/bodies."""
+    for e in (emails or []):
+        for k in ("subject", "body"):
+            if e.get(k):
+                e[k] = _normalize_merge_tokens(e[k])
+    return emails
 
 
 def _fill_recruiter_placeholders(emails, name):
