@@ -2987,7 +2987,7 @@ def _view_jobs(ff, st, refresh):
         refresh()
         from nicegui import run as _run
         jd = st["jd"]
-        crit, results, terms = await _run.io_bound(jd_search, jd, 80, None)
+        crit, results, terms = await _run.io_bound(jd_search, jd, 200, None)
         results = await _run.io_bound(lambda: score_results(jd, results))
         st["crit"], st["results"], st["terms"] = crit, results, terms
         st["searching"] = False
