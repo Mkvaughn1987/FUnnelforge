@@ -2321,21 +2321,33 @@ def _resume_preview(ff, st, refresh):
                     f"font-family:inherit;").on("click", _mpc):
                 ui.label("✦ Start an MPC Campaign")
 
+            # Send-a-job: if candidates are checked, send the whole selection
+            # (plus the one being viewed); otherwise just this candidate.
+            _sel_n = len(st.get("selected") or set())
+
             def _send_job_one(_e=None, i=pid):
-                contacts = campaign_contacts_from_ats([i])
+                ids = set(st.get("selected") or set())
+                ids.add(i)
+                ids = list(ids)
+                contacts = campaign_contacts_from_ats(ids)
+                skipped = len(ids) - len(contacts)
                 if not contacts:
-                    ui.notify("This candidate has no email on file.", type="warning"); return
+                    ui.notify(f"None of the {len(ids)} candidate(s) have an email on "
+                              f"file — nothing to send.", type="warning"); return
                 app.storage.user["_pending_campaign_contacts"] = contacts
                 app.storage.user["_pending_page"] = "target_candidate"
-                ui.notify("Loading this candidate into a new campaign as the recipient. "
-                          "Describe the role (or skip) and we'll auto-fill them.",
-                          type="positive", timeout=7000)
+                st["selected"] = set()
+                _msg = f"Loading {len(contacts)} candidate(s) into a new campaign."
+                if skipped:
+                    _msg += f" {skipped} skipped — no email on file."
+                ui.notify(_msg, type="positive", timeout=7000)
                 ui.navigate.to("/")
             with ui.element("button").style(
                     f"background:#EC4899;color:#FFFFFF;border:0;border-radius:8px;"
                     f"padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;"
                     f"font-family:inherit;").on("click", _send_job_one):
-                ui.label("✉ Send a Job Opening")
+                ui.label(f"✉ Send a Job Opening ({_sel_n} selected)" if _sel_n
+                         else "✉ Send a Job Opening")
 
             # Tearsheet: add (normally) or remove (when viewing a tearsheet)
             _tsid = st.get("tearsheet_id")
@@ -2557,17 +2569,21 @@ def _view_candidates(ff, st, refresh):
                 # (recruiting outreach). Writes them as a DripDrop contact list
                 # and drops into the campaign builder.
                 def _send_job():
-                    contacts = campaign_contacts_from_ats(list(_sel))
+                    ids = list(_sel)
+                    contacts = campaign_contacts_from_ats(ids)
+                    skipped = len(ids) - len(contacts)
                     if not contacts:
-                        ui.notify("None of the selected candidates have an email on file.",
-                                  type="warning")
+                        ui.notify(f"None of the {len(ids)} selected candidates have an "
+                                  f"email on file — nothing to send.", type="warning")
                         return
                     app.storage.user["_pending_campaign_contacts"] = contacts
                     app.storage.user["_pending_page"] = "target_candidate"
                     _sel.clear()
-                    ui.notify(f"Loading {len(contacts)} candidate(s) into a new campaign as "
-                              f"recipients. Describe the role (or skip) and we'll auto-fill "
-                              f"them.", type="positive", timeout=7000)
+                    _msg = (f"Loading {len(contacts)} candidate(s) into a new campaign as "
+                            f"recipients.")
+                    if skipped:
+                        _msg += f" {skipped} skipped — no email on file."
+                    ui.notify(_msg, type="positive", timeout=8000)
                     ui.navigate.to("/")
                 with ui.element("button").style(
                         f"background:#EC4899;color:#FFFFFF;border:0;"
