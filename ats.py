@@ -1965,7 +1965,7 @@ def _view_dashboard(ff, st, refresh):
         with ui.element("div").style(
                 f"background:{_c(C,'teal','#1AE3D9')}12;border:1px solid {_c(C,'teal','#1AE3D9')}40;"
                 f"border-radius:12px;padding:18px 20px;margin-bottom:18px;"):
-            ui.label(f"👋 Welcome to Arena ATS, {_name1}!").style(
+            ui.label(f"👋 Welcome to Pipeline, {_name1}!").style(
                 f"font-size:16px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
                 f"font-family:'Nunito',sans-serif;margin-bottom:6px;")
             ui.label("Your dashboard and tearsheets are your own and start empty. "
@@ -3473,7 +3473,7 @@ def _render_app(ff, st, refresh):
                 "click", lambda: ui.navigate.to("/")):
             ui.html('<img src="/static/dripdrop_logo.png?v=3" alt="DripDrop" '
                     'style="height:34px;display:block;" />')
-            ui.label("Arena ATS").style(
+            ui.label("Pipeline").style(
                 f"font-size:16px;font-weight:800;color:{_c(C,'teal','#1AE3D9')};"
                 f"font-family:'Nunito',sans-serif;")
         ui.element("div").style("flex:1;")
@@ -3550,7 +3550,7 @@ def _render_app(ff, st, refresh):
             elif v == "reports":
                 _view_stub(ff, st, "Reports", "Time-to-fill, submittals, placements.")
             else:
-                _view_stub(ff, st, "Settings", "ATS settings.")
+                _view_stub(ff, st, "Settings", "Pipeline settings.")
 
 
 @ui.page("/ats")

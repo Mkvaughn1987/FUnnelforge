@@ -11025,7 +11025,7 @@ def topbar(s: AppState, rf):
         if (getattr(s, '_user_email', '') or '').strip().lower() in _ATS_ALLOWED_EMAILS:
             with ui.element("button").classes("fd-hub").on(
                     "click", lambda: ui.navigate.to("/ats")):
-                ui.label("ATS")
+                ui.label("Pipeline")
         # Market Intel hub button removed 2026-05-02 per user — "remove
         # for now". Page handler p_market_intel and the underlying
         # market_intel route stay in place so anyone with a deep link
