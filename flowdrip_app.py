@@ -9475,7 +9475,8 @@ SALES_NAV = [
     # is still callable as a subsection from p_newsletters.
     (None, "CONTENT & TOOLS",   None),
     ("📊", "Sales Assets",      "pdf_gen"),
-    ("🔍", "Candidates",        "candidate_finder"),
+    # "Candidates" (Top Candidates roster) removed from sidebar 2026-06-09 —
+    # candidates now live in the ATS. The page handler stays callable.
     # ── Settings ─────────────────────────────────
     (None, "SETTINGS",          None),
     ("◆",  "My Profile",       "company_profile"),
@@ -11017,12 +11018,8 @@ def topbar(s: AppState, rf):
             ui.label("Newsletters")
         with ui.element("button").classes("fd-hub" + (" on" if _on_camp_mgr else "")).on("click", _camp_mgr):
             ui.label("Current Campaigns")
-        def _cf():
-            s._nav_history.clear()
-            s.hub = "sales"; s.sp = "candidate_finder"; rf()
-        _on_cf = s.hub == "sales" and s.sp == "candidate_finder"
-        with ui.element("button").classes("fd-hub" + (" on" if _on_cf else "")).on("click", _cf):
-            ui.label("Top Candidates")
+        # "Top Candidates" hub button removed 2026-06-09 — candidates live in
+        # the ATS now. The candidate_finder page handler stays callable.
         # ── ATS (gated). Its own full-screen app at /ats — clicking here
         # leaves the DripDrop chrome entirely. ──
         if (getattr(s, '_user_email', '') or '').strip().lower() in _ATS_ALLOWED_EMAILS:
@@ -16888,14 +16885,11 @@ def _sq_pick(s, rf):
                         s.cpc_mode = "mpc"
                         s.sp = "candidate_finder"
                     elif k == "fourbyfour":
-                        # Arena 4×4 — same roster picker, but in 4×4 mode so the
-                        # per-row "Start Campaign" opens the 4×4 builder (up to 5
-                        # candidates, advertised-role field, 4-email cadence).
-                        s._nav_history.append(_nav_snapshot(s))
-                        _reset_wizard_state(s)
-                        s.cpc_mode = "4x4"
-                        s.cpc_ad_role = ""; s.cpc_ad_location = ""; s.cpc_ad_link = ""
-                        s.sp = "candidate_finder"
+                        # Arena 4×4 — candidates live in the ATS, so send the
+                        # user there to search + select, then "⚡ Start a 4×4"
+                        # seeds the slate and opens the builder.
+                        ui.navigate.to("/ats")
+                        return
                     elif k == "saved":
                         _reset_wizard_state(s)
                         s._tab = "saved"
