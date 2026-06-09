@@ -3860,6 +3860,36 @@ AICB_CAMPAIGN_TYPES = [
      "Soft close. Include a DIFFERENT angle on the same candidate  -  this time focus on availability "
      "and what makes them a fit for this specific company. 3 bullet points: availability, culture fit, "
      "and a unique differentiator. Then keep the door open."),
+    ("fourbyfour", "Arena 4×4", "4 steps - 2 weeks", "#7C3AED",
+     "Arena's signature BD play. Market a 4-5 candidate slate to companies hiring your role. "
+     "Email 1 is anchored to a real advertised role; the next three reinforce with market "
+     "insights, proven results, and trends. Candidate highlights on every email.",
+     "Slate outreach - hot roles - team playbook",
+     "Step 1 - Introducing Available Talent (delay_days:0, step_type:email_auto) - "
+     "Subject like '<Role> Candidates Available' using the actual role they are hiring for "
+     "(write the real role into the subject — do NOT output literal brackets). Open warmly, "
+     "note you saw they are actively "
+     "seeking a specific role at their company, then present the candidate slate. USE THE "
+     "CANDIDATES FROM CANDIDATE HIGHLIGHTS above EXACTLY — whatever labels (Candidate A/B/C, "
+     "real names, or anonymized references) and whatever details (role, years, skills, certs, "
+     "location, target salary) the blocks provide. Do NOT use bracketed placeholders like "
+     "[ROLE] or [CANDIDATE NAME] — they ship to recipients as raw text. End with a short, "
+     "low-pressure CTA to chat.\n"
+     "Step 2 - Top Talent Insights (delay_days:3, step_type:email_auto) - "
+     "Subject 'Top Talent Insights'. Note that the best candidates are gainfully employed and "
+     "passively looking, include 3-4 real market facts (jobs added, unemployment rate, wage "
+     "growth) if available — never fabricate stats — then the same candidate highlights. Soft CTA.\n"
+     "Step 3 - Proven Results (delay_days:4, step_type:email_auto) - "
+     "Subject 'Thoughts on this?'. Present the firm's proven results as a bullet list: High "
+     "Success Rate (80-90% fill rate, 2-3 week fill time), Contingency-Based (no cost to review "
+     "candidates), Replacement Guarantee (replaced at no cost if a hire doesn't work out), "
+     "Cost-Effective (internal hiring can cost $25,000+ per role), Competitive Advantage. Then "
+     "the candidate highlights. CTA.\n"
+     "Step 4 - Market Trends & Final Note (delay_days:4, step_type:email_auto) - "
+     "Subject 'Market Trends and Hiring Solutions for <Role>' using the actual role (write "
+     "the real role in — no literal brackets). Share a few genuine market "
+     "updates, a warm soft close ('if now is not the right time, that's ok too'), and mention "
+     "you will add them to the ongoing newsletter."),
     ("talentdrop", "Candidate-Led Pitch", "7 steps - 2 weeks", "#10B981",
      "Lead with real candidates. Enter your candidate details and AI builds the outreach "
      "around them  -  intro with profiles, market data follow-ups, and value-add PDFs. "
