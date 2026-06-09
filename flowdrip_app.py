@@ -46175,9 +46175,19 @@ def _4x4_market_snapshot(client, sector: str = "construction and skilled trades"
             messages=[{"role": "user", "content": q}])
         txt = "".join(getattr(b, "text", "") for b in msg.content
                       if getattr(b, "type", "") == "text").strip()
-        # First line may be a stray "I'll search…" — drop it.
-        lines = [l.strip(" -•\t") for l in txt.splitlines() if l.strip(" -•\t")]
-        lines = [l for l in lines if not l.lower().startswith(("i'll", "i will", "here", "based on"))]
+        # The web-search model interleaves thinking lines ("Now I need to
+        # search…") between tool calls. Every real jobs-report fact contains a
+        # number, so keep only number-bearing lines and drop search/intent noise.
+        _bad = ("search", "let me", "i'll", "i will", "i need", "now i", "based on",
+                "to find", "let's", "looking for")
+        lines = []
+        for l in txt.splitlines():
+            l = l.strip(" -•\t")
+            if not l or not any(ch.isdigit() for ch in l):
+                continue
+            if any(p in l.lower()[:30] for p in _bad):
+                continue
+            lines.append(l)
         if not lines:
             return ""
         return "<ul>" + "".join(f"<li>{l}</li>" for l in lines[:5]) + "</ul>"
