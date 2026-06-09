@@ -2557,18 +2557,14 @@ def _view_candidates(ff, st, refresh):
                         f"cursor:pointer;font-family:inherit;").on("click", _do_kw):
                     ui.label("Search")
         else:
-            _ta = ui.textarea(value=st.get("jd", ""),
-                              placeholder="Paste the full job description here…").props("outlined").style(
-                "width:100%;min-height:140px;")
-
             async def _do_jd():
                 st.pop("tearsheet_id", None)
                 st.pop("job_title", None); st.pop("job_id", None)
-                jd = (_ta.value or "").strip()
+                jd = (_ta.value or "").strip()  # _ta is bound in the expanded branch
                 st["jd"] = jd
                 if not jd:
                     ui.notify("Paste a job description first.", type="warning"); return
-                st["searching"] = True; refresh()
+                st["searching"] = True; st["search_open"] = False; refresh()
                 from nicegui import run as _run
                 owner = _scope_owner()
                 crit, results, terms = await _run.io_bound(jd_search, jd, 80, owner)
@@ -2576,24 +2572,49 @@ def _view_candidates(ff, st, refresh):
                 st["crit"], st["results"], st["terms"] = crit, results, terms
                 st["searching"] = False
                 refresh()
-            with ui.element("div").style("display:flex;justify-content:flex-end;margin-top:10px;"):
-                with ui.element("button").style(
-                        f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;"
-                        f"border-radius:8px;padding:8px 24px;font-size:13px;font-weight:700;"
-                        f"cursor:pointer;font-family:inherit;").on("click", _do_jd):
-                    ui.label("✦ Find Matches")
-            if st.get("crit"):
+            # Once a match has run, collapse to a compact bar to free room.
+            if st.get("results") and st.get("crit") and not st.get("search_open"):
                 cr = st["crit"]
-                sk = ", ".join((cr.get("must_have_skills") or [])[:8])
                 with ui.element("div").style(
-                        f"background:{_c(C,'teal','#1AE3D9')}14;border:1px solid {_c(C,'teal','#1AE3D9')}40;"
-                        f"border-radius:8px;padding:10px 14px;margin-top:10px;"):
-                    ui.label(f"AI parsed: {cr.get('title','?')} ({cr.get('seniority','')}) · "
+                        f"display:flex;align-items:center;justify-content:space-between;gap:10px;"
+                        f"background:{_c(C,'teal','#1AE3D9')}14;"
+                        f"border:1px solid {_c(C,'teal','#1AE3D9')}40;"
+                        f"border-radius:8px;padding:9px 14px;"):
+                    ui.label(f"📄 Matching: {cr.get('title','job description')} · "
                              f"{cr.get('location','any location')}").style(
-                        f"font-size:12px;font-weight:600;color:{_c(C,'teal','#1AE3D9')};")
-                    if sk:
-                        ui.label("Looking for: " + sk).style(
-                            f"font-size:11px;color:{_c(C,'text_l','#E6EDF7')};margin-top:3px;")
+                        f"font-size:12px;font-weight:700;color:{_c(C,'teal','#1AE3D9')};"
+                        f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
+
+                    def _edit_jd(_e=None):
+                        st["search_open"] = True; refresh()
+                    with ui.element("button").style(
+                            f"background:transparent;border:1px solid {_c(C,'border','#243049')};"
+                            f"color:{_c(C,'text','#CBD5E1')};border-radius:7px;padding:5px 12px;"
+                            f"font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;"
+                            f"flex-shrink:0;").on("click", _edit_jd):
+                        ui.label("✎ New / edit JD")
+            else:
+                _ta = ui.textarea(value=st.get("jd", ""),
+                                  placeholder="Paste the full job description here…").props(
+                    "outlined").style("width:100%;min-height:110px;max-height:170px;overflow:auto;")
+                with ui.element("div").style("display:flex;justify-content:flex-end;margin-top:10px;"):
+                    with ui.element("button").style(
+                            f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;"
+                            f"border-radius:8px;padding:8px 24px;font-size:13px;font-weight:700;"
+                            f"cursor:pointer;font-family:inherit;").on("click", _do_jd):
+                        ui.label("✦ Find Matches")
+                if st.get("crit"):
+                    cr = st["crit"]
+                    sk = ", ".join((cr.get("must_have_skills") or [])[:8])
+                    with ui.element("div").style(
+                            f"background:{_c(C,'teal','#1AE3D9')}14;border:1px solid {_c(C,'teal','#1AE3D9')}40;"
+                            f"border-radius:8px;padding:10px 14px;margin-top:10px;"):
+                        ui.label(f"AI parsed: {cr.get('title','?')} ({cr.get('seniority','')}) · "
+                                 f"{cr.get('location','any location')}").style(
+                            f"font-size:12px;font-weight:600;color:{_c(C,'teal','#1AE3D9')};")
+                        if sk:
+                            ui.label("Looking for: " + sk).style(
+                                f"font-size:11px;color:{_c(C,'text_l','#E6EDF7')};margin-top:3px;")
 
     # Selection action bar — appears when candidates are checked.
     _sel = st.setdefault("selected", set())
@@ -2668,6 +2689,10 @@ def _view_candidates(ff, st, refresh):
 
     # Results / recent — split: compact list (left) + résumé preview (right)
     if st.get("searching"):
+        # A new search is running — forget the old list scroll so results
+        # start at the top (preview-clicks don't hit this path, so their
+        # scroll is preserved).
+        ui.run_javascript("window.__atsScroll = 0;")
         with ui.element("div").style("display:flex;align-items:center;gap:10px;padding:26px 2px;"):
             ui.spinner("dots", size="22px", color=_c(C, 'teal', '#1AE3D9'))
             ui.label("Reading résumés and scoring fit…").style(
@@ -2752,10 +2777,13 @@ def _view_candidates(ff, st, refresh):
         st["sel_fit"] = rows[0].get("fit_score")
         st["sel_reason"] = rows[0].get("fit_reason")
 
+    # Taller panes when the search card is collapsed (more room for the list).
+    _compact = bool(st.get("results")) and not st.get("search_open")
+    _pane_h = "calc(100vh - 215px)" if _compact else "calc(100vh - 300px)"
     with ui.element("div").style("display:flex;gap:16px;align-items:flex-start;"):
-        # LEFT: list
-        with ui.element("div").style(
-                "flex:0 0 600px;max-width:600px;height:calc(100vh - 300px);"
+        # LEFT: list  (marker class lets JS preserve scroll across rebuilds)
+        with ui.element("div").classes("ats-cand-scroll").style(
+                f"flex:0 0 600px;max-width:600px;height:{_pane_h};"
                 "min-height:380px;overflow-y:auto;padding-right:4px;"):
             with ui.element("div").style(
                     "display:flex;align-items:center;justify-content:space-between;"
@@ -2785,9 +2813,20 @@ def _view_candidates(ff, st, refresh):
             _candidate_rows(C, st, refresh, rows, terms)
         # RIGHT: résumé preview
         with ui.element("div").style(
-                "flex:1;min-width:0;height:calc(100vh - 300px);"
+                f"flex:1;min-width:0;height:{_pane_h};"
                 "min-height:380px;overflow-y:auto;"):
             _resume_preview(ff, st, refresh)
+
+    # Preserve the candidate-list scroll position across rebuilds (clicking a
+    # card refreshes the page, which would otherwise jump the list to the top).
+    ui.run_javascript("""
+        (function(){
+          const el = document.querySelector('.ats-cand-scroll');
+          if (!el) return;
+          if (window.__atsScroll != null) el.scrollTop = window.__atsScroll;
+          el.addEventListener('scroll', function(){ window.__atsScroll = el.scrollTop; });
+        })();
+    """)
 
 
 def _view_upload(ff, st, refresh):
