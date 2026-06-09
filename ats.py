@@ -1190,7 +1190,8 @@ def send_to_dripdrop(candidate_ids, list_name) -> tuple:
     return len(rows), safe
 
 
-MPC_MAX = 3  # DripDrop markets up to 3 candidates per MPC campaign
+MPC_MAX = 3        # standard MPC slate cap
+FOURBYFOUR_MAX = 5  # Arena 4×4 slate cap (anchor + up to 4 supporting)
 
 
 def _talent_to_pool(d: dict) -> dict:
@@ -1216,21 +1217,24 @@ def _talent_to_pool(d: dict) -> dict:
     }
 
 
-def start_mpc_campaign(candidate_ids) -> tuple:
-    """Seed a DripDrop MPC campaign with the selected ATS candidates as the
-    slate (max 3) and route the main app to the MPC builder. The candidates
-    are stashed in app.storage.user so index() can hydrate AppState on landing.
+def start_mpc_campaign(candidate_ids, mode: str = "mpc") -> tuple:
+    """Seed a DripDrop MPC / 4×4 campaign with the selected ATS candidates as
+    the slate and route the main app to the builder. mode='mpc' caps at 3;
+    mode='4x4' caps at 5 (anchor + supporting). The candidates are stashed in
+    app.storage.user so index() hydrates AppState on landing.
     Returns (used, total_selected)."""
+    cap = FOURBYFOUR_MAX if mode == "4x4" else MPC_MAX
     ids = list(candidate_ids)
     total = len(ids)
     pool = []
-    for i in ids[:MPC_MAX]:
+    for i in ids[:cap]:
         d = get_one(i)
         if d:
             pool.append(_talent_to_pool(d))
     if not pool:
         return 0, total
     app.storage.user["_pending_mpc_candidates"] = pool
+    app.storage.user["_pending_mpc_mode"] = mode
     app.storage.user["_pending_page"] = "candidate_campaign"
     return len(pool), total
 
@@ -2310,15 +2314,24 @@ def _resume_preview(ff, st, refresh):
                 f"font-size:11.5px;color:{_c(C,'good','#16A34A')};margin-top:8px;display:block;")
         # Actions
         with ui.element("div").style("display:flex;gap:9px;margin-top:14px;flex-wrap:wrap;"):
-            def _mpc(_e=None, i=pid):
-                used, _ = start_mpc_campaign([i])
+            _sel_pids = list(st.get("selected") or set())
+
+            def _start_camp_one(mode, i=pid):
+                ids = set(st.get("selected") or set()); ids.add(i)
+                used, _ = start_mpc_campaign(list(ids), mode=mode)
                 if not used:
-                    ui.notify("Couldn't load this candidate.", type="warning"); return
+                    ui.notify("Couldn't load the candidate(s).", type="warning"); return
                 ui.navigate.to("/")
+            with ui.element("button").style(
+                    f"background:#7C3AED;color:#FFFFFF;border:0;border-radius:8px;"
+                    f"padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;"
+                    f"font-family:inherit;").on("click", lambda: _start_camp_one("4x4")):
+                ui.label(f"⚡ Start a 4×4 ({len(_sel_pids)} selected)" if _sel_pids
+                         else "⚡ Start a 4×4")
             with ui.element("button").style(
                     f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;border-radius:8px;"
                     f"padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;"
-                    f"font-family:inherit;").on("click", _mpc):
+                    f"font-family:inherit;").on("click", lambda: _start_camp_one("mpc")):
                 ui.label("✦ Start an MPC Campaign")
 
             # Send-a-job: if candidates are checked, send the whole selection
@@ -2591,21 +2604,28 @@ def _view_candidates(ff, st, refresh):
                         f"cursor:pointer;font-family:inherit;").on("click", _send_job):
                     ui.label("✉ Send a Job Opening")
 
-                def _start_mpc():
-                    used, total = start_mpc_campaign(list(_sel))
+                def _start_camp(mode, cap, label):
+                    used, total = start_mpc_campaign(list(_sel), mode=mode)
                     if not used:
                         ui.notify("Couldn't load the selected candidates.", type="warning")
                         return
                     _sel.clear()
                     if total > used:
-                        ui.notify(f"An MPC campaign markets up to {MPC_MAX} candidates at "
-                                  f"once. Using {used} — you can swap candidates on the next "
-                                  f"screen.", type="info", timeout=7000)
+                        ui.notify(f"{label} markets up to {cap} candidates at once. Using "
+                                  f"{used} — you can swap candidates on the next screen.",
+                                  type="info", timeout=7000)
                     ui.navigate.to("/")
+                with ui.element("button").style(
+                        f"background:#7C3AED;color:#FFFFFF;border:0;"
+                        f"border-radius:8px;padding:7px 16px;font-size:13px;font-weight:700;"
+                        f"cursor:pointer;font-family:inherit;").on(
+                        "click", lambda: _start_camp("4x4", FOURBYFOUR_MAX, "A 4×4")):
+                    ui.label("⚡ Start a 4×4")
                 with ui.element("button").style(
                         f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;"
                         f"border-radius:8px;padding:7px 18px;font-size:13px;font-weight:700;"
-                        f"cursor:pointer;font-family:inherit;").on("click", _start_mpc):
+                        f"cursor:pointer;font-family:inherit;").on(
+                        "click", lambda: _start_camp("mpc", MPC_MAX, "An MPC campaign")):
                     ui.label("✦ Start an MPC Campaign")
 
     # Results / recent — split: compact list (left) + résumé preview (right)
