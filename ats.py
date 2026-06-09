@@ -2312,26 +2312,17 @@ def _resume_preview(ff, st, refresh):
         if st.get("sel_reason"):
             ui.label("✦ " + st["sel_reason"]).style(
                 f"font-size:11.5px;color:{_c(C,'good','#16A34A')};margin-top:8px;display:block;")
-        # Actions
+        # Actions  (4×4 is a SALES play — lives on the Campaign page, not here)
         with ui.element("div").style("display:flex;gap:9px;margin-top:14px;flex-wrap:wrap;"):
-            _sel_pids = list(st.get("selected") or set())
-
-            def _start_camp_one(mode, i=pid):
-                ids = set(st.get("selected") or set()); ids.add(i)
-                used, _ = start_mpc_campaign(list(ids), mode=mode)
+            def _mpc(_e=None, i=pid):
+                used, _ = start_mpc_campaign([i], mode="mpc")
                 if not used:
-                    ui.notify("Couldn't load the candidate(s).", type="warning"); return
+                    ui.notify("Couldn't load this candidate.", type="warning"); return
                 ui.navigate.to("/")
-            with ui.element("button").style(
-                    f"background:#7C3AED;color:#FFFFFF;border:0;border-radius:8px;"
-                    f"padding:9px 16px;font-size:13px;font-weight:700;cursor:pointer;"
-                    f"font-family:inherit;").on("click", lambda: _start_camp_one("4x4")):
-                ui.label(f"⚡ Start a 4×4 ({len(_sel_pids)} selected)" if _sel_pids
-                         else "⚡ Start a 4×4")
             with ui.element("button").style(
                     f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;border-radius:8px;"
                     f"padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;"
-                    f"font-family:inherit;").on("click", lambda: _start_camp_one("mpc")):
+                    f"font-family:inherit;").on("click", _mpc):
                 ui.label("✦ Start an MPC Campaign")
 
             # Send-a-job: if candidates are checked, send the whole selection
@@ -2615,12 +2606,6 @@ def _view_candidates(ff, st, refresh):
                                   f"{used} — you can swap candidates on the next screen.",
                                   type="info", timeout=7000)
                     ui.navigate.to("/")
-                with ui.element("button").style(
-                        f"background:#7C3AED;color:#FFFFFF;border:0;"
-                        f"border-radius:8px;padding:7px 16px;font-size:13px;font-weight:700;"
-                        f"cursor:pointer;font-family:inherit;").on(
-                        "click", lambda: _start_camp("4x4", FOURBYFOUR_MAX, "A 4×4")):
-                    ui.label("⚡ Start a 4×4")
                 with ui.element("button").style(
                         f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;"
                         f"border-radius:8px;padding:7px 18px;font-size:13px;font-weight:700;"

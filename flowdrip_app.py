@@ -16885,11 +16885,15 @@ def _sq_pick(s, rf):
                         s.cpc_mode = "mpc"
                         s.sp = "candidate_finder"
                     elif k == "fourbyfour":
-                        # Arena 4×4 — candidates live in the ATS, so send the
-                        # user there to search + select, then "⚡ Start a 4×4"
-                        # seeds the slate and opens the builder.
-                        ui.navigate.to("/ats")
-                        return
+                        # Arena 4×4 is a SALES play — pick the candidate slate from
+                        # the roster (same flow as MPC), in 4×4 mode so the per-row
+                        # "Start" opens the 4×4 builder. Not tied to the recruiting
+                        # Pipeline.
+                        s._nav_history.append(_nav_snapshot(s))
+                        _reset_wizard_state(s)
+                        s.cpc_mode = "4x4"
+                        s.cpc_ad_role = ""; s.cpc_ad_location = ""; s.cpc_ad_link = ""
+                        s.sp = "candidate_finder"
                     elif k == "saved":
                         _reset_wizard_state(s)
                         s._tab = "saved"
