@@ -6696,6 +6696,30 @@ def _strip_dashes(text) -> str:
     return text
 
 
+def _pdf_campaign_subject(camp):
+    """Derive (company, roles, location, industry) for a PDF from a campaign,
+    NEVER using the campaign-TYPE name (Find Candidates / Arena 4×4 / MPC /
+    candidate placement) as a bogus company. A "Target a Company" campaign is
+    named "<Company> - ...", so its name's prefix is a real company; the other
+    flows are role-focused, so the role / market niche becomes the subject."""
+    v = (camp.get("variables") or {}) if isinstance(camp, dict) else {}
+    company = (v.get("CompanyName") or v.get("company") or "").strip()
+    roles = ((v.get("TargetRole") or v.get("roles") or "").strip()
+             or (camp.get("market_niche") or camp.get("candidate_role") or "").strip())
+    location = ((v.get("Geography") or v.get("location") or "").strip()
+                or (camp.get("market_region") or camp.get("candidate_location") or "").strip())
+    industry = (v.get("Industry") or v.get("industry")
+                or v.get("PrimaryIndustry") or v.get("Vertical") or "").strip()
+    if not company:
+        nm = (camp.get("name") or "").strip()
+        if nm and not re.match(
+                r"(?i)^(find candidates|arena\s*4|4\s*x\s*4|mpc|candidate|placement)\b", nm):
+            company = nm.split(" - ")[0].strip()
+    if not company:
+        company = roles  # role-focused asset (e.g. an interview guide for a role)
+    return company, roles, location, industry
+
+
 def _sanitize_candidate_salary_ask(raw: str) -> str:
     """Strip job-offer-style suffixes from a candidate's salary_ask.
 
@@ -14923,10 +14947,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                             # Secondary / Positions come straight from the
                             # campaign variables the user typed in the wizard.
                             v = camp.get("variables", {})
-                            company = v.get("CompanyName", "") or v.get("company", "") or camp.get("name", "").split(" - ")[0]
-                            roles_str = v.get("TargetRole", "") or v.get("roles", "")
-                            location_str = v.get("Geography", "") or v.get("location", "")
-                            _np = (v.get("PrimaryIndustry") or "").strip()
+                            company, roles_str, location_str, _np = _pdf_campaign_subject(camp)
                             _ns = list(v.get("SecondaryIndustries", []) or [])
                             # Fallback to legacy Vertical text if Primary not set
                             if not _np:
@@ -15022,11 +15043,11 @@ def _sq_loaded_campaign(s: AppState, rf):
                             s._pdf_custom_attach_step_idx = idx
                             # Pre-populate company context so AI has something to work with
                             v = camp.get("variables", {})
-                            s._pdf_company = (v.get("CompanyName", "") or v.get("company", "")
-                                              or camp.get("name", "").split(" - ")[0])
-                            s._pdf_role = v.get("TargetRole", "") or v.get("roles", "")
-                            s._pdf_location = v.get("Geography", "") or v.get("location", "")
-                            s._pdf_industry = v.get("Industry", "") or v.get("industry", "")
+                            _pc, _pr, _pl, _pi = _pdf_campaign_subject(camp)
+                            s._pdf_company = _pc
+                            s._pdf_role = _pr
+                            s._pdf_location = _pl
+                            s._pdf_industry = _pi
                             s._pdf_exp_level = v.get("ExpLevel", "") or ""
                             rf()
                         with ui.element("button").style(
