@@ -6710,10 +6710,18 @@ def _pdf_campaign_subject(camp):
                 or (camp.get("market_region") or camp.get("candidate_location") or "").strip())
     industry = (v.get("Industry") or v.get("industry")
                 or v.get("PrimaryIndustry") or v.get("Vertical") or "").strip()
-    if not company:
+    # Recruiting / candidate campaigns (Find Candidates, MPC, 4×4) have NO
+    # single target company — their name prefix is a candidate name or a type
+    # label, never a company. Detect by their fields + chooser origin.
+    _is_recruiting = bool(
+        camp.get("candidate_role") or camp.get("candidate_name")
+        or camp.get("market_niche")
+        or (camp.get("_chooser_origin") in ("candidate", "fourbyfour"))
+        or re.match(r"(?i)^(find candidates|arena\s*4|4\s*x\s*4|mpc)\b",
+                    (camp.get("name") or "").strip()))
+    if not company and not _is_recruiting:
         nm = (camp.get("name") or "").strip()
-        if nm and not re.match(
-                r"(?i)^(find candidates|arena\s*4|4\s*x\s*4|mpc|candidate|placement)\b", nm):
+        if nm:  # "Target a Company" campaigns are named "<Company> - ..."
             company = nm.split(" - ")[0].strip()
     if not company:
         company = roles  # role-focused asset (e.g. an interview guide for a role)
