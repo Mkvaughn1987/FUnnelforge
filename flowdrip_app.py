@@ -4361,6 +4361,24 @@ def _camp_recency_ts(c) -> float:
 
 
 def save_campaign(camp):
+    # Clean sweep: NO em/en-dashes in any saved campaign. Every generation flow
+    # (MPC, Find Candidates, 4×4, AICB, manual edits) funnels through here, so
+    # scrubbing email subjects/bodies + name/synopsis here guarantees it.
+    try:
+        for _seqk in ("emails", "steps"):
+            _seq = camp.get(_seqk)
+            if isinstance(_seq, list):
+                for _e in _seq:
+                    if isinstance(_e, dict):
+                        for _f in ("subject", "body"):
+                            if isinstance(_e.get(_f), str) and _e[_f]:
+                                _e[_f] = _strip_dashes(_e[_f])
+        for _tk in ("name", "synopsis", "candidate_summary"):
+            if isinstance(camp.get(_tk), str) and camp[_tk]:
+                camp[_tk] = _strip_dashes(camp[_tk])
+    except Exception:
+        pass
+
     raw_name = (camp.get("name") or "").strip() or f"Campaign_{datetime.now().strftime('%m%d%H%M%S')}"
     camp["name"] = raw_name  # ensure name is never empty in saved dict
     safe = re.sub(r"[^\w\-]", "_", raw_name)[:60]
@@ -46160,11 +46178,12 @@ def _normalize_merge_tokens(text):
 
 
 def _normalize_email_merge_tokens(emails):
-    """Fix snake_case recipient merge tokens in generated email subjects/bodies."""
+    """Fix snake_case recipient merge tokens AND scrub em/en-dashes in generated
+    email subjects/bodies (shared by the MPC, Find Candidates, and 4×4 flows)."""
     for e in (emails or []):
         for k in ("subject", "body"):
             if e.get(k):
-                e[k] = _normalize_merge_tokens(e[k])
+                e[k] = _strip_dashes(_normalize_merge_tokens(e[k]))
     return emails
 
 
