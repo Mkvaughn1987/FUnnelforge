@@ -6728,6 +6728,32 @@ def _pdf_campaign_subject(camp):
     return company, roles, location, industry
 
 
+# Send-time windows to spread campaign load so emails don't all fire at 9am and
+# overwhelm the server. 15-min increments matching TIME_OPTIONS.
+_SPREAD_TIMES = [
+    "8:30 AM", "8:45 AM",
+    "9:00 AM", "9:15 AM", "9:30 AM", "9:45 AM",
+    "10:00 AM", "10:15 AM", "10:30 AM", "10:45 AM", "11:00 AM",
+    "2:00 PM", "2:15 PM", "2:30 PM", "2:45 PM",
+    "3:00 PM", "3:15 PM", "3:30 PM", "3:45 PM", "4:00 PM",
+]
+
+
+def _spread_email_times(emails):
+    """Assign each generated EMAIL step a send time spread across 8:30-11am and
+    2-4pm, so campaigns stop piling onto 9am. Leaves call/LinkedIn/SMS/task
+    steps alone (their time is driven by the email cadence)."""
+    import random
+    for e in (emails or []):
+        if not isinstance(e, dict):
+            continue
+        _stp = str(e.get("step_type") or "").lower()
+        _is_email = ("email" in _stp) if _stp else bool(e.get("subject") or e.get("body"))
+        if _is_email:
+            e["time"] = random.choice(_SPREAD_TIMES)
+    return emails
+
+
 def _sanitize_candidate_salary_ask(raw: str) -> str:
     """Strip job-offer-style suffixes from a candidate's salary_ask.
 
@@ -33446,6 +33472,9 @@ def p_ai_campaign(s: AppState, rf):
                                 _em["body"] = _b
                                 _em["subject"] = _s
 
+                            # Spread send times off 9am to ease server load.
+                            _spread_email_times(campaign_data.get("emails", []))
+
                             s.aicb_docs["campaign"] = campaign_data
                             s.aicb_docs["brief"] = brief
                             s.aicb_docs["synopsis"] = campaign_data.get("synopsis", "")
@@ -35433,6 +35462,7 @@ def _tc_render_step_generate(s: AppState, rf):
                 # at send — same as the MPC flow) so there's no double sign-off.
                 _fill_recruiter_placeholders(emails, _recruiter_signoff_name(s))
                 _normalize_email_merge_tokens(emails)  # {first_name} -> {FirstName}
+                _spread_email_times(emails)  # spread off 9am to ease server load
                 for _em in emails:
                     if _em.get("body"):
                         _em["body"] = _strip_ai_signoff(_em["body"])
@@ -37212,6 +37242,7 @@ def p_candidate_campaign(s: AppState, rf):
                         # with the real name before sign-offs are stripped.
                         _fill_recruiter_placeholders(emails, _recruiter_signoff_name(s))
                         _normalize_email_merge_tokens(emails)  # {first_name} -> {FirstName}
+                        _spread_email_times(emails)  # spread off 9am to ease server load
                         # Strip any AI-generated sign-offs  -  signature is auto-appended at send time
                         for _em in emails:
                             if _em.get("body"):
@@ -46361,6 +46392,7 @@ def _4x4_generate_emails(client, s, sig_name: str, company: str) -> list:
         e["body"] = b
     _fill_recruiter_placeholders(emails, sig_name)
     _normalize_email_merge_tokens(emails)
+    _spread_email_times(emails)  # spread off 9am to ease server load
     for e in emails:
         if e.get("body"):
             e["body"] = _strip_ai_signoff(e["body"])
