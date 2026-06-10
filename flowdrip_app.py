@@ -1203,6 +1203,8 @@ _WIZARD_DRAFT_FIELDS = (
     "_aicb_cand_text",
     # Chooser context
     "_chooser_origin",
+    # In-progress Library draft (so a refresh keeps updating the same one)
+    "_draft_camp_path",
 )
 _WIZARD_DRAFT_TTL_HOURS = 72  # auto-discard older than 3 days
 
@@ -1251,6 +1253,73 @@ def _save_wizard_draft(s) -> None:
         print(f"[WizardDraft] save failed: {ex}", flush=True)
 
 
+def _autosave_campaign_draft(s) -> None:
+    """Save the in-progress wizard as a real DRAFT campaign in the Campaign
+    Library, the moment the user enters target/company/candidate info — so
+    'all campaigns are saved as whatever the user put in.' Updates the same
+    draft per session (tracked via s._draft_camp_path); resumable from the
+    library; replaced by the full campaign on generation."""
+    if not _wizard_state_is_meaningful(s):
+        return
+    try:
+        _co = (getattr(s, "aicb_company", "") or "").strip()
+        _niche = (getattr(s, "aicb_niche", "") or "").strip()
+        _ind = (getattr(s, "aicb_primary_industry", "") or "").strip()
+        _roles = getattr(s, "aicb_sel_roles", []) or []
+        _role = (str(_roles[0]).strip() if _roles else "")
+        _subject = _co or _niche or _ind or "Untitled"
+        name = "[Draft] " + _subject + (f" - {_role}" if _role else "")
+        camp = {
+            "name": name,
+            "status": "draft",
+            "_owner_email": getattr(s, "_user_email", ""),
+            "_is_wizard_draft": True,
+            "_chooser_origin": getattr(s, "_chooser_origin", ""),
+            "_wizard_resume": {f: getattr(s, f, None) for f in _WIZARD_DRAFT_FIELDS},
+            "variables": {
+                "CompanyName": _co, "TargetRole": _role,
+                "Geography": ", ".join(getattr(s, "aicb_sel_locations", []) or []),
+                "PrimaryIndustry": _ind,
+            },
+            "emails": [], "steps": [],
+            "synopsis": "Draft in progress — not yet generated.",
+            "created": date.today().isoformat(),
+        }
+        _old = (getattr(s, "_draft_camp_path", "") or "")
+        if _old:
+            camp["_path"] = _old
+        save_campaign(camp)
+        _new = camp.get("_path", "")
+        # Name changed (e.g. user edited the company) → drop the old draft file
+        # so a session only ever leaves ONE draft behind.
+        if _old and _new and _old != _new:
+            try:
+                os.remove(_old)
+            except Exception:
+                pass
+        s._draft_camp_path = _new
+    except Exception as ex:
+        print(f"[CampaignDraft] autosave failed: {ex}", flush=True)
+
+
+def _resume_wizard_draft(s, camp) -> bool:
+    """Restore the AICB wizard from a saved wizard-draft campaign and route
+    back into the builder (not the email editor). Returns True if it was a
+    wizard draft and was resumed."""
+    if not (isinstance(camp, dict) and camp.get("_is_wizard_draft")):
+        return False
+    snap = camp.get("_wizard_resume") or {}
+    for f, v in snap.items():
+        try:
+            setattr(s, f, v)
+        except Exception:
+            pass
+    s._draft_camp_path = camp.get("_path", "") or ""
+    s.aicb_step = 1
+    s.sp = "ai_campaign"
+    return True
+
+
 def _load_wizard_draft() -> dict:
     """Load the current user's wizard draft. Returns {} if none exists,
     or if older than _WIZARD_DRAFT_TTL_HOURS."""
@@ -1277,6 +1346,22 @@ def _clear_wizard_draft() -> None:
         path = _user_wizard_draft_path()
         if path.exists():
             path.unlink()
+    except Exception:
+        pass
+
+
+def _clear_campaign_draft(s) -> None:
+    """Remove the in-progress Library draft (called on generation/discard once
+    the real campaign exists, so a finished campaign doesn't leave a [Draft]
+    twin behind)."""
+    p = (getattr(s, "_draft_camp_path", "") or "")
+    if p:
+        try:
+            os.remove(p)
+        except Exception:
+            pass
+    try:
+        s._draft_camp_path = ""
     except Exception:
         pass
 
@@ -9652,6 +9737,7 @@ class AppState:
         self.dash_drip_tab = None
         # Campaign Manager selected campaign
         self.sel_camp_name = ""  # name of campaign selected in seq_mgr
+        self._draft_camp_path = ""  # path of the in-progress wizard Library draft
         # Add-step panel state (loaded campaign editor)
         self._add_step_type = ""
         self._add_step_position = -1
@@ -14268,6 +14354,14 @@ def _sq_loaded_campaign(s: AppState, rf):
     if not camp:
         return
 
+    # Wizard draft (saved mid-build, no emails yet) → resume the builder
+    # instead of opening an empty editor.
+    if camp.get("_is_wizard_draft") and not (camp.get("emails") or []):
+        s.loaded_camp = None
+        if _resume_wizard_draft(s, camp):
+            rf()
+            return
+
     # Custom PDF modal  -  rendered as a fixed overlay so the "✨ Create Your
     # Own" button on the Generate PDF row can open it from this editor.
     if getattr(s, '_pdf_custom_stage', 'closed') in ("gallery", "outline"):
@@ -16976,13 +17070,18 @@ def _sq_pick(s, rf):
                         s.tc_preset = ""
                         s.sp = "target_candidate"
                     elif k == "mpc":
-                        # Most Placeable Candidate flow: route to the
-                        # Candidate Job Finder pool so the user picks an
-                        # existing candidate. Their per-row "Start
-                        # Campaign" button (in p_candidate_finder) runs
-                        # the placement-campaign flow that, after my
-                        # 2026-05-20 review-page-skip change, lands them
-                        # straight in the email editor.
+                        # Most Placeable Candidate flow: candidates now live
+                        # in the Pipeline (ATS) as of 2026-06-09. Route
+                        # allowlisted users straight to the Pipeline to pick
+                        # candidate(s); the ATS per-row / multi-select "Start
+                        # an MPC Campaign" button hands the slate back to the
+                        # MPC builder and lands them in the email editor.
+                        # Non-ATS users (/ats bounces them to /) keep the
+                        # legacy Top Candidates roster fallback.
+                        _ue = (getattr(s, "_user_email", "") or "").strip().lower()
+                        if _ue in _ATS_ALLOWED_EMAILS:
+                            ui.navigate.to("/ats")
+                            return
                         s._nav_history.append(_nav_snapshot(s))
                         _reset_wizard_state(s)
                         s.cpc_mode = "mpc"
@@ -31608,6 +31707,7 @@ def p_ai_campaign(s: AppState, rf):
     # Cleared on successful campaign generation (see Generate handler).
     try:
         _save_wizard_draft(s)
+        _autosave_campaign_draft(s)  # also land it in the Campaign Library as a draft
     except Exception:
         pass
 
@@ -33603,7 +33703,13 @@ def p_ai_campaign(s: AppState, rf):
                                 # Generation succeeded — clear the wizard
                                 # draft so the resume banner doesn't
                                 # reappear next time the user lands on
-                                # the chooser.
+                                # the chooser. Also drop the in-progress
+                                # Library [Draft] now that the real campaign
+                                # is saved.
+                                try:
+                                    _clear_campaign_draft(s)
+                                except Exception:
+                                    pass
                                 try:
                                     _clear_wizard_draft()
                                 except Exception:
