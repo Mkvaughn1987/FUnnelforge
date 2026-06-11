@@ -33741,7 +33741,12 @@ def p_ai_campaign(s: AppState, rf):
                                 # Strip any AI-generated sign-off
                                 _b = _strip_ai_signoff(_b)
                                 _s = _title_case_subject(_s)
-                                # Strip ALL em/en dashes from body AND subject
+                                # Humanize first: smart dash repair (no
+                                # spaced-hyphen tell) + cliche-opener removal.
+                                _b = _humanize_email_text(_b)
+                                _s = _humanize_email_text(_s)
+                                # _strip_dashes is now a no-op safety net for
+                                # any stray dash the humanizer missed.
                                 _b = _strip_dashes(_b)
                                 _s = _strip_dashes(_s)
                                 _em["body"] = _b
