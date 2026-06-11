@@ -8213,14 +8213,20 @@ PERSONALIZATION (every email must earn its place):
   project or event in every email.
 
 NEVER DO THESE (hard rules):
-- NEVER use em dashes or en dashes. Use commas, periods, or " - "
-  (space hyphen space). This is the #1 most important formatting rule.
+- NEVER use em dashes or en dashes. Replace each one with a comma or a
+  period. NEVER substitute a spaced hyphen " - " for a dash. A " - "
+  standing in for a dash reads as templated AI copy. This is the #1
+  most important formatting rule.
 - Never say "I'm reaching out" / "I wanted to introduce" / "I'd love to"
 - Never say "I want to show you" / "let me show you"
 - Never say "we can help you" / "our services" / "our team"
 - Never say "schedule a call" / "book a meeting" / "are you free Thursday"
 - Never say "just checking in" / "just bumping this up" in follow-ups
 - Never say "circle back", "touch base", "synergies", "moving the needle"
+- Never use AI-tell vocabulary: streamline, leverage, elevate, delve,
+  robust, seamless, unlock, spearhead, "in today's market", "fast-paced",
+  "it's worth noting", moreover, furthermore, "navigate the landscape",
+  "that being said". Use the plain words a busy recruiter would type.
 - Never use exclamation marks
 - Never use ALL CAPS for emphasis (acronyms like OSHPD, CNC, MEP are fine)
 - Never include a company bio paragraph or capability list

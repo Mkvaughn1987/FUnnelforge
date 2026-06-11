@@ -53,3 +53,16 @@ def test_ordinary_text_unchanged():
 def test_non_string_passthrough():
     assert fa._humanize_email_text(None) is None
     assert fa._humanize_email_text(123) == 123
+
+
+# ── _DRIPDROP_PLAYBOOK hardening ───────────────────────────────────
+def test_playbook_drops_spaced_hyphen_dash_fallback():
+    # The old text offered '" - "' as an acceptable dash substitute,
+    # which is itself an AI tell. It must be gone.
+    assert 'periods, or " - "' not in fa._DRIPDROP_PLAYBOOK
+
+
+def test_playbook_bans_ai_tell_vocabulary():
+    for word in ("streamline", "leverage", "delve", "furthermore",
+                 "seamless"):
+        assert word in fa._DRIPDROP_PLAYBOOK
