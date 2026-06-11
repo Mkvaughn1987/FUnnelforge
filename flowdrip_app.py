@@ -21796,6 +21796,72 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             f"padding:8px 10px;color:{C['text_l']};font-size:12px;"
             f"font-family:inherit;resize:vertical;margin-bottom:12px;")
 
+        # ── Pick from Pipeline (The J Way) ── search the candidate pool and
+        # add specific people to "Top Talent Available". When any are chosen
+        # they OVERRIDE the AI-generated spotlights for J Way issues.
+        _sel_cands = {}
+        _ats_ok = (getattr(s, "_user_email", "") or "").strip().lower() in _ATS_ALLOWED_EMAILS
+        if _ats_ok:
+            ui.label("Featured Candidates — pick from Pipeline (optional)").classes("fd-fl")
+            ui.label("For The J Way: search your Pipeline and add specific people. "
+                     "Leave empty and AI builds the talent list instead.").style(
+                f"font-size:10px;color:{C['muted']};margin-bottom:6px;display:block;")
+            _chosen_row = ui.row().style("flex-wrap:wrap;gap:5px;margin-bottom:6px;")
+            _pipe_results = ui.column().style(
+                "gap:0;max-height:140px;overflow-y:auto;margin-bottom:10px;width:100%;")
+
+            def _refresh_chosen():
+                _chosen_row.clear()
+                with _chosen_row:
+                    for _cid, _c in list(_sel_cands.items()):
+                        def _rm(_e=None, _id=_cid):
+                            _sel_cands.pop(_id, None); _refresh_chosen()
+                        with ui.element("div").style(
+                                f"display:flex;align-items:center;gap:5px;background:{C['teal']}18;"
+                                f"border:1px solid {C['teal']}50;border-radius:12px;padding:2px 4px 2px 10px;"):
+                            ui.label(_c.get("name", "Candidate")).style(
+                                f"font-size:10px;color:{C['teal']};font-weight:700;")
+                            ui.button("✕", on_click=_rm).props("flat dense round").style(
+                                "font-size:9px;min-width:0;width:16px;height:16px;padding:0;")
+
+            def _pipe_search(_e=None):
+                try:
+                    import ats as _ats
+                except Exception:
+                    ui.notify("Pipeline unavailable.", type="warning"); return
+                _q = (_pipe_q.value or "").strip()
+                if not _q:
+                    return
+                _rows = _ats.keyword_search(_q, limit=12)  # FTS — fast, no AI
+                _pipe_results.clear()
+                with _pipe_results:
+                    if not _rows:
+                        ui.label("No matches.").style(f"font-size:11px;color:{C['muted']};padding:4px 0;")
+                    for _r in _rows:
+                        _nm = ((_r.get("first_name", "") + " " + _r.get("last_name", "")).strip()
+                               or "Candidate")
+                        _ti = _r.get("current_title", "") or ""
+
+                        def _add(_e=None, _row=_r, _name=_nm):
+                            import ats as _a2
+                            _sel_cands[_row["id"]] = _a2._talent_to_pool(_row)
+                            _refresh_chosen()
+                        with ui.element("div").style(
+                                "display:flex;justify-content:space-between;align-items:center;"
+                                "gap:8px;padding:3px 0;width:100%;"):
+                            ui.label(f"{_nm} · {_ti}").style(
+                                f"font-size:11px;color:{C['text']};overflow:hidden;"
+                                f"text-overflow:ellipsis;white-space:nowrap;flex:1;")
+                            ui.button("+ Add", on_click=_add).props("flat dense").style(
+                                f"font-size:10px;color:{C['teal']};")
+
+            with ui.element("div").style("display:flex;gap:6px;margin-bottom:6px;"):
+                _pipe_q = ui.input(placeholder="Search Pipeline — e.g. CNC machinist Texas").props(
+                    "dense outlined").style("flex:1;")
+                _pipe_q.on("keydown.enter", lambda _e: _pipe_search())
+                ui.button("Search", on_click=_pipe_search).props("dense unelevated").style(
+                    f"background:{C['teal']};color:#08121f;font-size:11px;")
+
         # Count dropdown — minimum 3 spotlights. The masthead tagline
         # reads "Market Pulse & Top {Industry} Candidates", so an
         # issue with zero candidate cards would contradict its own
@@ -22010,6 +22076,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                 market_analysis=True,
                 newsletter_name=nl_name,
                 newsletter_style=(_style_toggle.value or "full_send"),
+                newsletter_candidates=list(_sel_cands.values()),
                 market_sector=sector,
                 market_sector_key=_sector_key,
                 market_niche=niche,
@@ -43464,7 +43531,8 @@ def _generate_jway_newsletter(client, camp: dict, nl_name: str, company: str,
     if _picked:
         _lines = []
         for i, c in enumerate(_picked[:6]):
-            _role = c.get("current_title") or c.get("role") or "Candidate"
+            _role = (c.get("current_title") or c.get("role")
+                     or c.get("target_role") or "Candidate")
             _info = (c.get("summary") or c.get("redacted_resume")
                      or c.get("resume_text") or "")[:600]
             _sal = c.get("salary") or ""
