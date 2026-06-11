@@ -6781,6 +6781,85 @@ def _strip_dashes(text) -> str:
     return text
 
 
+# Cliche throat-clearing openers the playbook forbids but the model
+# occasionally still emits. Lowercase, no trailing punctuation.
+_CLICHE_OPENERS = (
+    "i hope this email finds you well",
+    "i hope this message finds you well",
+    "i hope this finds you well",
+    "i hope all is well",
+    "i hope you are doing well",
+    "i hope you're doing well",
+    "i hope you are having a great week",
+    "i hope you're having a great week",
+    "i hope you had a great weekend",
+    "hope this finds you well",
+    "hope you are well",
+    "hope all is well",
+)
+
+
+def _humanize_email_text(text):
+    """Make AI-generated email copy read like a person wrote it.
+
+    Two conservative passes, safe on any generated subject/body:
+      1. Dash repair, so no spaced-hyphen "AI tell" ever survives:
+         a lone em dash becomes a sentence break (period + capitalized
+         next word); a matched pair of em dashes becomes parenthetical
+         commas; a numeric en-dash range becomes "to"; any other en dash
+         becomes a comma.
+      2. Cliche-opener removal: delete a known throat-clearing opener
+         sentence ("I hope this email finds you well.") if it slipped
+         through, then tidy the surrounding <br> breaks.
+
+    Does NOT rewrite wording mid-sentence, so it cannot break grammar.
+    Non-strings pass through unchanged.
+    """
+    if not isinstance(text, str) or not text:
+        return text
+    import re as _re
+
+    def _fix_line(line):
+        # tight en dash (no surrounding spaces) is a range -> "to"
+        # e.g. "$130K–$150K", "10–15", "2013–2014"
+        line = _re.sub(r'(?<=\S)–(?=\S)', ' to ', line)
+        # matched pair of em dashes (parenthetical) -> commas
+        if line.count('—') == 2:
+            line = _re.sub(r'\s*—\s*', ', ', line)
+        # lone/odd em dash before a lowercase word -> ". " + capitalize
+        line = _re.sub(r'\s*[—―]\s*([a-z])',
+                       lambda m: '. ' + m.group(1).upper(), line)
+        # any remaining em dash (before number/symbol) -> sentence break
+        line = _re.sub(r'\s*[—―]\s*', '. ', line)
+        # spaced en dash in prose -> comma
+        line = _re.sub(r'\s*–\s*', ', ', line)
+        return line
+
+    # Split on <br> so HTML breaks are preserved and pair-detection stays
+    # local to a single line.
+    parts = _re.split(r'(<br\s*/?>)', text)
+    parts = [p if p.lower().startswith('<br') else _fix_line(p)
+             for p in parts]
+    s = ''.join(parts)
+
+    # Remove a cliche opener sentence if present.
+    low = s.lower()
+    for _op in _CLICHE_OPENERS:
+        idx = low.find(_op)
+        if idx == -1:
+            continue
+        end = s.find('.', idx)
+        end = (end + 1) if end != -1 else (idx + len(_op))
+        s = s[:idx] + s[end:]
+        low = s.lower()
+
+    # Tidy: collapse 3+ consecutive <br> left by removal, squeeze spaces.
+    s = _re.sub(r'(?:\s*<br\s*/?>\s*){3,}', '<br><br>', s)
+    s = _re.sub(r'  +', ' ', s)
+    s = _re.sub(r'\s+\.', '.', s)
+    return s.strip()
+
+
 def _pdf_campaign_subject(camp):
     """Derive (company, roles, location, industry) for a PDF from a campaign,
     NEVER using the campaign-TYPE name (Find Candidates / Arena 4×4 / MPC /
