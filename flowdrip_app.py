@@ -21674,12 +21674,34 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
         ui.label("Create Newsletter").style(
             f"font-size:16px;font-weight:700;color:{C['text_l']};"
             f"font-family:'Nunito',sans-serif;margin-bottom:2px;")
-        ui.label("Create a branded monthly newsletter for a market you serve. "
+        ui.label("Create a monthly newsletter for a market you serve. "
                  "Pick a start date — every subsequent issue sends on the "
                  "same day each month. Refresh with AI-generated content "
                  "before each send.").style(
-            f"font-size:12px;color:{C['muted']};margin-bottom:18px;"
+            f"font-size:12px;color:{C['muted']};margin-bottom:14px;"
             f"line-height:1.5;")
+
+        # Format: The J Way (plain text) vs Full Send (current rich/branded).
+        ui.label("Newsletter Style").classes("fd-fl")
+        _style_toggle = ui.toggle(
+            {"full_send": "🚀 Full Send", "j_way": "✍️ The J Way"},
+            value=(prefill.get("newsletter_style") or "full_send")).props(
+            "no-caps").style("margin:2px 0 4px 0;")
+        _style_desc = ui.label("").style(
+            f"font-size:11px;color:{C['muted']};margin-bottom:16px;line-height:1.5;")
+
+        def _upd_style_desc():
+            if (_style_toggle.value or "") == "j_way":
+                _style_desc.set_text(
+                    "The J Way — plain-text and personal. A simple market snapshot written "
+                    "like a note: live BLS highlights, a short market read, and your available "
+                    "talent. No graphics or branding — the low-key style that gets replies.")
+            else:
+                _style_desc.set_text(
+                    "Full Send — the full branded newsletter: header, styled sections, your "
+                    "logo and colors, market-data cards, and featured candidates. Maximum polish.")
+        _style_toggle.on_value_change(_upd_style_desc)
+        _upd_style_desc()
 
         # Newsletter / Campaign Name (one field — shown as the header in
         # the email AND used as the internal campaign name in the Slow
@@ -21987,6 +22009,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                 evergreen_only=True,
                 market_analysis=True,
                 newsletter_name=nl_name,
+                newsletter_style=(_style_toggle.value or "full_send"),
                 market_sector=sector,
                 market_sector_key=_sector_key,
                 market_niche=niche,
@@ -43382,6 +43405,123 @@ def _spotlight_prompt_block(sector: str, n: int,
     return (instruction, schema)
 
 
+def _jway_render(d: dict, contact_name: str) -> str:
+    """Plain-text-style HTML for 'The J Way' newsletter — simple paragraphs and
+    bullets, no graphics/branding. Reads like a personal note."""
+    def _esc(x):
+        return (str(x or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+    def _ul(items):
+        lis = "".join(f"<li style='margin:3px 0;'>{_esc(x)}</li>" for x in (items or []) if x)
+        return (f"<ul style='margin:4px 0 14px 0;padding-left:20px;'>{lis}</ul>") if lis else ""
+
+    P = ("margin:0 0 12px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;"
+         "line-height:1.6;color:#222;")
+    H = ("margin:18px 0 4px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;"
+         "font-weight:bold;color:#111;")
+    out = []
+    if d.get("intro"):
+        out.append(f"<p style='{P}'>{_esc(d['intro'])}</p>")
+    out.append(f"<p style='{P}'>If I missed anything or you want to dig into something "
+               f"further, just let me know - happy to discuss.</p>")
+    if d.get("highlights"):
+        mo = _esc(d.get("highlights_label") or "Highlights")
+        out.append(f"<p style='{H}'>{mo}:</p>{_ul(d['highlights'])}")
+    if d.get("snapshot_title"):
+        out.append(f"<p style='{H}'>{_esc(d['snapshot_title'])}</p>")
+        if (d.get("source_url") or "").strip():
+            out.append(f"<p style='{P}'>Source: U.S. Bureau of Labor Statistics - "
+                       f"<a href='{_esc(d['source_url'])}'>Article here</a></p>")
+    for _key, _lbl in (("key_highlights", "Key Highlights"),
+                       ("sector_strength", "Sector Strength"),
+                       ("labor_context", "Labor Market Context"),
+                       ("takeaway", "Takeaway: What This Means")):
+        if d.get(_key):
+            out.append(f"<p style='{H}'>{_lbl}:</p>{_ul(d[_key])}")
+    cands = d.get("candidates") or []
+    if cands:
+        out.append(f"<p style='{H}'>Top Talent Currently Available:</p>")
+        for c in cands:
+            _hdr = c.get("label") or "Candidate"
+            if c.get("role"):
+                _hdr += f": {c['role']}"
+            out.append(f"<p style='{P}margin-bottom:2px;'><strong>{_esc(_hdr)}</strong></p>")
+            out.append(_ul(c.get("bullets")))
+            if (c.get("salary") or "").strip():
+                out.append(f"<p style='{P}margin-top:-8px;'>{_esc(c['salary'])}</p>")
+    out.append(f"<p style='{P}'>{_esc(d.get('signoff') or 'Thank you, and I hope this was helpful!')}</p>")
+    return _strip_dashes("".join(out))
+
+
+def _generate_jway_newsletter(client, camp: dict, nl_name: str, company: str,
+                              sector: str, niche: str, region: str,
+                              month_year: str, contact_name: str,
+                              spot_n: int, spot_recs: str) -> tuple:
+    """Generate 'The J Way' (plain-text) newsletter content for one issue:
+    personal market snapshot + live BLS data + available-talent list."""
+    n_cand = spot_n if spot_n in (3, 6) else 4
+    _picked = camp.get("newsletter_candidates") or []
+    if _picked:
+        _lines = []
+        for i, c in enumerate(_picked[:6]):
+            _role = c.get("current_title") or c.get("role") or "Candidate"
+            _info = (c.get("summary") or c.get("redacted_resume")
+                     or c.get("resume_text") or "")[:600]
+            _sal = c.get("salary") or ""
+            _lines.append(f"Candidate {chr(65 + i)} ({_role}; target {_sal or 'market rate'}): {_info}")
+        _cand_instr = ("Build 'Top Talent Currently Available' from THESE real candidates "
+                       "(anonymize names; keep role, skills, proficiencies, industry, salary):\n"
+                       + "\n".join(_lines))
+    else:
+        _cand_instr = (f"Generate {n_cand} realistic, anonymized 'Top Talent Currently "
+                       f"Available' profiles relevant to {niche or sector} in {region}. "
+                       + (f"Bias toward: {spot_recs}. " if spot_recs else "")
+                       + "Each with experience, skills, proficiencies/tools, industry "
+                       "background, and a target salary.")
+    prompt = (
+        f"Write a PLAIN, PERSONAL recruiting market newsletter — a warm, low-key note from "
+        f"{contact_name or 'a recruiter'} at {company}. NO marketing fluff, NO emoji, NO "
+        f"markdown. Sector: {sector or 'the market'}. Niche: {niche}. Region: {region}. "
+        f"Month: {month_year}.\n"
+        f"Use web search to pull the most recent REAL U.S. BLS jobs-report figures (total "
+        f"jobs added, unemployment rate, year-over-year wage growth, average workweek). "
+        f"Never fabricate stats — if a number isn't found, drop that bullet.\n"
+        f"{_cand_instr}\n\n"
+        f"Return ONLY valid JSON:\n"
+        f'{{"subject":"plain, specific subject for this issue",'
+        f'"intro":"2-3 warm sentences introducing a quick, simple market snapshot for {sector}",'
+        f'"highlights_label":"Highlights ({month_year})",'
+        f'"highlights":["4 short bullets of REAL BLS data: jobs added, unemployment, wage growth YoY, average workweek"],'
+        f'"snapshot_title":"{(sector or "Labor").title()} Labor Market Snapshot - {month_year}",'
+        f'"source_url":"the real BLS jobs-report URL, or empty string",'
+        f'"key_highlights":["3-4 bullets, real numbers"],'
+        f'"sector_strength":["3-4 bullets specific to {niche or sector}"],'
+        f'"labor_context":["3-4 bullets: what matters for {niche or sector} hiring"],'
+        f'"takeaway":["3-4 bullets: what this means for {sector} and skilled trades"],'
+        f'"candidates":[{{"label":"Candidate A","role":"job title","bullets":["Experience: ...","Skills: ...","Proficiencies: ...","Industry Background: ..."],"salary":"Target Salary: $.."}}],'
+        f'"signoff":"Thank you, and I hope this was helpful!"}}\n'
+        f"Plain text inside all fields — no HTML, no markdown, no emoji.")
+    try:
+        msg = _claude_create_with_retry(
+            client, model="claude-haiku-4-5-20251001", max_tokens=4000,
+            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
+            messages=[{"role": "user", "content": prompt}])
+        text = "".join(b.text for b in msg.content if hasattr(b, "text"))
+        clean = text.replace("```json", "").replace("```", "").strip()
+        m = re.search(r"\{.*\}", clean, re.DOTALL)
+        if not m:
+            return (None, None)
+        try:
+            d = json.loads(m.group())
+        except json.JSONDecodeError:
+            d = json.loads(re.sub(r",(\s*[}\]])", r"\1", m.group()))
+    except Exception as e:
+        print(f"[JWayNewsletter] AI call failed: {e}", flush=True)
+        return (None, None)
+    subject = (d.get("subject") or "").strip() or f"{(sector or 'Market').title()} Snapshot - {month_year}"
+    return (_strip_dashes(subject), _jway_render(d, contact_name))
+
+
 def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
     """Standalone newsletter content generator  -  no UI coupling.
     Used by both the manual Refresh flow and the auto-refresh scheduler.
@@ -43472,6 +43612,12 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
     _spot_instruction, _spot_schema_block = _spotlight_prompt_block(
         sector=sector, n=_spot_n, target_roles=_target_roles,
         recommendations=_spot_recs)
+
+    # "The J Way" — plain-text personal newsletter (vs the rich "Full Send").
+    if (camp.get("newsletter_style") or "").strip() == "j_way":
+        return _generate_jway_newsletter(
+            client, camp, nl_name, company, sector, niche, region,
+            month_year, contact_name, _spot_n, _spot_recs)
 
     prompt = (
         f'You are writing content for a branded monthly newsletter.\n\n'
