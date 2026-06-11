@@ -6860,6 +6860,18 @@ def _humanize_email_text(text):
     return s.strip()
 
 
+def _resume_attach_indices(camp_type, n_emails):
+    """Email indices (0-based) that should carry redacted resume PDFs.
+
+    Arena 4x4 places them on Email 2 and Email 4 (indices 1 and 3) so the
+    resumes sit beside the candidate-heavy touches. Every other campaign
+    keeps the legacy Email 1 and Email 3 placement (indices 0 and 2).
+    Indices past the available email count are dropped.
+    """
+    targets = [1, 3] if camp_type == "fourbyfour" else [0, 2]
+    return [i for i in targets if i < n_emails]
+
+
 def _pdf_campaign_subject(camp):
     """Derive (company, roles, location, industry) for a PDF from a campaign,
     NEVER using the campaign-TYPE name (Find Candidates / Arena 4×4 / MPC /
@@ -33783,19 +33795,21 @@ def p_ai_campaign(s: AppState, rf):
                             # 2026-04-26 user report: "PDF creation keeps
                             # adding 2 of each when I only asked for 1".
 
-                            # Attach redacted resume PDFs to early email steps
+                            # Attach redacted resume PDFs. 4x4 -> Email 2 & 4
+                            # (indices 1, 3); other types -> Email 1 & 3.
                             if _resume_pdfs and campaign_data.get("emails"):
+                                _emails = campaign_data["emails"]
+                                _targets = _resume_attach_indices(
+                                    (s.aicb_camp_type or "").strip(),
+                                    len(_emails))
                                 ri = 0
-                                for ei, em in enumerate(campaign_data["emails"]):
+                                for ei in _targets:
                                     if ri >= len(_resume_pdfs):
                                         break
-                                    if ei == 0:  # attach to first email (candidate intro)
-                                        em.setdefault("attachments", []).append(_resume_pdfs[ri])
-                                        ri += 1
-                                    elif ei == 2 and ri < len(_resume_pdfs):
-                                        # attach remaining to 3rd email
-                                        em.setdefault("attachments", []).append(_resume_pdfs[ri])
-                                        ri += 1
+                                    _emails[ei].setdefault(
+                                        "attachments", []).append(
+                                        _resume_pdfs[ri])
+                                    ri += 1
 
                             # Wait for the PDF AI thread to finish before
                             # advancing to the results page. PDFs ran in

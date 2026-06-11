@@ -66,3 +66,19 @@ def test_playbook_bans_ai_tell_vocabulary():
     for word in ("streamline", "leverage", "delve", "furthermore",
                  "seamless"):
         assert word in fa._DRIPDROP_PLAYBOOK
+
+
+# ── _resume_attach_indices: PDF placement ──────────────────────────
+def test_4x4_resumes_target_email_2_and_4():
+    # 4x4 has 4 emails (indices 0..3). Resumes go on Email 2 and 4.
+    assert fa._resume_attach_indices("fourbyfour", 4) == [1, 3]
+
+
+def test_non_4x4_keeps_legacy_email_1_and_3():
+    assert fa._resume_attach_indices("talentdrop", 4) == [0, 2]
+
+
+def test_attach_indices_clamped_to_email_count():
+    # Never return an index past the available emails.
+    assert fa._resume_attach_indices("fourbyfour", 2) == [1]
+    assert fa._resume_attach_indices("talentdrop", 1) == [0]
