@@ -4563,6 +4563,132 @@ def _camp_recency_ts(c) -> float:
     return 0.0
 
 
+def _is_4x4_graduate(contact, camp, responded_emails, enrolled_emails,
+                     dnc_emails):
+    """True only when a contact should be AUTO-enrolled in the J Way
+    handoff newsletter: the campaign is a 4x4, and the contact replied to
+    nothing, is not on the DNC list, and is not already enrolled.
+
+    The three *_emails args are sets of lowercased email strings (the
+    caller pre-loads responded.json / DNC / the newsletter's contacts so
+    this stays a pure, testable function).
+    """
+    if (camp or {}).get("aicb_camp_type", "").strip() != "fourbyfour":
+        return False
+    email = str((contact or {}).get("Email")
+                or (contact or {}).get("email") or "").strip().lower()
+    if not email:
+        return False
+    if email in responded_emails:
+        return False
+    if email in dnc_emails:
+        return False
+    if email in enrolled_emails:
+        return False
+    return True
+
+
+def _build_jway_handoff_newsletter(name, sector, region, niche,
+                                   start_from, count=12):
+    """Build a valid J Way newsletter campaign dict (no disk write).
+
+    Mirrors the dict assembled in _create_newsletter_dialog but headless,
+    tagged handoff_default=True so the auto path can find it again. Emails
+    are empty monthly placeholders; the auto-refresh scheduler fills each
+    issue's body before it sends.
+    """
+    count = max(1, min(60, int(count)))
+    sends = _monthly_same_day(count, start_from)
+    emails = []
+    for td in sends:
+        month_label = td.strftime("%B %Y")
+        emails.append({
+            "name": f"{month_label} {name}",
+            "subject": f"{name} {month_label}",
+            "body": "",
+            "fixed_date": td.isoformat(),
+            "delay_days": 0,
+            "time": "9:00 AM",
+            "step_type": "email_auto",
+        })
+    return dict(
+        schema=2,
+        name=name,
+        template_key="evergreen",
+        template_name="Slow Drip",
+        evergreen_only=True,
+        market_analysis=True,
+        newsletter_name=name,
+        newsletter_style="j_way",
+        newsletter_candidates=[],
+        market_sector=sector,
+        market_niche=niche,
+        market_region=region,
+        newsletter_spotlight_count=3,
+        newsletter_spotlight_recommendations="",
+        newsletter_show_city_life=False,
+        start_date=start_from.isoformat(),
+        contacts=[],
+        contact_count=0,
+        emails=emails,
+        variables={},
+        status="active",
+        responders=[],
+        created_date=start_from.isoformat(),
+        handoff_default=True,
+    )
+
+
+def _enroll_contact_in_newsletter(newsletter_camp, contact):
+    """Add `contact` to `newsletter_camp['contacts']`, deduped by email
+    (case-insensitive, checking both 'Email' and 'email' keys). Updates
+    contact_count. Returns True if added, False if blank or already there.
+    Mutates the dict in place; the caller is responsible for save_campaign.
+    """
+    def _em(c):
+        return str((c or {}).get("Email") or (c or {}).get("email")
+                   or "").strip().lower()
+
+    email = _em(contact)
+    if not email:
+        return False
+    contacts = newsletter_camp.setdefault("contacts", [])
+    if any(_em(c) == email for c in contacts):
+        return False
+    contacts.append(contact)
+    newsletter_camp["contact_count"] = len(
+        [c for c in contacts if not c.get("removed")])
+    return True
+
+
+def _get_or_create_jway_handoff_newsletter():
+    """Return the designated J Way handoff newsletter, creating it if it
+    does not exist. Identified by handoff_default=True. Seeds sector/region
+    from the user's saved config. Returns the campaign dict (already saved
+    when freshly created).
+    """
+    for c in load_campaigns():
+        if c.get("handoff_default") and (
+                c.get("newsletter_style") or "").strip() == "j_way":
+            return c
+    cfg = load_config()
+    sector = (cfg.get("company_industry") or cfg.get("market_sector")
+              or "the market").strip() or "the market"
+    region = (cfg.get("market_region") or cfg.get("company_address")
+              or "the United States").strip() or "the United States"
+    company = (cfg.get("company_name") or "Our").strip() or "Our"
+    name = f"{company} Market Note"
+    # Avoid clashing with an existing campaign name.
+    existing = {c.get("name", "") for c in load_campaigns()}
+    if name in existing:
+        name = f"{name} (Handoff)"
+    camp = _build_jway_handoff_newsletter(
+        name=name, sector=sector, region=region, niche="",
+        start_from=date.today(), count=12)
+    save_campaign(camp)
+    return camp
+
+
 def save_campaign(camp):
     # Clean sweep: NO em/en-dashes in any saved campaign. Every generation flow
     # (MPC, Find Candidates, 4×4, AICB, manual edits) funnels through here, so
