@@ -4563,6 +4563,20 @@ def _camp_recency_ts(c) -> float:
     return 0.0
 
 
+def _camp_is_4x4(camp):
+    """True if a saved campaign is an Arena 4x4. The AICB autosave persists
+    the type as template_key (= aicb_camp_type at build time); older/other
+    paths may carry aicb_camp_type or _chooser_origin. Check all three so the
+    handoff fires regardless of which marker a campaign was saved with.
+    """
+    camp = camp or {}
+    return "fourbyfour" in (
+        str(camp.get("template_key", "")).strip(),
+        str(camp.get("aicb_camp_type", "")).strip(),
+        str(camp.get("_chooser_origin", "")).strip(),
+    )
+
+
 def _is_4x4_graduate(contact, camp, responded_emails, enrolled_emails,
                      dnc_emails):
     """True only when a contact should be AUTO-enrolled in the J Way
@@ -4573,7 +4587,7 @@ def _is_4x4_graduate(contact, camp, responded_emails, enrolled_emails,
     caller pre-loads responded.json / DNC / the newsletter's contacts so
     this stays a pure, testable function).
     """
-    if (camp or {}).get("aicb_camp_type", "").strip() != "fourbyfour":
+    if not _camp_is_4x4(camp):
         return False
     email = str((contact or {}).get("Email")
                 or (contact or {}).get("email") or "").strip().lower()
@@ -4665,6 +4679,59 @@ def _get_or_create_jway_handoff_newsletter():
         start_from=date.today(), count=12)
     save_campaign(camp)
     return camp
+
+
+def _maybe_handoff_4x4_graduate(item, user_dir):
+    """Called right after a queue email is marked sent. If the item was the
+    FINAL email step of a 4x4 campaign and the recipient is a clean
+    non-responder, auto-enroll them in the J Way handoff newsletter.
+
+    Binds the campaign owner's user context first (derived from user_dir)
+    so every load/save lands in the right user's data, never the shared
+    root, then restores the prior context. Best-effort: any failure is
+    logged and swallowed so it never blocks the scheduler.
+    """
+    _tok = None
+    try:
+        owner = _email_from_user_path(str(user_dir))
+        if owner:
+            _tok = _CURRENT_USER_EMAIL.set(owner)
+            _switch_to_user_paths(owner)
+        camp = next((c for c in load_campaigns()
+                     if c.get("name") == item.get("campaign")), None)
+        if not camp or not _camp_is_4x4(camp):
+            return
+        emails = camp.get("emails") or []
+        if not emails:
+            return
+        # Only on the final email step of the sequence.
+        if int(item.get("_step_idx", -1)) != len(emails) - 1:
+            return
+        to_email = str(item.get("to") or "").strip()
+        if not to_email:
+            return
+        responded = {str(x.get("email", "")).strip().lower()
+                     for x in load_responded()}
+        dnc = {str(d.get("email", "")).strip().lower()
+               for d in load_dnc() if isinstance(d, dict)}
+        nl = _get_or_create_jway_handoff_newsletter()
+        enrolled = {str((c.get("email") or c.get("Email") or "")).strip().lower()
+                    for c in (nl.get("contacts") or [])}
+        contact = {"email": to_email, "first_name": "", "last_name": "",
+                   "name": to_email}
+        if not _is_4x4_graduate(contact, camp, responded, enrolled, dnc):
+            return
+        result = enroll_contact_in_evergreen(contact, nl)
+        print(f"[4x4Handoff] {to_email} -> {nl.get('name')}: {result}",
+              flush=True)
+    except Exception as ex:
+        print(f"[4x4Handoff] failed: {ex}", flush=True)
+    finally:
+        if _tok is not None:
+            try:
+                _CURRENT_USER_EMAIL.reset(_tok)
+            except Exception:
+                pass
 
 
 def save_campaign(camp):
@@ -7599,7 +7666,12 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
     # replied (that is the whole point of the 4x4 -> J Way handoff). Only
     # non-newsletter campaigns skip responders so we don't cold-pitch
     # someone mid-conversation. DNC / opt-out blocking still applies to both.
-    _is_newsletter_camp = bool(camp.get("market_analysis"))
+    # NOTE: market_analysis alone is NOT a newsletter signal (the AICB
+    # autosave stamps it on every built campaign). A true newsletter is
+    # evergreen_only AND market_analysis (matches the slow-drip vs newsletter
+    # split elsewhere in this file).
+    _is_newsletter_camp = bool(camp.get("evergreen_only")
+                               and camp.get("market_analysis"))
     _responded_set = set() if _is_newsletter_camp else {
         x["email"].lower().strip() for x in load_responded()}
 
@@ -21727,7 +21799,8 @@ def _offer_newsletter_enroll(to_email: str, name: str, rf):
         "last_name": " ".join((name or "").split()[1:]) if name else "",
         "name": name or to_email,
     }
-    _newsletters = [c for c in load_campaigns() if c.get("market_analysis")]
+    _newsletters = [c for c in load_campaigns()
+                    if c.get("evergreen_only") and c.get("market_analysis")]
 
     def _enroll_into(camp):
         result = enroll_contact_in_evergreen(_contact, camp)
@@ -52077,6 +52150,9 @@ def _server_scheduler_tick():
                 item["sent_at"] = datetime.now().isoformat()
                 total_sent += 1
                 print(f"[ServerSend] ✓ {item.get('to')}  -  {item.get('subject','')[:50]}", flush=True)
+                # 4x4 -> J Way: auto-enroll a non-responder who just finished
+                # the final email of an Arena 4x4. Best-effort, never blocks.
+                _maybe_handoff_4x4_graduate(item, user_dir)
             else:
                 # Decide whether this failure means the address is bad
                 # (permanent → opt-out + cancel) or just a server/network/

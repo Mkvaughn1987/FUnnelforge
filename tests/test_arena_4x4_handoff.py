@@ -8,8 +8,13 @@ import datetime as _dt
 import flowdrip_app as fa
 
 
-CAMP_4X4 = {"name": "Acme 4x4", "aicb_camp_type": "fourbyfour"}
-CAMP_OTHER = {"name": "Acme Blitz", "aicb_camp_type": "blitz"}
+# Saved 4x4 campaigns persist the type as template_key (= aicb_camp_type at
+# build time). CAMP_OTHER stamps market_analysis=True the way the AICB
+# autosave does for EVERY built campaign, to prove a non-4x4 is still
+# excluded despite that flag.
+CAMP_4X4 = {"name": "Acme 4x4", "template_key": "fourbyfour"}
+CAMP_OTHER = {"name": "Acme Blitz", "template_key": "blitz",
+              "market_analysis": True}
 
 
 # ── _is_4x4_graduate ───────────────────────────────────────────────
@@ -42,6 +47,14 @@ def test_dnc_excluded():
 
 def test_non_4x4_campaign_excluded():
     assert _gate(CAMP_OTHER, "ceo@acme.com") is False
+
+
+def test_4x4_recognized_by_any_persisted_marker():
+    for camp in ({"template_key": "fourbyfour"},
+                 {"aicb_camp_type": "fourbyfour"},
+                 {"_chooser_origin": "fourbyfour"}):
+        assert fa._camp_is_4x4(camp) is True
+    assert fa._camp_is_4x4({"template_key": "blitz"}) is False
 
 
 def test_matching_is_case_insensitive():
