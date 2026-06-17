@@ -7152,14 +7152,15 @@ def _humanize_email_text(text):
 
 def _wrap_4x4_font(body_html):
     """Wrap a generated 4x4 email body in the Arena house font: Aptos with
-    Calibri/Arial fallback, at 11px. Email can't ship a font file, so a
-    recipient without Aptos installed falls back cleanly to Calibri/Arial
-    at the same size. Non-strings and blanks pass through unchanged.
+    Calibri/Arial fallback, at 11pt (the "Aptos 11" size as it appears in
+    Word). Email can't ship a font file, so a recipient without Aptos
+    installed falls back cleanly to Calibri/Arial at the same size.
+    Non-strings and blanks pass through unchanged.
     """
     if not isinstance(body_html, str) or not body_html.strip():
         return body_html
     return ('<div style="font-family:Aptos,Calibri,Arial,sans-serif;'
-            'font-size:11px;">' + body_html + '</div>')
+            'font-size:11pt;">' + body_html + '</div>')
 
 
 def _resume_attach_indices(camp_type, n_emails):

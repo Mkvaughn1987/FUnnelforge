@@ -69,10 +69,10 @@ def test_playbook_bans_ai_tell_vocabulary():
 
 
 # ── _wrap_4x4_font: Aptos 11px house font ──────────────────────────
-def test_wrap_4x4_font_applies_aptos_11px():
+def test_wrap_4x4_font_applies_aptos_11pt():
     out = fa._wrap_4x4_font("Hi {FirstName},<br><br>Body.")
     assert "font-family:Aptos,Calibri,Arial,sans-serif" in out
-    assert "font-size:11px" in out
+    assert "font-size:11pt" in out
     assert "Hi {FirstName},<br><br>Body." in out
 
 
