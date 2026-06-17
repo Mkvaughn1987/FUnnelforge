@@ -14142,6 +14142,20 @@ def p_responses(s, rf):
                     ui.label(f"{email} · {date_str}").style(
                         f"font-size:11px;color:{C['muted']};margin-top:1px;")
 
+                    # Add this responder to a newsletter (existing or a new
+                    # J Way note) so they keep hearing from you long-term.
+                    with ui.element("div").style("margin-top:6px;"):
+                        with ui.element("button").style(
+                                f"display:inline-flex;align-items:center;gap:4px;"
+                                f"padding:3px 10px;border-radius:6px;cursor:pointer;"
+                                f"background:{C['surface']};border:1px solid {C['border']};"
+                                f"color:{C['teal']};font-size:11px;font-family:inherit;"
+                                ).on("click",
+                                     lambda e=None, em=email, nm=name:
+                                         _offer_newsletter_enroll(em, nm, rf)):
+                            ui.label("+ Add to newsletter").style(
+                                "pointer-events:none;")
+
                     # Reply body preview  -  shown if captured
                     if body_prev:
                         def _tog_body(k=body_key):
@@ -21696,6 +21710,76 @@ def _offer_slow_drip_enroll(to_email: str, name: str, rf):
                     f"padding:6px 16px;font-size:12px;background:{C['teal']};"
                     ).on("click", _do_enroll):
                 ui.label("➜ Enroll")
+    _dlg.open()
+
+
+def _offer_newsletter_enroll(to_email: str, name: str, rf):
+    """Per-contact picker used from the responded list: add this person to
+    an existing newsletter, or spin up a new J Way handoff note and add them
+    to it. Uses enroll_contact_in_evergreen so the contact's upcoming issues
+    actually queue (newsletters keep responders, see queue_campaign_emails).
+    """
+    # Contact dict uses lowercase 'email' — that's the key
+    # enroll_contact_in_evergreen reads.
+    _contact = {
+        "email": to_email,
+        "first_name": (name or "").split()[0] if name else "",
+        "last_name": " ".join((name or "").split()[1:]) if name else "",
+        "name": name or to_email,
+    }
+    _newsletters = [c for c in load_campaigns() if c.get("market_analysis")]
+
+    def _enroll_into(camp):
+        result = enroll_contact_in_evergreen(_contact, camp)
+        if result == "enrolled":
+            ui.notify(f"✓ Added {name or to_email} to '{camp.get('name')}'",
+                      type="positive", timeout=4000)
+        elif result == "skipped_duplicate":
+            ui.notify(f"Already on '{camp.get('name')}'.", type="info")
+        elif result == "skipped_dnc":
+            ui.notify("Contact is on the Opt-Out list.", type="warning")
+        else:
+            ui.notify(f"Enroll result: {result}", type="info")
+
+    with ui.dialog() as _dlg, ui.card().style(
+            f"background:{C['card']};border:1px solid {C['teal']}60;"
+            f"min-width:460px;max-width:560px;padding:22px 24px;"):
+        ui.label("Add to a newsletter").style(
+            f"font-size:16px;font-weight:800;color:{C['text_l']};"
+            f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
+        ui.label(f"Keep {name or to_email} hearing from you on a monthly "
+                 "newsletter.").style(
+            f"font-size:12px;color:{C['muted']};line-height:1.5;margin-bottom:14px;")
+
+        _opts = {c.get("name", "Untitled"): c.get("name", "Untitled")
+                 for c in _newsletters}
+        _opts["__new_jway__"] = "✍️ New J Way note"
+        _radio = ui.radio(_opts, value="__new_jway__").props("dense").style(
+            f"color:{C['text_l']};")
+
+        with ui.element("div").style(
+                "display:flex;justify-content:flex-end;gap:8px;margin-top:14px;"):
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:6px 14px;font-size:12px;").on(
+                    "click", lambda: (_dlg.close(), rf())):
+                ui.label("Skip")
+
+            def _do_add():
+                pick = _radio.value
+                if pick == "__new_jway__":
+                    camp = _get_or_create_jway_handoff_newsletter()
+                else:
+                    camp = next((c for c in load_campaigns()
+                                 if c.get("name") == pick), None)
+                if not camp:
+                    ui.notify("Newsletter not found.", type="warning"); return
+                _enroll_into(camp)
+                _dlg.close()
+                rf()
+            with ui.element("button").classes("fd-pb").style(
+                    f"padding:6px 16px;font-size:12px;background:{C['teal']};"
+                    ).on("click", _do_add):
+                ui.label("➜ Add")
     _dlg.open()
 
 
