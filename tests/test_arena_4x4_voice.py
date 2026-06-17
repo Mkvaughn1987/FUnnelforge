@@ -68,6 +68,19 @@ def test_playbook_bans_ai_tell_vocabulary():
         assert word in fa._DRIPDROP_PLAYBOOK
 
 
+# ── _wrap_4x4_font: Aptos 11px house font ──────────────────────────
+def test_wrap_4x4_font_applies_aptos_11px():
+    out = fa._wrap_4x4_font("Hi {FirstName},<br><br>Body.")
+    assert "font-family:Aptos,Calibri,Arial,sans-serif" in out
+    assert "font-size:11px" in out
+    assert "Hi {FirstName},<br><br>Body." in out
+
+
+def test_wrap_4x4_font_passthrough_blank():
+    assert fa._wrap_4x4_font("") == ""
+    assert fa._wrap_4x4_font(None) is None
+
+
 # ── _resume_attach_indices: PDF placement ──────────────────────────
 def test_4x4_resumes_target_email_2_and_4():
     # 4x4 has 4 emails (indices 0..3). Resumes go on Email 2 and 4.

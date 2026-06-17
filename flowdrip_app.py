@@ -7150,6 +7150,18 @@ def _humanize_email_text(text):
     return s.strip()
 
 
+def _wrap_4x4_font(body_html):
+    """Wrap a generated 4x4 email body in the Arena house font: Aptos with
+    Calibri/Arial fallback, at 11px. Email can't ship a font file, so a
+    recipient without Aptos installed falls back cleanly to Calibri/Arial
+    at the same size. Non-strings and blanks pass through unchanged.
+    """
+    if not isinstance(body_html, str) or not body_html.strip():
+        return body_html
+    return ('<div style="font-family:Aptos,Calibri,Arial,sans-serif;'
+            'font-size:11px;">' + body_html + '</div>')
+
+
 def _resume_attach_indices(camp_type, n_emails):
     """Email indices (0-based) that should carry redacted resume PDFs.
 
@@ -34171,6 +34183,8 @@ def p_ai_campaign(s: AppState, rf):
                             # Post-process: strip markdown, em dashes, and
                             # convert to clean HTML. Claude sometimes slips
                             # these in despite prompt instructions.
+                            _is_4x4_camp = (
+                                (s.aicb_camp_type or "").strip() == "fourbyfour")
                             for _em in campaign_data.get("emails", []):
                                 # Coerce to ""  -  Claude sometimes returns
                                 # explicit nulls for subject/body which
@@ -34203,6 +34217,12 @@ def p_ai_campaign(s: AppState, rf):
                                 # any stray dash the humanizer missed.
                                 _b = _strip_dashes(_b)
                                 _s = _strip_dashes(_s)
+                                # 4x4 house font: wrap the finished body in
+                                # Aptos 11px (last, so the wrapper stays the
+                                # outermost element and "Hi {FirstName}," is
+                                # inside it).
+                                if _is_4x4_camp:
+                                    _b = _wrap_4x4_font(_b)
                                 _em["body"] = _b
                                 _em["subject"] = _s
 
