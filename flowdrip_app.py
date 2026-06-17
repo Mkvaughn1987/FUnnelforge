@@ -1103,6 +1103,124 @@ def _market_stats_for_industry(industry: str) -> dict | None:
     return data
 
 
+def _cited_stats_prompt(role, location, industry):
+    """Build the web-search prompt for real, sourced hiring-market stats.
+
+    Asks for 3-5 current US facts relevant to the role/location/industry,
+    each a concrete number plus a clean source label (publisher + year),
+    in a strict JSON shape. Explicitly forbids fabrication.
+    """
+    role = (role or "the target role").strip()
+    location = (location or "the United States").strip()
+    industry = (industry or "this industry").strip()
+    return (
+        f"Use web_search to find 3 to 5 CURRENT (2025-2026) US "
+        f"hiring-market facts relevant to {role} roles in {location} "
+        f"within the {industry} industry. Search bls.gov, indeed.com, "
+        f"glassdoor.com, linkedin.com, payscale.com, and census.gov. "
+        f"Each fact must be a specific, verifiable number (a salary band, "
+        f"unemployment rate, jobs-added figure, fill-time, or wage-growth "
+        f"percentage) that you actually found in the search results.\n\n"
+        f"Do NOT fabricate or estimate. If you did not find a real number "
+        f"in a source, leave it out. Return ONLY valid JSON in this exact "
+        f"shape:\n"
+        f'{{"stats":[{{"fact":"<one sentence with the number>",'
+        f'"source":"<publisher name and year, e.g. Bureau of Labor '
+        f'Statistics, 2026>"}}]}}\n\n'
+        f'If you found nothing verifiable, return {{"stats":[]}}.'
+    )
+
+
+def _parse_cited_stats(text):
+    """Parse the web-search response into a validated stats list.
+
+    Returns a list of {"fact": str, "source": str}. Strips ```json
+    fences. Drops any entry whose fact OR source is empty/whitespace, so
+    an uncited number can never reach an email. Returns [] on junk.
+    """
+    if not isinstance(text, str) or not text.strip():
+        return []
+    clean = text.replace("```json", "").replace("```", "").strip()
+    m = re.search(r'\{.*\}', clean, re.DOTALL)
+    if not m:
+        return []
+    try:
+        data = json.loads(m.group(0))
+    except Exception:
+        return []
+    raw = data.get("stats") if isinstance(data, dict) else None
+    if not isinstance(raw, list):
+        return []
+    out = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        fact = str(item.get("fact", "") or "").strip()
+        source = str(item.get("source", "") or "").strip()
+        if fact and source:
+            out.append({"fact": fact, "source": source})
+    return out
+
+
+def _format_cited_stats_block(stats):
+    """Render the cited-stats instruction block for the 4x4 prompt.
+
+    Non-empty: list each verified fact with its source and require the
+    model to use ONLY these in Email 2 and Email 4, each closed with a
+    "Source: <source>" line. Empty: forbid specific figures so the
+    emails degrade to qualitative observations with zero fabrication.
+    """
+    if not stats:
+        return (
+            "\nVERIFIED MARKET STATS: none were found for this search. "
+            "In Email 2 and Email 4, write qualitative market observations "
+            "only, with no specific figures, percentages, salary numbers, "
+            "or stats of any kind.\n\n"
+        )
+    lines = []
+    for st in stats:
+        lines.append(f'- {st["fact"]} (Source: {st["source"]})')
+    facts = "\n".join(lines)
+    return (
+        "\nVERIFIED MARKET STATS (real, sourced numbers from web search):\n"
+        f"{facts}\n"
+        "Use ONLY these stats in Email 2 (Top Talent Insights) and "
+        "Email 4 (Market Trends). Weave each into a sentence and close it "
+        "with its source as 'Source: <source>'. Do NOT invent any other "
+        "number, percentage, or salary figure. Do NOT reuse the same stat "
+        "in both emails if more than one is available.\n\n"
+    )
+
+
+def _fetch_cited_market_stats(role, location, industry):
+    """Live web search for real, sourced hiring-market stats.
+
+    Returns a list of {"fact", "source"} (possibly empty). Returns []
+    on any failure (no API key, search error, parse failure) so the
+    campaign build never blocks or crashes.
+    """
+    if not ANTHROPIC_API_KEY:
+        return []
+    try:
+        from anthropic import Anthropic
+        client = Anthropic(api_key=ANTHROPIC_API_KEY)
+    except Exception as ex:
+        print(f"[CitedStats] Anthropic init failed: {ex}", flush=True)
+        return []
+    try:
+        msg = _claude_create_with_retry(client,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=800,
+            tools=[_safe_web_search_tool(max_uses=4)],
+            messages=[{"role": "user", "content":
+                       _cited_stats_prompt(role, location, industry)}])
+        text = "".join(b.text for b in msg.content if hasattr(b, "text"))
+    except Exception as ex:
+        print(f"[CitedStats] web search failed: {ex}", flush=True)
+        return []
+    return _parse_cited_stats(text)
+
+
 def _resolve_user_root(email: str = None):
     """Build the per-user data directory path from an email. Doesn't touch
     any module state  -  purely a path computation.
@@ -8442,6 +8560,8 @@ _WEB_SEARCH_DOMAINS = [
     "crunchbase.com", "techcrunch.com", "yahoo.com", "cnbc.com",
     # Government / labor data
     "bls.gov", "sba.gov", "census.gov",
+    # Compensation data
+    "payscale.com",
 ]
 
 def _safe_web_search_tool(max_uses: int = 3) -> dict:
