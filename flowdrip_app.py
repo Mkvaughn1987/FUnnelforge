@@ -23240,7 +23240,11 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                                 '🔄 Refresh photos</span>'
                             )
 
-            _render_hero_gallery()
+            # Hero photo picker is a Full Send concept. The J Way uses a
+            # fixed bundled banner (see _jway_render) and has no per-issue
+            # photo selection — so skip the whole gallery for J Way issues.
+            if (camp.get("newsletter_style") or "").strip() != "j_way":
+                _render_hero_gallery()
 
             # Body editor + (when generating) spinner overlay.
             ui.label("Body").classes("fd-fl")
@@ -45805,7 +45809,9 @@ def p_newsletter(s: AppState, rf):
                 ui.notify(f"Photo {d['_hero_variant'] + 1} of {_total}", type="info", timeout=1200)
                 rf()
 
-            if _slug_ui:
+            # J Way uses a fixed bundled banner (no per-issue hero photo), so
+            # the whole hero-photo control cluster is hidden for J Way issues.
+            if _slug_ui and (d.get("newsletter_style") or "").strip() != "j_way":
                 with ui.element("div").style("display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;"):
                     with ui.element("button").classes("fd-gb").style(
                             "padding:6px 14px;font-size:11px;").on(
