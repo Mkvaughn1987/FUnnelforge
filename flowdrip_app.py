@@ -4639,28 +4639,6 @@ def _build_jway_handoff_newsletter(name, sector, region, niche,
     )
 
 
-def _enroll_contact_in_newsletter(newsletter_camp, contact):
-    """Add `contact` to `newsletter_camp['contacts']`, deduped by email
-    (case-insensitive, checking both 'Email' and 'email' keys). Updates
-    contact_count. Returns True if added, False if blank or already there.
-    Mutates the dict in place; the caller is responsible for save_campaign.
-    """
-    def _em(c):
-        return str((c or {}).get("Email") or (c or {}).get("email")
-                   or "").strip().lower()
-
-    email = _em(contact)
-    if not email:
-        return False
-    contacts = newsletter_camp.setdefault("contacts", [])
-    if any(_em(c) == email for c in contacts):
-        return False
-    contacts.append(contact)
-    newsletter_camp["contact_count"] = len(
-        [c for c in contacts if not c.get("removed")])
-    return True
-
-
 def _get_or_create_jway_handoff_newsletter():
     """Return the designated J Way handoff newsletter, creating it if it
     does not exist. Identified by handoff_default=True. Seeds sector/region
@@ -7617,7 +7595,13 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
     _dnc_list = load_dnc()
     _dnc_emails = {d["email"].lower().strip() for d in _dnc_list if not d.get("email","").startswith("@")}
     _dnc_domains = {d["email"].lower().strip()[1:] for d in _dnc_list if d.get("email","").startswith("@")}
-    _responded_set = {x["email"].lower().strip() for x in load_responded()}
+    # Newsletters are opt-in nurture: they keep emailing contacts who once
+    # replied (that is the whole point of the 4x4 -> J Way handoff). Only
+    # non-newsletter campaigns skip responders so we don't cold-pitch
+    # someone mid-conversation. DNC / opt-out blocking still applies to both.
+    _is_newsletter_camp = bool(camp.get("market_analysis"))
+    _responded_set = set() if _is_newsletter_camp else {
+        x["email"].lower().strip() for x in load_responded()}
 
     # Active Clients enforcement (team-shared blocklist).
     # Default: skip blocklisted contacts at queue time. The user can

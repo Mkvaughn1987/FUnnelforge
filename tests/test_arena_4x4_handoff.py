@@ -80,28 +80,3 @@ def test_build_jway_newsletter_makes_monthly_emails():
         assert em["step_type"] == "email_auto"
         assert em["fixed_date"]          # ISO date string present
         assert em["body"] == ""          # filled by auto-refresh before send
-
-
-# ── _enroll_contact_in_newsletter ──────────────────────────────────
-def test_enroll_adds_new_contact():
-    camp = {"contacts": []}
-    added = fa._enroll_contact_in_newsletter(
-        camp, {"Email": "ceo@acme.com", "FirstName": "Dana"})
-    assert added is True
-    assert camp["contact_count"] == 1
-    assert camp["contacts"][0]["Email"] == "ceo@acme.com"
-
-
-def test_enroll_dedupes_existing_contact():
-    camp = {"contacts": [{"Email": "ceo@acme.com"}], "contact_count": 1}
-    added = fa._enroll_contact_in_newsletter(
-        camp, {"Email": "CEO@acme.com", "FirstName": "Dana"})
-    assert added is False
-    assert camp["contact_count"] == 1
-    assert len(camp["contacts"]) == 1
-
-
-def test_enroll_blank_email_is_noop():
-    camp = {"contacts": []}
-    assert fa._enroll_contact_in_newsletter(camp, {"Email": ""}) is False
-    assert camp["contacts"] == []
