@@ -44,6 +44,9 @@ fi
 EXTRA_FILES=(
     "funnel_forge/arena_pdfs.py:/opt/dripdrop/app/funnel_forge/arena_pdfs.py"
     "ats.py:/opt/dripdrop/app/ats.py"
+    # The J Way newsletter banner — served via /static/jway_banner.png. Must
+    # live in the app root next to dripdrop_logo.png. (Skipped if absent.)
+    "jway_banner.png:/opt/dripdrop/app/jway_banner.png"
 )
 
 echo "== 1/7 Upload $LOCAL_FILE via chunked gzip =="
