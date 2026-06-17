@@ -33789,6 +33789,18 @@ def p_ai_campaign(s: AppState, rf):
                                 f'refer to them as "a strong candidate" or "one of our top candidates".\n\n'
                             )
 
+                        # 4x4 only: live web search for real, cited market
+                        # stats so Email 2 and Email 4 use sourced numbers
+                        # instead of model-recalled (hallucination-prone)
+                        # figures. Returns "" for every other campaign type.
+                        _stats_block = ""
+                        if (s.aicb_camp_type or "").strip() == "fourbyfour":
+                            _cited = _fetch_cited_market_stats(
+                                _first_role or (getattr(s, "cpc_ad_role", "") or ""),
+                                location_str or (getattr(s, "cpc_ad_location", "") or ""),
+                                niche_str or roles_str or "")
+                            _stats_block = _format_cited_stats_block(_cited)
+
                         campaign_prompt = (
                             f'You are writing a consultative BD email campaign.\n\n'
                             + _DRIPDROP_PLAYBOOK + '\n'
@@ -33800,6 +33812,7 @@ def p_ai_campaign(s: AppState, rf):
                             f'- Do NOT mention attachments, PDFs, or "attached" in ANY email. PDFs are attached separately by the system. The email body should never reference them.\n\n'
                             f'{"MARKET" if is_niche_mode else "COMPANY"} BRIEF:\n{brief[:2000]}\n\n'
                             + _cand_block +
+                            _stats_block +
                             f'TARGET ROLES: {roles_str}\n'
                             f'TARGET LOCATIONS: {location_str}\n'
                             f'{"NICHE: " + niche_str if niche_str else ""}\n\n'
