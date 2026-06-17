@@ -22257,95 +22257,123 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                     "per issue later."
                 )
 
-        # Spotlight Recommendations — free-text guidance the AI folds
-        # into the spotlight generation prompt. Users wanted to steer
-        # which titles/seniorities/specialties get featured each month
-        # without editing every issue by hand.
-        ui.label("Spotlight Recommendations (optional)").classes("fd-fl")
-        ui.label(
-            "Tell AI which titles, seniority levels, or specialties to "
-            "feature in the candidate spotlights each issue. Leave blank "
-            "for AI's pick."
-        ).style(
-            f"font-size:10px;color:{C['muted']};margin-bottom:4px;")
-        spotlight_recs_in = ui.textarea(
-            value="",
-            placeholder=(
-                "e.g. Focus on Senior Project Managers, Estimators, and "
-                "Superintendents with healthcare or OSHPD experience. Skip "
-                "junior or field roles."
-            ),
-        ).style(
-            f"width:100%;min-height:64px;background:{C['surface']};"
-            f"border:1px solid {C['border']};border-radius:6px;"
-            f"padding:8px 10px;color:{C['text_l']};font-size:12px;"
-            f"font-family:inherit;resize:vertical;margin-bottom:12px;")
-
-        # ── Pick from Pipeline (The J Way) ── search the candidate pool and
-        # add specific people to "Top Talent Available". When any are chosen
-        # they OVERRIDE the AI-generated spotlights for J Way issues.
+        # Pick-one fork: Auto-populate with AI vs Choose from Pipeline.
+        # Replaces the old always-on stack (recommendations + pipeline +
+        # count all visible at once) which users found cluttered. Pick a
+        # path → only that path's controls show; the count stays visible for
+        # both. The Pipeline path is only meaningful for ATS users (the
+        # candidate pool); non-ATS users see no toggle and just get the AI
+        # path. Default = AI.
         _sel_cands = {}
         _ats_ok = (getattr(s, "_user_email", "") or "").strip().lower() in _ATS_ALLOWED_EMAILS
         if _ats_ok:
-            ui.label("Featured Candidates — pick from Pipeline (optional)").classes("fd-fl")
-            ui.label("For The J Way: search your Pipeline and add specific people. "
-                     "Leave empty and AI builds the talent list instead.").style(
-                f"font-size:10px;color:{C['muted']};margin-bottom:6px;display:block;")
-            _chosen_row = ui.row().style("flex-wrap:wrap;gap:5px;margin-bottom:6px;")
-            _pipe_results = ui.column().style(
-                "gap:0;max-height:140px;overflow-y:auto;margin-bottom:10px;width:100%;")
+            _spot_mode = ui.toggle(
+                {"ai": "✨ Auto-populate with AI",
+                 "pipeline": "📋 Choose from Pipeline"},
+                value="ai").props("no-caps").style("margin:2px 0 10px 0;")
+        else:
+            _spot_mode = None  # AI-only; no fork shown
 
-            def _refresh_chosen():
-                _chosen_row.clear()
-                with _chosen_row:
-                    for _cid, _c in list(_sel_cands.items()):
-                        def _rm(_e=None, _id=_cid):
-                            _sel_cands.pop(_id, None); _refresh_chosen()
-                        with ui.element("div").style(
-                                f"display:flex;align-items:center;gap:5px;background:{C['teal']}18;"
-                                f"border:1px solid {C['teal']}50;border-radius:12px;padding:2px 4px 2px 10px;"):
-                            ui.label(_c.get("name", "Candidate")).style(
-                                f"font-size:10px;color:{C['teal']};font-weight:700;")
-                            ui.button("✕", on_click=_rm).props("flat dense round").style(
-                                "font-size:9px;min-width:0;width:16px;height:16px;padding:0;")
+        # ── AI path ── free-text guidance the AI folds into the spotlight
+        # generation prompt. Users steer which titles/seniorities/specialties
+        # get featured each month without editing every issue by hand.
+        _ai_box = ui.element("div")
+        with _ai_box:
+            ui.label("Spotlight Recommendations (optional)").classes("fd-fl")
+            ui.label(
+                "Tell AI which titles, seniority levels, or specialties to "
+                "feature in the candidate spotlights each issue. Leave blank "
+                "for AI's pick."
+            ).style(
+                f"font-size:10px;color:{C['muted']};margin-bottom:4px;")
+            spotlight_recs_in = ui.textarea(
+                value="",
+                placeholder=(
+                    "e.g. Focus on Senior Project Managers, Estimators, and "
+                    "Superintendents with healthcare or OSHPD experience. Skip "
+                    "junior or field roles."
+                ),
+            ).style(
+                f"width:100%;min-height:64px;background:{C['surface']};"
+                f"border:1px solid {C['border']};border-radius:6px;"
+                f"padding:8px 10px;color:{C['text_l']};font-size:12px;"
+                f"font-family:inherit;resize:vertical;margin-bottom:12px;")
 
-            def _pipe_search(_e=None):
-                try:
-                    import ats as _ats
-                except Exception:
-                    ui.notify("Pipeline unavailable.", type="warning"); return
-                _q = (_pipe_q.value or "").strip()
-                if not _q:
-                    return
-                _rows = _ats.keyword_search(_q, limit=12)  # FTS — fast, no AI
-                _pipe_results.clear()
-                with _pipe_results:
-                    if not _rows:
-                        ui.label("No matches.").style(f"font-size:11px;color:{C['muted']};padding:4px 0;")
-                    for _r in _rows:
-                        _nm = ((_r.get("first_name", "") + " " + _r.get("last_name", "")).strip()
-                               or "Candidate")
-                        _ti = _r.get("current_title", "") or ""
+        # ── Pipeline path ── search the candidate pool and add specific
+        # people to "Top Talent Available". When this path is chosen the
+        # selected people OVERRIDE the AI-generated spotlights for J Way.
+        _pipe_box = ui.element("div")
+        if _ats_ok:
+            with _pipe_box:
+                ui.label("Featured Candidates — pick from Pipeline").classes("fd-fl")
+                ui.label("Search your Pipeline and add specific people to "
+                         "feature in this newsletter.").style(
+                    f"font-size:10px;color:{C['muted']};margin-bottom:6px;display:block;")
+                _chosen_row = ui.row().style("flex-wrap:wrap;gap:5px;margin-bottom:6px;")
+                _pipe_results = ui.column().style(
+                    "gap:0;max-height:140px;overflow-y:auto;margin-bottom:10px;width:100%;")
 
-                        def _add(_e=None, _row=_r, _name=_nm):
-                            import ats as _a2
-                            _sel_cands[_row["id"]] = _a2._talent_to_pool(_row)
-                            _refresh_chosen()
-                        with ui.element("div").style(
-                                "display:flex;justify-content:space-between;align-items:center;"
-                                "gap:8px;padding:3px 0;width:100%;"):
-                            ui.label(f"{_nm} · {_ti}").style(
-                                f"font-size:11px;color:{C['text']};overflow:hidden;"
-                                f"text-overflow:ellipsis;white-space:nowrap;flex:1;")
-                            ui.button("+ Add", on_click=_add).props("flat dense").style(
-                                f"font-size:10px;color:{C['teal']};")
+                def _refresh_chosen():
+                    _chosen_row.clear()
+                    with _chosen_row:
+                        for _cid, _c in list(_sel_cands.items()):
+                            def _rm(_e=None, _id=_cid):
+                                _sel_cands.pop(_id, None); _refresh_chosen()
+                            with ui.element("div").style(
+                                    f"display:flex;align-items:center;gap:5px;background:{C['teal']}18;"
+                                    f"border:1px solid {C['teal']}50;border-radius:12px;padding:2px 4px 2px 10px;"):
+                                ui.label(_c.get("name", "Candidate")).style(
+                                    f"font-size:10px;color:{C['teal']};font-weight:700;")
+                                ui.button("✕", on_click=_rm).props("flat dense round").style(
+                                    "font-size:9px;min-width:0;width:16px;height:16px;padding:0;")
 
-            with ui.element("div").style("display:flex;gap:6px;margin-bottom:6px;"):
-                _pipe_q = ui.input(placeholder="Search Pipeline — e.g. CNC machinist Texas").props(
-                    "dense outlined").style("flex:1;")
-                _pipe_q.on("keydown.enter", lambda _e: _pipe_search())
-                ui.button("Search", on_click=_pipe_search).props("dense unelevated").style(
-                    f"background:{C['teal']};color:#08121f;font-size:11px;")
+                def _pipe_search(_e=None):
+                    try:
+                        import ats as _ats
+                    except Exception:
+                        ui.notify("Pipeline unavailable.", type="warning"); return
+                    _q = (_pipe_q.value or "").strip()
+                    if not _q:
+                        return
+                    _rows = _ats.keyword_search(_q, limit=12)  # FTS — fast, no AI
+                    _pipe_results.clear()
+                    with _pipe_results:
+                        if not _rows:
+                            ui.label("No matches.").style(f"font-size:11px;color:{C['muted']};padding:4px 0;")
+                        for _r in _rows:
+                            _nm = ((_r.get("first_name", "") + " " + _r.get("last_name", "")).strip()
+                                   or "Candidate")
+                            _ti = _r.get("current_title", "") or ""
+
+                            def _add(_e=None, _row=_r, _name=_nm):
+                                import ats as _a2
+                                _sel_cands[_row["id"]] = _a2._talent_to_pool(_row)
+                                _refresh_chosen()
+                            with ui.element("div").style(
+                                    "display:flex;justify-content:space-between;align-items:center;"
+                                    "gap:8px;padding:3px 0;width:100%;"):
+                                ui.label(f"{_nm} · {_ti}").style(
+                                    f"font-size:11px;color:{C['text']};overflow:hidden;"
+                                    f"text-overflow:ellipsis;white-space:nowrap;flex:1;")
+                                ui.button("+ Add", on_click=_add).props("flat dense").style(
+                                    f"font-size:10px;color:{C['teal']};")
+
+                with ui.element("div").style("display:flex;gap:6px;margin-bottom:6px;"):
+                    _pipe_q = ui.input(placeholder="Search Pipeline — e.g. CNC machinist Texas").props(
+                        "dense outlined").style("flex:1;")
+                    _pipe_q.on("keydown.enter", lambda _e: _pipe_search())
+                    ui.button("Search", on_click=_pipe_search).props("dense unelevated").style(
+                        f"background:{C['teal']};color:#08121f;font-size:11px;")
+
+        # Show only the active path's controls; the count below stays visible
+        # for both.
+        def _upd_spot_mode():
+            _mode = (_spot_mode.value if _spot_mode is not None else "ai")
+            _ai_box.set_visibility(_mode == "ai")
+            _pipe_box.set_visibility(_mode == "pipeline")
+        if _spot_mode is not None:
+            _spot_mode.on_value_change(lambda _e=None: _upd_spot_mode())
+        _upd_spot_mode()
 
         # Count dropdown — minimum 3 spotlights. The masthead tagline
         # reads "Market Pulse & Top {Industry} Candidates", so an
@@ -22551,7 +22579,16 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             if _spotlight_count not in (3, 6):
                 _spotlight_count = 3
             _show_city_life = bool(city_life_in.value)
-            _spotlight_recs = (spotlight_recs_in.value or "").strip()
+            # AI and Pipeline paths are mutually exclusive — save only the
+            # active fork's data so a candidate picked then switched away from
+            # doesn't silently override the AI spotlights (and vice-versa).
+            _mode = (_spot_mode.value if _spot_mode is not None else "ai")
+            if _mode == "pipeline":
+                _spotlight_recs = ""
+                _picked_cands = list(_sel_cands.values())
+            else:
+                _spotlight_recs = (spotlight_recs_in.value or "").strip()
+                _picked_cands = []
             new_camp = dict(
                 schema=2,
                 name=nl_name,
@@ -22561,7 +22598,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                 market_analysis=True,
                 newsletter_name=nl_name,
                 newsletter_style=(_style_toggle.value or "full_send"),
-                newsletter_candidates=list(_sel_cands.values()),
+                newsletter_candidates=_picked_cands,
                 market_sector=sector,
                 market_sector_key=_sector_key,
                 market_niche=niche,
