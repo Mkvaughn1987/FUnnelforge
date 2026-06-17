@@ -47186,6 +47186,10 @@ def _4x4_candidate_block(client, label, cand) -> str:
             messages=[{"role": "user", "content": prompt}])
         out = "".join(getattr(b, "text", "") for b in msg.content
                       if getattr(b, "type", "") == "text").strip()
+        # Strip markdown code fences the model sometimes wraps the HTML in
+        # (```html ... ```); leaving them in renders literal ``` between
+        # candidate blocks in the email.
+        out = out.replace("```html", "").replace("```", "").strip()
         # Keep only from the first tag onward.
         i = out.find("<p>")
         return out[i:] if i >= 0 else out
@@ -47235,10 +47239,15 @@ def _4x4_generate_emails(client, s, sig_name: str, company: str) -> list:
     blocks = [_4x4_candidate_block(client, "Candidate " + chr(65 + i), c)
               for i, c in enumerate(slate)]
     highlights = ("<p><strong>Candidate Highlights:</strong></p>" + "".join(blocks))
-    market = _4x4_market_snapshot(client)
     ad_role = (getattr(s, "cpc_ad_role", "") or "the role").strip() or "the role"
     ad_loc = (getattr(s, "cpc_ad_location", "") or "").strip()
     ad_link = (getattr(s, "cpc_ad_link", "") or "").strip()
+    # Market stats should match the campaign's role, not a hardcoded sector.
+    # Use the advertised role when known so a Manufacturing 4x4 doesn't quote
+    # Construction numbers; fall back to the trades default otherwise.
+    _mkt_sector = (f"{ad_role} hiring" if ad_role and ad_role != "the role"
+                   else "construction and skilled trades")
+    market = _4x4_market_snapshot(client, _mkt_sector)
 
     prompt = (
         f"You are writing the ARENA 4×4 — a 4-email recruiter cadence from {sig_name} at "
