@@ -81,6 +81,7 @@ _DESKTOP_VERSION = "3.1"  # keep in sync with funnelforge_installer.iss
 _APP_DIR = Path(__file__).resolve().parent
 _STATIC_ALLOWLIST = {
     "dripdrop_logo.png",
+    "jway_banner.png",
 }
 
 # ── Server mode detection ──────────────────────────────────────────────────
@@ -43995,6 +43996,13 @@ def _jway_render(d: dict, contact_name: str) -> str:
         out.append(f"<p style='{P}'>{_esc(d['intro'])}</p>")
     out.append(f"<p style='{P}'>If I missed anything or you want to dig into something "
                f"further, just let me know - happy to discuss.</p>")
+    # Fixed Arena "Recruitment Rundown" banner — J Way is Arena-only, so this
+    # branded image is bundled (not user-pickable) and served via /static/.
+    # Sits between the personal intro note and the Highlights block.
+    out.append(
+        "<img src='https://dripdripdrop.ai/static/jway_banner.png' width='600' "
+        "style='display:block;width:100%;max-width:600px;height:auto;border:0;"
+        "margin:6px 0 14px 0;' alt='Arena Direct Hire - Recruitment Rundown' />")
     if d.get("highlights"):
         mo = _esc(d.get("highlights_label") or "Highlights")
         out.append(f"<p style='{H}'>{mo}:</p>{_ul(d['highlights'])}")
