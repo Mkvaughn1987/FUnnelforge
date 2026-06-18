@@ -10348,9 +10348,10 @@ class AppState:
         # Mode: "mpc" (standard, up to 3, 5-step pitch) or "4x4" (Arena 4×4 —
         # up to 5 candidates, 4-email cadence anchored to a real advertised role).
         self.cpc_mode: str = "mpc"
-        self.cpc_ad_role: str = ""     # 4×4: the role the target company is advertising
-        self.cpc_ad_location: str = "" # 4×4: that role's location
-        self.cpc_ad_link: str = ""     # 4×4: optional LinkedIn/Indeed job link
+        self.cpc_industry: str = ""    # 4×4: target industry market (e.g. "Manufacturing")
+        self.cpc_ad_location: str = "" # 4×4: target location/region
+        self.cpc_ad_role: str = ""     # legacy 4×4 anchor role (no longer surfaced in the 4×4 setup)
+        self.cpc_ad_link: str = ""     # legacy 4×4 job link (no longer used by the 4×4 prompt)
         # 2026-05-22: target-list builder added on the placement campaign
         # review screen. Users can pick from saved contact lists and/or
         # upload a ZoomInfo (or any) CSV/XLSX so the AI campaign targets
@@ -37188,30 +37189,29 @@ def p_candidate_campaign(s: AppState, rf):
                 "padding:6px 14px;font-size:11px;margin-bottom:16px;").on("click", _back):
             ui.label("← Back to Top Candidates")
 
-        # 4×4: the advertised role anchor (Email 1 pinpoints this real open role).
+        # 4×4: the target market — industry + location. The cadence is aimed at
+        # employers in this industry/region (marketing available local talent),
+        # NOT a reply to one company's job posting. Roles come from the slate.
         if _is_4x4:
             with ui.element("div").classes("fd-gc").style(
                     "margin-bottom:16px;max-width:880px;border-left:4px solid #7C3AED;"):
-                ui.label("⚡ Advertised role (the anchor)").style(
+                ui.label("⚡ Target market — industry & location").style(
                     f"font-size:14px;font-weight:800;color:#7C3AED;"
                     f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
-                ui.label("Email 1 pinpoints a real role your targets are advertising. "
-                         "Defaults to your anchor candidate's role — edit to match the "
-                         "live LinkedIn/Indeed posting.").style(
+                ui.label("The cadence is aimed at employers in this industry and "
+                         "region — it markets your available candidates to the local "
+                         "market, not to one company's job posting. Defaults from your "
+                         "anchor candidate.").style(
                     f"font-size:11.5px;color:{C['muted']};margin-bottom:10px;line-height:1.5;")
                 with ui.element("div").style("display:flex;gap:10px;flex-wrap:wrap;"):
-                    _role_in = ui.input(value=s.cpc_ad_role,
-                                        placeholder="Role — e.g. Senior Superintendent").props(
+                    _ind_in = ui.input(value=s.cpc_industry,
+                                       placeholder="Industry — e.g. Manufacturing").props(
                         "outlined dense").style("flex:2;min-width:240px;")
                     _loc_in = ui.input(value=s.cpc_ad_location,
-                                       placeholder="Location — e.g. Phoenix, AZ").props(
+                                       placeholder="Location — e.g. Salt Lake City, UT").props(
                         "outlined dense").style("flex:1;min-width:160px;")
-                _link_in = ui.input(value=s.cpc_ad_link,
-                                    placeholder="Optional: paste the LinkedIn/Indeed job link").props(
-                    "outlined dense").style("width:100%;margin-top:8px;")
-                _role_in.on("blur", lambda e: setattr(s, "cpc_ad_role", _role_in.value or ""))
+                _ind_in.on("blur", lambda e: setattr(s, "cpc_industry", _ind_in.value or ""))
                 _loc_in.on("blur", lambda e: setattr(s, "cpc_ad_location", _loc_in.value or ""))
-                _link_in.on("blur", lambda e: setattr(s, "cpc_ad_link", _link_in.value or ""))
 
         # Candidate picker dialog — opens from the + button below the
         # slate. Filters out candidates already in the slate so the user
@@ -37774,7 +37774,8 @@ def p_candidate_campaign(s: AppState, rf):
                         for _co in _combined:
                             for _ct in (_co.get("contacts") or []):
                                 _contacts.append(_ct)
-                        _adr = (getattr(s, "cpc_ad_role", "") or role or "Placement").strip()
+                        _adr = (getattr(s, "cpc_industry", "")
+                                or getattr(s, "cpc_ad_role", "") or role or "Placement").strip()
                         camp = {
                             "name": f"4x4 - {_adr} - {datetime.now().strftime('%Y-%m-%d %H:%M')}",
                             "status": "draft", "created": date.today().isoformat(),
@@ -38137,7 +38138,7 @@ def p_candidate_campaign(s: AppState, rf):
                     "padding:14px 28px;font-size:15px;width:100%;"
                     "justify-content:center;display:flex;border-radius:10px;"
                     + ("background:#7C3AED;" if _is_4x4 else "")).on("click", _generate):
-                ui.label((f"⚡ Generate 4×4 — {(s.cpc_ad_role or role or 'role').strip()} →")
+                ui.label((f"⚡ Generate 4×4 — {(s.cpc_industry or s.cpc_ad_role or role or 'market').strip()} →")
                          if _is_4x4 else f"Generate Placement Campaign for {cand_name} →")
         return
 
@@ -39581,7 +39582,8 @@ def _p_candidate_pool_tab(s: AppState, rf, pool: list):
                             s.cpc_uploaded_sources = []
                             s.cpc_step = 0; s.cpc_campaign = None; s._cpc_error = ""
                             if getattr(s, "cpc_mode", "mpc") == "4x4":
-                                s.cpc_ad_role = c.get("target_role", "") or ""
+                                s.cpc_industry = (c.get("industry", "")
+                                                  or getattr(s, "aicb_industry", "") or "")
                                 s.cpc_ad_location = c.get("location", "") or ""
                             s.sp = "candidate_campaign"
                             rf()
@@ -47231,6 +47233,50 @@ def _4x4_market_snapshot(client, sector: str = "construction and skilled trades"
         return ""
 
 
+def _4x4_email_prompt(sig_name: str, company: str,
+                      industry: str, location: str) -> str:
+    """Build the Arena 4x4's 4-email generation prompt, aimed at an INDUSTRY +
+    LOCATION market rather than a specific company or job posting. Pure (no AI
+    call) so it can be unit-tested. The caller fills [[HIGHLIGHTS]]/[[MARKET]].
+    """
+    _ind = industry or "skilled trades"
+    _where = f" across {location}" if location else " in your region"
+    _ind_loc = f"{_ind}{(' in ' + location) if location else ''}"
+    return (
+        f"You are writing the ARENA 4×4 — a 4-email recruiter cadence from {sig_name} at "
+        f"{company}. It markets a slate of available candidates to employers in the "
+        f"{_ind} market{(' in ' + location) if location else ''}. This is general "
+        f"market outreach to {_ind} companies{_where} — NOT a reply to any one "
+        f"company's job opening. Never assume the recipient personally posted a role "
+        f"or is hiring a specific title; you are simply putting available local talent "
+        f"on their radar.\n"
+        "Write EXACTLY 4 emails. Address the recipient as {FirstName}. Output ONLY "
+        "valid JSON: {\"emails\":[ {\"name\":\"Step 1\",\"subject\":\"...\","
+        "\"body\":\"<html>\",\"delay_days\":0,\"time\":\"09:00\","
+        "\"step_type\":\"email_auto\"}, ... 4 total ]}\n\n"
+        "STRUCTURE — follow exactly. Use the literal tokens [[HIGHLIGHTS]] and "
+        "[[MARKET]] where indicated; DO NOT rewrite or remove them.\n"
+        f"EMAIL 1 (delay_days 0) subject \"{_ind} Candidates Available\": warm "
+        "\"Hi {FirstName},\" then explain you work with "
+        f"{_ind} companies{_where} and wanted to put a few standout candidates "
+        f"currently available in the {_ind_loc} market on their radar. "
+        "Then [[HIGHLIGHTS]]. Then a short, low-pressure CTA to chat.\n"
+        "EMAIL 2 (delay_days 3) subject \"Top Talent Insights\": brief note that the best "
+        "candidates are gainfully employed and passively looking, then [[MARKET]], then "
+        "[[HIGHLIGHTS]], then a soft CTA.\n"
+        "EMAIL 3 (delay_days 4) subject \"Thoughts on this?\": follow-up; present Arena's "
+        f"proven results as an HTML bullet list built from: {_4X4_VALUE_PROPS} Then "
+        "[[HIGHLIGHTS]]. Then CTA.\n"
+        "EMAIL 4 (delay_days 4) subject "
+        f"\"Market Trends and Hiring Solutions for {_ind}\": share [[MARKET]] framed as "
+        "market updates, a warm soft close (\"if now isn't the right time, that's ok too\"), "
+        "and mention you'll add them to the ongoing newsletter.\n\n"
+        "RULES: HTML bodies (<br>, <ul><li>). No markdown, no emoji. Each email tight and "
+        "human — like a real recruiter wrote it, not a template. Do NOT add any sign-off, "
+        "closing, or signature (it is auto-appended). Keep prose around 60–110 words "
+        "(excluding the injected blocks).")
+
+
 def _4x4_generate_emails(client, s, sig_name: str, company: str) -> list:
     """Build the Arena 4×4's four emails from the slate + advertised role +
     live market data. Highlights and market blocks are injected programmatically
@@ -47239,45 +47285,18 @@ def _4x4_generate_emails(client, s, sig_name: str, company: str) -> list:
     blocks = [_4x4_candidate_block(client, "Candidate " + chr(65 + i), c)
               for i, c in enumerate(slate)]
     highlights = ("<p><strong>Candidate Highlights:</strong></p>" + "".join(blocks))
-    ad_role = (getattr(s, "cpc_ad_role", "") or "the role").strip() or "the role"
-    ad_loc = (getattr(s, "cpc_ad_location", "") or "").strip()
-    ad_link = (getattr(s, "cpc_ad_link", "") or "").strip()
-    # Market stats should match the campaign's role, not a hardcoded sector.
-    # Use the advertised role when known so a Manufacturing 4x4 doesn't quote
+    # The 4x4 is aimed at an INDUSTRY + LOCATION market (employers in that
+    # space), NOT a specific company's job posting. Industry drives the
+    # framing + subjects; location grounds it; the roles come from the slate.
+    industry = (getattr(s, "cpc_industry", "") or "").strip()
+    location = (getattr(s, "cpc_ad_location", "") or "").strip()
+    # Market stats keyed to the industry so a Manufacturing 4x4 doesn't quote
     # Construction numbers; fall back to the trades default otherwise.
-    _mkt_sector = (f"{ad_role} hiring" if ad_role and ad_role != "the role"
+    _mkt_sector = (f"{industry} hiring" if industry
                    else "construction and skilled trades")
     market = _4x4_market_snapshot(client, _mkt_sector)
 
-    prompt = (
-        f"You are writing the ARENA 4×4 — a 4-email recruiter cadence from {sig_name} at "
-        f"{company}, marketing a slate of candidates to a company that is hiring a "
-        f"{ad_role}{(' in ' + ad_loc) if ad_loc else ''}.\n"
-        + (f"The live job posting: {ad_link}\n" if ad_link else "")
-        + "Write EXACTLY 4 emails. Address the recipient as {FirstName}. Output ONLY "
-        "valid JSON: {\"emails\":[ {\"name\":\"Step 1\",\"subject\":\"...\","
-        "\"body\":\"<html>\",\"delay_days\":0,\"time\":\"09:00\","
-        "\"step_type\":\"email_auto\"}, ... 4 total ]}\n\n"
-        "STRUCTURE — follow exactly. Use the literal tokens [[HIGHLIGHTS]] and "
-        "[[MARKET]] where indicated; DO NOT rewrite or remove them.\n"
-        f"EMAIL 1 (delay_days 0) subject \"{ad_role} Candidates Available\": warm "
-        "\"Hi {FirstName},\" then note you saw they're actively seeking a "
-        f"{ad_role}{(' in ' + ad_loc) if ad_loc else ''} and you have qualified candidates "
-        "who may fit. Then [[HIGHLIGHTS]]. Then a short, low-pressure CTA to chat.\n"
-        "EMAIL 2 (delay_days 3) subject \"Top Talent Insights\": brief note that the best "
-        "candidates are gainfully employed and passively looking, then [[MARKET]], then "
-        "[[HIGHLIGHTS]], then a soft CTA.\n"
-        "EMAIL 3 (delay_days 4) subject \"Thoughts on this?\": follow-up; present Arena's "
-        f"proven results as an HTML bullet list built from: {_4X4_VALUE_PROPS} Then "
-        "[[HIGHLIGHTS]]. Then CTA.\n"
-        "EMAIL 4 (delay_days 4) subject "
-        f"\"Market Trends and Hiring Solutions for {ad_role}\": share [[MARKET]] framed as "
-        "market updates, a warm soft close (\"if now isn't the right time, that's ok too\"), "
-        "and mention you'll add them to the ongoing newsletter.\n\n"
-        "RULES: HTML bodies (<br>, <ul><li>). No markdown, no emoji. Each email tight and "
-        "human — like a real recruiter wrote it, not a template. Do NOT add any sign-off, "
-        "closing, or signature (it is auto-appended). Keep prose around 60–110 words "
-        "(excluding the injected blocks).")
+    prompt = _4x4_email_prompt(sig_name, company, industry, location)
     msg = _claude_create_with_retry(
         client, model="claude-haiku-4-5-20251001", max_tokens=3500,
         messages=[{"role": "user", "content": prompt}])
@@ -51695,9 +51714,10 @@ def index():
                 s.cpc_campaign = None
                 s._cpc_error = ""
                 s.cpc_mode = app.storage.user.pop("_pending_mpc_mode", "mpc") or "mpc"
-                # 4×4: default the advertised role to the anchor candidate's.
+                # 4×4: aim at the anchor candidate's industry + location market.
                 if s.cpc_mode == "4x4":
-                    s.cpc_ad_role = s.cpc_candidates[0].get("target_role", "") or ""
+                    s.cpc_industry = (s.cpc_candidates[0].get("industry", "")
+                                      or getattr(s, "aicb_industry", "") or "")
                     s.cpc_ad_location = s.cpc_candidates[0].get("location", "") or ""
                     s.cpc_ad_link = ""
         elif _pending == "target_candidate":
