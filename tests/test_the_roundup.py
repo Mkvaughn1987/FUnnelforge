@@ -64,3 +64,26 @@ def test_roundup_new_issue_has_default_subject_and_status():
     assert issue["president"]["title"] == "President & CEO"
     assert issue["new_items"] == []
     assert issue["looking_ahead"] == []
+
+
+def test_roundup_cache_image_returns_src(monkeypatch):
+    # Desktop/test mode (_SERVER_MODE False) → returns an inline data: URI.
+    monkeypatch.setattr(fa, "_SERVER_MODE", False)
+    png_1x1 = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01"
+               b"\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89"
+               b"\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01"
+               b"\r\n-\xb4\x00\x00\x00\x00IEND\xaeB`\x82")
+    src = fa._roundup_cache_image(png_1x1, "banner.png")
+    assert src.startswith("data:image/png;base64,")
+
+
+def test_roundup_cache_image_empty_returns_blank():
+    assert fa._roundup_cache_image(b"", "x.png") == ""
+
+
+def test_email_img_route_allows_roundup_subdir():
+    # The route rejects unknown subdirs with 404 before touching disk;
+    # "roundup" must be in the allowlist. We assert the allowlist source.
+    import inspect
+    src = inspect.getsource(fa._serve_email_img)
+    assert '"roundup"' in src

@@ -400,7 +400,7 @@ def _serve_email_img(subdir: str, filename: str):
     # Allowlist of subdirs we ever write into. Keeps random URLs from
     # being routable into other server data.
     if subdir not in ("cat", "hero", "avatar", "activity", "corner",
-                      "logo", "flag"):
+                      "logo", "flag", "roundup"):
         return Response(status_code=404)
     target = _BASE_DATA_DIR / "email_imgs" / subdir / filename
     if not target.is_file():
@@ -42032,6 +42032,26 @@ def _email_img_src(b64_data: str, subdir: str, mime: str = "image/jpeg") -> str:
         except Exception:
             return f"data:{mime};base64,{b64_data}"
     return f"https://dripdripdrop.ai/email_img/{subdir}/{fname}"
+
+
+def _roundup_cache_image(raw: bytes, filename: str = "image.png") -> str:
+    """Cache an uploaded Roundup image and return its <img src> value.
+
+    Server mode → an https URL under /email_img/roundup/. Desktop/test mode →
+    an inline data: URI. Returns "" for empty input. Mirrors how newsletter
+    hero images are stored, so Outlook gets a real URL, not base64 bloat."""
+    if not raw:
+        return ""
+    import base64 as _b64m
+    name = (filename or "").lower()
+    if name.endswith(".png"):
+        mime = "image/png"
+    elif name.endswith(".gif"):
+        mime = "image/gif"
+    else:
+        mime = "image/jpeg"
+    b64 = _b64m.b64encode(raw).decode("ascii")
+    return _email_img_src(b64, "roundup", mime)
 
 
 def _externalize_data_uri_images(html: str) -> str:
