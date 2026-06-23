@@ -23903,6 +23903,21 @@ def _roundup_mark_sent(issue_id: str) -> None:
     _roundup_save_issue(issue)
 
 
+def _roundup_parse_recipients(raw: str) -> list:
+    """Split a comma/newline recipient blob into a deduped, validated list of
+    addresses (original casing kept; dedupe is case-insensitive)."""
+    out, seen = [], set()
+    for line in (raw or "").replace(",", "\n").splitlines():
+        e = line.strip()
+        if not e or e.lower() in seen:
+            continue
+        if "@" not in e or "." not in e.split("@")[-1]:
+            continue
+        seen.add(e.lower())
+        out.append(e)
+    return out
+
+
 # ── The Roundup: email HTML renderer ───────────────────────────────────────
 _ROUNDUP_BLUE = "#2e5c8a"
 _ROUNDUP_NAVY = "#1d3a5f"

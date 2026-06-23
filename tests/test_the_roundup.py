@@ -147,3 +147,14 @@ def test_render_escapes_lead_text():
     html = fa._render_roundup_html(issue)
     assert "A &amp; B &lt;script&gt;" in html
     assert "<script>" not in html
+
+
+def test_parse_recipients_dedupes_and_validates():
+    raw = "a@x.com, b@y.com\nA@X.COM\nnot-an-email\nc@z.io"
+    out = fa._roundup_parse_recipients(raw)
+    assert out == ["a@x.com", "b@y.com", "c@z.io"]  # dedupe case-insensitive, drop junk
+
+
+def test_parse_recipients_empty():
+    assert fa._roundup_parse_recipients("") == []
+    assert fa._roundup_parse_recipients(None) == []
