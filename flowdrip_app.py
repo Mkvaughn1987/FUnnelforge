@@ -24150,11 +24150,13 @@ def _roundup_editor(s, rf, issue: dict, can_edit: bool):
         refs["marketing_minute"] = _apply_editor_props(
             ui.editor(value=issue.get("marketing_minute", "")), _TOOLBAR_FULL
             ).style("min-height:160px;border-radius:6px;")
+        s._register_qeditor(refs["marketing_minute"], "roundup_marketing_minute")
 
         ui.label("The Playbook callout").classes("fd-fl").style("margin-top:14px;")
         refs["playbook_callout"] = _apply_editor_props(
             ui.editor(value=issue.get("playbook_callout", "")), _TOOLBAR_FULL
             ).style("min-height:110px;border-radius:6px;")
+        s._register_qeditor(refs["playbook_callout"], "roundup_playbook_callout")
 
         refs["new_items"] = _roundup_item_list(
             s, "New Items", issue.get("new_items", []))
@@ -24175,6 +24177,7 @@ def _roundup_editor(s, rf, issue: dict, can_edit: bool):
         refs["pres_body"] = _apply_editor_props(
             ui.editor(value=pres.get("body", "")), _TOOLBAR_FULL
             ).style("min-height:200px;border-radius:6px;margin-top:8px;")
+        s._register_qeditor(refs["pres_body"], "roundup_pres_body")
 
         def _collect():
             issue["subject"] = refs["subject"].value
@@ -24243,6 +24246,7 @@ def _roundup_item_list(s, label: str, items: list):
     ui.label(label).classes("fd-fl").style("margin-top:16px;")
     getters = []
     container = ui.element("div")
+    _slug = "".join(ch for ch in label.lower() if ch.isalnum()) or "items"
 
     def _add_row(seed=None):
         seed = seed or {"lead": "", "body": "", "image": ""}
@@ -24256,6 +24260,7 @@ def _roundup_item_list(s, label: str, items: list):
                 body_ed = _apply_editor_props(
                     ui.editor(value=seed.get("body", "")), _TOOLBAR_FULL
                     ).style("min-height:90px;border-radius:6px;")
+                s._register_qeditor(body_ed, f"roundup_{_slug}_{len(getters)}")
                 img_ref = {"v": seed.get("image", "") or ""}
                 _roundup_image_field(s, "Item image (optional)", img_ref)
                 def _get(li=lead_in, be=body_ed, ir=img_ref):
