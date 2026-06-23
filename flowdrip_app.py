@@ -23804,6 +23804,105 @@ def _send_now_dialog(s, rf, camps: list):
     _dlg.open()
 
 
+# ── The Roundup: issue store ───────────────────────────────────────────────
+# Issues live under the OWNER's folder so the data is shared read-side with
+# Michael. Each issue is one JSON file in .../Roundup/issues/<id>.json.
+def _roundup_dir():
+    """Roundup data dir under Rothany's per-user root. Created on demand."""
+    d = _resolve_user_root(_ROUNDUP_OWNER_EMAIL) / "Roundup"
+    try:
+        (d / "issues").mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+    return d
+
+
+def _roundup_issue_path(issue_id: str):
+    safe = "".join(ch for ch in (issue_id or "") if ch.isalnum() or ch in "-_")
+    return _roundup_dir() / "issues" / f"{safe}.json"
+
+
+def _roundup_new_issue(issue_label: str) -> dict:
+    """Build a fresh draft issue dict (not yet persisted). issue_label is the
+    human label shown in 'New Items for {label}' and the default subject."""
+    label = (issue_label or "").strip() or "New Issue"
+    base_id = "".join(ch for ch in label.lower().replace(" ", "-")
+                      if ch.isalnum() or ch == "-") or "issue"
+    # Disambiguate if a file with this id already exists.
+    issue_id = base_id
+    n = 2
+    while _roundup_issue_path(issue_id).is_file():
+        issue_id = f"{base_id}-{n}"
+        n += 1
+    return {
+        "id": issue_id,
+        "title": "The Roundup",
+        "issue_label": label,
+        "subject": f"The Roundup — {label}",
+        "status": "draft",
+        "hero_image": "",
+        "marketing_minute": "",
+        "playbook_callout": "",
+        "new_items": [],
+        "looking_ahead": [],
+        "president": {"photo": "", "body": "", "name": "", "title": "President & CEO"},
+        "updated_at": "",
+        "sent_at": None,
+    }
+
+
+def _roundup_save_issue(issue: dict) -> None:
+    import json as _json, datetime as _dt
+    issue["updated_at"] = _dt.datetime.now().isoformat(timespec="seconds")
+    path = _roundup_issue_path(issue["id"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_json.dumps(issue, ensure_ascii=False, indent=2),
+                    encoding="utf-8")
+
+
+def _roundup_load_issue(issue_id: str):
+    import json as _json
+    path = _roundup_issue_path(issue_id)
+    if not path.is_file():
+        return None
+    try:
+        return _json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _roundup_index() -> list:
+    """List saved issues newest-first: [{id, issue_label, status, updated_at}]."""
+    import json as _json
+    rows = []
+    issues_dir = _roundup_dir() / "issues"
+    if not issues_dir.is_dir():
+        return rows
+    for f in issues_dir.glob("*.json"):
+        try:
+            d = _json.loads(f.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        rows.append({
+            "id": d.get("id", f.stem),
+            "issue_label": d.get("issue_label", f.stem),
+            "status": d.get("status", "draft"),
+            "updated_at": d.get("updated_at", ""),
+        })
+    rows.sort(key=lambda r: r.get("updated_at", ""), reverse=True)
+    return rows
+
+
+def _roundup_mark_sent(issue_id: str) -> None:
+    import datetime as _dt
+    issue = _roundup_load_issue(issue_id)
+    if not issue:
+        return
+    issue["status"] = "sent"
+    issue["sent_at"] = _dt.datetime.now().isoformat(timespec="seconds")
+    _roundup_save_issue(issue)
+
+
 def p_newsletters(s, rf):
     """Dedicated Newsletters page. Shows ONLY newsletter campaigns —
     no slow drips, no amber reminder banner. Each card has a hero
