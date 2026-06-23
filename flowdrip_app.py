@@ -24044,6 +24044,316 @@ def _render_roundup_html(issue: dict) -> str:
     return "".join(parts)
 
 
+# ── The Roundup: page (tab body) ───────────────────────────────────────────
+def _roundup_tab(s, rf):
+    """Issue list + 'New Issue' for The Roundup. Selecting an issue opens the
+    section editor. Owner edits; Michael views + can send."""
+    _is_owner = ((getattr(s, "_user_email", "") or "").strip().lower()
+                 == _ROUNDUP_OWNER_EMAIL)
+    editing_id = getattr(s, "_roundup_editing_id", None)
+    if editing_id:
+        issue = _roundup_load_issue(editing_id)
+        if issue:
+            _roundup_editor(s, rf, issue, can_edit=_is_owner)
+            return
+        s._roundup_editing_id = None  # stale id → fall back to list
+
+    ui.label("The Roundup").classes("fd-h1").style(
+        "margin:0 0 4px;text-align:center;")
+    ui.label("Arena's internal company newsletter. "
+             + ("Create or edit an issue, then send it to all staff."
+                if _is_owner else "View issues Rothany has drafted or sent.")
+             ).classes("fd-sub").style("text-align:center;margin-bottom:18px;")
+
+    if _is_owner:
+        with ui.element("div").style(
+                "display:flex;justify-content:center;gap:8px;margin-bottom:20px;"):
+            _lbl_in = ui.input(placeholder="Issue label, e.g. June 2026").style(
+                "min-width:240px;")
+            def _create():
+                lbl = (_lbl_in.value or "").strip()
+                if not lbl:
+                    ui.notify("Give the issue a label first (e.g. June 2026).",
+                              type="warning"); return
+                issue = _roundup_new_issue(lbl)
+                _roundup_save_issue(issue)
+                s._roundup_editing_id = issue["id"]
+                rf()
+            with ui.element("button").classes("fd-pb").style(
+                    "padding:9px 22px;font-size:13px;").on("click", _create):
+                ui.label("+ New Issue")
+
+    rows = _roundup_index()
+    if not rows:
+        ui.label("No issues yet." if _is_owner
+                 else "Rothany hasn't drafted any issues yet.").style(
+            f"text-align:center;color:{C['muted']};margin-top:24px;")
+        return
+
+    with ui.element("div").style("max-width:640px;margin:0 auto;"):
+        for r in rows:
+            _sent = (r.get("status") == "sent")
+            with ui.element("div").style(
+                    f"display:flex;align-items:center;justify-content:space-between;"
+                    f"gap:12px;padding:14px 16px;margin-bottom:10px;"
+                    f"background:{C['card']};border:1px solid {C['border']};"
+                    f"border-radius:10px;"):
+                with ui.element("div"):
+                    ui.label(r["issue_label"]).style(
+                        f"font-weight:700;color:{C['text_l']};font-size:15px;")
+                    ui.label("Sent " + (r.get("updated_at", "")[:10]) if _sent
+                             else "Draft").style(
+                        f"font-size:12px;color:{'#3a8' if _sent else C['muted']};")
+                def _open(rid=r["id"]):
+                    s._roundup_editing_id = rid
+                    rf()
+                with ui.element("button").classes("fd-gb").style(
+                        "padding:7px 16px;font-size:12px;").on("click", _open):
+                    ui.label("Open" if _is_owner else "View")
+
+
+def _roundup_editor(s, rf, issue: dict, can_edit: bool):
+    """Section-based editor for one issue. can_edit=False → read-only preview
+    (Michael). editor.js rich-text reused via _apply_editor_props."""
+    def _back():
+        s._roundup_editing_id = None
+        rf()
+
+    with ui.element("div").style(
+            "display:flex;align-items:center;justify-content:space-between;"
+            "max-width:760px;margin:0 auto 16px;"):
+        with ui.element("button").classes("fd-gb").style(
+                "padding:7px 16px;font-size:12px;").on("click", _back):
+            ui.label("← Back")
+        ui.label(issue.get("issue_label", "Issue")).style(
+            f"font-weight:800;font-size:18px;color:{C['text_l']};")
+
+    if not can_edit:
+        # Read-only: render the email preview only.
+        with ui.element("div").style(
+                "max-width:760px;margin:0 auto;border:1px solid "
+                f"{C['border']};border-radius:10px;overflow:hidden;"):
+            ui.html(_render_roundup_html(issue))
+        return
+
+    # Editable form. Widgets write back into `issue` on save.
+    refs = {}
+    with ui.element("div").style("max-width:760px;margin:0 auto;"):
+        ui.label("Subject line").classes("fd-fl")
+        refs["subject"] = ui.input(value=issue.get("subject", "")).style(
+            "width:100%;margin-bottom:14px;")
+
+        refs["hero_image"] = {"v": issue.get("hero_image", "")}
+        _roundup_image_field(s, "Banner image", refs["hero_image"])
+
+        ui.label("Marketing Minute").classes("fd-fl").style("margin-top:14px;")
+        refs["marketing_minute"] = _apply_editor_props(
+            ui.editor(value=issue.get("marketing_minute", "")), _TOOLBAR_FULL
+            ).style("min-height:160px;border-radius:6px;")
+
+        ui.label("The Playbook callout").classes("fd-fl").style("margin-top:14px;")
+        refs["playbook_callout"] = _apply_editor_props(
+            ui.editor(value=issue.get("playbook_callout", "")), _TOOLBAR_FULL
+            ).style("min-height:110px;border-radius:6px;")
+
+        refs["new_items"] = _roundup_item_list(
+            s, "New Items", issue.get("new_items", []))
+        refs["looking_ahead"] = _roundup_item_list(
+            s, "Looking Ahead", issue.get("looking_ahead", []))
+
+        ui.label("A Message From the President").classes("fd-fl").style(
+            "margin-top:18px;")
+        pres = issue.get("president", {}) or {}
+        refs["pres_photo"] = {"v": pres.get("photo", "")}
+        _roundup_image_field(s, "President photo", refs["pres_photo"])
+        refs["pres_name"] = ui.input(
+            value=pres.get("name", ""), placeholder="Name").style(
+            "width:100%;margin-top:8px;")
+        refs["pres_title"] = ui.input(
+            value=pres.get("title", "President & CEO"),
+            placeholder="Title").style("width:100%;margin-top:8px;")
+        refs["pres_body"] = _apply_editor_props(
+            ui.editor(value=pres.get("body", "")), _TOOLBAR_FULL
+            ).style("min-height:200px;border-radius:6px;margin-top:8px;")
+
+        def _collect():
+            issue["subject"] = refs["subject"].value
+            issue["hero_image"] = refs["hero_image"]["v"]
+            issue["marketing_minute"] = refs["marketing_minute"].value
+            issue["playbook_callout"] = refs["playbook_callout"].value
+            issue["new_items"] = [r() for r in refs["new_items"]]
+            issue["looking_ahead"] = [r() for r in refs["looking_ahead"]]
+            issue["president"] = {
+                "photo": refs["pres_photo"]["v"],
+                "body": refs["pres_body"].value,
+                "name": refs["pres_name"].value,
+                "title": refs["pres_title"].value,
+            }
+
+        with ui.element("div").style(
+                "display:flex;gap:10px;justify-content:flex-end;margin:22px 0;"):
+            def _save():
+                _collect()
+                _roundup_save_issue(issue)
+                ui.notify("Saved.", type="positive")
+            def _send():
+                _collect()
+                _roundup_save_issue(issue)
+                _roundup_send_dialog(s, rf, issue)
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:9px 20px;font-size:13px;").on("click", _save):
+                ui.label("Save")
+            with ui.element("button").classes("fd-pb").style(
+                    f"padding:9px 22px;font-size:13px;background:{C['teal']};"
+                    ).on("click", _send):
+                ui.label("Send to all staff →")
+
+
+def _roundup_image_field(s, label: str, ref: dict):
+    """Upload widget bound to ref['v'] (an <img src> string). Shows the current
+    image. Uses the NiceGUI 3.x upload API (await e.file.read())."""
+    ui.label(label).classes("fd-fl")
+    _preview = ui.html(
+        f'<img src="{ref["v"]}" style="max-height:80px;border-radius:4px;"/>'
+        if ref["v"] else '<span style="color:#888;font-size:12px;">No image</span>')
+
+    async def _on_upload(e):
+        f = getattr(e, "file", None)
+        if f is None:
+            ui.notify("Upload failed.", type="negative"); return
+        try:
+            raw = await f.read()
+        except Exception:
+            ui.notify("Upload failed.", type="negative"); return
+        if len(raw) > _MAX_IMAGE_BYTES:
+            ui.notify("Image must be under 5 MB.", type="warning"); return
+        src = _roundup_cache_image(raw, getattr(f, "name", "image.png"))
+        if not src:
+            ui.notify("That file isn't a valid image.", type="negative"); return
+        ref["v"] = src
+        _preview.set_content(
+            f'<img src="{src}" style="max-height:80px;border-radius:4px;"/>')
+    ui.upload(on_upload=_on_upload, auto_upload=True, max_file_size=5*1024*1024,
+              ).props('accept="image/*" flat color="teal"')
+
+
+def _roundup_item_list(s, label: str, items: list):
+    """Render an editable repeatable item list. Returns a list of getter
+    callables; each returns {'lead','body','image'} for one row."""
+    ui.label(label).classes("fd-fl").style("margin-top:16px;")
+    getters = []
+    container = ui.element("div")
+
+    def _add_row(seed=None):
+        seed = seed or {"lead": "", "body": "", "image": ""}
+        with container:
+            with ui.element("div").style(
+                    f"border:1px solid {C['border']};border-radius:8px;"
+                    f"padding:12px;margin-bottom:10px;"):
+                lead_in = ui.input(value=seed.get("lead", ""),
+                                   placeholder="Bold lead-in (e.g. New Website)"
+                                   ).style("width:100%;margin-bottom:6px;")
+                body_ed = _apply_editor_props(
+                    ui.editor(value=seed.get("body", "")), _TOOLBAR_FULL
+                    ).style("min-height:90px;border-radius:6px;")
+                img_ref = {"v": seed.get("image", "") or ""}
+                _roundup_image_field(s, "Item image (optional)", img_ref)
+                def _get(li=lead_in, be=body_ed, ir=img_ref):
+                    return {"lead": li.value, "body": be.value,
+                            "image": ir["v"] or None}
+                getters.append(_get)
+
+    for it in (items or []):
+        _add_row(it)
+    with ui.element("button").classes("fd-gb").style(
+            "padding:6px 14px;font-size:12px;margin-bottom:8px;").on(
+            "click", lambda: _add_row()):
+        ui.label("+ Add item")
+    return getters
+
+
+def _roundup_send_dialog(s, rf, issue: dict):
+    """Confirm + send the rendered issue to a saved staff list. Sends as the
+    OWNER (Rothany) regardless of who clicks, so the From identity and the
+    issue's sent-status write both happen in Rothany's context."""
+    saved = list_saved_contact_lists() or {}
+    body_html = _render_roundup_html(issue)
+    subject = (issue.get("subject")
+               or f"The Roundup — {issue.get('issue_label', '')}").strip()
+
+    with ui.dialog() as dlg, ui.card().style(
+            f"background:{C['card']};border:1px solid {C['border']};"
+            f"min-width:480px;max-width:560px;padding:24px 26px;"):
+        ui.label("Send The Roundup to all staff").style(
+            f"font-size:18px;font-weight:800;color:{C['text_l']};"
+            f"margin-bottom:8px;")
+        if not saved:
+            ui.label("No saved contact lists yet. Import an 'All Arena Staff' "
+                     "CSV from the Contact List page first.").style(
+                f"font-size:13px;color:{C['muted']};")
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:8px 18px;font-size:12px;margin-top:14px;").on(
+                    "click", dlg.close):
+                ui.label("Close")
+            dlg.open(); return
+
+        ui.label("Pick the staff recipient list:").classes("fd-fl")
+        _list_sel = ui.select(options=sorted(saved.keys()),
+                              value=sorted(saved.keys())[0]).style(
+            "width:100%;margin-bottom:16px;")
+
+        def _do_send():
+            name = (_list_sel.value or "").strip()
+            path = saved.get(name)
+            if not path:
+                ui.notify("Pick a list first.", type="warning"); return
+            try:
+                rows, _ = safe_read_csv_rows(path)
+                contacts = _normalize_rows(rows)
+            except Exception as ex:
+                ui.notify(f"Couldn't read '{name}': {str(ex)[:80]}",
+                          type="negative"); return
+            recips = _roundup_parse_recipients(
+                "\n".join((c.get("Email") or "") for c in contacts))
+            if not recips:
+                ui.notify(f"'{name}' has no valid emails.", type="warning"); return
+            dlg.close()
+            ui.notify(f"Sending The Roundup to {len(recips)} staff…",
+                      type="ongoing", timeout=4000)
+            _iid = issue["id"]
+            def _worker():
+                ok = fail = 0
+                for addr in recips:
+                    try:
+                        sent, err = _send_email_universal(
+                            to=addr, subject=subject, html_body=body_html,
+                            attachments=[], is_preview=False,
+                            _for_user_email=_ROUNDUP_OWNER_EMAIL)
+                        ok += 1 if sent else 0
+                        fail += 0 if sent else 1
+                        if not sent:
+                            print(f"[Roundup] {addr} failed: {err}", flush=True)
+                    except Exception as ex:
+                        fail += 1
+                        print(f"[Roundup] {addr} crashed: {ex}", flush=True)
+                _roundup_mark_sent(_iid)
+                print(f"[Roundup] Done — {ok} sent, {fail} failed.", flush=True)
+            # Run in the OWNER's context so signature + issue write land in
+            # Rothany's folder (multi-user safety: explicit email, never ambient).
+            _run_as_user(_ROUNDUP_OWNER_EMAIL, _worker, name="roundup_send_worker")
+
+        with ui.element("div").style(
+                "display:flex;gap:8px;justify-content:flex-end;"):
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:8px 18px;font-size:12px;").on("click", dlg.close):
+                ui.label("Cancel")
+            with ui.element("button").classes("fd-pb").style(
+                    f"padding:8px 22px;font-size:13px;background:{C['teal']};"
+                    ).on("click", _do_send):
+                ui.label("Send now →")
+    dlg.open()
+
+
 def p_newsletters(s, rf):
     """Dedicated Newsletters page. Shows ONLY newsletter campaigns —
     no slow drips, no amber reminder banner. Each card has a hero
@@ -24062,6 +24372,33 @@ def p_newsletters(s, rf):
             "max-width:880px;margin:0 auto;padding:0 8px;"):
 
         _render_page_intro_strip(s, rf, "newsletters")
+
+        # ── The Roundup tab (gated) ───────────────────────────────────────
+        # Owner (Rothany) + Michael see a two-tab switch. Everyone else falls
+        # straight through to the standard AI-newsletter page (no trace).
+        _roundup_ok = _roundup_allowed(getattr(s, "_user_email", "") or "")
+        if _roundup_ok:
+            _active_tab = getattr(s, "_nl_active_tab", "market")
+            with ui.element("div").style(
+                    "display:flex;justify-content:center;gap:8px;"
+                    "margin:0 0 18px;"):
+                for _key, _lbl in (("market", "Market Newsletters"),
+                                   ("roundup", "The Roundup")):
+                    _is_on = (_active_tab == _key)
+                    def _switch(k=_key):
+                        s._nl_active_tab = k
+                        rf()
+                    with ui.element("button").style(
+                            f"padding:8px 20px;font-size:13px;font-weight:700;"
+                            f"border-radius:8px;cursor:pointer;font-family:inherit;"
+                            f"border:1px solid {C['border']};"
+                            f"background:{C['teal'] if _is_on else 'transparent'};"
+                            f"color:{'#fff' if _is_on else C['muted']};"
+                            ).on("click", _switch):
+                        ui.label(_lbl).style("pointer-events:none;")
+            if _active_tab == "roundup":
+                _roundup_tab(s, rf)
+                return
 
         # First-issue generation status — shows when a user just created
         # a newsletter and the bg thread is still generating its first
