@@ -87,3 +87,63 @@ def test_email_img_route_allows_roundup_subdir():
     import inspect
     src = inspect.getsource(fa._serve_email_img)
     assert '"roundup"' in src
+
+
+def _sample_issue():
+    return {
+        "id": "june-2026", "title": "The Roundup", "issue_label": "June 2026",
+        "subject": "The Roundup — June 2026", "status": "draft",
+        "hero_image": "https://dripdripdrop.ai/email_img/roundup/abc.png",
+        "marketing_minute": "<p>Welcome to the issue</p>",
+        "playbook_callout": "<p>Want to be featured? Email rothany.vu@arenastaffing.net</p>",
+        "new_items": [
+            {"lead": "New Logos", "body": "<p>10-year logo</p>", "image": None},
+            {"lead": "Notecards", "body": "<p>branded</p>",
+             "image": "https://dripdripdrop.ai/email_img/roundup/nc.png"},
+        ],
+        "looking_ahead": [
+            {"lead": "New Website", "body": "<p>Launching May 4</p>", "image": None},
+        ],
+        "president": {"photo": "https://dripdripdrop.ai/email_img/roundup/pr.png",
+                      "body": "<p>April showers...</p>", "name": "Dave Kooiman",
+                      "title": "President & CEO"},
+        "updated_at": "", "sent_at": None,
+    }
+
+
+def test_render_includes_all_sections():
+    html = fa._render_roundup_html(_sample_issue())
+    assert "Marketing Minute" in html
+    assert "New Items for June 2026" in html
+    assert "Looking Ahead" in html
+    assert "A Message From the President" in html
+    assert "Welcome to the issue" in html
+    assert "New Logos" in html
+    assert "New Website" in html
+    assert "Dave Kooiman" in html
+    assert "President &amp; CEO" in html  # plain text escaped
+
+
+def test_render_includes_images_and_footer():
+    html = fa._render_roundup_html(_sample_issue())
+    assert "email_img/roundup/abc.png" in html      # hero
+    assert "email_img/roundup/nc.png" in html        # item image
+    assert "email_img/roundup/pr.png" in html        # president photo
+    assert "4750 Ontario Mills Pkwy" in html         # fixed footer
+
+
+def test_render_handles_empty_optionals():
+    issue = fa._roundup_new_issue("Empty Issue")
+    html = fa._render_roundup_html(issue)
+    # No crash, footer + headings still present, no stray "None".
+    assert "New Items for Empty Issue" in html
+    assert "None" not in html
+
+
+def test_render_escapes_lead_text():
+    issue = fa._roundup_new_issue("X")
+    issue["new_items"] = [{"lead": "A & B <script>", "body": "<p>ok</p>",
+                           "image": None}]
+    html = fa._render_roundup_html(issue)
+    assert "A &amp; B &lt;script&gt;" in html
+    assert "<script>" not in html

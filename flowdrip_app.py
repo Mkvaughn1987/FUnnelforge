@@ -23903,6 +23903,132 @@ def _roundup_mark_sent(issue_id: str) -> None:
     _roundup_save_issue(issue)
 
 
+# ── The Roundup: email HTML renderer ───────────────────────────────────────
+_ROUNDUP_BLUE = "#2e5c8a"
+_ROUNDUP_NAVY = "#1d3a5f"
+_ROUNDUP_FOOTER = "Arena Staffing | 4750 Ontario Mills Pkwy | Ontario, CA 91764 US"
+
+
+def _roundup_section_bar(text: str) -> str:
+    from html import escape as _esc
+    return (f'<tr><td style="background:{_ROUNDUP_BLUE};color:#ffffff;'
+            f'text-align:center;font-weight:700;font-size:20px;padding:14px;'
+            f'font-family:Arial,sans-serif;">{_esc(text)}</td></tr>')
+
+
+def _roundup_items_html(items: list) -> str:
+    """Render a New Items / Looking Ahead list. Each item = bold lead-in +
+    body HTML + optional image. Body is editor HTML (kept); lead is escaped."""
+    from html import escape as _esc
+    out = []
+    for it in (items or []):
+        lead = _esc((it.get("lead") or "").strip())
+        body = (it.get("body") or "").strip()
+        img = (it.get("image") or "").strip()
+        img_html = ""
+        if img:
+            img_html = (f'<div style="margin:6px 0;"><img src="{img}" '
+                        f'style="max-width:220px;height:auto;border-radius:4px;"/></div>')
+        lead_html = (f'<span style="font-weight:700;color:{_ROUNDUP_NAVY};">'
+                     f'{lead}:</span> ') if lead else ""
+        out.append(
+            f'<div style="margin:0 0 14px;font-size:14px;line-height:1.5;'
+            f'color:#444;font-family:Arial,sans-serif;">{lead_html}{body}{img_html}</div>')
+    return "".join(out)
+
+
+def _render_roundup_html(issue: dict) -> str:
+    """Pure: issue dict → full email HTML in Arena's brand styling, matching
+    the April Roundup layout. Editor-authored fields contain HTML and are kept
+    as-is; plain-text fields (lead-ins, names) are escaped."""
+    from html import escape as _esc
+    label = (issue.get("issue_label") or "").strip()
+    hero = (issue.get("hero_image") or "").strip()
+    mm = (issue.get("marketing_minute") or "").strip()
+    playbook = (issue.get("playbook_callout") or "").strip()
+    pres = issue.get("president") or {}
+    pres_photo = (pres.get("photo") or "").strip()
+    pres_body = (pres.get("body") or "").strip()
+    pres_name = _esc((pres.get("name") or "").strip())
+    pres_title = _esc((pres.get("title") or "").strip())
+
+    parts = []
+    parts.append(
+        '<div style="max-width:640px;margin:0 auto;background:#ffffff;">'
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        'style="border-collapse:collapse;">')
+
+    # Hero banner
+    if hero:
+        parts.append(
+            f'<tr><td style="padding:0;"><img src="{hero}" '
+            f'style="width:100%;height:auto;display:block;"/></td></tr>')
+
+    # Marketing Minute
+    parts.append(_roundup_section_bar("Marketing Minute"))
+    if mm:
+        parts.append(
+            f'<tr><td style="padding:16px 22px;font-size:14px;line-height:1.6;'
+            f'color:#444;font-family:Arial,sans-serif;">{mm}</td></tr>')
+
+    # Playbook callout
+    if playbook:
+        parts.append(
+            f'<tr><td style="padding:0 22px;"><div style="background:#e9e4d8;'
+            f'border:1px solid #b8ad94;border-radius:4px;padding:14px 16px;'
+            f'font-size:14px;line-height:1.5;color:{_ROUNDUP_NAVY};'
+            f'font-family:Arial,sans-serif;">{playbook}</div></td></tr>')
+
+    # New Items
+    parts.append(
+        f'<tr><td style="text-align:center;font-weight:700;font-size:20px;'
+        f'color:{_ROUNDUP_BLUE};padding:20px 22px 8px;'
+        f'font-family:Arial,sans-serif;">New Items for {_esc(label)}</td></tr>')
+    items_html = _roundup_items_html(issue.get("new_items"))
+    if items_html:
+        parts.append(f'<tr><td style="padding:4px 22px;">{items_html}</td></tr>')
+
+    # Looking Ahead
+    parts.append(
+        f'<tr><td style="text-align:center;font-weight:700;font-size:20px;'
+        f'color:{_ROUNDUP_BLUE};padding:20px 22px 8px;'
+        f'font-family:Arial,sans-serif;">Looking Ahead</td></tr>')
+    ahead_html = _roundup_items_html(issue.get("looking_ahead"))
+    if ahead_html:
+        parts.append(f'<tr><td style="padding:4px 22px;">{ahead_html}</td></tr>')
+
+    # President
+    parts.append(_roundup_section_bar("A Message From the President"))
+    pres_inner = ['<td style="padding:16px 22px;text-align:center;'
+                  'font-family:Arial,sans-serif;">']
+    if pres_photo:
+        pres_inner.append(
+            f'<img src="{pres_photo}" style="width:160px;height:auto;'
+            f'border-radius:4px;margin:0 auto 12px;display:block;"/>')
+    if pres_body:
+        pres_inner.append(
+            f'<div style="font-size:14px;line-height:1.6;color:#444;'
+            f'text-align:left;">{pres_body}</div>')
+    if pres_name:
+        pres_inner.append(
+            f'<div style="margin-top:10px;font-weight:700;color:{_ROUNDUP_NAVY};'
+            f'text-align:left;">{pres_name}</div>')
+    if pres_title:
+        pres_inner.append(
+            f'<div style="color:#666;text-align:left;">{pres_title}</div>')
+    pres_inner.append('</td>')
+    parts.append(f'<tr>{"".join(pres_inner)}</tr>')
+
+    # Footer (fixed)
+    parts.append(
+        f'<tr><td style="background:{_ROUNDUP_NAVY};color:#cfd8e3;'
+        f'text-align:center;font-size:12px;padding:16px;'
+        f'font-family:Arial,sans-serif;">{_esc(_ROUNDUP_FOOTER)}</td></tr>')
+
+    parts.append('</table></div>')
+    return "".join(parts)
+
+
 def p_newsletters(s, rf):
     """Dedicated Newsletters page. Shows ONLY newsletter campaigns —
     no slow drips, no amber reminder banner. Each card has a hero
