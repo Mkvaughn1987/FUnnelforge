@@ -61,6 +61,23 @@ _ATS_ALLOWED_EMAILS = {
     "elizabeth.simonov@arenastaffing.net",
 }
 
+# ── The Roundup (gated internal marketing newsletter) ──────────────────────
+# Hand-authored company newsletter owned by Rothany (marketing). Visible only
+# to the owner + Michael. Everyone else's Newsletters page shows no trace.
+# "Rothany owns, you view": all issue data lives under the OWNER's per-user
+# folder, so Michael's session reads the same source of truth.
+_ROUNDUP_OWNER_EMAIL = "rothany.vu@arenastaffing.net"
+_ROUNDUP_ALLOWED_EMAILS = {
+    _ROUNDUP_OWNER_EMAIL,
+    "michael.vaughn@arenastaffing.net",
+    "mkvaughn1987@gmail.com",
+}
+
+
+def _roundup_allowed(email: str) -> bool:
+    """True if this account may see The Roundup tab. Mirrors the ATS gate."""
+    return (email or "").strip().lower() in _ROUNDUP_ALLOWED_EMAILS
+
 # Desktop installer download URL  -  set to a real CDN URL once the installer
 # is built and uploaded (Cloudflare R2 recommended). The landing page
 # "Download for Windows" button uses this. If the env var isn't set we fall
@@ -4580,7 +4597,7 @@ def _camp_is_4x4(camp):
 
 def _is_4x4_graduate(contact, camp, responded_emails, enrolled_emails,
                      dnc_emails):
-    """True only when a contact should be AUTO-enrolled in the J Way
+    """True only when a contact should be AUTO-enrolled in the J's Way
     handoff newsletter: the campaign is a 4x4, and the contact replied to
     nothing, is not on the DNC list, and is not already enrolled.
 
@@ -4605,7 +4622,7 @@ def _is_4x4_graduate(contact, camp, responded_emails, enrolled_emails,
 
 def _build_jway_handoff_newsletter(name, sector, region, niche,
                                    start_from, count=12):
-    """Build a valid J Way newsletter campaign dict (no disk write).
+    """Build a valid J's Way newsletter campaign dict (no disk write).
 
     Mirrors the dict assembled in _create_newsletter_dialog but headless,
     tagged handoff_default=True so the auto path can find it again. Emails
@@ -4655,7 +4672,7 @@ def _build_jway_handoff_newsletter(name, sector, region, niche,
 
 
 def _get_or_create_jway_handoff_newsletter():
-    """Return the designated J Way handoff newsletter, creating it if it
+    """Return the designated J's Way handoff newsletter, creating it if it
     does not exist. Identified by handoff_default=True. Seeds sector/region
     from the user's saved config. Returns the campaign dict (already saved
     when freshly created).
@@ -4685,7 +4702,7 @@ def _get_or_create_jway_handoff_newsletter():
 def _maybe_handoff_4x4_graduate(item, user_dir):
     """Called right after a queue email is marked sent. If the item was the
     FINAL email step of a 4x4 campaign and the recipient is a clean
-    non-responder, auto-enroll them in the J Way handoff newsletter.
+    non-responder, auto-enroll them in the J's Way handoff newsletter.
 
     Binds the campaign owner's user context first (derived from user_dir)
     so every load/save lands in the right user's data, never the shared
@@ -7677,7 +7694,7 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
     _dnc_emails = {d["email"].lower().strip() for d in _dnc_list if not d.get("email","").startswith("@")}
     _dnc_domains = {d["email"].lower().strip()[1:] for d in _dnc_list if d.get("email","").startswith("@")}
     # Newsletters are opt-in nurture: they keep emailing contacts who once
-    # replied (that is the whole point of the 4x4 -> J Way handoff). Only
+    # replied (that is the whole point of the 4x4 -> J's Way handoff). Only
     # non-newsletter campaigns skip responders so we don't cold-pitch
     # someone mid-conversation. DNC / opt-out blocking still applies to both.
     # NOTE: market_analysis alone is NOT a newsletter signal (the AICB
@@ -10237,6 +10254,8 @@ class AppState:
         self.aicb_gen_steps: list = []            # progress tracking
         self.aicb_campaign = None                 # assembled campaign dict
         self.aicb_camp_type = "byos"                # selected campaign type (Free Flow default)
+        self.aicb_style_locked = False            # True when an entry tile (Arena 4×4) fixed the
+                                                  # style → wizard skips the Campaign Style step
         self.aicb_byos_desc = ""                  # BYOS custom description
         self.aicb_candidate_resume = ""           # candidate resume text from Candidate Finder
         # Resume-to-campaign state
@@ -14230,7 +14249,7 @@ def p_responses(s, rf):
                         f"font-size:11px;color:{C['muted']};margin-top:1px;")
 
                     # Add this responder to a newsletter (existing or a new
-                    # J Way note) so they keep hearing from you long-term.
+                    # J's Way note) so they keep hearing from you long-term.
                     with ui.element("div").style("margin-top:6px;"):
                         with ui.element("button").style(
                                 f"display:inline-flex;align-items:center;gap:4px;"
@@ -17521,6 +17540,10 @@ def _sq_pick(s, rf):
                         _reset_wizard_state(s)
                         s._chooser_origin = "fourbyfour"
                         s.aicb_camp_type = "fourbyfour"
+                        # The 4×4 is a fixed cadence — the user already chose
+                        # the style by picking this tile, so lock it and skip
+                        # the wizard's Campaign Style step (no re-asking).
+                        s.aicb_style_locked = True
                         s.sp = "ai_campaign"
                         s.aicb_step = 1
                         s.aicb_target_mode = "market"
@@ -21802,7 +21825,7 @@ def _offer_slow_drip_enroll(to_email: str, name: str, rf):
 
 def _offer_newsletter_enroll(to_email: str, name: str, rf):
     """Per-contact picker used from the responded list: add this person to
-    an existing newsletter, or spin up a new J Way handoff note and add them
+    an existing newsletter, or spin up a new J's Way handoff note and add them
     to it. Uses enroll_contact_in_evergreen so the contact's upcoming issues
     actually queue (newsletters keep responders, see queue_campaign_emails).
     """
@@ -21841,7 +21864,7 @@ def _offer_newsletter_enroll(to_email: str, name: str, rf):
 
         _opts = {c.get("name", "Untitled"): c.get("name", "Untitled")
                  for c in _newsletters}
-        _opts["__new_jway__"] = "✍️ New J Way note"
+        _opts["__new_jway__"] = "✍️ New J's Way note"
         _radio = ui.radio(_opts, value="__new_jway__").props("dense").style(
             f"color:{C['text_l']};")
 
@@ -22180,10 +22203,10 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             f"font-size:12px;color:{C['muted']};margin-bottom:14px;"
             f"line-height:1.5;")
 
-        # Format: The J Way (plain text) vs Full Send (current rich/branded).
+        # Format: The J's Way (plain text) vs Full Send (current rich/branded).
         ui.label("Newsletter Style").classes("fd-fl")
         _style_toggle = ui.toggle(
-            {"full_send": "🚀 Full Send", "j_way": "✍️ The J Way"},
+            {"full_send": "🚀 Full Send", "j_way": "✍️ The J's Way"},
             value=(prefill.get("newsletter_style") or "full_send")).props(
             "no-caps").style("margin:2px 0 4px 0;")
         _style_desc = ui.label("").style(
@@ -22192,7 +22215,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
         def _upd_style_desc():
             if (_style_toggle.value or "") == "j_way":
                 _style_desc.set_text(
-                    "The J Way — plain-text and personal. A simple market snapshot written "
+                    "The J's Way — plain-text and personal. A simple market snapshot written "
                     "like a note: live BLS highlights, a short market read, and your available "
                     "talent. No graphics or branding — the low-key style that gets replies.")
             else:
@@ -22315,7 +22338,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
 
         # ── Pipeline path ── search the candidate pool and add specific
         # people to "Top Talent Available". When this path is chosen the
-        # selected people OVERRIDE the AI-generated spotlights for J Way.
+        # selected people OVERRIDE the AI-generated spotlights for J's Way.
         _pipe_box = ui.element("div")
         if _ats_ok:
             with _pipe_box:
@@ -23291,9 +23314,9 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                                 '🔄 Refresh photos</span>'
                             )
 
-            # Hero photo picker is a Full Send concept. The J Way uses a
+            # Hero photo picker is a Full Send concept. The J's Way uses a
             # fixed bundled banner (see _jway_render) and has no per-issue
-            # photo selection — so skip the whole gallery for J Way issues.
+            # photo selection — so skip the whole gallery for J's Way issues.
             if (camp.get("newsletter_style") or "").strip() != "j_way":
                 _render_hero_gallery()
 
@@ -30053,6 +30076,58 @@ def _save_redacted_pdf(candidate_name: str, redacted_text: str) -> str:
         return ""
 
 
+def _aicb_card_to_resume_text(card: dict) -> str:
+    """Turn one AICB candidate card ({label, role, bullets}) into the body
+    text for a redacted-résumé PDF. The cards are already anonymized
+    (autogen → "Candidate A/B/C", target company scrubbed), so this is a
+    plain format step — role on top, then one normalized "• " bullet per
+    line. Returns "" when the card has no role and no usable bullets."""
+    if not isinstance(card, dict):
+        return ""
+    role = (card.get("role") or "").strip()
+    lines = []
+    for b in (card.get("bullets") or []):
+        b = (b or "").strip()
+        # Collapse any existing leading bullet glyph (•, -, *) to a single
+        # "• " so pool bullets ("- x") and gen_run bullets ("• x") match.
+        b = re.sub(r'^[•\-\*]\s*', '', b).strip()
+        if b:
+            lines.append(f"• {b}")
+    if not role and not lines:
+        return ""
+    parts = []
+    if role:
+        parts.append(role)
+        parts.append("")  # blank line between role and bullets
+    parts.extend(lines)
+    return "\n".join(parts).strip()
+
+
+def _aicb_build_redacted_resumes(s) -> list:
+    """Build one redacted-résumé PDF per AI/pool candidate card on the
+    AppState and save it to the user's PDFs folder so it surfaces in the
+    email editor's "reuse a generated PDF" dropdown for manual attach.
+    Does NOT attach anything. Returns the list of saved filenames.
+
+    Runs inside the AICB generation worker (dispatched via _run_as_user),
+    so _save_redacted_pdf → _user_pdf_dir() resolves to the right per-user
+    directory."""
+    saved = []
+    for card in (getattr(s, "aicb_cand_cards", []) or []):
+        try:
+            body = _aicb_card_to_resume_text(card)
+            if not body:
+                continue
+            label = (card.get("label") or "Candidate").strip() or "Candidate"
+            fname = _save_redacted_pdf(label, body)
+            if fname:
+                saved.append(fname)
+        except Exception as _ex:
+            print(f"[AICB] redacted résumé build error: {_ex}", flush=True)
+    print(f"[AICB] built {len(saved)} redacted résumé PDF(s)", flush=True)
+    return saved
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  AI QUICK START  -  describe / company lookup / paste-a-JD shortcuts for the
 #  Create a Campaign page. Each writes the parsed result directly onto
@@ -32353,6 +32428,20 @@ def p_ai_campaign(s: AppState, rf):
         _wiz_step = _aicb_clamp_wizard_step(
             getattr(s, "aicb_wizard_step", 1))
 
+        # Style locked by an entry tile (Arena 4×4) → the Campaign Style
+        # step (5) is dropped from the flow so the user isn't asked to
+        # re-pick a style they already chose at the chooser. Only honored
+        # while the locked style is actually selected (belt-and-suspenders).
+        _style_locked = (
+            bool(getattr(s, "aicb_style_locked", False))
+            and (getattr(s, "aicb_camp_type", "") or "") == "fourbyfour"
+        )
+        # Defensive: the Campaign Style step doesn't exist in a locked flow,
+        # so never let a locked session render on it (e.g. stale wizard_step).
+        if _style_locked and _wiz_step == 5:
+            _wiz_step = 6
+            s.aicb_wizard_step = 6
+
         # Scroll back to the top whenever the wizard moves to a DIFFERENT
         # step. Without this, advancing from a tall step (e.g. Confirm) to a
         # short one (Campaign style) leaves the page scrolled at the bottom,
@@ -32481,7 +32570,10 @@ def p_ai_campaign(s: AppState, rf):
                 if not (getattr(s, "aicb_camp_type", "") or "").strip():
                     ui.notify("Pick a sequence style.", type="warning")
                     return
-            s.aicb_wizard_step = min(6, _wiz_step + 1)
+            _nxt = min(6, _wiz_step + 1)
+            if _style_locked and _nxt == 5:  # skip Campaign Style step
+                _nxt = 6
+            s.aicb_wizard_step = _nxt
             rf()
 
         # Title + top-right Next row. In wizard mode we mirror the body
@@ -32570,6 +32662,10 @@ def p_ai_campaign(s: AppState, rf):
                 (5, "Campaign style"),
                 (6, "Review & generate"),
             ]
+            # When the style is locked by the entry tile (Arena 4×4), the
+            # Campaign Style step is removed from the flow entirely.
+            if _style_locked:
+                _steps = [st for st in _steps if st[0] != 5]
             def _go_to_step(n):
                 # Only allow jumping back to earlier steps (forward requires
                 # Next which validates). Jumping to current step is a no-op.
@@ -32578,7 +32674,7 @@ def p_ai_campaign(s: AppState, rf):
             with ui.element("div").style(
                     "display:flex;align-items:center;gap:10px;margin:12px 0 18px;"
                     "flex-wrap:wrap;"):
-                for _n, _lbl in _steps:
+                for _disp_i, (_n, _lbl) in enumerate(_steps, start=1):
                     _active = (_n == _wiz_step)
                     _done = (_n < _wiz_step)
                     _clickable = _done
@@ -32596,7 +32692,7 @@ def p_ai_campaign(s: AppState, rf):
                                 f"border:1px solid {_pill_border};"
                                 f"font-family:'Nunito',sans-serif;font-weight:800;"
                                 f"font-size:12px;flex-shrink:0;"):
-                            ui.label("✓" if _done else str(_n)).style("line-height:1;")
+                            ui.label("✓" if _done else str(_disp_i)).style("line-height:1;")
                         ui.label(_lbl).style(
                             f"font-size:12px;font-weight:{'700' if _active else '500'};"
                             f"color:{C['text_l'] if _active else C['muted']};"
@@ -34035,6 +34131,18 @@ def p_ai_campaign(s: AppState, rf):
                         _cand_block = ""
                         _resume_pdfs = []  # redacted PDFs to attach
 
+                        # Generate a client-ready redacted résumé PDF for each
+                        # AI/pool candidate card and drop it in the user's PDFs
+                        # folder. We DON'T auto-attach (per 2026-06-19 design):
+                        # the cards are anonymized, and the email editor's
+                        # "reuse a generated PDF" dropdown surfaces these for
+                        # manual attach on whichever steps the user wants.
+                        try:
+                            _aicb_build_redacted_resumes(s)
+                        except Exception as _rr_ex:
+                            print(f"[AICB] redacted résumé gen skipped: {_rr_ex}",
+                                  flush=True)
+
                         # Candidate highlights — populated by step 3 (Pool
                         # selection or Auto-generate) into _aicb_cand_text.
                         # n_cands = the actual number of candidate cards
@@ -34598,7 +34706,10 @@ def p_ai_campaign(s: AppState, rf):
                                 ui.notify("Pick a sequence style.", type="warning"); return
                     except Exception as ex:
                         print(f"[AICBWizard] next error: {ex}", flush=True)
-                    s.aicb_wizard_step = min(6, _wiz_step + 1); rf()
+                    _nxt = min(6, _wiz_step + 1)
+                    if _style_locked and _nxt == 5:  # skip Campaign Style step
+                        _nxt = 6
+                    s.aicb_wizard_step = _nxt; rf()
 
                 def _wiz_back():
                     # Manual is now the only Step 2 sub-mode (the CSV
@@ -34610,7 +34721,10 @@ def p_ai_campaign(s: AppState, rf):
                     # forward re-run regenerates from current inputs.
                     # Inputs preserved.
                     _wiz_back_clear_outputs(s)
-                    s.aicb_wizard_step = max(1, _wiz_step - 1); rf()
+                    _prev = max(1, _wiz_step - 1)
+                    if _style_locked and _prev == 5:  # skip Campaign Style step
+                        _prev = 4
+                    s.aicb_wizard_step = _prev; rf()
 
                 with ui.element("div").style(
                         f"{_col2}"
@@ -44042,7 +44156,7 @@ def _spotlight_prompt_block(sector: str, n: int,
 
 
 def _jway_render(d: dict, contact_name: str) -> str:
-    """Plain-text-style HTML for 'The J Way' newsletter — simple paragraphs and
+    """Plain-text-style HTML for 'The J's Way' newsletter — simple paragraphs and
     bullets, no graphics/branding. Reads like a personal note."""
     def _esc(x):
         return (str(x or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
@@ -44060,7 +44174,7 @@ def _jway_render(d: dict, contact_name: str) -> str:
         out.append(f"<p style='{P}'>{_esc(d['intro'])}</p>")
     out.append(f"<p style='{P}'>If I missed anything or you want to dig into something "
                f"further, just let me know - happy to discuss.</p>")
-    # Fixed Arena "Recruitment Rundown" banner — J Way is Arena-only, so this
+    # Fixed Arena "Recruitment Rundown" banner — J's Way is Arena-only, so this
     # branded image is bundled (not user-pickable) and served via /static/.
     # Sits between the personal intro note and the Highlights block.
     out.append(
@@ -44100,7 +44214,7 @@ def _generate_jway_newsletter(client, camp: dict, nl_name: str, company: str,
                               sector: str, niche: str, region: str,
                               month_year: str, contact_name: str,
                               spot_n: int, spot_recs: str) -> tuple:
-    """Generate 'The J Way' (plain-text) newsletter content for one issue:
+    """Generate 'The J's Way' (plain-text) newsletter content for one issue:
     personal market snapshot + live BLS data + available-talent list."""
     n_cand = spot_n if spot_n in (3, 6) else 4
     _picked = camp.get("newsletter_candidates") or []
@@ -44257,7 +44371,7 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         sector=sector, n=_spot_n, target_roles=_target_roles,
         recommendations=_spot_recs)
 
-    # "The J Way" — plain-text personal newsletter (vs the rich "Full Send").
+    # "The J's Way" — plain-text personal newsletter (vs the rich "Full Send").
     if (camp.get("newsletter_style") or "").strip() == "j_way":
         return _generate_jway_newsletter(
             client, camp, nl_name, company, sector, niche, region,
@@ -45869,8 +45983,8 @@ def p_newsletter(s: AppState, rf):
                 ui.notify(f"Photo {d['_hero_variant'] + 1} of {_total}", type="info", timeout=1200)
                 rf()
 
-            # J Way uses a fixed bundled banner (no per-issue hero photo), so
-            # the whole hero-photo control cluster is hidden for J Way issues.
+            # J's Way uses a fixed bundled banner (no per-issue hero photo), so
+            # the whole hero-photo control cluster is hidden for J's Way issues.
             if _slug_ui and (d.get("newsletter_style") or "").strip() != "j_way":
                 with ui.element("div").style("display:flex;align-items:center;gap:8px;margin-bottom:4px;flex-wrap:wrap;"):
                     with ui.element("button").classes("fd-gb").style(
@@ -52251,7 +52365,7 @@ def _server_scheduler_tick():
                 item["sent_at"] = datetime.now().isoformat()
                 total_sent += 1
                 print(f"[ServerSend] ✓ {item.get('to')}  -  {item.get('subject','')[:50]}", flush=True)
-                # 4x4 -> J Way: auto-enroll a non-responder who just finished
+                # 4x4 -> J's Way: auto-enroll a non-responder who just finished
                 # the final email of an Arena 4x4. Best-effort, never blocks.
                 _maybe_handoff_4x4_graduate(item, user_dir)
             else:
