@@ -24098,25 +24098,27 @@ def _render_roundup_html(issue: dict) -> str:
 # ── The Roundup: page (tab body) ───────────────────────────────────────────
 def _roundup_tab(s, rf):
     """Issue list + 'New Issue' for The Roundup. Selecting an issue opens the
-    section editor. Owner edits; Michael views + can send."""
-    _is_owner = ((getattr(s, "_user_email", "") or "").strip().lower()
-                 == _ROUNDUP_OWNER_EMAIL)
+    section editor. Any allowed account (Rothany or Michael) can edit + send;
+    all issues are stored under the owner's folder, so edits share one store."""
+    # The tab only renders for allowed accounts, and issue data always resolves
+    # to the owner's folder regardless of who saves — so both allowed users can
+    # edit the same shared issues.
+    _can_edit = _roundup_allowed(getattr(s, "_user_email", "") or "")
     editing_id = getattr(s, "_roundup_editing_id", None)
     if editing_id:
         issue = _roundup_load_issue(editing_id)
         if issue:
-            _roundup_editor(s, rf, issue, can_edit=_is_owner)
+            _roundup_editor(s, rf, issue, can_edit=_can_edit)
             return
         s._roundup_editing_id = None  # stale id → fall back to list
 
     ui.label("The Roundup").classes("fd-h1").style(
         "margin:0 0 4px;text-align:center;")
     ui.label("Arena's internal company newsletter. "
-             + ("Create or edit an issue, then send it to all staff."
-                if _is_owner else "View issues Rothany has drafted or sent.")
+             "Create or edit an issue, then send it to all staff."
              ).classes("fd-sub").style("text-align:center;margin-bottom:18px;")
 
-    if _is_owner:
+    if _can_edit:
         with ui.element("div").style(
                 "display:flex;justify-content:center;gap:8px;margin-bottom:20px;"):
             _lbl_in = ui.input(placeholder="Issue label, e.g. June 2026").style(
@@ -24136,8 +24138,7 @@ def _roundup_tab(s, rf):
 
     rows = _roundup_index()
     if not rows:
-        ui.label("No issues yet." if _is_owner
-                 else "Rothany hasn't drafted any issues yet.").style(
+        ui.label("No issues yet.").style(
             f"text-align:center;color:{C['muted']};margin-top:24px;")
         return
 
@@ -24160,7 +24161,7 @@ def _roundup_tab(s, rf):
                     rf()
                 with ui.element("button").classes("fd-gb").style(
                         "padding:7px 16px;font-size:12px;").on("click", _open):
-                    ui.label("Open" if _is_owner else "View")
+                    ui.label("Open")
 
 
 def _roundup_editor(s, rf, issue: dict, can_edit: bool):
