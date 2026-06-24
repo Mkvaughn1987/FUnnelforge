@@ -30605,6 +30605,42 @@ def _parse_and_redact_resume(client, raw_text: str, filename: str) -> dict:
     return {"name": filename, "role": "", "bullets": [], "key_skills": []}
 
 
+def _is_redacted_resume_pdf(filename: str) -> bool:
+    """True for the redacted-résumé PDFs that _save_redacted_pdf writes
+    (Resume_<Candidate>_Redacted.pdf). Used to (a) pull them into the
+    dedicated Candidate Résumés picker and (b) exclude them from the
+    generic 'reuse a generated PDF' dropdown so they aren't offered twice."""
+    n = (filename or "").lower()
+    return n.startswith("resume_") and n.endswith("_redacted.pdf")
+
+
+def _redacted_resume_label(filename: str) -> str:
+    """Friendly display name for a redacted résumé file:
+    'Resume_Candidate_A_Redacted.pdf' -> 'Candidate A'. Falls back to the
+    raw filename for anything that isn't a redacted résumé."""
+    if not _is_redacted_resume_pdf(filename):
+        return filename
+    core = filename[len("Resume_"):-len("_Redacted.pdf")]
+    return core.replace("_", " ").strip() or filename
+
+
+def _step_features_candidates(step) -> bool:
+    """True if an email step's body contains candidate-profile content.
+    Covers autogen labels ('Candidate A/B/C') and real-name profiles
+    (a bold header immediately followed by a bullet). Drives whether the
+    Candidate Résumés picker shows on this step (candidate emails only)."""
+    if not isinstance(step, dict):
+        return False
+    if step.get("step_type", "") not in (ST.EMAIL_AUTO, ST.EMAIL_MANUAL, ""):
+        return False
+    body = step.get("body", "") or ""
+    if re.search(r"Candidate [A-Z]\b", body):
+        return True
+    # Real-name profile: a bold header within ~80 chars of a "•" bullet.
+    return bool(re.search(r"<(?:b|strong)>.{0,80}?</(?:b|strong)>.{0,80}?•",
+                          body, re.IGNORECASE | re.DOTALL))
+
+
 def _save_redacted_pdf(candidate_name: str, redacted_text: str) -> str:
     """Save redacted resume text as a simple PDF. Returns the filename."""
     try:
