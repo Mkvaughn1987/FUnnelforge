@@ -15447,7 +15447,12 @@ def _sq_loaded_campaign(s: AppState, rf):
 
                     # Visible action row: Add Attachment + reuse-existing dropdown
                     available_pdfs = sorted(_user_pdf_dir().glob("*.pdf")) if _user_pdf_dir().exists() else []
-                    _reusable_pdfs = [p for p in available_pdfs if p.name not in step_atts]
+                    # Redacted résumés get their own picker (below) on candidate
+                    # emails, so keep them out of the generic dropdown — no file
+                    # should be offered in two places at once.
+                    _reusable_pdfs = [p for p in available_pdfs
+                                      if p.name not in step_atts
+                                      and not _is_redacted_resume_pdf(p.name)]
 
                     with ui.element("div").style(
                             "display:flex;gap:10px;align-items:center;"
@@ -15470,6 +15475,52 @@ def _sq_loaded_campaign(s: AppState, rf):
                                 rf()
                         ui.select(options=_att_options, value="", on_change=_add_att).style(
                             "width:100%;font-size:12px;margin-top:8px;")
+
+                    # Candidate Résumés — only on candidate emails (the email
+                    # actually features candidate profiles). Lists the redacted
+                    # résumés in the user's PDF folder not yet attached to this
+                    # step, each with View (preview in a new tab) + Attach. Never
+                    # auto-attached. See spec 2026-06-22-candidate-resume-picker.
+                    _resume_files = [p for p in available_pdfs
+                                     if _is_redacted_resume_pdf(p.name)
+                                     and p.name not in step_atts]
+                    if _resume_files and _step_features_candidates(steps[active]):
+                        ui.label("Candidate résumés").style(
+                            f"font-size:11px;font-weight:700;color:{C['muted']};"
+                            f"margin-top:12px;text-transform:uppercase;"
+                            f"letter-spacing:0.5px;")
+                        for _rp in _resume_files:
+                            with ui.element("div").style(
+                                    "display:flex;align-items:center;gap:10px;"
+                                    f"padding:7px 12px;margin-top:6px;"
+                                    f"background:{C['card']};"
+                                    f"border:1px solid {C['email_col']}30;"
+                                    "border-radius:8px;"):
+                                ui.label("📄").style("font-size:15px;")
+                                ui.label(_redacted_resume_label(_rp.name)).style(
+                                    f"font-size:12px;font-weight:500;"
+                                    f"color:{C['email_col']};flex:1;")
+                                with ui.link(target=f"/pdfs/{_rp.name}",
+                                             new_tab=True).style(
+                                        "text-decoration:none;font-size:11px;"
+                                        f"color:{C['muted']};white-space:nowrap;"):
+                                    ui.label("👁 View")
+                                def _attach_resume(name=_rp.name, idx=active):
+                                    steps[idx].setdefault(
+                                        "attachments", []).append(name)
+                                    try:
+                                        save_campaign(camp)
+                                    except Exception as _ex:
+                                        print(f"[Attach] save_campaign failed: {_ex}",
+                                              flush=True)
+                                    rf()
+                                with ui.element("button").style(
+                                        f"background:{C['email_col']};color:{C['bg']};"
+                                        "border:none;border-radius:6px;padding:4px 12px;"
+                                        "font-size:11px;font-weight:700;cursor:pointer;"
+                                        "font-family:inherit;white-space:nowrap;"
+                                        ).on("click", _attach_resume):
+                                    ui.label("＋ Attach")
 
             # Generate PDF buttons (not on first email)  -  inline generation + auto-attach
             if is_email_step and active > 0 and ANTHROPIC_API_KEY:
