@@ -15808,6 +15808,23 @@ def _sq_loaded_campaign(s: AppState, rf):
     elif cur_step == "sequence":
         # ── SEQUENCE EDITOR ──────────────────────────────────────────────────
         seq_mode = s._loaded_seq_mode
+        # [LEAK FIX 2026-06-25] Stamp campaign owner at render time (valid
+        # request context) so the sequence-editor autosave handlers can never
+        # fall through to the shared-root LEAK_GUARD when their async event
+        # context lacks a bound user. Covers _save_now / _upd_delay /
+        # _on_date_input and the bare save_campaign(camp) in this editor.
+        try:
+            if isinstance(camp, dict) and not camp.get("_owner_email"):
+                _leakfix_owner = (getattr(s, "_user_email", "") or "").strip()
+                if not _leakfix_owner:
+                    try:
+                        _leakfix_owner = (_CURRENT_USER_EMAIL.get() or app.storage.user.get("email") or "").strip()
+                    except Exception:
+                        _leakfix_owner = ""
+                if _leakfix_owner:
+                    camp["_owner_email"] = _leakfix_owner
+        except Exception:
+            pass
 
         # Mode toggle
         ui.label("Sequence Mode").classes("fd-fl")
