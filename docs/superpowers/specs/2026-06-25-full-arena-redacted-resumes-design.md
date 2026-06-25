@@ -38,6 +38,8 @@ candidate's name and contact info removed** — matching the example PDFs.
   "Candidate A" label shown where the name would be, with no contact block) is the
   only signal — standard recruiter blind-submittal practice.
 - One extra AI call per candidate (to structure the résumé) is acceptable.
+- **Both campaign types upgraded:** Arena 4x4 (AICB) and MPC (CPC). MPC keeps its
+  auto-attach-to-emails-1/3/5 behavior; only résumé quality changes.
 
 ## Non-Goals
 
@@ -135,20 +137,40 @@ build_resume_pdf(_user_pdf_dir() / f"Resume_{slug}_Redacted.pdf", doc)
 Runs in the existing AICB generation worker (already `_run_as_user`-dispatched, so
 `_user_pdf_dir()` resolves per-user). Filenames unchanged → picker still finds them.
 
-`_aicb_card_to_resume_text` loses its only caller and is removed. **`_save_redacted_pdf`
-is KEPT** — it has a second caller in the CPC (candidate placement) flow
-([flowdrip_app.py:38858](../../flowdrip_app.py)) which still relies on the thin
-text→PDF path. See "Out of scope" below.
+`_aicb_card_to_resume_text` loses its only caller and is removed. `_save_redacted_pdf`
+is also retired once the CPC wire-in (below) stops calling it — confirm no remaining
+callers before deleting; otherwise keep it.
 
-## Out of Scope (follow-up)
+### 7. CPC / MPC wire-in (also in scope)
 
-The CPC flow ([flowdrip_app.py:38851-38869](../../flowdrip_app.py)) generates the same
-thin redacted-résumé PDF from an already-redacted `redacted_resume` text and
-auto-attaches it to emails 1/3/5. It has the identical quality problem, but it is a
-different campaign type with different (auto-attach) behavior and its own data path.
-`build_resume_pdf` + the `ResumeDoc` adapters are written reusably so upgrading CPC
-later is small. Not changed in this spec to avoid altering CPC's send behavior
-without explicit sign-off.
+The CPC flow behind MPC campaigns ([flowdrip_app.py:38851-38869](../../flowdrip_app.py))
+builds the same thin résumé from each candidate's already-redacted `redacted_resume`
+text and auto-attaches to emails 1/3/5. Upgrade it to the same renderer:
+
+```
+for _sc in (s.cpc_candidates or [cand]):
+    doc = _build_candidate_resume_doc(client, _sc)      # _sc carries resume_text
+    doc = _redact_resume_doc(doc, known_name=_sc.get("name", ""))
+    _pf = build_resume_pdf(_user_pdf_dir() / f"Resume_{slug(_sc)}_Redacted.pdf", doc)
+```
+
+CPC candidates carry `resume_text` (used by the existing summary/redaction step at
+[flowdrip_app.py:38622](../../flowdrip_app.py)), so the real path applies. **Behavior
+is unchanged** — still auto-attaches the resulting PDFs to emails 1/3/5; only résumé
+quality changes. A `client` is already in scope in the CPC generation worker (verify
+during implementation).
+
+### Header label — never leak a real name
+
+`build_resume_pdf` shows `doc["label"]` where the name goes. A helper
+`_resume_display_label(card)` sets it so a real name is never printed:
+- Autogen letter label ("Candidate A".."Candidate Z") → use it verbatim (ties the
+  résumé to the email blurb).
+- Anything else (a real name from a pool/MPC candidate, or empty) → `"Confidential
+  Candidate"`.
+
+Combined with `_redact_resume_doc` stripping the name from the body, the real name
+appears nowhere in the rendered PDF.
 
 ## Data Flow
 
@@ -187,6 +209,8 @@ Pure-function unit tests (no UI, no live AI):
   employers, dates, city/state, certs.
 - `_build_candidate_resume_doc` dispatch: card with `resume_text` → real path; card
   without → representative path (assert via a monkeypatched/fake client).
+- `_resume_display_label`: "Candidate B" → "Candidate B"; a real name or "" →
+  "Confidential Candidate".
 - `build_resume_pdf`: given a full `ResumeDoc`, writes a non-empty PDF file that
   contains expected section markers (smoke check on byte output / reportlab story).
 
@@ -199,8 +223,9 @@ one, no name/contact on either, clean look with no AI/redaction notes.
 - `funnel_forge/arena_pdfs.py` — new `build_resume_pdf` + helpers (deployed copy synced
   by `_deploy_zero_downtime.sh`).
 - `flowdrip_app.py` — `_normalize_resume_doc`, `_redact_resume_doc`,
-  `_resume_doc_from_text`, `_resume_doc_from_card`, `_build_candidate_resume_doc`;
-  pool→card carries `resume_text`/`name`/`location`; rewire
-  `_aicb_build_redacted_resumes`; remove now-unused `_aicb_card_to_resume_text`
-  (keep `_save_redacted_pdf` — still used by CPC).
+  `_resume_doc_from_text`, `_resume_doc_from_card`, `_build_candidate_resume_doc`,
+  `_resume_display_label`; pool→card carries `resume_text`/`name`/`location`; rewire
+  `_aicb_build_redacted_resumes` AND the CPC/MPC résumé loop
+  (~[L38854](../../flowdrip_app.py)); remove now-unused `_aicb_card_to_resume_text`;
+  retire `_save_redacted_pdf` if no callers remain.
 - `tests/test_full_arena_resumes.py` — new.
