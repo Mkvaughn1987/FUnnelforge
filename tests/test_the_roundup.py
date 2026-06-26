@@ -57,13 +57,14 @@ def test_roundup_index_lists_saved_issues(tmp_path, monkeypatch):
     assert {"May 2026", "June 2026"} <= labels
 
 
-def test_roundup_new_issue_has_default_subject_and_status():
+def test_roundup_new_issue_has_default_subject_and_pdf_format():
     issue = fa._roundup_new_issue("July 2026")
     assert issue["status"] == "draft"
     assert issue["subject"] == "The Roundup — July 2026"
-    assert issue["president"]["title"] == "President & CEO"
-    assert issue["new_items"] == []
-    assert issue["looking_ahead"] == []
+    assert issue["format"] == "pdf"
+    assert issue["pages"] == []
+    assert issue["links"] == []
+    assert issue["pdf_name"] == ""
 
 
 def test_roundup_cache_image_returns_src(monkeypatch):
@@ -132,16 +133,16 @@ def test_render_includes_images_and_footer():
     assert "4750 Ontario Mills Pkwy" in html         # fixed footer
 
 
-def test_render_handles_empty_optionals():
+def test_render_handles_empty_pdf_issue():
     issue = fa._roundup_new_issue("Empty Issue")
-    html = fa._render_roundup_html(issue)
-    # No crash, footer + headings still present, no stray "None".
-    assert "New Items for Empty Issue" in html
-    assert "None" not in html
+    html = fa._render_roundup_html(issue)        # no pages, no links
+    assert "4750 Ontario Mills Pkwy" in html      # footer still renders
+    assert "None" not in html                     # no stray None
+    assert "<img" not in html                     # nothing to stack yet
 
 
 def test_render_escapes_lead_text():
-    issue = fa._roundup_new_issue("X")
+    issue = dict(_sample_issue())                 # _sample_issue has no "format" key
     issue["new_items"] = [{"lead": "A & B <script>", "body": "<p>ok</p>",
                            "image": None}]
     html = fa._render_roundup_html(issue)
