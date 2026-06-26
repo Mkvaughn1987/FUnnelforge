@@ -24079,10 +24079,52 @@ def _roundup_items_html(items: list) -> str:
     return "".join(out)
 
 
+def _render_roundup_pdf_html(issue: dict) -> str:
+    """Render a PDF-format issue: stacked full-width page images, an optional
+    'Links in this issue' block, then the fixed Arena footer."""
+    from html import escape as _esc
+    pages = issue.get("pages") or []
+    links = issue.get("links") or []
+    parts = ['<div style="max-width:700px;margin:0 auto;background:#ffffff;">'
+             '<table role="presentation" width="100%" cellpadding="0" '
+             'cellspacing="0" style="border-collapse:collapse;">']
+    for src in pages:
+        s = (src or "").strip()
+        if not s:
+            continue
+        parts.append(
+            f'<tr><td style="padding:0;"><img src="{s}" '
+            f'style="width:100%;max-width:700px;height:auto;display:block;'
+            f'border:0;"/></td></tr>')
+    if links:
+        parts.append(_roundup_section_bar("🔗 Links in this issue"))
+        items = []
+        for lk in links:
+            url = _esc((lk.get("url") or "").strip())
+            label = _esc((lk.get("label") or lk.get("url") or "").strip())
+            if not url:
+                continue
+            items.append(
+                f'<div style="margin:6px 0;font-size:14px;'
+                f'font-family:Arial,sans-serif;">'
+                f'<a href="{url}" style="color:{_ROUNDUP_BLUE};">{label}</a></div>')
+        if items:
+            parts.append(
+                f'<tr><td style="padding:14px 22px;">{"".join(items)}</td></tr>')
+    parts.append(
+        f'<tr><td style="background:{_ROUNDUP_NAVY};color:#cfd8e3;'
+        f'text-align:center;font-size:12px;padding:16px;'
+        f'font-family:Arial,sans-serif;">{_esc(_ROUNDUP_FOOTER)}</td></tr>')
+    parts.append('</table></div>')
+    return "".join(parts)
+
+
 def _render_roundup_html(issue: dict) -> str:
     """Pure: issue dict → full email HTML in Arena's brand styling, matching
     the April Roundup layout. Editor-authored fields contain HTML and are kept
     as-is; plain-text fields (lead-ins, names) are escaped."""
+    if (issue.get("format") or "").lower() == "pdf":
+        return _render_roundup_pdf_html(issue)
     from html import escape as _esc
     label = (issue.get("issue_label") or "").strip()
     hero = (issue.get("hero_image") or "").strip()

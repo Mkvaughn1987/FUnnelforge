@@ -195,3 +195,36 @@ def test_pdf_to_pages_renders_page_images_and_links(monkeypatch):
 def test_pdf_to_pages_rejects_non_pdf():
     assert fa._roundup_pdf_to_pages(b"this is not a pdf") == ([], [])
     assert fa._roundup_pdf_to_pages(b"") == ([], [])
+
+
+def _pdf_issue(links=True):
+    return {
+        "id": "june-2026", "title": "The Roundup", "issue_label": "June 2026",
+        "subject": "The Roundup — June 2026", "status": "draft", "format": "pdf",
+        "pages": ["https://dripdripdrop.ai/email_img/roundup/p1.png",
+                  "https://dripdripdrop.ai/email_img/roundup/p2.png"],
+        "links": ([{"url": "https://arena.example/apply",
+                    "label": "arena.example/apply"}] if links else []),
+        "pdf_name": "June2026.pdf", "updated_at": "", "sent_at": None,
+    }
+
+
+def test_render_pdf_issue_stacks_pages_and_footer():
+    html = fa._render_roundup_html(_pdf_issue())
+    assert "email_img/roundup/p1.png" in html
+    assert "email_img/roundup/p2.png" in html
+    assert "4750 Ontario Mills Pkwy" in html       # fixed footer kept
+    assert "Marketing Minute" not in html          # no section layout
+
+
+def test_render_pdf_issue_includes_links_block():
+    html = fa._render_roundup_html(_pdf_issue(links=True))
+    assert "Links in this issue" in html
+    assert 'href="https://arena.example/apply"' in html
+    assert "arena.example/apply" in html           # label text
+
+
+def test_render_pdf_issue_omits_links_block_when_none():
+    html = fa._render_roundup_html(_pdf_issue(links=False))
+    assert "Links in this issue" not in html
+    assert "email_img/roundup/p1.png" in html       # pages still render
