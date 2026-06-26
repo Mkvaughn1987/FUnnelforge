@@ -228,3 +228,15 @@ def test_render_pdf_issue_omits_links_block_when_none():
     html = fa._render_roundup_html(_pdf_issue(links=False))
     assert "Links in this issue" not in html
     assert "email_img/roundup/p1.png" in html       # pages still render
+
+
+def test_render_pdf_issue_drops_unsafe_link_schemes():
+    issue = _pdf_issue(links=False)
+    issue["links"] = [
+        {"url": "javascript:alert(1)", "label": "bad"},
+        {"url": "https://safe.example/x", "label": ""},   # label falls back to url
+    ]
+    html = fa._render_roundup_html(issue)
+    assert "javascript:alert(1)" not in html
+    assert 'href="https://safe.example/x"' in html
+    assert "safe.example/x" in html        # fallback label = url text

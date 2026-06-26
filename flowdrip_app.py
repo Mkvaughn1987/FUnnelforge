@@ -24085,6 +24085,7 @@ def _render_roundup_pdf_html(issue: dict) -> str:
     from html import escape as _esc
     pages = issue.get("pages") or []
     links = issue.get("links") or []
+    # 700 px: wider than the legacy 640 px section layout to minimise PDF downscaling.
     parts = ['<div style="max-width:700px;margin:0 auto;background:#ffffff;">'
              '<table role="presentation" width="100%" cellpadding="0" '
              'cellspacing="0" style="border-collapse:collapse;">']
@@ -24100,10 +24101,12 @@ def _render_roundup_pdf_html(issue: dict) -> str:
         parts.append(_roundup_section_bar("🔗 Links in this issue"))
         items = []
         for lk in links:
-            url = _esc((lk.get("url") or "").strip())
-            label = _esc((lk.get("label") or lk.get("url") or "").strip())
-            if not url:
+            url_raw = (lk.get("url") or "").strip()
+            # Links come from PDF annotations (untrusted) — allow only web schemes.
+            if not url_raw.lower().startswith(("https://", "http://")):
                 continue
+            url = _esc(url_raw)
+            label = _esc((lk.get("label") or url_raw or "").strip())
             items.append(
                 f'<div style="margin:6px 0;font-size:14px;'
                 f'font-family:Arial,sans-serif;">'
