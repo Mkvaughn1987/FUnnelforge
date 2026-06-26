@@ -36,14 +36,17 @@ def test_roundup_dir_is_under_owner_root(tmp_path, monkeypatch):
 def test_roundup_issue_save_load_roundtrip(tmp_path, monkeypatch):
     monkeypatch.setattr(fa, "_BASE_DATA_DIR", tmp_path)
     issue = fa._roundup_new_issue("June 2026")
-    issue["marketing_minute"] = "<p>Hello team</p>"
-    issue["new_items"] = [{"lead": "Logos", "body": "<p>x</p>", "image": None}]
+    issue["pdf_name"] = "June2026.pdf"
+    issue["pages"] = ["https://dripdripdrop.ai/email_img/roundup/p1.png"]
+    issue["links"] = [{"url": "https://x.io/a", "label": "x.io/a"}]
     fa._roundup_save_issue(issue)
 
     loaded = fa._roundup_load_issue(issue["id"])
     assert loaded["issue_label"] == "June 2026"
-    assert loaded["marketing_minute"] == "<p>Hello team</p>"
-    assert loaded["new_items"][0]["lead"] == "Logos"
+    assert loaded["format"] == "pdf"
+    assert loaded["pdf_name"] == "June2026.pdf"
+    assert loaded["pages"] == ["https://dripdripdrop.ai/email_img/roundup/p1.png"]
+    assert loaded["links"][0]["url"] == "https://x.io/a"
 
 
 def test_roundup_index_lists_saved_issues(tmp_path, monkeypatch):
@@ -138,7 +141,7 @@ def test_render_handles_empty_pdf_issue():
     html = fa._render_roundup_html(issue)        # no pages, no links
     assert "4750 Ontario Mills Pkwy" in html      # footer still renders
     assert "None" not in html                     # no stray None
-    assert "<img" not in html                     # nothing to stack yet
+    assert "email_img/roundup" not in html        # no page images yet
 
 
 def test_render_escapes_lead_text():
