@@ -24307,62 +24307,58 @@ def _roundup_editor(s, rf, issue: dict, can_edit: bool):
             ui.html(_render_roundup_html(issue))
         return
 
-    # Editable form. Widgets write back into `issue` on save.
+    # PDF-upload form. Subject + uploaded PDF (rendered to stacked page images).
     refs = {}
     with ui.element("div").style("max-width:760px;margin:0 auto;"):
         ui.label("Subject line").classes("fd-fl")
         refs["subject"] = ui.input(value=issue.get("subject", "")).style(
             "width:100%;margin-bottom:14px;")
 
-        refs["hero_image"] = {"v": issue.get("hero_image", "")}
-        _roundup_image_field(s, "Banner image", refs["hero_image"])
+        ui.label("Newsletter PDF").classes("fd-fl")
+        ui.label("Upload your finished newsletter as a PDF. Each page becomes "
+                 "part of the email, exactly as you designed it.").style(
+            f"font-size:12px;color:{C['muted']};margin-bottom:6px;")
 
-        ui.label("Marketing Minute").classes("fd-fl").style("margin-top:14px;")
-        refs["marketing_minute"] = _apply_editor_props(
-            ui.editor(value=issue.get("marketing_minute", "")), _TOOLBAR_FULL
-            ).style("min-height:160px;border-radius:6px;")
-        s._register_qeditor(refs["marketing_minute"], "roundup_marketing_minute")
+        _preview_box = ui.html("")
 
-        ui.label("The Playbook callout").classes("fd-fl").style("margin-top:14px;")
-        refs["playbook_callout"] = _apply_editor_props(
-            ui.editor(value=issue.get("playbook_callout", "")), _TOOLBAR_FULL
-            ).style("min-height:110px;border-radius:6px;")
-        s._register_qeditor(refs["playbook_callout"], "roundup_playbook_callout")
+        def _render_preview():
+            if issue.get("pages"):
+                _preview_box.set_content(
+                    f'<div style="border:1px solid {C["border"]};'
+                    f'border-radius:8px;overflow:hidden;margin:10px 0;">'
+                    f'{_render_roundup_html(issue)}</div>')
+            else:
+                _preview_box.set_content(
+                    '<span style="color:#888;font-size:12px;">'
+                    'No PDF uploaded yet.</span>')
 
-        refs["new_items"] = _roundup_item_list(
-            s, "New Items", issue.get("new_items", []))
-        refs["looking_ahead"] = _roundup_item_list(
-            s, "Looking Ahead", issue.get("looking_ahead", []))
+        async def _on_pdf(e):
+            f = getattr(e, "file", None)
+            if f is None:
+                ui.notify("Upload failed.", type="negative"); return
+            try:
+                raw = await f.read()
+            except Exception:
+                ui.notify("Upload failed.", type="negative"); return
+            pages, links = _roundup_pdf_to_pages(raw)
+            if not pages:
+                ui.notify("That file isn't a readable PDF.", type="negative")
+                return
+            issue["format"] = "pdf"
+            issue["pages"] = pages
+            issue["links"] = links
+            issue["pdf_name"] = getattr(f, "name", "newsletter.pdf")
+            _roundup_save_issue(issue)
+            _render_preview()
+            ui.notify(f"Loaded {len(pages)} page(s).", type="positive")
 
-        ui.label("A Message From the President").classes("fd-fl").style(
-            "margin-top:18px;")
-        pres = issue.get("president", {}) or {}
-        refs["pres_photo"] = {"v": pres.get("photo", "")}
-        _roundup_image_field(s, "President photo", refs["pres_photo"])
-        refs["pres_name"] = ui.input(
-            value=pres.get("name", ""), placeholder="Name").style(
-            "width:100%;margin-top:8px;")
-        refs["pres_title"] = ui.input(
-            value=pres.get("title", "President & CEO"),
-            placeholder="Title").style("width:100%;margin-top:8px;")
-        refs["pres_body"] = _apply_editor_props(
-            ui.editor(value=pres.get("body", "")), _TOOLBAR_FULL
-            ).style("min-height:200px;border-radius:6px;margin-top:8px;")
-        s._register_qeditor(refs["pres_body"], "roundup_pres_body")
+        ui.upload(on_upload=_on_pdf, auto_upload=True,
+                  max_file_size=_ROUNDUP_PDF_MAX_BYTES,
+                  ).props('accept="application/pdf" flat color="teal"')
+        _render_preview()
 
         def _collect():
             issue["subject"] = refs["subject"].value
-            issue["hero_image"] = refs["hero_image"]["v"]
-            issue["marketing_minute"] = refs["marketing_minute"].value
-            issue["playbook_callout"] = refs["playbook_callout"].value
-            issue["new_items"] = [r() for r in refs["new_items"]]
-            issue["looking_ahead"] = [r() for r in refs["looking_ahead"]]
-            issue["president"] = {
-                "photo": refs["pres_photo"]["v"],
-                "body": refs["pres_body"].value,
-                "name": refs["pres_name"].value,
-                "title": refs["pres_title"].value,
-            }
 
         with ui.element("div").style(
                 "display:flex;gap:10px;justify-content:flex-end;margin:22px 0;"):
