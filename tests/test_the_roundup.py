@@ -164,6 +164,7 @@ def test_roundup_link_label_strips_scheme_and_www():
     assert fa._roundup_link_label("https://www.arena.example/apply") == "arena.example/apply"
     assert fa._roundup_link_label("http://x.io/") == "x.io"
     assert fa._roundup_link_label("") == ""
+    assert len(fa._roundup_link_label("https://" + "a" * 65)) == 61  # 60 chars + ellipsis
 
 
 def _one_page_pdf_with_link():
@@ -175,9 +176,10 @@ def _one_page_pdf_with_link():
     page.insert_link({"kind": fitz.LINK_URI,
                       "from": fitz.Rect(20, 60, 160, 80),
                       "uri": "https://arena.example/apply"})
-    raw = doc.tobytes()
-    doc.close()
-    return raw
+    try:
+        return doc.tobytes()
+    finally:
+        doc.close()
 
 
 def test_pdf_to_pages_renders_page_images_and_links(monkeypatch):

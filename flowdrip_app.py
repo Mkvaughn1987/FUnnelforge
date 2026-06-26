@@ -24031,6 +24031,7 @@ def _roundup_pdf_to_pages(raw: bytes):
                 png = page.get_pixmap(dpi=144).tobytes("png")
             except Exception:
                 continue
+            # filename only sets the MIME/extension; _email_img_src names the file by sha1
             src = _roundup_cache_image(png, f"page{i + 1}.png")
             if src:
                 pages.append(src)
