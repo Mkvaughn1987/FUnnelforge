@@ -23986,6 +23986,64 @@ def _roundup_parse_recipients(raw: str) -> list:
     return out
 
 
+# ── The Roundup: PDF → page-image conversion ───────────────────────────────
+_ROUNDUP_PDF_MAX_BYTES = 20 * 1024 * 1024   # 20 MB upload ceiling
+_ROUNDUP_PDF_MAX_PAGES = 30                  # rasterization guardrail
+
+
+def _roundup_link_label(url: str) -> str:
+    """Human-ish label for a raw URL: drop scheme + leading www., trim length."""
+    s = (url or "").strip()
+    low = s.lower()
+    for pre in ("https://", "http://"):
+        if low.startswith(pre):
+            s = s[len(pre):]
+            break
+    if s.lower().startswith("www."):
+        s = s[4:]
+    s = s.rstrip("/")
+    return (s[:60] + "…") if len(s) > 60 else s
+
+
+def _roundup_pdf_to_pages(raw: bytes):
+    """Convert PDF bytes → (page_image_srcs, links).
+
+    Renders each page to a 144-DPI PNG hosted via _roundup_cache_image (https
+    URL in server mode, inline data: URI in desktop/test mode), and extracts
+    embedded hyperlinks (deduped by URL, order preserved). Returns ([], []) on
+    empty / over-limit / unreadable / non-PDF input — never raises."""
+    if not raw or len(raw) > _ROUNDUP_PDF_MAX_BYTES:
+        return [], []
+    try:
+        import fitz  # PyMuPDF
+    except Exception:
+        return [], []
+    try:
+        doc = fitz.open(stream=raw, filetype="pdf")
+    except Exception:
+        return [], []
+    pages, links, seen = [], [], set()
+    try:
+        for i, page in enumerate(doc):
+            if i >= _ROUNDUP_PDF_MAX_PAGES:
+                break
+            try:
+                png = page.get_pixmap(dpi=144).tobytes("png")
+            except Exception:
+                continue
+            src = _roundup_cache_image(png, f"page{i + 1}.png")
+            if src:
+                pages.append(src)
+            for lk in (page.get_links() or []):
+                uri = (lk.get("uri") or "").strip()
+                if uri and uri.lower() not in seen:
+                    seen.add(uri.lower())
+                    links.append({"url": uri, "label": _roundup_link_label(uri)})
+    finally:
+        doc.close()
+    return pages, links
+
+
 # ── The Roundup: email HTML renderer ───────────────────────────────────────
 _ROUNDUP_BLUE = "#2e5c8a"
 _ROUNDUP_NAVY = "#1d3a5f"
@@ -27703,12 +27761,23 @@ def p_seq_mgr(s, rf):
                     # calc). Falls back to the theoretical time when the step
                     # has no queued items (e.g. non-email steps like Calls).
                     # Keyed by subject first, then step name.
+                    #
+                    # SENT/FAILED steps use their real `sent_at` so the column
+                    # reflects when the email ACTUALLY went out. Previously only
+                    # pending entries were indexed, so already-sent steps fell
+                    # through to the theoretical `start_date + delay` calc — and
+                    # when start_date was null that anchored to today, painting
+                    # sent emails with bogus future dates (e.g. a step that sent
+                    # Jun 24 displayed as "Jun 28"). [SENT-DATE FIX 2026-06-25]
                     _queue_by_step_subject = {}
                     _queue_by_step_name = {}
                     for _q in queue:
                         if _q.get("campaign") != cname: continue
-                        if _q.get("status") != "pending": continue
-                        _sdt_q = _q.get("send_dt", "")
+                        _q_status = _q.get("status")
+                        if _q_status == "pending":
+                            _sdt_q = _q.get("send_dt", "")
+                        else:  # sent / failed -> when it actually went out
+                            _sdt_q = _q.get("sent_at") or _q.get("send_dt", "")
                         if not _sdt_q: continue
                         _subj = (_q.get("subject") or "").strip()
                         _sname = (_q.get("step_name") or "").strip()
@@ -27941,10 +28010,10 @@ def p_seq_mgr(s, rf):
                             # Header row
                             with ui.element("div").style(
                                     f"display:grid;"
-                                    f"grid-template-columns:1fr 120px 110px 80px 80px 100px;"
+                                    f"grid-template-columns:1fr 150px 120px 130px 110px 80px 80px 100px;"
                                     f"padding:8px 14px;background:{C['card']};"
                                     f"border-bottom:1px solid {C['border']};"):
-                                for _hdr in ["Contact", "Company", "Progress", "Status", "Remove", "Always-On"]:
+                                for _hdr in ["Contact", "Title", "Company", "Phone", "Progress", "Status", "Remove", "Always-On"]:
                                     ui.label(_hdr).style(
                                         f"font-size:10px;font-weight:700;color:{C['muted']};"
                                         f"text-transform:uppercase;letter-spacing:.06em;")
@@ -27954,6 +28023,9 @@ def p_seq_mgr(s, rf):
                                 _cn2  = (f"{_ct.get('first_name','')} "
                                          f"{_ct.get('last_name','')}").strip() or _cem
                                 _cco  = _ct.get("company","")
+                                _cti  = (_ct.get("title","") or _ct.get("JobTitle","")).strip()
+                                _cph  = (_ct.get("phone_mobile","") or _ct.get("MobilePhone","")
+                                         or _ct.get("phone_office","") or _ct.get("WorkPhone","")).strip()
                                 _cqd  = _cqmap.get(_cem, {})
                                 _last = _cqd.get("last_sent", 0)
                                 _nxt  = _cqd.get("next_touch")
@@ -28014,7 +28086,7 @@ def p_seq_mgr(s, rf):
 
                                 with ui.element("div").style(
                                         f"display:grid;"
-                                        f"grid-template-columns:1fr 120px 110px 80px 80px 100px;"
+                                        f"grid-template-columns:1fr 150px 120px 130px 110px 80px 80px 100px;"
                                         f"padding:10px 14px;background:{_row_bg};"
                                         f"align-items:center;"
                                         + (f"border-bottom:1px solid {C['border']};"
@@ -28028,8 +28100,16 @@ def p_seq_mgr(s, rf):
                                             f"font-size:11px;color:{C['muted']};"
                                             f"white-space:nowrap;overflow:hidden;"
                                             f"text-overflow:ellipsis;")
+                                    ui.label(_cti or "\u2014").style(
+                                        f"font-size:12px;color:{C['text']};"
+                                        f"white-space:nowrap;overflow:hidden;"
+                                        f"text-overflow:ellipsis;")
                                     ui.label(_cco or "\u2014").style(
                                         f"font-size:12px;color:{C['muted']};"
+                                        f"white-space:nowrap;overflow:hidden;"
+                                        f"text-overflow:ellipsis;")
+                                    ui.label(_cph or "\u2014").style(
+                                        f"font-size:12px;color:{C['text']};"
                                         f"white-space:nowrap;overflow:hidden;"
                                         f"text-overflow:ellipsis;")
                                     with ui.element("div").style("min-width:0;"):

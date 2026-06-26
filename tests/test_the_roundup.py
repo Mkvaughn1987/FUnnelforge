@@ -158,3 +158,38 @@ def test_parse_recipients_dedupes_and_validates():
 def test_parse_recipients_empty():
     assert fa._roundup_parse_recipients("") == []
     assert fa._roundup_parse_recipients(None) == []
+
+
+def test_roundup_link_label_strips_scheme_and_www():
+    assert fa._roundup_link_label("https://www.arena.example/apply") == "arena.example/apply"
+    assert fa._roundup_link_label("http://x.io/") == "x.io"
+    assert fa._roundup_link_label("") == ""
+
+
+def _one_page_pdf_with_link():
+    """Build a 1-page PDF (in memory) containing one URI link annotation."""
+    import fitz
+    doc = fitz.open()
+    page = doc.new_page(width=200, height=200)
+    page.insert_text((20, 50), "Hello team")
+    page.insert_link({"kind": fitz.LINK_URI,
+                      "from": fitz.Rect(20, 60, 160, 80),
+                      "uri": "https://arena.example/apply"})
+    raw = doc.tobytes()
+    doc.close()
+    return raw
+
+
+def test_pdf_to_pages_renders_page_images_and_links(monkeypatch):
+    # Desktop/test mode → _roundup_cache_image returns inline data: URIs.
+    monkeypatch.setattr(fa, "_SERVER_MODE", False)
+    pages, links = fa._roundup_pdf_to_pages(_one_page_pdf_with_link())
+    assert len(pages) == 1
+    assert pages[0].startswith("data:image/png;base64,")
+    assert links == [{"url": "https://arena.example/apply",
+                      "label": "arena.example/apply"}]
+
+
+def test_pdf_to_pages_rejects_non_pdf():
+    assert fa._roundup_pdf_to_pages(b"this is not a pdf") == ([], [])
+    assert fa._roundup_pdf_to_pages(b"") == ([], [])

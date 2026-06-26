@@ -1,0 +1,7 @@
+nicegui>=1.4
+python-dotenv
+anthropic
+httpx
+aiofiles
+reportlab
+pymupdf
