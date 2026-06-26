@@ -24036,6 +24036,7 @@ def _roundup_pdf_to_pages(raw: bytes):
             for lk in (page.get_links() or []):
                 uri = (lk.get("uri") or "").strip()
                 if uri and uri.lower() not in seen:
+                    # stored raw; _render_roundup_pdf_html is the scheme-allowlist gate
                     seen.add(uri.lower())
                     links.append({"url": uri, "label": _roundup_link_label(uri)})
     finally:
@@ -24320,8 +24321,14 @@ def _roundup_editor(s, rf, issue: dict, can_edit: bool):
             f"font-size:12px;color:{C['muted']};margin-bottom:6px;")
 
         _preview_box = ui.html("")
+        _name_box = ui.html("")
 
         def _render_preview():
+            from html import escape as _esc
+            name = _esc((issue.get("pdf_name") or "").strip())
+            _name_box.set_content(
+                f'<div style="font-size:12px;color:{C["muted"]};margin:6px 0;">'
+                f'Loaded: {name}</div>' if name else "")
             if issue.get("pages"):
                 _preview_box.set_content(
                     f'<div style="border:1px solid {C["border"]};'
@@ -24333,6 +24340,7 @@ def _roundup_editor(s, rf, issue: dict, can_edit: bool):
                     'No PDF uploaded yet.</span>')
 
         async def _on_pdf(e):
+            _collect()
             f = getattr(e, "file", None)
             if f is None:
                 ui.notify("Upload failed.", type="negative"); return
