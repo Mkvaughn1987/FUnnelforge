@@ -24284,8 +24284,8 @@ def _roundup_tab(s, rf):
 
 
 def _roundup_editor(s, rf, issue: dict, can_edit: bool):
-    """Section-based editor for one issue. can_edit=False → read-only preview
-    (Michael). editor.js rich-text reused via _apply_editor_props."""
+    """PDF-upload editor for one issue. can_edit=False → read-only preview
+    (Michael); can_edit=True → subject field + PDF uploader with live preview."""
     def _back():
         s._roundup_editing_id = None
         rf()
@@ -24367,6 +24367,8 @@ def _roundup_editor(s, rf, issue: dict, can_edit: bool):
                 _roundup_save_issue(issue)
                 ui.notify("Saved.", type="positive")
             def _send():
+                if not issue.get("pages"):
+                    ui.notify("Upload a PDF before sending.", type="warning"); return
                 _collect()
                 _roundup_save_issue(issue)
                 _roundup_send_dialog(s, rf, issue)
