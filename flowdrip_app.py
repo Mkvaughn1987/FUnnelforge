@@ -48191,6 +48191,21 @@ def _4x4_market_snapshot(client, sector: str = "construction and skilled trades"
         return ""
 
 
+def _aicb_force_market_for_4x4(camp_type, is_niche_mode, niche_str,
+                               ind_label, roles_str):
+    """Arena 4×4 is always a market/slate play regardless of how it was
+    reached (entry tile or "search by company" style picker), so its emails
+    must come out identical wherever it is picked. For the ``fourbyfour``
+    type only, force market framing and guarantee a non-empty niche so the
+    market research brief is never blank when the user arrived via the
+    company tile without choosing a niche. Pure — no AI call, no state."""
+    if (camp_type or "").strip() == "fourbyfour":
+        is_niche_mode = True
+        if not (niche_str or "").strip():
+            niche_str = (ind_label or roles_str or "your market").strip()
+    return is_niche_mode, niche_str
+
+
 def _4x4_email_prompt(sig_name: str, company: str,
                       industry: str, location: str) -> str:
     """Build the Arena 4x4's 4-email generation prompt, aimed at an INDUSTRY +
