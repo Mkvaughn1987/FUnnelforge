@@ -4823,6 +4823,56 @@ def save_campaign(camp):
     tmp.replace(p)
     _cache_campaigns.invalidate()
 
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  API KEYS  -  per-user keys for the campaign create+launch API. Stored as
+#  sha256(key) -> {email, label, created} in a global store under the shared
+#  data root. The plaintext key is shown once at mint time and never persisted.
+# ═══════════════════════════════════════════════════════════════════════════
+def _api_keys_path() -> Path:
+    """Global API-key store: sha256(key) -> {email, label, created}."""
+    _BASE_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    return _BASE_DATA_DIR / "api_keys.json"
+
+
+def _hash_api_key(key: str) -> str:
+    return hashlib.sha256((key or "").encode("utf-8")).hexdigest()
+
+
+def _load_api_keys() -> dict:
+    p = _api_keys_path()
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def _mint_api_key(email: str, label: str = "") -> str:
+    """Generate a new API key for `email`, persist its hash, return plaintext once."""
+    key = "dd_live_" + secrets.token_urlsafe(32)
+    data = _load_api_keys()
+    data[_hash_api_key(key)] = {
+        "email": (email or "").strip().lower(),
+        "label": label or "",
+        "created": datetime.now().isoformat(),
+    }
+    p = _api_keys_path()
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    tmp.replace(p)
+    return key
+
+
+def _resolve_api_key(key: str):
+    """Return the owner email for a valid key, else None."""
+    if not key:
+        return None
+    rec = _load_api_keys().get(_hash_api_key(key))
+    return rec.get("email") if rec else None
+
+
 def cancel_campaign_queue(camp_name: str) -> int:
     """Cancel all pending queue items for a campaign by name.
     Returns the number of items cancelled.
