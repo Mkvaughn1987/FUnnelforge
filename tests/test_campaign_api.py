@@ -88,3 +88,61 @@ def test_schedule_from_steps_4x4_business_days():
     assert dates == ["2026-07-06", "2026-07-09", "2026-07-09",
                      "2026-07-15", "2026-07-21"]
     assert sched[2]["type"] == "call" and sched[2]["step"] == 3
+
+
+# ── generation function (extracted core) ───────────────────────────
+class _FakeMsg:
+    def __init__(self, text):
+        self.content = [type("B", (), {"text": text})()]
+
+
+class _FakeClient:
+    """Returns a market brief on the 1st call, campaign JSON on the 2nd."""
+    def __init__(self):
+        self.messages = self
+        self._n = 0
+
+    def create(self, **kw):
+        self._n += 1
+        if self._n == 1:
+            return _FakeMsg("Brief: Acme hires Plant Managers in Windsor, CO.")
+        import json as _j
+        camp = {
+            "synopsis": "S",
+            "campaign_name": "Acme - Plant Manager Campaign",
+            "emails": [
+                {"name": "Step 1", "subject": "Plant Manager Candidates Available",
+                 "body": "Intro — with an em dash", "delay_days": 0, "time": "9:00 AM",
+                 "step_type": "email_auto"},
+                {"name": "Step 2", "subject": "Top Talent Insights",
+                 "body": "Insights", "delay_days": 3, "time": "9:00 AM",
+                 "step_type": "email_auto"},
+            ],
+        }
+        return _FakeMsg(_j.dumps(camp))
+
+
+def test_generate_aicb_campaign_returns_normalized_emails(monkeypatch):
+    # Avoid the live web-search cited-stats call.
+    monkeypatch.setattr(fa, "_fetch_cited_market_stats", lambda *a, **k: [])
+    monkeypatch.setattr(fa, "_format_cited_stats_block", lambda *a, **k: "")
+    monkeypatch.setattr(fa.time, "sleep", lambda *a, **k: None)
+    out = fa.generate_aicb_campaign(
+        _FakeClient(),
+        camp_type="fourbyfour",
+        company="Acme Manufacturing",
+        website="acme.com",
+        niche="food processing",
+        industry="manufacturing",
+        roles=["Plant Manager"],
+        location="Windsor, CO",
+        candidate_cards=[{"label": "Candidate A", "role": "Plant Manager",
+                          "bullets": ["12 yrs", "PMP"]}],
+    )
+    assert out["campaign_name"]
+    assert len(out["emails"]) == 2
+    # Post-processing ran: dash stripped, FirstName greeting present, 4x4 wrap.
+    b0 = out["emails"][0]["body"]
+    assert "—" not in b0           # em dash stripped by the humanizer
+    assert "Hi {FirstName}" in b0
+    assert "font-size:11pt" in b0   # _wrap_4x4_font applied for fourbyfour
