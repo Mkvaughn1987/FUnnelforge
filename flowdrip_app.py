@@ -48206,6 +48206,35 @@ def _aicb_force_market_for_4x4(camp_type, is_niche_mode, niche_str,
     return is_niche_mode, niche_str
 
 
+def _aicb_candidate_weave_block(camp_type):
+    """Placement + angle instructions for the candidate-highlights block.
+    Arena 4×4 lists the slate on EVERY email (its spec promises "candidate
+    highlights on every email"); every other campaign type weaves candidates
+    into every other email starting from Email 2. Pure — returns prompt text
+    only. Caller splices this between the count preamble and the label rules."""
+    if (camp_type or "").strip() == "fourbyfour":
+        return (
+            'Include ALL candidates on EVERY email (Email 1, 2, 3, and 4). '
+            'Each time you feature them, use a DIFFERENT angle:\n'
+            '  - Email 1: Introduction & current availability — 3 bullets per candidate\n'
+            '  - Email 2: Experience & qualifications — 3 bullets per candidate\n'
+            '  - Email 3: Why they fit this role/market — 3 bullets per candidate\n'
+            '  - Email 4: Availability & urgency (competing interest, closing window) — 3 bullets per candidate\n'
+            'Do NOT leave any email without the candidate slate.\n'
+        )
+    return (
+        'Weave candidates into EVERY OTHER email '
+        'starting from Email 2 (NOT Email 1). Each '
+        'time you feature them, use a DIFFERENT angle:\n'
+        '  - Email 2: Experience & qualifications — 3 bullets per candidate\n'
+        '  - Email 4: Why they fit THIS company — 3 bullets per candidate\n'
+        '  - Email 6+: Availability & urgency (competing interest, closing window)\n'
+        'Emails WITHOUT candidates (1, 3, 5, etc.) — '
+        'focus on market insights, value props, or '
+        'data only.\n'
+    )
+
+
 def _4x4_email_prompt(sig_name: str, company: str,
                       industry: str, location: str) -> str:
     """Build the Arena 4x4's 4-email generation prompt, aimed at an INDUSTRY +
