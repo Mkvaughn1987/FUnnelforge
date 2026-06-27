@@ -3,7 +3,24 @@
 Spec: docs/superpowers/specs/2026-06-27-campaign-create-launch-api-design.md
 Plan: docs/superpowers/plans/2026-06-27-campaign-create-launch-api.md
 """
+import pytest
 import flowdrip_app as fa
+
+
+@pytest.fixture(autouse=True)
+def _restore_user_ctx():
+    """The route binds global user context (_CURRENT_USER_EMAIL /
+    _switch_to_user_paths). Snapshot + restore it so these tests never leak
+    that state into the rest of the suite."""
+    try:
+        before = fa._CURRENT_USER_EMAIL.get()
+    except Exception:
+        before = None
+    yield
+    try:
+        fa._CURRENT_USER_EMAIL.set(before)
+    except Exception:
+        pass
 
 
 def _isolate_keys(tmp_path, monkeypatch):
@@ -149,14 +166,32 @@ def test_generate_aicb_campaign_returns_normalized_emails(monkeypatch):
 
 
 # ── the POST /api/v1/campaigns route ───────────────────────────────
-from fastapi.testclient import TestClient
+# Call the async handler directly with a fake Request — avoids booting the
+# whole NiceGUI app via TestClient (which is slow and pollutes the suite).
+import asyncio
+import json as _json
 
 
-def _client():
-    return TestClient(fa.app)
+class _FakeReq:
+    def __init__(self, headers, body):
+        self.headers = headers
+        self._body = body
+
+    async def json(self):
+        if isinstance(self._body, Exception):
+            raise self._body
+        return self._body
+
+
+def _call(headers, body):
+    """Invoke the route handler; return (status_code, parsed_json_body)."""
+    resp = asyncio.run(fa.api_create_campaign(_FakeReq(headers, body)))
+    return resp.status_code, _json.loads(resp.body)
 
 
 def _stub_pipeline(monkeypatch, queued=1, raise_queue=None):
+    # Keep the route from mutating global per-user path state during tests.
+    monkeypatch.setattr(fa, "_switch_to_user_paths", lambda *a, **k: None)
     monkeypatch.setattr(fa, "generate_aicb_campaign", lambda *a, **k: {
         "synopsis": "S", "campaign_name": "Acme - Plant Manager Campaign",
         "emails": [
@@ -199,18 +234,16 @@ _SPEC = {"template": "fourbyfour", "company": "Acme Manufacturing",
 
 def test_route_requires_auth(tmp_path, monkeypatch):
     _isolate_keys(tmp_path, monkeypatch)
-    r = _client().post("/api/v1/campaigns", json=_SPEC)
-    assert r.status_code == 401
+    status, _ = _call({}, _SPEC)
+    assert status == 401
 
 
 def test_route_happy_path_owner_from_key(tmp_path, monkeypatch):
     _isolate_keys(tmp_path, monkeypatch)
     cap = _stub_pipeline(monkeypatch)
     key = fa._mint_api_key("rep@arena.com")
-    r = _client().post("/api/v1/campaigns", json=_SPEC,
-                       headers={"Authorization": f"Bearer {key}"})
-    assert r.status_code == 200, r.text
-    body = r.json()
+    status, body = _call({"authorization": f"Bearer {key}"}, _SPEC)
+    assert status == 200, body
     assert body["steps"] == 5
     assert body["contacts_queued"] == 1
     assert len(body["schedule"]) == 5
@@ -224,15 +257,13 @@ def test_route_bad_template_400(tmp_path, monkeypatch):
     _stub_pipeline(monkeypatch)
     key = fa._mint_api_key("rep@arena.com")
     bad = dict(_SPEC, template="nope")
-    r = _client().post("/api/v1/campaigns", json=bad,
-                       headers={"Authorization": f"Bearer {key}"})
-    assert r.status_code == 400
+    status, _ = _call({"authorization": f"Bearer {key}"}, bad)
+    assert status == 400
 
 
 def test_route_queue_valueerror_422(tmp_path, monkeypatch):
     _isolate_keys(tmp_path, monkeypatch)
     _stub_pipeline(monkeypatch, raise_queue=ValueError("unfilled placeholder"))
     key = fa._mint_api_key("rep@arena.com")
-    r = _client().post("/api/v1/campaigns", json=_SPEC,
-                       headers={"Authorization": f"Bearer {key}"})
-    assert r.status_code == 422
+    status, _ = _call({"authorization": f"Bearer {key}"}, _SPEC)
+    assert status == 422
