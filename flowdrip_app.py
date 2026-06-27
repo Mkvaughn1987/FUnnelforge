@@ -34838,6 +34838,14 @@ def p_ai_campaign(s: AppState, rf):
                         niche_str = s.aicb_niche or ""
                         is_niche_mode = bool(niche_str) and not company
                         is_both = bool(company) and bool(niche_str)
+                        # Arena 4×4 is always a market/slate play regardless of
+                        # entry point, so its emails come out identical wherever
+                        # it is picked. Force market framing (brief, style_note,
+                        # and "MARKET BRIEF" label all key off is_niche_mode)
+                        # and guarantee a non-empty niche for the brief.
+                        is_niche_mode, niche_str = _aicb_force_market_for_4x4(
+                            s.aicb_camp_type, is_niche_mode, niche_str,
+                            ind_label, roles_str)
 
                         if is_niche_mode:
                             # Niche/market mode  -  no specific company
