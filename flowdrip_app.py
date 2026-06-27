@@ -4873,6 +4873,71 @@ def _resolve_api_key(key: str):
     return rec.get("email") if rec else None
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+#  CAMPAIGN API helpers  -  spec validation, contacts CSV parsing, schedule.
+# ═══════════════════════════════════════════════════════════════════════════
+def _parse_contacts_csv(csv_text: str) -> list:
+    """Parse raw CSV text into normalized contact dicts (email/first_name/...)."""
+    text = (csv_text or "").strip()
+    if not text:
+        return []
+    import csv as _csv
+    import io as _io
+    out = []
+    reader = _csv.DictReader(_io.StringIO(text))
+    for row in reader:
+        def g(*keys):
+            return next((row[k] for k in keys if row.get(k)), "")
+        out.append({
+            "email": g("email", "Email").strip(),
+            "first_name": g("first_name", "FirstName").strip(),
+            "last_name": g("last_name", "LastName").strip(),
+            "company": g("company", "Company").strip(),
+            "title": g("title", "JobTitle", "Title").strip(),
+        })
+    return [c for c in out if c["email"]]
+
+
+_VALID_TEMPLATES = {ct[0] for ct in AICB_CAMPAIGN_TYPES}
+
+
+def _validate_campaign_spec(spec: dict):
+    """Return an error string if the spec is invalid, else None."""
+    if not isinstance(spec, dict):
+        return "Body must be a JSON object."
+    tmpl = (spec.get("template") or "").strip()
+    if tmpl not in _VALID_TEMPLATES:
+        return f"Unknown template '{tmpl}'. Valid: {sorted(_VALID_TEMPLATES)}."
+    if not (spec.get("company") or "").strip() and not (spec.get("niche") or "").strip():
+        return "Provide at least one of 'company' or 'niche'."
+    sd = (spec.get("start_date") or "").strip()
+    try:
+        date.fromisoformat(sd)
+    except Exception:
+        return "Invalid 'start_date' — use ISO format YYYY-MM-DD."
+    return None
+
+
+def _schedule_from_steps(steps: list, start_date: str) -> list:
+    """Resolve each step's calendar date from cumulative delay_days over
+    business days — mirrors how queue_campaign_emails schedules sends."""
+    try:
+        start_dt = date.fromisoformat(start_date)
+    except Exception:
+        start_dt = date.today()
+    out = []
+    cum = 0
+    for i, st in enumerate(steps, 1):
+        cum += int(st.get("delay_days", 0) or 0)
+        d = _add_business_days(start_dt, cum)
+        out.append({
+            "step": i,
+            "type": (st.get("step_type") or "email_auto"),
+            "date": d.isoformat(),
+        })
+    return out
+
+
 def cancel_campaign_queue(camp_name: str) -> int:
     """Cancel all pending queue items for a campaign by name.
     Returns the number of items cancelled.
