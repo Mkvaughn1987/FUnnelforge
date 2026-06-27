@@ -5217,6 +5217,108 @@ def generate_aicb_campaign(client, *, camp_type, company="", website="",
     return campaign_data
 
 
+@app.post("/api/v1/campaigns")
+async def api_create_campaign(request: Request):
+    """Create + launch an AICB campaign from a posted spec. Auth via a per-user
+    API key (Authorization: Bearer <key>); the owner is taken from the key, so
+    a key can only ever write to its own account."""
+    from starlette.responses import JSONResponse
+
+    auth = request.headers.get("authorization", "")
+    key = (auth[7:].strip() if auth.lower().startswith("bearer ")
+           else request.headers.get("x-api-key", "").strip())
+    owner = _resolve_api_key(key)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+
+    try:
+        spec = await request.json()
+    except Exception:
+        return JSONResponse({"error": "body must be valid JSON"}, status_code=400)
+
+    err = _validate_campaign_spec(spec if isinstance(spec, dict) else {})
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
+
+    contacts = spec.get("contacts")
+    if not isinstance(contacts, list):
+        contacts = _parse_contacts_csv(spec.get("contacts_csv", ""))
+
+    if not ANTHROPIC_API_KEY:
+        return JSONResponse({"error": "AI not configured on server"}, status_code=503)
+
+    # Bind user context so save/queue land in the key owner's account.
+    _CURRENT_USER_EMAIL.set(owner)
+    try:
+        _switch_to_user_paths(owner)
+    except Exception:
+        pass
+
+    import anthropic
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    template = spec["template"].strip()
+    try:
+        campaign_data = generate_aicb_campaign(
+            client,
+            camp_type=template,
+            company=(spec.get("company") or "").strip(),
+            website=(spec.get("website") or "").strip(),
+            niche=(spec.get("niche") or "").strip(),
+            industry=(spec.get("industry") or "").strip(),
+            roles=list(spec.get("roles") or []),
+            location=(spec.get("location") or "").strip(),
+            candidate_cards=list(spec.get("candidates") or []),
+        )
+    except RuntimeError as ge:
+        return JSONResponse({"error": f"generation failed: {ge}"}, status_code=502)
+    except Exception as ge:
+        return JSONResponse({"error": f"generation error: {ge}"}, status_code=500)
+
+    emails = campaign_data.get("emails", [])
+    campaign_data.pop("_brief", None)
+    start_date = spec["start_date"].strip()
+
+    camp = {
+        "name": (spec.get("name") or campaign_data.get("campaign_name")
+                 or f"{template} Campaign").strip(),
+        "emails": emails,
+        "synopsis": campaign_data.get("synopsis", ""),
+        "contacts": contacts,
+        "start_date": start_date,
+        "aicb_camp_type": template,
+        "template_key": template,
+        "_chooser_origin": template,
+        "_owner_email": owner,
+        "variables": {
+            "CompanyName": (spec.get("company") or "").strip(),
+            "TargetRole": ", ".join(spec.get("roles") or []),
+            "Geography": (spec.get("location") or "").strip(),
+            "Industry": (spec.get("industry") or "").strip(),
+        },
+    }
+
+    try:
+        save_campaign(camp)
+        queued = queue_campaign_emails(camp)
+    except ValueError as qe:
+        return JSONResponse({"error": str(qe)}, status_code=422)
+    except Exception as qe:
+        return JSONResponse({"error": f"launch failed: {qe}"}, status_code=500)
+
+    resp = {
+        "campaign_id": Path(camp.get("_path", "")).stem or camp["name"],
+        "name": camp["name"],
+        "steps": len(emails),
+        "contacts_queued": queued,
+        "start_date": start_date,
+        "schedule": _schedule_from_steps(emails, start_date),
+    }
+    if queued == 0:
+        resp["warning"] = ("no contacts queued (empty list or all filtered by "
+                           "DNC/opt-out/MX)")
+    return JSONResponse(resp, status_code=200)
+
+
 def cancel_campaign_queue(camp_name: str) -> int:
     """Cancel all pending queue items for a campaign by name.
     Returns the number of items cancelled.

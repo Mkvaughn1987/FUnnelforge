@@ -146,3 +146,93 @@ def test_generate_aicb_campaign_returns_normalized_emails(monkeypatch):
     assert "—" not in b0           # em dash stripped by the humanizer
     assert "Hi {FirstName}" in b0
     assert "font-size:11pt" in b0   # _wrap_4x4_font applied for fourbyfour
+
+
+# ── the POST /api/v1/campaigns route ───────────────────────────────
+from fastapi.testclient import TestClient
+
+
+def _client():
+    return TestClient(fa.app)
+
+
+def _stub_pipeline(monkeypatch, queued=1, raise_queue=None):
+    monkeypatch.setattr(fa, "generate_aicb_campaign", lambda *a, **k: {
+        "synopsis": "S", "campaign_name": "Acme - Plant Manager Campaign",
+        "emails": [
+            {"subject": "Plant Manager Candidates Available", "body": "Hi {FirstName},",
+             "delay_days": 0, "time": "9:00 AM", "step_type": "email_auto"},
+            {"subject": "Top Talent Insights", "body": "Hi {FirstName},",
+             "delay_days": 3, "time": "9:00 AM", "step_type": "email_auto"},
+            {"subject": "", "body": "Call script", "delay_days": 0, "time": "10:00 AM",
+             "step_type": "call"},
+            {"subject": "Thoughts on this?", "body": "Hi {FirstName},",
+             "delay_days": 4, "time": "9:00 AM", "step_type": "email_auto"},
+            {"subject": "Market Trends", "body": "Hi {FirstName},",
+             "delay_days": 4, "time": "9:00 AM", "step_type": "email_auto"},
+        ],
+    })
+    captured = {}
+
+    def _fake_save(camp):
+        camp["_path"] = "/tmp/Acme_Plant_Manager.json"
+        captured["camp"] = camp
+    monkeypatch.setattr(fa, "save_campaign", _fake_save)
+
+    def _fake_queue(camp, start_step=0):
+        if raise_queue:
+            raise raise_queue
+        captured["queued_camp"] = camp
+        return queued
+    monkeypatch.setattr(fa, "queue_campaign_emails", _fake_queue)
+    return captured
+
+
+_SPEC = {"template": "fourbyfour", "company": "Acme Manufacturing",
+         "website": "acme.com", "niche": "food processing",
+         "industry": "manufacturing", "roles": ["Plant Manager"],
+         "location": "Windsor, CO", "start_date": "2026-07-06",
+         "candidates": [{"label": "Candidate A", "role": "Plant Manager",
+                         "bullets": ["12 yrs"]}],
+         "contacts": [{"email": "vp@acme.com", "first_name": "Dana"}]}
+
+
+def test_route_requires_auth(tmp_path, monkeypatch):
+    _isolate_keys(tmp_path, monkeypatch)
+    r = _client().post("/api/v1/campaigns", json=_SPEC)
+    assert r.status_code == 401
+
+
+def test_route_happy_path_owner_from_key(tmp_path, monkeypatch):
+    _isolate_keys(tmp_path, monkeypatch)
+    cap = _stub_pipeline(monkeypatch)
+    key = fa._mint_api_key("rep@arena.com")
+    r = _client().post("/api/v1/campaigns", json=_SPEC,
+                       headers={"Authorization": f"Bearer {key}"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["steps"] == 5
+    assert body["contacts_queued"] == 1
+    assert len(body["schedule"]) == 5
+    # Owner came from the key, not the body.
+    assert cap["camp"]["_owner_email"] == "rep@arena.com"
+    assert cap["camp"]["aicb_camp_type"] == "fourbyfour"
+
+
+def test_route_bad_template_400(tmp_path, monkeypatch):
+    _isolate_keys(tmp_path, monkeypatch)
+    _stub_pipeline(monkeypatch)
+    key = fa._mint_api_key("rep@arena.com")
+    bad = dict(_SPEC, template="nope")
+    r = _client().post("/api/v1/campaigns", json=bad,
+                       headers={"Authorization": f"Bearer {key}"})
+    assert r.status_code == 400
+
+
+def test_route_queue_valueerror_422(tmp_path, monkeypatch):
+    _isolate_keys(tmp_path, monkeypatch)
+    _stub_pipeline(monkeypatch, raise_queue=ValueError("unfilled placeholder"))
+    key = fa._mint_api_key("rep@arena.com")
+    r = _client().post("/api/v1/campaigns", json=_SPEC,
+                       headers={"Authorization": f"Bearer {key}"})
+    assert r.status_code == 422
