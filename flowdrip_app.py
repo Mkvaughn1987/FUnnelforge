@@ -4081,10 +4081,11 @@ AICB_CAMPAIGN_TYPES = [
      "Soft close. Include a DIFFERENT angle on the same candidate  -  this time focus on availability "
      "and what makes them a fit for this specific company. 3 bullet points: availability, culture fit, "
      "and a unique differentiator. Then keep the door open."),
-    ("fourbyfour", "Arena 4×4", "4 steps - 2 weeks", "#7C3AED",
+    ("fourbyfour", "Arena 4×4", "5 steps - 2 weeks", "#7C3AED",
      "Arena's signature BD play. Market a 4-5 candidate slate to companies hiring your role. "
      "Email 1 is anchored to a real advertised role; the next three reinforce with market "
-     "insights, proven results, and trends. Candidate highlights on every email.",
+     "insights, proven results, and trends. Candidate highlights on every email. "
+     "A follow-up phone call goes out the same day as email 2.",
      "Slate outreach - hot roles - team playbook",
      "Step 1 - Introducing Available Talent (delay_days:0, step_type:email_auto) - "
      "Subject like '<Role> Candidates Available' using the actual role they are hiring for "
@@ -4100,13 +4101,18 @@ AICB_CAMPAIGN_TYPES = [
      "Subject 'Top Talent Insights'. Note that the best candidates are gainfully employed and "
      "passively looking, include 3-4 real market facts (jobs added, unemployment rate, wage "
      "growth) if available — never fabricate stats — then the same candidate highlights. Soft CTA.\n"
-     "Step 3 - Proven Results (delay_days:4, step_type:email_auto) - "
+     "Step 3 - Follow-up Call (delay_days:0, step_type:call) - "
+     "SAME DAY as the Top Talent Insights email above — keep delay_days:0, do NOT push it to the next day. "
+     "Put the call script in the body. Reference the Top Talent Insights email and the candidate slate you "
+     "sent, ask if they had a chance to look at the profiles, and quick-qualify their hiring timeline. "
+     "Keep it conversational, not pushy.\n"
+     "Step 4 - Proven Results (delay_days:4, step_type:email_auto) - "
      "Subject 'Thoughts on this?'. Present the firm's proven results as a bullet list: High "
      "Success Rate (80-90% fill rate, 2-3 week fill time), Contingency-Based (no cost to review "
      "candidates), Replacement Guarantee (replaced at no cost if a hire doesn't work out), "
      "Cost-Effective (internal hiring can cost $25,000+ per role), Competitive Advantage. Then "
      "the candidate highlights. CTA.\n"
-     "Step 4 - Market Trends & Final Note (delay_days:4, step_type:email_auto) - "
+     "Step 5 - Market Trends & Final Note (delay_days:4, step_type:email_auto) - "
      "Subject 'Market Trends and Hiring Solutions for <Role>' using the actual role (write "
      "the real role in — no literal brackets). Share a few genuine market "
      "updates, a warm soft close ('if now is not the right time, that's ok too'), and mention "
@@ -35080,9 +35086,10 @@ def p_ai_campaign(s: AppState, rf):
                             f'For LinkedIn steps, put the connection/DM message in the "body" field.\n'
                             f'For Call steps, put the call script in the "body" field.\n'
                             f'For Task steps, put the task instructions in the "body" field.\n\n'
-                            f'CRITICAL: Each step MUST have a unique delay_days value. '
-                            f'delay_days is RELATIVE  -  the number of days AFTER the previous step (NOT cumulative from start). '
-                            f'Step 1 is always 0. Never set multiple steps to 0 except the first. '
+                            f'CRITICAL: delay_days is RELATIVE  -  the number of days AFTER the previous step (NOT cumulative from start). '
+                            f'Step 1 is always 0. Give each step a distinct delay_days so steps do not pile onto one day, '
+                            f'EXCEPT a step the sequence explicitly marks delay_days:0 (an intentional same-day touch, '
+                            f'e.g. a call paired with the email before it) — keep that step at 0. '
                             f'Example for a 3-month campaign: 0, 2, 1, 4, 7, 7, 7, 3, 4, 7, 7, 3, 4, 7, 7, 3, 4, 7.\n\n'
                             + _style_guide_prompt() +
                             f'CRITICAL: Every email body MUST start with "Hi {{FirstName}}," on the first line.\n\n'
