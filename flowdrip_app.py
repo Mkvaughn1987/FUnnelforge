@@ -35037,8 +35037,20 @@ def p_ai_campaign(s: AppState, rf):
 
                 # Free Flow first
                 byos_inp = None
-                _all_types = [ct for ct in AICB_CAMPAIGN_TYPES if ct[0] == "byos"] + \
-                             [ct for ct in AICB_CAMPAIGN_TYPES if ct[0] != "byos"]
+                # Arena 4×4 is a dedicated market/slate play offered only via
+                # the "Arena 4×4" tile on the chooser page (that tile locks the
+                # style and skips this picker). When the user is targeting a
+                # single company it must NOT appear in the style list. Hide it
+                # in company mode and reset any stale 4×4 selection so the
+                # wizard can't generate a 4×4 from the company path.
+                _picker_mode = getattr(s, "aicb_target_mode", "company") or "company"
+                _hide_4x4 = (_picker_mode == "company")
+                if _hide_4x4 and (s.aicb_camp_type or "") == "fourbyfour":
+                    s.aicb_camp_type = "byos"
+                _src_types = [ct for ct in AICB_CAMPAIGN_TYPES
+                              if not (_hide_4x4 and ct[0] == "fourbyfour")]
+                _all_types = [ct for ct in _src_types if ct[0] == "byos"] + \
+                             [ct for ct in _src_types if ct[0] != "byos"]
                 for ckey, cname, cmeta, ccolor, cdesc, cbest, cseq in _all_types:
                     is_sel = s.aicb_camp_type == ckey
                     def _pick_type(k=ckey):
