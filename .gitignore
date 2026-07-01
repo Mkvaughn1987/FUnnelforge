@@ -25,3 +25,15 @@ funnelforge_config.json
 funnel-forge/node_modules/
 funnel-forge/.next/
 funnel-forge/.env*
+
+# Secrets — NEVER commit (root .env holds ANTHROPIC_API_KEY etc.)
+.env
+.env.*
+
+# Local editor/runtime state (personal, not shared)
+.nicegui/
+.claude/settings.local.json
+
+# Large archives & one-off backup copies (Git history IS the backup)
+*.zip
+*.broken_backup
