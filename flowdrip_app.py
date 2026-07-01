@@ -53299,19 +53299,61 @@ def index():
 #   - Updates item status to "sent" or "failed" in the per-user queue file
 #   - Rate-limits to 2 seconds between sends to avoid API throttling
 
-_SERVER_SEND_INTERVAL = 60  # seconds between scheduler ticks
+_SERVER_SEND_INTERVAL = 30  # seconds between scheduler ticks
+
 _SERVER_INTER_EMAIL_PAUSE = 2  # seconds between individual emails
 
-# ── Deliverability pacing ────────────────────────────────────────────────
+# ── Deliverability pacing (PER-CAMPAIGN) ─────────────────────────────────
 # Sending a whole batch of due emails at once (e.g. a step scheduled for 50
-# contacts) bursts ~30/min and gets accounts blocked. Instead, trickle: send
-# at most _SERVER_SENDS_PER_TICK email(s) per eligible tick PER USER, with a
-# jittered gap of ~_SERVER_MIN_SEND_GAP seconds between sends, so a batch is
-# spread over time. Tunable per user via config key "send_gap_seconds"
-# (seconds; 0 disables pacing). Default 90s ≈ a 50-email batch over ~1.5 hours.
-_SERVER_MIN_SEND_GAP = 90      # base seconds between a user's sends (jittered up to 2x)
-_SERVER_SENDS_PER_TICK = 1     # emails sent per eligible tick per user
-_next_user_send_at = {}        # user_dir.name -> epoch when next eligible (in-memory)
+# contacts) bursts and gets accounts blocked. Instead, trickle. Pacing is
+# PER CAMPAIGN: each campaign sends <=1 email per `send_gap_seconds`, but
+# different campaigns may fire in the SAME tick (parallel across campaigns),
+# so one large campaign can't starve the others (head-of-line blocking).
+# Total throughput is still bounded per account by `daily_send_limit`.
+# Tunable per user via config key "send_gap_seconds" (seconds; 0 disables).
+_SERVER_MIN_SEND_GAP = 90      # default base seconds between a campaign's sends (jittered up to 2x)
+_next_campaign_send_at = {}    # uname -> {campaign: epoch when next eligible} (in-memory)
+
+
+def _select_due_per_campaign(due, now_epoch, gap, next_campaign_send_at,
+                             remaining_budget, jitter=None):
+    """Per-CAMPAIGN deliverability pacing (pure; unit-tested).
+
+    From `due` (pending+due items in priority order) pick at most ONE item per
+    campaign whose campaign is eligible (now_epoch >= its next-send time), up
+    to `remaining_budget` items total. Different campaigns may be selected in
+    the same call — they send in parallel — so one large campaign can't
+    monopolize the throttle and starve the others.
+
+    Side effect: for each campaign selected, sets its next eligible time in
+    `next_campaign_send_at` (mutated in place) to now_epoch + gap + jitter(gap).
+    Skipped campaigns are left untouched so they stay eligible on a later tick.
+
+    gap <= 0 disables pacing: returns due[:remaining_budget] and does not touch
+    the gate. `jitter` is a callable gap->float (defaults to
+    random.uniform(0, gap)); injectable so tests are deterministic.
+    """
+    if remaining_budget <= 0:
+        return []
+    if gap <= 0:
+        return list(due[:remaining_budget])
+    if jitter is None:
+        import random as _rng
+        jitter = lambda g: _rng.uniform(0, g)
+    selected = []
+    picked = set()
+    for item in due:
+        if len(selected) >= remaining_budget:
+            break
+        camp = item.get("campaign", "")
+        if camp in picked:
+            continue  # already taking one from this campaign this tick
+        if now_epoch < next_campaign_send_at.get(camp, 0):
+            continue  # this campaign isn't eligible yet
+        selected.append(item)
+        picked.add(camp)
+        next_campaign_send_at[camp] = now_epoch + gap + jitter(gap)
+    return selected
 
 _MAX_SEND_RETRIES = 3  # transient send failures retried this many times before giving up
 
@@ -53624,32 +53666,28 @@ def _server_scheduler_tick():
         if _remaining_budget == 0:
             print(f"[ServerSend] {user_dir.name}: daily limit reached ({_daily_limit}/day, {_sent_today} sent today)  -  holding {len(due)} email(s)", flush=True)
             continue
-        if len(due) > _remaining_budget:
-            print(f"[ServerSend] {user_dir.name}: throttling to {_remaining_budget} of {len(due)} due (limit {_daily_limit}/day, {_sent_today} already sent)", flush=True)
-            due = due[:_remaining_budget]
 
-        # ── Deliverability pacing: trickle, don't burst ──────────────────
-        # Send ≤_SERVER_SENDS_PER_TICK email(s) per eligible tick per user, with
-        # a jittered gap between sends, so a batch of due emails is spread out
-        # instead of fired all at once (bursts get accounts blocked).
+        # ── Deliverability pacing: PER-CAMPAIGN, parallel across campaigns ──
+        # Each campaign trickles <=1 email per `send_gap_seconds`; different
+        # campaigns may fire in the same tick, so a big campaign can't starve
+        # the others. Still bounded by the per-account daily budget above.
         _gap = _user_cfg.get("send_gap_seconds", _SERVER_MIN_SEND_GAP)
         try:
             _gap = int(_gap)
         except Exception:
             _gap = _SERVER_MIN_SEND_GAP
-        if _gap > 0:
-            import random as _rng
-            _uname = user_dir.name
-            _now_epoch = time.time()
-            if _now_epoch < _next_user_send_at.get(_uname, 0):
-                # Not eligible yet — hold this user's batch for a later tick.
-                continue
-            if len(due) > _SERVER_SENDS_PER_TICK:
-                print(f"[ServerSend] {_uname}: pacing — sending {_SERVER_SENDS_PER_TICK} of "
-                      f"{len(due)} due now, next in ~{_gap}s (deliverability throttle)", flush=True)
-                due = due[:_SERVER_SENDS_PER_TICK]
-            # Next eligible send time for this user (jittered 1x–2x the gap).
-            _next_user_send_at[_uname] = _now_epoch + _gap + _rng.uniform(0, _gap)
+        _camp_gate = _next_campaign_send_at.setdefault(user_dir.name, {})
+        _due_before = len(due)
+        due = _select_due_per_campaign(
+            due, time.time(), _gap, _camp_gate, _remaining_budget,
+        )
+        if not due:
+            continue
+        if len(due) < _due_before:
+            _ncamps = len({i.get("campaign", "") for i in due})
+            print(f"[ServerSend] {user_dir.name}: per-campaign pacing — sending "
+                  f"{len(due)} from {_ncamps} campaign(s) of {_due_before} due "
+                  f"(gap {_gap}s/campaign)", flush=True)
 
         # Send each due item
         changed = False
