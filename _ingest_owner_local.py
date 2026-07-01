@@ -65,12 +65,24 @@ def extract_text(p: Path) -> str:
 
 
 def parse(text: str) -> dict:
-    msg = client.messages.create(
-        model="claude-haiku-4-5-20251001", max_tokens=600,
-        system="You extract structured candidate data from résumés. JSON only.",
-        messages=[{"role": "user", "content": PROMPT + "\n\nRÉSUMÉ:\n<<<\n" + text[:6000] + "\n>>>"}])
-    m = re.search(r"\{.*\}", msg.content[0].text, re.DOTALL)
-    return json.loads(m.group()) if m else {}
+    last = None
+    for attempt in range(4):  # retry on rate-limit / overload at volume
+        try:
+            msg = client.messages.create(
+                model="claude-haiku-4-5-20251001", max_tokens=600,
+                system="You extract structured candidate data from résumés. JSON only.",
+                messages=[{"role": "user",
+                           "content": PROMPT + "\n\nRÉSUMÉ:\n<<<\n" + text[:6000] + "\n>>>"}])
+            m = re.search(r"\{.*\}", msg.content[0].text, re.DOTALL)
+            return json.loads(m.group()) if m else {}
+        except Exception as e:
+            last = e
+            es = str(e).lower()
+            if any(s in es for s in ("overload", "rate", "429", "529", "timeout", "connection")):
+                time.sleep(2 * (attempt + 1))
+                continue
+            raise
+    raise last
 
 
 def is_resume(d: dict) -> bool:
