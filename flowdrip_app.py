@@ -22776,7 +22776,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
         # Format: The J's Way (plain text) vs Full Send (current rich/branded).
         ui.label("Newsletter Style").classes("fd-fl")
         _style_toggle = ui.toggle(
-            {"full_send": "🚀 Full Send", "j_way": "✍️ The J's Way"},
+            {"full_send": "🚀 Full with pictures", "j_way": "✍️ Organic, text only"},
             value=(prefill.get("newsletter_style") or "full_send")).props(
             "no-caps").style("margin:2px 0 4px 0;")
         _style_desc = ui.label("").style(
@@ -22785,12 +22785,12 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
         def _upd_style_desc():
             if (_style_toggle.value or "") == "j_way":
                 _style_desc.set_text(
-                    "The J's Way — plain-text and personal. A simple market snapshot written "
+                    "Organic, text only — plain-text and personal. A simple market snapshot written "
                     "like a note: live BLS highlights, a short market read, and your available "
                     "talent. No graphics or branding — the low-key style that gets replies.")
             else:
                 _style_desc.set_text(
-                    "Full Send — the full branded newsletter: header, styled sections, your "
+                    "Full with pictures — the full branded newsletter: header, styled sections, your "
                     "logo and colors, market-data cards, and featured candidates. Maximum polish.")
         _style_toggle.on_value_change(_upd_style_desc)
         _upd_style_desc()
