@@ -22687,16 +22687,15 @@ def _render_nl_first_gen_status(s, rf) -> None:
                     f"font-size:11px;color:{C['muted']};line-height:1.5;"
                     f"display:block;")
 
+        _inline_editor = None
         if _body0:
-            # The saved body IS the fully-rendered newsletter HTML — render it
-            # in a white, scrollable panel (inline email styles render cleanly
-            # without an iframe).
-            ui.html(
-                f'<div style="background:#FFFFFF;color:#0F172A;'
-                f'border:1px solid {C["border"]};border-radius:8px;'
-                f'max-height:52vh;overflow:auto;padding:16px;'
-                f'font-family:Arial,sans-serif;">{_body0}</div>'
-            )
+            # Editable inline preview: the SAME ui.editor the full modal uses,
+            # so the user can tweak this issue right here and hit "Save Changes"
+            # without opening the modal. Its .value is the issue HTML.
+            _inline_editor = _apply_editor_props(
+                ui.editor(value=_body0), _TOOLBAR_FULL).style(
+                "min-height:340px;max-height:52vh;overflow:auto;"
+                "border-radius:8px;background:#FFFFFF;")
         else:
             ui.label(
                 "The issue generated but has no preview body yet — open it in "
@@ -22726,6 +22725,57 @@ def _render_nl_first_gen_status(s, rf) -> None:
             s._nl_first_gen_done = False
             rf()
 
+        def _save_inline():
+            if _inline_editor is None:
+                ui.notify("Nothing to edit yet — open it in the editor.",
+                          type="warning"); return
+            _nb = (_inline_editor.value or "").strip()
+            if not _nb:
+                ui.notify("Nothing to save yet.", type="warning"); return
+            _c = next((c for c in load_campaigns()
+                       if c.get("name") == _camp_name), None)
+            if not _c or not (_c.get("emails") or []):
+                ui.notify("Couldn't load the newsletter — refresh the page.",
+                          type="warning"); return
+            _step = _c["emails"][0]
+            _sn = (_step.get("name") or "").strip()
+            _ps = (_step.get("subject") or "").strip()
+            _step["body"] = _nb
+            _step["confirmed"] = True
+            _step["auto_confirmed"] = False
+            save_campaign(_c)
+            # Push the edit into matching pending queue items (same positive-
+            # match rule the full editor's save uses).
+            try:
+                _qp = _user_queue_path()
+                if _qp.exists():
+                    _q = json.loads(_qp.read_text(encoding="utf-8"))
+                    if isinstance(_q, list):
+                        _n = 0
+                        for _it in _q:
+                            if _it.get("campaign") != _c.get("name"):
+                                continue
+                            if _it.get("status") != "pending":
+                                continue
+                            _qn = (_it.get("step_name") or "").strip()
+                            _qs = (_it.get("subject") or "").strip()
+                            _m = (_qn == _sn) if _sn else (bool(_ps) and _qs == _ps)
+                            if _m:
+                                _it["body"] = _nb
+                                _n += 1
+                        if _n:
+                            _qp.write_text(json.dumps(_q, indent=2),
+                                           encoding="utf-8")
+            except Exception as _ex:
+                print(f"[NewsletterFirstIssue] queue sync warn: {_ex}",
+                      flush=True)
+            try:
+                _cache_campaigns.invalidate()
+            except Exception:
+                pass
+            ui.notify("Saved. Auto-refresh will leave this issue alone now.",
+                      type="positive")
+
         with ui.element("div").style(
                 "display:flex;gap:8px;justify-content:flex-end;"
                 "align-items:center;margin-top:12px;"):
@@ -22733,6 +22783,10 @@ def _render_nl_first_gen_status(s, rf) -> None:
                     "padding:8px 16px;font-size:12px;").on(
                     "click", _dismiss_done):
                 ui.label("Dismiss").style("pointer-events:none;")
+            with ui.element("button").classes("fd-pb").style(
+                    "padding:8px 18px;font-size:12px;").on(
+                    "click", _save_inline):
+                ui.label("✓ Save Changes").style("pointer-events:none;")
             with ui.element("button").classes("fd-pb").style(
                     "padding:8px 18px;font-size:12px;").on(
                     "click", _preview_first_issue):
