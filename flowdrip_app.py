@@ -4902,13 +4902,25 @@ def _parse_contacts_csv(csv_text: str) -> list:
     for row in reader:
         def g(*keys):
             return next((row[k] for k in keys if row.get(k)), "")
-        out.append({
+        _c = {
             "email": g("email", "Email").strip(),
-            "first_name": g("first_name", "FirstName").strip(),
-            "last_name": g("last_name", "LastName").strip(),
+            "first_name": g("first_name", "FirstName", "First Name").strip(),
+            "last_name": g("last_name", "LastName", "Last Name").strip(),
             "company": g("company", "Company").strip(),
             "title": g("title", "JobTitle", "Title").strip(),
-        })
+        }
+        # Phone / LinkedIn columns (e.g. from ZoomInfo pulls) so the same-day
+        # call cards show click-to-call numbers. A single "Phone" -> office.
+        _office = g("phone_office", "WorkPhone", "work_phone", "Phone", "phone").strip()
+        _mobile = g("phone_mobile", "MobilePhone", "mobile", "Mobile", "cell", "Cell").strip()
+        _li = g("linkedin", "LinkedIn", "linkedin_url", "LinkedIn URL", "linkedinurl").strip()
+        if _office:
+            _c["phone_office"] = _office
+        if _mobile:
+            _c["phone_mobile"] = _mobile
+        if _li:
+            _c["linkedin"] = _li
+        out.append(_c)
     return [c for c in out if c["email"]]
 
 
@@ -6115,11 +6127,17 @@ def build_drip_tasks(target_date=None):
                 else:
                     if sd != target_date:
                         continue
+                # Accept several phone-key aliases so numbers show however they
+                # were provided (ZoomInfo / API dicts / CSV): mobile -> C, office -> B.
                 phones = []
-                if c.get("phone_mobile"):
-                    phones.append(dict(number=c["phone_mobile"], label="Mobile"))
-                if c.get("phone_office"):
-                    phones.append(dict(number=c["phone_office"], label="Office"))
+                _mob = (c.get("phone_mobile") or c.get("mobile") or c.get("cell")
+                        or c.get("MobilePhone") or "").strip()
+                _off = (c.get("phone_office") or c.get("phone") or c.get("Phone")
+                        or c.get("WorkPhone") or c.get("work_phone") or "").strip()
+                if _mob:
+                    phones.append(dict(number=_mob, label="Mobile"))
+                if _off and _off != _mob:
+                    phones.append(dict(number=_off, label="Office"))
                 tasks.append(dict(
                     id=task_id,
                     channel="call" if ch == ST.CALL else ("li" if ch == ST.LINKEDIN else "task"),
