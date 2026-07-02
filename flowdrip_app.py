@@ -2864,6 +2864,20 @@ def _send_email_universal(to: str, subject: str, html_body: str,
         _CURRENT_USER_EMAIL.set(_for_user_email)
         _switch_to_user_paths(_for_user_email)
 
+    # Preview sends bypass the queue/scheduler, so merge tokens ({FirstName}
+    # etc.) were never substituted and the recipient saw a literal "{FirstName}".
+    # Fill them from the user's own identity so a preview reads "Hi Michael,".
+    if is_preview:
+        _pc = _preview_self_contact(None)
+        _pitem = {
+            "first_name": _pc.get("first_name", ""),
+            "last_name": _pc.get("last_name", ""),
+            "contact_company": _pc.get("company", ""),
+            "contact_title": _pc.get("title", ""),
+        }
+        subject = _apply_merge_tokens(subject, _pitem)
+        html_body = _apply_merge_tokens(html_body, _pitem)
+
     # Universal em/en-dash scrub  -  catches previews, test sends, and any
     # one-off path that bypasses queue_campaign_emails().
     subject = _strip_dashes(subject)
@@ -45415,20 +45429,48 @@ def _jway_render(d: dict, contact_name: str) -> str:
     def _esc(x):
         return (str(x or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
+    def _md(x):
+        # Escape first (so user/AI text can't inject HTML), then honor the
+        # **bold** emphasis the AI marks on key phrases/numbers.
+        s = _esc(x)
+        return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", s)
+
     def _ul(items):
-        lis = "".join(f"<li style='margin:3px 0;'>{_esc(x)}</li>" for x in (items or []) if x)
+        # Market bullets: dotted list with inline **bold** honored.
+        lis = "".join(f"<li style='margin:3px 0;'>{_md(x)}</li>" for x in (items or []) if x)
         return (f"<ul style='margin:4px 0 14px 0;padding-left:20px;'>{lis}</ul>") if lis else ""
 
     P = ("margin:0 0 12px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;"
          "line-height:1.6;color:#222;")
+    # Section headers: bold + underlined, per the house newsletter style.
     H = ("margin:18px 0 4px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;"
-         "font-weight:bold;color:#111;")
+         "font-weight:bold;text-decoration:underline;color:#111;")
+    # Candidate detail line style (tight dash bullets).
+    DL = ("margin:2px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;"
+          "line-height:1.5;color:#222;")
+
+    def _detail_line(s):
+        # "Label: value" -> "- <strong>Label:</strong> value". Strips any dash
+        # the AI already prefixed; plain dash line when there is no label.
+        t = str(s or "").strip().lstrip("-").strip()
+        if not t:
+            return ""
+        if ":" in t:
+            lbl, _, val = t.partition(":")
+            return (f"<p style='{DL}'>- <strong>{_esc(lbl.strip())}:</strong> "
+                    f"{_md(val.strip())}</p>")
+        return f"<p style='{DL}'>- {_md(t)}</p>"
+
+    _sector = (d.get("sector") or "").strip()
+    _lc_sfx = f" (What matters for {_sector})" if _sector else ""
+    _tk_sfx = f" for {_sector} and Skilled Trades" if _sector else ""
+
     out = []
     # Personal greeting — {FirstName} is substituted per recipient at send
     # time (_apply_merge_tokens); falls back to "Hi there," when unknown.
     out.append(f"<p style='{P}'>Hi {{FirstName}},</p>")
     if d.get("intro"):
-        out.append(f"<p style='{P}'>{_esc(d['intro'])}</p>")
+        out.append(f"<p style='{P}'>{_md(d['intro'])}</p>")
     out.append(f"<p style='{P}'>If I missed anything or you want to dig into something "
                f"further, just let me know - happy to discuss.</p>")
     # Fixed Arena "Recruitment Rundown" banner — J's Way is Arena-only, so this
@@ -45447,9 +45489,9 @@ def _jway_render(d: dict, contact_name: str) -> str:
             out.append(f"<p style='{P}'>Source: U.S. Bureau of Labor Statistics - "
                        f"<a href='{_esc(d['source_url'])}'>Article here</a></p>")
     for _key, _lbl in (("key_highlights", "Key Highlights"),
-                       ("sector_strength", "Sector Strength"),
-                       ("labor_context", "Labor Market Context"),
-                       ("takeaway", "Takeaway: What This Means")):
+                       ("sector_strength", f"Sector Strength ({_sector})" if _sector else "Sector Strength"),
+                       ("labor_context", f"Labor Market Context{_lc_sfx}"),
+                       ("takeaway", f"Takeaway: What This Means{_tk_sfx}")):
         if d.get(_key):
             out.append(f"<p style='{H}'>{_lbl}:</p>{_ul(d[_key])}")
     cands = d.get("candidates") or []
@@ -45459,11 +45501,22 @@ def _jway_render(d: dict, contact_name: str) -> str:
             _hdr = c.get("label") or "Candidate"
             if c.get("role"):
                 _hdr += f": {c['role']}"
-            out.append(f"<p style='{P}margin-bottom:2px;'><strong>{_esc(_hdr)}</strong></p>")
-            out.append(_ul(c.get("bullets")))
+            # Candidate name: bold + underlined.
+            out.append(f"<p style='{P}margin-bottom:2px;'>"
+                       f"<strong><u>{_esc(_hdr)}</u></strong></p>")
+            for _b in (c.get("bullets") or []):
+                out.append(_detail_line(_b))
             if (c.get("salary") or "").strip():
-                out.append(f"<p style='{P}margin-top:-8px;'>{_esc(c['salary'])}</p>")
-    out.append(f"<p style='{P}'>{_esc(d.get('signoff') or 'Thank you, and I hope this was helpful!')}</p>")
+                _sv = c["salary"].strip()
+                if ":" in _sv:
+                    _sl, _, _svv = _sv.partition(":")
+                    out.append(f"<p style='{DL}margin-top:6px;'>"
+                               f"<strong>{_esc(_sl.strip())}:</strong> {_md(_svv.strip())}</p>")
+                else:
+                    out.append(f"<p style='{DL}margin-top:6px;'><strong>{_md(_sv)}</strong></p>")
+    out.append(f"<p style='{P}margin-top:14px;'>"
+               f"{_md(d.get('signoff') or 'Thank you, and I hope this was helpful!')}</p>")
+    out.append(f"<p style='{P}margin-top:2px;'>Warm regards,</p>")
     return _strip_dashes("".join(out))
 
 
@@ -45504,18 +45557,19 @@ def _generate_jway_newsletter(client, camp: dict, nl_name: str, company: str,
         f"{_cand_instr}\n\n"
         f"Return ONLY valid JSON:\n"
         f'{{"subject":"plain, specific subject for this issue",'
-        f'"intro":"2-3 warm sentences introducing a quick, simple market snapshot for {sector}. Do NOT open with a greeting or the recipient name; a Hi {{FirstName}}, line is added automatically",'
+        f'"intro":"1-2 SHORT, personable sentences: open with a warm seasonal touch tied to {month_year} (the month, the season, or a nearby holiday), then a brief nod to the {sector} market snapshot below. Warm and human, not corporate. Do NOT greet by name; a Hi {{FirstName}}, line is added automatically",'
         f'"highlights_label":"Highlights ({month_year})",'
         f'"highlights":["4 short bullets of REAL BLS data: jobs added, unemployment, wage growth YoY, average workweek"],'
         f'"snapshot_title":"{(sector or "Labor").title()} Labor Market Snapshot - {month_year}",'
         f'"source_url":"the real BLS jobs-report URL, or empty string",'
-        f'"key_highlights":["3-4 bullets, real numbers"],'
-        f'"sector_strength":["3-4 bullets specific to {niche or sector}"],'
-        f'"labor_context":["3-4 bullets: what matters for {niche or sector} hiring"],'
-        f'"takeaway":["3-4 bullets: what this means for {sector} and skilled trades"],'
-        f'"candidates":[{{"label":"Candidate A","role":"job title","bullets":["Experience: ...","Skills: ...","Proficiencies: ...","Industry Background: ..."],"salary":"Target Salary: $.."}}],'
+        f'"key_highlights":["EXACTLY 4 substantive bullets, each a full sentence with a real number AND why it matters; wrap the single key stat or phrase in **double asterisks**"],'
+        f'"sector_strength":["EXACTLY 4 substantive bullets specific to {niche or sector} - name real sub-sectors and dynamics (supply chain, OEMs, defense, etc.); **bold** the key phrase in each"],'
+        f'"labor_context":["EXACTLY 4 substantive bullets on what matters for {niche or sector} hiring right now; **bold** the key phrase in each"],'
+        f'"takeaway":["EXACTLY 4 substantive bullets on what this means for {sector} and skilled trades; **bold** the key phrase in each"],'
+        f'"candidates":[{{"label":"Candidate A","role":"specific job title","bullets":["Experience: N+ years ...","Skills: ...","Proficiencies: (name real tools/software) ...","Additional Skills: ...","Industry Background: ...","Preferred Shift: Open"],"salary":"Target Salary: $.."}}],'
         f'"signoff":"Thank you, and I hope this was helpful!"}}\n'
-        f"Plain text inside all fields — no HTML, no markdown, no emoji.")
+        f"No HTML, no emoji. Plain text EXCEPT you may wrap a few key phrases "
+        f"in **double asterisks** for bold emphasis (no other markdown).")
     try:
         msg = _claude_create_with_retry(
             client, model="claude-haiku-4-5-20251001", max_tokens=4000,
@@ -45534,6 +45588,8 @@ def _generate_jway_newsletter(client, camp: dict, nl_name: str, company: str,
         print(f"[JWayNewsletter] AI call failed: {e}", flush=True)
         return (None, None)
     subject = (d.get("subject") or "").strip() or f"{(sector or 'Market').title()} Snapshot - {month_year}"
+    # Sector label for the section headers (e.g. "Sector Strength (Manufacturing)").
+    d.setdefault("sector", (niche or sector or "").strip().title())
     return (_strip_dashes(subject), _jway_render(d, contact_name))
 
 
