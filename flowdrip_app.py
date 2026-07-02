@@ -8500,6 +8500,9 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
                 to=email_addr,
                 to_name=f"{first} {last}".strip(),
                 contact_name=f"{first} {last}".strip(),
+                first_name=first,
+                last_name=last,
+                contact_title=title,
                 contact_company=company,
                 subject=subj,
                 body=_queue_body,
@@ -45421,6 +45424,9 @@ def _jway_render(d: dict, contact_name: str) -> str:
     H = ("margin:18px 0 4px 0;font-family:Arial,Helvetica,sans-serif;font-size:14px;"
          "font-weight:bold;color:#111;")
     out = []
+    # Personal greeting — {FirstName} is substituted per recipient at send
+    # time (_apply_merge_tokens); falls back to "Hi there," when unknown.
+    out.append(f"<p style='{P}'>Hi {{FirstName}},</p>")
     if d.get("intro"):
         out.append(f"<p style='{P}'>{_esc(d['intro'])}</p>")
     out.append(f"<p style='{P}'>If I missed anything or you want to dig into something "
@@ -45498,7 +45504,7 @@ def _generate_jway_newsletter(client, camp: dict, nl_name: str, company: str,
         f"{_cand_instr}\n\n"
         f"Return ONLY valid JSON:\n"
         f'{{"subject":"plain, specific subject for this issue",'
-        f'"intro":"2-3 warm sentences introducing a quick, simple market snapshot for {sector}",'
+        f'"intro":"2-3 warm sentences introducing a quick, simple market snapshot for {sector}. Do NOT open with a greeting or the recipient name; a Hi {{FirstName}}, line is added automatically",'
         f'"highlights_label":"Highlights ({month_year})",'
         f'"highlights":["4 short bullets of REAL BLS data: jobs added, unemployment, wage growth YoY, average workweek"],'
         f'"snapshot_title":"{(sector or "Labor").title()} Labor Market Snapshot - {month_year}",'
@@ -53471,6 +53477,36 @@ def _resolve_body_from_campaign(item: dict, user_dir: Path) -> str:
     return (step.get("body") or "").strip()
 
 
+def _apply_merge_tokens(text: str, item: dict) -> str:
+    """Replace {FirstName}/{LastName}/{Company}/{JobTitle} in `text` with the
+    recipient's details from a queue item, at SEND time.
+
+    Campaign bodies are substituted at queue time, so this is a no-op for them
+    (fast-path: returns unchanged when there is no "{"). Newsletters defer their
+    body, so this is where their auto "Hi {FirstName}," greeting and any tokens
+    the user typed get personalized per recipient.
+
+    First name comes from the explicit `first_name` field, else the first word
+    of `contact_name`/`to_name`; it falls back to "there" so a greeting reads
+    "Hi there," not "Hi ,". Other tokens fall back to empty string.
+    """
+    if not text or "{" not in text:
+        return text or ""
+    _name = (item.get("contact_name") or item.get("to_name") or "").strip()
+    _parts = _name.split()
+    first = (item.get("first_name") or (_parts[0] if _parts else "")).strip()
+    last = (item.get("last_name")
+            or (" ".join(_parts[1:]) if len(_parts) > 1 else "")).strip()
+    for token, value in (
+        ("{FirstName}", first or "there"),
+        ("{LastName}", last),
+        ("{Company}", (item.get("contact_company") or "").strip()),
+        ("{JobTitle}", (item.get("contact_title") or "").strip()),
+    ):
+        text = text.replace(token, value)
+    return text
+
+
 def _server_send_one(item: dict, config_path: Path, user_dir: Path = None) -> tuple:
     """Send one queued email using the user's connected OAuth provider.
     Tries Microsoft Graph first, then Gmail. Returns (success, error).
@@ -53494,6 +53530,12 @@ def _server_send_one(item: dict, config_path: Path, user_dir: Path = None) -> tu
         # Newsletter HTML is pre-rendered; if we just loaded it, mark as html.
         if body and not is_html:
             is_html = True
+
+    # Per-recipient merge tokens ({FirstName} etc.). No-op for campaign items
+    # (already substituted at queue time); powers deferred newsletter bodies
+    # and the auto "Hi {FirstName}," greeting.
+    subject = _apply_merge_tokens(subject, item)
+    body = _apply_merge_tokens(body, item)
 
     if not to or not subject:
         return False, "Missing recipient or subject"
