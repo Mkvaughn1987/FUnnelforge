@@ -4095,11 +4095,11 @@ AICB_CAMPAIGN_TYPES = [
      "Soft close. Include a DIFFERENT angle on the same candidate  -  this time focus on availability "
      "and what makes them a fit for this specific company. 3 bullet points: availability, culture fit, "
      "and a unique differentiator. Then keep the door open."),
-    ("fourbyfour", "Arena 4×4", "5 steps - 2 weeks", "#7C3AED",
+    ("fourbyfour", "Arena 4×4", "6 steps - 2 weeks", "#7C3AED",
      "Arena's signature BD play. Market a 4-5 candidate slate to companies hiring your role. "
      "Email 1 is anchored to a real advertised role; the next three reinforce with market "
      "insights, proven results, and trends. Candidate highlights on every email. "
-     "A follow-up phone call goes out the same day as email 2.",
+     "A follow-up phone call and a LinkedIn connect both go out the same day as email 2.",
      "Slate outreach - hot roles - team playbook",
      "Step 1 - Introducing Available Talent (delay_days:0, step_type:email_auto) - "
      "Subject like '<Role> Candidates Available' using the actual role they are hiring for "
@@ -4120,13 +4120,18 @@ AICB_CAMPAIGN_TYPES = [
      "Put the call script in the body. Reference the Top Talent Insights email and the candidate slate you "
      "sent, ask if they had a chance to look at the profiles, and quick-qualify their hiring timeline. "
      "Keep it conversational, not pushy.\n"
-     "Step 4 - Proven Results (delay_days:4, step_type:email_auto) - "
+     "Step 4 - LinkedIn Connect (delay_days:0, step_type:linkedin) - "
+     "SAME DAY as the Follow-up Call above — keep delay_days:0 so it goes out at the same time "
+     "as the call, do NOT push it to the next day. Connection message under 300 characters: "
+     "'Sent you an email  -  wanted to connect here as well. Always sharing industry insights "
+     "and market data in your space.'\n"
+     "Step 5 - Proven Results (delay_days:4, step_type:email_auto) - "
      "Subject 'Thoughts on this?'. Present the firm's proven results as a bullet list: High "
      "Success Rate (80-90% fill rate, 2-3 week fill time), Contingency-Based (no cost to review "
      "candidates), Replacement Guarantee (replaced at no cost if a hire doesn't work out), "
      "Cost-Effective (internal hiring can cost $25,000+ per role), Competitive Advantage. Then "
      "the candidate highlights. CTA.\n"
-     "Step 5 - Market Trends & Final Note (delay_days:4, step_type:email_auto) - "
+     "Step 6 - Market Trends & Final Note (delay_days:4, step_type:email_auto) - "
      "Subject 'Market Trends and Hiring Solutions for <Role>' using the actual role (write "
      "the real role in — no literal brackets). Share a few genuine market "
      "updates, a warm soft close ('if now is not the right time, that's ok too'), and mention "
