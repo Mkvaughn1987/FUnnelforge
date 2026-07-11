@@ -4969,6 +4969,49 @@ def _schedule_from_steps(steps: list, start_date: str) -> list:
     return out
 
 
+def _api_enroll_newsletter(newsletter_name: str, contacts: list) -> dict:
+    """Enroll `contacts` into the named evergreen campaign (newsletter / Slow
+    Drip) for the CURRENT user. Powers the campaign API's optional
+    `enroll_newsletter` field so one call can both launch the outbound
+    campaign AND drop the same contacts into an ongoing newsletter (otherwise
+    a launch-page-only action).
+
+    Best-effort and never raises: the campaign has already launched by the time
+    this runs, so a missing newsletter or a per-contact failure comes back in
+    the summary rather than failing the request. Returns:
+      {"matched": bool, "newsletter"/"requested": str, "enrolled": int,
+       "results": {<enroll_contact_in_evergreen status>: count}, and
+       "available": [names] when no match}.
+    Match is case-insensitive on the trimmed name, restricted to evergreen
+    campaigns (the only ones enroll_contact_in_evergreen accepts)."""
+    want = (newsletter_name or "").strip().lower()
+    evergreens = [c for c in load_campaigns() if c.get("evergreen_only")]
+    target = next(
+        (c for c in evergreens if (c.get("name") or "").strip().lower() == want),
+        None,
+    )
+    if target is None:
+        return {
+            "matched": False,
+            "requested": newsletter_name,
+            "enrolled": 0,
+            "available": [c.get("name") for c in evergreens],
+        }
+    counts: dict = {}
+    for ct in (contacts or []):
+        try:
+            status = enroll_contact_in_evergreen(ct, target)
+        except Exception:
+            status = "error"
+        counts[status] = counts.get(status, 0) + 1
+    return {
+        "matched": True,
+        "newsletter": target.get("name"),
+        "enrolled": counts.get("enrolled", 0),
+        "results": counts,
+    }
+
+
 def _format_candidate_block(cards: list, camp_type: str) -> str:
     """Build the CANDIDATE HIGHLIGHTS prompt fragment from candidate cards
     (the API path). Mirrors the wizard's `if _cand_text:` block wording so
@@ -5336,6 +5379,21 @@ async def api_create_campaign(request: Request):
     except Exception as qe:
         return JSONResponse({"error": f"launch failed: {qe}"}, status_code=500)
 
+    # Optional: also enroll the same contacts into a named newsletter / Slow
+    # Drip so one API call handles both the outbound campaign and the ongoing
+    # nurture enrollment (e.g. "Recruitment Rundown - Package Manufacturing").
+    # Best-effort — the campaign already launched, so this never fails the
+    # request; the outcome (or a not-found with available names) rides back in
+    # the response under "newsletter_enrollment".
+    _nl_name = (spec.get("enroll_newsletter") or "").strip()
+    _nl_result = None
+    if _nl_name and isinstance(contacts, list) and contacts:
+        try:
+            _nl_result = _api_enroll_newsletter(_nl_name, contacts)
+        except Exception as ee:
+            _nl_result = {"matched": False, "requested": _nl_name,
+                          "enrolled": 0, "error": str(ee)}
+
     resp = {
         "campaign_id": Path(camp.get("_path", "")).stem or camp["name"],
         "name": camp["name"],
@@ -5347,6 +5405,8 @@ async def api_create_campaign(request: Request):
     if queued == 0:
         resp["warning"] = ("no contacts queued (empty list or all filtered by "
                            "DNC/opt-out/MX)")
+    if _nl_result is not None:
+        resp["newsletter_enrollment"] = _nl_result
     return JSONResponse(resp, status_code=200)
 
 
