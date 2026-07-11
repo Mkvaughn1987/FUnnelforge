@@ -33283,12 +33283,11 @@ def _aicb_generate_candidates_run(s, count: int = 3):
     try:
         import anthropic as _anth
         client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
-        # Build per-candidate format blocks. Each candidate lives in a
-        # DIFFERENT nearby suburb of the {_primary_loc} metro — same
-        # commutable area, different town — so the set doesn't read as
-        # templated (user-reported 2026-05-02: "all the locations are
-        # the same — these should be in different towns close to the
-        # business so it's not too obvious").
+        # Build per-candidate format blocks. Candidates are presented
+        # WITHOUT a location/hometown (2026-07-10 per user: drop the
+        # Location bullet from AI-generated profiles). _primary_loc is
+        # still used to ground competitor research to the recruiter's
+        # metro, but no city is printed on any candidate.
         # Headline format is "Title, X+ yrs experience" (NOT "X yrs at
         # [single firm]") — user-reported issue 2026-05-01: anchoring
         # all years at one employer reads like a lifer profile.
@@ -33300,7 +33299,6 @@ def _aicb_generate_candidates_run(s, count: int = 3):
             # one. Either way we never inject raw user text into the headline.
             _format_blocks.append(
                 f"Candidate {L}: [Title — see TITLE ASSIGNMENT below], X+ yrs experience\n"
-                f"• Location: [a DIFFERENT nearby suburb/town in the {_primary_loc} metro — pick one that's distinct from the other candidates]\n"
                 f"• Experience: [years total; spread across 2-3 firms; you may name "
                 f"ONE firm (e.g. 'most recently at [Competitor]') but DO NOT anchor "
                 f"all the years at a single employer]\n"
@@ -33521,7 +33519,7 @@ def _aicb_generate_candidates_run(s, count: int = 3):
             f"'Candidate A' as the very first characters. NO preamble, NO intro, "
             f"NO 'Based on my research' or 'Here are' or any header text. "
             f"If you include anything before 'Candidate A' you have failed.\n\n"
-            "Each candidate is a RICH multi-bullet block  -  headline + 6 labeled bullets. "
+            "Each candidate is a RICH multi-bullet block  -  headline + 5 labeled bullets. "
             "Make every bullet SPECIFIC to the role with real brand names, software, "
             "tool names, and industry terms. Generic bullets are a failure.\n\n"
             "HEADLINE FORMAT — 'Candidate X: [Title], N+ yrs experience'. NEVER "
@@ -33531,7 +33529,6 @@ def _aicb_generate_candidates_run(s, count: int = 3):
             "For reference, this is the level of depth required:\n\n"
             "EXAMPLE (Manufacturing  -  CNC Machinist):\n"
             "Candidate X: CNC Mill/Lathe Machinist, 10+ yrs experience\n"
-            "• Location: Grand Rapids, MI\n"
             "• Experience: 10+ years across Aerospace, Defense, & Aviation manufacturing; "
             "currently 4 yrs at a Tier-1 aerospace supplier, prior 6 yrs split between "
             "two precision machine shops\n"
@@ -33540,19 +33537,12 @@ def _aicb_generate_candidates_run(s, count: int = 3):
             "• Additional Skills: Blueprint reading, GD&T, program editing (G&M codes)\n"
             "• Target Salary: $26/hr\n\n"
             f"NOW GENERATE {count} candidate blocks for {_co} / {_roles} based in the {_primary_loc} metro.\n\n"
-            f"LOCATION RULE  -  CRITICAL: each candidate lives in a "
-            f"DIFFERENT nearby suburb/town within the {_primary_loc} metro — "
-            f"same commutable area, but DIFFERENT specific town for each candidate. "
-            f"Examples for a Denver, CO market: Lakewood, Aurora, Westminster, "
-            f"Centennial, Englewood, Arvada, Thornton, Wheat Ridge, Boulder, Golden, "
-            f"Highlands Ranch, Littleton, Parker. Pick a different one for each "
-            f"candidate. NEVER repeat the same town across two candidates in the same set. "
-            f"All towns must be in the same state and within ~30 minutes of {_primary_loc}. "
-            f"Do NOT distribute across different metros/states. NEVER write "
-            f"'(near X)' or '(near the metro)'  -  just the actual city, state. "
-            f"The competitor firm is where they WORKED (could be remote/elsewhere); "
-            f"the location is where they LIVE NOW (must be a suburb of {_primary_loc}).\n\n"
-            f"Use this EXACT format (each Location is a DIFFERENT suburb of {_primary_loc}):\n\n"
+            f"NO LOCATION  -  do NOT include a location, hometown, or city for any "
+            f"candidate: no 'Location:' bullet, no city/state anywhere in the block, "
+            f"no '(near X)' hedging. Candidates are presented without where they live. "
+            f"({_primary_loc} only grounds the market/competitor research — it is never "
+            f"printed on a candidate.)\n\n"
+            f"Use this EXACT format:\n\n"
             f"{_format_str}\n\n"
             f"CRITICAL: Never use '{_co}' as any candidate's firm  -  only competitors. "
             f"Return only the {count} candidate blocks. Nothing else."
