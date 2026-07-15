@@ -4932,6 +4932,29 @@ def _parse_contacts_csv(csv_text: str) -> list:
 _VALID_TEMPLATES = {ct[0] for ct in AICB_CAMPAIGN_TYPES}
 
 
+# start_date values that mean "let the server pick the upcoming Monday"
+# (blank/omitted, or an explicit sentinel). Anything else must be ISO.
+_START_DATE_AUTO = {"", "auto", "monday", "next_monday", "upcoming_monday"}
+
+
+def _upcoming_monday(today: date = None) -> date:
+    """The upcoming Monday. If `today` IS a Monday, return today unchanged —
+    so a campaign created on a Monday sends that same day (at the current
+    time), rather than slipping a full week to the following Monday."""
+    today = today or date.today()
+    return today + timedelta(days=(7 - today.weekday()) % 7)
+
+
+def _resolve_start_date(raw) -> str:
+    """Resolve a spec's start_date to an ISO string. Blank/omitted or a
+    sentinel ('upcoming_monday', 'next_monday', 'monday', 'auto') defaults to
+    the upcoming Monday; an explicit ISO date is passed through verbatim."""
+    s = (raw or "").strip()
+    if s.lower() in _START_DATE_AUTO:
+        return _upcoming_monday().isoformat()
+    return s
+
+
 def _validate_campaign_spec(spec: dict):
     """Return an error string if the spec is invalid, else None."""
     if not isinstance(spec, dict):
@@ -4942,10 +4965,11 @@ def _validate_campaign_spec(spec: dict):
     if not (spec.get("company") or "").strip() and not (spec.get("niche") or "").strip():
         return "Provide at least one of 'company' or 'niche'."
     sd = (spec.get("start_date") or "").strip()
-    try:
-        date.fromisoformat(sd)
-    except Exception:
-        return "Invalid 'start_date' — use ISO format YYYY-MM-DD."
+    if sd.lower() not in _START_DATE_AUTO:
+        try:
+            date.fromisoformat(sd)
+        except Exception:
+            return "Invalid 'start_date' — use ISO format YYYY-MM-DD."
     return None
 
 
@@ -5350,7 +5374,7 @@ async def api_create_campaign(request: Request):
 
     emails = campaign_data.get("emails", [])
     campaign_data.pop("_brief", None)
-    start_date = spec["start_date"].strip()
+    start_date = _resolve_start_date(spec.get("start_date"))
 
     camp = {
         "name": (spec.get("name") or campaign_data.get("campaign_name")

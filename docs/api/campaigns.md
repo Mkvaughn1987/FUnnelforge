@@ -22,7 +22,7 @@ The plaintext key is printed once; only its hash is stored.
 | `template` | string | yes | Campaign template key. See **Templates** below. |
 | `company` | string | one of `company`/`niche` | Target company name. |
 | `niche` | string | one of `company`/`niche` | Market/niche (for market-mode campaigns with no single company). |
-| `start_date` | string | yes | ISO `YYYY-MM-DD`. Step 1 sends this day; later steps follow the template's day offsets over **business days**. |
+| `start_date` | string | no | ISO `YYYY-MM-DD`. Step 1 sends this day; later steps follow the template's day offsets over **business days**. **Omit it** (or pass `"upcoming_monday"`) to let the server pick the **upcoming Monday** — and if today already *is* Monday, it uses **today** (so the campaign sends today at the current time rather than slipping a week). Don't compute the Monday client-side; let the server do it. |
 | `website` | string | no | Company website (improves research). |
 | `industry` | string | no | Industry key/label. |
 | `roles` | string[] | no | Target roles, e.g. `["Plant Manager"]`. |

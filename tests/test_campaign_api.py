@@ -3,6 +3,8 @@
 Spec: docs/superpowers/specs/2026-06-27-campaign-create-launch-api-design.md
 Plan: docs/superpowers/plans/2026-06-27-campaign-create-launch-api.md
 """
+from datetime import date
+
 import pytest
 import flowdrip_app as fa
 
@@ -105,6 +107,45 @@ def test_schedule_from_steps_4x4_business_days():
     assert dates == ["2026-07-06", "2026-07-09", "2026-07-09",
                      "2026-07-15", "2026-07-21"]
     assert sched[2]["type"] == "call" and sched[2]["step"] == 3
+
+
+# ── upcoming-Monday start-date default ─────────────────────────────
+# The API takes start_date verbatim; when the caller wants "the upcoming
+# Monday" it must resolve to THIS Monday if today is already Monday
+# (the campaign then sends today at the current time), NOT a week ahead.
+def test_upcoming_monday_on_monday_is_today():
+    # 2026-07-13 is a Monday — must return itself, not 2026-07-20.
+    assert fa._upcoming_monday(date(2026, 7, 13)) == date(2026, 7, 13)
+
+
+def test_upcoming_monday_midweek_jumps_to_next_monday():
+    # 2026-07-15 is a Wednesday.
+    assert fa._upcoming_monday(date(2026, 7, 15)) == date(2026, 7, 20)
+
+
+def test_upcoming_monday_sunday_is_next_day():
+    # 2026-07-19 is a Sunday.
+    assert fa._upcoming_monday(date(2026, 7, 19)) == date(2026, 7, 20)
+
+
+def test_resolve_start_date_explicit_passthrough():
+    assert fa._resolve_start_date("2026-08-01") == "2026-08-01"
+
+
+def test_resolve_start_date_blank_uses_upcoming_monday():
+    resolved = fa._resolve_start_date("")
+    assert resolved == fa._upcoming_monday().isoformat()
+    assert date.fromisoformat(resolved).weekday() == 0  # a Monday
+
+
+def test_resolve_start_date_sentinel_uses_upcoming_monday():
+    assert fa._resolve_start_date("upcoming_monday") == fa._upcoming_monday().isoformat()
+
+
+def test_validate_spec_ok_without_start_date():
+    # Omitting start_date is now valid — the server defaults to upcoming Monday.
+    assert fa._validate_campaign_spec({"template": "fourbyfour",
+                                       "company": "Acme"}) is None
 
 
 # ── generation function (extracted core) ───────────────────────────
@@ -250,6 +291,19 @@ def test_route_happy_path_owner_from_key(tmp_path, monkeypatch):
     # Owner came from the key, not the body.
     assert cap["camp"]["_owner_email"] == "rep@arena.com"
     assert cap["camp"]["aicb_camp_type"] == "fourbyfour"
+
+
+def test_route_defaults_start_date_to_upcoming_monday(tmp_path, monkeypatch):
+    _isolate_keys(tmp_path, monkeypatch)
+    cap = _stub_pipeline(monkeypatch)
+    key = fa._mint_api_key("rep@arena.com")
+    spec = {k: v for k, v in _SPEC.items() if k != "start_date"}
+    status, body = _call({"authorization": f"Bearer {key}"}, spec)
+    assert status == 200, body
+    # Server filled in the upcoming Monday; step 1 lands on that Monday.
+    assert date.fromisoformat(body["start_date"]).weekday() == 0
+    assert cap["camp"]["start_date"] == body["start_date"]
+    assert body["schedule"][0]["date"] == body["start_date"]
 
 
 def test_route_bad_template_400(tmp_path, monkeypatch):
