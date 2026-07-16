@@ -4893,6 +4893,41 @@ def _resolve_api_key(key: str):
     return rec.get("email") if rec else None
 
 
+def _user_api_key_status(email: str):
+    """Return {created, last4, label} for the newest key owned by `email`, else None."""
+    target = (email or "").strip().lower()
+    if not target:
+        return None
+    recs = [r for r in _load_api_keys().values()
+            if (r.get("email") or "").strip().lower() == target]
+    if not recs:
+        return None
+    newest = max(recs, key=lambda r: r.get("created", ""))
+    return {
+        "created": newest.get("created", ""),
+        "last4": newest.get("last4", ""),
+        "label": newest.get("label", ""),
+    }
+
+
+def _revoke_api_keys(email: str) -> int:
+    """Delete every key owned by `email` (atomic write). Returns the number removed."""
+    target = (email or "").strip().lower()
+    if not target:
+        return 0
+    data = _load_api_keys()
+    doomed = [h for h, r in data.items()
+              if (r.get("email") or "").strip().lower() == target]
+    for h in doomed:
+        del data[h]
+    if doomed:
+        p = _api_keys_path()
+        tmp = p.with_suffix(".tmp")
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        tmp.replace(p)
+    return len(doomed)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  CAMPAIGN API helpers  -  spec validation, contacts CSV parsing, schedule.
 # ═══════════════════════════════════════════════════════════════════════════
