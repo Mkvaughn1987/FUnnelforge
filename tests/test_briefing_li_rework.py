@@ -56,14 +56,16 @@ def test_call_briefing_generator_uses_web_search():
 def test_call_briefing_schema_has_all_sections():
     """The briefing dict includes:
       - open_jobs / news (web-search)
+      - company_overview / hq / offices (web-search, added in v6)
       - candidates (extracted from email body or inferred from sector)
       - talking_points (3-5 punchy bullets — restored from original)
-      - conversation_flow (walkthrough: opener/discovery/pitch/close)
+      - conversation_flow (v6: opener only; kept for the variants[0] sync)
     """
     import flowdrip_app as fa
     src = inspect.getsource(fa._generate_call_briefing_for_campaign)
     for key in ('"open_jobs"', '"news"', '"candidates"',
-                '"talking_points"', '"conversation_flow"'):
+                '"talking_points"', '"conversation_flow"',
+                '"company_overview"', '"hq"', '"offices"'):
         assert key in src, (
             f"Briefing schema must include {key} key"
         )
@@ -78,18 +80,41 @@ def test_call_briefing_has_schema_version():
     assert fa._CALL_BRIEFING_SCHEMA_VERSION >= 2
 
 
-def test_render_call_briefing_card_shows_walkthrough_sections():
-    """Render must surface the conversation walkthrough sections
-    (opener / discovery / pitch / close) and talking points."""
+def test_render_call_briefing_card_shows_company_overview_sections():
+    """Render must surface the company overview sections and talking points.
+
+    Schema v6 (2026-07-16) replaced the opener/discovery/pitch/close
+    walkthrough with a grounded company overview (what they do, HQ, other
+    offices). This test previously asserted the walkthrough; it now pins
+    the block that took its place.
+    """
     import flowdrip_app as fa
     src = inspect.getsource(fa._render_call_briefing_card)
-    assert "Walk through the call" in src, (
-        "Render must include the walkthrough header"
+    assert "Company overview" in src, (
+        "Render must include the company overview header"
     )
-    for label in ("Opener", "Discovery questions", "Pitch", "Close",
-                  "Talking points"):
+    for label in ("Headquarters", "Other offices", "Talking points"):
         assert label in src, (
             f"Render must include the '{label}' section label"
+        )
+
+
+def test_render_call_briefing_card_has_no_walkthrough():
+    """Regression guard for the v6 removal.
+
+    The walkthrough rendered off cached discovery/pitch/close keys, so
+    leaving the render block in place would keep resurrecting it for any
+    briefing that still carries them.
+    """
+    import flowdrip_app as fa
+    src = inspect.getsource(fa._render_call_briefing_card)
+    assert "Walk through the call" not in src, (
+        "The call walkthrough was removed in schema v6 — the company "
+        "overview replaces it"
+    )
+    for label in ("Discovery questions", "Pitch", "Close"):
+        assert label not in src, (
+            f"'{label}' is part of the removed v6 walkthrough"
         )
 
 

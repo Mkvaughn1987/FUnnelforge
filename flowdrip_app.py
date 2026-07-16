@@ -12954,6 +12954,21 @@ def sidebar(s: AppState, rf):
 # spinner). After that, instant. Cached on the campaign dict and
 # persisted via save_campaign().
 
+def _default_variant_idx(variants: list, preferred_style: str) -> int:
+    """Index of the variant whose "style" is `preferred_style`, else 0.
+
+    The pill rows default to whichever variant sits at index 0, so the
+    generation prompts emit the preferred style first. This resolves by
+    style key rather than trusting that order: if the model ever returns
+    the variants out of sequence, the intended default still wins instead
+    of silently flipping to the other script.
+    """
+    for i, v in enumerate(variants or []):
+        if isinstance(v, dict) and v.get("style") == preferred_style:
+            return i
+    return 0
+
+
 def _render_call_briefing_card(camp: dict, s: AppState, rf):
     """Render the cold-call briefing card above the call stack.
 
@@ -13104,16 +13119,17 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
                     f"font-size:12px;color:{C['muted']};")
             return
         # Cached briefing — render the full conversation prep:
-        # 1) Walkthrough (opener / discovery / pitch / close)
-        # 2) Talking points
-        # 3) Open jobs at this company
-        # 4) Recent news
-        # 5) Candidates sent over
+        # 1) Opener variants + voicemail variants (pill selectors)
+        # 2) Company overview / HQ / offices (replaced the call
+        #    walkthrough in schema v6, 2026-07-16)
+        # 3) Talking points
+        # 4) Open jobs at this company
+        # 5) Recent news
+        # 6) Candidates sent over
         open_jobs = briefing.get("open_jobs") or []
         news = briefing.get("news") or []
         cands = briefing.get("candidates") or []
         tps = briefing.get("talking_points") or []
-        flow = briefing.get("conversation_flow") or {}
 
         # ── Variant pill selector + selected-variant body ──
         variants = briefing.get("variants") or []
@@ -13128,7 +13144,8 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
         if variants:
             # Track selection in AppState (one slot per campaign)
             sel_key = f"_call_variant_{camp.get('name', 'unnamed')}"
-            sel_idx = getattr(s, sel_key, 0)
+            sel_idx = getattr(s, sel_key, _default_variant_idx(
+                variants, "brief_diagnostic"))
             if sel_idx >= len(variants):
                 sel_idx = 0
 
@@ -13190,12 +13207,16 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
                 or "[Your phone number — set it under My Profile → Signature]"
             )
 
-            ui.label("Voicemail (3 options)").style(
+            _vm_n = len(vm_variants)
+            ui.label(
+                f"Voicemail ({_vm_n} option{'s' if _vm_n != 1 else ''})"
+            ).style(
                 f"font-size:11px;font-weight:700;color:{C['text_l']};"
                 f"margin-top:4px;margin-bottom:6px;")
 
             vm_sel_key = f"_vm_variant_{camp.get('name', 'unnamed')}"
-            vm_sel_idx = getattr(s, vm_sel_key, 0)
+            vm_sel_idx = getattr(s, vm_sel_key, _default_variant_idx(
+                vm_variants, "vm_brief_direct"))
             if vm_sel_idx >= len(vm_variants):
                 vm_sel_idx = 0
 
@@ -13241,11 +13262,20 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
                     f"font-family:inherit;flex-shrink:0;'>⧧ Copy</button>"
                 )
 
-        # ── Conversation walkthrough ──
-        if isinstance(flow, dict) and any([
-            flow.get("discovery"), flow.get("pitch"), flow.get("close"),
-        ]):
-            ui.label("Walk through the call").style(
+        # ── Company overview ──
+        # Replaced the opener/discovery/pitch/close walkthrough in schema
+        # v6 (2026-07-16). Same slot and styling as the block it replaced.
+        # Every field is optional: the web search returns "" rather than
+        # guessing, and we render nothing rather than showing a blank
+        # label — a wrong HQ read aloud mid-call is worse than no HQ.
+        _overview = (briefing.get("company_overview") or "").strip()
+        _hq = (briefing.get("hq") or "").strip()
+        _offices = [
+            str(o).strip() for o in (briefing.get("offices") or [])
+            if str(o).strip()
+        ]
+        if _overview or _hq or _offices:
+            ui.label("Company overview").style(
                 f"font-size:11px;font-weight:700;color:{C['text_l']};"
                 f"margin-bottom:6px;")
             with ui.element("div").style(
@@ -13253,34 +13283,27 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
                     f"margin-bottom:12px;padding:10px 12px;"
                     f"background:{C['call_col']}10;border-left:3px solid {C['call_col']};"
                     f"border-radius:4px;"):
-                _disc = flow.get("discovery") or []
-                if _disc:
-                    ui.label("Discovery questions").style(
+                if _overview:
+                    ui.label(_overview).style(
+                        f"font-size:12px;color:{C['text_l']};line-height:1.5;")
+                if _hq:
+                    ui.label("Headquarters").style(
+                        f"font-size:10px;font-weight:700;color:{C['call_col']};"
+                        f"text-transform:uppercase;letter-spacing:.06em;"
+                        f"margin-top:4px;")
+                    ui.label(_hq).style(
+                        f"font-size:12px;color:{C['text_l']};line-height:1.5;")
+                if _offices:
+                    ui.label("Other offices").style(
                         f"font-size:10px;font-weight:700;color:{C['call_col']};"
                         f"text-transform:uppercase;letter-spacing:.06em;"
                         f"margin-top:4px;")
                     with ui.element("ul").style(
                             f"margin:0;padding-left:18px;color:{C['text_l']};"
                             f"font-size:12px;line-height:1.5;"):
-                        for q in _disc:
+                        for _off in _offices:
                             with ui.element("li"):
-                                ui.label(str(q))
-                _pitch = (flow.get("pitch") or "").strip()
-                if _pitch:
-                    ui.label("Pitch").style(
-                        f"font-size:10px;font-weight:700;color:{C['call_col']};"
-                        f"text-transform:uppercase;letter-spacing:.06em;"
-                        f"margin-top:4px;")
-                    ui.label(_pitch).style(
-                        f"font-size:12px;color:{C['text_l']};line-height:1.5;")
-                _close = (flow.get("close") or "").strip()
-                if _close:
-                    ui.label("Close").style(
-                        f"font-size:10px;font-weight:700;color:{C['call_col']};"
-                        f"text-transform:uppercase;letter-spacing:.06em;"
-                        f"margin-top:4px;")
-                    ui.label(_close).style(
-                        f"font-size:12px;color:{C['text_l']};line-height:1.5;")
+                                ui.label(_off)
 
         # ── Talking points ──
         if tps:
@@ -46051,32 +46074,39 @@ def _first_contact_company(camp: dict) -> str:
     return ""
 
 
-_CALL_BRIEFING_SCHEMA_VERSION = 5  # bumped 2026-05-12: voicemails use plain {phone} (rolled back spelled-out repeat)
+_CALL_BRIEFING_SCHEMA_VERSION = 6  # bumped 2026-07-16: company overview replaces the walkthrough; market variants dropped
 
 
 def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False) -> dict | None:
     """AI-generate a cold call briefing for the campaign's first contact's
-    company. Uses web search to surface real open jobs and recent news,
-    plus an AI-generated call walkthrough (opener -> discovery -> pitch
-    -> close), talking points, and candidate spotlights extracted from
-    the email body.
+    company. Uses web search to surface real open jobs, recent news, and
+    the company overview / HQ / offices, plus talking points and candidate
+    spotlights extracted from the email body.
+
+    The overview/HQ/offices come from the SAME web-search step as jobs and
+    news (schema v6, 2026-07-16) rather than from an unsearched model call.
+    These are facts the recruiter says out loud on a live call, so they are
+    grounded in search results under the same never-fabricate rules.
 
     Returns a dict like:
         {
-            "_schema_version": 2,
+            "_schema_version": 6,
             "company_name": "Brannan Companies",
+            "company_overview": "...",
+            "hq": "Denver, CO",
+            "offices": ["Salt Lake City, UT", "Boise, ID"],  # never repeats hq
             "open_jobs": [{"title": "...", "location": "...", "url": "..."}, ...],
             "news": [{"headline": "...", "date": "...", "url": "..."}, ...],
             "candidates": [{"label": "...", "highlight": "..."}, ...],
             "talking_points": ["...", "...", "..."],
-            "conversation_flow": {
-                "opener": "...",
-                "discovery": ["...", "...", "..."],
-                "pitch": "...",
-                "close": "...",
-            },
+            "conversation_flow": {"opener": "..."},
         }
     or None on failure / missing API key.
+
+    conversation_flow keeps only `opener`, and it is not rendered — it is
+    retained solely to stay in sync with variants[0] for briefings that
+    predate the variant pills. The discovery/pitch/close walkthrough was
+    removed in v6 in favor of the company overview.
 
     Cached on `camp["call_briefing"]` and persisted via save_campaign().
     Pass force_refresh=True to bypass cache (used by the Refresh button
@@ -46092,7 +46122,9 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
         if (isinstance(cached, dict)
                 and cached.get("_schema_version") == _CALL_BRIEFING_SCHEMA_VERSION
                 and (cached.get("open_jobs") or cached.get("news") or cached.get("candidates")
-                     or cached.get("talking_points") or cached.get("conversation_flow"))):
+                     or cached.get("talking_points") or cached.get("conversation_flow")
+                     or cached.get("company_overview") or cached.get("hq")
+                     or cached.get("offices"))):
             return cached
     if not ANTHROPIC_API_KEY:
         return None
@@ -46131,23 +46163,43 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
         sample_body = re.sub(r'\s+', ' ', sample_body).strip()
         sample_body = sample_body[:600]
 
-    # ── Step 1: Web search for open jobs + news at the company ──
+    # ── Step 1: Web search for company overview + open jobs + news ──
+    # The overview/HQ/offices live HERE rather than in the Step 2 writing
+    # call on purpose: they are facts the recruiter reads aloud mid-call,
+    # so they must come from search results, not model recall. Small
+    # private companies (the bulk of our targets) are exactly where an
+    # unsearched model invents a plausible-but-wrong HQ city.
     open_jobs: list = []
     news: list = []
+    company_overview: str = ""
+    hq: str = ""
+    offices: list = []
     if company:
         search_prompt = (
             f"You are prepping a recruiter for a cold call to {company} "
             f"in {region}. Use web_search to find:\n\n"
-            f"1) Open jobs / current hiring at {company} — search for "
+            f"1) A company overview for {company} — search for "
+            f"\"{company}\" and \"{company} about\" or their website. "
+            f"Cover what the company actually does, roughly how big it "
+            f"is, and what it's known for. 2-3 sentences, plain and "
+            f"factual, no sales language.\n\n"
+            f"2) Headquarters location for {company} — city and state "
+            f"(and country if outside the US).\n\n"
+            f"3) Other office / plant / branch locations for {company} — "
+            f"city and state each. Up to 6. Do NOT include the HQ again.\n\n"
+            f"4) Open jobs / current hiring at {company} — search for "
             f"\"{company} careers\" or \"{company} hiring\". Focus on "
             f"{sector} / {niche} roles if relevant. Surface 2-3 specific "
             f"open positions if you find any.\n\n"
-            f"2) Recent news about {company} from the last ~60 days — "
+            f"5) Recent news about {company} from the last ~60 days — "
             f"funding, expansion, project wins, layoffs, leadership "
             f"changes, M&A. Surface 1-3 items if you find any.\n\n"
             f"After searching, return ONLY valid JSON in this exact shape "
             f"(omit items you couldn't find — don't fabricate):\n"
             f'{{\n'
+            f'  "company_overview": "...",\n'
+            f'  "hq": "Denver, CO",\n'
+            f'  "offices": ["Salt Lake City, UT", "Boise, ID"],\n'
             f'  "open_jobs": [\n'
             f'    {{"title": "Project Manager", "location": "Denver, CO", "url": "https://..."}}\n'
             f'  ],\n'
@@ -46155,15 +46207,24 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
             f'    {{"headline": "...", "date": "April 2026", "url": "https://..."}}\n'
             f'  ]\n'
             f'}}\n\n'
-            f"If nothing found for either category, return that key as []. "
+            f"If nothing found for a list category, return that key as []. "
+            f"If you cannot find the overview or HQ, return that key as \"\" "
+            f"— an empty string is ALWAYS better than a guess. The recruiter "
+            f"says these out loud to the prospect, so a wrong HQ city is "
+            f"worse than no HQ city. Do NOT infer the HQ from the region "
+            f"above ({region}) — that's the campaign's target market, not "
+            f"necessarily where the company is based.\n"
             f"Never fabricate URLs — only use URLs you actually saw in "
             f"the search results."
         )
         try:
             ws_msg = _claude_create_with_retry(client,
                 model="claude-haiku-4-5-20251001",
-                max_tokens=1500,
-                tools=[_safe_web_search_tool(max_uses=3)],
+                max_tokens=2000,
+                # 5 (was 3): schema v6 added overview/HQ/offices, so this
+                # step now covers 5 topics instead of 2. At 3 the model
+                # spent its budget on jobs+news and returned "" overviews.
+                tools=[_safe_web_search_tool(max_uses=5)],
                 messages=[{"role": "user", "content": search_prompt}])
             ws_text = "".join(b.text for b in ws_msg.content if hasattr(b, "text"))
             ws_clean = ws_text.replace("```json", "").replace("```", "").strip()
@@ -46189,6 +46250,19 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
                     url = str(n.get("url", "")).strip()
                     if headline:
                         news.append({"headline": headline, "date": date_str, "url": url})
+                # Strip <cite index="..."> markup before storing: these
+                # render via ui.label(), which escapes HTML, so the tags
+                # would show up as literal text on the call card. Observed
+                # live — the overview is prose, so it comes back cited.
+                company_overview = _strip_cite_tags(
+                    str(ws_result.get("company_overview", "") or "")).strip()
+                hq = _strip_cite_tags(str(ws_result.get("hq", "") or "")).strip()
+                _offices_seen = []
+                for o in (ws_result.get("offices") or []):
+                    _o = _strip_cite_tags(str(o or "")).strip()
+                    if _o and _o.lower() != hq.lower():
+                        _offices_seen.append(_o)
+                offices = _offices_seen[:6]
         except Exception as e:
             print(f"[CallBriefing] web search failed: {e}", flush=True)
 
@@ -46247,15 +46321,8 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
         f"2) talking_points: 3-5 short, punchy bullets the recruiter can "
         f"weave into the call. Each is one sentence. Tie at least one "
         f"to the open jobs / news above when present.\n\n"
-        f"3) conversation_flow: a structured walkthrough of the call:\n"
-        f"   - opener: 1-2 sentences. Reference the email already sent.\n"
-        f"     Acknowledge their time. Sound human, not scripted.\n"
-        f"   - discovery: 2-4 open-ended questions to learn their hiring "
-        f"     pain. Tie at least one to the open jobs above if any.\n"
-        f"   - pitch: 1-2 sentences. The value prop tied to the candidates "
-        f"     and what the recruiter has placed at peer companies.\n"
-        f"   - close: 1 sentence. Soft ask for a 15-min follow-up call or "
-        f"     a candidate intro this week.\n\n"
+        f"3) conversation_flow.opener: 1-2 sentences. Reference the email "
+        f"already sent. Acknowledge their time. Sound human, not scripted.\n\n"
         f"Return ONLY valid JSON in this exact shape:\n"
         f'{{\n'
         f'  "candidates": [\n'
@@ -46263,10 +46330,7 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
         f'  ],\n'
         f'  "talking_points": ["...", "...", "..."],\n'
         f'  "conversation_flow": {{\n'
-        f'    "opener": "...",\n'
-        f'    "discovery": ["...", "...", "..."],\n'
-        f'    "pitch": "...",\n'
-        f'    "close": "..."\n'
+        f'    "opener": "..."\n'
         f'  }}\n'
         f'}}\n'
     )
@@ -46296,21 +46360,21 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
             ]
             cf = ex_result.get("conversation_flow") or {}
             if isinstance(cf, dict):
+                # v6: opener only. discovery/pitch/close are deliberately
+                # dropped — the walkthrough was replaced by the company
+                # overview. opener stays for the variants[0] sync below.
                 conversation_flow = {
                     "opener": str(cf.get("opener", "")).strip(),
-                    "discovery": [
-                        str(q).strip() for q in (cf.get("discovery") or [])
-                        if str(q).strip()
-                    ],
-                    "pitch": str(cf.get("pitch", "")).strip(),
-                    "close": str(cf.get("close", "")).strip(),
                 }
     except Exception as e:
         print(f"[CallBriefing] step-2 generation failed: {e}", flush=True)
 
-    # ── Step 3: Generate 3 cold-call opener variants in Leigh's pitch DNA ──
-    # Styles: Project-Anchored Direct / Market-Data Contrarian / Brief Diagnostic
-    # Single Claude call → one JSON response parsed into 3 variants.
+    # ── Step 3: Generate 2 cold-call opener variants in Leigh's pitch DNA ──
+    # Styles: Brief Diagnostic / Project-Anchored Direct.
+    # Brief is FIRST because the pill row defaults to index 0 (see
+    # _render_call_briefing_card) — order here is what selects the default.
+    # The Market-Data Contrarian variant was dropped 2026-07-16 per user.
+    # Single Claude call → one JSON response parsed into 2 variants.
     # Market stats pulled from the per-industry cache (Task 5) so scripts
     # use real fill-window data without hallucinating numbers.
     mkt = _market_stats_for_industry(sector or niche)
@@ -46328,30 +46392,24 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
         f"EMAIL ALREADY SENT (the recruiter just emailed this person):\n"
         f"- Subject: {sample_subject}\n"
         f"- Body excerpt: {sample_body}\n\n"
-        f"WRITE EXACTLY 3 OPENERS. The HARDEST part of any cold call is "
-        f"the opening line — give the user 3 options to test against "
-        f"each other. ALL THREE must be tied to the same context as the "
+        f"WRITE EXACTLY 2 OPENERS. The HARDEST part of any cold call is "
+        f"the opening line — give the user 2 options to test against "
+        f"each other. BOTH must be tied to the same context as the "
         f"email above (same company, same sector, same project hooks); "
-        f"variants 2 and 3 are alternative angles on the same call.\n\n"
-        f"VARIANT 1 — Project-Anchored Direct\n"
+        f"variant 2 is an alternative angle on the same call.\n\n"
+        f"VARIANT 1 — Brief Diagnostic\n"
+        f"  ONE question only. Reference a specific company project or "
+        f"open role. End with: 'what's harder right now: finding the "
+        f"right people, or getting them to say yes?'\n\n"
+        f"VARIANT 2 — Project-Anchored Direct\n"
         f"  Self-aware honesty (acknowledge it's a cold call but a "
         f"researched one). Anchor on a specific project / open role / "
         f"news item — IDEALLY the same hook the email above used so the "
         f"prospect feels continuity. Two questions ending in something "
         f"like 'who's owning the hiring, and is it you?'\n\n"
-        f"VARIANT 2 — Market-Data Contrarian\n"
-        f"  Lead with a market data point (use the fill_window_days "
-        f"stat above if available; if NOT available, use a structural "
-        f"observation like 'the firms hitting 30 days are running "
-        f"parallel passive searches'). Frame their open seats as a "
-        f"diagnostic: 'sourcing problem, closing problem, or comp "
-        f"problem?'\n\n"
-        f"VARIANT 3 — Brief Diagnostic\n"
-        f"  ONE question only. Reference a specific company project or "
-        f"open role. End with: 'what's harder right now: finding the "
-        f"right people, or getting them to say yes?'\n\n"
         f"STRICT RULES:\n"
         f"- Each variant under 80 words.\n"
+        f"- Do NOT lead with a market statistic. That style was removed.\n"
         f"- Use the recruiter's actual name (placeholder {{recruiter_name}}) "
         f"and firm name (placeholder {{firm_name}}). The UI will substitute "
         f"these at display time.\n"
@@ -46360,9 +46418,8 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
         f"- Do NOT use emoji or markdown.\n\n"
         f"Return ONLY valid JSON:\n"
         f'{{"variants":['
-        f'{{"style":"project_anchored","label":"Project-Anchored Direct","script":"..."}},'
-        f'{{"style":"market_data","label":"Market-Data Contrarian","script":"..."}},'
-        f'{{"style":"brief_diagnostic","label":"Brief Diagnostic","script":"..."}}'
+        f'{{"style":"brief_diagnostic","label":"Brief Diagnostic","script":"..."}},'
+        f'{{"style":"project_anchored","label":"Project-Anchored Direct","script":"..."}}'
         f']}}'
     )
     variants: list = []
@@ -46388,37 +46445,30 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
         # No conversation_flow generated (Step 2 failed) — synthesize minimal one.
         conversation_flow = {
             "opener": variants[0].get("script", ""),
-            "discovery": [],
-            "pitch": "",
-            "close": "",
         }
 
-    # ── Step 4: Generate 3 voicemail variants in Leigh's pitch DNA ──
+    # ── Step 4: Generate 2 voicemail variants in Leigh's pitch DNA ──
     # Same trial-options approach as the live-call openers: give the user
-    # 3 styles so they can A/B which voice connects in their market.
+    # 2 styles so they can A/B which voice connects in their market.
     # Added 2026-05-12 per Leigh's feedback ("would be cool to do Live
     # Call AND Voicemail and have a few different versions").
+    # Market-Insight dropped 2026-07-16 per user. Brief & Direct is FIRST
+    # because the pill row defaults to index 0 — order selects the default.
     voicemail_variants: list = []
     vm_prompt = (
-        f"You are writing 3 cold-call VOICEMAIL scripts for a recruiter "
+        f"You are writing 2 cold-call VOICEMAIL scripts for a recruiter "
         f"calling {company} about {sector or niche or 'their hiring needs'}. "
         f"These fire when no one picks up.\n\n"
         f"CONTEXT:\n{variant_context}\n"
-        f"WRITE EXACTLY 3 VOICEMAILS, each in a distinct style:\n\n"
-        f"VARIANT 1 — Project-Anchored\n"
-        f"  Reference a specific project / open role at the company so "
-        f"the prospect knows the recruiter did real homework. Ends with "
-        f"the recruiter's phone number. ~25 seconds spoken.\n\n"
-        f"VARIANT 2 — Market-Insight\n"
-        f"  Lead with a market data point (fill_window_days stat above "
-        f"when available; otherwise a structural observation about "
-        f"passive talent in the sector). Tie it to the company's "
-        f"hiring profile. Ends with the recruiter's phone number. "
-        f"~25 seconds spoken.\n\n"
-        f"VARIANT 3 — Brief & Direct\n"
+        f"WRITE EXACTLY 2 VOICEMAILS, each in a distinct style:\n\n"
+        f"VARIANT 1 — Brief & Direct\n"
         f"  Under 20 seconds. Direct: 'we run direct hire searches in "
         f"[sector], your hiring profile lines up — worth a 15-min call.' "
         f"Ends with the recruiter's phone number.\n\n"
+        f"VARIANT 2 — Project-Anchored\n"
+        f"  Reference a specific project / open role at the company so "
+        f"the prospect knows the recruiter did real homework. Ends with "
+        f"the recruiter's phone number. ~25 seconds spoken.\n\n"
         f"PHONE NUMBER — end with a short call-back line that uses the "
         f"placeholder {{phone}} once (e.g. 'Reach me at {{phone}}.'). "
         f"The UI substitutes the recruiter's actual number at display "
@@ -46427,15 +46477,15 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
         f"STRICT RULES:\n"
         f"- Each variant under 70 words.\n"
         f"- Sound natural when spoken aloud. No corporate jargon.\n"
+        f"- Do NOT lead with a market statistic. That style was removed.\n"
         f"- Use placeholders {{recruiter_name}} and {{firm_name}}; "
         f"address the prospect with {{first_name}}.\n"
         f"- Do NOT fabricate market stats. If no stat available, drop it.\n"
         f"- Do NOT use emoji, markdown, or numbered lists.\n\n"
         f"Return ONLY valid JSON:\n"
         f'{{"variants":['
-        f'{{"style":"vm_project_anchored","label":"Project-Anchored","script":"..."}},'
-        f'{{"style":"vm_market_insight","label":"Market-Insight","script":"..."}},'
-        f'{{"style":"vm_brief_direct","label":"Brief & Direct","script":"..."}}'
+        f'{{"style":"vm_brief_direct","label":"Brief & Direct","script":"..."}},'
+        f'{{"style":"vm_project_anchored","label":"Project-Anchored","script":"..."}}'
         f']}}'
     )
     try:
@@ -46452,12 +46502,16 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
         print(f"[CallBriefing] voicemail variants failed: {ex}", flush=True)
         voicemail_variants = []
 
-    if not (open_jobs or news or candidates or talking_points or conversation_flow):
+    if not (open_jobs or news or candidates or talking_points or conversation_flow
+            or company_overview or hq or offices):
         return None
 
     briefing = {
         "_schema_version": _CALL_BRIEFING_SCHEMA_VERSION,
         "company_name": company,
+        "company_overview": company_overview,
+        "hq": hq,
+        "offices": offices,
         "open_jobs": open_jobs,
         "news": news,
         "candidates": candidates,
