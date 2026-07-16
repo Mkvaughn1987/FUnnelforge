@@ -4876,6 +4876,7 @@ def _mint_api_key(email: str, label: str = "") -> str:
         "email": (email or "").strip().lower(),
         "label": label or "",
         "created": datetime.now().isoformat(),
+        "last4": key[-4:],
     }
     p = _api_keys_path()
     tmp = p.with_suffix(".tmp")
