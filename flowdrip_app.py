@@ -49720,6 +49720,129 @@ def _p_profile_body(s, rf):
                         ).on("click", _open_pw_dialog):
                     ui.label("🔒 Change Password")
 
+                # ── API Access card ────────────────────────────────
+                # Self-serve key for the campaign create+launch API. Only the
+                # hash is stored server-side, so plaintext is revealed once.
+                _api_status = _user_api_key_status(_uemail)
+
+                def _fmt_created(iso: str) -> str:
+                    try:
+                        return datetime.fromisoformat(iso).strftime("%b %d, %Y")
+                    except Exception:
+                        return "—"
+
+                def _reveal_key_dialog(key: str):
+                    with ui.dialog() as _k_dlg, ui.card().style(
+                            f"background:{C['card']};border:1px solid {C['teal']}60;"
+                            f"min-width:460px;padding:22px 26px;border-radius:14px;"):
+                        ui.label("🔑 Your API Key").style(
+                            f"font-size:17px;font-weight:800;color:{C['text_l']};"
+                            f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
+                        ui.label("Store this now — for security you won't be able "
+                                 "to see it again.").style(
+                            "font-size:12px;font-weight:700;color:#c9760f;"
+                            "margin-bottom:12px;")
+                        ui.input(value=key).props("readonly").classes(
+                            "fd-input").style("margin-bottom:6px;font-family:monospace;")
+                        ui.label("Use it like this:").style(
+                            f"font-size:11px;color:{C['muted']};margin-top:6px;")
+                        ui.html(
+                            "<pre style='font-size:11px;white-space:pre-wrap;"
+                            "margin:4px 0;'>POST https://dripdripdrop.ai/api/v1/"
+                            "campaigns\nAuthorization: Bearer &lt;your key&gt;</pre>")
+
+                        def _copy():
+                            ui.run_javascript(
+                                "navigator.clipboard.writeText("
+                                + json.dumps(key) + ")")
+                            ui.notify("Copied (if blocked, select the field and "
+                                      "press Ctrl+C)", type="positive")
+
+                        with ui.element("div").style(
+                                "display:flex;justify-content:flex-end;gap:8px;"
+                                "margin-top:12px;"):
+                            with ui.element("button").classes("fd-gb").style(
+                                    "padding:7px 14px;font-size:12px;").on(
+                                    "click", _k_dlg.close):
+                                ui.label("Done")
+                            with ui.element("button").classes("fd-pb").style(
+                                    "padding:7px 18px;font-size:12px;").on(
+                                    "click", _copy):
+                                ui.label("Copy")
+                    _k_dlg.open()
+
+                def _generate_key():
+                    key = _mint_api_key(_uemail, label="self-serve")
+                    _reveal_key_dialog(key)
+                    rf()
+
+                def _regenerate_key():
+                    with ui.dialog() as _c_dlg, ui.card().style(
+                            f"background:{C['card']};border:1px solid #c9760f60;"
+                            f"min-width:420px;padding:22px 26px;border-radius:14px;"):
+                        ui.label("⚠️ Regenerate API Key").style(
+                            f"font-size:16px;font-weight:800;color:{C['text_l']};"
+                            f"margin-bottom:6px;")
+                        ui.label("This permanently disables your current key — "
+                                 "anything using it will stop working. Continue?").style(
+                            f"font-size:12px;color:{C['muted']};margin-bottom:14px;"
+                            f"line-height:1.5;")
+
+                        def _confirm():
+                            _revoke_api_keys(_uemail)
+                            _c_dlg.close()
+                            _generate_key()
+
+                        with ui.element("div").style(
+                                "display:flex;justify-content:flex-end;gap:8px;"):
+                            with ui.element("button").classes("fd-gb").style(
+                                    "padding:7px 14px;font-size:12px;").on(
+                                    "click", _c_dlg.close):
+                                ui.label("Cancel")
+                            with ui.element("button").classes("fd-pb").style(
+                                    "padding:7px 18px;font-size:12px;").on(
+                                    "click", _confirm):
+                                ui.label("Regenerate")
+                    _c_dlg.open()
+
+                with ui.element("div").style(
+                        _hide_if("personal") +
+                        f"background:{C['card']};border:1px solid {C['border']};"
+                        f"border-radius:12px;padding:18px;margin-top:16px;"):
+                    with ui.element("div").style(
+                            "display:flex;align-items:center;gap:8px;"
+                            "margin-bottom:4px;"):
+                        ui.label("🔑 API Access").style(
+                            f"font-size:13px;font-weight:700;color:{C['text_l']};"
+                            f"font-family:'Nunito',sans-serif;")
+                    ui.label("Generate a key to create and launch campaigns via "
+                             "the DripDrop API.").style(
+                        f"font-size:11px;color:{C['muted']};margin-bottom:12px;"
+                        f"line-height:1.5;")
+                    if _api_status:
+                        ui.label(
+                            f"Active key · created "
+                            f"{_fmt_created(_api_status['created'])} · "
+                            f"dd_live_…{_api_status['last4'] or '••••'}").style(
+                            f"font-size:12px;color:{C['text_l']};"
+                            f"margin-bottom:10px;")
+                        with ui.element("button").style(
+                                f"display:inline-flex;align-items:center;gap:6px;"
+                                f"padding:8px 16px;font-size:12px;font-weight:700;"
+                                f"background:transparent;color:{C['muted']};"
+                                f"border:1px solid {C['border']};border-radius:8px;"
+                                f"cursor:pointer;font-family:inherit;").on(
+                                "click", _regenerate_key):
+                            ui.label("♻️ Regenerate Key")
+                    else:
+                        ui.label("No API key yet.").style(
+                            f"font-size:12px;color:{C['muted']};"
+                            f"margin-bottom:10px;")
+                        with ui.element("button").classes("fd-pb").style(
+                                "padding:8px 16px;font-size:12px;").on(
+                                "click", _generate_key):
+                            ui.label("Generate API Key")
+
                 # ── Newsletter Signature card (avatar + personal note) ─────
                 # Photo upload triggers a save on its own (the bytes are
                 # written immediately). The personal note has an explicit
