@@ -37838,6 +37838,25 @@ def _tc_render_step_generate(s: AppState, rf):
             ui.label("Generate Sequence ->").style("pointer-events:none;")
 
 
+def _ensure_pdf_state(s):
+    """Initialize the PDF-generator scalars on `s`, each independently.
+
+    Must NOT be all-or-nothing: external entry points set a subset first —
+    the email editor's "Create Your Own (15+)" button (_open_custom_pdf) sets
+    _pdf_company and a few siblings but not the newer _pdf_website. A guard like
+    `if not hasattr(s, '_pdf_company')` would then skip the rest and the PDF
+    form would crash reading s._pdf_website. Init per-attribute so any partial
+    state is completed.
+    """
+    for _attr, _default in (
+        ("_pdf_company", ""), ("_pdf_role", ""), ("_pdf_location", ""),
+        ("_pdf_industry", ""), ("_pdf_website", ""), ("_pdf_exp_level", ""),
+        ("_pdf_generating", False), ("_pdf_result", ""),
+    ):
+        if not hasattr(s, _attr):
+            setattr(s, _attr, _default)
+
+
 def p_pdf_gen(s: AppState, rf):
     """PDF Generator  -  create branded Market Pulse, Scorecard, and Tenure PDFs on demand."""
     _render_page_intro_strip(s, rf, "pdf_gen")
@@ -37847,16 +37866,10 @@ def p_pdf_gen(s: AppState, rf):
         _show_page_help(s, rf, "pdf_gen")
     ui.label("Create branded PDFs to attach to your outreach emails.").classes("fd-sub")
 
-    # State for this page
-    if not hasattr(s, '_pdf_company'):
-        s._pdf_company = ""
-        s._pdf_role = ""
-        s._pdf_location = ""
-        s._pdf_industry = ""
-        s._pdf_website = ""
-        s._pdf_exp_level = ""
-        s._pdf_generating = False
-        s._pdf_result = ""
+    # State for this page — init each attribute independently so a partial
+    # state left by an external entry point (e.g. the email editor's
+    # "Create Your Own" button) can't make the form below AttributeError.
+    _ensure_pdf_state(s)
     # Primary / secondary industries — match the campaign-creation inputs so
     # PDFs reflect the same Company / Primary Market / Secondary Markets /
     # Positions the user typed when building their campaign.
