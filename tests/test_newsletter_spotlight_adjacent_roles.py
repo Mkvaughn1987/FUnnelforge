@@ -117,6 +117,29 @@ def test_adjacency_map_covers_every_industry():
             f"AICB industry '{industry_key}' missing from adjacency map")
 
 
+def test_user_recommendations_inject_with_priority():
+    """2026-05-25 — users can now type free-text recommendations in the
+    Create Newsletter dialog ("Focus on Senior PMs and OSHPD experience").
+    The prompt must surface them as USER RECOMMENDATIONS and frame them
+    as the HIGHEST priority — above the default selection rules — so
+    the AI follows them first."""
+    instr, _ = fa._spotlight_prompt_block(
+        sector="construction", n=3, target_roles=[],
+        recommendations="Focus on Senior Project Managers and Estimators with OSHPD experience. Skip junior or field roles.",
+    )
+    assert "USER RECOMMENDATIONS" in instr
+    assert "highest priority" in instr.lower()
+    # Verbatim user text passes through
+    assert "Focus on Senior Project Managers" in instr
+    assert "OSHPD experience" in instr
+    # Empty recommendations leave the block out so old behavior is preserved
+    instr2, _ = fa._spotlight_prompt_block(
+        sector="construction", n=3, target_roles=[],
+        recommendations="",
+    )
+    assert "USER RECOMMENDATIONS" not in instr2
+
+
 def test_adjacency_lists_are_all_manager_plus():
     """Every role in every adjacency list must clear the manager+ bar.
     Reject titles that contain obvious below-manager words. This is a

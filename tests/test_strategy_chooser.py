@@ -17,7 +17,11 @@ def test_chooser_renders_5_options():
     # test robust across the rename.
     assert "Target a Company" in src or "Target a Client" in src
     assert "Target a Market" in src
-    assert "Target a Candidate" in src
+    # 'Target a Candidate' renamed to 'Find Candidates' on 2026-05-12 per
+    # user feedback — purpose pivoted from "place a candidate" (which
+    # implied uploading candidate resumes) to "build outreach for a role
+    # you're filling, then add candidates yourself in the editor."
+    assert "Find Candidates" in src or "Target a Candidate" in src
     # Renamed 2026-05-10: 'Saved Campaigns' -> 'Saved Sequences' -> 'Drafts & Saved'
     # to signal that wizard drafts also live behind this card.
     assert "Drafts & Saved" in src or "Saved Sequences" in src or "Saved Campaigns" in src
@@ -41,3 +45,16 @@ def test_chooser_sets_origin_on_client_card():
     src = inspect.getsource(fa)
     assert '_chooser_origin = "client"' in src or "_chooser_origin = 'client'" in src
     assert '_chooser_origin = "market"' in src or "_chooser_origin = 'market'" in src
+
+
+def test_mpc_card_routes_to_pipeline_ats():
+    """'Start with an MPC' must route allowlisted users to the Pipeline
+    (ATS) to pick candidates, not the legacy Top Candidates
+    (candidate_finder) page. Candidates moved into the ATS on 2026-06-09."""
+    import flowdrip_app as fa
+    src = inspect.getsource(fa)
+    idx = src.index('elif k == "mpc":')
+    nxt = src.index('elif k == "fourbyfour":', idx)
+    mpc_branch = src[idx:nxt]
+    # Allowlisted users go to the Pipeline (ATS) to choose candidates.
+    assert 'ui.navigate.to("/ats")' in mpc_branch

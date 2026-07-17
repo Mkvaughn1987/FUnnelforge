@@ -2196,12 +2196,24 @@ def _view_dashboard(ff, st, refresh):
     _owner = st.get("email") or None
     ensure_default_pipelines(_owner or "")
     stats = dashboard_stats(_owner)
-    ui.label("Your Talent Pool").style(
-        f"font-size:22px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
-        f"font-family:'Nunito',sans-serif;")
-    ui.label("A high-level snapshot of what's in your database. Click any bar to "
-             "see those candidates.").style(
-        f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:16px;")
+    with ui.element("div").style(
+            "display:flex;align-items:flex-start;justify-content:space-between;gap:12px;"):
+        with ui.element("div"):
+            ui.label("Your Talent Pool").style(
+                f"font-size:22px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
+                f"font-family:'Nunito',sans-serif;")
+            ui.label("A high-level snapshot of what's in your database. Click any bar to "
+                     "see those candidates.").style(
+                f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:16px;")
+
+        def _go_upload_top(_e=None):
+            st["view"] = "upload"; refresh()
+        with ui.element("button").style(
+                f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;border-radius:8px;"
+                f"padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;"
+                f"font-family:inherit;flex-shrink:0;white-space:nowrap;"
+                ).on("click", _go_upload_top):
+            ui.label("⬆ Upload Candidates")
 
     # First-run welcome — shown until this user has added their own candidates.
     if not stats.get("total"):
@@ -3074,6 +3086,48 @@ def _view_candidates(ff, st, refresh):
     """)
 
 
+def _live_results(ff, st, rows):
+    """Per-candidate ✓/✗ list — shown while importing (populates live, one row
+    per résumé as it's read) and after it finishes. rows are the per-file dicts
+    from ingest_resumes: {filename, name, title, status}."""
+    C = ff.C
+    _why = {
+        "dup": "already on file — nothing new to add",
+        "scanned": "couldn't read — scanned image or empty file",
+        "junk": "doesn't look like a résumé",
+        "error": "couldn't parse — try pasting its text instead",
+    }
+    with ui.element("div").style(
+            "max-height:440px;overflow:auto;display:flex;flex-direction:column;gap:4px;"
+            f"border-top:1px solid {_c(C,'border','#E2E8F0')};padding-top:10px;"):
+        if not rows:
+            ui.label("Starting…").style(
+                f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
+        for f in rows:
+            s = f.get("status")
+            if s == "added":
+                mark, mc, note = "✓", _c(C, 'good', '#16A34A'), "Added"
+            elif s == "merged":
+                mark, mc, note = "✓", _c(C, 'teal', '#1AE3D9'), "Updated — already on file"
+            elif s == "dup":
+                mark, mc, note = "↺", _c(C, 'muted', '#94A3B8'), _why["dup"]
+            else:
+                mark, mc, note = "✗", _c(C, 'warn', '#D97706'), _why.get(s, "skipped")
+            who = (f.get("name") or "").strip() or (f.get("filename") or "résumé")
+            ti = (f.get("title") or "").strip()
+            if ti and s in ("added", "merged"):
+                note = f"{ti} · {note}"
+            with ui.element("div").style(
+                    "display:flex;gap:8px;align-items:baseline;font-size:12.5px;line-height:1.55;"):
+                ui.label(mark).style(f"color:{mc};font-weight:800;min-width:14px;")
+                ui.label(who).style(
+                    f"color:{_c(C,'text_l','#0F172A')};font-weight:700;white-space:nowrap;"
+                    "overflow:hidden;text-overflow:ellipsis;max-width:240px;")
+                ui.label(f"— {note}").style(
+                    f"color:{_c(C,'muted','#94A3B8')};white-space:nowrap;overflow:hidden;"
+                    "text-overflow:ellipsis;")
+
+
 def _view_upload(ff, st, refresh):
     """Bulk résumé upload → parse → add to THIS user's candidate pool."""
     C = ff.C
@@ -3088,27 +3142,38 @@ def _view_upload(ff, st, refresh):
     ui.label("Add Candidates").style(
         f"font-size:22px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
         f"font-family:'Nunito',sans-serif;margin-top:6px;")
-    ui.label("Two ways in: paste a single résumé's text (the most reliable path — "
-             "no file dialog), or upload files / a .zip in bulk. AI reads each one and "
-             "adds it to YOUR candidates; duplicates are merged.").style(
+    ui.label("Pick résumé files (or a .zip) and they import automatically — AI reads "
+             "each one, adds it to YOUR candidates, and merges duplicates. "
+             "PDF and .docx parse best.").style(
         f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin:4px 0 16px;display:block;max-width:760px;")
 
     running = st.get("upload_running")
     stats = st.get("upload_stats")
     queue = st.get("upload_queue") or []
-    mode = st.get("add_mode", "paste")  # "paste" (reliable, default) | "upload"
 
     _cnt = {"el": None}
 
-    def _on_up(e):
+    async def _on_up(e):
         # CRITICAL: never refresh() here. Files arrive rapidly during a bulk
         # upload; a full re-render mid-upload deletes the uploader element
         # ("parent slot has been deleted"). Update only the count label.
-        try:
-            data = e.content.read() if hasattr(e.content, "read") else bytes(e.content)
-        except Exception:
+        # NiceGUI 3.x upload API: each event carries ONE FileUpload on e.file
+        # (the old API exposed e.name + a sync e.content). Name and bytes both
+        # come from e.file, and FileUpload.read() is async — must be awaited.
+        f = getattr(e, "file", None) or getattr(e, "content", None)
+        if f is None:
             return
-        name = getattr(e, "name", "") or "resume"
+        name = getattr(f, "name", None) or getattr(e, "name", "") or "resume"
+        print(f"[ATS-upload] _on_up fired name={name!r}", flush=True)
+        try:
+            if hasattr(f, "read"):
+                _r = f.read()
+                data = await _r if hasattr(_r, "__await__") else _r
+            else:
+                data = bytes(f)
+        except Exception as ex:
+            print(f"[ATS-upload] read failed for {name!r}: {ex}", flush=True)
+            return
         ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
         q = st.setdefault("upload_queue", [])
         if ext == "zip":
@@ -3139,33 +3204,52 @@ def _view_upload(ff, st, refresh):
             return  # skip non-résumé files (e.g. junk inside a picked folder)
         if _cnt["el"] is not None:
             try:
-                _cnt["el"].set_text(f"{len(q)} résumé(s) ready to import")
+                _cnt["el"].set_text(
+                    f"{len(q)} résumé(s) selected — importing automatically…")
             except Exception:
                 pass
+        # Kick off the import on its own once the upload burst settles.
+        await _maybe_autoimport()
 
     async def _run_import():
-        files = list(st.get("upload_queue") or [])
-        if not files:
-            ui.notify("Choose some résumés first.", type="warning"); return
+        if st.get("upload_running"):
+            return  # already importing — new files get drained by the loop below
+        if not (st.get("upload_queue") or []):
+            return
         st["upload_running"] = True
         st["upload_done"] = 0
-        st["upload_stats"] = {"total": len(files), "added": 0, "merged": 0,
-                              "dup": 0, "junk": 0, "scanned": 0, "error": 0}
+        st["upload_results_seen"] = False
+        st["upload_stats"] = {"total": len(st.get("upload_queue") or []),
+                              "added": 0, "merged": 0, "dup": 0,
+                              "junk": 0, "scanned": 0, "error": 0}
         st["upload_files"] = []  # per-file outcomes, accumulated across chunks
         refresh()
         from nicegui import run as _run
         owner = st.get("email") or ""
         added_by = st.get("name") or owner
-        CHUNK = 12
-        for i in range(0, len(files), CHUNK):
-            chunk = files[i:i + CHUNK]
-            partial = await _run.io_bound(ingest_resumes, chunk, owner, added_by, False)
+        # Small chunks so names populate progressively (and so files dropped in
+        # mid-import are picked up). The queue is drained from the front, which
+        # also absorbs any résumés that arrive while we're already running.
+        CHUNK = 3
+        while st.get("upload_queue"):
+            chunk = (st.get("upload_queue") or [])[:CHUNK]
+            st["upload_queue"] = (st.get("upload_queue") or [])[CHUNK:]
+            try:
+                partial = await _run.io_bound(
+                    ingest_resumes, chunk, owner, added_by, False)
+            except Exception as ex:
+                print(f"[ATS-upload] ingest chunk failed: {ex}", flush=True)
+                partial = None
+            partial = partial or {}
             for k, v in partial.items():
                 if k in ("total", "files"):
                     continue
                 st["upload_stats"][k] = st["upload_stats"].get(k, 0) + v
             st["upload_files"].extend(partial.get("files") or [])
             st["upload_done"] = st.get("upload_done", 0) + len(chunk)
+            # Total may have grown if more files arrived mid-import.
+            st["upload_stats"]["total"] = (
+                st["upload_done"] + len(st.get("upload_queue") or []))
             refresh()
         await _run.io_bound(rebuild_fts)
         # Auto-build smart tearsheets from the candidates they just added.
@@ -3203,79 +3287,41 @@ def _view_upload(ff, st, refresh):
         print(f"[ATS-upload] paste add by {owner}: {res}", flush=True)
         refresh()
 
-    # Mode toggle — Paste (reliable) vs bulk Upload.
-    def _set_add_mode(m):
-        st["add_mode"] = m
-        refresh()
-    with ui.element("div").style("display:flex;gap:8px;margin-bottom:14px;"):
-        for mk, ml in (("paste", "📋 Paste a résumé"), ("upload", "⬆ Upload files / bulk")):
-            _on = (mode == mk)
-            with ui.element("button").style(
-                    f"padding:8px 18px;font-size:13px;font-weight:700;border-radius:8px;"
-                    f"cursor:pointer;font-family:inherit;border:1px solid "
-                    f"{_c(C,'teal','#1AE3D9') if _on else _c(C,'border','#E2E8F0')};"
-                    f"background:{(_c(C,'teal','#1AE3D9')+'22') if _on else 'transparent'};"
-                    f"color:{_c(C,'teal','#1AE3D9') if _on else _c(C,'text','#334155')};"
-                    ).on("click", lambda _e, m=mk: _set_add_mode(m)):
-                ui.label(ml).style("pointer-events:none;")
+    # ---- Auto-import: once the user finishes picking files, the import kicks
+    # off on its own — no "Import résumés" click. We debounce inside the upload
+    # handler (a safe context that survives refresh(), unlike a ui.timer whose
+    # slot root.clear() deletes mid-callback): every uploaded file bumps a token
+    # and waits ~0.8s; only the last one still holding the latest token fires the
+    # import, so a multi-file burst triggers exactly one run.
+    _imp = {"token": 0}
+
+    async def _maybe_autoimport():
+        import asyncio
+        _imp["token"] += 1
+        mine = _imp["token"]
+        await asyncio.sleep(0.8)
+        if mine != _imp["token"]:
+            return  # a newer file arrived — let that handler trigger instead
+        if st.get("upload_running") or not (st.get("upload_queue") or []):
+            return
+        await _run_import()
 
     with ui.element("div").style(
             f"background:{_c(C,'card','#FFFFFF')};border:1px solid {_c(C,'border','#E2E8F0')};"
             f"border-radius:12px;padding:22px 24px;max-width:760px;"):
-        if mode == "paste":
-            _busy = bool(st.get("paste_busy"))
-            ui.label("Paste the full text of one résumé. AI extracts the name, title, "
-                     "location and contact info and adds the candidate to your pool.").style(
-                f"font-size:12px;color:{_c(C,'muted','#94A3B8')};display:block;margin-bottom:10px;")
-            _paste_ta = ui.textarea(
-                value=st.get("paste_text", ""),
-                placeholder="Paste résumé text here…").props("outlined").style(
-                "width:100%;min-height:240px;max-height:440px;overflow:auto;")
-            with ui.element("div").style(
-                    "display:flex;align-items:center;gap:12px;margin-top:12px;"):
-                with ui.element("button").style(
-                        f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;border-radius:8px;"
-                        f"padding:11px 24px;font-size:14px;font-weight:700;font-family:inherit;"
-                        f"cursor:{'default' if _busy else 'pointer'};opacity:{'0.6' if _busy else '1'};"
-                        ).on("click", (lambda: None) if _busy else (lambda _e=None, ta=_paste_ta: _do_paste(ta))):
-                    ui.label("Adding…" if _busy else "✦ Add candidate")
-                if _busy:
-                    ui.spinner("dots", size="22px", color=_c(C, 'teal', '#1AE3D9'))
-            _pr = st.get("paste_result")
-            if _pr is not None and not _busy:
-                if _pr.get("added") or _pr.get("merged"):
-                    ui.label("✓ Candidate added." if _pr.get("added")
-                             else "✓ Candidate updated (already on file — kept the most "
-                                  "complete record).").style(
-                        f"font-size:14px;font-weight:800;color:{_c(C,'good','#16A34A')};"
-                        f"display:block;margin-top:14px;margin-bottom:8px;")
-
-                    def _go_mine_p(_e=None):
-                        st["scope"] = "mine"; st["results"] = []
-                        st["view"] = "candidates"; refresh()
-                    with ui.element("button").style(
-                            f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;border-radius:8px;"
-                            f"padding:9px 18px;font-size:13px;font-weight:700;cursor:pointer;"
-                            f"font-family:inherit;").on("click", _go_mine_p):
-                        ui.label("View My Candidates →")
-                elif _pr.get("dup"):
-                    ui.label("Already on file — nothing new to add.").style(
-                        f"font-size:13px;color:{_c(C,'muted','#94A3B8')};display:block;margin-top:14px;")
-                else:
-                    ui.label("Couldn't read that as a résumé. Check the text and try again, "
-                             "or switch to Upload to add the file itself.").style(
-                        f"font-size:13px;color:{_c(C,'warn','#D97706')};display:block;margin-top:14px;")
-        elif running:
+        if running:
             done = st.get("upload_done", 0)
             total = (stats or {}).get("total", 0)
-            with ui.element("div").style("display:flex;align-items:center;gap:12px;margin-bottom:12px;"):
-                ui.spinner("dots", size="24px", color=_c(C, 'teal', '#1AE3D9'))
-                ui.label(f"Reading résumés… {done} of {total}").style(
-                    f"font-size:15px;font-weight:700;color:{_c(C,'teal','#1AE3D9')};")
             _s = stats or {}
-            ui.label(f"Added {_s.get('added',0)} · merged {_s.get('merged',0)} · "
-                     f"skipped {_s.get('dup',0)+_s.get('junk',0)+_s.get('scanned',0)+_s.get('error',0)}").style(
-                f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
+            with ui.element("div").style("display:flex;align-items:center;gap:12px;margin-bottom:6px;"):
+                ui.spinner("dots", size="26px", color=_c(C, 'teal', '#1AE3D9'))
+                ui.label(f"Reading résumés… {done} of {total}").style(
+                    f"font-size:17px;font-weight:800;color:{_c(C,'text_l','#0F172A')};")
+            ui.label(f"Added {_s.get('added',0)} · updated {_s.get('merged',0)} · "
+                     f"skipped {_s.get('dup',0)+_s.get('junk',0)+_s.get('scanned',0)+_s.get('error',0)}"
+                     " — names appear below as each one is read.").style(
+                f"font-size:12px;color:{_c(C,'muted','#94A3B8')};display:block;margin-bottom:10px;")
+            _live_results(ff, st, st.get("upload_files") or [])
         else:
             # Big-folder tip: zip is the reliable path (one upload, not 600).
             with ui.element("div").style(
@@ -3294,8 +3340,8 @@ def _view_upload(ff, st, refresh):
             # the real input). A visible QUploader the user clicks fixes that.
             _up = ui.upload(on_upload=_on_up, multiple=True, auto_upload=True,
                             max_file_size=1_000_000_000,
-                            label="Drop résumés here, or click to pick several at "
-                                  "once (Ctrl/⌘-click to select 20+) — or a .zip").props(
+                            label="…or drag & drop résumé files here — or a .zip "
+                                  "for big batches").props(
                 'accept=".pdf,.docx,.txt,.zip" flat bordered').classes("dd-resume-up").style(
                 "width:100%;")
             # Folder pick stays as a secondary option (needs webkitdirectory, which
@@ -3304,6 +3350,15 @@ def _view_upload(ff, st, refresh):
                 _upf = ui.upload(on_upload=_on_up, multiple=True, auto_upload=True,
                                  max_file_size=30_000_000).classes("dd-resume-upf")
 
+            def _pick_files(_e=None):
+                # Multi-select file dialog (individual résumés). Strip any folder
+                # attributes a prior "Choose a whole folder" click may have left on
+                # the shared input, so this reliably opens a FILE picker.
+                ui.run_javascript(
+                    "const el=document.querySelector('.dd-resume-upf input[type=file]');"
+                    "if(el){el.removeAttribute('webkitdirectory');"
+                    "el.removeAttribute('directory');el.click();}")
+
             def _pick_folder(_e=None):
                 ui.run_javascript(
                     "const el=document.querySelector('.dd-resume-upf input[type=file]');"
@@ -3311,6 +3366,14 @@ def _view_upload(ff, st, refresh):
                     "el.setAttribute('directory','');el.click();}")
 
             with ui.element("div").style("display:flex;gap:10px;flex-wrap:wrap;margin-top:10px;"):
+                # Primary action: pick individual files (the obvious path users want).
+                with ui.element("button").style(
+                        f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;"
+                        f"border-radius:8px;padding:10px 20px;font-size:13px;font-weight:700;"
+                        f"cursor:pointer;font-family:inherit;"
+                        ).on("click", _pick_files):
+                    ui.label("📄 Choose files (pick up to ~20)")
+                # Secondary action: pick an entire folder.
                 with ui.element("button").style(
                         f"background:transparent;border:1.5px solid {_c(C,'teal','#1AE3D9')};"
                         f"color:{_c(C,'teal','#1AE3D9')};border-radius:8px;padding:10px 20px;"
@@ -3318,96 +3381,57 @@ def _view_upload(ff, st, refresh):
                         ).on("click", _pick_folder):
                     ui.label("📁 Choose a whole folder (small batches)")
             ui.label("PDF and .docx parse best; scanned/image PDFs and old .doc files are "
-                     "skipped. Use a .zip for big batches. If a file won't upload, switch to "
-                     "“Paste a résumé” and paste its text instead.").style(
+                     "skipped. Use a .zip for big batches.").style(
                 f"font-size:11px;color:{_c(C,'muted','#94A3B8')};margin-top:8px;display:block;")
 
             ui.element("div").style(
                 f"height:1px;background:{_c(C,'border','#E2E8F0')};margin:16px 0;")
-            _cnt["el"] = ui.label(f"{len(queue)} résumé(s) ready to import").style(
+
+            # Auto-import fires from the upload handler (_maybe_autoimport) once the
+            # upload burst settles — the user never clicks. The controls below are a
+            # status line + a small manual fallback.
+            _cnt["el"] = ui.label(
+                f"{len(queue)} résumé(s) selected — importing automatically…" if queue
+                else "Pick résumés above — they import automatically, no button needed.").style(
                 f"font-size:14px;font-weight:700;color:{_c(C,'text_l','#0F172A')};"
                 f"display:block;margin-bottom:10px;")
-            with ui.element("div").style("display:flex;gap:9px;align-items:center;"):
-                with ui.element("button").style(
-                        f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;border-radius:8px;"
-                        f"padding:11px 22px;font-size:14px;font-weight:700;cursor:pointer;"
-                        f"font-family:inherit;").on("click", _run_import):
-                    ui.label("Import résumés")
+            with ui.element("div").style("display:flex;gap:10px;align-items:center;"):
+                ui.label("Imports start on their own once your files finish "
+                         "uploading.").style(
+                    f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
 
                 def _clear_q(_e=None):
                     st["upload_queue"] = []
                     if _cnt["el"] is not None:
                         try:
-                            _cnt["el"].set_text("0 résumé(s) ready to import")
+                            _cnt["el"].set_text(
+                                "Pick résumés above — they import automatically, "
+                                "no button needed.")
                         except Exception:
                             pass
-                with ui.element("button").style(
-                        f"background:transparent;border:1px solid {_c(C,'border','#E2E8F0')};"
-                        f"color:{_c(C,'text','#334155')};border-radius:8px;padding:11px 18px;"
-                        f"font-size:13px;cursor:pointer;font-family:inherit;").on("click", _clear_q):
+                # Tiny fallback controls — not needed in the normal flow.
+                with ui.element("span").style(
+                        f"font-size:12px;color:{_c(C,'teal','#1AE3D9')};cursor:pointer;"
+                        f"font-weight:700;").on("click", _run_import):
+                    ui.label("Import now")
+                with ui.element("span").style(
+                        f"font-size:12px;color:{_c(C,'muted','#94A3B8')};cursor:pointer;"
+                        ).on("click", _clear_q):
                     ui.label("Clear")
 
             if stats and not queue:
-                # Results of the last completed import — a grouped, per-file
-                # status list so the user sees exactly which résumé landed,
-                # which was already on file, and which was skipped.
+                # Results of the last completed import — the same per-candidate
+                # ✓/✗ list shown live while importing.
                 ui.element("div").style(
                     f"height:1px;background:{_c(C,'border','#E2E8F0')};margin:16px 0;")
+                _skipped = (stats.get('dup', 0) + stats.get('junk', 0)
+                            + stats.get('scanned', 0) + stats.get('error', 0))
                 ui.label(f"✓ Imported {stats.get('added',0)} new candidate(s)"
-                         + (f", updated {stats['merged']}" if stats.get('merged') else "")).style(
-                    f"font-size:15px;font-weight:800;color:{_c(C,'good','#16A34A')};display:block;margin-bottom:10px;")
+                         + (f", updated {stats['merged']}" if stats.get('merged') else "")
+                         + (f", skipped {_skipped}" if _skipped else "")).style(
+                    f"font-size:15px;font-weight:800;color:{_c(C,'good','#16A34A')};display:block;margin-bottom:6px;")
 
-                file_results = st.get("upload_files") or []
-                added_rows = [f for f in file_results if f.get("status") == "added"]
-                onfile_rows = [f for f in file_results if f.get("status") in ("merged", "dup")]
-                skipped_rows = [f for f in file_results if f.get("status") in ("scanned", "junk", "error")]
-
-                _skip_reason = {
-                    "scanned": "couldn't read — scanned image or empty file",
-                    "junk": "doesn't look like a résumé",
-                    "error": "couldn't parse — try pasting its text instead",
-                }
-                _onfile_reason = {
-                    "merged": "already on file — kept the fuller record",
-                    "dup": "already on file — nothing new to add",
-                }
-
-                def _result_section(title, color, rows, detail_for):
-                    if not rows:
-                        return
-                    ui.label(f"{title} ({len(rows)})").style(
-                        f"font-size:13px;font-weight:800;color:{color};"
-                        f"display:block;margin:10px 0 4px;")
-                    with ui.element("div").style(
-                            "max-height:240px;overflow:auto;display:flex;"
-                            "flex-direction:column;gap:2px;"):
-                        for f in rows:
-                            _detail = detail_for(f)
-                            with ui.element("div").style(
-                                    "display:flex;gap:8px;align-items:baseline;"
-                                    "font-size:12px;line-height:1.5;"):
-                                ui.label("•").style(f"color:{color};")
-                                ui.label(f.get("filename") or "résumé").style(
-                                    f"color:{_c(C,'text','#334155')};font-weight:600;"
-                                    f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
-                                    f"max-width:260px;")
-                                if _detail:
-                                    ui.label(f"— {_detail}").style(
-                                        f"color:{_c(C,'muted','#94A3B8')};")
-
-                def _person_detail(f):
-                    nm = (f.get("name") or "").strip()
-                    ti = (f.get("title") or "").strip()
-                    return ", ".join(p for p in [nm, ti] if p) or "candidate added"
-
-                _result_section("✓ Added", _c(C, 'good', '#16A34A'),
-                                added_rows, _person_detail)
-                _result_section("↺ Already on file", _c(C, 'muted', '#94A3B8'),
-                                onfile_rows,
-                                lambda f: _onfile_reason.get(f.get("status"), "already on file"))
-                _result_section("⚠ Skipped", _c(C, 'warn', '#D97706'),
-                                skipped_rows,
-                                lambda f: _skip_reason.get(f.get("status"), "skipped"))
+                _live_results(ff, st, st.get("upload_files") or [])
 
                 def _go_mine(_e=None):
                     st["scope"] = "mine"; st["results"] = []
@@ -3936,14 +3960,16 @@ def _render_app(ff, st, refresh):
             ui.label("Pipeline").style(
                 f"font-size:16px;font-weight:800;color:{_c(C,'teal','#1AE3D9')};"
                 f"font-family:'Nunito',sans-serif;")
+        # Prominent "back to DripDrop" right next to the brand — the far-right
+        # placement was easy to miss on wide screens.
+        with ui.element("button").style(
+                f"background:{_c(C,'teal','#1AE3D9')}14;border:1px solid {_c(C,'teal','#1AE3D9')}55;"
+                f"color:{_c(C,'teal','#1AE3D9')};border-radius:8px;padding:6px 14px;"
+                f"font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;").on(
+                "click", lambda: ui.navigate.to("/")):
+            ui.label("← Back to DripDrop")
         ui.element("div").style("flex:1;")
         ui.label(st.get("name", "")).style(f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
-        with ui.element("button").style(
-                f"background:transparent;border:1px solid {_c(C,'border','#243049')};"
-                f"color:{_c(C,'text_l','#E6EDF7')};border-radius:8px;padding:6px 14px;"
-                f"font-size:12px;cursor:pointer;font-family:inherit;").on(
-                "click", lambda: ui.navigate.to("/")):
-            ui.label("← DripDrop")
 
     # Body: sidebar + content
     with ui.element("div").style("flex:1;display:flex;min-height:0;"):

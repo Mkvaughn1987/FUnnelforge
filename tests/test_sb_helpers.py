@@ -11,10 +11,13 @@ import flowdrip_app as fa
 
 def test_appstate_has_sequence_builder_fields():
     """AppState must initialize all sb_* fields so a fresh session
-    can render p_seq_builder without AttributeError."""
+    can render p_seq_builder without AttributeError.
+
+    2026-05-25 — sb_goal and sb_audience removed; the per-email
+    direction box (sb_special) carries the equivalent intent."""
     s = fa.AppState()
-    assert s.sb_goal == ""
-    assert s.sb_audience == ""
+    assert not hasattr(s, "sb_goal")
+    assert not hasattr(s, "sb_audience")
     assert s.sb_tone == "consultative"
     assert s.sb_counts == {
         "email": 5, "linkedin": 2, "call": 1, "sms": 0, "task": 0,
@@ -25,21 +28,16 @@ def test_appstate_has_sequence_builder_fields():
     assert s.sb_error == ""
 
 
-def test_sb_build_prompt_includes_brief_counts_and_span():
-    """Prompt must surface goal, audience, tone, per-type counts,
-    span, and special instructions so Claude can build the right
-    cadence end-to-end."""
+def test_sb_build_prompt_includes_tone_counts_and_span():
+    """Prompt must surface tone, per-type counts, span, and special
+    instructions so Claude can build the right cadence end-to-end."""
     prompt = fa._sb_build_prompt(
-        goal="Pitch a senior PM candidate",
-        audience="VPs of Construction in CO",
         tone="consultative",
         counts={"email": 5, "linkedin": 2, "call": 1, "sms": 0, "task": 0},
         span="3 weeks",
         special="Warm intro on email 1, candidate teaser on email 3, breakup on the last email",
     )
-    # Brief surfaces
-    assert "Pitch a senior PM candidate" in prompt
-    assert "VPs of Construction in CO" in prompt
+    # Tone surfaces
     assert "consultative" in prompt.lower()
     # Per-type counts surface
     assert "5" in prompt and "email" in prompt.lower()
@@ -56,7 +54,7 @@ def test_sb_build_prompt_skips_zero_count_types():
     """Types with 0 touches should not be enumerated as required
     touches — they'd just confuse the AI."""
     prompt = fa._sb_build_prompt(
-        goal="", audience="", tone="direct",
+        tone="direct",
         counts={"email": 3, "linkedin": 0, "call": 0, "sms": 0, "task": 0},
         span="1 week",
         special="",
