@@ -54941,51 +54941,80 @@ def _server_reply_monitor_tick(force_full_scan: bool = False):
         if not inbox_messages:
             continue
 
-        # ── Bounce detection: catch postmaster/undeliverable NDRs ────────
-        # These come from postmaster@... not from the original recipient.
-        # Extract the bounced address and cancel all pending emails for them.
+        # ── Bounce detection: catch NDRs and suppress dead addresses ─────
+        # Rewritten 2026-07-17 after a deliverability incident. The old
+        # check matched only "postmaster"/"mailer-daemon" senders AND
+        # required the address to already be enrolled — it missed ~95% of
+        # real bounces: 69% of NDRs come from Office 365's internal
+        # generator (MicrosoftExchange<hex>@<domain>, display "Microsoft
+        # Outlook"), and hard bounces should be suppressed whether or not
+        # the address is still enrolled. See _is_ndr_message / the NDR
+        # parser (near add_to_dnc).
+        #
+        # Only HARD bounces (recipient doesn't exist) are suppressed. Soft
+        # ones — mailbox full, policy/reputation blocks (5.7.x), transient
+        # 4.x.x — are left alone so a real prospect is never lost.
+        _my_domain = ""
+        for _k in ("ms_email", "gmail_email", "email"):
+            _v = (_user_cfg.get(_k) or "").strip().lower()
+            if "@" in _v:
+                _my_domain = _v.split("@", 1)[1]
+                break
         for msg in inbox_messages:
-            _from = msg.get("from_email", "").lower().strip()
-            _subj = msg.get("subject", "")
-            _body_prev = msg.get("body_preview", "")
-            if ("postmaster" in _from or "mailer-daemon" in _from) and "undeliverable" in _subj.lower():
-                # Try to extract the original recipient from the body
-                import re as _re_bounce
-                _bounce_match = _re_bounce.search(r'[\w.\-+]+@[\w.\-]+\.\w{2,}', _body_prev)
-                if _bounce_match:
-                    _bounced = _bounce_match.group().lower().strip()
-                    if _bounced in enrolled and _bounced not in responded_set:
-                        # Cancel all pending emails for this contact
-                        queue_path = user_dir / "scheduled_queue.json"
-                        if queue_path.exists():
-                            try:
-                                _q = json.loads(queue_path.read_text(encoding="utf-8"))
-                                _cancelled = 0
-                                for qi in _q:
-                                    if (qi.get("status") == "pending"
-                                            and qi.get("to", "").lower().strip() == _bounced):
-                                        qi["status"] = "cancelled"
-                                        qi["cancelled_at"] = datetime.now(_tz.utc).isoformat()
-                                        qi["cancel_reason"] = "bounce_ndr"
-                                        _cancelled += 1
-                                if _cancelled:
-                                    queue_path.write_text(json.dumps(_q, indent=2, default=str), encoding="utf-8")
-                                    print(f"[ReplyMonitor] Bounce NDR: cancelled {_cancelled} pending email(s) for {_bounced}", flush=True)
-                            except Exception as _qe:
-                                print(f"[ReplyMonitor] Bounce queue cancel error: {_qe}", flush=True)
-                        # Add to DNC
-                        try:
-                            _dnc = []
-                            if dnc_path.exists():
-                                try: _dnc = json.loads(dnc_path.read_text(encoding="utf-8"))
-                                except Exception: _dnc = []
-                            if not any(d.get("email", "").lower() == _bounced for d in _dnc):
-                                _dnc.append({"email": _bounced, "added": datetime.now(_tz.utc).isoformat(),
-                                             "reason": f"Bounced (NDR): {_subj[:80]}"})
-                                dnc_path.write_text(json.dumps(_dnc, indent=2), encoding="utf-8")
-                                print(f"[ReplyMonitor] Added {_bounced} to DNC (NDR bounce)", flush=True)
-                        except Exception:
-                            pass
+            _from = (msg.get("from_email") or "").lower().strip()
+            _subj = msg.get("subject") or ""
+            if not _is_ndr_message(_from, _subj):
+                continue
+            _body = msg.get("body_full") or msg.get("body_preview") or ""
+            _bounced = _parse_ndr_recipient(_subj, _body, _my_domain)
+            if not _bounced:
+                continue
+            _status = _parse_ndr_status(_body)
+            if _classify_bounce(_status, _body) != "hard":
+                continue  # soft/transient — do not suppress
+            # Cancel this address's pending queue items (the send path does
+            # not gate on DNC, so cancelling is what actually stops sends).
+            queue_path = user_dir / "scheduled_queue.json"
+            if queue_path.exists():
+                try:
+                    _q = json.loads(queue_path.read_text(encoding="utf-8"))
+                    _cancelled = 0
+                    for qi in _q:
+                        if (qi.get("status") == "pending"
+                                and (qi.get("to") or "").lower().strip() == _bounced):
+                            qi["status"] = "cancelled"
+                            qi["cancelled_at"] = datetime.now(_tz.utc).isoformat()
+                            qi["cancel_reason"] = "bounce_ndr"
+                            _cancelled += 1
+                    if _cancelled:
+                        _qtmp = queue_path.with_suffix(".json.tmp")
+                        _qtmp.write_text(json.dumps(_q, indent=2, default=str), encoding="utf-8")
+                        os.replace(_qtmp, queue_path)
+                        print(f"[ReplyMonitor] Bounce NDR ({_status or 'no-code'}): "
+                              f"cancelled {_cancelled} pending email(s) for {_bounced}", flush=True)
+                except Exception as _qe:
+                    print(f"[ReplyMonitor] Bounce queue cancel error: {_qe}", flush=True)
+            # Add to DNC (prevents re-enrollment). Canonical-ish shape,
+            # source tagged so these are distinguishable from opt-outs.
+            try:
+                _dnc = []
+                if dnc_path.exists():
+                    try: _dnc = json.loads(dnc_path.read_text(encoding="utf-8"))
+                    except Exception: _dnc = []
+                if not any((d.get("email") or "").lower().strip() == _bounced for d in _dnc):
+                    _dnc.insert(0, {
+                        "email": _bounced,
+                        "name": "", "company": "",
+                        "reason": f"Hard bounce (NDR {_status or 'no-code'})",
+                        "source": "ndr-bounce",
+                        "added_at": datetime.now(_tz.utc).isoformat(),
+                    })
+                    _dtmp = dnc_path.with_suffix(".json.tmp")
+                    _dtmp.write_text(json.dumps(_dnc, indent=2), encoding="utf-8")
+                    os.replace(_dtmp, dnc_path)
+                    print(f"[ReplyMonitor] Added {_bounced} to DNC (hard bounce {_status or 'no-code'})", flush=True)
+            except Exception:
+                pass
 
         # Match inbox messages against enrolled contacts
         for msg in inbox_messages:
