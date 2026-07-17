@@ -54978,15 +54978,34 @@ def _server_reply_monitor_tick(force_full_scan: bool = False):
         # the address is still enrolled. See _is_ndr_message / the NDR
         # parser (near add_to_dnc).
         #
-        # Only HARD bounces (recipient doesn't exist) are suppressed. Soft
-        # ones — mailbox full, policy/reputation blocks (5.7.x), transient
-        # 4.x.x — are left alone so a real prospect is never lost.
+        # HARD bounces (recipient doesn't exist) suppress on the first
+        # bounce. SOFT bounces — mailbox full, policy/reputation blocks
+        # (5.7.x), server timeouts (5.4.3xx), transient 4.x.x — only after
+        # they REPEAT (_SOFT_BOUNCE_THRESHOLD distinct NDRs), so a one-off
+        # outage never costs a real prospect. Soft-bounce counts persist in
+        # soft_bounce_tracker.json, deduped by NDR message_id.
         _my_domain = ""
         for _k in ("ms_email", "gmail_email", "email"):
             _v = (_user_cfg.get(_k) or "").strip().lower()
             if "@" in _v:
                 _my_domain = _v.split("@", 1)[1]
                 break
+
+        # Load DNC (once) and the soft-bounce tracker (once) for this user.
+        _dnc_list = []
+        if dnc_path.exists():
+            try: _dnc_list = json.loads(dnc_path.read_text(encoding="utf-8"))
+            except Exception: _dnc_list = []
+        _dnc_emails = {(d.get("email") or "").lower().strip() for d in _dnc_list}
+        _tracker_path = user_dir / "soft_bounce_tracker.json"
+        _soft_tracker = {}
+        if _tracker_path.exists():
+            try: _soft_tracker = json.loads(_tracker_path.read_text(encoding="utf-8"))
+            except Exception: _soft_tracker = {}
+        _tracker_dirty = False
+
+        # Collect who to suppress this tick: email -> (reason, status).
+        _suppress_now = {}
         for msg in inbox_messages:
             _from = (msg.get("from_email") or "").lower().strip()
             _subj = msg.get("subject") or ""
@@ -54994,52 +55013,70 @@ def _server_reply_monitor_tick(force_full_scan: bool = False):
                 continue
             _body = msg.get("body_full") or msg.get("body_preview") or ""
             _bounced = _parse_ndr_recipient(_subj, _body, _my_domain)
-            if not _bounced:
-                continue
+            if not _bounced or _bounced in _dnc_emails or _bounced in _suppress_now:
+                continue  # unparseable or already handled/suppressed
             _status = _parse_ndr_status(_body)
-            if _classify_bounce(_status, _body) != "hard":
-                continue  # soft/transient — do not suppress
-            # Cancel this address's pending queue items (the send path does
-            # not gate on DNC, so cancelling is what actually stops sends).
+            if _classify_bounce(_status, _body) == "hard":
+                _suppress_now[_bounced] = (f"Hard bounce (NDR {_status or 'no-code'})", _status)
+                if _bounced in _soft_tracker:
+                    del _soft_tracker[_bounced]; _tracker_dirty = True
+            else:
+                # Soft: count distinct NDRs; suppress only at the threshold.
+                _reached = _record_soft_bounce(
+                    _soft_tracker, _bounced, msg.get("message_id", ""), _status)
+                _tracker_dirty = True
+                if _reached:
+                    _n = _soft_tracker.get(_bounced, {}).get("count", _SOFT_BOUNCE_THRESHOLD)
+                    _suppress_now[_bounced] = (
+                        f"Soft bounce x{_n} (last NDR {_status or 'no-code'})", _status)
+                    _soft_tracker.pop(_bounced, None)
+
+        # One queue rewrite cancelling all pending items for suppressed
+        # addresses (the send path doesn't gate on DNC, so this is what
+        # actually stops sends), then one DNC append. Atomic writes.
+        if _suppress_now:
             queue_path = user_dir / "scheduled_queue.json"
             if queue_path.exists():
                 try:
                     _q = json.loads(queue_path.read_text(encoding="utf-8"))
-                    _cancelled = 0
+                    _cancels = {}
                     for qi in _q:
-                        if (qi.get("status") == "pending"
-                                and (qi.get("to") or "").lower().strip() == _bounced):
+                        _to = (qi.get("to") or "").lower().strip()
+                        if qi.get("status") == "pending" and _to in _suppress_now:
                             qi["status"] = "cancelled"
                             qi["cancelled_at"] = datetime.now(_tz.utc).isoformat()
                             qi["cancel_reason"] = "bounce_ndr"
-                            _cancelled += 1
-                    if _cancelled:
+                            _cancels[_to] = _cancels.get(_to, 0) + 1
+                    if _cancels:
                         _qtmp = queue_path.with_suffix(".json.tmp")
                         _qtmp.write_text(json.dumps(_q, indent=2, default=str), encoding="utf-8")
                         os.replace(_qtmp, queue_path)
-                        print(f"[ReplyMonitor] Bounce NDR ({_status or 'no-code'}): "
-                              f"cancelled {_cancelled} pending email(s) for {_bounced}", flush=True)
+                        print(f"[ReplyMonitor] Bounce: cancelled "
+                              f"{sum(_cancels.values())} pending email(s) across "
+                              f"{len(_cancels)} address(es)", flush=True)
                 except Exception as _qe:
                     print(f"[ReplyMonitor] Bounce queue cancel error: {_qe}", flush=True)
-            # Add to DNC (prevents re-enrollment). Canonical-ish shape,
-            # source tagged so these are distinguishable from opt-outs.
             try:
-                _dnc = []
-                if dnc_path.exists():
-                    try: _dnc = json.loads(dnc_path.read_text(encoding="utf-8"))
-                    except Exception: _dnc = []
-                if not any((d.get("email") or "").lower().strip() == _bounced for d in _dnc):
-                    _dnc.insert(0, {
-                        "email": _bounced,
-                        "name": "", "company": "",
-                        "reason": f"Hard bounce (NDR {_status or 'no-code'})",
-                        "source": "ndr-bounce",
-                        "added_at": datetime.now(_tz.utc).isoformat(),
+                _now_iso = datetime.now(_tz.utc).isoformat()
+                for _addr, (_reason, _st) in _suppress_now.items():
+                    _dnc_list.insert(0, {
+                        "email": _addr, "name": "", "company": "",
+                        "reason": _reason, "source": "ndr-bounce",
+                        "added_at": _now_iso,
                     })
-                    _dtmp = dnc_path.with_suffix(".json.tmp")
-                    _dtmp.write_text(json.dumps(_dnc, indent=2), encoding="utf-8")
-                    os.replace(_dtmp, dnc_path)
-                    print(f"[ReplyMonitor] Added {_bounced} to DNC (hard bounce {_status or 'no-code'})", flush=True)
+                    print(f"[ReplyMonitor] Added {_addr} to DNC ({_reason})", flush=True)
+                _dtmp = dnc_path.with_suffix(".json.tmp")
+                _dtmp.write_text(json.dumps(_dnc_list, indent=2), encoding="utf-8")
+                os.replace(_dtmp, dnc_path)
+            except Exception as _de:
+                print(f"[ReplyMonitor] Bounce DNC write error: {_de}", flush=True)
+
+        # Persist the soft-bounce tracker if it changed.
+        if _tracker_dirty:
+            try:
+                _ttmp = _tracker_path.with_suffix(".json.tmp")
+                _ttmp.write_text(json.dumps(_soft_tracker, indent=2), encoding="utf-8")
+                os.replace(_ttmp, _tracker_path)
             except Exception:
                 pass
 
