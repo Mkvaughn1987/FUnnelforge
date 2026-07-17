@@ -5351,6 +5351,123 @@ def generate_aicb_campaign(client, *, camp_type, company="", website="",
     return campaign_data
 
 
+@app.post("/api/v1/candidates/import")
+async def api_import_candidates(request: Request):
+    """Bulk-import resumes into the key owner's Top Candidates pool - the same
+    action as Pipeline -> View Pool -> Bulk Import Resumes, but server-to-server.
+
+    Auth: per-user API key (Authorization: Bearer <key> or X-API-Key); the
+    owner is taken from the key, so a key can only ever write to its own pool.
+    Body: multipart/form-data with one or more 'files' (pdf/doc/docx/txt/rtf).
+    Each file runs the identical parse+save pipeline the UI button uses;
+    imports are append-only (no dedupe), matching the UI. A file that can't be
+    parsed is reported per-file in 'results' and never fails the whole batch."""
+    from starlette.responses import JSONResponse
+
+    auth = request.headers.get("authorization", "")
+    key = (auth[7:].strip() if auth.lower().startswith("bearer ")
+           else request.headers.get("x-api-key", "").strip())
+    owner = _resolve_api_key(key)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+
+    if not ANTHROPIC_API_KEY:
+        return JSONResponse({"error": "AI not configured on server"}, status_code=503)
+
+    try:
+        form = await request.form()
+    except Exception:
+        return JSONResponse(
+            {"error": "body must be multipart/form-data with one or more 'files'"},
+            status_code=400)
+
+    uploads = [v for v in form.getlist("files")
+               if hasattr(v, "filename") and hasattr(v, "read")]
+    if not uploads:
+        return JSONResponse({"error": "no files provided (field name: 'files')"},
+                            status_code=400)
+
+    # Bind user context so the pool save lands in the key owner's account,
+    # exactly like the campaign route above.
+    _CURRENT_USER_EMAIL.set(owner)
+    try:
+        _switch_to_user_paths(owner)
+    except Exception:
+        pass
+
+    def _err(fname, status, reason):
+        return {"file": fname, "status": status, "candidate_id": None,
+                "name": None, "category": None, "reason": reason}
+
+    results = []
+    dest_dir = _user_pdf_dir()
+    _max_mb = _MAX_RESUME_BYTES // (1024 * 1024)
+    for up in uploads:
+        fname = getattr(up, "filename", "") or "resume"
+        try:
+            content = await up.read()
+        except Exception as ex:
+            results.append(_err(fname, "error", f"read failed: {ex}"[:120]))
+            continue
+        if not content:
+            results.append(_err(fname, "skipped", "empty file"))
+            continue
+        if len(content) > _MAX_RESUME_BYTES:
+            results.append(_err(fname, "skipped", f"exceeds {_max_mb} MB limit"))
+            continue
+        tmp = _safe_attachment_path(f"_apiimport_{fname}", dest_dir,
+                                    _ALLOWED_RESUME_EXTS, fallback="resume")
+        if tmp is None:
+            results.append(_err(fname, "skipped", "unsupported file type"))
+            continue
+        try:
+            tmp.write_bytes(content)
+            results.append(_import_one_resume(str(tmp), fname))
+        except Exception as ex:
+            results.append(_err(fname, "error", str(ex)[:120]))
+        finally:
+            try: tmp.unlink(missing_ok=True)
+            except Exception: pass
+
+    added = sum(1 for r in results if r["status"] == "added")
+    updated = sum(1 for r in results if r["status"] == "updated")
+    skipped = sum(1 for r in results if r["status"] in ("skipped", "error"))
+    return JSONResponse({
+        "requested": len(uploads),
+        "added": added,
+        "updated": updated,   # always 0: imports are append-only, matching the UI
+        "skipped": skipped,
+        "results": results,
+    })
+
+
+@app.get("/api/v1/candidates/count")
+async def api_candidates_count(request: Request):
+    """Lightweight verify endpoint - counts in the key owner's pool by status,
+    so an automation can confirm an import landed."""
+    from starlette.responses import JSONResponse
+    auth = request.headers.get("authorization", "")
+    key = (auth[7:].strip() if auth.lower().startswith("bearer ")
+           else request.headers.get("x-api-key", "").strip())
+    owner = _resolve_api_key(key)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _CURRENT_USER_EMAIL.set(owner)
+    try:
+        _switch_to_user_paths(owner)
+    except Exception:
+        pass
+    pool = load_candidate_pool()
+    def _n(st):
+        return sum(1 for c in pool if (c.get("status") or "active") == st)
+    return JSONResponse({
+        "active": _n("active"),
+        "placed": _n("placed"),
+        "on_hold": _n("on_hold"),
+        "total": len(pool),
+    })
+
+
 @app.post("/api/v1/campaigns")
 async def api_create_campaign(request: Request):
     """Create + launch an AICB campaign from a posted spec. Auth via a per-user
@@ -6155,6 +6272,151 @@ def remove_from_dnc(email: str) -> bool:
         save_dnc(new_dnc)
         return True
     return False
+
+
+# ── NDR (bounce) parsing ────────────────────────────────────────────────
+# Extract the failed recipient and delivery status from a bounce message so
+# the reply monitor can suppress dead addresses. Designed and validated
+# against 1,005 real NDRs in the michael_vaughn mailbox (2026-07-17):
+# 69% came from Office 365's internal generator
+# (MicrosoftExchange329e71ec...@<domain>, display name "Microsoft Outlook"),
+# which is why matching on "postmaster"/"mailer-daemon" alone missed most of
+# them. See _is_ndr_message() for the broadened sender/subject match.
+
+# Curated HARD-bounce status codes: recipient does not exist / is rejected
+# outright. Suppress these. We deliberately UNDER-suppress: an address we
+# skip just bounces again and gets caught next time, but wrongly suppressing
+# a real prospect loses them for good.
+_HARD_BOUNCE_CODES = frozenset({
+    "5.1.0",   # other address status (generic bad address)
+    "5.1.1",   # bad destination mailbox address (doesn't exist)
+    "5.1.10",  # recipient not found (O365 DBEB / NDR)
+    "5.4.1",   # recipient address rejected / DBEB access denied
+    "5.4.4",   # unable to route (unknown domain/recipient)
+    "5.4.12",  # recipient not found in directory
+})
+# Explicitly NOT hard (never auto-suppress):
+#   5.2.2 / 5.2.3  mailbox full / message too large — the person EXISTS
+#   5.7.x          policy / blocked / not authorized — reputation, not a
+#                  bad address; suppressing punishes you, not the address
+#   4.x.x          transient — retry later
+_HARD_BOUNCE_PHRASES = (
+    "wasn't found",
+    "wasnt found",
+    "couldn't be found",
+    "couldnt be found",
+    "doesn't exist",
+    "does not exist",
+    "recipient not found",
+    "unknown to address",
+    "no longer with",
+    "user unknown",
+    "no such user",
+    "address not found",
+)
+
+
+def _parse_ndr_recipient(subject: str, body: str, my_domain: str = "") -> str:
+    """Extract the original failed recipient address from an NDR body.
+
+    Tries the reliable structured markers first (O365 "Recipient Address:",
+    DSN "Final-Recipient:", the "Your message to X couldn't be delivered"
+    prose), then falls back to the first address that is neither our own
+    sending domain nor the Exchange NDR generator. Returns "" if none found.
+    """
+    body = body or ""
+    _EMAIL = r"[\w.\-+']+@[\w.\-]+\.\w{2,}"
+    for pat in (
+        r"[Rr]ecipient [Aa]ddress:\s*(" + _EMAIL + r")",
+        r"[Ff]inal-[Rr]ecipient:\s*rfc822;\s*(" + _EMAIL + r")",
+        r"[Oo]riginal-[Rr]ecipient:.*?(" + _EMAIL + r")",
+        r"X-Failed-Recipients:\s*(" + _EMAIL + r")",
+        r"[Yy]our message to\s*(" + _EMAIL + r")",
+        r"message to\s*'?(" + _EMAIL + r")'?\s*couldn",
+        r"to these recipients or groups:\s*(" + _EMAIL + r")",
+    ):
+        m = re.search(pat, body)
+        if m:
+            return m.group(1).lower().strip()
+    # Fallback: first address that isn't ours or the Exchange NDR bot.
+    my_domain = (my_domain or "").lower().strip()
+    for cand in re.findall(_EMAIL, body):
+        c = cand.lower().strip()
+        if "microsoftexchange" in c:
+            continue
+        if my_domain and c.endswith("@" + my_domain):
+            continue
+        if c.startswith("postmaster@") or c.startswith("mailer-daemon@"):
+            continue
+        return c
+    return ""
+
+
+def _parse_ndr_status(body: str) -> str:
+    """Extract the SMTP enhanced status code (e.g. '5.1.1') from an NDR.
+
+    Prefers a code that appears next to an explicit 'Status'/'Error'/'550'
+    marker; falls back to the first bare X.Y.Z enhanced code in the body.
+    Returns "" if none found.
+    """
+    body = body or ""
+    _CODE = r"([45]\.\d{1,3}\.\d{1,3})"
+    for pat in (
+        r"[Ss]tatus(?:\s*code)?:\s*(?:\d{3}\s+)?" + _CODE,
+        r"[Ee]rror:\s*(?:\d{3}\s+)?" + _CODE,
+        r"\b5\d{2}\s+" + _CODE,
+    ):
+        m = re.search(pat, body)
+        if m:
+            return m.group(1)
+    m = re.search(r"\b" + _CODE + r"\b", body)
+    return m.group(1) if m else ""
+
+
+def _classify_bounce(status_code: str, body: str) -> str:
+    """Classify a bounce as 'hard' (suppress) or 'soft' (leave alone).
+
+    Hard = the recipient does not exist / is permanently rejected. Soft =
+    everything else (transient 4.x.x, mailbox-full 5.2.x, policy/reputation
+    blocks 5.7.x, unknown). When a status code is present we trust it and do
+    NOT fall through to phrase matching — a 5.7.1 body often contains
+    'recipient address rejected' too, and we must not suppress those.
+    """
+    code = (status_code or "").strip()
+    if code:
+        return "hard" if code in _HARD_BOUNCE_CODES else "soft"
+    # No parseable code — fall back to conservative existence phrases only.
+    b = (body or "").lower()
+    if any(p in b for p in _HARD_BOUNCE_PHRASES):
+        return "hard"
+    return "soft"
+
+
+def _is_ndr_message(from_email: str, subject: str) -> bool:
+    """True if a message looks like a non-delivery report (bounce).
+
+    Broadened past the old postmaster/mailer-daemon-only check: Office 365's
+    internal generator sends from MicrosoftExchange<hex>@<domain> with the
+    display name 'Microsoft Outlook', which matched neither. We now also key
+    off the subject, which is reliably 'Undeliverable:' / 'Delivery has
+    failed' / 'Returned mail' across providers.
+    """
+    f = (from_email or "").lower()
+    s = (subject or "").lower()
+    sender_hit = (
+        "postmaster" in f
+        or "mailer-daemon" in f
+        or "microsoftexchange" in f
+        or f.startswith("microsoft outlook")
+    )
+    subject_hit = (
+        "undeliverable" in s
+        or "delivery has failed" in s
+        or "delivery status notification" in s
+        or "returned mail" in s
+        or "mail delivery failed" in s
+    )
+    return sender_hit or subject_hit
 
 
 def is_on_dnc(email: str) -> bool:
@@ -40425,6 +40687,75 @@ def _p_match_jd_tab(s: AppState, rf, pool: list):
         _sb_dlg.open()
 
 
+def _import_one_resume(path: str, filename: str) -> dict:
+    """Parse a single resume already on disk and append it to the CURRENT
+    user's candidate pool. Returns a per-file result dict:
+    {file, status, candidate_id, name, category, reason} where status is
+    'added' | 'skipped' | 'error'.
+
+    This is the shared core used VERBATIM by both the "Bulk Import Resumes"
+    UI worker and the POST /api/v1/candidates/import route, so API and UI
+    imports behave identically: same text extraction, same Haiku metadata
+    prompt, same append-only add_candidate_to_pool (no dedupe - matching the
+    UI, which also appends).
+
+    Tenancy MUST already be bound by the caller (the UI worker uses
+    _run_as_user; the API route uses _CURRENT_USER_EMAIL.set +
+    _switch_to_user_paths). The caller owns the temp-file lifecycle.
+    """
+    result = {"file": filename, "status": "error", "candidate_id": None,
+              "name": None, "category": None, "reason": None}
+    resume_text = _extract_resume_text(path)
+    if not resume_text or len(resume_text.strip()) < 40:
+        result["status"] = "skipped"
+        result["reason"] = "could not extract text"
+        return result
+    meta = {}
+    try:
+        import anthropic as _anth
+        client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
+        prompt = (
+            "Extract candidate metadata + highlights from this resume. Return ONLY valid JSON "
+            "with these fields (use empty string / empty list if unknown):\n"
+            '{"name":"Full Name",'
+            '"target_role":"most recent or apparent focus role title",'
+            '"location":"City, ST",'
+            '"salary":"comp range or empty",'
+            '"highlights":["4-6 punchy bullets: years of experience, industries, '
+            'key tools/software/brands/certs, standout achievements. Be specific '
+            'and concrete. No marketing speak. No em dashes."]}\n\n'
+            "RESUME:\n" + resume_text[:6000]
+        )
+        msg = _claude_create_with_retry(client,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=700,
+            messages=[{"role": "user", "content": prompt}])
+        raw = "".join(b.text for b in msg.content if hasattr(b, "text")).strip()
+        raw = raw.replace("```json", "").replace("```", "").strip()
+        m = re.search(r"\{.*\}", raw, re.DOTALL)
+        meta = json.loads(m.group()) if m else {}
+    except Exception as ex:
+        print(f"[ResumeImport] meta extract failed for {filename}: {ex}", flush=True)
+    _hl = meta.get("highlights") or []
+    if not isinstance(_hl, list):
+        _hl = []
+    _hl = [str(h).strip() for h in _hl if h and str(h).strip()][:6]
+    cand = {
+        "name": (meta.get("name") or Path(filename).stem).strip() or "Unnamed",
+        "target_role": (meta.get("target_role") or "").strip(),
+        "location": (meta.get("location") or "").strip(),
+        "salary": (meta.get("salary") or "").strip(),
+        "highlights": _hl,
+        "resume_text": resume_text,
+        "resume_filename": filename,
+        "status": "active",
+    }
+    cid = add_candidate_to_pool(cand)
+    result.update(status="added", candidate_id=cid, name=cand["name"],
+                  category=(cand["target_role"] or "Other"), reason=None)
+    return result
+
+
 def _bulk_import_resumes(s: AppState, rf):
     """Multi-file resume upload. Each file → extract text → Haiku metadata →
     save to pool. NO rf() mid-batch (that destroys the uploader), only once
@@ -40470,54 +40801,15 @@ def _bulk_import_resumes(s: AppState, rf):
             _saved_name = None
             _skipped_reason = ""
             try:
-                resume_text = _extract_resume_text(_path)
-                if not resume_text or len(resume_text.strip()) < 40:
-                    _skipped_reason = "could not extract text"
-                    print(f"[BulkImport] no text extracted for {_name}", flush=True)
-                    return
-                meta = {}
-                try:
-                    import anthropic as _anth
-                    client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
-                    prompt = (
-                        "Extract candidate metadata + highlights from this resume. Return ONLY valid JSON "
-                        "with these fields (use empty string / empty list if unknown):\n"
-                        '{"name":"Full Name",'
-                        '"target_role":"most recent or apparent focus role title",'
-                        '"location":"City, ST",'
-                        '"salary":"comp range or empty",'
-                        '"highlights":["4-6 punchy bullets: years of experience, industries, '
-                        'key tools/software/brands/certs, standout achievements. Be specific '
-                        'and concrete. No marketing speak. No em dashes."]}\n\n'
-                        "RESUME:\n" + resume_text[:6000]
-                    )
-                    msg = _claude_create_with_retry(client,
-                        model="claude-haiku-4-5-20251001",
-                        max_tokens=700,
-                        messages=[{"role": "user", "content": prompt}])
-                    raw = "".join(b.text for b in msg.content if hasattr(b, "text")).strip()
-                    raw = raw.replace("```json", "").replace("```", "").strip()
-                    m = re.search(r"\{.*\}", raw, re.DOTALL)
-                    meta = json.loads(m.group()) if m else {}
-                except Exception as ex:
-                    print(f"[BulkImport] meta extract failed for {_name}: {ex}", flush=True)
-                _hl = meta.get("highlights") or []
-                if not isinstance(_hl, list):
-                    _hl = []
-                _hl = [str(h).strip() for h in _hl if h and str(h).strip()][:6]
-                cand = {
-                    "name": (meta.get("name") or Path(_name).stem).strip() or "Unnamed",
-                    "target_role": (meta.get("target_role") or "").strip(),
-                    "location": (meta.get("location") or "").strip(),
-                    "salary": (meta.get("salary") or "").strip(),
-                    "highlights": _hl,
-                    "resume_text": resume_text,
-                    "resume_filename": _name,
-                    "status": "active",
-                }
-                add_candidate_to_pool(cand)
-                _saved_name = cand["name"]
-                print(f"[BulkImport] saved {_saved_name} ({_name})", flush=True)
+                # Shared with POST /api/v1/candidates/import so UI and API
+                # imports are identical (same parse + append-only save).
+                _res = _import_one_resume(_path, _name)
+                if _res["status"] == "added":
+                    _saved_name = _res["name"]
+                    print(f"[BulkImport] saved {_saved_name} ({_name})", flush=True)
+                else:
+                    _skipped_reason = _res.get("reason") or _res["status"]
+                    print(f"[BulkImport] {_res['status']} {_name}: {_skipped_reason}", flush=True)
             except Exception as ex:
                 _skipped_reason = str(ex)[:80]
                 print(f"[BulkImport] worker failed for {_name}: {ex}", flush=True)
