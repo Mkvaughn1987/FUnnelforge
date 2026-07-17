@@ -6427,6 +6427,33 @@ def _is_ndr_message(from_email: str, subject: str) -> bool:
     return sender_hit or subject_hit
 
 
+# Remove an address after this many DISTINCT soft bounces. Hard bounces
+# (recipient doesn't exist) suppress on the first one; soft bounces
+# (mailbox full, policy/reputation block, server timeout, transient) only
+# after they repeat, since a one-off outage shouldn't cost a real prospect.
+_SOFT_BOUNCE_THRESHOLD = 3
+
+
+def _record_soft_bounce(tracker: dict, email: str, message_id: str,
+                        status: str, threshold: int = _SOFT_BOUNCE_THRESHOLD) -> bool:
+    """Record one soft bounce for `email` in `tracker` (mutated in place).
+
+    Returns True once the address has reached `threshold` DISTINCT soft
+    bounces. Dedups by message_id so re-scanning the same NDR (overlapping
+    scan windows, the 7-day startup catch-up) never inflates the count —
+    only genuinely separate bounce events advance it.
+    """
+    email = (email or "").lower().strip()
+    e = tracker.setdefault(email, {"count": 0, "msg_ids": [], "last_status": ""})
+    if message_id and message_id in e["msg_ids"]:
+        return e["count"] >= threshold  # already counted this exact NDR
+    e["count"] += 1
+    if message_id:
+        e["msg_ids"] = (e["msg_ids"] + [message_id])[-20:]  # keep last 20
+    e["last_status"] = status or ""
+    return e["count"] >= threshold
+
+
 def is_on_dnc(email: str) -> bool:
     """Check if an email or its domain is on the DNC list."""
     email = email.lower().strip()

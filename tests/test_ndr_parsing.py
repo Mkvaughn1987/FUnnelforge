@@ -163,3 +163,53 @@ def test_weckworth_ndr_end_to_end_hard():
     code = fa._parse_ndr_status(WECKWORTH_NDR)
     assert rcpt == "thoberecht@weckworth.com"
     assert fa._classify_bounce(code, WECKWORTH_NDR) == "hard"
+
+
+# ── _record_soft_bounce (repeat-then-remove for soft bounces) ─────────
+
+def test_soft_bounce_removes_only_after_threshold():
+    t = {}
+    assert fa._record_soft_bounce(t, "a@x.com", "m1", "5.2.2", 3) is False
+    assert fa._record_soft_bounce(t, "a@x.com", "m2", "5.2.2", 3) is False
+    assert fa._record_soft_bounce(t, "a@x.com", "m3", "5.2.2", 3) is True
+    assert t["a@x.com"]["count"] == 3
+
+
+def test_soft_bounce_dedups_same_message_id():
+    # The same NDR re-seen across scans must not advance the count.
+    t = {}
+    fa._record_soft_bounce(t, "a@x.com", "m1", "5.4.316", 3)
+    fa._record_soft_bounce(t, "a@x.com", "m1", "5.4.316", 3)
+    fa._record_soft_bounce(t, "a@x.com", "m1", "5.4.316", 3)
+    assert t["a@x.com"]["count"] == 1  # counted once despite 3 sightings
+
+
+def test_soft_bounce_distinct_messages_advance():
+    t = {}
+    fa._record_soft_bounce(t, "a@x.com", "m1", "5.2.2", 3)
+    fa._record_soft_bounce(t, "a@x.com", "m1", "5.2.2", 3)   # dup, ignored
+    fa._record_soft_bounce(t, "a@x.com", "m2", "5.2.2", 3)
+    reached = fa._record_soft_bounce(t, "a@x.com", "m3", "5.2.2", 3)
+    assert t["a@x.com"]["count"] == 3 and reached is True
+
+
+def test_soft_bounce_tracks_per_address():
+    t = {}
+    fa._record_soft_bounce(t, "a@x.com", "m1", "5.2.2", 3)
+    fa._record_soft_bounce(t, "b@y.com", "m2", "5.2.2", 3)
+    assert t["a@x.com"]["count"] == 1 and t["b@y.com"]["count"] == 1
+
+
+def test_soft_bounce_caps_stored_message_ids():
+    t = {}
+    for i in range(30):
+        fa._record_soft_bounce(t, "a@x.com", f"m{i}", "5.2.2", 100)
+    assert len(t["a@x.com"]["msg_ids"]) == 20  # keeps only the last 20
+    assert t["a@x.com"]["count"] == 30
+
+
+def test_soft_bounce_records_last_status():
+    t = {}
+    fa._record_soft_bounce(t, "a@x.com", "m1", "5.2.2", 3)
+    fa._record_soft_bounce(t, "a@x.com", "m2", "5.4.316", 3)
+    assert t["a@x.com"]["last_status"] == "5.4.316"
