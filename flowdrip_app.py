@@ -6325,23 +6325,31 @@ def _parse_ndr_recipient(subject: str, body: str, my_domain: str = "") -> str:
     sending domain nor the Exchange NDR generator. Returns "" if none found.
     """
     body = body or ""
+    # Email local-part may legitimately contain an apostrophe (o'brien@),
+    # but NDR bodies quote the address ("to 'user@host'"), so we strip any
+    # surrounding quotes/brackets/punctuation from whatever we capture.
     _EMAIL = r"[\w.\-+']+@[\w.\-]+\.\w{2,}"
+    _TRIM = " '\"<>()[].,;:"
+
+    def _clean(addr: str) -> str:
+        return (addr or "").strip(_TRIM).lower().strip()
+
     for pat in (
         r"[Rr]ecipient [Aa]ddress:\s*(" + _EMAIL + r")",
         r"[Ff]inal-[Rr]ecipient:\s*rfc822;\s*(" + _EMAIL + r")",
         r"[Oo]riginal-[Rr]ecipient:.*?(" + _EMAIL + r")",
         r"X-Failed-Recipients:\s*(" + _EMAIL + r")",
-        r"[Yy]our message to\s*(" + _EMAIL + r")",
+        r"[Yy]our message to\s*'?(" + _EMAIL + r")",
         r"message to\s*'?(" + _EMAIL + r")'?\s*couldn",
         r"to these recipients or groups:\s*(" + _EMAIL + r")",
     ):
         m = re.search(pat, body)
         if m:
-            return m.group(1).lower().strip()
+            return _clean(m.group(1))
     # Fallback: first address that isn't ours or the Exchange NDR bot.
     my_domain = (my_domain or "").lower().strip()
     for cand in re.findall(_EMAIL, body):
-        c = cand.lower().strip()
+        c = _clean(cand)
         if "microsoftexchange" in c:
             continue
         if my_domain and c.endswith("@" + my_domain):
@@ -50128,12 +50136,17 @@ def _p_profile_body(s, rf):
                                     "padding:7px 18px;font-size:12px;").on(
                                     "click", _copy):
                                 ui.label("Copy")
+                    # Refresh the card only AFTER the user dismisses the dialog.
+                    # Refreshing while it's open re-renders the section and tears
+                    # the dialog off-screen before the one-time key can be copied.
+                    _k_dlg.on("hide", lambda *_: rf())
                     _k_dlg.open()
 
                 def _generate_key():
                     key = _mint_api_key(_uemail, label="self-serve")
+                    # No rf() here — see _reveal_key_dialog: it refreshes on the
+                    # dialog's 'hide' event so the key stays visible until 'Done'.
                     _reveal_key_dialog(key)
-                    rf()
 
                 def _regenerate_key():
                     with ui.dialog() as _c_dlg, ui.card().style(

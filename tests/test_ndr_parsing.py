@@ -64,6 +64,21 @@ def test_recipient_empty_when_none_present():
     assert fa._parse_ndr_recipient("hi", "no addresses here", "arenastaffing.net") == ""
 
 
+def test_recipient_strips_surrounding_quotes():
+    # Real bug from the backfill dry-run: NDR quotes the address, e.g.
+    # "Your message to 'jhooper@treebrand.com' couldn't be delivered" — the
+    # captured address must not keep the leading apostrophe.
+    body = "Your message to 'jhooper@treebrand.com' couldn't be delivered."
+    r = fa._parse_ndr_recipient("Undeliverable", body, "arenastaffing.net")
+    assert r == "jhooper@treebrand.com"
+
+
+def test_recipient_strips_angle_brackets():
+    body = "Final-Recipient: rfc822; <victor@treebrand.com>"
+    r = fa._parse_ndr_recipient("Undeliverable", body, "arenastaffing.net")
+    assert r == "victor@treebrand.com"
+
+
 # ── _parse_ndr_status ─────────────────────────────────────────────────
 
 def test_status_from_status_code_line():
