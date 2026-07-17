@@ -247,62 +247,73 @@ def get_recent_inbox(access_token: str, since_minutes: int = 60,
         f"&$select=from,subject,bodyPreview,body,receivedDateTime,id,isRead,parentFolderId,isDraft"
     )
 
-    # Resolve the well-known folder IDs we want to EXCLUDE (Sent, Drafts,
-    # Deleted, Junk, Outbox). We can't filter on these server-side cleanly
-    # in a single query, so we fetch all messages and drop them in Python.
+    # Resolve the folder IDs to EXCLUDE (Sent, Drafts, Deleted, Junk,
+    # Outbox, Archive) by hitting each well-known folder's path endpoint.
+    # We deliberately do NOT $select `wellKnownName` on /me/mailFolders —
+    # some tenants 400 on it ("Could not find a property named
+    # 'wellKnownName'"), which silently disabled exclusion and let the
+    # 20k+ Sent Items crowd real NDRs out of the result window. The path
+    # form (/me/mailFolders/sentitems) is locale-independent and never
+    # touches the custom "Undeliverable" folder, so bounces stay included.
     exclude_folder_ids = set()
-    try:
-        folders_resp = httpx.get(
-            f"{GRAPH_API}/me/mailFolders?$top=100&$select=id,displayName,wellKnownName",
-            headers={"Authorization": f"Bearer {access_token}"},
-            timeout=15,
-        )
-        if folders_resp.status_code == 200:
-            for f in folders_resp.json().get("value", []):
-                wkn = (f.get("wellKnownName") or "").lower()
-                name = (f.get("displayName") or "").lower()
-                if wkn in ("sentitems", "drafts", "deleteditems", "junkemail", "outbox", "archive") \
-                        or name in ("sent items", "drafts", "deleted items", "junk email", "outbox"):
-                    if f.get("id"):
-                        exclude_folder_ids.add(f["id"])
-    except Exception:
-        pass  # non-fatal — worst case we include sent items in the scan
+    for _wk in ("sentitems", "drafts", "deleteditems", "junkemail", "outbox", "archive"):
+        try:
+            _r = httpx.get(
+                f"{GRAPH_API}/me/mailFolders/{_wk}?$select=id",
+                headers={"Authorization": f"Bearer {access_token}"},
+                timeout=10,
+            )
+            if _r.status_code == 200:
+                _fid = _r.json().get("id")
+                if _fid:
+                    exclude_folder_ids.add(_fid)
+        except Exception:
+            pass  # non-fatal — worst case that folder isn't excluded
 
     try:
-        resp = httpx.get(
-            f"{GRAPH_API}/me/messages?{params}",
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                # Ask Graph for the body as plain text rather than HTML.
-                "Prefer": 'outlook.body-content-type="text"',
-            },
-            timeout=25,
-        )
-        if resp.status_code != 200:
-            print(f"[MS Inbox] HTTP {resp.status_code}: {resp.text[:200]}")
-            return []
-
-        data = resp.json()
+        # Paginate a few pages so a burst of NDRs (or heavy normal mail) in
+        # one window isn't truncated at $top. Normal 5-minute scans have
+        # far fewer than a page and stop after the first request; only a
+        # flood follows @odata.nextLink. Bounded so we never runaway.
         messages = []
-        for msg in data.get("value", []):
-            if msg.get("isDraft"):
-                continue
-            if msg.get("parentFolderId") in exclude_folder_ids:
-                continue
-            from_data = msg.get("from", {}).get("emailAddress", {})
-            # Full text body (capped) so the NDR parser can read the failed
-            # recipient + SMTP status; bodyPreview is only ~255 chars.
-            body_full = ((msg.get("body") or {}).get("content") or "")[:12000]
-            messages.append({
-                "from_email": (from_data.get("address") or "").lower().strip(),
-                "from_name": from_data.get("name", ""),
-                "subject": msg.get("subject", ""),
-                "body_preview": msg.get("bodyPreview", "")[:2000],
-                "body_full": body_full,
-                "received_at": msg.get("receivedDateTime", ""),
-                "message_id": msg.get("id", ""),
-                "is_read": msg.get("isRead", False),
-            })
+        url = f"{GRAPH_API}/me/messages?{params}"
+        _pages = 0
+        _MAX_PAGES = 6  # up to ~600 messages/scan
+        while url and _pages < _MAX_PAGES:
+            resp = httpx.get(
+                url,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    # Ask Graph for the body as plain text rather than HTML.
+                    "Prefer": 'outlook.body-content-type="text"',
+                },
+                timeout=25,
+            )
+            if resp.status_code != 200:
+                print(f"[MS Inbox] HTTP {resp.status_code}: {resp.text[:200]}")
+                break
+            data = resp.json()
+            for msg in data.get("value", []):
+                if msg.get("isDraft"):
+                    continue
+                if msg.get("parentFolderId") in exclude_folder_ids:
+                    continue
+                from_data = msg.get("from", {}).get("emailAddress", {})
+                # Full text body (capped) so the NDR parser can read the
+                # failed recipient + SMTP status; bodyPreview is ~255 chars.
+                body_full = ((msg.get("body") or {}).get("content") or "")[:12000]
+                messages.append({
+                    "from_email": (from_data.get("address") or "").lower().strip(),
+                    "from_name": from_data.get("name", ""),
+                    "subject": msg.get("subject", ""),
+                    "body_preview": msg.get("bodyPreview", "")[:2000],
+                    "body_full": body_full,
+                    "received_at": msg.get("receivedDateTime", ""),
+                    "message_id": msg.get("id", ""),
+                    "is_read": msg.get("isRead", False),
+                })
+            url = data.get("@odata.nextLink")
+            _pages += 1
         return messages
 
     except Exception as e:
