@@ -4896,7 +4896,8 @@ def _resolve_api_key(key: str):
 
 
 def _user_api_key_status(email: str):
-    """Return {created, last4, label} for the newest key owned by `email`, else None."""
+    """Return {created, last4, label, key} for the newest key owned by `email`,
+    else None. `key` is the plaintext (or "" for legacy records without it)."""
     target = (email or "").strip().lower()
     if not target:
         return None
@@ -50127,8 +50128,8 @@ def _p_profile_body(s, rf):
                     ui.label("🔒 Change Password")
 
                 # ── API Access card ────────────────────────────────
-                # Self-serve key for the campaign create+launch API. Only the
-                # hash is stored server-side, so plaintext is revealed once.
+                # Self-serve key for the campaign create+launch API. The record
+                # stores the plaintext key too (for reveal/copy); auth uses the hash.
                 _api_status = _user_api_key_status(_uemail)
 
                 def _fmt_created(iso: str) -> str:
@@ -50144,8 +50145,8 @@ def _p_profile_body(s, rf):
                         ui.label("🔑 Your API Key").style(
                             f"font-size:17px;font-weight:800;color:{C['text_l']};"
                             f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
-                        ui.label("Store this now — for security you won't be able "
-                                 "to see it again.").style(
+                        ui.label("Store this now. You can also view and copy this "
+                                 "key anytime from the API Access card.").style(
                             "font-size:12px;font-weight:700;color:#c9760f;"
                             "margin-bottom:12px;")
                         ui.input(value=key).props("readonly").classes(
