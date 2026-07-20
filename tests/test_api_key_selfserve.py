@@ -59,3 +59,16 @@ def test_revoke_counts_all_for_email(tmp_path, monkeypatch):
 def test_revoke_empty_email_is_zero(tmp_path, monkeypatch):
     _isolate_keys(tmp_path, monkeypatch)
     assert fa._revoke_api_keys("") == 0
+
+
+def test_mask_api_key_hides_middle_keeps_ends():
+    masked = fa._mask_api_key("dd_live_ABCDEFGHIJKLmnop3gAU")
+    assert masked.startswith("dd_live_")
+    assert masked.endswith("3gAU")
+    assert "•" in masked
+    assert "ABCDEFGH" not in masked      # middle is not leaked
+
+
+def test_mask_api_key_empty_is_empty():
+    assert fa._mask_api_key("") == ""
+    assert fa._mask_api_key(None) == ""

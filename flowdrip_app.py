@@ -4910,6 +4910,15 @@ def _user_api_key_status(email: str):
     }
 
 
+def _mask_api_key(key: str) -> str:
+    """Masked display form: the 'dd_live_' prefix + bullets + last 4 chars.
+    Returns '' for empty/None so callers can treat legacy (unstored) keys
+    as 'nothing to reveal'."""
+    if not key:
+        return ""
+    return key[:8] + ("•" * 8) + key[-4:]
+
+
 def _revoke_api_keys(email: str) -> int:
     """Delete every key owned by `email` (atomic write). Returns the number removed."""
     target = (email or "").strip().lower()
