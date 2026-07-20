@@ -4877,6 +4877,7 @@ def _mint_api_key(email: str, label: str = "") -> str:
         "label": label or "",
         "created": datetime.now().isoformat(),
         "last4": key[-4:],
+        "key": key,
     }
     p = _api_keys_path()
     tmp = p.with_suffix(".tmp")
@@ -4907,6 +4908,7 @@ def _user_api_key_status(email: str):
         "created": newest.get("created", ""),
         "last4": newest.get("last4", ""),
         "label": newest.get("label", ""),
+        "key": newest.get("key", ""),
     }
 
 

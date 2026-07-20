@@ -35,7 +35,7 @@ def test_status_returns_newest_for_email(tmp_path, monkeypatch):
     assert st is not None
     assert st["last4"] == newer[-4:]
     assert st["label"] == "new"
-    assert set(st) == {"created", "last4", "label"}
+    assert set(st) == {"created", "last4", "label", "key"}
 
 
 def test_revoke_removes_only_target_email(tmp_path, monkeypatch):
@@ -72,3 +72,34 @@ def test_mask_api_key_hides_middle_keeps_ends():
 def test_mask_api_key_empty_is_empty():
     assert fa._mask_api_key("") == ""
     assert fa._mask_api_key(None) == ""
+
+
+def test_mint_stores_plaintext_key(tmp_path, monkeypatch):
+    _isolate_keys(tmp_path, monkeypatch)
+    key = fa._mint_api_key("rep@arena.com")
+    rec = fa._load_api_keys()[fa._hash_api_key(key)]
+    assert rec["key"] == key                       # plaintext persisted
+    assert fa._hash_api_key(rec["key"]) in fa._load_api_keys()  # hashes back
+
+
+def test_status_returns_plaintext_key(tmp_path, monkeypatch):
+    _isolate_keys(tmp_path, monkeypatch)
+    key = fa._mint_api_key("rep@arena.com")
+    st = fa._user_api_key_status("rep@arena.com")
+    assert st["key"] == key
+
+
+def test_status_key_blank_for_legacy_record(tmp_path, monkeypatch):
+    store = _isolate_keys(tmp_path, monkeypatch)
+    # Simulate a pre-change record: hash + last4, no "key" field.
+    legacy = "dd_live_LEGACYnoPlaintextStored9999wxyz"
+    import json as _json
+    store.write_text(_json.dumps({
+        fa._hash_api_key(legacy): {
+            "email": "old@arena.com", "label": "", "created": "2026-01-01T00:00:00",
+            "last4": legacy[-4:],
+        }
+    }), encoding="utf-8")
+    st = fa._user_api_key_status("old@arena.com")
+    assert st["key"] == ""                          # nothing to reveal
+    assert st["last4"] == legacy[-4:]
