@@ -48,12 +48,15 @@ def test_resolve_unknown_key_is_none(tmp_path, monkeypatch):
     assert fa._resolve_api_key(None) is None
 
 
-def test_plaintext_key_never_stored(tmp_path, monkeypatch):
+def test_key_and_hash_both_persisted(tmp_path, monkeypatch):
+    # By design (reveal & copy feature) the plaintext key is now persisted
+    # alongside its hash so it can be shown again later. Auth still resolves
+    # by hash only — see _resolve_api_key.
     store = _isolate_keys(tmp_path, monkeypatch)
     key = fa._mint_api_key("rep@arena.com")
     raw = store.read_text(encoding="utf-8")
-    assert key not in raw            # only the hash is persisted
-    assert fa._hash_api_key(key) in raw
+    assert key in raw                     # plaintext persisted (for reveal/copy)
+    assert fa._hash_api_key(key) in raw   # hash persisted (used for auth)
 
 
 # ── contacts CSV parsing ───────────────────────────────────────────
