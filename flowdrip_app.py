@@ -50233,10 +50233,45 @@ def _p_profile_body(s, rf):
                     if _api_status:
                         ui.label(
                             f"Active key · created "
-                            f"{_fmt_created(_api_status['created'])} · "
-                            f"dd_live_…{_api_status['last4'] or '••••'}").style(
-                            f"font-size:12px;color:{C['text_l']};"
-                            f"margin-bottom:10px;")
+                            f"{_fmt_created(_api_status['created'])}").style(
+                            f"font-size:12px;color:{C['muted']};"
+                            f"margin-bottom:8px;")
+                        if _api_status.get("key"):
+                            _revealed = getattr(s, "_api_key_revealed", False)
+                            _shown = (_api_status["key"] if _revealed
+                                      else _mask_api_key(_api_status["key"]))
+                            ui.input(value=_shown).props("readonly").classes(
+                                "fd-input").style(
+                                "font-family:monospace;margin-bottom:8px;")
+
+                            def _toggle_reveal():
+                                s._api_key_revealed = not getattr(
+                                    s, "_api_key_revealed", False)
+                                rf()
+
+                            def _copy_key(k=_api_status["key"]):
+                                ui.run_javascript(
+                                    "navigator.clipboard.writeText("
+                                    + json.dumps(k) + ")")
+                                ui.notify("API key copied", type="positive")
+
+                            with ui.element("div").style(
+                                    "display:flex;gap:8px;margin-bottom:10px;"):
+                                with ui.element("button").classes("fd-gb").style(
+                                        "padding:7px 14px;font-size:12px;").on(
+                                        "click", _toggle_reveal):
+                                    ui.label("🙈 Hide" if _revealed
+                                             else "👁 Reveal")
+                                with ui.element("button").classes("fd-pb").style(
+                                        "padding:7px 16px;font-size:12px;").on(
+                                        "click", _copy_key):
+                                    ui.label("📋 Copy API Key")
+                        else:
+                            ui.label(
+                                f"dd_live_…{_api_status['last4'] or '••••'} · "
+                                f"Regenerate once to enable copy.").style(
+                                f"font-size:12px;color:{C['muted']};"
+                                f"margin-bottom:10px;")
                         with ui.element("button").style(
                                 f"display:inline-flex;align-items:center;gap:6px;"
                                 f"padding:8px 16px;font-size:12px;font-weight:700;"
