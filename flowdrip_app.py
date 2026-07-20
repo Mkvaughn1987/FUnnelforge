@@ -4845,11 +4845,12 @@ def save_campaign(camp):
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  API KEYS  -  per-user keys for the campaign create+launch API. Stored as
-#  sha256(key) -> {email, label, created} in a global store under the shared
-#  data root. The plaintext key is shown once at mint time and never persisted.
+#  sha256(key) -> {email, label, created, last4, key} in a global store under
+#  the shared data root. The plaintext key is persisted (field "key") so it
+#  can be revealed/copied later; auth still resolves by hash only.
 # ═══════════════════════════════════════════════════════════════════════════
 def _api_keys_path() -> Path:
-    """Global API-key store: sha256(key) -> {email, label, created}."""
+    """Global API-key store: sha256(key) -> {email, label, created, last4, key}."""
     _BASE_DATA_DIR.mkdir(parents=True, exist_ok=True)
     return _BASE_DATA_DIR / "api_keys.json"
 
@@ -4869,7 +4870,7 @@ def _load_api_keys() -> dict:
 
 
 def _mint_api_key(email: str, label: str = "") -> str:
-    """Generate a new API key for `email`, persist its hash, return plaintext once."""
+    """Generate a new API key for `email`, persist its hash and plaintext, return the key."""
     key = "dd_live_" + secrets.token_urlsafe(32)
     data = _load_api_keys()
     data[_hash_api_key(key)] = {
