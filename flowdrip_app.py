@@ -50200,6 +50200,7 @@ def _p_profile_body(s, rf):
                             f"line-height:1.5;")
 
                         def _confirm():
+                            s._api_key_revealed = False
                             _revoke_api_keys(_uemail)
                             _c_dlg.close()
                             _generate_key()
