@@ -29,8 +29,8 @@ The plaintext key is printed once; only its hash is stored.
 | `location` | string | no | Geography, e.g. `"Windsor, CO"`. |
 | `name` | string | no | Override the campaign name (else auto-named). |
 | `candidates` | object[] | no | Candidate slate. Each: `{label, role, bullets[], years?, location?, target_salary?}`. `label` is what recipients see (e.g. `"Candidate A"`). |
-| `contacts` | object[] | no* | Recipients. Each: `{email, first_name?, last_name?, company?, title?}`. |
-| `contacts_csv` | string | no* | Alternative to `contacts`: raw CSV text with a header row. Columns map from `Email/email`, `FirstName/first_name`, `LastName/last_name`, `Company/company`, `JobTitle/Title/title`. |
+| `contacts` | object[] | no* | Recipients. Each: `{email, first_name?, last_name?, company?, title?, phone_office?, phone_mobile?, linkedin?}`. The phone/LinkedIn fields feed the same-day call cards (click-to-call numbers) — carry them when you have them. |
+| `contacts_csv` | string | no* | Alternative to `contacts`: raw CSV text with a header row. Columns map from `Email/email`, `FirstName/First Name/first_name`, `LastName/Last Name/last_name`, `Company/company`, `JobTitle/Title/title`, `WorkPhone/work_phone/Phone/phone/phone_office` → `phone_office`, `MobilePhone/Mobile/mobile/Cell/cell/phone_mobile` → `phone_mobile`, `LinkedIn/LinkedIn URL/linkedin_url/linkedinurl/linkedin` → `linkedin`. |
 
 \* Provide `contacts` **or** `contacts_csv`. With neither (or if every contact is
 filtered out), the campaign is still created but nothing is queued (`contacts_queued: 0`
