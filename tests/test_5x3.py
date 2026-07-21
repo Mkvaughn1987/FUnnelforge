@@ -152,3 +152,15 @@ def test_polished_pdf_representative_note(with_user):
         from PyPDF2 import PdfReader
     txt = "\n".join((p.extract_text() or "") for p in PdfReader(str(fa._user_pdf_dir()/fname)).pages)
     assert "representative" in txt.lower()
+
+
+def test_redact_resume_pii_strips_contact_and_location():
+    import flowdrip_app as fa
+    dirty = ("John Doe 4707 Dunkirk Avenue, Oakland, CA 94605 "
+             "(562) 619-6292 cadavid.jm@gmail.com Senior Estimator")
+    clean = fa._redact_resume_pii(dirty)
+    assert "@" not in clean
+    assert "94605" not in clean
+    assert "Dunkirk Avenue" not in clean
+    assert "562" not in clean
+    assert "Senior Estimator" in clean  # keeps the substance

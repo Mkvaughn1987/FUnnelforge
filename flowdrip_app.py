@@ -32283,6 +32283,25 @@ def _build_polished_resume_pdf(resume: dict) -> str:
         return ""
 
 
+_PII_EMAIL  = re.compile(r'[\w.+-]+@[\w-]+\.[\w.-]+')
+_PII_PHONE  = re.compile(r'(?:\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}')
+_PII_ZIP    = re.compile(r'\b\d{5}(?:-\d{4})?\b')
+_PII_STREET = re.compile(
+    r'\b\d{1,6}\s+[A-Za-z0-9.\s]{2,40}?\b'
+    r'(?:Street|St|Avenue|Ave|Road|Rd|Blvd|Boulevard|Lane|Ln|Drive|Dr|'
+    r'Court|Ct|Way|Circle|Cir|Place|Pl)\b\.?', re.IGNORECASE)
+
+
+def _redact_resume_pii(text: str) -> str:
+    """Strip obvious PII (emails, phones, street addresses, ZIPs) from résumé
+    text. Safety net that runs on 5x3 output regardless of the AI's redaction."""
+    if not text:
+        return text
+    for rx in (_PII_EMAIL, _PII_STREET, _PII_PHONE, _PII_ZIP):
+        text = rx.sub("", text)
+    return re.sub(r'\s{2,}', ' ', text).strip(" ,")
+
+
 def _aicb_card_to_resume_text(card: dict) -> str:
     """Turn one AICB candidate card ({label, role, bullets}) into the body
     text for a redacted-résumé PDF. The cards are already anonymized
