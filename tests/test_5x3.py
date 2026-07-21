@@ -211,3 +211,34 @@ def test_ai_structure_resume_scrubs_and_structures():
 def test_ai_structure_resume_none_without_text():
     import flowdrip_app as fa
     assert fa._ai_structure_resume(_StubClient("{}"), {"resume_text": ""}) is None
+
+
+def _emails_n(n):
+    return [{"name": f"Step {i+1}", "attachments": []} for i in range(n)]
+
+
+def test_attach_5x3_all_resumes_on_both_slate_emails():
+    import flowdrip_app as fa
+    emails = _emails_n(5)
+    pdfs = ["Resume_A_Redacted.pdf", "Resume_B_Redacted.pdf", "Resume_C_Redacted.pdf"]
+    fa._attach_resumes_to_emails("fivebythree", emails, pdfs)
+    assert emails[1]["attachments"] == pdfs   # email 2: all 3
+    assert emails[3]["attachments"] == pdfs   # email 4: all 3
+    assert emails[0]["attachments"] == []
+    assert emails[2]["attachments"] == []
+
+
+def test_attach_legacy_positional_pairing_unchanged():
+    import flowdrip_app as fa
+    emails = _emails_n(5)
+    pdfs = ["Resume_A_Redacted.pdf", "Resume_B_Redacted.pdf"]
+    fa._attach_resumes_to_emails("fourbyfour", emails, pdfs)
+    assert emails[1]["attachments"] == ["Resume_A_Redacted.pdf"]   # one per email
+    assert emails[3]["attachments"] == ["Resume_B_Redacted.pdf"]
+
+
+def test_attach_noop_when_no_pdfs():
+    import flowdrip_app as fa
+    emails = _emails_n(5)
+    fa._attach_resumes_to_emails("fivebythree", emails, [])
+    assert all(e["attachments"] == [] for e in emails)

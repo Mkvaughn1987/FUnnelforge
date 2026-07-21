@@ -8347,6 +8347,31 @@ def _resume_attach_indices(camp_type, n_emails):
     return [i for i in targets if i < n_emails]
 
 
+def _attach_resumes_to_emails(camp_type, emails, resume_pdfs):
+    """Attach redacted-résumé filenames onto the right email steps.
+    5x3: ALL résumés onto BOTH slate emails (indices 1 & 3).
+    Other types: one résumé per target email, positional (legacy behavior).
+    No-op when resume_pdfs is empty."""
+    ct = (camp_type or "").strip()
+    if not resume_pdfs or not emails:
+        return emails
+    targets = _resume_attach_indices(ct, len(emails))
+    if ct == "fivebythree":
+        for ei in targets:
+            slot = emails[ei].setdefault("attachments", [])
+            for pdf in resume_pdfs:
+                if pdf not in slot:
+                    slot.append(pdf)
+    else:
+        ri = 0
+        for ei in targets:
+            if ri >= len(resume_pdfs):
+                break
+            emails[ei].setdefault("attachments", []).append(resume_pdfs[ri])
+            ri += 1
+    return emails
+
+
 def _pdf_campaign_subject(camp):
     """Derive (company, roles, location, industry) for a PDF from a campaign,
     NEVER using the campaign-TYPE name (Find Candidates / Arena 4×4 / MPC /
@@ -32423,23 +32448,35 @@ def _aicb_card_to_resume_text(card: dict) -> str:
     return "\n".join(parts).strip()
 
 
-def _aicb_build_redacted_resumes(s) -> list:
-    """Build one redacted-résumé PDF per AI/pool candidate card on the
-    AppState and save it to the user's PDFs folder so it surfaces in the
-    email editor's "reuse a generated PDF" dropdown for manual attach.
-    Does NOT attach anything. Returns the list of saved filenames.
-
-    Runs inside the AICB generation worker (dispatched via _run_as_user),
-    so _save_redacted_pdf → _user_pdf_dir() resolves to the right per-user
-    directory."""
+def _aicb_build_redacted_resumes(s, client=None) -> list:
+    """Build one redacted-résumé PDF per AI/pool candidate card. For 5x3
+    campaigns, uses the polished engine (real employment history from the pool,
+    employers anonymized, PII + location stripped; representative fallback for
+    autogen cards). All other types keep the legacy thin-blurb PDF. Returns the
+    list of saved filenames (in card order)."""
     saved = []
+    is_5x3 = (getattr(s, "aicb_camp_type", "") or "").strip() == "fivebythree"
     for card in (getattr(s, "aicb_cand_cards", []) or []):
         try:
-            body = _aicb_card_to_resume_text(card)
-            if not body:
-                continue
             label = (card.get("label") or "Candidate").strip() or "Candidate"
-            fname = _save_redacted_pdf(label, body)
+            if is_5x3:
+                resume = None
+                pid = card.get("_pool_id")
+                if pid and client is not None:
+                    rec = _pool_record_by_id(pid)
+                    if rec:
+                        resume = _ai_structure_resume(client, rec)
+                if resume is None:
+                    resume = _representative_resume_from_card(card)
+                if not resume:
+                    continue
+                resume["code"] = label
+                fname = _build_polished_resume_pdf(resume)
+            else:
+                body = _aicb_card_to_resume_text(card)
+                if not body:
+                    continue
+                fname = _save_redacted_pdf(label, body)
             if fname:
                 saved.append(fname)
         except Exception as _ex:
@@ -36468,7 +36505,10 @@ def p_ai_campaign(s: AppState, rf):
                         # "reuse a generated PDF" dropdown surfaces these for
                         # manual attach on whichever steps the user wants.
                         try:
-                            _aicb_build_redacted_resumes(s)
+                            _saved_resumes = _aicb_build_redacted_resumes(s, client)
+                            # 5x3 auto-attaches; 4x4/5x5 stay manual-attach only
+                            if (s.aicb_camp_type or "").strip() == "fivebythree":
+                                _resume_pdfs = _saved_resumes
                         except Exception as _rr_ex:
                             print(f"[AICB] redacted résumé gen skipped: {_rr_ex}",
                                   flush=True)
@@ -36589,21 +36629,12 @@ def p_ai_campaign(s: AppState, rf):
                             # 2026-04-26 user report: "PDF creation keeps
                             # adding 2 of each when I only asked for 1".
 
-                            # Attach redacted resume PDFs. 4x4 -> Email 2 & 4
-                            # (indices 1, 3); other types -> Email 1 & 3.
+                            # Attach redacted résumé PDFs (5x3: all 3 on emails
+                            # 2 & 4; other slate types: one per email, legacy).
                             if _resume_pdfs and campaign_data.get("emails"):
-                                _emails = campaign_data["emails"]
-                                _targets = _resume_attach_indices(
+                                _attach_resumes_to_emails(
                                     (s.aicb_camp_type or "").strip(),
-                                    len(_emails))
-                                ri = 0
-                                for ei in _targets:
-                                    if ri >= len(_resume_pdfs):
-                                        break
-                                    _emails[ei].setdefault(
-                                        "attachments", []).append(
-                                        _resume_pdfs[ri])
-                                    ri += 1
+                                    campaign_data["emails"], _resume_pdfs)
 
                             # Wait for the PDF AI thread to finish before
                             # advancing to the results page. PDFs ran in
