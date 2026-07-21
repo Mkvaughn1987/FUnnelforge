@@ -136,7 +136,8 @@ inherited unchanged because the tool calls the same code path.
 - **Content-guard / empty-research failures** (the 422/502 equivalents) → tool result marks them
   retryable; skill retries as today; generation-off (503 equivalent) marked retry-later.
 - **No matching newsletter for the run's geo/industry** → skill flags Mike (newsletter creation is
-  Mike's side), then proceeds without enrollment only if Mike has pre-approved that for the run.
+  Mike's side) and holds that run's launches until the newsletter exists — `enroll_newsletter` is
+  required by the launch path, same as the existing API.
 - **Concurrent runs** → transactional master; second claimant gets `already_worked`.
 
 ### Testing
