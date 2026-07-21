@@ -102,3 +102,73 @@ def test_code_roundtrip_pkce(bdc_db):
     assert fa._bdc_redeem_code(code, "cli1", verifier, "https://claude.ai/cb") is None  # one-shot
     code2 = fa._bdc_issue_code("cli1", "p1@arena.com", challenge, "https://claude.ai/cb")
     assert fa._bdc_redeem_code(code2, "cli1", "wrong" * 10, "https://claude.ai/cb") is None
+
+
+# ── Task 10: Talent Trekker loader ─────────────────────────────────
+class _FakeTT:
+    def __init__(self, existing=None):
+        self.calls, self.existing = [], existing or []
+
+    def get(self, url, **kw):
+        self.calls.append(("GET", url, kw))
+        class R:
+            status_code = 200
+            def __init__(s, data): s._d = data
+            def json(s): return {"data": s._d}
+        if "/api/resource/Customer" in url:
+            return R([{"name": e, "customer_name": e} for e in self.existing])
+        return R([])
+
+    def post(self, url, **kw):
+        self.calls.append(("POST", url, kw))
+        class R:
+            status_code = 200
+            def json(s): return {"data": {"name": kw["json"].get(
+                "customer_name") or "contact-1"}}
+        return R()
+
+
+CFG = {"base_url": "https://arena.talent-trekker.com", "token": "k:s"}
+
+
+def test_tt_load_creates_customer_and_contacts():
+    http = _FakeTT()
+    out = fa._tt_load_company(CFG, "Acme Co", [
+        {"email": "v@acme.com", "first_name": "Val", "last_name": "P",
+         "title": "VP Ops", "phone_office": "303-555-0100 ext 4"}], http=http)
+    posts = [c for c in http.calls if c[0] == "POST"]
+    cust = posts[0][2]["json"]
+    assert cust["customer_name"] == "Acme Co"
+    assert cust["custom_source_name"] == "ZoomInfo"          # exact case
+    assert cust["custom_dh_branch"] == "Team Mountain Summit"
+    contact = posts[1][2]["json"]
+    assert contact["custom_primary_phone"] == "303-555-0100"  # ext stripped
+    assert contact["links"] == [{"link_doctype": "Customer", "link_name": "Acme Co"}]
+    assert contact["custom_contact_source"] == "ZoomInfo"
+    assert out["customer"] == "Acme Co" and out["contacts_created"] == 1
+
+
+def test_tt_load_reuses_existing_customer():
+    http = _FakeTT(existing=["Acme Co"])
+    fa._tt_load_company(CFG, "Acme Co", [{"email": "v@acme.com"}], http=http)
+    posts = [c for c in http.calls if c[0] == "POST"]
+    assert len(posts) == 1 and "Contact" in posts[0][1]      # no Customer create
+
+
+def test_tt_load_skips_contact_without_email():
+    http = _FakeTT()
+    out = fa._tt_load_company(CFG, "Acme Co", [{"first_name": "NoEmail"}], http=http)
+    assert out["contacts_created"] == 0
+
+
+def test_tt_config_from_env(monkeypatch):
+    monkeypatch.setenv("TT_API_KEY", "k")
+    monkeypatch.setenv("TT_API_SECRET", "s")
+    cfg = fa._tt_config()
+    assert cfg == {"base_url": "https://arena.talent-trekker.com", "token": "k:s"}
+
+
+def test_tt_config_missing_returns_none(monkeypatch):
+    monkeypatch.delenv("TT_API_KEY", raising=False)
+    monkeypatch.delenv("TT_API_SECRET", raising=False)
+    assert fa._tt_config() is None

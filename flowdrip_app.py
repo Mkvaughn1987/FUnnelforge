@@ -5502,6 +5502,70 @@ async def oauth_resource_metadata(request: Request):
                          "bearer_methods_supported": ["header"]})
 
 
+def _tt_config():
+    k, s = os.environ.get("TT_API_KEY", ""), os.environ.get("TT_API_SECRET", "")
+    if not (k and s):
+        return None
+    return {"base_url": os.environ.get("TT_BASE_URL",
+                                       "https://arena.talent-trekker.com"),
+            "token": f"{k}:{s}"}
+
+
+def _tt_sanitize_phone(raw: str) -> str:
+    m = re.match(r"[\d+()\- .]+", (raw or "").strip())
+    return m.group(0).strip(" .") if m else ""
+
+
+def _tt_load_company(cfg, company, contacts, http=None):
+    """Push one company + its reps into Talent Trekker via Frappe REST
+    (token auth). Raises on transport/HTTP failure — caller retries."""
+    if http is None:
+        import requests as http  # noqa — module has get/post
+    base = cfg["base_url"].rstrip("/")
+    hdr = {"Authorization": f"token {cfg['token']}"}
+    q = json.dumps([["customer_name", "like", f"%{company}%"]])
+    r = http.get(f"{base}/api/resource/Customer",
+                 params={"filters": q, "fields": '["name","customer_name"]'},
+                 headers=hdr, timeout=30)
+    exact = next((d for d in r.json().get("data", [])
+                  if (d.get("customer_name") or "").strip().lower()
+                  == company.strip().lower()), None)
+    if exact:
+        cust_name = exact["name"]
+    else:
+        r = http.post(f"{base}/api/resource/Customer", headers=hdr, timeout=30, json={
+            "customer_name": company, "customer_type": "Company",
+            "custom_status_type": "Direct Hire",
+            "custom_dh_status": "Direct Hire: Prospect",
+            "custom_dh_company": "Arena Direct Hire",
+            "custom_dh_branch": "Team Mountain Summit",
+            "custom_source_name": "ZoomInfo"})
+        cust_name = r.json()["data"]["name"]
+    created = 0
+    for ct in (contacts or []):
+        em = (ct.get("email") or "").strip()
+        if not em:
+            continue
+        phone = _tt_sanitize_phone(ct.get("phone_mobile")
+                                   or ct.get("phone_office") or "")
+        body = {"first_name": ct.get("first_name", ""),
+                "last_name": ct.get("last_name", ""),
+                "custom_primary_email": em, "email_id": em,
+                "custom_status_type": "Direct Hire",
+                "custom_contact_source": "ZoomInfo", "status": "Passive",
+                "designation": ct.get("title", ""),
+                "email_ids": [{"email_id": em, "is_primary": 1}],
+                "links": [{"link_doctype": "Customer", "link_name": cust_name}]}
+        if phone:
+            body["custom_primary_phone"] = phone
+            body["contact_no"] = phone
+        http.post(f"{base}/api/resource/Contact", headers=hdr, timeout=30,
+                  json=body)
+        created += 1
+        time.sleep(0.3)  # space calls per TT reliability notes
+    return {"customer": cust_name, "contacts_created": created}
+
+
 def _bdc_enqueue_tt(company, contacts, owner):
     """Stub — real queue lands in plan Task 11. Kept as a separate function
     from day one so launch_arena_5x3 can be tested against it in isolation."""
