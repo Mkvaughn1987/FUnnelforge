@@ -164,3 +164,50 @@ def test_redact_resume_pii_strips_contact_and_location():
     assert "Dunkirk Avenue" not in clean
     assert "562" not in clean
     assert "Senior Estimator" in clean  # keeps the substance
+
+
+class _StubMsg:
+    def __init__(self, text): self.content = [type("B", (), {"text": text})()]
+
+
+class _StubClient:
+    """Mimics anthropic client: client.messages.create(...) -> _StubMsg."""
+    def __init__(self, payload): self._payload = payload
+    @property
+    def messages(self):
+        outer = self
+        class _M:
+            def create(self, **kw): return _StubMsg(outer._payload)
+        return _M()
+
+
+def test_representative_resume_from_card():
+    import flowdrip_app as fa
+    card = {"label": "Candidate C", "role": "Project Manager",
+            "bullets": ["- OSHPD healthcare TIs", "• Procore, Bluebeam"]}
+    r = fa._representative_resume_from_card(card)
+    assert r["representative"] is True
+    assert r["role"] == "Project Manager"
+    assert r["experience"][0]["bullets"] == ["OSHPD healthcare TIs", "Procore, Bluebeam"]
+
+
+def test_ai_structure_resume_scrubs_and_structures():
+    import flowdrip_app as fa
+    payload = ('{"role":"Project Engineer","summary":"Call me at (562) 619-6292.",'
+               '"expertise":["QC"],"experience":[{"title":"PE",'
+               '"employer":"Regional civil firm","dates":"2024 to Present",'
+               '"bullets":["Ran RFIs at 4707 Dunkirk Avenue"]}],'
+               '"skills":"AutoCAD","education":["BS"]}')
+    client = _StubClient(payload)
+    cand = {"resume_text": "real resume here", "target_role": "Project Engineer"}
+    r = fa._ai_structure_resume(client, cand)
+    assert r["representative"] is False
+    assert r["role"] == "Project Engineer"
+    assert "562" not in r["summary"]                       # PII scrubbed
+    assert "Dunkirk Avenue" not in r["experience"][0]["bullets"][0]
+    assert r["experience"][0]["employer"] == "Regional civil firm"
+
+
+def test_ai_structure_resume_none_without_text():
+    import flowdrip_app as fa
+    assert fa._ai_structure_resume(_StubClient("{}"), {"resume_text": ""}) is None
