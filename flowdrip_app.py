@@ -32477,7 +32477,7 @@ def _pool_matching_summary(pool: list) -> str:
     for c in (pool or []):
         cid = c.get("id") or ""
         role = (c.get("target_role") or "").strip() or "Unknown role"
-        snippet = re.sub(r"\s+", " ", (c.get("resume_text") or "")).strip()[:400]
+        snippet = re.sub(r"\s+", " ", (c.get("resume_text") or "")).strip()[:1500]
         lines.append(f"[{cid}] Role: {role}. Background: {snippet}")
     return "\n".join(lines)
 

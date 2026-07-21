@@ -151,3 +151,12 @@ def test_api_resolve_skips_when_no_fit(monkeypatch):
         _StubClient('[{"id":"c1","score":5,"reason":"no"}]'),
         {"company": "Acme", "roles": ["Project Manager"], "industry": "Construction"})
     assert cards == [] and skip                 # skip reason set
+
+
+def test_pool_matching_summary_includes_deep_snippet_content():
+    import flowdrip_app as fa
+    filler = "x" * 700
+    resume_text = filler + " STANFORD HOSPITAL healthcare facilities experience"
+    cand = {"id": "c1", "target_role": "Healthcare PM", "resume_text": resume_text}
+    summary = fa._pool_matching_summary([cand])
+    assert "STANFORD HOSPITAL" in summary
