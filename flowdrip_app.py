@@ -4072,6 +4072,11 @@ AICB_ROLES = {
         "Service Manager (Dealer)", "Parts Manager", "Sales Manager (Dealer)",
         "Director of Manufacturing", "VP of Operations (Automotive)"],
 }
+# Arena slate family: the 4×4 and its 5×5 variant share newsletter handoff,
+# the Arena house font, resume placement, and PDF-subject (recruiting) behavior.
+# Add new slate variants here to inherit all of it.
+_ARENA_SLATE_TYPES = frozenset({"fourbyfour", "fivebyfive"})
+
 AICB_CAMPAIGN_TYPES = [
     # ── Shortest to longest ──
     ("blitz", "Quick Sprint", "5 steps - 5 days", "#EF4444",
@@ -4136,6 +4141,55 @@ AICB_CAMPAIGN_TYPES = [
      "the real role in — no literal brackets). Share a few genuine market "
      "updates, a warm soft close ('if now is not the right time, that's ok too'), and mention "
      "you will add them to the ongoing newsletter."),
+    ("fivebyfive", "Arena 5×5", "7 steps - 2 weeks", "#7C3AED",
+     "Arena's 4×4, warmed up — a softer, more personal slate play with an extra "
+     "day-5 follow-up. Same 5-candidate slate positioning, friendlier voice, and "
+     "a gentle bump that also flushes out the right decision-maker.",
+     "Warm slate outreach - relationship-first - passive candidates",
+     "GLOBAL VOICE: Write warm, personable, and human — NOT salesy. Sound like a "
+     "helpful professional who happens to know great people, not a rep working a "
+     "pitch. Short paragraphs, plain words, no hype, no pressure. Refer to the "
+     "company's OVERALL MARKET (e.g. construction, manufacturing) rather than the "
+     "specific job title wherever a general reference reads naturally. When a "
+     "candidate is anonymized, render them as a friendly first-name alias whose "
+     "initial matches the slot plus a last initial (Candidate A -> 'Aaron M.', "
+     "Candidate B -> 'Ben T.', Candidate C -> 'Carlos R.'); use the real first "
+     "name if the highlights provide one. Use the same alias for the same person "
+     "across every email.\n"
+     "Step 1 - Introducing Available Talent (delay_days:0, step_type:email_auto) - "
+     "Subject exactly: 'A few candidates who caught my eye, for [Company]' (write "
+     "the real company name in). Open: you work closely with talent across [the "
+     "company's overall market], and you noticed they're hiring right now; you're "
+     "representing a few people who aren't actively on the market but would be a "
+     "strong fit. Then present the slate from CANDIDATE HIGHLIGHTS using the alias "
+     "rule above. Do NOT put the role in the subject. Warm, low-pressure close.\n"
+     "Step 2 - Top Talent Insights spotlight (delay_days:3, step_type:email_auto) - "
+     "Subject exactly: 'One person worth having on your radar'. Note the best "
+     "people are rarely actively looking. Then spotlight ONE candidate only (the "
+     "anchor, same alias as Step 1) in 2-3 warm sentences: background, a standout "
+     "strength, why they'd fit. Do NOT list the whole slate. Softly offer to share "
+     "market context. No hard CTA.\n"
+     "Step 3 - Follow-up Call (delay_days:0, step_type:call) - SAME DAY as Step 2, "
+     "keep delay_days:0. Put the call script in the body: reference the emails and "
+     "the spotlighted person, ask if they had a chance to look, quick-qualify their "
+     "hiring timeline. Conversational, not pushy.\n"
+     "Step 4 - LinkedIn Connect (delay_days:0, step_type:linkedin) - SAME DAY as "
+     "Step 3, keep delay_days:0. Connection message under 300 characters: 'Sent you "
+     "an email, wanted to connect here as well. Always sharing industry insights "
+     "and market data in your space.'\n"
+     "Step 5 - Following-up bump (delay_days:2, step_type:email_auto) - Subject "
+     "exactly: 'Following up'. A very short, warm bump. No candidates, no market "
+     "data. (The system replaces this body verbatim after generation.)\n"
+     "Step 6 - Worth a look (delay_days:3, step_type:email_auto) - Subject exactly: "
+     "'Still think this one's worth a look'. A gentle circle-back: inboxes are "
+     "full, no worries if the timing's off; you mostly wanted to say the "
+     "spotlighted person (same alias) is genuinely worth a short conversation. "
+     "Warm, brief. Do NOT mention any attachment (the system adds that line).\n"
+     "Step 7 - Closing the loop (delay_days:4, step_type:email_auto) - Subject "
+     "exactly: 'Closing the loop for now'. A warm, human sign-off: you don't want "
+     "to crowd their inbox; it's been a pleasure; you'll add them to your monthly "
+     "newsletter so useful market news still reaches them; the door's always open. "
+     "No hard sell."),
     ("talentdrop", "Candidate-Led Pitch", "7 steps - 2 weeks", "#10B981",
      "Lead with real candidates. Enter your candidate details and AI builds the outreach "
      "around them  -  intro with profiles, market data follow-ups, and value-add PDFs. "
@@ -4613,11 +4667,12 @@ def _camp_is_4x4(camp):
     handoff fires regardless of which marker a campaign was saved with.
     """
     camp = camp or {}
-    return "fourbyfour" in (
+    markers = (
         str(camp.get("template_key", "")).strip(),
         str(camp.get("aicb_camp_type", "")).strip(),
         str(camp.get("_chooser_origin", "")).strip(),
     )
+    return any(m in _ARENA_SLATE_TYPES for m in markers)
 
 
 def _is_4x4_graduate(contact, camp, responded_emails, enrolled_emails,
@@ -5098,13 +5153,9 @@ def _format_candidate_block(cards: list, camp_type: str) -> str:
         label = (c.get("label") or c.get("name") or "Candidate").strip()
         role = (c.get("role") or "").strip()
         head = f"{label}: {role}" if role else label
+        # Only the candidate's own skill/project/company highlights become
+        # bullets — no years/location/salary padding (it bloated the card).
         bullets = list(c.get("bullets") or [])
-        if c.get("years"):
-            bullets = [f"{c['years']} years experience"] + bullets
-        if c.get("location"):
-            bullets.append(f"Location: {c['location']}")
-        if c.get("target_salary"):
-            bullets.append(f"Target salary: {c['target_salary']}")
         body = "\n".join(f"  - {b}" for b in bullets)
         lines.append(head + ("\n" + body if body else ""))
     cand_text = "\n".join(lines)
@@ -5114,7 +5165,9 @@ def _format_candidate_block(cards: list, camp_type: str) -> str:
         f'IMPORTANT: Include ALL {n} candidates (in the order they appear '
         f'above) in every email that features candidates. Do NOT pick a '
         f'subset, do NOT drop any. Polish each into a clean candidate profile '
-        f'with 3 bullet points.\n'
+        f'with EXACTLY 3 bullet points, each focused on their skillset, a '
+        f'notable project, or a company they have worked for. Do NOT add '
+        f'bullets for years of experience, location, or salary.\n'
         + _aicb_candidate_weave_block(camp_type) +
         f'When email subjects or body text references the count, use '
         f'"{n} profiles" or "{n} candidates" (or the spelled-out word). Use '
@@ -5245,7 +5298,7 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
     )
 
     _stats_block = ""
-    if (camp_type or "").strip() == "fourbyfour":
+    if (camp_type or "").strip() in _ARENA_SLATE_TYPES:
         _cited = _fetch_cited_market_stats(_first_role, location_str,
                                            niche_str or roles_str or "")
         _stats_block = _format_cited_stats_block(_cited)
@@ -5311,7 +5364,7 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
     campaign_data = json.loads(json_match.group())
 
     # ── Post-process the generated copy (matches the wizard) ──
-    _is_4x4_camp = ((camp_type or "").strip() == "fourbyfour")
+    _is_4x4_camp = ((camp_type or "").strip() in _ARENA_SLATE_TYPES)
     for _em in campaign_data.get("emails", []):
         _b = _em.get("body") or ""
         _s = _em.get("subject") or ""
@@ -5337,6 +5390,7 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
         _em["body"] = _b
         _em["subject"] = _s
 
+    _apply_fivebyfive_overrides(camp_type, campaign_data)
     _spread_email_times(campaign_data.get("emails", []))
     return campaign_data
 
@@ -8149,6 +8203,57 @@ def _wrap_4x4_font(body_html):
             'font-size:11pt;">' + body_html + '</div>')
 
 
+# ── Arena 5×5 hand-authored touches ─────────────────────────────────────
+# The generator is told to use only {FirstName} and never mention attachments,
+# so the verbatim day-5 bump and the day-8 interview-guide line can't come from
+# the AI. We stamp them after generation, matching steps by name (robust to
+# emails[] ordering) and pinning the canonical relative delays. The injected
+# "interview guide" wording also makes the keyword-based PDF attach put the
+# Interview Guide on that email automatically.
+_FIVEBYFIVE_BUMP_SUBJECT = "Following up"
+_FIVEBYFIVE_BUMP_BODY = (
+    "Hi {FirstName} - just a quick follow-up in case this got missed. "
+    "Any thoughts on my previous email below? And if hiring isn't your area, "
+    "no worries at all, could you point me to whoever owns it?"
+)
+_FIVEBYFIVE_INTERVIEW_LINE = (
+    "<br><br>I've also attached a short interview guide for the role, the "
+    "questions worth asking and what to listen for, so it's handy whether or "
+    "not we end up talking."
+)
+# Canonical relative delays keyed by the Step-N marker in the step name.
+_FIVEBYFIVE_DELAYS = {1: 0, 2: 3, 3: 0, 4: 0, 5: 2, 6: 3, 7: 4}
+
+
+def _fivebyfive_step_no(name):
+    m = re.match(r"\s*Step\s+(\d+)\s*-", str(name or ""))
+    return int(m.group(1)) if m else None
+
+
+def _apply_fivebyfive_overrides(camp_type, campaign_data):
+    """Stamp the Arena 5×5's two hand-authored touches and pin its schedule.
+    No-op for any other campaign type. Idempotent."""
+    if (camp_type or "").strip() != "fivebyfive":
+        return campaign_data
+    for em in (campaign_data or {}).get("emails", []) or []:
+        n = _fivebyfive_step_no(em.get("name"))
+        if n in _FIVEBYFIVE_DELAYS:
+            em["delay_days"] = _FIVEBYFIVE_DELAYS[n]
+        if n == 5:  # verbatim bump
+            em["subject"] = _FIVEBYFIVE_BUMP_SUBJECT
+            em["body"] = _wrap_4x4_font(_strip_dashes(_FIVEBYFIVE_BUMP_BODY))
+            em["attachments"] = []
+        elif n == 6:  # append interview-guide line once, inside the font div
+            body = em.get("body") or ""
+            if "interview guide" not in body.lower():
+                if body.rstrip().endswith("</div>"):
+                    em["body"] = (body.rstrip()[:-6]
+                                  + _FIVEBYFIVE_INTERVIEW_LINE + "</div>")
+                else:
+                    em["body"] = body + _FIVEBYFIVE_INTERVIEW_LINE
+    return campaign_data
+
+
 def _resume_attach_indices(camp_type, n_emails):
     """Email indices (0-based) that should carry redacted resume PDFs.
 
@@ -8157,7 +8262,7 @@ def _resume_attach_indices(camp_type, n_emails):
     keeps the legacy Email 1 and Email 3 placement (indices 0 and 2).
     Indices past the available email count are dropped.
     """
-    targets = [1, 3] if camp_type == "fourbyfour" else [0, 2]
+    targets = [1, 3] if camp_type in _ARENA_SLATE_TYPES else [0, 2]
     return [i for i in targets if i < n_emails]
 
 
@@ -8181,8 +8286,8 @@ def _pdf_campaign_subject(camp):
     _is_recruiting = bool(
         camp.get("candidate_role") or camp.get("candidate_name")
         or camp.get("market_niche")
-        or (camp.get("_chooser_origin") in ("candidate", "fourbyfour"))
-        or re.match(r"(?i)^(find candidates|arena\s*4|4\s*x\s*4|mpc)\b",
+        or (camp.get("_chooser_origin") in ("candidate", "fourbyfour", "fivebyfive"))
+        or re.match(r"(?i)^(find candidates|arena\s*[45]|[45]\s*x\s*[45]|mpc)\b",
                     (camp.get("name") or "").strip()))
     if not company and not _is_recruiting:
         nm = (camp.get("name") or "").strip()
@@ -12133,7 +12238,7 @@ def _dismiss_help_strip(page_key: str) -> None:
 
 def _clear_all_dismissed_help_strips() -> None:
     """Reset the user's dismissed_help_strips list to []. Used by the
-    'Show all page guides again' button on the Settings page."""
+    'Restore dismissed page guides' link on the Settings page."""
     try:
         cfg = load_config()
     except Exception:
@@ -18513,6 +18618,18 @@ def _sq_pick(s, rf):
                 "border": "#7C3AED",
             },
             {
+                "key": "fivebyfive",
+                "icon": "🌱",
+                "title": "Arena 5×5",
+                "subtitle": "Warmer 4×4 with an extra day-5 follow-up",
+                "desc": ("The 4×4, softened. Same 5-candidate slate play in a "
+                         "warmer, more personal voice, plus a gentle day-5 bump "
+                         "that flushes out the right decision-maker and an "
+                         "interview guide on the day-8 touch."),
+                "best_for": ["Relationship-first BD", "Warm slate outreach", "Passive candidates"],
+                "border": "#7C3AED",
+            },
+            {
                 "key": "saved",
                 "icon": "📁",
                 "title": "Campaign Library",
@@ -18606,6 +18723,20 @@ def _sq_pick(s, rf):
                         # The 4×4 is a fixed cadence — the user already chose
                         # the style by picking this tile, so lock it and skip
                         # the wizard's Campaign Style step (no re-asking).
+                        s.aicb_style_locked = True
+                        s.sp = "ai_campaign"
+                        s.aicb_step = 1
+                        s.aicb_target_mode = "market"
+                        s.aicb_wizard_step = 2
+                        s.aicb_type_picked = True
+                        s.aicb_contacts = []
+                    elif k == "fivebyfive":
+                        # Arena 5×5 — same entry as the 4×4, warmer cadence,
+                        # style pre-locked (the tile is the style choice).
+                        s._nav_history.append(_nav_snapshot(s))
+                        _reset_wizard_state(s)
+                        s._chooser_origin = "fivebyfive"
+                        s.aicb_camp_type = "fivebyfive"
                         s.aicb_style_locked = True
                         s.sp = "ai_campaign"
                         s.aicb_step = 1
@@ -43318,32 +43449,188 @@ def p_ai_settings(s, rf):
                         f"padding:8px 20px;font-size:13px;").on("click", _save_limit):
                     ui.label("Save Limit")
 
-    # ── Page guides ────────────────────────────────────────────────────
-    # Lets users restore page intro strips they've previously dismissed.
-    cfg = load_config()
-    _dismissed_count = len(cfg.get("dismissed_help_strips") or [])
+    # ── API Access ──────────────────────────────────────────────────────
+    # Self-serve key for the campaign create + launch API. (Moved here from
+    # the Profile page.) The record stores the plaintext key too, for
+    # reveal/copy; auth uses the hash.
+    _uemail = getattr(s, '_user_email', '')
+    _api_status = _user_api_key_status(_uemail)
+
+    def _fmt_created(iso: str) -> str:
+        try:
+            return datetime.fromisoformat(iso).strftime("%b %d, %Y")
+        except Exception:
+            return "—"
+
+    def _reveal_key_dialog(key: str):
+        with ui.dialog() as _k_dlg, ui.card().style(
+                f"background:{C['card']};border:1px solid {C['teal']}60;"
+                f"min-width:460px;padding:22px 26px;border-radius:14px;"):
+            ui.label("🔑 Your API Key").style(
+                f"font-size:17px;font-weight:800;color:{C['text_l']};"
+                f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
+            ui.label("Store this now. You can also view and copy this "
+                     "key anytime from the API Access card.").style(
+                "font-size:12px;font-weight:700;color:#c9760f;"
+                "margin-bottom:12px;")
+            ui.input(value=key).props("readonly").classes(
+                "fd-input").style("margin-bottom:6px;font-family:monospace;")
+            ui.label("Use it like this:").style(
+                f"font-size:11px;color:{C['muted']};margin-top:6px;")
+            ui.html(
+                "<pre style='font-size:11px;white-space:pre-wrap;"
+                "margin:4px 0;'>POST https://dripdripdrop.ai/api/v1/"
+                "campaigns\nAuthorization: Bearer &lt;your key&gt;</pre>")
+
+            def _copy():
+                ui.run_javascript(
+                    "navigator.clipboard.writeText("
+                    + json.dumps(key) + ")")
+                ui.notify("Copied (if blocked, select the field and "
+                          "press Ctrl+C)", type="positive")
+
+            with ui.element("div").style(
+                    "display:flex;justify-content:flex-end;gap:8px;"
+                    "margin-top:12px;"):
+                with ui.element("button").classes("fd-gb").style(
+                        "padding:7px 14px;font-size:12px;").on(
+                        "click", _k_dlg.close):
+                    ui.label("Done")
+                with ui.element("button").classes("fd-pb").style(
+                        "padding:7px 18px;font-size:12px;").on(
+                        "click", _copy):
+                    ui.label("Copy")
+        # Refresh the card only AFTER the user dismisses the dialog.
+        # Refreshing while it's open re-renders the section and tears
+        # the dialog off-screen before the one-time key can be copied.
+        _k_dlg.on("hide", lambda *_: rf())
+        _k_dlg.open()
+
+    def _generate_key():
+        key = _mint_api_key(_uemail, label="self-serve")
+        # No rf() here — see _reveal_key_dialog: it refreshes on the
+        # dialog's 'hide' event so the key stays visible until 'Done'.
+        _reveal_key_dialog(key)
+
+    def _regenerate_key():
+        with ui.dialog() as _c_dlg, ui.card().style(
+                f"background:{C['card']};border:1px solid #c9760f60;"
+                f"min-width:420px;padding:22px 26px;border-radius:14px;"):
+            ui.label("⚠️ Regenerate API Key").style(
+                f"font-size:16px;font-weight:800;color:{C['text_l']};"
+                f"margin-bottom:6px;")
+            ui.label("This permanently disables your current key — "
+                     "anything using it will stop working. Continue?").style(
+                f"font-size:12px;color:{C['muted']};margin-bottom:14px;"
+                f"line-height:1.5;")
+
+            def _confirm():
+                s._api_key_revealed = False
+                _revoke_api_keys(_uemail)
+                _c_dlg.close()
+                _generate_key()
+
+            with ui.element("div").style(
+                    "display:flex;justify-content:flex-end;gap:8px;"):
+                with ui.element("button").classes("fd-gb").style(
+                        "padding:7px 14px;font-size:12px;").on(
+                        "click", _c_dlg.close):
+                    ui.label("Cancel")
+                with ui.element("button").classes("fd-pb").style(
+                        "padding:7px 18px;font-size:12px;").on(
+                        "click", _confirm):
+                    ui.label("Regenerate")
+        _c_dlg.open()
+
     with ui.element("div").style(
             f"background:{C['card']};border:1px solid {C['border']};"
-            f"border-radius:10px;padding:18px 20px;margin-top:18px;"):
-        ui.label("Page guides").style(
-            f"font-size:14px;font-weight:700;color:{C['text_l']};"
-            f"margin-bottom:6px;font-family:'Nunito',sans-serif;")
-        ui.label(
-            f"You've dismissed {_dismissed_count} page guide"
-            f"{'' if _dismissed_count == 1 else 's'}. Click below to bring "
-            f"all of them back — useful if you can't remember what a page is for."
-        ).style(
-            f"font-size:12px;color:{C['muted']};line-height:1.5;"
-            f"margin-bottom:10px;")
+            f"border-radius:12px;padding:18px;margin-top:16px;"):
+        with ui.element("div").style(
+                "display:flex;align-items:center;gap:8px;"
+                "margin-bottom:4px;"):
+            ui.label("🔑 API Access").style(
+                f"font-size:13px;font-weight:700;color:{C['text_l']};"
+                f"font-family:'Nunito',sans-serif;")
+        ui.label("Generate a key to create and launch campaigns via "
+                 "the DripDrop API.").style(
+            f"font-size:11px;color:{C['muted']};margin-bottom:12px;"
+            f"line-height:1.5;")
+        if _api_status:
+            ui.label(
+                f"Active key · created "
+                f"{_fmt_created(_api_status['created'])}").style(
+                f"font-size:12px;color:{C['muted']};"
+                f"margin-bottom:8px;")
+            if _api_status.get("key"):
+                _revealed = getattr(s, "_api_key_revealed", False)
+                _shown = (_api_status["key"] if _revealed
+                          else _mask_api_key(_api_status["key"]))
+                ui.input(value=_shown).props("readonly").classes(
+                    "fd-input").style(
+                    "font-family:monospace;margin-bottom:8px;")
 
-        def _restore_all():
+                def _toggle_reveal():
+                    s._api_key_revealed = not getattr(
+                        s, "_api_key_revealed", False)
+                    rf()
+
+                def _copy_key(k=_api_status["key"]):
+                    ui.run_javascript(
+                        "navigator.clipboard.writeText("
+                        + json.dumps(k) + ")")
+                    ui.notify("API key copied", type="positive")
+
+                with ui.element("div").style(
+                        "display:flex;gap:8px;margin-bottom:10px;"):
+                    with ui.element("button").classes("fd-gb").style(
+                            "padding:7px 14px;font-size:12px;").on(
+                            "click", _toggle_reveal):
+                        ui.label("🙈 Hide" if _revealed
+                                 else "👁 Reveal")
+                    with ui.element("button").classes("fd-pb").style(
+                            "padding:7px 16px;font-size:12px;").on(
+                            "click", _copy_key):
+                        ui.label("📋 Copy API Key")
+            else:
+                ui.label(
+                    f"dd_live_…{_api_status['last4'] or '••••'} · "
+                    f"Regenerate once to enable copy.").style(
+                    f"font-size:12px;color:{C['muted']};"
+                    f"margin-bottom:10px;")
+            with ui.element("button").style(
+                    f"display:inline-flex;align-items:center;gap:6px;"
+                    f"padding:8px 16px;font-size:12px;font-weight:700;"
+                    f"background:transparent;color:{C['muted']};"
+                    f"border:1px solid {C['border']};border-radius:8px;"
+                    f"cursor:pointer;font-family:inherit;").on(
+                    "click", _regenerate_key):
+                ui.label("♻️ Regenerate Key")
+        else:
+            ui.label("No API key yet.").style(
+                f"font-size:12px;color:{C['muted']};"
+                f"margin-bottom:10px;")
+            with ui.element("button").classes("fd-pb").style(
+                    "padding:8px 16px;font-size:12px;").on(
+                    "click", _generate_key):
+                ui.label("Generate API Key")
+
+    # ── Restore page guides ──────────────────────────────────────────────
+    # Compact link that replaces the old full-width "Page guides" card. Only
+    # shown when the user has actually dismissed one or more intro strips.
+    _dismissed_count = len(load_config().get("dismissed_help_strips") or [])
+    if _dismissed_count:
+        def _restore_all_guides():
             _clear_all_dismissed_help_strips()
             ui.notify("All page guides restored.", type="positive", timeout=3000)
             rf()
-
-        with ui.element("button").classes("fd-gb").style(
-                "padding:8px 18px;font-size:12px;").on("click", _restore_all):
-            ui.label("Show all page guides again")
+        with ui.element("div").style("margin-top:16px;"):
+            with ui.element("span").style(
+                    f"font-size:12px;color:{C['teal']};cursor:pointer;"
+                    f"text-decoration:underline;font-family:inherit;").on(
+                    "click", _restore_all_guides):
+                ui.label(
+                    f"Restore {_dismissed_count} dismissed page "
+                    f"guide{'' if _dismissed_count == 1 else 's'}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -43583,7 +43870,7 @@ _NL_COLORS = {
 }
 
 
-def _ensure_spotlight_bullets(data: dict, min_count: int = 4) -> list:
+def _ensure_spotlight_bullets(data: dict, min_count: int = 3) -> list:
     """Guarantee at least `min_count` bullet points for a candidate spotlight.
 
     Pulls from `spotlight_bullets`, then falls back to converting `spotlight_qa`
@@ -43620,20 +43907,16 @@ def _ensure_spotlight_bullets(data: dict, min_count: int = 4) -> list:
         if re.search(r'super|pm|project manag', title, re.IGNORECASE):
             heuristic.append("Proven leadership managing multi-phase builds from preconstruction to closeout")
 
-    generic = [
-        "Open to select opportunities with the right culture and scope",
-        "Strong references available on request",
-        "Active and available on a near-term timeline",
-        "Targeting competitive total compensation aligned to market",
-    ]
-
-    for candidate in heuristic + generic:
+    # Only skill/company-derived heuristics top up a short list — no generic
+    # "references available / open to opportunities / comp" filler — and the
+    # card is hard-capped at min_count so it stays tight.
+    for candidate in heuristic:
         if len(bullets) >= min_count:
             break
         if candidate not in bullets:
             bullets.append(candidate)
 
-    return bullets[:max(min_count, len(bullets))]
+    return bullets[:min_count]
 
 def _strip_cite_tags(text: str) -> str:
     """Remove <cite ...>...</cite> wrapper tags left by web search results."""
@@ -44825,7 +45108,7 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
         _spotlights_raw = [{
             "name": data.get("spotlight_name", ""),
             "title": data.get("spotlight_title", ""),
-            "bullets": _ensure_spotlight_bullets(data, min_count=4),
+            "bullets": _ensure_spotlight_bullets(data, min_count=3),
         }]
     # Filter empties + cap at 6
     _spotlights = [c for c in _spotlights_raw
@@ -45977,7 +46260,7 @@ def _spotlight_prompt_block(sector: str, n: int,
             f'"title": "manager+ role + years + key cred", '
             f'"location": "this region", '
             f'"salary_ask": "$XXk - $YYk (annual base only) OR $XX/hr - $YY/hr (hourly only) — real local range, NO bonuses, NO benefits, NO OTE, NO \\"plus $X\\"", '
-            f'"bullets": [{bpc} short single-sentence bullets, each a concrete skill or result]}}'
+            f'"bullets": [{bpc} short single-sentence bullets, each a concrete skill, notable project, or company they have worked for]}}'
             for i in range(n)
         )
         + '\n  ],\n'
@@ -47554,11 +47837,12 @@ def p_newsletter(s: AppState, rf):
                                     f"Turn this into a polished professional spotlight. Generate:\n"
                                     f"- spotlight_name: their full name\n"
                                     f"- spotlight_title: a compelling one-line title (role + key qualifier)\n"
-                                    f"- spotlight_bullets: exactly 4 bullet points summarizing who they are. "
+                                    f"- spotlight_bullets: exactly 3 bullet points, each focused on their "
+                                    f"skillset, a notable project, or a company they have worked for. "
                                     f"Use the info provided but FILL IN THE GAPS  -  if the user was vague, "
                                     f"infer realistic details based on their role/industry/experience. "
-                                    f"Bullets should cover: experience summary, key skills/certifications, "
-                                    f"notable achievements, and what they're looking for next. Make them shine.\n"
+                                    f"Do NOT add bullets about years of experience, location, salary, "
+                                    f"availability, or what they're looking for next. Make them shine.\n"
                                     f"- spotlight_qa: exactly 2 Q&A pairs. Questions should be specific and "
                                     f"insightful (not 'tell us about yourself'). Answers should be confident, "
                                     f"detailed, and position the candidate as a top performer.\n"
@@ -47584,7 +47868,7 @@ def p_newsletter(s: AppState, rf):
                                 _spot_json = (
                                     '"spotlight_name": "full name",'
                                     '"spotlight_title": "one-line title",'
-                                    '"spotlight_bullets": ["bullet 1", "bullet 2", "bullet 3", "bullet 4"],'
+                                    '"spotlight_bullets": ["bullet 1", "bullet 2", "bullet 3"],'
                                     '"spotlight_qa": [{"q": "specific question", "a": "detailed answer"}, '
                                     '{"q": "specific question", "a": "detailed answer"}],'
                                 )
@@ -47623,7 +47907,7 @@ def p_newsletter(s: AppState, rf):
                                 if ai.get("spotlight_title"):
                                     d["spotlight_title"] = _strip_cite_tags(ai["spotlight_title"])
                                 if ai.get("spotlight_bullets"):
-                                    d["spotlight_bullets"] = [_strip_cite_tags(b) for b in ai["spotlight_bullets"][:4]]
+                                    d["spotlight_bullets"] = [_strip_cite_tags(b) for b in ai["spotlight_bullets"][:3]]
                                 if ai.get("spotlight_qa"):
                                     d["spotlight_qa"] = ai["spotlight_qa"][:2]
                                 # Auto-save with setup data
@@ -50126,170 +50410,6 @@ def _p_profile_body(s, rf):
                         + _hide_if("personal")
                         ).on("click", _open_pw_dialog):
                     ui.label("🔒 Change Password")
-
-                # ── API Access card ────────────────────────────────
-                # Self-serve key for the campaign create+launch API. The record
-                # stores the plaintext key too (for reveal/copy); auth uses the hash.
-                _api_status = _user_api_key_status(_uemail)
-
-                def _fmt_created(iso: str) -> str:
-                    try:
-                        return datetime.fromisoformat(iso).strftime("%b %d, %Y")
-                    except Exception:
-                        return "—"
-
-                def _reveal_key_dialog(key: str):
-                    with ui.dialog() as _k_dlg, ui.card().style(
-                            f"background:{C['card']};border:1px solid {C['teal']}60;"
-                            f"min-width:460px;padding:22px 26px;border-radius:14px;"):
-                        ui.label("🔑 Your API Key").style(
-                            f"font-size:17px;font-weight:800;color:{C['text_l']};"
-                            f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
-                        ui.label("Store this now. You can also view and copy this "
-                                 "key anytime from the API Access card.").style(
-                            "font-size:12px;font-weight:700;color:#c9760f;"
-                            "margin-bottom:12px;")
-                        ui.input(value=key).props("readonly").classes(
-                            "fd-input").style("margin-bottom:6px;font-family:monospace;")
-                        ui.label("Use it like this:").style(
-                            f"font-size:11px;color:{C['muted']};margin-top:6px;")
-                        ui.html(
-                            "<pre style='font-size:11px;white-space:pre-wrap;"
-                            "margin:4px 0;'>POST https://dripdripdrop.ai/api/v1/"
-                            "campaigns\nAuthorization: Bearer &lt;your key&gt;</pre>")
-
-                        def _copy():
-                            ui.run_javascript(
-                                "navigator.clipboard.writeText("
-                                + json.dumps(key) + ")")
-                            ui.notify("Copied (if blocked, select the field and "
-                                      "press Ctrl+C)", type="positive")
-
-                        with ui.element("div").style(
-                                "display:flex;justify-content:flex-end;gap:8px;"
-                                "margin-top:12px;"):
-                            with ui.element("button").classes("fd-gb").style(
-                                    "padding:7px 14px;font-size:12px;").on(
-                                    "click", _k_dlg.close):
-                                ui.label("Done")
-                            with ui.element("button").classes("fd-pb").style(
-                                    "padding:7px 18px;font-size:12px;").on(
-                                    "click", _copy):
-                                ui.label("Copy")
-                    # Refresh the card only AFTER the user dismisses the dialog.
-                    # Refreshing while it's open re-renders the section and tears
-                    # the dialog off-screen before the one-time key can be copied.
-                    _k_dlg.on("hide", lambda *_: rf())
-                    _k_dlg.open()
-
-                def _generate_key():
-                    key = _mint_api_key(_uemail, label="self-serve")
-                    # No rf() here — see _reveal_key_dialog: it refreshes on the
-                    # dialog's 'hide' event so the key stays visible until 'Done'.
-                    _reveal_key_dialog(key)
-
-                def _regenerate_key():
-                    with ui.dialog() as _c_dlg, ui.card().style(
-                            f"background:{C['card']};border:1px solid #c9760f60;"
-                            f"min-width:420px;padding:22px 26px;border-radius:14px;"):
-                        ui.label("⚠️ Regenerate API Key").style(
-                            f"font-size:16px;font-weight:800;color:{C['text_l']};"
-                            f"margin-bottom:6px;")
-                        ui.label("This permanently disables your current key — "
-                                 "anything using it will stop working. Continue?").style(
-                            f"font-size:12px;color:{C['muted']};margin-bottom:14px;"
-                            f"line-height:1.5;")
-
-                        def _confirm():
-                            s._api_key_revealed = False
-                            _revoke_api_keys(_uemail)
-                            _c_dlg.close()
-                            _generate_key()
-
-                        with ui.element("div").style(
-                                "display:flex;justify-content:flex-end;gap:8px;"):
-                            with ui.element("button").classes("fd-gb").style(
-                                    "padding:7px 14px;font-size:12px;").on(
-                                    "click", _c_dlg.close):
-                                ui.label("Cancel")
-                            with ui.element("button").classes("fd-pb").style(
-                                    "padding:7px 18px;font-size:12px;").on(
-                                    "click", _confirm):
-                                ui.label("Regenerate")
-                    _c_dlg.open()
-
-                with ui.element("div").style(
-                        _hide_if("personal") +
-                        f"background:{C['card']};border:1px solid {C['border']};"
-                        f"border-radius:12px;padding:18px;margin-top:16px;"):
-                    with ui.element("div").style(
-                            "display:flex;align-items:center;gap:8px;"
-                            "margin-bottom:4px;"):
-                        ui.label("🔑 API Access").style(
-                            f"font-size:13px;font-weight:700;color:{C['text_l']};"
-                            f"font-family:'Nunito',sans-serif;")
-                    ui.label("Generate a key to create and launch campaigns via "
-                             "the DripDrop API.").style(
-                        f"font-size:11px;color:{C['muted']};margin-bottom:12px;"
-                        f"line-height:1.5;")
-                    if _api_status:
-                        ui.label(
-                            f"Active key · created "
-                            f"{_fmt_created(_api_status['created'])}").style(
-                            f"font-size:12px;color:{C['muted']};"
-                            f"margin-bottom:8px;")
-                        if _api_status.get("key"):
-                            _revealed = getattr(s, "_api_key_revealed", False)
-                            _shown = (_api_status["key"] if _revealed
-                                      else _mask_api_key(_api_status["key"]))
-                            ui.input(value=_shown).props("readonly").classes(
-                                "fd-input").style(
-                                "font-family:monospace;margin-bottom:8px;")
-
-                            def _toggle_reveal():
-                                s._api_key_revealed = not getattr(
-                                    s, "_api_key_revealed", False)
-                                rf()
-
-                            def _copy_key(k=_api_status["key"]):
-                                ui.run_javascript(
-                                    "navigator.clipboard.writeText("
-                                    + json.dumps(k) + ")")
-                                ui.notify("API key copied", type="positive")
-
-                            with ui.element("div").style(
-                                    "display:flex;gap:8px;margin-bottom:10px;"):
-                                with ui.element("button").classes("fd-gb").style(
-                                        "padding:7px 14px;font-size:12px;").on(
-                                        "click", _toggle_reveal):
-                                    ui.label("🙈 Hide" if _revealed
-                                             else "👁 Reveal")
-                                with ui.element("button").classes("fd-pb").style(
-                                        "padding:7px 16px;font-size:12px;").on(
-                                        "click", _copy_key):
-                                    ui.label("📋 Copy API Key")
-                        else:
-                            ui.label(
-                                f"dd_live_…{_api_status['last4'] or '••••'} · "
-                                f"Regenerate once to enable copy.").style(
-                                f"font-size:12px;color:{C['muted']};"
-                                f"margin-bottom:10px;")
-                        with ui.element("button").style(
-                                f"display:inline-flex;align-items:center;gap:6px;"
-                                f"padding:8px 16px;font-size:12px;font-weight:700;"
-                                f"background:transparent;color:{C['muted']};"
-                                f"border:1px solid {C['border']};border-radius:8px;"
-                                f"cursor:pointer;font-family:inherit;").on(
-                                "click", _regenerate_key):
-                            ui.label("♻️ Regenerate Key")
-                    else:
-                        ui.label("No API key yet.").style(
-                            f"font-size:12px;color:{C['muted']};"
-                            f"margin-bottom:10px;")
-                        with ui.element("button").classes("fd-pb").style(
-                                "padding:8px 16px;font-size:12px;").on(
-                                "click", _generate_key):
-                            ui.label("Generate API Key")
 
                 # ── Newsletter Signature card (avatar + personal note) ─────
                 # Photo upload triggers a save on its own (the bytes are
