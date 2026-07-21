@@ -32168,6 +32168,7 @@ def _save_redacted_pdf(candidate_name: str, redacted_text: str) -> str:
 
         slug = re.sub(r'[^\w\s-]', '', candidate_name).strip().replace(' ', '_')[:40] or "Candidate"
         fname = f"Resume_{slug}_Redacted.pdf"
+        _user_pdf_dir().mkdir(parents=True, exist_ok=True)
         fpath = str(_user_pdf_dir() / fname)
 
         doc = SimpleDocTemplate(fpath, pagesize=letter,
@@ -32592,15 +32593,15 @@ def _aicb_card_to_resume_text(card: dict) -> str:
     return "\n".join(parts).strip()
 
 
-def _aicb_build_redacted_resumes(s, client=None) -> list:
-    """Build one redacted-résumé PDF per AI/pool candidate card. For 5x3
-    campaigns, uses the polished engine (real employment history from the pool,
-    employers anonymized, PII + location stripped; representative fallback for
-    autogen cards). All other types keep the legacy thin-blurb PDF. Returns the
-    list of saved filenames (in card order)."""
+def _build_redacted_resumes_from_cards(cards, camp_type, client=None) -> list:
+    """Core résumé-PDF generation, decoupled from AppState so both the wizard
+    (_aicb_build_redacted_resumes) and the API path can call it. 5x3 uses the
+    polished engine (real pool history anonymized via _ai_structure_resume;
+    representative fallback for cards without _pool_id); every other type keeps
+    the legacy thin PDF. Returns saved filenames in card order."""
     saved = []
-    is_5x3 = (getattr(s, "aicb_camp_type", "") or "").strip() == "fivebythree"
-    for card in (getattr(s, "aicb_cand_cards", []) or []):
+    is_5x3 = (camp_type or "").strip() == "fivebythree"
+    for card in (cards or []):
         try:
             label = (card.get("label") or "Candidate").strip() or "Candidate"
             if is_5x3:
@@ -32627,6 +32628,15 @@ def _aicb_build_redacted_resumes(s, client=None) -> list:
             print(f"[AICB] redacted résumé build error: {_ex}", flush=True)
     print(f"[AICB] built {len(saved)} redacted résumé PDF(s)", flush=True)
     return saved
+
+
+def _aicb_build_redacted_resumes(s, client=None) -> list:
+    """Wizard entry point: build one redacted-résumé PDF per card on the
+    AppState. Delegates to _build_redacted_resumes_from_cards."""
+    return _build_redacted_resumes_from_cards(
+        getattr(s, "aicb_cand_cards", []) or [],
+        (getattr(s, "aicb_camp_type", "") or "").strip(),
+        client)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
