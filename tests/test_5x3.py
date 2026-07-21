@@ -88,3 +88,20 @@ def test_5x3_interview_line_once_inside_div():
     # schedule pinned across all five steps
     delays = {fa._fivebyfive_step_no(e["name"]): e["delay_days"] for e in data["emails"]}
     assert delays == {1: 0, 2: 3, 3: 3, 4: 2, 5: 3}
+
+
+def test_fivebythree_chooser_tile_present():
+    import flowdrip_app as fa
+    keys = [o.get("key") for o in fa.CHOOSER_OPTIONS]
+    assert "fivebythree" in keys
+    tile = next(o for o in fa.CHOOSER_OPTIONS if o.get("key") == "fivebythree")
+    assert tile["title"] == "Arena 5×3"
+
+
+def test_fivebythree_pdf_subject_recruiting():
+    import flowdrip_app as fa
+    camp = {"name": "Arena 5x3 - Acme", "_chooser_origin": "fivebythree",
+            "variables": {"TargetRole": "Project Engineer", "CompanyName": "Acme"}}
+    company, roles, location, industry = fa._pdf_campaign_subject(camp)
+    assert company == "Acme"
+    assert roles == "Project Engineer"

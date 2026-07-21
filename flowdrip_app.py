@@ -8367,7 +8367,7 @@ def _pdf_campaign_subject(camp):
     _is_recruiting = bool(
         camp.get("candidate_role") or camp.get("candidate_name")
         or camp.get("market_niche")
-        or (camp.get("_chooser_origin") in ("candidate", "fourbyfour", "fivebyfive"))
+        or (camp.get("_chooser_origin") in ("candidate", "fourbyfour", "fivebyfive", "fivebythree"))
         or re.match(r"(?i)^(find candidates|arena\s*[45]|[45]\s*x\s*[45]|mpc)\b",
                     (camp.get("name") or "").strip()))
     if not company and not _is_recruiting:
@@ -18609,6 +18609,119 @@ STEP_TYPE_OPTIONS = [
     (ST.TASK,         "✓ Task",         C["task_col"]),
 ]
 
+# Strategy Chooser — 5 (+ slate variants) starting places. Hoisted to module
+# scope (matching STEP_TYPE_OPTIONS above) so it's introspectable as
+# flowdrip_app.CHOOSER_OPTIONS; purely static (only references the C palette
+# dict and literals), so this is behavior-identical to the old
+# function-local definition — same list, same single call site below.
+CHOOSER_OPTIONS = [
+    {
+        "key": "client",
+        "icon": "🎯",
+        "title": "Target a Company",
+        "subtitle": "Land a specific account",
+        "desc": ("AI deep-research on a single named company. Reads their open roles, "
+                 "recent news, and project pipeline. Generates a hyper-personalized "
+                 "7-week sequence aimed at one specific company."),
+        "best_for": ["Named accounts", "Account expansion", "Single-target outreach"],
+        "border": C["teal"],
+    },
+    {
+        "key": "market",
+        "icon": "📊",
+        "title": "Target a Market",
+        "subtitle": "Cover an industry or region",
+        "desc": ("Build a sequence template for a market segment. Pick an industry, "
+                 "region, and role family. Reusable across many similar companies. "
+                 "Best for prospect-list campaigns."),
+        "best_for": ["Industry plays", "Regional sweeps", "Bulk outreach"],
+        "border": "#A78BFA",
+    },
+    {
+        "key": "candidate",
+        "icon": "👤",
+        "title": "Find Candidates",
+        "subtitle": "Build outreach for a role you're filling",
+        "desc": ("Guided wizard. Optionally paste a job description, then pick "
+                 "a cadence. AI generates outreach tuned to the role and drops "
+                 "you in the email editor where you can add the candidates "
+                 "you've sourced on your own."),
+        "best_for": ["Specific role hiring", "Candidate placement", "MPC outreach"],
+        "border": "#F472B6",
+    },
+    {
+        "key": "mpc",
+        "icon": "⭐",
+        "title": "Start with an MPC",
+        "subtitle": "Most Placeable Candidate — pitch them to fitting companies",
+        "desc": ("Pick a candidate from your Top Candidates roster. AI "
+                 "builds a 5-step placement outreach targeting hiring managers "
+                 "at relevant companies and drops you straight in the email "
+                 "editor — no in-between review page."),
+        "best_for": ["Hot candidates", "Direct-hire placement", "Candidate-first outreach"],
+        "border": "#34D399",
+    },
+    {
+        "key": "fourbyfour",
+        "icon": "⚡",
+        "title": "Arena 4×4",
+        "subtitle": "Market a 4–5 candidate slate to companies hiring your role",
+        "desc": ("Pick an anchor candidate (matches a real advertised role) plus "
+                 "3–4 supporting profiles. AI builds the 4-email cadence — role "
+                 "intro, market insights, proven results, market trends — with "
+                 "live BLS stats and full candidate highlights."),
+        "best_for": ["Slate outreach", "Hot roles", "Team playbook"],
+        "border": "#7C3AED",
+    },
+    {
+        "key": "fivebyfive",
+        "icon": "🌱",
+        "title": "Arena 5×5",
+        "subtitle": "Warmer 4×4 with an extra day-5 follow-up",
+        "desc": ("The 4×4, softened. Same 5-candidate slate play in a "
+                 "warmer, more personal voice, plus a gentle day-5 bump "
+                 "that flushes out the right decision-maker and an "
+                 "interview guide on the day-8 touch."),
+        "best_for": ["Relationship-first BD", "Warm slate outreach", "Passive candidates"],
+        "border": "#7C3AED",
+    },
+    {
+        "key": "fivebythree",
+        "icon": "🎯",
+        "title": "Arena 5×3",
+        "subtitle": "Automated 3-candidate slate, warm 5-email cadence",
+        "desc": ("PipelineBlast's send-ready play. Introduces 3 "
+                 "pipeline-matched candidates to a company hiring "
+                 "your role — redacted résumés on emails 2 and 4, an "
+                 "interview guide on email 3, and a warm day-8 bump."),
+        "best_for": ["Automated slate", "3 candidates", "Relationship-first"],
+        "border": "#0EA5A5",
+    },
+    {
+        "key": "saved",
+        "icon": "📁",
+        "title": "Campaign Library",
+        "subtitle": "Resume a draft or re-use a finished sequence",
+        "desc": ("Pick up a draft you started earlier, or load a sequence "
+                 "from your library. Swap in a fresh contact list and send. "
+                 "Fast path for repeat outreach and unfinished work."),
+        "best_for": ["Resume drafts", "Repeat outreach", "Proven cadences"],
+        "border": "#60A5FA",
+    },
+    {
+        "key": "scratch",
+        "icon": "✏️",
+        "title": "Build from scratch",
+        "subtitle": "Build your own with AI assistance",
+        "desc": ("Open the AI Guided Sequence Builder. Add steps "
+                 "(email, LinkedIn, call, SMS, task) in any order, drag "
+                 "to reorder, and give AI direction OR write each step "
+                 "yourself — AI polishes either way."),
+        "best_for": ["Hand-crafted outreach", "Personal voice", "Non-standard cadences"],
+        "border": "#F59E0B",
+    },
+]
+
 def _sq_pick(s, rf):
     """Landing: pick a sequence type  -  legacy-style big cards then into content."""
 
@@ -18638,102 +18751,6 @@ def _sq_pick(s, rf):
         ).style(
             f"font-size:12px;color:{C['muted']};margin-bottom:24px;line-height:1.55;"
             f"font-style:italic;")
-
-        CHOOSER_OPTIONS = [
-            {
-                "key": "client",
-                "icon": "🎯",
-                "title": "Target a Company",
-                "subtitle": "Land a specific account",
-                "desc": ("AI deep-research on a single named company. Reads their open roles, "
-                         "recent news, and project pipeline. Generates a hyper-personalized "
-                         "7-week sequence aimed at one specific company."),
-                "best_for": ["Named accounts", "Account expansion", "Single-target outreach"],
-                "border": C["teal"],
-            },
-            {
-                "key": "market",
-                "icon": "📊",
-                "title": "Target a Market",
-                "subtitle": "Cover an industry or region",
-                "desc": ("Build a sequence template for a market segment. Pick an industry, "
-                         "region, and role family. Reusable across many similar companies. "
-                         "Best for prospect-list campaigns."),
-                "best_for": ["Industry plays", "Regional sweeps", "Bulk outreach"],
-                "border": "#A78BFA",
-            },
-            {
-                "key": "candidate",
-                "icon": "👤",
-                "title": "Find Candidates",
-                "subtitle": "Build outreach for a role you're filling",
-                "desc": ("Guided wizard. Optionally paste a job description, then pick "
-                         "a cadence. AI generates outreach tuned to the role and drops "
-                         "you in the email editor where you can add the candidates "
-                         "you've sourced on your own."),
-                "best_for": ["Specific role hiring", "Candidate placement", "MPC outreach"],
-                "border": "#F472B6",
-            },
-            {
-                "key": "mpc",
-                "icon": "⭐",
-                "title": "Start with an MPC",
-                "subtitle": "Most Placeable Candidate — pitch them to fitting companies",
-                "desc": ("Pick a candidate from your Top Candidates roster. AI "
-                         "builds a 5-step placement outreach targeting hiring managers "
-                         "at relevant companies and drops you straight in the email "
-                         "editor — no in-between review page."),
-                "best_for": ["Hot candidates", "Direct-hire placement", "Candidate-first outreach"],
-                "border": "#34D399",
-            },
-            {
-                "key": "fourbyfour",
-                "icon": "⚡",
-                "title": "Arena 4×4",
-                "subtitle": "Market a 4–5 candidate slate to companies hiring your role",
-                "desc": ("Pick an anchor candidate (matches a real advertised role) plus "
-                         "3–4 supporting profiles. AI builds the 4-email cadence — role "
-                         "intro, market insights, proven results, market trends — with "
-                         "live BLS stats and full candidate highlights."),
-                "best_for": ["Slate outreach", "Hot roles", "Team playbook"],
-                "border": "#7C3AED",
-            },
-            {
-                "key": "fivebyfive",
-                "icon": "🌱",
-                "title": "Arena 5×5",
-                "subtitle": "Warmer 4×4 with an extra day-5 follow-up",
-                "desc": ("The 4×4, softened. Same 5-candidate slate play in a "
-                         "warmer, more personal voice, plus a gentle day-5 bump "
-                         "that flushes out the right decision-maker and an "
-                         "interview guide on the day-8 touch."),
-                "best_for": ["Relationship-first BD", "Warm slate outreach", "Passive candidates"],
-                "border": "#7C3AED",
-            },
-            {
-                "key": "saved",
-                "icon": "📁",
-                "title": "Campaign Library",
-                "subtitle": "Resume a draft or re-use a finished sequence",
-                "desc": ("Pick up a draft you started earlier, or load a sequence "
-                         "from your library. Swap in a fresh contact list and send. "
-                         "Fast path for repeat outreach and unfinished work."),
-                "best_for": ["Resume drafts", "Repeat outreach", "Proven cadences"],
-                "border": "#60A5FA",
-            },
-            {
-                "key": "scratch",
-                "icon": "✏️",
-                "title": "Build from scratch",
-                "subtitle": "Build your own with AI assistance",
-                "desc": ("Open the AI Guided Sequence Builder. Add steps "
-                         "(email, LinkedIn, call, SMS, task) in any order, drag "
-                         "to reorder, and give AI direction OR write each step "
-                         "yourself — AI polishes either way."),
-                "best_for": ["Hand-crafted outreach", "Personal voice", "Non-standard cadences"],
-                "border": "#F59E0B",
-            },
-        ]
 
         with ui.element("div").style("display:flex;flex-direction:column;gap:10px;max-width:860px;"):
             for opt in CHOOSER_OPTIONS:
@@ -18818,6 +18835,20 @@ def _sq_pick(s, rf):
                         _reset_wizard_state(s)
                         s._chooser_origin = "fivebyfive"
                         s.aicb_camp_type = "fivebyfive"
+                        s.aicb_style_locked = True
+                        s.sp = "ai_campaign"
+                        s.aicb_step = 1
+                        s.aicb_target_mode = "market"
+                        s.aicb_wizard_step = 2
+                        s.aicb_type_picked = True
+                        s.aicb_contacts = []
+                    elif k == "fivebythree":
+                        # Arena 5×3 — same entry as the 5×5, warm cadence,
+                        # style pre-locked (the tile is the style choice).
+                        s._nav_history.append(_nav_snapshot(s))
+                        _reset_wizard_state(s)
+                        s._chooser_origin = "fivebythree"
+                        s.aicb_camp_type = "fivebythree"
                         s.aicb_style_locked = True
                         s.sp = "ai_campaign"
                         s.aicb_step = 1
