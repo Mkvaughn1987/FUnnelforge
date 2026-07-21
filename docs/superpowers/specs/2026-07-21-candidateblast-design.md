@@ -18,8 +18,9 @@
 3. Search online for current open jobs (Google, Indeed, ZipRecruiter) **in that location
    first**, recently posted, at **medium-sized companies**. If nothing qualifies locally,
    **prompt the user to open the search nationwide**.
-4. Grab the **top 5** companies, pull the hiring contact for each from **ZoomInfo**, and
-   auto-launch an **MPC campaign** at each, pitching the supplied candidate slate.
+4. Grab the **top 5** companies — each must show **5+ decision-makers (Managers+) in
+   ZoomInfo** or it's replaced by the next target — then auto-launch an **MPC campaign**
+   at each, enrolling those decision-makers and pitching the supplied candidate slate.
 
 The launch vehicle is the app's **existing "Start an MPC Campaign"** flow (1–3 candidate
 slate) — this skill effectively revives the retired "Search Jobs" feature (cut 2026-05-22)
@@ -91,30 +92,37 @@ Then filter:
 
 ### 5. Pick top 5 + ZoomInfo contacts
 
-- Take the top 5 surviving companies by fit score — no per-company approval gate.
-- For each, pull the hiring contact (hiring manager / relevant decision-maker) from
-  **ZoomInfo**, mirroring the PipelineBlast skill's contact step. Targeted per-company
-  lookups only, capped at 5 companies per run — enrichment, not list-building, per the
-  ZoomInfo AUP.
-- A company with no usable contact is skipped (and reported), not guessed at.
+- Work down the ranked list. For each candidate company, pull its decision-makers
+  (**Manager level and above**) from **ZoomInfo**, mirroring the PipelineBlast skill's
+  contact step. Targeted per-company lookups only — enrichment, not list-building, per
+  the ZoomInfo AUP.
+- **Viability bar: a company qualifies only if ZoomInfo returns 5+ decision-makers
+  (Managers+).** Under 5 (or none usable) → drop it, report it, and backfill with the
+  next-ranked company until 5 targets qualify or the ranked list runs out. Never guess
+  contacts.
+- Stop at **5 qualified companies** per run — no per-company approval gate.
 
 ### 6. Auto-launch
 
 - Launch one **MPC campaign** per company via the campaign create/launch API, with the
   supplied candidate slate (the same campaign the in-app "Start an MPC Campaign" button
-  builds), addressed to the ZoomInfo-sourced contact.
-- Rides the existing send-throttle and bounce-suppression machinery untouched.
+  builds), enrolling **all qualifying decision-makers** (the Managers+ ZoomInfo returned)
+  as recipients — multi-threaded into each account, the way the BD routines blanket a
+  company.
+- Rides the existing send-throttle and bounce-suppression machinery untouched; recipient
+  volume (~25+ per full run) is exactly what the throttle exists to pace.
 
 ### 7. Notify + kill switch
 
 Every run posts a summary: candidates, intake answers, postings found, the 5 picked
-(company, role, contact, fit score, short rationale), campaigns launched, anything skipped
-and why. Same one-flip kill switch as PipelineBlast.
+(company, role, decision-maker count, fit score, short rationale), companies dropped at
+the 5-contact bar, campaigns launched, anything else skipped and why. Same one-flip kill
+switch as PipelineBlast.
 
 ## Guardrails (always on — shared with PipelineBlast)
 
 - Fit floor (skip postings the slate doesn't genuinely fit).
-- Per-run cap: **5 companies**.
+- Per-run cap: **5 companies** (each needing 5+ Managers+ in ZoomInfo to qualify).
 - Dedup vs. active sequences.
 - Respect existing bounce suppression + send throttle.
 - Notify + one-flip kill switch.
@@ -154,8 +162,9 @@ candidate cards end to end (see open questions).
   current code before wiring.
 - Résumé-file parsing for non-pool candidates: reuse the app's `_extract_resume_text` /
   `_parse_and_redact_resume`, or parse in-skill.
-- Exact ZoomInfo contact-selection rules (titles to prefer, in-geo vs any) — mirror the
-  PipelineBlast skill's conventions; confirm they transfer as-is.
+- ZoomInfo contact-selection details beyond the "Managers+ / 5+ to qualify" rule (which
+  titles count as decision-makers, in-geo vs any) — mirror the PipelineBlast skill's
+  conventions; confirm they transfer as-is.
 - Fit-floor threshold and scoring weights — shared defaults with PipelineBlast, tune once.
 - "Medium-sized" band: 100–500 employees is the working default — confirm or adjust.
 
