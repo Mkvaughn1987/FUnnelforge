@@ -5359,6 +5359,149 @@ def _bdc_redeem_code(code, client_id, verifier, redirect_uri):
     return row[1] if want == row[2] else None
 
 
+def _bdc_base_url():
+    return os.environ.get("DD_PUBLIC_BASE_URL", "https://dripdripdrop.ai").rstrip("/")
+
+
+_OAUTH_FORM = """<!doctype html><html><body style="font-family:sans-serif;max-width:420px;margin:80px auto">
+<h2>DripDrop &mdash; connect Claude</h2><p>Sign in to let Claude launch campaigns from <b>your</b> DripDrop account.</p>
+{err}<form method="post" action="/oauth/authorize">
+{hidden}<input name="email" type="email" placeholder="Email" required style="display:block;width:100%;margin:8px 0;padding:8px">
+<input name="password" type="password" placeholder="Password" required style="display:block;width:100%;margin:8px 0;padding:8px">
+<button type="submit" style="padding:8px 24px">Sign in &amp; approve</button></form></body></html>"""
+
+
+def _oauth_client_redirects(client_id):
+    with _bdc_db() as con:
+        row = con.execute("SELECT redirect_uris FROM oauth_clients WHERE client_id=?",
+                          (client_id,)).fetchone()
+    return json.loads(row[0]) if row else None
+
+
+@app.post("/oauth/register")
+async def oauth_register(request: Request):
+    from starlette.responses import JSONResponse
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "invalid_client_metadata"}, status_code=400)
+    uris = body.get("redirect_uris") or []
+    if (not isinstance(uris, list) or not uris or not all(
+            isinstance(u, str) and u.startswith("https://") for u in uris)):
+        return JSONResponse({"error": "invalid_redirect_uri"}, status_code=400)
+    cid = secrets.token_urlsafe(16)
+    with _bdc_db() as con:
+        con.execute("INSERT INTO oauth_clients VALUES (?,?,?,?)",
+                    (cid, str(body.get("client_name") or ""), json.dumps(uris),
+                     datetime.now().isoformat()))
+    return JSONResponse({"client_id": cid, "redirect_uris": uris,
+                         "token_endpoint_auth_method": "none",
+                         "grant_types": ["authorization_code", "refresh_token"],
+                         "response_types": ["code"]}, status_code=201)
+
+
+def _oauth_hidden_fields(params):
+    keep = ("client_id", "redirect_uri", "response_type", "state",
+            "code_challenge", "code_challenge_method")
+    esc = lambda v: (v or "").replace("&", "&amp;").replace('"', "&quot;").replace("<", "&lt;")
+    return "".join(f'<input type="hidden" name="{k}" value="{esc(params.get(k, ""))}">'
+                   for k in keep)
+
+
+def _oauth_validate_authz(params):
+    """Shared GET/POST validation → error string or None."""
+    uris = _oauth_client_redirects(params.get("client_id", ""))
+    if uris is None:
+        return "unknown client_id"
+    if params.get("redirect_uri") not in uris:
+        return "redirect_uri not registered"
+    if params.get("response_type") != "code":
+        return "unsupported response_type"
+    if params.get("code_challenge_method") != "S256" or not params.get("code_challenge"):
+        return "PKCE S256 required"
+    return None
+
+
+@app.get("/oauth/authorize")
+async def oauth_authorize_get(request: Request):
+    from starlette.responses import HTMLResponse, JSONResponse
+    p = dict(request.query_params)
+    err = _oauth_validate_authz(p)
+    if err:
+        return JSONResponse({"error": "invalid_request", "detail": err}, status_code=400)
+    return HTMLResponse(_OAUTH_FORM.format(err="", hidden=_oauth_hidden_fields(p)))
+
+
+@app.post("/oauth/authorize")
+async def oauth_authorize_post(request: Request):
+    from starlette.responses import HTMLResponse, JSONResponse, RedirectResponse
+    form = dict(await request.form())
+    err = _oauth_validate_authz(form)
+    if err:
+        return JSONResponse({"error": "invalid_request", "detail": err}, status_code=400)
+    email = (form.get("email") or "").strip().lower()
+    user = _load_users().get(email)
+    if not user or not _verify_password(form.get("password") or "",
+                                        user.get("password", "")):
+        bad = "<p style='color:#b00'>Wrong email or password &mdash; try again.</p>"
+        return HTMLResponse(_OAUTH_FORM.format(err=bad,
+                                               hidden=_oauth_hidden_fields(form)))
+    code = _bdc_issue_code(form["client_id"], email, form["code_challenge"],
+                           form["redirect_uri"])
+    sep = "&" if "?" in form["redirect_uri"] else "?"
+    loc = f'{form["redirect_uri"]}{sep}code={code}'
+    if form.get("state"):
+        loc += f'&state={form["state"]}'
+    return RedirectResponse(loc, status_code=302)
+
+
+@app.post("/oauth/token")
+async def oauth_token(request: Request):
+    from starlette.responses import JSONResponse
+    form = dict(await request.form())
+    grant = form.get("grant_type")
+    if grant == "authorization_code":
+        email = _bdc_redeem_code(form.get("code", ""), form.get("client_id", ""),
+                                 form.get("code_verifier", ""),
+                                 form.get("redirect_uri", ""))
+        if not email:
+            return JSONResponse({"error": "invalid_grant"}, status_code=400)
+        cid = form.get("client_id", "")
+    elif grant == "refresh_token":
+        got = _bdc_resolve_token(form.get("refresh_token", ""), kind="refresh")
+        if not got:
+            return JSONResponse({"error": "invalid_grant"}, status_code=400)
+        email, cid = got
+    else:
+        return JSONResponse({"error": "unsupported_grant_type"}, status_code=400)
+    return JSONResponse({
+        "access_token": _bdc_mint_token(email, cid, "access", ttl=3600),
+        "refresh_token": _bdc_mint_token(email, cid, "refresh", ttl=90 * 86400),
+        "token_type": "Bearer", "expires_in": 3600})
+
+
+@app.get("/.well-known/oauth-authorization-server")
+async def oauth_metadata(request: Request):
+    from starlette.responses import JSONResponse
+    b = _bdc_base_url()
+    return JSONResponse({
+        "issuer": b, "authorization_endpoint": f"{b}/oauth/authorize",
+        "token_endpoint": f"{b}/oauth/token",
+        "registration_endpoint": f"{b}/oauth/register",
+        "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "code_challenge_methods_supported": ["S256"],
+        "token_endpoint_auth_methods_supported": ["none"]})
+
+
+@app.get("/.well-known/oauth-protected-resource")
+async def oauth_resource_metadata(request: Request):
+    from starlette.responses import JSONResponse
+    b = _bdc_base_url()
+    return JSONResponse({"resource": f"{b}/mcp", "authorization_servers": [b],
+                         "bearer_methods_supported": ["header"]})
+
+
 def _format_candidate_block(cards: list, camp_type: str) -> str:
     """Build the CANDIDATE HIGHLIGHTS prompt fragment from candidate cards
     (the API path). Mirrors the wizard's `if _cand_text:` block wording so

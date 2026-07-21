@@ -14,13 +14,13 @@ from starlette.testclient import TestClient
 def _client():
     return TestClient(Starlette(routes=[
         Route("/api/v1/master/import", fa.api_master_import, methods=["POST"]),
-        # Uncommented as each task lands (plan Tasks 5-7):
-        # Route("/oauth/register", fa.oauth_register, methods=["POST"]),
-        # Route("/oauth/authorize", fa.oauth_authorize_get, methods=["GET"]),
-        # Route("/oauth/authorize", fa.oauth_authorize_post, methods=["POST"]),
-        # Route("/oauth/token", fa.oauth_token, methods=["POST"]),
-        # Route("/.well-known/oauth-authorization-server", fa.oauth_metadata, methods=["GET"]),
-        # Route("/.well-known/oauth-protected-resource", fa.oauth_resource_metadata, methods=["GET"]),
+        Route("/oauth/register", fa.oauth_register, methods=["POST"]),
+        Route("/oauth/authorize", fa.oauth_authorize_get, methods=["GET"]),
+        Route("/oauth/authorize", fa.oauth_authorize_post, methods=["POST"]),
+        Route("/oauth/token", fa.oauth_token, methods=["POST"]),
+        Route("/.well-known/oauth-authorization-server", fa.oauth_metadata, methods=["GET"]),
+        Route("/.well-known/oauth-protected-resource", fa.oauth_resource_metadata, methods=["GET"]),
+        # Uncommented when plan Task 7 lands:
         # Route("/mcp", fa.api_mcp, methods=["POST"]),
     ]))
 
@@ -55,3 +55,78 @@ def test_master_import_seeds(bdc_db, api_key, monkeypatch):
     r = _client().post("/api/v1/master/import", content=csv_body,
                        headers={"Authorization": f"Bearer {api_key}"})
     assert r.status_code == 200 and r.json() == {"added": 1, "skipped": 0}
+
+
+# ── Task 6: OAuth endpoints ────────────────────────────────────────
+def test_oauth_full_flow(bdc_db, monkeypatch):
+    import base64, hashlib
+    c = _client()
+    # 1. dynamic client registration
+    r = c.post("/oauth/register", json={
+        "client_name": "Claude",
+        "redirect_uris": ["https://claude.ai/api/mcp/auth_callback"]})
+    assert r.status_code == 201
+    cid = r.json()["client_id"]
+    # 2. authorize GET renders the login form with hidden params
+    verifier = "s" * 64
+    challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    q = {"client_id": cid, "redirect_uri": "https://claude.ai/api/mcp/auth_callback",
+         "response_type": "code", "state": "xyz",
+         "code_challenge": challenge, "code_challenge_method": "S256"}
+    r = c.get("/oauth/authorize", params=q)
+    assert r.status_code == 200 and 'name="password"' in r.text
+    # 3. authorize POST with valid creds redirects back with a code
+    monkeypatch.setattr(fa, "_load_users",
+                        lambda: {"p1@arena.com": {"password": fa._hash_password("pw1")}})
+    r = c.post("/oauth/authorize", data={**q, "email": "p1@arena.com", "password": "pw1"},
+               follow_redirects=False)
+    assert r.status_code == 302
+    loc = r.headers["location"]
+    assert loc.startswith("https://claude.ai/api/mcp/auth_callback?") and "state=xyz" in loc
+    code = [p.split("=")[1] for p in loc.split("?")[1].split("&") if p.startswith("code=")][0]
+    # 4. token exchange
+    r = c.post("/oauth/token", data={"grant_type": "authorization_code", "code": code,
+                                     "client_id": cid, "code_verifier": verifier,
+                                     "redirect_uri": "https://claude.ai/api/mcp/auth_callback"})
+    body = r.json()
+    assert r.status_code == 200 and body["token_type"] == "Bearer"
+    assert fa._bdc_resolve_token(body["access_token"]) == "p1@arena.com"
+    # 5. refresh grant
+    r = c.post("/oauth/token", data={"grant_type": "refresh_token",
+                                     "refresh_token": body["refresh_token"],
+                                     "client_id": cid})
+    assert r.status_code == 200 and fa._bdc_resolve_token(
+        r.json()["access_token"]) == "p1@arena.com"
+
+
+def test_oauth_bad_password_rerenders_form(bdc_db, monkeypatch):
+    monkeypatch.setattr(fa, "_load_users",
+                        lambda: {"p1@arena.com": {"password": fa._hash_password("pw1")}})
+    c = _client()
+    cid = c.post("/oauth/register",
+                 json={"redirect_uris": ["https://claude.ai/cb"]}).json()["client_id"]
+    r = c.post("/oauth/authorize", data={
+        "client_id": cid, "redirect_uri": "https://claude.ai/cb", "response_type": "code",
+        "state": "s", "code_challenge": "c", "code_challenge_method": "S256",
+        "email": "p1@arena.com", "password": "WRONG"}, follow_redirects=False)
+    assert r.status_code == 200 and "try again" in r.text.lower()
+
+
+def test_oauth_unregistered_redirect_uri_rejected(bdc_db):
+    c = _client()
+    cid = c.post("/oauth/register",
+                 json={"redirect_uris": ["https://claude.ai/cb"]}).json()["client_id"]
+    r = c.get("/oauth/authorize", params={"client_id": cid,
+              "redirect_uri": "https://evil.example/cb", "response_type": "code",
+              "code_challenge": "c", "code_challenge_method": "S256"})
+    assert r.status_code == 400
+
+
+def test_metadata_documents(bdc_db):
+    c = _client()
+    m = c.get("/.well-known/oauth-authorization-server").json()
+    assert m["authorization_endpoint"].endswith("/oauth/authorize")
+    assert m["code_challenge_methods_supported"] == ["S256"]
+    p = c.get("/.well-known/oauth-protected-resource").json()
+    assert m["issuer"] in p["authorization_servers"]
