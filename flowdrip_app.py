@@ -5431,6 +5431,7 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
         _em["subject"] = _s
 
     _apply_fivebyfive_overrides(camp_type, campaign_data)
+    _apply_fivebythree_overrides(camp_type, campaign_data)
     _spread_email_times(campaign_data.get("emails", []))
     return campaign_data
 
@@ -8291,6 +8292,46 @@ def _apply_fivebyfive_overrides(camp_type, campaign_data):
                                   + _FIVEBYFIVE_INTERVIEW_LINE + "</div>")
                 else:
                     em["body"] = body + _FIVEBYFIVE_INTERVIEW_LINE
+    return campaign_data
+
+
+_FIVEBYTHREE_BUMP_SUBJECT = "Following up"
+_FIVEBYTHREE_BUMP_BODY = (
+    "Hi {FirstName}, did you get a chance to look over the résumés I sent? "
+    "And are you the right person on the hiring side, or is there someone "
+    "else I should loop in? Happy to share more on any of them."
+)
+_FIVEBYTHREE_INTERVIEW_LINE = (
+    "<br><br>I've attached a short interview guide for the role, the "
+    "questions worth asking and what to listen for, so it's handy either way."
+)
+# Canonical relative delays keyed by the Step-N marker in the step name.
+_FIVEBYTHREE_DELAYS = {1: 0, 2: 3, 3: 3, 4: 2, 5: 3}
+
+
+def _apply_fivebythree_overrides(camp_type, campaign_data):
+    """Stamp the Arena 5×3's hand-authored bump + interview line and pin its
+    schedule. No-op for any other type. Idempotent.
+
+    Unlike the 5×5, the 5×3's bump (Step 4) KEEPS its attachments — that
+    email re-attaches the résumés — so we never clear em['attachments']."""
+    if (camp_type or "").strip() != "fivebythree":
+        return campaign_data
+    for em in (campaign_data or {}).get("emails", []) or []:
+        n = _fivebyfive_step_no(em.get("name"))  # generic "Step N -" parser
+        if n in _FIVEBYTHREE_DELAYS:
+            em["delay_days"] = _FIVEBYTHREE_DELAYS[n]
+        if n == 4:  # verbatim following-up bump; KEEP résumé attachments
+            em["subject"] = _FIVEBYTHREE_BUMP_SUBJECT
+            em["body"] = _wrap_4x4_font(_strip_dashes(_FIVEBYTHREE_BUMP_BODY))
+        elif n == 3:  # interview-guide line once, inside the font div
+            body = em.get("body") or ""
+            if "interview guide" not in body.lower():
+                if body.rstrip().endswith("</div>"):
+                    em["body"] = (body.rstrip()[:-6]
+                                  + _FIVEBYTHREE_INTERVIEW_LINE + "</div>")
+                else:
+                    em["body"] = body + _FIVEBYTHREE_INTERVIEW_LINE
     return campaign_data
 
 
