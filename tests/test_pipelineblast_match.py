@@ -104,11 +104,13 @@ def test_match_pipeline_to_company_end_to_end(monkeypatch):
              "resume_text": "healthcare"},
             {"id": "c2", "target_role": "Estimator", "summary": "Bridges",
              "resume_text": "civil"}]
-    monkeypatch.setattr(fa, "load_candidate_pool", lambda: pool)
+    monkeypatch.setattr(fa, "_ats_owner_candidates",
+                        lambda owner, role, industry, limit=25: pool)
     payload = ('[{"id":"c1","score":88,"reason":"healthcare PM"},'
                '{"id":"c2","score":30,"reason":"wrong sector"}]')
     cards = fa._match_pipeline_to_company(_StubClient(payload), "Swinerton",
-                                          "Healthcare PM", "Construction")
+                                          "Healthcare PM", "Construction",
+                                          owner="mike@dripdrop.ai")
     assert len(cards) == 3
     assert cards[0]["_pool_id"] == "c1"           # real top match
     assert "_pool_id" not in cards[2]             # filled (only 1 cleared floor)
@@ -116,41 +118,97 @@ def test_match_pipeline_to_company_end_to_end(monkeypatch):
 
 def test_match_pipeline_skips_when_no_fit(monkeypatch):
     import flowdrip_app as fa
-    monkeypatch.setattr(fa, "load_candidate_pool",
-                        lambda: [{"id": "c1", "target_role": "Chef", "resume_text": "food"}])
+    monkeypatch.setattr(fa, "_ats_owner_candidates",
+                        lambda owner, role, industry, limit=25:
+                            [{"id": "c1", "target_role": "Chef", "resume_text": "food"}])
     payload = '[{"id":"c1","score":5,"reason":"unrelated"}]'
     cards = fa._match_pipeline_to_company(_StubClient(payload), "Acme",
-                                          "Healthcare PM", "Construction")
+                                          "Healthcare PM", "Construction",
+                                          owner="mike@dripdrop.ai")
     assert cards == []
+
+
+def test_match_pipeline_returns_empty_without_owner(monkeypatch):
+    """No owner => no bench lookup at all, never fall back to matching blind."""
+    import flowdrip_app as fa
+    called = []
+    monkeypatch.setattr(fa, "_ats_owner_candidates",
+                        lambda owner, role, industry, limit=25: called.append(owner) or [])
+    cards = fa._match_pipeline_to_company(_StubClient("[]"), "Acme",
+                                          "Healthcare PM", "Construction", owner=None)
+    assert cards == []
+    assert called == [None]
 
 
 def test_api_resolve_uses_provided_candidates():
     import flowdrip_app as fa
     spec = {"candidates": [{"label": "Candidate A", "role": "PM", "bullets": ["x"]}]}
-    cards, skip = fa._api_resolve_5x3_cards(_StubClient("[]"), spec)
+    cards, skip = fa._api_resolve_5x3_cards(_StubClient("[]"), spec, owner="mike@dripdrop.ai")
     assert skip is None
     assert cards == spec["candidates"]         # passthrough, no matching
 
 
 def test_api_resolve_matches_when_absent(monkeypatch):
     import flowdrip_app as fa
-    monkeypatch.setattr(fa, "load_candidate_pool",
-                        lambda: [{"id": "c1", "target_role": "PM", "resume_text": "x"}])
+    monkeypatch.setattr(fa, "_ats_owner_candidates",
+                        lambda owner, role, industry, limit=25:
+                            [{"id": "c1", "target_role": "PM", "resume_text": "x"}])
     cards, skip = fa._api_resolve_5x3_cards(
         _StubClient('[{"id":"c1","score":90,"reason":"fit"}]'),
-        {"company": "Acme", "roles": ["Project Manager"], "industry": "Construction"})
+        {"company": "Acme", "roles": ["Project Manager"], "industry": "Construction"},
+        owner="mike@dripdrop.ai")
     assert skip is None
     assert len(cards) == 3 and cards[0]["_pool_id"] == "c1"
 
 
 def test_api_resolve_skips_when_no_fit(monkeypatch):
     import flowdrip_app as fa
-    monkeypatch.setattr(fa, "load_candidate_pool",
-                        lambda: [{"id": "c1", "target_role": "Chef", "resume_text": "x"}])
+    monkeypatch.setattr(fa, "_ats_owner_candidates",
+                        lambda owner, role, industry, limit=25:
+                            [{"id": "c1", "target_role": "Chef", "resume_text": "x"}])
     cards, skip = fa._api_resolve_5x3_cards(
         _StubClient('[{"id":"c1","score":5,"reason":"no"}]'),
-        {"company": "Acme", "roles": ["Project Manager"], "industry": "Construction"})
+        {"company": "Acme", "roles": ["Project Manager"], "industry": "Construction"},
+        owner="mike@dripdrop.ai")
     assert cards == [] and skip                 # skip reason set
+
+
+def test_ats_owner_candidates_maps_rows_and_scopes_to_owner(monkeypatch):
+    import flowdrip_app as fa
+    import ats
+
+    seen = {}
+    def fake_keyword_search(q, limit=80, strict=False, owner=None):
+        seen["q"], seen["limit"], seen["owner"] = q, limit, owner
+        return [{"id": 42, "current_title": "Project Engineer",
+                  "resume_text": "civil PE resume text", "owner_email": owner}]
+    monkeypatch.setattr(ats, "keyword_search", fake_keyword_search)
+
+    pool = fa._ats_owner_candidates("mike@dripdrop.ai", "Project Engineer", "Construction")
+    assert seen["owner"] == "mike@dripdrop.ai"
+    assert seen["q"] == "Project Engineer"
+    assert pool == [{"id": "42", "target_role": "Project Engineer",
+                     "resume_text": "civil PE resume text"}]
+
+
+def test_ats_owner_candidates_empty_without_owner():
+    import flowdrip_app as fa
+    assert fa._ats_owner_candidates("", "Project Engineer", "Construction") == []
+
+
+def test_pool_record_by_id_sources_from_ats_scoped_to_owner(monkeypatch):
+    import flowdrip_app as fa
+    import ats
+
+    monkeypatch.setattr(ats, "get_one", lambda tid: (
+        {"id": 42, "current_title": "Estimator", "resume_text": "bridges",
+         "owner_email": "mike@dripdrop.ai"} if tid == 42 else {}))
+
+    rec = fa._pool_record_by_id("42", owner="mike@dripdrop.ai")
+    assert rec == {"target_role": "Estimator", "resume_text": "bridges"}
+
+    # Wrong owner on the record => treated as not found (defense in depth).
+    assert fa._pool_record_by_id("42", owner="someone-else@dripdrop.ai") is None
 
 
 def test_pool_matching_summary_includes_deep_snippet_content():
