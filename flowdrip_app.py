@@ -5284,6 +5284,36 @@ def _bdc_update_status(company: str, status: str) -> bool:
         return cur.rowcount > 0
 
 
+def _bdc_seed_master_from_csv(text: str) -> dict:
+    import io as _io
+    rows = []
+    for rec in csv.DictReader(_io.StringIO(text or "")):
+        rows.append({"company": (rec.get("Company") or "").strip(),
+                     "city": (rec.get("City") or "").strip(),
+                     "type": (rec.get("Type") or "").strip(),
+                     "week_surfaced": (rec.get("Week Surfaced") or "").strip(),
+                     "date": (rec.get("Date") or "").strip(),
+                     "status": (rec.get("Status") or "").strip() or "Seeded"})
+    out = _bdc_record_companies(rows, added_by="seed")
+    return {"added": out["added"], "skipped": len(out["already_worked"])}
+
+
+@app.post("/api/v1/master/import")
+async def api_master_import(request: Request):
+    """Seed/refresh the shared BD master from a CSV body. Super-admin only."""
+    from starlette.responses import JSONResponse
+    auth = request.headers.get("authorization", "")
+    key = (auth[7:].strip() if auth.lower().startswith("bearer ")
+           else request.headers.get("x-api-key", "").strip())
+    owner = _resolve_api_key(key)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    if not _is_super_admin(owner):
+        return JSONResponse({"error": "admin only"}, status_code=403)
+    body = (await request.body()).decode("utf-8", "replace")
+    return JSONResponse(_bdc_seed_master_from_csv(body))
+
+
 def _format_candidate_block(cards: list, camp_type: str) -> str:
     """Build the CANDIDATE HIGHLIGHTS prompt fragment from candidate cards
     (the API path). Mirrors the wizard's `if _cand_text:` block wording so

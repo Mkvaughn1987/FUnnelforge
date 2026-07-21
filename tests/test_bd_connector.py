@@ -67,3 +67,15 @@ def test_update_status(bdc_db):
     fa._bdc_record_companies([{"company": "Acme Co"}], added_by="a@x.com")
     assert fa._bdc_update_status("Acme Company", "Campaign launched + in TT") is True
     assert fa._bdc_check_companies(["Acme Co"])[0]["status"] == "Campaign launched + in TT"
+
+
+# ── Task 4: CSV seed ───────────────────────────────────────────────
+SEED = ("Company,City,Type,Week Surfaced,Date,Status\n"
+        "Mortenson Construction,Denver,GC,2026-W12,2026-03-16,Campaign launched + in TT\n"
+        "Roche Constructors Inc,Greeley,GC,2026-W12,2026-03-16,Selected\n")
+
+
+def test_seed_master_idempotent(bdc_db):
+    assert fa._bdc_seed_master_from_csv(SEED) == {"added": 2, "skipped": 0}
+    assert fa._bdc_seed_master_from_csv(SEED) == {"added": 0, "skipped": 2}
+    assert fa._bdc_check_companies(["Mortenson Construction"])[0]["result"] == "already_worked"
