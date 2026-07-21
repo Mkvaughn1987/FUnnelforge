@@ -5225,6 +5225,20 @@ def _bdc_db():
         con.close()
 
 
+# Conservative on purpose: drop only pure LEGAL suffix tokens. Industry words
+# ("construction") stay, so "Brinkmann Constructors" != "Brinkman Construction"
+# and "PCL" != "PCL Construction". The skill passes suspected name variants as
+# extra check_companies entries instead of the server guessing.
+_BDC_SUFFIXES = {"inc", "llc", "ltd", "corp", "corporation", "co", "company", "group"}
+
+
+def _bdc_norm_company(name: str) -> str:
+    toks = re.sub(r"[^a-z0-9 ]", " ", (name or "").lower()).split()
+    while toks and toks[-1] in _BDC_SUFFIXES:
+        toks.pop()
+    return " ".join(toks)
+
+
 def _format_candidate_block(cards: list, camp_type: str) -> str:
     """Build the CANDIDATE HIGHLIGHTS prompt fragment from candidate cards
     (the API path). Mirrors the wizard's `if _cand_text:` block wording so

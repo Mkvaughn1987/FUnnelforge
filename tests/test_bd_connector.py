@@ -29,3 +29,15 @@ def test_bdc_db_init_is_idempotent(bdc_db):
     with fa._bdc_db() as con:  # re-open must not wipe
         n = con.execute("SELECT COUNT(*) FROM master").fetchone()[0]
     assert n == 1
+
+
+# ── Task 2: normalizer ─────────────────────────────────────────────
+@pytest.mark.parametrize("a,b,same", [
+    ("Mortenson Construction", "mortenson construction, Inc.", True),
+    ("Roche Constructors, Inc.", "Roche Constructors LLC", True),
+    ("Acme Co", "Acme Company", True),
+    ("Brinkmann Constructors", "Brinkman Construction", False),  # different firms
+    ("PCL", "PCL Construction", False),  # bare acronym stays distinct
+])
+def test_bdc_norm_company(a, b, same):
+    assert (fa._bdc_norm_company(a) == fa._bdc_norm_company(b)) is same
