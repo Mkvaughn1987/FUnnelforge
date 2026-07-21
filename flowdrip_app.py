@@ -5566,10 +5566,64 @@ def _tt_load_company(cfg, company, contacts, http=None):
     return {"customer": cust_name, "contacts_created": created}
 
 
+_BDC_TT_MAX_ATTEMPTS = 5
+
+
 def _bdc_enqueue_tt(company, contacts, owner):
-    """Stub — real queue lands in plan Task 11. Kept as a separate function
-    from day one so launch_arena_5x3 can be tested against it in isolation."""
-    raise NotImplementedError("wired in plan Task 11")
+    with _bdc_db() as con:
+        con.execute("INSERT INTO tt_jobs (company, contacts_json, owner) "
+                    "VALUES (?,?,?)", (company, json.dumps(contacts or []), owner))
+    return 1
+
+
+def _bdc_process_tt_jobs(ignore_backoff=False):
+    """Run due pending TT jobs once. Returns jobs completed successfully."""
+    cfg = _tt_config()
+    if cfg is None:
+        return 0
+    now = time.time()
+    with _bdc_db() as con:
+        rows = con.execute(
+            "SELECT id, company, contacts_json, attempts FROM tt_jobs "
+            "WHERE status='pending'" +
+            ("" if ignore_backoff else " AND next_try<=?"),
+            () if ignore_backoff else (now,)).fetchall()
+    done = 0
+    for jid, company, cts_json, attempts in rows:
+        try:
+            _tt_load_company(cfg, company, json.loads(cts_json))
+            with _bdc_db() as con:
+                con.execute("UPDATE tt_jobs SET status='done' WHERE id=?", (jid,))
+            _bdc_update_status(company, "Campaign launched + in TT")
+            done += 1
+        except Exception as e:
+            attempts += 1
+            final = attempts >= _BDC_TT_MAX_ATTEMPTS
+            with _bdc_db() as con:
+                con.execute(
+                    "UPDATE tt_jobs SET attempts=?, status=?, next_try=?, "
+                    "last_error=? WHERE id=?",
+                    (attempts, "failed" if final else "pending",
+                     time.time() + min(3600, 60 * 2 ** attempts), str(e)[:500], jid))
+            if final:
+                _bdc_update_status(company, "TT load failed")
+                print(f"[bdc] TT load FAILED for {company}: {e}", flush=True)
+    return done
+
+
+def _bdc_start_tt_worker():
+    """Daemon thread: drain TT jobs every 60s. Started once at server startup
+    in server mode only — importing this module in tests spawns nothing."""
+    def loop():
+        while True:
+            try:
+                _bdc_process_tt_jobs()
+            except Exception as e:
+                print(f"[bdc] tt worker error: {e}", flush=True)
+            time.sleep(60)
+    t = threading.Thread(target=loop, daemon=True, name="bdc-tt-worker")
+    t.start()
+    return t
 
 
 _MCP_PROTOCOL_VERSIONS = {"2024-11-05", "2025-03-26", "2025-06-18"}
@@ -56552,6 +56606,10 @@ if __name__ in {"__main__", "__mp_main__"}:
         # C12: pass the per-user queue path explicitly; the scheduler
         # thread stores it and uses it on every tick.
         _ffc.start_scheduler(_user_queue_path())
+    # BD connector: drain queued Talent Trekker loads (partner PipelineBlast
+    # runs via the /mcp connector). No-op if TT_API_KEY/TT_API_SECRET aren't
+    # configured — jobs just wait in the queue.
+    _bdc_start_tt_worker()
     _port = int(os.getenv("DRIPDROP_PORT", "8080"))
     ui.run(
         title="DripDrop",

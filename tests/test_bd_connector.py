@@ -172,3 +172,38 @@ def test_tt_config_missing_returns_none(monkeypatch):
     monkeypatch.delenv("TT_API_KEY", raising=False)
     monkeypatch.delenv("TT_API_SECRET", raising=False)
     assert fa._tt_config() is None
+
+
+# ── Task 11: TT job queue + worker ─────────────────────────────────
+def test_tt_enqueue_and_process_success(bdc_db, monkeypatch):
+    fa._bdc_record_companies([{"company": "Acme Co"}], added_by="p1@x.com")
+    fa._bdc_enqueue_tt("Acme Co", [{"email": "v@acme.com"}], "p1@x.com")
+    monkeypatch.setattr(fa, "_tt_config", lambda: {"base_url": "b", "token": "t"})
+    monkeypatch.setattr(fa, "_tt_load_company",
+                        lambda cfg, co, cts, http=None: {"customer": co,
+                                                         "contacts_created": 1})
+    assert fa._bdc_process_tt_jobs() == 1
+    assert fa._bdc_check_companies(["Acme Co"])[0]["status"] == "Campaign launched + in TT"
+    assert fa._bdc_process_tt_jobs() == 0                     # queue drained
+
+
+def test_tt_final_failure_marks_master(bdc_db, monkeypatch):
+    fa._bdc_record_companies([{"company": "Acme Co"}], added_by="p1@x.com")
+    fa._bdc_enqueue_tt("Acme Co", [], "p1@x.com")
+    monkeypatch.setattr(fa, "_tt_config", lambda: {"base_url": "b", "token": "t"})
+
+    def boom(cfg, co, cts, http=None):
+        raise RuntimeError("tt down")
+
+    monkeypatch.setattr(fa, "_tt_load_company", boom)
+    for _ in range(fa._BDC_TT_MAX_ATTEMPTS):
+        fa._bdc_process_tt_jobs(ignore_backoff=True)
+    assert fa._bdc_check_companies(["Acme Co"])[0]["status"] == "TT load failed"
+
+
+def test_tt_no_config_leaves_job_pending(bdc_db, monkeypatch):
+    fa._bdc_enqueue_tt("Acme Co", [], "p1@x.com")
+    monkeypatch.setattr(fa, "_tt_config", lambda: None)
+    assert fa._bdc_process_tt_jobs() == 0
+    with fa._bdc_db() as con:
+        assert con.execute("SELECT status FROM tt_jobs").fetchone()[0] == "pending"
