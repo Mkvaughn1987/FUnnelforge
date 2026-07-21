@@ -5502,6 +5502,12 @@ async def oauth_resource_metadata(request: Request):
                          "bearer_methods_supported": ["header"]})
 
 
+def _bdc_enqueue_tt(company, contacts, owner):
+    """Stub — real queue lands in plan Task 11. Kept as a separate function
+    from day one so launch_arena_5x3 can be tested against it in isolation."""
+    raise NotImplementedError("wired in plan Task 11")
+
+
 _MCP_PROTOCOL_VERSIONS = {"2024-11-05", "2025-03-26", "2025-06-18"}
 
 
@@ -5513,7 +5519,24 @@ class _McpToolError(Exception):
 
 
 def _mcp_launch_arena_5x3(email, args):
-    raise NotImplementedError("wired in plan Task 8")
+    spec = {k: v for k, v in (args or {}).items() if k != "candidates"}
+    spec["template"] = "fivebythree"
+    payload, status = _api_campaign_core(email, spec)
+    company = (args.get("company") or "").strip()
+    if status == 200 and payload.get("skipped"):
+        _bdc_update_status(
+            company, f"Selected - skipped (no bench fit): {payload.get('reason', '')}")
+        return payload
+    if status == 200:
+        _bdc_update_status(company, "Campaign launched")
+        try:
+            _bdc_enqueue_tt(company, args.get("contacts") or [], email)
+        except Exception as e:
+            print(f"[bdc] TT enqueue failed for {company}: {e}", flush=True)
+        return payload
+    payload = dict(payload)
+    payload["retryable"] = status in (422, 502, 503)
+    raise _McpToolError(payload)
 
 
 def _mcp_list_newsletters(email):

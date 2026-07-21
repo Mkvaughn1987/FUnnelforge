@@ -186,3 +186,56 @@ def test_mcp_tool_call_check_companies(mcp_token):
 def test_mcp_unknown_tool_is_error_result(mcp_token):
     r = _rpc(_client(), mcp_token, "tools/call", {"name": "nope", "arguments": {}})
     assert r.json()["result"]["isError"] is True
+
+
+# ── Task 8: launch_arena_5x3 tool ──────────────────────────────────
+def test_launch_tool_forces_5x3_and_updates_master(mcp_token, monkeypatch):
+    seen = {}
+
+    def fake_core(owner, spec):
+        seen.update(owner=owner, spec=spec)
+        return {"campaign_id": "camp1", "name": "N", "steps": 5,
+                "contacts_queued": 5, "start_date": spec["start_date"],
+                "schedule": [], "newsletter_enrollment": {"matched": True}}, 200
+
+    monkeypatch.setattr(fa, "_api_campaign_core", fake_core)
+    monkeypatch.setattr(fa, "_bdc_enqueue_tt", lambda *a, **k: 1)
+    fa._bdc_record_companies([{"company": "Acme Co"}], added_by="p1@arena.com")
+    r = _rpc(_client(), mcp_token, "tools/call", {"name": "launch_arena_5x3",
+             "arguments": {"company": "Acme Co", "roles": ["PM"],
+                           "start_date": "2026-07-27",
+                           "contacts": [{"email": "v@acme.com"}],
+                           "enroll_newsletter": "NL", "candidates": [{"x": 1}]}})
+    out = json.loads(r.json()["result"]["content"][0]["text"])
+    assert out["campaign_id"] == "camp1"
+    assert seen["owner"] == "p1@arena.com"
+    assert seen["spec"]["template"] == "fivebythree"
+    assert "candidates" not in seen["spec"]          # structurally impossible
+    assert fa._bdc_check_companies(["Acme Co"])[0]["status"] == "Campaign launched"
+
+
+def test_launch_tool_skip_updates_master_no_tt(mcp_token, monkeypatch):
+    monkeypatch.setattr(fa, "_api_campaign_core",
+                        lambda o, s: ({"skipped": True, "reason": "no fit"}, 200))
+    called = []
+    monkeypatch.setattr(fa, "_bdc_enqueue_tt", lambda *a, **k: called.append(1))
+    fa._bdc_record_companies([{"company": "Acme Co"}], added_by="p1@arena.com")
+    r = _rpc(_client(), mcp_token, "tools/call", {"name": "launch_arena_5x3",
+             "arguments": {"company": "Acme Co", "roles": ["PM"],
+                           "start_date": "2026-07-27",
+                           "contacts": [{"email": "v@acme.com"}],
+                           "enroll_newsletter": "NL"}})
+    out = json.loads(r.json()["result"]["content"][0]["text"])
+    assert out["skipped"] is True and not called
+    assert "skipped (no bench fit)" in fa._bdc_check_companies(["Acme Co"])[0]["status"]
+
+
+def test_launch_tool_maps_http_errors(mcp_token, monkeypatch):
+    monkeypatch.setattr(fa, "_api_campaign_core",
+                        lambda o, s: ({"error": "content failed safety guard"}, 422))
+    r = _rpc(_client(), mcp_token, "tools/call", {"name": "launch_arena_5x3",
+             "arguments": {"company": "A", "roles": ["PM"], "start_date": "2026-07-27",
+                           "contacts": [{"email": "v@a.com"}], "enroll_newsletter": "N"}})
+    res = r.json()["result"]
+    out = json.loads(res["content"][0]["text"])
+    assert res["isError"] is True and out["retryable"] is True
