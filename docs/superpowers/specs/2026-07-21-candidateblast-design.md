@@ -23,8 +23,12 @@ The experience:
    date, source, and a short fit rationale.
 4. **The user chooses which companies to send to.** Each chosen company gets its own MPC
    campaign draft (candidate slate + résumés, built the same way the MPC builder does
-   today); the user finishes each in the normal builder — adds recipients, reviews,
-   launches.
+   today).
+5. **Contacts arrive automatically via the ZoomInfo bridge**: the app queues the chosen
+   companies; a scheduled Claude cloud agent using Mike's ZoomInfo connector pulls each
+   company's decision-makers (**Managers and above**) and pushes them back into the app
+   as the campaign's contact list. The user reviews the draft — emails + contacts already
+   in place — and launches.
 
 No auto-send: the user picks the targets and pulls the trigger. This is the
 candidate-first sibling of PipelineBlast (`2026-07-21-pipelineblast-design.md`), but as a
@@ -41,10 +45,11 @@ product feature; PipelineBlast remains the automated role-first skill.
 
 - Do NOT break or bypass the existing MPC flow — "Find Openings" is an **optional** step;
   users can still go straight to the builder as today.
-- Do NOT auto-launch or auto-enroll anyone. User-driven sends only (v1).
-- NO server-side ZoomInfo in v1. The 5+ decision-makers (Managers+) qualification and
-  contact enrichment stay a Claude-session assist for Mike, and a candidate v2 feature
-  (needs ZoomInfo API licensing — separate from the claude.ai connector).
+- Do NOT auto-launch. User-driven sends only (v1) — contacts are pre-loaded by the
+  bridge, but the user reviews and hits send.
+- NO ZoomInfo Enterprise API integration — contacts come through the **Claude-agent
+  bridge** running under Mike's ZoomInfo connector (no new licensing). Direct API
+  integration is the v2 upgrade path if licensing is ever added.
 - Do NOT modify the live 4x4 / 5x5 / 5x3 sequence content.
 
 ## Flow
@@ -94,8 +99,27 @@ candidates". Options at companies already in an **active DripDrop sequence** are
 - For each chosen company, the app builds an **MPC campaign draft** through the same
   generation path the MPC builder uses today (`cpc_mode="mpc"`, candidate cards, résumé
   attachments), pre-filled with the company + role from the posting.
-- The user finishes each draft in the normal builder: **adds recipients the way they do
-  today** (v1 contact flow unchanged), reviews the emails, launches. Existing send
+
+### 6. ZoomInfo contact bridge
+
+How the app gets live ZoomInfo contacts without ZoomInfo API licensing:
+
+- **Queue:** on confirm, the app writes one **contact request** per chosen company
+  (company name/domain, role context, requesting user, draft campaign id) to a small
+  server-side queue, exposed via two new REST endpoints (list pending / post results) on
+  the existing API-key auth.
+- **Agent:** a **scheduled Claude cloud agent** (every ~15 minutes) with Mike's ZoomInfo
+  connector polls the queue. Per request it runs a **targeted, per-company** ZoomInfo
+  contact search — decision-makers at **Manager level and above** — enriches emails, and
+  posts the results back. Enrichment per chosen company only; never bulk list-building
+  (ZoomInfo AUP).
+- **Landing:** results come back through the app's existing ZoomInfo-header
+  normalization and attach to the draft campaign as its contact list. The draft shows
+  contact status: *pending → N contacts loaded*.
+- **Advisory bar:** if a company returns **fewer than 5** Managers+, the draft is
+  badged ("only N decision-makers found") so the user can swap in a different target —
+  the user decides, nothing is auto-dropped.
+- The user reviews each draft — emails + contacts in place — and launches. Existing send
   throttle and bounce suppression apply untouched.
 
 ## Guardrails
@@ -104,6 +128,9 @@ candidates". Options at companies already in an **active DripDrop sequence** are
   under 10.
 - Active-sequence flagging on options (dedup awareness at pick time).
 - No auto-send anywhere; the user launches each campaign explicitly.
+- 5+ Managers+ advisory badge on thin companies (user swaps targets; nothing auto-drops).
+- ZoomInfo pulls are per-chosen-company enrichment under Mike's seat, capped by the
+  10-option/pick flow — never bulk extraction.
 - Send throttle + bounce suppression inherited at send, untouched.
 - Slate is always the user's real candidates (1–3); standing redaction/ethics line applies.
 
@@ -117,17 +144,21 @@ Already in place:
   loop wants it).
 - Anthropic client usage + async worker pattern in the wizard.
 
-To build (all in `flowdrip_app.py` unless planning finds otherwise):
+To build (app side in `flowdrip_app.py` unless planning finds otherwise):
 
 1. **Find Openings step UI** — chooser, intake form, progress state, 10-option picker.
 2. **Search service** — Claude API web-search call, result parsing/ranking/fit-floor,
    local+nationwide labeling, size estimation, active-sequence flagging.
 3. **Draft-per-company creation** — loop the chosen companies into MPC campaign drafts
-   and surface them for finishing.
+   with contact status (pending/loaded/thin).
+4. **Contact-request queue + REST endpoints** — small server-side queue (keep it pruned;
+   remember the scheduled_queue.json bloat lesson), list-pending + post-results
+   endpoints on existing API-key auth.
+5. **Bridge routine** (not app code) — scheduled Claude cloud agent w/ ZoomInfo
+   connector: poll queue → per-company Managers+ pull → enrich → post back.
 
-Follow-ups explicitly out of v1: server-side ZoomInfo contact pull (5+ Managers+ bar,
-auto-enroll decision-makers); a Claude-session assist for Mike that enriches chosen
-companies with ZoomInfo contacts can bridge the gap meanwhile.
+Follow-up explicitly out of v1: direct ZoomInfo Enterprise API integration (replaces the
+bridge if licensing is ever added).
 
 ## Testing & rollout
 
@@ -149,11 +180,23 @@ companies with ZoomInfo contacts can bridge the gap meanwhile.
   pick the least-new-UI option that reads clearly.
 - Whether résumé parsing for intake defaults reuses `_extract_resume_text` or the stored
   candidate profile fields suffice.
+- **Bridge egress:** verify a scheduled Claude cloud agent can actually reach the
+  DripDrop server's REST API — prior finding: the Cowork sandbox is egress-blocked and
+  the API had to be called from a connected browser tab. If cloud agents are blocked
+  too, fall back to a scheduled local Claude Code run on Mike's machine, or a browser
+  step (beware the known unattended per-domain permission stalls).
+- Bridge cadence (default ~15 min) + queue retention/pruning rules.
+- Bridge auth: which DripDrop API key the agent uses (single-key reissue gotcha — a
+  reissue revokes all copies).
 
 ## Risks
 
 - **Search quality/latency** — web search returns noisy postings; mitigated by the fit
   floor, recency filter, showing sources, and the user being the final picker.
+- **Bridge availability** — contacts depend on a scheduled agent under Mike's accounts;
+  if it stalls (egress, connector auth, permission prompts), drafts sit at "contacts
+  pending." Mitigations: visible pending status with a manual CSV-upload fallback in the
+  draft, and the egress question settled first in planning.
 - **Cost** — each Find Openings run is a Claude-API-with-web-search call for all users;
   size the model/token budget during planning.
 - **Monolith risk** — `flowdrip_app.py` is 60k lines with duplicate-helper shadowing
