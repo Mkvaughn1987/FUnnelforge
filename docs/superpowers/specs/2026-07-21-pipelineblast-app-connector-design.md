@@ -44,9 +44,13 @@ Partner (claude.ai app, Pro/Max)
 
 ### MCP server & mounting
 
-- Streamable-HTTP MCP endpoint at `https://dripdripdrop.ai/mcp`, built with the official MCP
-  Python SDK's ASGI app. NiceGUI runs on FastAPI, which mounts sub-apps directly; no new process,
-  port, or subdomain.
+- Streamable-HTTP MCP endpoint at `https://dripdripdrop.ai/mcp`. **Implementation note
+  (2026-07-21, planning):** hand-rolled minimal JSON-RPC handler (initialize /
+  notifications/initialized / ping / tools/list / tools/call) registered as a normal
+  `@app.post` route — NOT the MCP Python SDK. Reason: the SDK is not in the venv and prod deploys
+  are single-file (`flowdrip_app.py` only), so a new pip dependency breaks the deploy recipe; the
+  stateless-server subset of the protocol claude.ai needs is ~150 lines. No new process, port,
+  subdomain, or dependency.
 - Ships in `flowdrip_app.py` behind the existing blue/green deploy. **Deploy caution:** follow the
   single-file recipe in the prod-deploy notes — the deploy script's `EXTRA_FILES` behavior can
   revert live files.
