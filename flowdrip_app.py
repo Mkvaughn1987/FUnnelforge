@@ -32421,6 +32421,42 @@ def _ai_structure_resume(client, candidate: dict):
     return data
 
 
+def _pool_card_bullets_no_location(cand: dict) -> list:
+    """Card bullets from a pool candidate WITHOUT location (5x3 rule: never
+    surface location). Mirrors _aicb_pool_candidate_bullets minus the
+    Location line."""
+    bullets = []
+    if cand.get("target_role"):
+        bullets.append(f"Target role: {cand['target_role']}")
+    summary = (cand.get("summary") or "").strip()
+    if summary:
+        first = summary.split("\n")[0].split(".")[0][:140]
+        if first:
+            bullets.append(first)
+    if cand.get("salary"):
+        bullets.append(f"Target salary: {cand['salary']}")
+    if not bullets and cand.get("target_role"):
+        bullets.append(str(cand["target_role"]))
+    return bullets
+
+
+def _synthesize_fill_card(role: str, label: str) -> dict:
+    """Minimal honest representative fill card (no real candidate). Used when
+    the bench has fewer than the slate size of qualifying candidates. The
+    résumé engine renders it via _representative_resume_from_card (labeled
+    'representative profile')."""
+    role = (role or "Candidate").strip() or "Candidate"
+    return {
+        "label": label,
+        "role": role,
+        "bullets": [
+            f"Experienced {role} with a track record on relevant projects",
+            f"Strong core skills expected of a {role}",
+            "Representative profile illustrating available talent for this role",
+        ],
+    }
+
+
 def _aicb_card_to_resume_text(card: dict) -> str:
     """Turn one AICB candidate card ({label, role, bullets}) into the body
     text for a redacted-résumé PDF. The cards are already anonymized
