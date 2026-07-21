@@ -5180,6 +5180,51 @@ def _api_enroll_newsletter(newsletter_name: str, contacts: list) -> dict:
     }
 
 
+# ═══ BD Connector: partners run PipelineBlast from claude.ai ═════════════
+# Spec: docs/superpowers/specs/2026-07-21-pipelineblast-app-connector-design.md
+# One SQLite DB holds the shared BD master, OAuth grants for the MCP
+# connector, and the Talent Trekker job queue.
+import base64
+import sqlite3 as _bdc_sqlite3
+from contextlib import contextmanager as _bdc_contextmanager
+
+_BDC_SCHEMA = """
+CREATE TABLE IF NOT EXISTS master (
+  id INTEGER PRIMARY KEY, company TEXT NOT NULL, company_norm TEXT NOT NULL UNIQUE,
+  city TEXT DEFAULT '', type TEXT DEFAULT '', week_surfaced TEXT DEFAULT '',
+  date TEXT DEFAULT '', status TEXT DEFAULT '', added_by TEXT DEFAULT '');
+CREATE TABLE IF NOT EXISTS oauth_clients (
+  client_id TEXT PRIMARY KEY, client_name TEXT DEFAULT '',
+  redirect_uris TEXT NOT NULL, created TEXT DEFAULT '');
+CREATE TABLE IF NOT EXISTS oauth_codes (
+  code TEXT PRIMARY KEY, client_id TEXT, email TEXT, challenge TEXT,
+  redirect_uri TEXT, expires REAL);
+CREATE TABLE IF NOT EXISTS oauth_tokens (
+  token_hash TEXT PRIMARY KEY, kind TEXT, email TEXT, client_id TEXT,
+  expires REAL, revoked INTEGER DEFAULT 0);
+CREATE TABLE IF NOT EXISTS tt_jobs (
+  id INTEGER PRIMARY KEY, company TEXT, contacts_json TEXT, owner TEXT,
+  attempts INTEGER DEFAULT 0, status TEXT DEFAULT 'pending',
+  next_try REAL DEFAULT 0, last_error TEXT DEFAULT '');
+"""
+
+
+def _bdc_db_path():
+    return _BASE_DATA_DIR / "bd_connector.db"
+
+
+@_bdc_contextmanager
+def _bdc_db():
+    con = _bdc_sqlite3.connect(_bdc_db_path(), timeout=30)
+    con.execute("PRAGMA journal_mode=WAL")
+    con.executescript(_BDC_SCHEMA)
+    try:
+        yield con
+        con.commit()
+    finally:
+        con.close()
+
+
 def _format_candidate_block(cards: list, camp_type: str) -> str:
     """Build the CANDIDATE HIGHLIGHTS prompt fragment from candidate cards
     (the API path). Mirrors the wizard's `if _cand_text:` block wording so
