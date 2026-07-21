@@ -5618,7 +5618,7 @@ async def api_create_campaign(request: Request):
     template = spec["template"].strip()
     _cards = list(spec.get("candidates") or [])
     if template == "fivebythree":
-        _cards, _skip = _api_resolve_5x3_cards(client, spec)
+        _cards, _skip = _api_resolve_5x3_cards(client, spec, owner=owner)
         if _skip:
             return JSONResponse({"skipped": True, "reason": _skip}, status_code=200)
     try:
@@ -5642,7 +5642,7 @@ async def api_create_campaign(request: Request):
     campaign_data.pop("_brief", None)
     if template == "fivebythree" and emails:
         try:
-            _pdfs = _build_redacted_resumes_from_cards(_cards, template, client)
+            _pdfs = _build_redacted_resumes_from_cards(_cards, template, client, owner=owner)
             _attach_resumes_to_emails(template, emails, _pdfs)
         except Exception as _re:
             print(f"[api] 5x3 résumé attach skipped: {_re}", flush=True)
@@ -32354,14 +32354,30 @@ def _redact_resume_pii(text: str) -> str:
     return re.sub(r'\s{2,}', ' ', text).strip(" ,")
 
 
-def _pool_record_by_id(pool_id):
-    """Full pool candidate record for a card's _pool_id, or None."""
+def _pool_record_by_id(pool_id, owner=None):
+    """Full ATS bench record for a card's _pool_id, or None. Sources from
+    Mike's real ATS pipeline (ats.db), not the old small Top-Candidates pool.
+    Scoped to `owner` when given (defense in depth; the id already came from
+    an owner-scoped search)."""
     if not pool_id:
         return None
-    for c in (load_candidate_pool() or []):
-        if str(c.get("id")) == str(pool_id):
-            return c
-    return None
+    try:
+        import ats as _ats
+    except Exception:
+        return None
+    try:
+        tid = int(pool_id)
+    except (TypeError, ValueError):
+        return None
+    row = _ats.get_one(tid)
+    if not row:
+        return None
+    if owner and (row.get("owner_email") or "") != owner:
+        return None
+    return {
+        "target_role": (row.get("current_title") or "").strip(),
+        "resume_text": row.get("resume_text") or "",
+    }
 
 
 def _representative_resume_from_card(card: dict) -> dict:
@@ -32578,12 +32594,40 @@ def _build_slate_cards(pool, scored, role, slate_size=3,
     return cards
 
 
-def _match_pipeline_to_company(client, company, role, industry):
-    """Load the pool, AI-score it against the target, and build the 5x3 slate.
-    Returns up to 3 anonymized cards (real _pool_id cards + synthesized fills),
-    or [] when no candidate clears the fit-floor (skip this company).
-    LOCATION is never used in scoring or output."""
-    pool = load_candidate_pool() or []
+def _ats_owner_candidates(owner: str, role: str, industry: str, limit: int = 25) -> list:
+    """Pull candidate rows from Mike's real ATS bench (ats.db), scoped to
+    `owner`, matching the target role. Replaces the old small Top-Candidates
+    pool as Component 2's candidate source. Returns pool-card-shaped dicts:
+    {id, target_role, resume_text}."""
+    if not owner:
+        return []
+    q = (role or industry or "").strip()
+    if not q:
+        return []
+    try:
+        import ats as _ats
+    except Exception:
+        return []
+    rows = _ats.keyword_search(q, limit=limit, owner=owner) or []
+    out = []
+    for r in rows:
+        rid = r.get("id")
+        if rid is None:
+            continue
+        out.append({
+            "id": str(rid),
+            "target_role": (r.get("current_title") or role or "").strip(),
+            "resume_text": r.get("resume_text") or "",
+        })
+    return out
+
+
+def _match_pipeline_to_company(client, company, role, industry, owner=None):
+    """Load owner's ATS bench, AI-score it against the target, and build the
+    5x3 slate. Returns up to 3 anonymized cards (real _pool_id cards +
+    synthesized fills), or [] when no candidate clears the fit-floor (skip
+    this company). LOCATION is never used in scoring or output."""
+    pool = _ats_owner_candidates(owner, role, industry)
     if not pool:
         return []
     scored = _ai_score_candidates(client, company, role, industry, pool)
@@ -32592,19 +32636,19 @@ def _match_pipeline_to_company(client, company, role, industry):
     return _build_slate_cards(pool, scored, role)
 
 
-def _api_resolve_5x3_cards(client, spec):
+def _api_resolve_5x3_cards(client, spec, owner=None):
     """For a fivebythree API request: use the provided candidates[] if any,
-    else match the pool to the company/role/industry (Component 2). Returns
-    (cards, skip_reason). skip_reason is a non-empty string (and cards []) when
-    no pipeline candidate clears the fit-floor, signaling the caller to skip
-    this company. LOCATION is never used."""
+    else match owner's ATS bench to the company/role/industry (Component 2).
+    Returns (cards, skip_reason). skip_reason is a non-empty string (and cards
+    []) when no pipeline candidate clears the fit-floor, signaling the caller
+    to skip this company. LOCATION is never used."""
     cards = list(spec.get("candidates") or [])
     if cards:
         return cards, None
     company = (spec.get("company") or spec.get("niche") or "").strip()
     role = (", ".join(spec.get("roles") or []) or "").strip()
     industry = (spec.get("industry") or "").strip()
-    cards = _match_pipeline_to_company(client, company, role, industry)
+    cards = _match_pipeline_to_company(client, company, role, industry, owner=owner)
     if not cards:
         return [], "no pipeline candidate cleared the fit floor"
     return cards, None
@@ -32637,7 +32681,7 @@ def _aicb_card_to_resume_text(card: dict) -> str:
     return "\n".join(parts).strip()
 
 
-def _build_redacted_resumes_from_cards(cards, camp_type, client=None) -> list:
+def _build_redacted_resumes_from_cards(cards, camp_type, client=None, owner=None) -> list:
     """Core résumé-PDF generation, decoupled from AppState so both the wizard
     (_aicb_build_redacted_resumes) and the API path can call it. 5x3 uses the
     polished engine (real pool history anonymized via _ai_structure_resume;
@@ -32652,7 +32696,7 @@ def _build_redacted_resumes_from_cards(cards, camp_type, client=None) -> list:
                 resume = None
                 pid = card.get("_pool_id")
                 if pid and client is not None:
-                    rec = _pool_record_by_id(pid)
+                    rec = _pool_record_by_id(pid, owner=owner)
                     if rec:
                         resume = _ai_structure_resume(client, rec)
                 if resume is None:
@@ -32680,7 +32724,8 @@ def _aicb_build_redacted_resumes(s, client=None) -> list:
     return _build_redacted_resumes_from_cards(
         getattr(s, "aicb_cand_cards", []) or [],
         (getattr(s, "aicb_camp_type", "") or "").strip(),
-        client)
+        client,
+        owner=getattr(s, "_user_email", "") or "")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
