@@ -142,6 +142,22 @@ def test_polished_pdf_writes_file_with_content(with_user):
     assert fa._is_redacted_resume_pdf(fname)    # still recognized by the dropdown
 
 
+def test_polished_pdf_strips_em_en_dashes(with_user):
+    import flowdrip_app as fa
+    d = _sample_resume_dict()
+    d["summary"] = "Project engineer supporting K–12 schools and public agencies."
+    d["experience"][0]["bullets"] = ["Led site work 2019–2024 across multiple campuses"]
+    fname = fa._build_polished_resume_pdf(d)
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        from PyPDF2 import PdfReader
+    txt = "\n".join((p.extract_text() or "")
+                    for p in PdfReader(str(fa._user_pdf_dir() / fname)).pages)
+    assert "—" not in txt and "–" not in txt
+    assert "K-12" in txt
+
+
 def test_polished_pdf_representative_note(with_user):
     import flowdrip_app as fa
     d = _sample_resume_dict(); d["representative"] = True

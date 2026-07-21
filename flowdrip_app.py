@@ -32222,10 +32222,25 @@ def _save_redacted_pdf(candidate_name: str, redacted_text: str) -> str:
         return ""
 
 
+def _normalize_resume_dashes(value):
+    """Recursively replace em/en dashes with a plain hyphen, keeping text
+    readable (e.g. "K–12" -> "K-12", "2019–2024" -> "2019-2024"). Unlike
+    _strip_dashes (which pads with spaces for email/newsletter copy), this
+    keeps the dash tight so it still reads as a single token in résumé PDFs."""
+    if isinstance(value, str):
+        return value.replace("—", "-").replace("–", "-")
+    if isinstance(value, list):
+        return [_normalize_resume_dashes(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _normalize_resume_dashes(v) for k, v in value.items()}
+    return value
+
+
 def _build_polished_resume_pdf(resume: dict) -> str:
     """Render a structured résumé dict to a polished redacted PDF and return
     the filename. Same Resume_<slug>_Redacted.pdf naming as _save_redacted_pdf
     so _is_redacted_resume_pdf and the reuse-a-PDF dropdown still recognize it."""
+    resume = _normalize_resume_dashes(resume)
     try:
         from reportlab.lib.pagesizes import letter
         from reportlab.lib.units import inch
