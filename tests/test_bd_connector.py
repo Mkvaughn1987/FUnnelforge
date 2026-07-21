@@ -79,3 +79,26 @@ def test_seed_master_idempotent(bdc_db):
     assert fa._bdc_seed_master_from_csv(SEED) == {"added": 2, "skipped": 0}
     assert fa._bdc_seed_master_from_csv(SEED) == {"added": 0, "skipped": 2}
     assert fa._bdc_check_companies(["Mortenson Construction"])[0]["result"] == "already_worked"
+
+
+# ── Task 5: OAuth primitives ───────────────────────────────────────
+def test_token_mint_resolve_expire(bdc_db):
+    tok = fa._bdc_mint_token("p1@arena.com", "cli1", kind="access", ttl=3600)
+    assert tok.startswith("ddmcp_")
+    assert fa._bdc_resolve_token(tok) == "p1@arena.com"
+    expired = fa._bdc_mint_token("p1@arena.com", "cli1", kind="access", ttl=-1)
+    assert fa._bdc_resolve_token(expired) is None
+    assert fa._bdc_resolve_token("ddmcp_bogus") is None
+    assert fa._bdc_resolve_token("") is None
+
+
+def test_code_roundtrip_pkce(bdc_db):
+    import base64, hashlib
+    verifier = "v" * 48
+    challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    code = fa._bdc_issue_code("cli1", "p1@arena.com", challenge, "https://claude.ai/cb")
+    assert fa._bdc_redeem_code(code, "cli1", verifier, "https://claude.ai/cb") == "p1@arena.com"
+    assert fa._bdc_redeem_code(code, "cli1", verifier, "https://claude.ai/cb") is None  # one-shot
+    code2 = fa._bdc_issue_code("cli1", "p1@arena.com", challenge, "https://claude.ai/cb")
+    assert fa._bdc_redeem_code(code2, "cli1", "wrong" * 10, "https://claude.ai/cb") is None

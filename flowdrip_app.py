@@ -5314,6 +5314,51 @@ async def api_master_import(request: Request):
     return JSONResponse(_bdc_seed_master_from_csv(body))
 
 
+def _bdc_mint_token(email, client_id, kind="access", ttl=3600):
+    tok = "ddmcp_" + secrets.token_urlsafe(32)
+    with _bdc_db() as con:
+        con.execute("INSERT INTO oauth_tokens VALUES (?,?,?,?,?,0)",
+                    (hashlib.sha256(tok.encode()).hexdigest(), kind, email,
+                     client_id, time.time() + ttl))
+    return tok
+
+
+def _bdc_resolve_token(token, kind="access"):
+    """access → owner email; refresh → (email, client_id). None if invalid."""
+    if not token:
+        return None
+    with _bdc_db() as con:
+        row = con.execute(
+            "SELECT email, expires, revoked, client_id FROM oauth_tokens "
+            "WHERE token_hash=? AND kind=?",
+            (hashlib.sha256(token.encode()).hexdigest(), kind)).fetchone()
+    if not row or row[2] or row[1] < time.time():
+        return None
+    return row[0] if kind == "access" else (row[0], row[3])
+
+
+def _bdc_issue_code(client_id, email, challenge, redirect_uri):
+    code = secrets.token_urlsafe(24)
+    with _bdc_db() as con:
+        con.execute("INSERT INTO oauth_codes VALUES (?,?,?,?,?,?)",
+                    (code, client_id, email, challenge, redirect_uri,
+                     time.time() + 300))
+    return code
+
+
+def _bdc_redeem_code(code, client_id, verifier, redirect_uri):
+    with _bdc_db() as con:
+        row = con.execute("SELECT client_id, email, challenge, redirect_uri, expires "
+                          "FROM oauth_codes WHERE code=?", (code,)).fetchone()
+        con.execute("DELETE FROM oauth_codes WHERE code=?", (code,))  # one-shot
+    if (not row or row[0] != client_id or row[3] != redirect_uri
+            or row[4] < time.time()):
+        return None
+    want = base64.urlsafe_b64encode(
+        hashlib.sha256((verifier or "").encode()).digest()).rstrip(b"=").decode()
+    return row[1] if want == row[2] else None
+
+
 def _format_candidate_block(cards: list, camp_type: str) -> str:
     """Build the CANDIDATE HIGHLIGHTS prompt fragment from candidate cards
     (the API path). Mirrors the wizard's `if _cand_text:` block wording so
