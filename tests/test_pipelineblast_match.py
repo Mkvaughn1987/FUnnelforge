@@ -58,3 +58,41 @@ def test_ai_score_candidates_empty_on_failure():
     import flowdrip_app as fa
     scored = fa._ai_score_candidates(_StubClient("not json"), "X", "Y", "Z", _sample_pool())
     assert scored == []
+
+
+def _pool3():
+    return [
+        {"id": "c1", "target_role": "Healthcare PM", "summary": "OSHPD PM"},
+        {"id": "c2", "target_role": "Estimator", "summary": "Bridges"},
+        {"id": "c3", "target_role": "Superintendent", "summary": "Field"},
+    ]
+
+
+def test_build_slate_all_real_when_three_clear_floor():
+    import flowdrip_app as fa
+    scored = [{"id": "c1", "score": 90, "reason": ""},
+              {"id": "c2", "score": 70, "reason": ""},
+              {"id": "c3", "score": 55, "reason": ""}]
+    cards = fa._build_slate_cards(_pool3(), scored, "Healthcare PM")
+    assert [c["label"] for c in cards] == ["Candidate A", "Candidate B", "Candidate C"]
+    assert [c["_pool_id"] for c in cards] == ["c1", "c2", "c3"]   # tier order = score order
+
+
+def test_build_slate_fills_when_shortfall():
+    import flowdrip_app as fa
+    scored = [{"id": "c1", "score": 90, "reason": ""},
+              {"id": "c2", "score": 20, "reason": ""},   # below floor
+              {"id": "c3", "score": 10, "reason": ""}]   # below floor
+    cards = fa._build_slate_cards(_pool3(), scored, "Healthcare PM")
+    assert len(cards) == 3
+    assert cards[0]["_pool_id"] == "c1"
+    assert "_pool_id" not in cards[1] and "_pool_id" not in cards[2]  # fills
+    assert cards[1]["label"] == "Candidate B"
+
+
+def test_build_slate_empty_when_none_clear_floor():
+    import flowdrip_app as fa
+    scored = [{"id": "c1", "score": 20, "reason": ""},
+              {"id": "c2", "score": 10, "reason": ""}]
+    cards = fa._build_slate_cards(_pool3(), scored, "Healthcare PM")
+    assert cards == []   # skip this company

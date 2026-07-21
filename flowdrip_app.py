@@ -32516,6 +32516,41 @@ def _ai_score_candidates(client, company, role, industry, pool):
     return out
 
 
+_FIVEBYTHREE_FIT_FLOOR = 50   # 0-100; below this a candidate is not a real fit
+_SLATE_LABELS = ["Candidate A", "Candidate B", "Candidate C"]
+
+
+def _build_slate_cards(pool, scored, role, slate_size=3,
+                       fit_floor=_FIVEBYTHREE_FIT_FLOOR):
+    """Turn scored candidates into a slate of `slate_size` anonymized cards.
+    - Real cards (>= fit_floor) are taken in score order, labeled Candidate
+      A/B/C, carrying _pool_id + location-free bullets.
+    - If NONE clear the floor, return [] (signal: skip this company).
+    - Otherwise fill any shortfall with synthesized representative cards."""
+    by_id = {str(c.get("id")): c for c in (pool or [])}
+    qualifying = [s for s in (scored or []) if s.get("score", 0) >= fit_floor]
+    if not qualifying:
+        return []
+    cards = []
+    for s in qualifying[:slate_size]:
+        cand = by_id.get(str(s.get("id")))
+        if not cand:
+            continue
+        label = _SLATE_LABELS[len(cards)] if len(cards) < len(_SLATE_LABELS) \
+            else f"Candidate {len(cards) + 1}"
+        cards.append({
+            "label": label,
+            "role": (cand.get("target_role") or role or "").strip(),
+            "bullets": _pool_card_bullets_no_location(cand),
+            "_pool_id": str(cand.get("id")),
+        })
+    while len(cards) < slate_size:
+        label = _SLATE_LABELS[len(cards)] if len(cards) < len(_SLATE_LABELS) \
+            else f"Candidate {len(cards) + 1}"
+        cards.append(_synthesize_fill_card(role, label))
+    return cards
+
+
 def _aicb_card_to_resume_text(card: dict) -> str:
     """Turn one AICB candidate card ({label, role, bullets}) into the body
     text for a redacted-résumé PDF. The cards are already anonymized
