@@ -5540,7 +5540,13 @@ def _mcp_launch_arena_5x3(email, args):
 
 
 def _mcp_list_newsletters(email):
-    raise NotImplementedError("wired in plan Task 9")
+    _CURRENT_USER_EMAIL.set(email)
+    try:
+        _switch_to_user_paths(email)
+    except Exception:
+        pass
+    return {"newsletters": [c.get("name") for c in load_campaigns()
+                            if c.get("evergreen_only")]}
 
 
 def _mcp_tool_defs():

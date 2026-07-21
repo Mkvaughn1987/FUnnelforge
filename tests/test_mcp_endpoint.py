@@ -239,3 +239,17 @@ def test_launch_tool_maps_http_errors(mcp_token, monkeypatch):
     res = r.json()["result"]
     out = json.loads(res["content"][0]["text"])
     assert res["isError"] is True and out["retryable"] is True
+
+
+# ── Task 9: list_newsletters tool ──────────────────────────────────
+def test_list_newsletters_binds_user_and_filters_evergreen(mcp_token, monkeypatch):
+    bound = []
+    monkeypatch.setattr(fa, "_switch_to_user_paths", lambda e: bound.append(e))
+    monkeypatch.setattr(fa, "load_campaigns", lambda: [
+        {"name": "Recruitment Rundown - CO Construction", "evergreen_only": True},
+        {"name": "Some 4x4", "evergreen_only": False}])
+    r = _rpc(_client(), mcp_token, "tools/call",
+             {"name": "list_newsletters", "arguments": {}})
+    out = json.loads(r.json()["result"]["content"][0]["text"])
+    assert out == {"newsletters": ["Recruitment Rundown - CO Construction"]}
+    assert bound == ["p1@arena.com"]
