@@ -5502,6 +5502,132 @@ async def oauth_resource_metadata(request: Request):
                          "bearer_methods_supported": ["header"]})
 
 
+_MCP_PROTOCOL_VERSIONS = {"2024-11-05", "2025-03-26", "2025-06-18"}
+
+
+class _McpToolError(Exception):
+    """Carries a JSON payload back as an isError tool result."""
+    def __init__(self, payload):
+        self.payload = payload
+        super().__init__(str(payload))
+
+
+def _mcp_launch_arena_5x3(email, args):
+    raise NotImplementedError("wired in plan Task 8")
+
+
+def _mcp_list_newsletters(email):
+    raise NotImplementedError("wired in plan Task 9")
+
+
+def _mcp_tool_defs():
+    return {
+        "check_companies": {
+            "description": "Check company names against the shared team BD master. "
+                           "Returns per company: result 'new' or 'already_worked' "
+                           "(with matched name, status, date, added_by). Pass name "
+                           "variants as separate entries when unsure.",
+            "inputSchema": {"type": "object", "properties": {"companies": {
+                "type": "array", "items": {"type": "string"}}},
+                "required": ["companies"]},
+            "fn": lambda email, a: _bdc_check_companies(a.get("companies") or [])},
+        "record_companies": {
+            "description": "Record selected companies in the shared master (call right "
+                           "after selection, before launching). Also updates status on "
+                           "re-record via the status field.",
+            "inputSchema": {"type": "object", "properties": {"rows": {
+                "type": "array", "items": {"type": "object", "properties": {
+                    "company": {"type": "string"}, "city": {"type": "string"},
+                    "type": {"type": "string"}, "week_surfaced": {"type": "string"},
+                    "status": {"type": "string"}}, "required": ["company"]}}},
+                "required": ["rows"]},
+            "fn": lambda email, a: _bdc_record_companies(a.get("rows") or [],
+                                                         added_by=email)},
+        "launch_arena_5x3": {
+            "description": "Create + launch an Arena 5x3 campaign from YOUR DripDrop "
+                           "account. The server matches the bench and attaches the 3 "
+                           "redacted résumés; a {skipped:true} result means no bench "
+                           "fit — record it and move on. Talent Trekker load is "
+                           "queued automatically on success.",
+            "inputSchema": {"type": "object", "properties": {
+                "company": {"type": "string"}, "roles": {"type": "array",
+                    "items": {"type": "string"}},
+                "start_date": {"type": "string",
+                              "description": "YYYY-MM-DD, next business day"},
+                "contacts": {"type": "array", "items": {"type": "object", "properties": {
+                    "email": {"type": "string"}, "first_name": {"type": "string"},
+                    "last_name": {"type": "string"}, "company": {"type": "string"},
+                    "title": {"type": "string"}, "phone_office": {"type": "string"},
+                    "linkedin": {"type": "string"}}, "required": ["email"]}},
+                "enroll_newsletter": {"type": "string"},
+                "industry": {"type": "string"}, "location": {"type": "string"},
+                "name": {"type": "string"}},
+                "required": ["company", "roles", "start_date", "contacts",
+                             "enroll_newsletter"]},
+            "fn": lambda email, a: _mcp_launch_arena_5x3(email, a)},
+        "list_newsletters": {
+            "description": "Exact names of YOUR ongoing newsletters (for "
+                           "enroll_newsletter).",
+            "inputSchema": {"type": "object", "properties": {}},
+            "fn": lambda email, a: _mcp_list_newsletters(email)},
+    }
+
+
+def _mcp_result(id_, payload, is_error=False):
+    return {"jsonrpc": "2.0", "id": id_, "result": {
+        "content": [{"type": "text", "text": json.dumps(payload)}],
+        "isError": bool(is_error)}}
+
+
+@app.post("/mcp")
+async def api_mcp(request: Request):
+    from starlette.responses import JSONResponse, Response
+    auth = request.headers.get("authorization", "")
+    tok = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+    email = _bdc_resolve_token(tok)
+    if not email:
+        return JSONResponse(
+            {"error": "unauthorized"}, status_code=401,
+            headers={"WWW-Authenticate":
+                     f'Bearer resource_metadata='
+                     f'"{_bdc_base_url()}/.well-known/oauth-protected-resource"'})
+    try:
+        msg = await request.json()
+    except Exception:
+        return JSONResponse({"jsonrpc": "2.0", "id": None,
+                             "error": {"code": -32700, "message": "parse error"}})
+    method, id_ = msg.get("method", ""), msg.get("id")
+    params = msg.get("params") or {}
+    if method.startswith("notifications/"):
+        return Response(status_code=202)
+    if method == "initialize":
+        v = params.get("protocolVersion", "")
+        return JSONResponse({"jsonrpc": "2.0", "id": id_, "result": {
+            "protocolVersion": v if v in _MCP_PROTOCOL_VERSIONS else "2025-06-18",
+            "capabilities": {"tools": {}},
+            "serverInfo": {"name": "dripdrop", "version": "1.0.0"}}})
+    if method == "ping":
+        return JSONResponse({"jsonrpc": "2.0", "id": id_, "result": {}})
+    if method == "tools/list":
+        tools = [{"name": n, "description": d["description"],
+                  "inputSchema": d["inputSchema"]}
+                 for n, d in _mcp_tool_defs().items()]
+        return JSONResponse({"jsonrpc": "2.0", "id": id_, "result": {"tools": tools}})
+    if method == "tools/call":
+        d = _mcp_tool_defs().get(params.get("name", ""))
+        if d is None:
+            return JSONResponse(_mcp_result(id_, {"error": "unknown tool"}, True))
+        try:
+            return JSONResponse(_mcp_result(id_, d["fn"](email,
+                                                         params.get("arguments") or {})))
+        except _McpToolError as te:
+            return JSONResponse(_mcp_result(id_, te.payload, True))
+        except Exception as e:
+            return JSONResponse(_mcp_result(id_, {"error": str(e)}, True))
+    return JSONResponse({"jsonrpc": "2.0", "id": id_,
+                         "error": {"code": -32601, "message": "method not found"}})
+
+
 def _format_candidate_block(cards: list, camp_type: str) -> str:
     """Build the CANDIDATE HIGHLIGHTS prompt fragment from candidate cards
     (the API path). Mirrors the wizard's `if _cand_text:` block wording so

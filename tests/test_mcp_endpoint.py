@@ -20,8 +20,7 @@ def _client():
         Route("/oauth/token", fa.oauth_token, methods=["POST"]),
         Route("/.well-known/oauth-authorization-server", fa.oauth_metadata, methods=["GET"]),
         Route("/.well-known/oauth-protected-resource", fa.oauth_resource_metadata, methods=["GET"]),
-        # Uncommented when plan Task 7 lands:
-        # Route("/mcp", fa.api_mcp, methods=["POST"]),
+        Route("/mcp", fa.api_mcp, methods=["POST"]),
     ]))
 
 
@@ -130,3 +129,60 @@ def test_metadata_documents(bdc_db):
     assert m["code_challenge_methods_supported"] == ["S256"]
     p = c.get("/.well-known/oauth-protected-resource").json()
     assert m["issuer"] in p["authorization_servers"]
+
+
+# ── Task 7: MCP JSON-RPC endpoint ──────────────────────────────────
+def _rpc(c, token, method, params=None, id=1):
+    h = {"Authorization": f"Bearer {token}"} if token else {}
+    body = {"jsonrpc": "2.0", "method": method}
+    if id is not None:
+        body["id"] = id
+    if params is not None:
+        body["params"] = params
+    return c.post("/mcp", json=body, headers=h)
+
+
+@pytest.fixture()
+def mcp_token(bdc_db):
+    return fa._bdc_mint_token("p1@arena.com", "cli1", "access", 3600)
+
+
+def test_mcp_unauthorized_401_with_resource_metadata(bdc_db):
+    r = _rpc(_client(), None, "initialize")
+    assert r.status_code == 401
+    assert "resource_metadata" in r.headers.get("www-authenticate", "")
+
+
+def test_mcp_initialize_and_tools_list(mcp_token):
+    c = _client()
+    r = _rpc(c, mcp_token, "initialize",
+             {"protocolVersion": "2025-06-18", "capabilities": {},
+              "clientInfo": {"name": "claude", "version": "1"}})
+    out = r.json()["result"]
+    assert out["protocolVersion"] == "2025-06-18"
+    assert out["capabilities"]["tools"] == {}
+    assert out["serverInfo"]["name"] == "dripdrop"
+    r = _rpc(c, mcp_token, "notifications/initialized", id=None)
+    assert r.status_code == 202
+    tools = {t["name"] for t in _rpc(c, mcp_token, "tools/list").json()["result"]["tools"]}
+    assert tools == {"check_companies", "record_companies",
+                     "launch_arena_5x3", "list_newsletters"}
+
+
+def test_mcp_unknown_method_is_32601(mcp_token):
+    r = _rpc(_client(), mcp_token, "resources/list")
+    assert r.json()["error"]["code"] == -32601
+
+
+def test_mcp_tool_call_check_companies(mcp_token):
+    r = _rpc(_client(), mcp_token, "tools/call",
+             {"name": "check_companies", "arguments": {"companies": ["Acme Co"]}})
+    out = r.json()["result"]
+    assert out["isError"] is False
+    assert json.loads(out["content"][0]["text"]) == [
+        {"company": "Acme Co", "result": "new"}]
+
+
+def test_mcp_unknown_tool_is_error_result(mcp_token):
+    r = _rpc(_client(), mcp_token, "tools/call", {"name": "nope", "arguments": {}})
+    assert r.json()["result"]["isError"] is True
