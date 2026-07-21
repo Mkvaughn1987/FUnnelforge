@@ -5239,6 +5239,51 @@ def _bdc_norm_company(name: str) -> str:
     return " ".join(toks)
 
 
+def _bdc_check_companies(names: list) -> list:
+    out = []
+    with _bdc_db() as con:
+        for n in (names or []):
+            row = con.execute(
+                "SELECT company, status, date, added_by FROM master WHERE company_norm=?",
+                (_bdc_norm_company(n),)).fetchone()
+            if row is None:
+                out.append({"company": n, "result": "new"})
+            else:
+                out.append({"company": n, "result": "already_worked",
+                            "matched": row[0], "status": row[1],
+                            "date": row[2], "added_by": row[3]})
+    return out
+
+
+def _bdc_record_companies(rows: list, added_by: str = "") -> dict:
+    added, dupes = 0, []
+    today = date.today().isoformat()
+    with _bdc_db() as con:  # single connection = transactional claim
+        for r in (rows or []):
+            name = (r.get("company") or "").strip()
+            if not name:
+                continue
+            cur = con.execute(
+                "INSERT OR IGNORE INTO master "
+                "(company, company_norm, city, type, week_surfaced, date, status, added_by) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (name, _bdc_norm_company(name), r.get("city", ""), r.get("type", ""),
+                 r.get("week_surfaced", ""), r.get("date") or today,
+                 r.get("status", "Selected"), added_by))
+            if cur.rowcount:
+                added += 1
+            else:
+                dupes.append(name)
+    return {"added": added, "already_worked": dupes}
+
+
+def _bdc_update_status(company: str, status: str) -> bool:
+    with _bdc_db() as con:
+        cur = con.execute("UPDATE master SET status=? WHERE company_norm=?",
+                          (status, _bdc_norm_company(company)))
+        return cur.rowcount > 0
+
+
 def _format_candidate_block(cards: list, camp_type: str) -> str:
     """Build the CANDIDATE HIGHLIGHTS prompt fragment from candidate cards
     (the API path). Mirrors the wizard's `if _cand_text:` block wording so

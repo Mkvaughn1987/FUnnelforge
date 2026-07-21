@@ -41,3 +41,29 @@ def test_bdc_db_init_is_idempotent(bdc_db):
 ])
 def test_bdc_norm_company(a, b, same):
     assert (fa._bdc_norm_company(a) == fa._bdc_norm_company(b)) is same
+
+
+# ── Task 3: master ops ─────────────────────────────────────────────
+def test_check_then_record_then_check(bdc_db):
+    r = fa._bdc_check_companies(["Mortenson Construction"])
+    assert r == [{"company": "Mortenson Construction", "result": "new"}]
+    added = fa._bdc_record_companies(
+        [{"company": "Mortenson Construction", "city": "Denver", "type": "GC",
+          "week_surfaced": "2026-W30", "status": "Selected"}],
+        added_by="p1@arena.com")
+    assert added == {"added": 1, "already_worked": []}
+    r2 = fa._bdc_check_companies(["mortenson construction, Inc."])[0]
+    assert r2["result"] == "already_worked"
+    assert r2["status"] == "Selected" and r2["added_by"] == "p1@arena.com"
+
+
+def test_record_second_claim_reports_already_worked(bdc_db):
+    fa._bdc_record_companies([{"company": "Acme Co"}], added_by="a@x.com")
+    out = fa._bdc_record_companies([{"company": "Acme Company"}], added_by="b@x.com")
+    assert out["added"] == 0 and out["already_worked"] == ["Acme Company"]
+
+
+def test_update_status(bdc_db):
+    fa._bdc_record_companies([{"company": "Acme Co"}], added_by="a@x.com")
+    assert fa._bdc_update_status("Acme Company", "Campaign launched + in TT") is True
+    assert fa._bdc_check_companies(["Acme Co"])[0]["status"] == "Campaign launched + in TT"
