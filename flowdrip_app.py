@@ -32185,6 +32185,104 @@ def _save_redacted_pdf(candidate_name: str, redacted_text: str) -> str:
         return ""
 
 
+def _build_polished_resume_pdf(resume: dict) -> str:
+    """Render a structured résumé dict to a polished redacted PDF and return
+    the filename. Same Resume_<slug>_Redacted.pdf naming as _save_redacted_pdf
+    so _is_redacted_resume_pdf and the reuse-a-PDF dropdown still recognize it."""
+    try:
+        from reportlab.lib.pagesizes import letter
+        from reportlab.lib.units import inch
+        from reportlab.lib.colors import HexColor
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_RIGHT
+        from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer,
+                                         Table, TableStyle, HRFlowable, KeepTogether)
+
+        NAVY, ACCENT, DARK, GRAY, LIGHT = (HexColor('#16283f'), HexColor('#1f6f78'),
+            HexColor('#222831'), HexColor('#5c6672'), HexColor('#8a929c'))
+        label = (resume.get("code") or "Candidate").strip() or "Candidate"
+        slug = re.sub(r'[^\w\s-]', '', label).strip().replace(' ', '_')[:40] or "Candidate"
+        fname = f"Resume_{slug}_Redacted.pdf"
+        _user_pdf_dir().mkdir(parents=True, exist_ok=True)
+        fpath = str(_user_pdf_dir() / fname)
+
+        def _s(n, **kw): return ParagraphStyle(n, **kw)
+        name_st  = _s('n', fontName='Helvetica-Bold', fontSize=21, textColor=NAVY, leading=24)
+        role_st  = _s('r', fontName='Helvetica', fontSize=12.5, textColor=ACCENT, leading=16, spaceAfter=2)
+        note_st  = _s('nt', fontName='Helvetica-Oblique', fontSize=8, textColor=LIGHT, leading=11, spaceAfter=2)
+        sec_st   = _s('s', fontName='Helvetica-Bold', fontSize=10.5, textColor=NAVY, leading=13, spaceBefore=11, spaceAfter=2)
+        sum_st   = _s('su', fontName='Helvetica', fontSize=9.5, textColor=DARK, leading=13.5)
+        et_st    = _s('et', fontName='Helvetica-Bold', fontSize=10, textColor=DARK, leading=13)
+        em_st    = _s('em', fontName='Helvetica-Oblique', fontSize=9, textColor=ACCENT, leading=12)
+        ed_st    = _s('ed', fontName='Helvetica', fontSize=8.5, textColor=GRAY, leading=12, alignment=TA_RIGHT)
+        bul_st   = _s('b', fontName='Helvetica', fontSize=9.3, textColor=DARK, leading=13, leftIndent=12, bulletIndent=2, spaceAfter=1)
+        sk_st    = _s('sk', fontName='Helvetica', fontSize=9.3, textColor=DARK, leading=13.5)
+        NOPAD = [('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),
+                 ('TOPPADDING',(0,0),(-1,-1),0),('BOTTOMPADDING',(0,0),(-1,-1),0),
+                 ('VALIGN',(0,0),(-1,-1),'BOTTOM')]
+
+        def section(t):
+            return [Paragraph(t.upper(), sec_st),
+                    HRFlowable(width='100%', thickness=0.8, color=ACCENT, spaceBefore=1, spaceAfter=4)]
+        def entry(e):
+            avail = 7.1*inch
+            hdr = Table([[Paragraph(e.get("title",""), et_st),
+                          Paragraph(e.get("dates",""), ed_st)]],
+                        colWidths=[avail*0.74, avail*0.26])
+            hdr.setStyle(TableStyle(NOPAD))
+            flow = [hdr, Paragraph(e.get("employer",""), em_st), Spacer(1,2)]
+            for b in (e.get("bullets") or []):
+                flow.append(Paragraph(b, bul_st, bulletText=u'•'))
+            flow.append(Spacer(1,5))
+            return KeepTogether(flow)
+        def two_col(items):
+            mid = (len(items)+1)//2
+            left, right = items[:mid], items[mid:]
+            rows = []
+            for i in range(mid):
+                r = (u'• ' + right[i]) if i < len(right) else ''
+                rows.append([Paragraph(u'• ' + left[i], sk_st), Paragraph(r, sk_st)])
+            t = Table(rows, colWidths=[3.5*inch, 3.5*inch])
+            t.setStyle(TableStyle([('LEFTPADDING',(0,0),(-1,-1),0),('RIGHTPADDING',(0,0),(-1,-1),0),
+                                   ('TOPPADDING',(0,0),(-1,-1),1),('BOTTOMPADDING',(0,0),(-1,-1),1),
+                                   ('VALIGN',(0,0),(-1,-1),'TOP')]))
+            return t
+
+        note = ("Anonymized representative profile. Illustrative of talent available for this role."
+                if resume.get("representative")
+                else "Redacted candidate profile. Contact information removed.")
+        doc = SimpleDocTemplate(fpath, pagesize=letter, leftMargin=0.7*inch,
+                                rightMargin=0.7*inch, topMargin=0.65*inch,
+                                bottomMargin=0.6*inch, title=label)
+        st = [Paragraph(label, name_st), Paragraph(resume.get("role",""), role_st),
+              Paragraph(note, note_st),
+              HRFlowable(width='100%', thickness=1.4, color=NAVY, spaceBefore=4, spaceAfter=2)]
+        if resume.get("summary"):
+            st += section('Professional Summary'); st.append(Paragraph(resume["summary"], sum_st))
+        if resume.get("expertise"):
+            st += section('Areas of Expertise'); st.append(two_col(resume["expertise"]))
+        if resume.get("experience"):
+            st += section('Professional Experience')
+            for e in resume["experience"]:
+                st.append(entry(e))
+        if resume.get("projects"):
+            st += section('Selected Projects')
+            for p in resume["projects"]:
+                st.append(Paragraph(p, bul_st, bulletText=u'•'))
+        if resume.get("skills"):
+            st += section('Tools and Software'); st.append(Paragraph(resume["skills"], sk_st))
+        if resume.get("education"):
+            st += section('Education and Certifications')
+            for ed in resume["education"]:
+                st.append(Paragraph(ed, bul_st, bulletText=u'•'))
+        doc.build(st)
+        print(f"[Resume] Saved polished PDF: {fname}", flush=True)
+        return fname
+    except Exception as e:
+        print(f"[Resume] polished PDF error: {e}", flush=True)
+        return ""
+
+
 def _aicb_card_to_resume_text(card: dict) -> str:
     """Turn one AICB candidate card ({label, role, bullets}) into the body
     text for a redacted-résumé PDF. The cards are already anonymized

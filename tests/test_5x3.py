@@ -105,3 +105,50 @@ def test_fivebythree_pdf_subject_recruiting():
     company, roles, location, industry = fa._pdf_campaign_subject(camp)
     assert company == "Acme"
     assert roles == "Project Engineer"
+
+
+def _sample_resume_dict():
+    return {
+        "code": "Candidate A", "role": "Project Engineer", "representative": False,
+        "summary": "Project engineer with about 6 years across civil and water construction.",
+        "expertise": ["Water and Wastewater Construction", "RFIs and Submittals"],
+        "experience": [
+            {"title": "Project Engineer", "employer": "Regional civil engineering firm",
+             "dates": "Jan 2024 to Present",
+             "bullets": ["Ran RFIs, submittals, and QC on a large public program",
+                         "Managed inspectors and construction engineers"]},
+        ],
+        "skills": "AutoCAD, Revit, ArcGIS",
+        "education": ["BS Environmental Science", "Engineer in Training"],
+    }
+
+
+def test_polished_pdf_writes_file_with_content(with_user):
+    import flowdrip_app as fa
+    fname = fa._build_polished_resume_pdf(_sample_resume_dict())
+    assert fname == "Resume_Candidate_A_Redacted.pdf"
+    fpath = fa._user_pdf_dir() / fname
+    assert fpath.exists() and fpath.stat().st_size > 1500
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        from PyPDF2 import PdfReader
+    txt = "\n".join((p.extract_text() or "") for p in PdfReader(str(fpath)).pages)
+    assert "Candidate A" in txt
+    assert "Project Engineer" in txt
+    assert "Regional civil engineering firm" in txt
+    assert "PROFESSIONAL EXPERIENCE" in txt.upper()
+    assert "—" not in txt and "–" not in txt   # no em/en dashes
+    assert fa._is_redacted_resume_pdf(fname)    # still recognized by the dropdown
+
+
+def test_polished_pdf_representative_note(with_user):
+    import flowdrip_app as fa
+    d = _sample_resume_dict(); d["representative"] = True
+    fname = fa._build_polished_resume_pdf(d)
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        from PyPDF2 import PdfReader
+    txt = "\n".join((p.extract_text() or "") for p in PdfReader(str(fa._user_pdf_dir()/fname)).pages)
+    assert "representative" in txt.lower()
