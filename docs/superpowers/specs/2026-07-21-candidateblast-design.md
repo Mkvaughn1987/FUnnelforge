@@ -11,6 +11,10 @@ Claude-session skill): a candidate-first job finder built into the **Start an MP
 Campaign** flow. It revives the retired "Search Jobs" feature (cut 2026-05-22) as the
 front half of MPC outreach.
 
+**Naming (decided 2026-07-21):** the feature is branded **CandidateBlast** — the
+candidate-first sibling of PipelineBlast. The in-app step/button label reads
+**"Find Openings"**.
+
 The experience:
 
 1. The user selects **1–3 candidates** (the MPC slate limit) in the pool/ATS and hits
@@ -156,6 +160,14 @@ To build (app side in `flowdrip_app.py` unless planning finds otherwise):
    endpoints on existing API-key auth.
 5. **Bridge routine** (not app code) — scheduled Claude cloud agent w/ ZoomInfo
    connector: poll queue → per-company Managers+ pull → enrich → post back.
+6. **Companion CandidateBlast skill** (not app code) — the same flow for Mike's Claude
+   sessions, sibling of the existing `pipelineblast` skill: take 1–3 candidates (pool
+   names or résumé files) → confirm intake → MCP job search (Indeed/ZipRecruiter + web
+   search) → present 10 options (local + nationwide) in chat → Mike picks → pull
+   Managers+ from ZoomInfo **directly** (no bridge needed in-session) → launch the MPC
+   campaigns via the campaign create/launch API → run summary. **Ships first**: it
+   exercises the search prompt, ranking, and launch-API path before any app UI exists,
+   and its ZoomInfo logic becomes the bridge agent's core.
 
 Follow-up explicitly out of v1: direct ZoomInfo Enterprise API integration (replaces the
 bridge if licensing is ever added).
