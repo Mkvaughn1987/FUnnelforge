@@ -6043,16 +6043,24 @@ async def api_create_campaign(request: Request):
     except Exception:
         return JSONResponse({"error": "body must be valid JSON"}, status_code=400)
 
+    payload, status = _api_campaign_core(owner, spec if isinstance(spec, dict) else {})
+    return JSONResponse(payload, status_code=status)
+
+
+def _api_campaign_core(owner: str, spec: dict) -> tuple:
+    """Validate + generate + launch a campaign for `owner`. Returns
+    (payload_dict, http_status). Extracted from api_create_campaign so the
+    MCP `launch_arena_5x3` tool and the HTTP route share one code path."""
     err = _validate_campaign_spec(spec if isinstance(spec, dict) else {})
     if err:
-        return JSONResponse({"error": err}, status_code=400)
+        return {"error": err}, 400
 
     contacts = spec.get("contacts")
     if not isinstance(contacts, list):
         contacts = _parse_contacts_csv(spec.get("contacts_csv", ""))
 
     if not ANTHROPIC_API_KEY:
-        return JSONResponse({"error": "AI not configured on server"}, status_code=503)
+        return {"error": "AI not configured on server"}, 503
 
     # Bind user context so save/queue land in the key owner's account.
     _CURRENT_USER_EMAIL.set(owner)
@@ -6068,7 +6076,7 @@ async def api_create_campaign(request: Request):
     if template == "fivebythree":
         _cards, _skip = _api_resolve_5x3_cards(client, spec)
         if _skip:
-            return JSONResponse({"skipped": True, "reason": _skip}, status_code=200)
+            return {"skipped": True, "reason": _skip}, 200
     try:
         campaign_data = generate_aicb_campaign(
             client,
@@ -6082,9 +6090,9 @@ async def api_create_campaign(request: Request):
             candidate_cards=_cards,
         )
     except RuntimeError as ge:
-        return JSONResponse({"error": f"generation failed: {ge}"}, status_code=502)
+        return {"error": f"generation failed: {ge}"}, 502
     except Exception as ge:
-        return JSONResponse({"error": f"generation error: {ge}"}, status_code=500)
+        return {"error": f"generation error: {ge}"}, 500
 
     emails = campaign_data.get("emails", [])
     campaign_data.pop("_brief", None)
@@ -6119,9 +6127,9 @@ async def api_create_campaign(request: Request):
         save_campaign(camp)
         queued = queue_campaign_emails(camp)
     except ValueError as qe:
-        return JSONResponse({"error": str(qe)}, status_code=422)
+        return {"error": str(qe)}, 422
     except Exception as qe:
-        return JSONResponse({"error": f"launch failed: {qe}"}, status_code=500)
+        return {"error": f"launch failed: {qe}"}, 500
 
     # Optional: also enroll the same contacts into a named newsletter / Slow
     # Drip so one API call handles both the outbound campaign and the ongoing
@@ -6151,7 +6159,7 @@ async def api_create_campaign(request: Request):
                            "DNC/opt-out/MX)")
     if _nl_result is not None:
         resp["newsletter_enrollment"] = _nl_result
-    return JSONResponse(resp, status_code=200)
+    return resp, 200
 
 
 def cancel_campaign_queue(camp_name: str) -> int:
