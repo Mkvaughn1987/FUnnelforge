@@ -32551,6 +32551,20 @@ def _build_slate_cards(pool, scored, role, slate_size=3,
     return cards
 
 
+def _match_pipeline_to_company(client, company, role, industry):
+    """Load the pool, AI-score it against the target, and build the 5x3 slate.
+    Returns up to 3 anonymized cards (real _pool_id cards + synthesized fills),
+    or [] when no candidate clears the fit-floor (skip this company).
+    LOCATION is never used in scoring or output."""
+    pool = load_candidate_pool() or []
+    if not pool:
+        return []
+    scored = _ai_score_candidates(client, company, role, industry, pool)
+    if not scored:
+        return []
+    return _build_slate_cards(pool, scored, role)
+
+
 def _aicb_card_to_resume_text(card: dict) -> str:
     """Turn one AICB candidate card ({label, role, bullets}) into the body
     text for a redacted-résumé PDF. The cards are already anonymized

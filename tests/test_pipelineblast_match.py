@@ -96,3 +96,29 @@ def test_build_slate_empty_when_none_clear_floor():
               {"id": "c2", "score": 10, "reason": ""}]
     cards = fa._build_slate_cards(_pool3(), scored, "Healthcare PM")
     assert cards == []   # skip this company
+
+
+def test_match_pipeline_to_company_end_to_end(monkeypatch):
+    import flowdrip_app as fa
+    pool = [{"id": "c1", "target_role": "Healthcare PM", "summary": "OSHPD PM",
+             "resume_text": "healthcare"},
+            {"id": "c2", "target_role": "Estimator", "summary": "Bridges",
+             "resume_text": "civil"}]
+    monkeypatch.setattr(fa, "load_candidate_pool", lambda: pool)
+    payload = ('[{"id":"c1","score":88,"reason":"healthcare PM"},'
+               '{"id":"c2","score":30,"reason":"wrong sector"}]')
+    cards = fa._match_pipeline_to_company(_StubClient(payload), "Swinerton",
+                                          "Healthcare PM", "Construction")
+    assert len(cards) == 3
+    assert cards[0]["_pool_id"] == "c1"           # real top match
+    assert "_pool_id" not in cards[2]             # filled (only 1 cleared floor)
+
+
+def test_match_pipeline_skips_when_no_fit(monkeypatch):
+    import flowdrip_app as fa
+    monkeypatch.setattr(fa, "load_candidate_pool",
+                        lambda: [{"id": "c1", "target_role": "Chef", "resume_text": "food"}])
+    payload = '[{"id":"c1","score":5,"reason":"unrelated"}]'
+    cards = fa._match_pipeline_to_company(_StubClient(payload), "Acme",
+                                          "Healthcare PM", "Construction")
+    assert cards == []
