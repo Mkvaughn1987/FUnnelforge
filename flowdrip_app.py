@@ -32566,6 +32566,24 @@ def _match_pipeline_to_company(client, company, role, industry):
     return _build_slate_cards(pool, scored, role)
 
 
+def _api_resolve_5x3_cards(client, spec):
+    """For a fivebythree API request: use the provided candidates[] if any,
+    else match the pool to the company/role/industry (Component 2). Returns
+    (cards, skip_reason). skip_reason is a non-empty string (and cards []) when
+    no pipeline candidate clears the fit-floor, signaling the caller to skip
+    this company. LOCATION is never used."""
+    cards = list(spec.get("candidates") or [])
+    if cards:
+        return cards, None
+    company = (spec.get("company") or spec.get("niche") or "").strip()
+    role = (", ".join(spec.get("roles") or []) or "").strip()
+    industry = (spec.get("industry") or "").strip()
+    cards = _match_pipeline_to_company(client, company, role, industry)
+    if not cards:
+        return [], "no pipeline candidate cleared the fit floor"
+    return cards, None
+
+
 def _aicb_card_to_resume_text(card: dict) -> str:
     """Turn one AICB candidate card ({label, role, bullets}) into the body
     text for a redacted-résumé PDF. The cards are already anonymized

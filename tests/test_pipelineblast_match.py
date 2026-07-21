@@ -122,3 +122,32 @@ def test_match_pipeline_skips_when_no_fit(monkeypatch):
     cards = fa._match_pipeline_to_company(_StubClient(payload), "Acme",
                                           "Healthcare PM", "Construction")
     assert cards == []
+
+
+def test_api_resolve_uses_provided_candidates():
+    import flowdrip_app as fa
+    spec = {"candidates": [{"label": "Candidate A", "role": "PM", "bullets": ["x"]}]}
+    cards, skip = fa._api_resolve_5x3_cards(_StubClient("[]"), spec)
+    assert skip is None
+    assert cards == spec["candidates"]         # passthrough, no matching
+
+
+def test_api_resolve_matches_when_absent(monkeypatch):
+    import flowdrip_app as fa
+    monkeypatch.setattr(fa, "load_candidate_pool",
+                        lambda: [{"id": "c1", "target_role": "PM", "resume_text": "x"}])
+    cards, skip = fa._api_resolve_5x3_cards(
+        _StubClient('[{"id":"c1","score":90,"reason":"fit"}]'),
+        {"company": "Acme", "roles": ["Project Manager"], "industry": "Construction"})
+    assert skip is None
+    assert len(cards) == 3 and cards[0]["_pool_id"] == "c1"
+
+
+def test_api_resolve_skips_when_no_fit(monkeypatch):
+    import flowdrip_app as fa
+    monkeypatch.setattr(fa, "load_candidate_pool",
+                        lambda: [{"id": "c1", "target_role": "Chef", "resume_text": "x"}])
+    cards, skip = fa._api_resolve_5x3_cards(
+        _StubClient('[{"id":"c1","score":5,"reason":"no"}]'),
+        {"company": "Acme", "roles": ["Project Manager"], "industry": "Construction"})
+    assert cards == [] and skip                 # skip reason set
