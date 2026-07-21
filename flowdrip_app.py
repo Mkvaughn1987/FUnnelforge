@@ -5616,6 +5616,11 @@ async def api_create_campaign(request: Request):
     import anthropic
     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     template = spec["template"].strip()
+    _cards = list(spec.get("candidates") or [])
+    if template == "fivebythree":
+        _cards, _skip = _api_resolve_5x3_cards(client, spec)
+        if _skip:
+            return JSONResponse({"skipped": True, "reason": _skip}, status_code=200)
     try:
         campaign_data = generate_aicb_campaign(
             client,
@@ -5626,7 +5631,7 @@ async def api_create_campaign(request: Request):
             industry=(spec.get("industry") or "").strip(),
             roles=list(spec.get("roles") or []),
             location=(spec.get("location") or "").strip(),
-            candidate_cards=list(spec.get("candidates") or []),
+            candidate_cards=_cards,
         )
     except RuntimeError as ge:
         return JSONResponse({"error": f"generation failed: {ge}"}, status_code=502)
@@ -5635,6 +5640,12 @@ async def api_create_campaign(request: Request):
 
     emails = campaign_data.get("emails", [])
     campaign_data.pop("_brief", None)
+    if template == "fivebythree" and emails:
+        try:
+            _pdfs = _build_redacted_resumes_from_cards(_cards, template, client)
+            _attach_resumes_to_emails(template, emails, _pdfs)
+        except Exception as _re:
+            print(f"[api] 5x3 résumé attach skipped: {_re}", flush=True)
     start_date = _resolve_start_date(spec.get("start_date"))
 
     camp = {
