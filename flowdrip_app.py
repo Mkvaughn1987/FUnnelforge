@@ -4075,7 +4075,7 @@ AICB_ROLES = {
 # Arena slate family: the 4×4 and its 5×5 variant share newsletter handoff,
 # the Arena house font, resume placement, and PDF-subject (recruiting) behavior.
 # Add new slate variants here to inherit all of it.
-_ARENA_SLATE_TYPES = frozenset({"fourbyfour", "fivebyfive"})
+_ARENA_SLATE_TYPES = frozenset({"fourbyfour", "fivebyfive", "fivebythree"})
 
 AICB_CAMPAIGN_TYPES = [
     # ── Shortest to longest ──
@@ -4190,6 +4190,46 @@ AICB_CAMPAIGN_TYPES = [
      "to crowd their inbox; it's been a pleasure; you'll add them to your monthly "
      "newsletter so useful market news still reaches them; the door's always open. "
      "No hard sell."),
+    ("fivebythree", "Arena 5×3", "5 steps - 2 weeks", "#0EA5A5",
+     "PipelineBlast's warm 5-email slate. Introduces 3 pipeline-matched "
+     "candidates to a company hiring your role, with redacted résumés on "
+     "emails 2 and 4 and an interview guide on email 3. Softer, "
+     "relationship-first voice.",
+     "Automated slate outreach - 3 candidates - relationship-first",
+     "GLOBAL VOICE: Write warm, personable, and human — NOT salesy. Sound "
+     "like a helpful professional who happens to know great people. Short "
+     "paragraphs, plain words, no hype, no pressure. Refer to the company's "
+     "OVERALL MARKET (e.g. construction, manufacturing) rather than the "
+     "specific job title where it reads naturally. When a candidate is "
+     "anonymized, render them as a friendly first-name alias whose initial "
+     "matches the slot plus a last initial (Candidate A -> 'Aaron M.', "
+     "Candidate B -> 'Ben T.', Candidate C -> 'Carlos R.'); use the real "
+     "first name if the highlights provide one. Same alias for the same "
+     "person across every email.\n"
+     "Step 1 - Warm Intro (delay_days:0, step_type:email_auto) - Subject "
+     "exactly: 'Quick note for [Company]' (write the real company name in). "
+     "Open warmly: you work with talent across [the company's overall "
+     "market] and noticed they're hiring; you represent a few strong people "
+     "who aren't actively on the market. Do NOT list candidates yet and do "
+     "NOT mention attachments. Warm, low-pressure close.\n"
+     "Step 2 - Candidate Slate (delay_days:3, step_type:email_auto) - "
+     "Subject exactly: 'A few candidates who caught my eye, for [Company]'. "
+     "Present the slate from CANDIDATE HIGHLIGHTS using the alias rule "
+     "above — a short spotlight per person. Do NOT use bracketed "
+     "placeholders. Mention their résumés are attached. Warm CTA to chat.\n"
+     "Step 3 - Interview Guide (delay_days:3, step_type:email_auto) - "
+     "Subject exactly: 'An interview guide, in case it helps'. Offer a "
+     "short interview guide for the role; do NOT re-list the candidates. "
+     "Keep it brief and helpful. (The system attaches the guide.)\n"
+     "Step 4 - Following up (delay_days:2, step_type:email_auto) - Subject "
+     "exactly: 'Following up'. A very short, warm bump. No candidates, no "
+     "market data. (The system replaces this body verbatim after "
+     "generation and re-attaches the résumés.)\n"
+     "Step 5 - Closing the loop (delay_days:3, step_type:email_auto) - "
+     "Subject exactly: 'Closing the loop for now'. A warm, human sign-off: "
+     "you don't want to crowd their inbox; you'll add them to your monthly "
+     "newsletter so useful market news still reaches them; the door's "
+     "always open. No hard sell."),
     ("talentdrop", "Candidate-Led Pitch", "7 steps - 2 weeks", "#10B981",
      "Lead with real candidates. Enter your candidate details and AI builds the outreach "
      "around them  -  intro with profiles, market data follow-ups, and value-add PDFs. "
