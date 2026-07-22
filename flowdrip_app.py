@@ -51,15 +51,30 @@ _logging.getLogger("nicegui").addFilter(_NiceGUIClientWarningFilter())
 # can forge a session cookie for any user.
 _STORAGE_SECRET = os.getenv("DRIPDROP_SECRET", "dripdrop-local-dev-secret-change-me")
 
-# ── ATS (in-development, gated) ────────────────────────────────────────────
-# The ATS resume-search section is visible ONLY to these accounts while it's
-# being built. Everyone else's app shows no trace of it. Flip to open it up.
+# ── ATS (Pipeline) ──────────────────────────────────────────────────────────
+# The Pipeline (ATS) section is visible to every @arenastaffing.net account,
+# plus a few individually-allowlisted accounts outside that domain (e.g. the
+# founder's personal gmail used for local/dev sessions). Other tenants
+# (DripDrop is sold as SaaS to other companies) never see it.
+_ATS_ALLOWED_DOMAINS = {"arenastaffing.net"}
 _ATS_ALLOWED_EMAILS = {
     "michael.vaughn@arenastaffing.net",
     "mkvaughn1987@gmail.com",
     "sarah.henze@arenastaffing.net",
     "elizabeth.simonov@arenastaffing.net",
 }
+
+
+def _ats_allowed(email: str) -> bool:
+    """True if this account may see the Pipeline (ATS) tab: any
+    @arenastaffing.net user, or one of the individually allowlisted
+    accounts outside that domain."""
+    e = (email or "").strip().lower()
+    if not e or "@" not in e:
+        return False
+    if e in _ATS_ALLOWED_EMAILS:
+        return True
+    return e.split("@", 1)[1] in _ATS_ALLOWED_DOMAINS
 
 # ── The Roundup (gated internal marketing newsletter) ──────────────────────
 # Hand-authored company newsletter owned by Rothany (marketing). Visible only
@@ -12619,7 +12634,7 @@ def topbar(s: AppState, rf):
         # the ATS now. The candidate_finder page handler stays callable.
         # ── ATS (gated). Its own full-screen app at /ats — clicking here
         # leaves the DripDrop chrome entirely. ──
-        if (getattr(s, '_user_email', '') or '').strip().lower() in _ATS_ALLOWED_EMAILS:
+        if _ats_allowed(getattr(s, '_user_email', '')):
             with ui.element("button").classes("fd-hub").on(
                     "click", lambda: ui.navigate.to("/ats")):
                 ui.label("Pipeline")
@@ -18588,8 +18603,7 @@ def _sq_pick(s, rf):
                         # MPC builder and lands them in the email editor.
                         # Non-ATS users (/ats bounces them to /) keep the
                         # legacy Top Candidates roster fallback.
-                        _ue = (getattr(s, "_user_email", "") or "").strip().lower()
-                        if _ue in _ATS_ALLOWED_EMAILS:
+                        if _ats_allowed(getattr(s, "_user_email", "")):
                             ui.navigate.to("/ats")
                             return
                         s._nav_history.append(_nav_snapshot(s))
@@ -23419,7 +23433,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
         # candidate pool); non-ATS users see no toggle and just get the AI
         # path. Default = AI.
         _sel_cands = {}
-        _ats_ok = (getattr(s, "_user_email", "") or "").strip().lower() in _ATS_ALLOWED_EMAILS
+        _ats_ok = _ats_allowed(getattr(s, "_user_email", ""))
         if _ats_ok:
             _spot_mode = ui.toggle(
                 {"ai": "✨ Auto-populate with AI",
