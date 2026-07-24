@@ -13282,12 +13282,65 @@ def _default_variant_idx(variants: list, preferred_style: str) -> int:
 def _render_call_briefing_card(camp: dict, s: AppState, rf):
     """Render the cold-call briefing card above the call stack.
 
-    Auto-fires AI generation in a background thread on first render
-    if camp['call_briefing'] isn't cached yet. Subsequent renders are
-    instant from cache.
+    Cached briefings (and ones the user already clicked to load) render
+    the full panel. Everything else renders a collapsed placeholder
+    with a "Load briefing" button instead of auto-firing AI generation —
+    the Pending Tasks page can show 10+ campaigns at once, and eagerly
+    generating a briefing (2 Claude calls each) for every one of them
+    wastes AI calls on campaigns the user never opens.
     """
     if camp is None:
         return
+    camp_name = camp.get("name", "") or ""
+    briefing = camp.get("call_briefing") if isinstance(camp.get("call_briefing"), dict) else None
+    expanded = getattr(s, "_call_briefing_expanded", None)
+    if expanded is None:
+        expanded = set()
+        s._call_briefing_expanded = expanded
+    has_key = bool(ANTHROPIC_API_KEY)
+    if briefing or camp_name in expanded or not has_key:
+        _render_call_briefing_card_full(camp, s, rf)
+        return
+    _render_call_briefing_card_collapsed(camp, expanded, rf)
+
+
+def _render_call_briefing_card_collapsed(camp: dict, expanded: set, rf):
+    """Placeholder for an uncached, unclicked briefing — fires no AI call."""
+    camp_name = camp.get("name", "") or ""
+    company = _first_contact_company(camp)
+
+    def _load(_name=camp_name):
+        expanded.add(_name)
+        rf()
+
+    with ui.element("div").style(
+            f"background:{C['surface']};border:1px solid {C['border']};"
+            f"border-radius:8px;padding:12px 14px;margin-bottom:6px;"
+            f"display:flex;align-items:center;justify-content:space-between;gap:10px;"):
+        with ui.element("div").style("display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;min-width:0;"):
+            ui.label("📞 Call briefing").style(
+                f"font-size:10px;font-weight:700;color:{C['call_col']};"
+                f"text-transform:uppercase;letter-spacing:.06em;"
+                f"font-family:'Nunito',sans-serif;")
+            if company:
+                ui.label(f"— {company}").style(
+                    f"font-size:11px;font-weight:600;color:{C['text_l']};"
+                    f"font-family:'Nunito',sans-serif;")
+        with ui.element("button").style(
+                f"display:inline-flex;align-items:center;gap:4px;"
+                f"padding:4px 12px;border-radius:99px;font-size:11px;"
+                f"font-weight:600;cursor:pointer;flex-shrink:0;"
+                f"background:{C['call_col']}18;color:{C['call_col']};"
+                f"border:1px solid {C['call_col']}60;font-family:inherit;"
+                ).on("click", _load):
+            ui.label("Load briefing")
+
+
+def _render_call_briefing_card_full(camp: dict, s: AppState, rf):
+    """Full briefing panel — auto-fires AI generation in a background
+    thread on first render if camp['call_briefing'] isn't cached yet.
+    Subsequent renders are instant from cache.
+    """
     camp_name = camp.get("name", "") or ""
     briefing = camp.get("call_briefing") if isinstance(camp.get("call_briefing"), dict) else None
     inflight = getattr(s, "_call_briefing_gen_inflight", None)

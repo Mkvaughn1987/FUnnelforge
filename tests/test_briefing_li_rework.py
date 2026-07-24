@@ -87,9 +87,13 @@ def test_render_call_briefing_card_shows_company_overview_sections():
     walkthrough with a grounded company overview (what they do, HQ, other
     offices). This test previously asserted the walkthrough; it now pins
     the block that took its place.
+
+    Checks _render_call_briefing_card_full: the lazy-load split
+    (2026-07-24) moved the actual panel content there, leaving
+    _render_call_briefing_card as a thin cached-vs-collapsed dispatcher.
     """
     import flowdrip_app as fa
-    src = inspect.getsource(fa._render_call_briefing_card)
+    src = inspect.getsource(fa._render_call_briefing_card_full)
     assert "Company overview" in src, (
         "Render must include the company overview header"
     )
@@ -120,9 +124,13 @@ def test_render_call_briefing_card_has_no_walkthrough():
 
 def test_render_call_briefing_card_shows_company_and_refresh():
     """The render function must surface the company name in the header
-    and provide a Refresh button. Source-grep for both."""
+    and provide a Refresh button. Source-grep for both.
+
+    Checks _render_call_briefing_card_full — see the lazy-load split
+    note on test_render_call_briefing_card_shows_company_overview_sections.
+    """
     import flowdrip_app as fa
-    src = inspect.getsource(fa._render_call_briefing_card)
+    src = inspect.getsource(fa._render_call_briefing_card_full)
     assert "_first_contact_company" in src or "company_name" in src, (
         "Render must derive the company name to display in the header"
     )
@@ -132,6 +140,40 @@ def test_render_call_briefing_card_shows_company_and_refresh():
     assert "force_refresh=True" in src, (
         "Refresh button handler must pass force_refresh=True to the "
         "generator (otherwise it'd just return the cached briefing)"
+    )
+
+
+def test_render_call_briefing_card_lazy_loads_uncached_campaigns():
+    """Pending Tasks can show 10+ campaigns at once; the dispatcher must
+    not fire AI generation for one it hasn't cached or been clicked open.
+
+    _generate_call_briefing_for_campaign (the 2-Claude-call generator)
+    must live only in _render_call_briefing_card_full, reached via the
+    cached-or-expanded gate — never directly from the dispatcher.
+    """
+    import flowdrip_app as fa
+    dispatcher_src = inspect.getsource(fa._render_call_briefing_card)
+    assert "_generate_call_briefing_for_campaign" not in dispatcher_src, (
+        "Dispatcher must not call the generator directly — only the "
+        "full-render path (reached after cache/expand check) may"
+    )
+    assert "_call_briefing_expanded" in dispatcher_src, (
+        "Dispatcher must gate on a per-session expanded set so a "
+        "collapsed campaign only loads after an explicit click"
+    )
+    assert "_render_call_briefing_card_full" in dispatcher_src
+    assert "_render_call_briefing_card_collapsed" in dispatcher_src
+
+
+def test_render_call_briefing_card_collapsed_has_load_button_and_no_autogen():
+    """Collapsed placeholder must offer a click target and must never
+    fire AI generation itself — only the full render does that."""
+    import flowdrip_app as fa
+    assert hasattr(fa, "_render_call_briefing_card_collapsed")
+    src = inspect.getsource(fa._render_call_briefing_card_collapsed)
+    assert "Load briefing" in src
+    assert "_generate_call_briefing_for_campaign" not in src, (
+        "Collapsed placeholder must not trigger generation on its own"
     )
 
 
