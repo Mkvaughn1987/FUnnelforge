@@ -6631,6 +6631,13 @@ def add_domain_to_dnc(domain: str, company: str = "", reason: str = "Domain bloc
     return count
 
 
+# Priority order when more than one manual touch is simultaneously due for
+# the same contact — lower number wins. Calls are the highest-value, most
+# time-sensitive action, so they must never stay hidden behind an
+# un-actioned LinkedIn touch that happens to sit earlier in the sequence.
+_TASK_TYPE_PRIORITY = {ST.CALL: 0, ST.TASK: 1, ST.LINKEDIN: 2}
+
+
 def build_drip_tasks(target_date=None):
     tasks = []
     today = date.today()
@@ -6657,6 +6664,13 @@ def build_drip_tasks(target_date=None):
             if em in responded:
                 continue
             cumulative_days = 0
+            # Gather EVERY due-and-not-completed manual step for this contact
+            # first (instead of stopping at the first one in sequence order),
+            # then pick the highest-priority one below. Otherwise a contact
+            # stuck on an old, un-actioned LinkedIn touch would permanently
+            # hide their later, more urgent call — even though the call's
+            # own due date has independently passed.
+            _eligible = []
             for step in steps:
                 cumulative_days += step.get("delay_days", 0)
                 fd = step.get("fixed_date", "")
@@ -6683,32 +6697,36 @@ def build_drip_tasks(target_date=None):
                 else:
                     if sd != target_date:
                         continue
-                # Accept several phone-key aliases so numbers show however they
-                # were provided (ZoomInfo / API dicts / CSV): mobile -> C, office -> B.
-                phones = []
-                _mob = (c.get("phone_mobile") or c.get("mobile") or c.get("cell")
-                        or c.get("MobilePhone") or "").strip()
-                _off = (c.get("phone_office") or c.get("phone") or c.get("Phone")
-                        or c.get("WorkPhone") or c.get("work_phone") or "").strip()
-                if _mob:
-                    phones.append(dict(number=_mob, label="Mobile"))
-                if _off and _off != _mob:
-                    phones.append(dict(number=_off, label="Office"))
-                tasks.append(dict(
-                    id=task_id,
-                    channel="call" if ch == ST.CALL else ("li" if ch == ST.LINKEDIN else "task"),
-                    name=f"{c.get('first_name', '')} {c.get('last_name', '')}".strip(),
-                    role=c.get("title", ""), company=c.get("company", ""),
-                    note=step.get("script_notes", step.get("name", "")),
-                    touch=f"Touch {step.get('touch_number', 1)} of {len(steps)}",
-                    sequence=cname, phones=phones,
-                    script=step.get("script_notes", ""),
-                    overdue=(sd < today and target_date == today), email=em,
-                    linkedin=c.get("linkedin", ""),
-                    camp_path=camp_path,
-                    is_evergreen=_is_eg,
-                ))
-                break
+                _eligible.append((_TASK_TYPE_PRIORITY.get(ch, 9), sd, task_id, step, ch))
+            if not _eligible:
+                continue
+            _eligible.sort(key=lambda x: (x[0], x[1]))
+            _prio, sd, task_id, step, ch = _eligible[0]
+            # Accept several phone-key aliases so numbers show however they
+            # were provided (ZoomInfo / API dicts / CSV): mobile -> C, office -> B.
+            phones = []
+            _mob = (c.get("phone_mobile") or c.get("mobile") or c.get("cell")
+                    or c.get("MobilePhone") or "").strip()
+            _off = (c.get("phone_office") or c.get("phone") or c.get("Phone")
+                    or c.get("WorkPhone") or c.get("work_phone") or "").strip()
+            if _mob:
+                phones.append(dict(number=_mob, label="Mobile"))
+            if _off and _off != _mob:
+                phones.append(dict(number=_off, label="Office"))
+            tasks.append(dict(
+                id=task_id,
+                channel="call" if ch == ST.CALL else ("li" if ch == ST.LINKEDIN else "task"),
+                name=f"{c.get('first_name', '')} {c.get('last_name', '')}".strip(),
+                role=c.get("title", ""), company=c.get("company", ""),
+                note=step.get("script_notes", step.get("name", "")),
+                touch=f"Touch {step.get('touch_number', 1)} of {len(steps)}",
+                sequence=cname, phones=phones,
+                script=step.get("script_notes", ""),
+                overdue=(sd < today and target_date == today), email=em,
+                linkedin=c.get("linkedin", ""),
+                camp_path=camp_path,
+                is_evergreen=_is_eg,
+            ))
     return tasks
 
 def count_auto_emails_due():
