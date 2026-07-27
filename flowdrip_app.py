@@ -39961,10 +39961,16 @@ def p_candidate_campaign(s: AppState, rf):
                             f"pointer-events:none;")
 
                 # ── Redacted Résumé (client-ready: name + contact removed) ──
-                async def _gen_redacted():
-                    _src = cand.get("resume_text", "") or ""
+                # One block per slate candidate (1-3) — previously this only
+                # ever operated on `cand` (= cpc_candidates[0]), so adding 2
+                # and 3 to the MPC slate never generated their résumés and
+                # only 1 PDF ever got attached to the campaign. Fixed
+                # 2026-07-27: loop over the full slate like the candidate
+                # summary cards above already do.
+                async def _gen_redacted(_rcand):
+                    _src = _rcand.get("resume_text", "") or ""
                     if not _src:
-                        cand["_redacting"] = False; rf(); return
+                        _rcand["_redacting"] = False; rf(); return
                     try:
                         import anthropic as _anth
                         _cl = _anth.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
@@ -39993,101 +39999,104 @@ def p_candidate_campaign(s: AppState, rf):
                                 "You format and redact candidate résumés for a staffing "
                                 "firm. Output clean plain text only."),
                             messages=[{"role": "user", "content": _rp}])
-                        cand["redacted_resume"] = _msg.content[0].text.strip()
-                        cand["_redact_err"] = ""
+                        _rcand["redacted_resume"] = _msg.content[0].text.strip()
+                        _rcand["_redact_err"] = ""
                     except Exception as _re:
-                        cand["_redact_err"] = str(_re)[:160]
+                        _rcand["_redact_err"] = str(_re)[:160]
                     finally:
-                        cand["_redacting"] = False
+                        _rcand["_redacting"] = False
                         rf()
 
-                _redacted = cand.get("redacted_resume", "") or ""
-                _resume_src = cand.get("resume_text", "") or ""
-                with ui.element("div").classes("fd-gc").style("margin-top:6px;"):
-                    with ui.element("div").style(
-                            "display:flex;align-items:center;justify-content:space-between;"
-                            "margin-bottom:4px;"):
-                        ui.label("Redacted Résumé").style(
-                            f"font-size:16px;font-weight:800;color:{C['teal']};"
-                            f"font-family:'Nunito',sans-serif;")
-                        if _redacted:
-                            def _regen():
-                                cand["redacted_resume"] = ""
-                                cand["_redact_started"] = True
-                                cand["_redacting"] = True
-                                cand["_redact_err"] = ""
-                                ui.timer(0.1, _gen_redacted, once=True)
-                                rf()
-                            with ui.element("button").classes("fd-gb").style(
-                                    "padding:5px 13px;font-size:11px;").on("click", _regen):
-                                ui.label("↻ Regenerate")
-                    ui.label("Name & contact details removed — ready to share with clients.").style(
-                        f"font-size:12.5px;color:{C['muted']};margin-bottom:12px;")
-                    if _redacted:
+                for _ridx, _rcand in enumerate(list(s.cpc_candidates)):
+                    _redacted = _rcand.get("redacted_resume", "") or ""
+                    _resume_src = _rcand.get("resume_text", "") or ""
+                    _r_label = ("Redacted Résumé" if _slate_n == 1
+                                else f"Redacted Résumé — {_rcand.get('name', 'Candidate')}")
+                    with ui.element("div").classes("fd-gc").style("margin-top:6px;margin-bottom:12px;"):
                         with ui.element("div").style(
-                                "background:#ffffff;border:1px solid #E2E8F0;border-radius:10px;"
-                                "padding:28px 34px;max-height:62vh;overflow:auto;"
-                                "font-family:'Inter','Segoe UI',Arial,sans-serif;"
-                                "box-shadow:0 1px 3px rgba(15,23,42,.07);"):
-                            _seen_title = False
-                            for _ln in _redacted.splitlines():
-                                _t = _ln.strip()
-                                if not _t:
-                                    ui.element("div").style("height:8px;")
-                                    continue
-                                _upper = _t.upper()
-                                if not _seen_title:
-                                    _seen_title = True
-                                    ui.label(_t).style(
-                                        "font-size:12px;font-weight:800;letter-spacing:.12em;"
-                                        "color:#0F172A;text-align:center;text-transform:uppercase;"
-                                        "padding-bottom:12px;margin-bottom:16px;"
-                                        "border-bottom:2px solid #0F172A;")
-                                    continue
-                                if _t == _upper and len(_t) <= 36 and not _t.startswith("-"):
-                                    ui.label(_t).style(
-                                        "font-size:12px;font-weight:800;letter-spacing:.09em;"
-                                        "color:#0E7C86;text-transform:uppercase;"
-                                        "margin-top:18px;margin-bottom:8px;padding-bottom:5px;"
-                                        "border-bottom:1px solid #E2E8F0;")
-                                elif _t.startswith("- ") or _t.startswith("• "):
-                                    ui.label("•  " + _t[2:]).style(
-                                        "font-size:13px;color:#334155;line-height:1.55;"
-                                        "padding:1px 0 1px 18px;")
-                                elif (" | " in _t) or (" — " in _t and len(_t) <= 92):
-                                    ui.label(_t).style(
-                                        "font-size:13.5px;font-weight:700;color:#0F172A;"
-                                        "margin-top:8px;line-height:1.5;")
-                                else:
-                                    ui.label(_t).style(
-                                        "font-size:13px;color:#334155;line-height:1.62;")
-                    elif not _resume_src:
-                        ui.label("No résumé text on file to redact for this candidate.").style(
-                            f"font-size:12.5px;color:{C['muted']};padding:8px 0;")
-                    else:
-                        if not cand.get("_redacting") and not cand.get("_redact_started"):
-                            cand["_redact_started"] = True
-                            cand["_redacting"] = True
-                            ui.timer(0.1, _gen_redacted, once=True)
-                        if cand.get("_redact_err"):
-                            ui.label("Couldn't generate the redacted résumé: "
-                                     + cand["_redact_err"]).style(
-                                f"font-size:12px;color:{C['danger']};margin-bottom:8px;")
-                            def _retry():
-                                cand["_redact_started"] = True
-                                cand["_redacting"] = True
-                                cand["_redact_err"] = ""
-                                ui.timer(0.1, _gen_redacted, once=True)
-                                rf()
-                            with ui.element("button").classes("fd-gb").style(
-                                    "padding:5px 14px;font-size:12px;").on("click", _retry):
-                                ui.label("Try again")
-                        else:
+                                "display:flex;align-items:center;justify-content:space-between;"
+                                "margin-bottom:4px;"):
+                            ui.label(_r_label).style(
+                                f"font-size:16px;font-weight:800;color:{C['teal']};"
+                                f"font-family:'Nunito',sans-serif;")
+                            if _redacted:
+                                def _regen(_c=_rcand):
+                                    _c["redacted_resume"] = ""
+                                    _c["_redact_started"] = True
+                                    _c["_redacting"] = True
+                                    _c["_redact_err"] = ""
+                                    ui.timer(0.1, lambda _c=_c: _gen_redacted(_c), once=True)
+                                    rf()
+                                with ui.element("button").classes("fd-gb").style(
+                                        "padding:5px 13px;font-size:11px;").on("click", _regen):
+                                    ui.label("↻ Regenerate")
+                        ui.label("Name & contact details removed — ready to share with clients.").style(
+                            f"font-size:12.5px;color:{C['muted']};margin-bottom:12px;")
+                        if _redacted:
                             with ui.element("div").style(
-                                    "display:flex;align-items:center;gap:10px;padding:20px 4px;"):
-                                ui.spinner("dots", size="22px", color=C["teal"])
-                                ui.label("Polishing a client-ready redacted résumé…").style(
-                                    f"font-size:13px;color:{C['teal']};")
+                                    "background:#ffffff;border:1px solid #E2E8F0;border-radius:10px;"
+                                    "padding:28px 34px;max-height:62vh;overflow:auto;"
+                                    "font-family:'Inter','Segoe UI',Arial,sans-serif;"
+                                    "box-shadow:0 1px 3px rgba(15,23,42,.07);"):
+                                _seen_title = False
+                                for _ln in _redacted.splitlines():
+                                    _t = _ln.strip()
+                                    if not _t:
+                                        ui.element("div").style("height:8px;")
+                                        continue
+                                    _upper = _t.upper()
+                                    if not _seen_title:
+                                        _seen_title = True
+                                        ui.label(_t).style(
+                                            "font-size:12px;font-weight:800;letter-spacing:.12em;"
+                                            "color:#0F172A;text-align:center;text-transform:uppercase;"
+                                            "padding-bottom:12px;margin-bottom:16px;"
+                                            "border-bottom:2px solid #0F172A;")
+                                        continue
+                                    if _t == _upper and len(_t) <= 36 and not _t.startswith("-"):
+                                        ui.label(_t).style(
+                                            "font-size:12px;font-weight:800;letter-spacing:.09em;"
+                                            "color:#0E7C86;text-transform:uppercase;"
+                                            "margin-top:18px;margin-bottom:8px;padding-bottom:5px;"
+                                            "border-bottom:1px solid #E2E8F0;")
+                                    elif _t.startswith("- ") or _t.startswith("• "):
+                                        ui.label("•  " + _t[2:]).style(
+                                            "font-size:13px;color:#334155;line-height:1.55;"
+                                            "padding:1px 0 1px 18px;")
+                                    elif (" | " in _t) or (" — " in _t and len(_t) <= 92):
+                                        ui.label(_t).style(
+                                            "font-size:13.5px;font-weight:700;color:#0F172A;"
+                                            "margin-top:8px;line-height:1.5;")
+                                    else:
+                                        ui.label(_t).style(
+                                            "font-size:13px;color:#334155;line-height:1.62;")
+                        elif not _resume_src:
+                            ui.label("No résumé text on file to redact for this candidate.").style(
+                                f"font-size:12.5px;color:{C['muted']};padding:8px 0;")
+                        else:
+                            if not _rcand.get("_redacting") and not _rcand.get("_redact_started"):
+                                _rcand["_redact_started"] = True
+                                _rcand["_redacting"] = True
+                                ui.timer(0.1, lambda _c=_rcand: _gen_redacted(_c), once=True)
+                            if _rcand.get("_redact_err"):
+                                ui.label("Couldn't generate the redacted résumé: "
+                                         + _rcand["_redact_err"]).style(
+                                    f"font-size:12px;color:{C['danger']};margin-bottom:8px;")
+                                def _retry(_c=_rcand):
+                                    _c["_redact_started"] = True
+                                    _c["_redacting"] = True
+                                    _c["_redact_err"] = ""
+                                    ui.timer(0.1, lambda _c=_c: _gen_redacted(_c), once=True)
+                                    rf()
+                                with ui.element("button").classes("fd-gb").style(
+                                        "padding:5px 14px;font-size:12px;").on("click", _retry):
+                                    ui.label("Try again")
+                            else:
+                                with ui.element("div").style(
+                                        "display:flex;align-items:center;gap:10px;padding:20px 4px;"):
+                                    ui.spinner("dots", size="22px", color=C["teal"])
+                                    ui.label("Polishing a client-ready redacted résumé…").style(
+                                        f"font-size:13px;color:{C['teal']};")
 
             # Right: Target List (companies + contacts). 2026-05-22 — was
             # a read-only "Target Companies" list pre-filled from the job
