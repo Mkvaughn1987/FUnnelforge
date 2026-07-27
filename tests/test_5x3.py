@@ -207,21 +207,35 @@ def test_representative_resume_from_card():
     assert r["experience"][0]["bullets"] == ["OSHPD healthcare TIs", "Procore, Bluebeam"]
 
 
+def _5x3_payload():
+    return ('{"role":"Project Engineer","summary":"Call me at (562) 619-6292.",'
+            '"expertise":["QC"],"experience":[{"title":"PE",'
+            '"employer":"Acme Civil Engineering Inc.",'
+            '"employer_type":"Regional civil firm","dates":"2024 to Present",'
+            '"bullets":["Ran RFIs at 4707 Dunkirk Avenue"]}],'
+            '"skills":"AutoCAD","education":["BS"]}')
+
+
 def test_ai_structure_resume_scrubs_and_structures():
     import flowdrip_app as fa
-    payload = ('{"role":"Project Engineer","summary":"Call me at (562) 619-6292.",'
-               '"expertise":["QC"],"experience":[{"title":"PE",'
-               '"employer":"Regional civil firm","dates":"2024 to Present",'
-               '"bullets":["Ran RFIs at 4707 Dunkirk Avenue"]}],'
-               '"skills":"AutoCAD","education":["BS"]}')
-    client = _StubClient(payload)
+    client = _StubClient(_5x3_payload())
     cand = {"resume_text": "real resume here", "target_role": "Project Engineer"}
     r = fa._ai_structure_resume(client, cand)
     assert r["representative"] is False
     assert r["role"] == "Project Engineer"
     assert "562" not in r["summary"]                       # PII scrubbed
     assert "Dunkirk Avenue" not in r["experience"][0]["bullets"][0]
+    # Default (redact_companies=True): generic descriptor, not the real name.
     assert r["experience"][0]["employer"] == "Regional civil firm"
+    assert "Acme" not in r["experience"][0]["employer"]
+
+
+def test_ai_structure_resume_can_reveal_real_employer():
+    import flowdrip_app as fa
+    client = _StubClient(_5x3_payload())
+    cand = {"resume_text": "real resume here", "target_role": "Project Engineer"}
+    r = fa._ai_structure_resume(client, cand, redact_companies=False)
+    assert r["experience"][0]["employer"] == "Acme Civil Engineering Inc."
 
 
 def test_ai_structure_resume_none_without_text():
