@@ -95,7 +95,7 @@ Unit-test the deterministic renderer (pure, no AI):
 
 (The AI-extraction branch is integration-tested manually via a preview send.)
 
-## Out of scope
+## Out of scopeI would 
 
 - Structural validator / auto-repair (Approach A+ — deferred).
 - Any change to email subjects or the 4-step cadence (already correct).
