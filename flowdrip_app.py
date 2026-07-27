@@ -26905,11 +26905,6 @@ def p_dashboard(s: AppState, rf):
             nav_go(s, rf, hub="sales", page=page)
         return _go
 
-    # Candidate pool — kept available for the "Job Match status" panel below
-    # even though it no longer backs a stat-strip box.
-    _dash_pool = load_candidate_pool()
-    _dash_active_pool = [c for c in _dash_pool if c.get("status") == "active"]
-
     with ui.element("div").classes("fd-stat-strip").style("margin-bottom:24px;"):
         for val, lbl, col, target_page, drip_day in [
             (len(overdue_tasks),    "Overdue",          C["danger"],    "drip",   "overdue"),
@@ -27119,84 +27114,27 @@ def p_dashboard(s: AppState, rf):
                 else:
                     ui.label("All caught up!").style(f"font-size:11px;color:{C['good']};")
 
-            # Job Match status
-            if _dash_active_pool:
-                _stale_cutoff = (date.today() - timedelta(days=7)).isoformat()
-                _stale = [c for c in _dash_active_pool if (c.get("last_searched", "") or "") <= _stale_cutoff]
-                _new_m = pool_scanner.pop_matches()
-                with ui.element("div").style(
-                        f"background:{C['card']};border:1px solid {C['border']};"
-                        f"border-radius:10px;padding:14px 16px;margin-top:8px;"):
-                    with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;"):
-                        ui.label(f"Top Candidates ({len(_dash_active_pool)} active)").style(
-                            f"font-size:13px;font-weight:600;color:{C['text_l']};")
-                        def _go_pool():
-                            nav_go(s, rf, hub="sales", page="candidate_finder")
-                        with ui.element("button").style(
-                                f"font-size:10px;color:{C['teal']};background:transparent;border:none;"
-                                f"cursor:pointer;font-family:inherit;").on("click", _go_pool):
-                            ui.label("View Pool")
-
-                    # Scanner status
-                    if pool_scanner.scanning:
-                        ui.label(f"Scanning: {pool_scanner.scan_progress}").style(
-                            f"font-size:11px;color:{C['teal']};padding:2px 0;margin-bottom:6px;")
-
-                    # New matches from scanner
-                    if _new_m:
-                        for _nm in _new_m:
-                            _nc = len(_nm.get("new_companies", []))
-                            _op = _nm.get("has_open", 0)
-                            ui.label(f"NEW: {_nm['candidate_name']}  -  {_nc} new companies ({_op} open)").style(
-                                f"font-size:11px;color:{C['good']};padding:2px 0;font-weight:600;")
-                        ui.element("div").style(f"height:1px;background:{C['border']};margin:6px 0;")
-
-                    # Each candidate with match count  -  clickable
-                    for _dc in _dash_active_pool:
-                        _dr = _dc.get("results", [])
-                        _d_open = sum(1 for r in _dr if r.get("has_open_posting"))
-                        _d_last = _dc.get("last_searched", "")
-                        _d_stale = not _d_last or _d_last <= _stale_cutoff
-                        _d_cid = _dc.get("id", "")
-
-                        def _go_cand(c=_dc):
-                            s.cf_tab = "search"
-                            s.cf_step = 0
-                            s.cf_resume_text = c.get("resume_text", "")
-                            s.cf_resume_filename = c.get("resume_filename", "")
-                            s.cf_target_role = c.get("target_role", "")
-                            s.cf_location = c.get("location", "")
-                            s.cf_salary = c.get("salary", "")
-                            s.cf_candidate_name = c.get("name", "")
-                            s._cf_pool_search_id = c.get("id", "")
-                            s.cf_jobs = c.get("results", [])
-                            s.cf_summary = c.get("summary", "")
-                            s.cf_redacted_resume = c.get("redacted_resume", "")
-                            if s.cf_jobs:
-                                s.cf_step = 2  # go straight to results
-                            nav_go(s, rf, hub="sales", page="candidate_finder")
-
-                        with ui.element("div").style(
-                                f"display:flex;align-items:center;gap:8px;padding:5px 0;"
-                                f"cursor:pointer;border-bottom:1px solid {C['border']}15;"
-                                ).on("click", _go_cand):
-                            # Status dot
-                            _dot = C["warn"] if _d_stale else C["good"]
-                            ui.element("div").style(
-                                f"width:6px;height:6px;border-radius:50%;background:{_dot};flex-shrink:0;")
-                            # Name + role
-                            with ui.element("div").style("flex:1;min-width:0;"):
-                                ui.label(_dc.get("name", "")).style(
-                                    f"font-size:11px;font-weight:600;color:{C['text_l']};"
-                                    f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
-                            # Match count
-                            ui.label(f"{_d_open} open" if _d_open else f"{len(_dr)} co.").style(
-                                f"font-size:10px;color:{C['good'] if _d_open else C['muted']};flex-shrink:0;")
-
-                    # Stale warning
-                    if _stale and not pool_scanner.scanning:
-                        ui.label(f"{len(_stale)} need refresh").style(
-                            f"font-size:10px;color:{C['warn']};margin-top:6px;")
+            # Pipeline (ATS) status
+            with ui.element("div").style(
+                    f"background:{C['card']};border:1px solid {C['border']};"
+                    f"border-radius:10px;padding:14px 16px;margin-top:8px;"):
+                with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;"):
+                    ui.label("Pipeline").style(
+                        f"font-size:13px;font-weight:600;color:{C['text_l']};")
+                    def _go_pipeline():
+                        ui.navigate.to("/ats")
+                    with ui.element("button").style(
+                            f"font-size:10px;color:{C['teal']};background:transparent;border:none;"
+                            f"cursor:pointer;font-family:inherit;").on("click", _go_pipeline):
+                        ui.label("View")
+                import ats as _ats
+                _pipe_email = _CURRENT_USER_EMAIL.get() or ""
+                _pipe_total = _ats.total_count()
+                _pipe_mine = _ats.total_count(owner=_pipe_email) if _pipe_email else 0
+                ui.label(f"{_pipe_total:,} candidates in Pipeline").style(
+                    f"font-size:11px;color:{C['muted']};padding:2px 0;")
+                ui.label(f"{_pipe_mine:,} added by you").style(
+                    f"font-size:11px;color:{C['muted']};padding:2px 0;")
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  EMAIL SEQUENCER: CREATE CAMPAIGN (create_camp)
