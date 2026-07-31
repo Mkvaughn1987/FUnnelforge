@@ -44117,6 +44117,33 @@ def p_ai_settings(s, rf):
         # dialog's 'hide' event so the key stays visible until 'Done'.
         _reveal_key_dialog(key)
 
+    def _view_api_docs_dialog():
+        _docs_path = (Path(__file__).resolve().parent
+                      / "docs" / "api" / "campaigns.md")
+        try:
+            _docs_text = _docs_path.read_text(encoding="utf-8")
+        except OSError:
+            _docs_text = ("API docs not found locally — see "
+                          "`docs/api/campaigns.md` in the FunnelForge repo.")
+        with ui.dialog() as _d_dlg, ui.card().style(
+                f"background:{C['card']};border:1px solid {C['border']};"
+                f"min-width:560px;max-width:720px;max-height:80vh;"
+                f"padding:22px 26px;border-radius:14px;"):
+            ui.label("📄 Campaign API Docs").style(
+                f"font-size:16px;font-weight:800;color:{C['text_l']};"
+                f"margin-bottom:10px;")
+            with ui.element("div").style(
+                    "max-height:60vh;overflow-y:auto;margin-bottom:14px;"):
+                ui.markdown(_docs_text).style(
+                    f"font-size:12px;color:{C['muted']};line-height:1.6;")
+            with ui.element("div").style(
+                    "display:flex;justify-content:flex-end;"):
+                with ui.element("button").classes("fd-gb").style(
+                        "padding:7px 14px;font-size:12px;").on(
+                        "click", _d_dlg.close):
+                    ui.label("Close")
+        _d_dlg.open()
+
     def _regenerate_key():
         with ui.dialog() as _c_dlg, ui.card().style(
                 f"background:{C['card']};border:1px solid #c9760f60;"
@@ -44158,8 +44185,14 @@ def p_ai_settings(s, rf):
                 f"font-family:'Nunito',sans-serif;")
         ui.label("Generate a key to create and launch campaigns via "
                  "the DripDrop API.").style(
-            f"font-size:11px;color:{C['muted']};margin-bottom:12px;"
+            f"font-size:11px;color:{C['muted']};margin-bottom:4px;"
             f"line-height:1.5;")
+        with ui.element("span").style(
+                f"font-size:11px;color:{C['teal']};cursor:pointer;"
+                f"text-decoration:underline;font-family:inherit;"
+                f"display:inline-block;margin-bottom:12px;").on(
+                "click", _view_api_docs_dialog):
+            ui.label("📄 View API Docs")
         if _api_status:
             ui.label(
                 f"Active key · created "
@@ -56027,7 +56060,7 @@ if __name__ in {"__main__", "__mp_main__"}:
     if not _SERVER_MODE:
         _archived = archive_old_queue_entries(days=30)
         if _archived:
-            print(f"[DripDrop] Archived {_archived} old queue entries → scheduled_queue_archive.json")
+            print(f"[DripDrop] Archived {_archived} old queue entries -> scheduled_queue_archive.json")
     # One-shot tenant admin migration: promote the oldest user from each
     # email domain to tenant_admin if the domain has no admin yet. Fills
     # the gap for users (like Michael at arenastaffing.net) who signed up
