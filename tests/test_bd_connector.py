@@ -155,6 +155,16 @@ def test_tt_load_reuses_existing_customer():
     assert len(posts) == 1 and "Contact" in posts[0][1]      # no Customer create
 
 
+def test_tt_load_reuses_existing_customer_near_duplicate_name():
+    # "Acme Co" already exists in TT; launching for "Acme Co Inc" should
+    # reuse it (suffix-normalized match) instead of creating a duplicate.
+    http = _FakeTT(existing=["Acme Co"])
+    out = fa._tt_load_company(CFG, "Acme Co Inc", [{"email": "v@acme.com"}], http=http)
+    posts = [c for c in http.calls if c[0] == "POST"]
+    assert len(posts) == 1 and "Contact" in posts[0][1]      # no Customer create
+    assert out["customer"] == "Acme Co"
+
+
 def test_tt_load_skips_contact_without_email():
     http = _FakeTT()
     out = fa._tt_load_company(CFG, "Acme Co", [{"first_name": "NoEmail"}], http=http)

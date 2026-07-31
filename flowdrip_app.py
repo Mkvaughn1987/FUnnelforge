@@ -5527,11 +5527,15 @@ def _tt_load_company(cfg, company, contacts, http=None):
     r = http.get(f"{base}/api/resource/Customer",
                  params={"filters": q, "fields": '["name","customer_name"]'},
                  headers=hdr, timeout=30)
-    exact = next((d for d in r.json().get("data", [])
-                  if (d.get("customer_name") or "").strip().lower()
-                  == company.strip().lower()), None)
-    if exact:
-        cust_name = exact["name"]
+    # Normalized match (same suffix-stripping as the dedupe master's
+    # _bdc_norm_company) instead of exact-string comparison, so "Brinkmann
+    # Constructors" and "Brinkmann Constructors Inc" resolve to the same
+    # TT Customer instead of creating a duplicate.
+    match = next((d for d in r.json().get("data", [])
+                  if _bdc_norm_company(d.get("customer_name") or "")
+                  == _bdc_norm_company(company)), None)
+    if match:
+        cust_name = match["name"]
     else:
         r = http.post(f"{base}/api/resource/Customer", headers=hdr, timeout=30, json={
             "customer_name": company, "customer_type": "Company",
@@ -5646,11 +5650,18 @@ def _mcp_launch_arena_5x3(email, args):
             company, f"Selected - skipped (no bench fit): {payload.get('reason', '')}")
         return payload
     if status == 200:
-        _bdc_update_status(company, "Campaign launched")
-        try:
-            _bdc_enqueue_tt(company, args.get("contacts") or [], email)
-        except Exception as e:
-            print(f"[bdc] TT enqueue failed for {company}: {e}", flush=True)
+        # Don't create a TT Customer record for a launch that queued zero
+        # actual sends (e.g. every contact was DNC/opted-out/dead-domain, or
+        # the entire company hit the Active-Clients blocklist) — there are no
+        # reps to load, and it would otherwise leave a phantom Customer in TT.
+        if payload.get("contacts_queued", 0) > 0:
+            _bdc_update_status(company, "Campaign launched")
+            try:
+                _bdc_enqueue_tt(company, args.get("contacts") or [], email)
+            except Exception as e:
+                print(f"[bdc] TT enqueue failed for {company}: {e}", flush=True)
+        else:
+            _bdc_update_status(company, "Campaign launched - 0 contacts queued (TT skipped)")
         return payload
     payload = dict(payload)
     payload["retryable"] = status in (422, 502, 503)

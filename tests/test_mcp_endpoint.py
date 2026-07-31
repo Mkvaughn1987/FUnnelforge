@@ -214,6 +214,30 @@ def test_launch_tool_forces_5x3_and_updates_master(mcp_token, monkeypatch):
     assert fa._bdc_check_companies(["Acme Co"])[0]["status"] == "Campaign launched"
 
 
+def test_launch_tool_zero_contacts_queued_skips_tt(mcp_token, monkeypatch):
+    # Campaign "launched" (status 200, not skipped-for-bench-fit) but every
+    # contact was filtered out (DNC/blocklist/dead-domain) -> contacts_queued
+    # is 0. No TT Customer record should be created for an empty send.
+    def fake_core(owner, spec):
+        return {"campaign_id": "camp1", "name": "N", "steps": 5,
+                "contacts_queued": 0, "start_date": spec["start_date"],
+                "schedule": [], "warning": "no contacts queued"}, 200
+
+    called = []
+    monkeypatch.setattr(fa, "_api_campaign_core", fake_core)
+    monkeypatch.setattr(fa, "_bdc_enqueue_tt", lambda *a, **k: called.append(1))
+    fa._bdc_record_companies([{"company": "Acme Co"}], added_by="p1@arena.com")
+    r = _rpc(_client(), mcp_token, "tools/call", {"name": "launch_arena_5x3",
+             "arguments": {"company": "Acme Co", "roles": ["PM"],
+                           "start_date": "2026-07-27",
+                           "contacts": [{"email": "v@acme.com"}],
+                           "enroll_newsletter": "NL"}})
+    out = json.loads(r.json()["result"]["content"][0]["text"])
+    assert out["campaign_id"] == "camp1" and not called
+    status = fa._bdc_check_companies(["Acme Co"])[0]["status"]
+    assert status == "Campaign launched - 0 contacts queued (TT skipped)"
+
+
 def test_launch_tool_skip_updates_master_no_tt(mcp_token, monkeypatch):
     monkeypatch.setattr(fa, "_api_campaign_core",
                         lambda o, s: ({"skipped": True, "reason": "no fit"}, 200))
