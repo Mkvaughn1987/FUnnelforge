@@ -295,6 +295,23 @@ def _niche_rows(owner: str, fam: str, state_abbrev: str) -> list:
     return out
 
 
+def _niche_rows_team(fam: str, state_abbrev: str) -> list:
+    """Same as _niche_rows but across every owner's candidates (team-wide)."""
+    con = _con()
+    try:
+        rows = [dict(r) for r in con.execute("SELECT * FROM talents")]
+    except Exception:
+        return []
+    finally:
+        con.close()
+    out = []
+    for r in rows:
+        if (_role_family(r.get("current_title") or "") == fam
+                and _norm_state(r.get("state") or "") == state_abbrev):
+            out.append(r)
+    return out
+
+
 def tearsheet_count(p: dict, owner: str = None) -> int:
     """Member count for manual tearsheets; structural niche count for auto
     role×state tearsheets; live FTS search count for other smart ones."""
@@ -342,6 +359,27 @@ _DEFAULT_PIPELINES = [
     ("Data Center Construction", "data center construction"),
     ("CNC Machinist · Utah", "CNC machinist Utah"),
 ]
+
+
+def team_niche_combos(top_n: int = 20) -> list:
+    """Top role-family × state niches across EVERY owner's candidates, computed
+    live (not stored) — powers the 'All Candidates · Team' pools view. Returns
+    [(fam, state_abbrev, count), ...] sorted by count descending."""
+    from collections import Counter
+    con = _con()
+    try:
+        rows = con.execute("SELECT current_title, state FROM talents").fetchall()
+    except Exception:
+        return []
+    finally:
+        con.close()
+    combos = Counter()
+    for r in rows:
+        fam = _role_family(r["current_title"] or "")
+        abbr = _norm_state(r["state"] or "")
+        if fam and fam != "Other" and abbr:
+            combos[(fam, abbr)] += 1
+    return [(fam, abbr, cnt) for (fam, abbr), cnt in combos.most_common(top_n) if cnt >= 2]
 
 
 def auto_smart_tearsheets(owner: str, top_n: int = 6) -> int:
@@ -2292,6 +2330,23 @@ def _view_dashboard(ff, st, refresh):
             f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:14px;display:block;")
         pls = list_pipelines(_owner)
         with ui.element("div").style("display:flex;flex-wrap:wrap;gap:12px;"):
+            def _go_team_pools(_e=None):
+                st["view"] = "team_pools"
+                refresh()
+            with ui.element("div").style(
+                    f"position:relative;flex:0 0 auto;min-width:180px;"
+                    f"background:{_c(C,'teal','#1AE3D9')}12;"
+                    f"border:1px solid {_c(C,'teal','#1AE3D9')}40;border-radius:10px;"
+                    f"padding:14px 16px;cursor:pointer;").on("click", _go_team_pools):
+                ui.label(f"{_team_total:,}").style(
+                    f"font-size:24px;font-weight:800;color:{_c(C,'teal','#1AE3D9')};"
+                    f"font-family:'Nunito',sans-serif;line-height:1;")
+                ui.label("All Candidates · Team").style(
+                    f"font-size:12px;font-weight:600;color:{_c(C,'text_l','#0F172A')};margin-top:4px;"
+                    f"max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
+                ui.label("⚡ top 20 pools").style(
+                    f"font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;"
+                    f"color:{_c(C,'muted','#94A3B8')};margin-top:3px;")
             if not pls:
                 ui.label("No tearsheets yet — create one, then add candidates from the "
                          "Candidates page.").style(
@@ -2668,6 +2723,58 @@ def _resume_preview(ff, st, refresh):
             'font-family:Arial,sans-serif;font-size:12.5px;line-height:1.6;">'
             + (d.get("resume_text") or "(no résumé text on file)").replace("<", "&lt;").replace(">", "&gt;")
             + '</div>')
+
+
+def _view_team_pools(ff, st, refresh):
+    """Gallery of the top 20 role×state niches across the WHOLE team's candidate
+    pool — reached by clicking the 'All Candidates · Team' card on the dashboard.
+    Candidates outside the top 20 niches are intentionally left unbucketed."""
+    C = ff.C
+
+    def _back(_e=None):
+        st["view"] = "dashboard"; refresh()
+    with ui.element("span").style(
+            f"font-size:12px;color:{_c(C,'teal','#1AE3D9')};cursor:pointer;").on("click", _back):
+        ui.label("← Back to Dashboard")
+    ui.label("All Candidates · Team").style(
+        f"font-size:22px;font-weight:800;color:{_c(C,'text_l','#0F172A')};"
+        f"font-family:'Nunito',sans-serif;margin-top:6px;")
+    ui.label("The team's candidate pool, broken into its top 20 role × state pools. "
+             "Click a pool to see those candidates — the rest of the pool sits "
+             "outside these 20 and isn't shown here.").style(
+        f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin:4px 0 18px;display:block;max-width:760px;")
+
+    combos = team_niche_combos(top_n=20)
+    if not combos:
+        ui.label("Not enough candidates yet to form any pools.").style(
+            f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
+        return
+
+    with ui.element("div").style(
+            "display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;"):
+        for fam, abbr, cnt in combos:
+            def _go(_e=None, _fam=fam, _abbr=abbr):
+                st["results"] = _niche_rows_team(_fam, _abbr)
+                st["terms"] = _terms(f"{_fam}")
+                st["query"] = ""
+                st["crit"] = {}
+                st["preview"] = None
+                st.pop("tearsheet_id", None)
+                st["view"] = "candidates"
+                refresh()
+            with ui.element("div").style(
+                    f"background:{_c(C,'card','#FFFFFF')};"
+                    f"border:1px solid {_c(C,'border','#E2E8F0')};border-radius:10px;"
+                    f"padding:14px 16px;cursor:pointer;").on("click", _go):
+                ui.label(f"{cnt:,}").style(
+                    f"font-size:24px;font-weight:800;color:{_c(C,'teal','#1AE3D9')};"
+                    f"font-family:'Nunito',sans-serif;line-height:1;")
+                ui.label(f"{fam} · {_state_name(abbr)}").style(
+                    f"font-size:12px;font-weight:600;color:{_c(C,'text_l','#0F172A')};margin-top:4px;"
+                    f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
+                ui.label("⚡ team pool").style(
+                    f"font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;"
+                    f"color:{_c(C,'muted','#94A3B8')};margin-top:3px;")
 
 
 def _view_candidates(ff, st, refresh):
@@ -3990,7 +4097,8 @@ def _render_app(ff, st, refresh):
                     f"text-transform:uppercase;letter-spacing:.04em;margin-top:3px;display:block;")
             for key, icon, label in _NAV:
                 on = (st["view"] == key) or (key == "candidates" and st["view"] == "profile") \
-                    or (key == "companies" and st["view"] == "company_detail")
+                    or (key == "companies" and st["view"] == "company_detail") \
+                    or (key == "dashboard" and st["view"] == "team_pools")
 
                 def _nav(_e=None, k=key):
                     st["view"] = k
@@ -4025,6 +4133,8 @@ def _render_app(ff, st, refresh):
                 _view_upload(ff, st, refresh)
             elif v == "dashboard":
                 _view_dashboard(ff, st, refresh)
+            elif v == "team_pools":
+                _view_team_pools(ff, st, refresh)
             elif v == "jobs":
                 _view_jobs(ff, st, refresh)
             elif v == "companies":
