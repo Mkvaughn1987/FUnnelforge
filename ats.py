@@ -47,7 +47,24 @@ def _allowed_set() -> set:
 
 
 def is_allowed(email: str) -> bool:
-    return bool(email) and email.strip().lower() in _allowed_set()
+    """True if this account may open the /ats page.
+
+    Must match the nav-button gate in flowdrip_app.py (_ats_allowed —
+    any @arenastaffing.net account, plus a few individually allowlisted
+    accounts outside that domain) or the button shows for a user who
+    then gets silently bounced back to "/" by the page handler below.
+    Falls back to the static _allowed_set() email list for standalone/
+    test runs where flowdrip_app's domain check isn't reachable.
+    """
+    e = (email or "").strip().lower()
+    if not e:
+        return False
+    try:
+        if _ff()._ats_allowed(e):
+            return True
+    except Exception:
+        pass
+    return e in _allowed_set()
 
 
 # ── Resources ─────────────────────────────────────────────────────────────
