@@ -32243,7 +32243,10 @@ def _build_polished_resume_pdf(resume: dict) -> str:
                           Paragraph(e.get("dates",""), ed_st)]],
                         colWidths=[avail*0.74, avail*0.26])
             hdr.setStyle(TableStyle(NOPAD))
-            flow = [hdr, Paragraph(e.get("employer",""), em_st), Spacer(1,2)]
+            flow = [hdr]
+            if e.get("employer"):
+                flow.append(Paragraph(e["employer"], em_st))
+            flow.append(Spacer(1,2))
             for b in (e.get("bullets") or []):
                 flow.append(Paragraph(b, bul_st, bulletText=u'•'))
             flow.append(Spacer(1,5))
@@ -32361,6 +32364,29 @@ def _representative_resume_from_card(card: dict) -> dict:
     }
 
 
+def _redacted_resume_from_card(card: dict) -> dict:
+    """Real candidate résumé rendered straight from an already-anonymized
+    card (e.g. CandidateBlast, which redacts client-side and never sends a
+    _pool_id or raw résumé text to the server). Unlike
+    _representative_resume_from_card, this candidate is real — just not
+    linked to an ATS record — so the PDF must not claim to be illustrative
+    filler. No summary is fabricated; the bullets ARE the real, redacted
+    résumé content."""
+    role = (card.get("role") or "").strip()
+    bullets = [re.sub(r'^[•\-\*]\s*', '', (b or "").strip())
+               for b in (card.get("bullets") or [])]
+    bullets = [b for b in bullets if b]
+    if not role and not bullets:
+        return None
+    return {
+        "role": role or "Candidate", "representative": False,
+        "expertise": [],
+        "experience": [{"title": role or "Professional",
+                        "employer": "", "dates": "", "bullets": bullets}],
+        "skills": "", "education": [],
+    }
+
+
 def _ai_structure_resume(client, candidate: dict, redact_companies: bool = True):
     """Turn a pool candidate's real resume_text into a structured, redacted
     résumé dict for the 5x3 polished PDF. Injection-guarded (résumé text is
@@ -32465,6 +32491,7 @@ def _synthesize_fill_card(role: str, label: str) -> dict:
             f"Strong core skills expected of a {role}",
             "Representative profile illustrating available talent for this role",
         ],
+        "_synthetic": True,
     }
 
 
@@ -32653,10 +32680,13 @@ def _build_redacted_resumes_from_cards(cards, camp_type, client=None, owner=None
                                         redact_companies: bool = True) -> list:
     """Core résumé-PDF generation, decoupled from AppState so both the wizard
     (_aicb_build_redacted_resumes) and the API path can call it. 5x3 uses the
-    polished engine (real pool history anonymized via _ai_structure_resume,
-    controlled by redact_companies; representative fallback for cards without
-    _pool_id); every other type keeps the legacy thin PDF. Returns saved
-    filenames in card order."""
+    polished engine: real pool history anonymized via _ai_structure_resume
+    when a card carries a resolvable _pool_id; otherwise a real candidate
+    without a pool link (e.g. CandidateBlast's pre-anonymized API cards)
+    renders via _redacted_resume_from_card, and only cards explicitly marked
+    `_synthetic` (bench-shortfall filler from _synthesize_fill_card) get the
+    representative/illustrative fallback. Every other campaign type keeps
+    the legacy thin PDF. Returns saved filenames in card order."""
     saved = []
     is_5x3 = (camp_type or "").strip() == "fivebythree"
     for card in (cards or []):
@@ -32670,7 +32700,8 @@ def _build_redacted_resumes_from_cards(cards, camp_type, client=None, owner=None
                     if rec:
                         resume = _ai_structure_resume(client, rec, redact_companies=redact_companies)
                 if resume is None:
-                    resume = _representative_resume_from_card(card)
+                    resume = (_representative_resume_from_card(card) if card.get("_synthetic")
+                              else _redacted_resume_from_card(card))
                 if not resume:
                     continue
                 resume["code"] = label
