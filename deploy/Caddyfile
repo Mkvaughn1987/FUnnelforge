@@ -1,0 +1,22 @@
+dripdripdrop.ai {
+    # Blue/green failover — try :8080 (blue) first, fall back to :8081 (green)
+    # based on active health checks against /healthz. Works for both
+    # directions of the zero-downtime swap in _deploy_zero_downtime.sh:
+    # whichever color is healthy takes all traffic within ~3s.
+    reverse_proxy localhost:8080 localhost:8081 {
+        lb_policy first
+        health_uri /healthz
+        health_interval 3s
+        health_timeout 2s
+    }
+}
+
+www.dripdripdrop.ai {
+    redir https://dripdripdrop.ai{uri} permanent
+}
+
+mcp.dripdripdrop.ai {
+    # DripDrop MCP connector - independent process from the blue/green app,
+    # single local port, no failover needed.
+    reverse_proxy localhost:8090
+}

@@ -1,0 +1,22 @@
+[Unit]
+Description=DripDrop MCP Connector
+After=network.target dripdrop.service
+
+[Service]
+Type=simple
+User=dripdrop
+Group=dripdrop
+WorkingDirectory=/opt/dripdrop/app
+Environment=DRIPDROP_DATA_DIR=/opt/dripdrop/data
+Environment=DRIPDROP_MCP_TRANSPORT=streamable-http
+Environment=DRIPDROP_MCP_HOST=127.0.0.1
+Environment=DRIPDROP_MCP_PORT=8090
+Environment=DRIPDROP_MCP_PUBLIC_URL=https://mcp.dripdripdrop.ai
+Environment=DRIPDROP_API_BASE_URL=http://127.0.0.1:8080
+EnvironmentFile=/opt/dripdrop/.env
+ExecStart=/opt/dripdrop/venv/bin/python -m mcp_server.dripdrop_mcp
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

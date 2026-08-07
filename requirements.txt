@@ -5,3 +5,4 @@ httpx
 aiofiles
 reportlab
 pymupdf
+mcp[cli]>=2.0.0
