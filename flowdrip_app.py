@@ -33949,6 +33949,123 @@ def _aicb_pool_candidate_bullets(cand: dict) -> list:
     return bullets
 
 
+def _aicb_ats_candidate_bullets(cand: dict) -> list:
+    """Convert an ats.py talents row to bullet lines for the card UI.
+    Mirrors _aicb_pool_candidate_bullets but adapted to the ATS schema
+    (current_title/city/state/summary — no target_role or salary field)."""
+    bullets: list = []
+    loc = ", ".join(p for p in (cand.get("city"), cand.get("state")) if p)
+    if loc:
+        bullets.append(f"Location: {loc}")
+    if cand.get("current_title"):
+        bullets.append(f"Target role: {cand['current_title']}")
+    summary = (cand.get("summary") or "").strip()
+    if summary:
+        first = summary.split("\n")[0].split(".")[0][:140]
+        if first:
+            bullets.append(first)
+    return bullets
+
+
+def _render_aicb_ats_picker(s, rf):
+    """Pick from the full team-wide ATS/Pipeline pool (thousands of
+    candidates), searched by aicb_sel_roles via ats.keyword_search. Mirrors
+    _render_aicb_pool_picker's selection UX (multi-select cap 3, same card
+    grid), swapped to a different candidate source and id field (_ats_id)."""
+    from ats import keyword_search
+
+    role_chips = [r for r in (s.aicb_sel_roles or []) if r.strip()]
+    if not role_chips:
+        with ui.element("div").style(
+                f"padding:18px;background:{C['surface']};border-radius:8px;"
+                f"text-align:center;color:{C['muted']};font-size:13px;"):
+            ui.label("Type a role above to search your ATS/Pipeline.")
+        return
+
+    seen_ids: set = set()
+    matches: list = []
+    for chip in role_chips:
+        for cand in keyword_search(chip, owner=None):
+            cid = cand.get("id")
+            if cid not in seen_ids:
+                seen_ids.add(cid)
+                matches.append(cand)
+
+    if not matches:
+        with ui.element("div").style(
+                f"padding:18px;background:{C['surface']};border-radius:8px;"
+                f"text-align:center;color:{C['muted']};font-size:13px;"):
+            ui.label(
+                "No ATS/Pipeline candidates match yet — try different "
+                "titles, or Create profiles with AI."
+            )
+        return
+
+    sel_ids = {
+        c.get("_ats_id") for c in (s.aicb_cand_cards or [])
+        if c.get("_ats_id")
+    }
+
+    def _toggle(cid):
+        nonlocal sel_ids
+        if cid in sel_ids:
+            sel_ids.discard(cid)
+        else:
+            if len(sel_ids) >= 3:
+                ui.notify("Selection capped at 3.", type="warning")
+                return
+            sel_ids.add(cid)
+        new_cards: list = []
+        for cand in matches:
+            if cand.get("id") in sel_ids:
+                new_cards.append({
+                    "label": cand.get("name") or "Candidate",
+                    "role": cand.get("current_title") or "",
+                    "bullets": _aicb_ats_candidate_bullets(cand),
+                    "_ats_id": cand.get("id"),
+                })
+        s.aicb_cand_cards = new_cards
+        s._aicb_cand_text = _aicb_cards_to_text(new_cards)
+        existing_roles = list(s.aicb_sel_roles or [])
+        for cand in matches:
+            if cand.get("id") in sel_ids:
+                tr = (cand.get("current_title") or "").strip()
+                if tr and tr not in existing_roles:
+                    existing_roles.append(tr)
+        s.aicb_sel_roles = existing_roles
+        rf()
+
+    ui.label(
+        f"Showing {len(matches)} candidate(s) matching your roles "
+        f"(team-wide ATS). Pick up to 3."
+    ).style(f"font-size:11px;color:{C['muted']};margin-bottom:8px;")
+
+    with ui.element("div").style(
+            "display:grid;grid-template-columns:repeat(2, 1fr);gap:10px;"):
+        for cand in matches:
+            cid = cand.get("id")
+            is_sel = cid in sel_ids
+            bg = C.get("teal", "#1AE3D9") + "15" if is_sel else "transparent"
+            border = C.get("teal", "#1AE3D9") if is_sel else C["border"]
+            with ui.element("button").style(
+                    f"padding:12px;text-align:left;background:{bg};"
+                    f"border:2px solid {border};border-radius:8px;cursor:pointer;"
+                    f"font-family:inherit;display:flex;flex-direction:column;gap:4px;"
+                    ).on("click", lambda c=cid: _toggle(c)):
+                ui.label(cand.get("name") or "Candidate").style(
+                    f"font-size:13px;font-weight:700;color:{C['text_l']};")
+                ui.label(cand.get("current_title") or "").style(
+                    f"font-size:11px;color:{C['muted']};")
+                loc = ", ".join(p for p in (cand.get("city"), cand.get("state")) if p)
+                if loc:
+                    ui.label(loc).style(
+                        f"font-size:11px;color:{C['muted']};")
+
+    if s.aicb_cand_cards:
+        ui.label("Selected candidates:").classes("fd-fl").style("margin-top:14px;")
+        _render_aicb_candidate_cards(s, rf)
+
+
 def _aicb_cards_from_text(text: str) -> list:
     """Parse the plain-text candidate block produced by
     _aicb_auto_generate_candidates into a list of dicts:
@@ -36165,6 +36282,10 @@ def p_ai_campaign(s: AppState, rf):
                      "Pull from candidates you've already saved in "
                      "your Top Candidates. Real names, real backgrounds. Filter "
                      "by job title to find them faster."),
+                    ("ats", "🔍", "Search my ATS/Pipeline",
+                     "Search your full candidate database (thousands of "
+                     "profiles) by job title. Real names, real backgrounds, "
+                     "not limited to your Top Candidates roster."),
                 ]
                 _CARDS_BY_KEY = {k: (i, t, d) for k, i, t, d in _CARDS}
 
@@ -36302,6 +36423,15 @@ def p_ai_campaign(s: AppState, rf):
                         "saved candidates.",
                     )
                     _render_aicb_pool_picker(s, rf)
+
+                elif s.aicb_cand_source == "ats":
+                    _render_title_picker(
+                        "Filter by titles",
+                        "Searches your full ATS/Pipeline (thousands of "
+                        "candidates, team-wide) for matches against these "
+                        "titles.",
+                    )
+                    _render_aicb_ats_picker(s, rf)
 
                 elif s.aicb_cand_source == "skip":
                     ui.label(
