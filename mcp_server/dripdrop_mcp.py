@@ -17,10 +17,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
+import anyio
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.server.mcpserver.server import MCPServer
+from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import AnyHttpUrl
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse
@@ -205,6 +208,32 @@ async def candidates_count() -> dict:
         return {"error": str(e.body), "status_code": e.status_code}
 
 
+@mcp.tool(
+    description=(
+        "Search the authenticated DripDrop user's Top Candidates pool by "
+        "keyword (matches name, target role, location, highlights, and "
+        "resume text) and/or status. Read-only - use this to check whether "
+        "a candidate for a given skill/role/location is already in the pool "
+        "before importing or pitching."
+    )
+)
+async def candidates_search(q: str = "", status: str = "", limit: int = 20) -> dict:
+    """Args:
+    q: keyword to search for (e.g. a skill, title, or location) - optional,
+        omit to just filter by status or list recent candidates.
+    status: optional status filter - "active", "placed", or "on_hold".
+    limit: max results to return (default 20, max 50).
+    """
+    email = _current_email()
+    try:
+        client = DripDropClient(DATA_DIR, email)
+        return await client.candidates_search(q=q, status=status, limit=limit)
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
 def main() -> None:
     transport = os.environ.get("DRIPDROP_MCP_TRANSPORT", "streamable-http")
     if transport == "stdio":
@@ -212,7 +241,24 @@ def main() -> None:
     else:
         host = os.environ.get("DRIPDROP_MCP_HOST", "127.0.0.1")
         port = int(os.environ.get("DRIPDROP_MCP_PORT", "8090"))
-        mcp.run(transport="streamable-http", host=host, port=port)
+
+        # mcp.run()'s public API doesn't expose transport_security, and when
+        # host is a loopback address (as it is here - Caddy reverse-proxies
+        # in locally) the SDK silently defaults to a TransportSecuritySettings
+        # allowlist of loopback Host headers only. That rejects every real
+        # request, which arrives with Host: <public domain> as forwarded by
+        # Caddy. Call the lower-level run method directly so we can allowlist
+        # the actual public host instead.
+        public_host = urlparse(PUBLIC_URL).netloc
+        transport_security = TransportSecuritySettings(
+            allowed_hosts=[public_host, "127.0.0.1:*", "localhost:*"],
+            allowed_origins=[PUBLIC_URL, "http://127.0.0.1:*", "http://localhost:*"],
+        )
+        anyio.run(
+            lambda: mcp.run_streamable_http_async(
+                host=host, port=port, transport_security=transport_security
+            )
+        )
 
 
 if __name__ == "__main__":

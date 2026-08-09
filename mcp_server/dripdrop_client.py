@@ -144,3 +144,20 @@ class DripDropClient:
             )
         await self._raise_for_error(resp)
         return resp.json()
+
+    async def candidates_search(self, q: str = "", status: str = "", limit: int = 20) -> dict:
+        params: dict[str, str] = {}
+        if q:
+            params["q"] = q
+        if status:
+            params["status"] = status
+        if limit:
+            params["limit"] = str(limit)
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/candidates/search",
+                params=params,
+                headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
