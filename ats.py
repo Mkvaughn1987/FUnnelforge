@@ -168,6 +168,19 @@ def save_notes(tid: int, text: str):
         con.close()
 
 
+def save_summary(tid: int, text: str):
+    import time
+    con = _con()
+    try:
+        con.execute("UPDATE talents SET summary=?, updated_at=? WHERE id=?",
+                    (text or "", time.strftime("%Y-%m-%dT%H:%M:%S"), tid))
+        con.commit()
+    except Exception:
+        pass
+    finally:
+        con.close()
+
+
 # ── Tearsheets (curated talent lists; legacy table name "pipelines") ──────
 def list_pipelines(owner: str = None) -> list:
     """Tearsheets for one user (owner email). Per-user. Manual tearsheets
@@ -706,14 +719,18 @@ def jd_extract(jd_text: str) -> dict:
         import anthropic
         msg = anthropic.Anthropic(api_key=key).messages.create(
             model="claude-haiku-4-5-20251001", max_tokens=400,
-            system="You extract resume-search criteria from a job description. JSON only.",
+            system="You extract resume-search criteria from a recruiter's query, which "
+                   "may be a formal job description OR a free-form description of the "
+                   "ideal candidate. JSON only.",
             messages=[{"role": "user", "content":
-                "From the job description below, extract terms to find matching "
-                "resumes. Return ONLY JSON:\n"
+                "From the query below, extract terms to find matching resumes. It may "
+                "be a full job posting or just a plain-language description of who "
+                "they're looking for (e.g. \"10+ years running union crews on highway "
+                "jobs, doesn't job-hop, based in Denver\"). Return ONLY JSON:\n"
                 '{"title":"","must_have_skills":[],"nice_to_have":[],'
                 '"location":"","seniority":""}\n'
                 "Skills must be short keywords (1-3 words). Base it strictly on "
-                "the JD.\n\nJOB DESCRIPTION:\n<<<\n" + (jd_text or "")[:6000] + "\n>>>"}])
+                "the query.\n\nQUERY:\n<<<\n" + (jd_text or "")[:6000] + "\n>>>"}])
         m = re.search(r"\{.*\}", msg.content[0].text, re.DOTALL)
         return json.loads(m.group()) if m else {}
     except Exception:
@@ -1721,6 +1738,7 @@ def ingest_resumes(files, owner_email: str, added_by: str, rebuild: bool = True)
         for name, d, text in parsed:
             cols = _talent_columns(d, text, owner_email, added_by, name, now)
             existing = _find_owner_dup(con, d, owner_email)
+            _tid = None
             if existing:
                 if _upload_completeness(d, text) > _completeness(dict(existing)):
                     sets = ", ".join("%s=?" % k for k in cols if k != "created_at")
@@ -1729,19 +1747,22 @@ def ingest_resumes(files, owner_email: str, added_by: str, rebuild: bool = True)
                                 (*vals, existing["id"]))
                     stats["merged"] += 1
                     _status = "merged"
+                    _tid = existing["id"]
                 else:
                     stats["dup"] += 1
                     _status = "dup"
+                    _tid = existing["id"]
             else:
-                con.execute(
+                cur = con.execute(
                     "INSERT INTO talents(%s) VALUES(%s)" % (
                         ", ".join(cols.keys()), ", ".join("?" * len(cols))),
                     tuple(cols.values()))
                 stats["added"] += 1
                 _status = "added"
+                _tid = cur.lastrowid
             file_results.append({"filename": name, "name": _person_name(d),
                                  "title": (d.get("current_title") or "").strip(),
-                                 "status": _status})
+                                 "status": _status, "id": _tid})
         if rebuild and (stats["added"] or stats["merged"]):
             con.execute("INSERT INTO talents_fts(talents_fts) VALUES('rebuild')")
         con.commit()
@@ -2307,18 +2328,29 @@ def _view_dashboard(ff, st, refresh):
                         f"font-family:inherit;").on("click", _go_cands):
                     ui.label("Search the team pool →")
 
-    # Stat tiles — your own pool + the team-wide pool.
+    # Stat tiles — your own pool + the team-wide pool. The team-wide tile
+    # doubles as the entry point into the team pool (replaces the old
+    # duplicate "All Candidates" card in the Tearsheets grid below).
     _team_total = total_count()
+
+    def _go_team_pools(_e=None):
+        st["view"] = "team_pools"
+        refresh()
+
     with ui.element("div").style("display:flex;gap:14px;margin-bottom:18px;flex-wrap:wrap;"):
         for val, lbl, accent in ((f"{stats['total']:,}", "My candidates", False),
                                  (f"{stats['added_week']:,}", "Added this week", False),
                                  (f"{_team_total:,}", "All candidates · team", True)):
-            with ui.element("div").style(
+            _el = ui.element("div").style(
                     f"flex:1;min-width:160px;background:"
                     f"{(_c(C,'teal','#1AE3D9')+'12') if accent else _c(C,'card','#FFFFFF')};"
                     f"border:1px solid "
                     f"{(_c(C,'teal','#1AE3D9')+'40') if accent else _c(C,'border','#E2E8F0')};"
-                    f"border-radius:12px;padding:16px 18px;"):
+                    f"border-radius:12px;padding:16px 18px;"
+                    + ("cursor:pointer;" if accent else ""))
+            if accent:
+                _el.on("click", _go_team_pools)
+            with _el:
                 ui.label(val).style(
                     f"font-size:26px;font-weight:800;color:{_c(C,'teal','#1AE3D9')};"
                     f"font-family:'Nunito',sans-serif;line-height:1;")
@@ -2347,23 +2379,6 @@ def _view_dashboard(ff, st, refresh):
             f"font-size:12px;color:{_c(C,'muted','#94A3B8')};margin-bottom:14px;display:block;")
         pls = list_pipelines(_owner)
         with ui.element("div").style("display:flex;flex-wrap:wrap;gap:12px;"):
-            def _go_team_pools(_e=None):
-                st["view"] = "team_pools"
-                refresh()
-            with ui.element("div").style(
-                    f"position:relative;flex:0 0 auto;min-width:180px;"
-                    f"background:{_c(C,'teal','#1AE3D9')}12;"
-                    f"border:1px solid {_c(C,'teal','#1AE3D9')}40;border-radius:10px;"
-                    f"padding:14px 16px;cursor:pointer;").on("click", _go_team_pools):
-                ui.label(f"{_team_total:,}").style(
-                    f"font-size:24px;font-weight:800;color:{_c(C,'teal','#1AE3D9')};"
-                    f"font-family:'Nunito',sans-serif;line-height:1;")
-                ui.label("All Candidates · Team").style(
-                    f"font-size:12px;font-weight:600;color:{_c(C,'text_l','#0F172A')};margin-top:4px;"
-                    f"max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;")
-                ui.label("⚡ top 20 pools").style(
-                    f"font-size:9px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;"
-                    f"color:{_c(C,'muted','#94A3B8')};margin-top:3px;")
             if not pls:
                 ui.label("No tearsheets yet — create one, then add candidates from the "
                          "Candidates page.").style(
@@ -2850,7 +2865,7 @@ def _view_candidates(ff, st, refresh):
             jd = (jd or "").strip()
             st["jd"] = jd
             if not jd:
-                ui.notify("Paste a job description first.", type="warning"); return
+                ui.notify("Describe the candidate or paste a job description first.", type="warning"); return
             st.pop("tearsheet_id", None)
             st.pop("job_title", None); st.pop("job_id", None)
             st["searching"] = True; st["search_open"] = False; refresh()
@@ -2904,7 +2919,7 @@ def _view_candidates(ff, st, refresh):
                         ui.label(sl).style("pointer-events:none;")
 
         with ui.element("div").style("display:flex;gap:8px;margin-bottom:12px;"):
-            for mk, ml in (("keywords", "🔍 Keywords"), ("jd", "📄 Match a Job Description")):
+            for mk, ml in (("keywords", "🔍 Keywords"), ("jd", "✦ Describe a Candidate")):
                 on = (st["mode"] == mk)
                 with ui.element("button").style(
                         f"padding:7px 16px;font-size:12px;font-weight:600;border-radius:8px;"
@@ -2952,7 +2967,7 @@ def _view_candidates(ff, st, refresh):
                         f"background:{_c(C,'teal','#1AE3D9')}14;flex-wrap:wrap;"
                         f"border:1px solid {_c(C,'teal','#1AE3D9')}40;"
                         f"border-radius:8px;padding:9px 14px;"):
-                    ui.label(f"📄 Matching: {cr.get('title','job description')} · "
+                    ui.label(f"✦ Matching: {cr.get('title','ideal candidate')} · "
                              f"{cr.get('location','any location')}").style(
                         f"font-size:12px;font-weight:700;color:{_c(C,'teal','#1AE3D9')};"
                         f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:160px;")
@@ -2966,13 +2981,15 @@ def _view_candidates(ff, st, refresh):
                             f"color:{_c(C,'text','#CBD5E1')};border-radius:7px;padding:5px 12px;"
                             f"font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;"
                             f"flex-shrink:0;").on("click", _edit_jd):
-                        ui.label("✎ New / edit JD")
+                        ui.label("✎ New / edit search")
                 if st.get("radius") and not cr.get("_origin"):
-                    ui.label("⚠ No location found in this JD — radius can't be applied.").style(
+                    ui.label("⚠ No location found in this search — radius can't be applied.").style(
                         f"font-size:11px;color:{_c(C,'warn','#D97706')};margin-top:6px;")
             else:
                 _ta = ui.textarea(value=st.get("jd", ""),
-                                  placeholder="Paste the full job description here…").props(
+                                  placeholder="Describe your perfect candidate — skills, experience, "
+                                              "location, tenure, whatever matters. Or paste a full "
+                                              "job posting.").props(
                     "outlined").style("width:100%;min-height:110px;max-height:170px;overflow:auto;")
                 with ui.element("div").style(
                         "display:flex;justify-content:space-between;align-items:center;"

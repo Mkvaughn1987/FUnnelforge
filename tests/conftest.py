@@ -60,7 +60,6 @@ def with_user(isolated_appdata, monkeypatch):
     monkeypatch.setattr(fa, "QUEUE_PATH_NEW", new_base / "scheduled_queue.json")
     monkeypatch.setattr(fa, "QUEUE_ARCHIVE_PATH", new_base / "scheduled_queue_archive.json")
     monkeypatch.setattr(fa, "DNC_PATH", new_base / "dnc_list.json")
-    monkeypatch.setattr(fa, "CANDIDATE_POOL_PATH", new_base / "candidate_pool.json")
     monkeypatch.setattr(fa, "USERS_DB_PATH", new_base / "users.json")
 
     user_root = new_base / "users" / "tester_at_example_com"

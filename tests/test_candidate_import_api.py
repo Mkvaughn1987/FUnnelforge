@@ -1,10 +1,11 @@
 """Resume import API: POST /api/v1/candidates/import (+ count).
 
-The route is a thin server-to-server wrapper around _import_one_resume, the
-same per-file core the "Bulk Import Resumes" UI worker calls. Tests pin:
-  - the shared core appends to the current user's pool (added),
+The route is a thin server-to-server wrapper around ats.ingest_resumes / the
+same ATS Talent Pool parse+save pipeline the Upload tab uses. Tests pin:
+  - a successful import lands in the key owner's ATS Talent Pool (added),
   - short/blank resumes are skipped (never crash the batch),
-  - imports are append-only (no dedupe) - identical to the UI,
+  - re-importing the same person merges/dedupes instead of duplicating
+    (unlike the old append-only Top Candidates pool),
   - the route rejects a missing/invalid key with 401,
   - the route + count happy paths.
 
@@ -14,31 +15,54 @@ starts its lifespan (leader election, email/timer threads) and pollutes every
 later test in the suite. A bare app gives identical route coverage with no
 side effects.
 """
+import sqlite3
+import sys
+
 import flowdrip_app as fa
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS talents (
+  id INTEGER PRIMARY KEY,
+  first_name TEXT, last_name TEXT, email TEXT, phone TEXT,
+  city TEXT, state TEXT, current_title TEXT, current_employer TEXT,
+  years_experience TEXT, seniority TEXT, skills TEXT, summary TEXT,
+  status TEXT DEFAULT 'Candidate', source_file TEXT, resume_text TEXT,
+  added_by TEXT, created_at TEXT, updated_at TEXT,
+  owner_email TEXT DEFAULT '', notes TEXT DEFAULT '', work_history TEXT DEFAULT '',
+  lat REAL, lng REAL
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS talents_fts USING fts5(
+  first_name, last_name, current_title, current_employer, skills,
+  summary, city, state, resume_text, content='talents', content_rowid='id'
+);
+"""
+
+_OWNER = "rep@arena.com"
 
 
 def _isolate(tmp_path, monkeypatch):
-    """Point pool + api-key stores + upload dir at a throwaway tmp dir and
-    stub the Haiku metadata call so nothing hits the network."""
-    pool = tmp_path / "candidate_pool.json"
+    """Point the ATS db + api-key store at throwaway tmp dirs and stub the
+    AI resume parser so nothing hits the network."""
+    db = tmp_path / "ats.db"
+    con = sqlite3.connect(str(db))
+    con.executescript(_SCHEMA)
+    con.commit()
+    con.close()
+    monkeypatch.setenv("ATS_DB_PATH", str(db))
+    if "ats" in sys.modules:
+        del sys.modules["ats"]
+    import ats
+    monkeypatch.setattr(ats, "_ai_parse_resume", lambda text: {
+        "first_name": "Tim", "last_name": "Cooper", "email": "tim@example.com",
+        "phone": "555-0100", "city": "Denver", "state": "CO",
+        "current_title": "CNC Machinist", "current_employer": "",
+        "key_skills": ["a", "b"], "summary": "",
+    })
+
     keys = tmp_path / "api_keys.json"
-    pdfs = tmp_path / "PDFs"
-    pdfs.mkdir(parents=True, exist_ok=True)
-    monkeypatch.setattr(fa, "_user_candidate_pool_path", lambda: pool)
     monkeypatch.setattr(fa, "_api_keys_path", lambda: keys)
-    monkeypatch.setattr(fa, "_user_pdf_dir", lambda: pdfs)
     monkeypatch.setattr(fa, "ANTHROPIC_API_KEY", "test-key")
-
-    class _Block:
-        text = ('{"name":"Tim Cooper","target_role":"CNC Machinist",'
-                '"location":"Denver, CO","salary":"","highlights":["a","b"]}')
-
-    class _Msg:
-        content = [_Block()]
-
-    monkeypatch.setattr(fa, "_claude_create_with_retry",
-                        lambda *a, **k: _Msg())
-    return pool, keys
+    return ats, keys
 
 
 def _client():
@@ -56,53 +80,6 @@ def _client():
     return TestClient(app)
 
 
-# ── shared core (used verbatim by UI + API) ────────────────────────────────
-
-def test_import_one_resume_appends(tmp_path, monkeypatch):
-    _isolate(tmp_path, monkeypatch)
-    monkeypatch.setattr(fa, "_extract_resume_text",
-                        lambda p: "x" * 200)  # long enough to pass the >=40 gate
-    res = fa._import_one_resume(str(tmp_path / "tim.pdf"), "tim.pdf")
-    assert res["status"] == "added"
-    assert res["name"] == "Tim Cooper"
-    assert res["candidate_id"]
-    pool = fa.load_candidate_pool()
-    assert len(pool) == 1
-    assert pool[0]["name"] == "Tim Cooper"
-    assert pool[0]["status"] == "active"
-
-
-def test_import_one_resume_skips_unparseable(tmp_path, monkeypatch):
-    _isolate(tmp_path, monkeypatch)
-    monkeypatch.setattr(fa, "_extract_resume_text", lambda p: "")
-    res = fa._import_one_resume(str(tmp_path / "blank.pdf"), "blank.pdf")
-    assert res["status"] == "skipped"
-    assert res["reason"] == "could not extract text"
-    assert fa.load_candidate_pool() == []
-
-
-def test_import_is_append_only_no_dedupe(tmp_path, monkeypatch):
-    _isolate(tmp_path, monkeypatch)
-    monkeypatch.setattr(fa, "_extract_resume_text", lambda p: "x" * 200)
-    fa._import_one_resume(str(tmp_path / "tim.pdf"), "tim.pdf")
-    fa._import_one_resume(str(tmp_path / "tim.pdf"), "tim.pdf")
-    pool = fa.load_candidate_pool()
-    assert len(pool) == 2  # same resume twice -> two candidates, exactly like the UI
-
-
-def test_falls_back_to_filename_when_ai_fails(tmp_path, monkeypatch):
-    _isolate(tmp_path, monkeypatch)
-    monkeypatch.setattr(fa, "_extract_resume_text", lambda p: "x" * 200)
-
-    def _boom(*a, **k):
-        raise RuntimeError("model down")
-
-    monkeypatch.setattr(fa, "_claude_create_with_retry", _boom)
-    res = fa._import_one_resume(str(tmp_path / "Jane-Doe.pdf"), "Jane-Doe.pdf")
-    assert res["status"] == "added"          # AI failure != import failure
-    assert res["name"] == "Jane-Doe"          # falls back to the filename stem
-
-
 # ── route (minimal app, no NiceGUI lifespan) ───────────────────────────────
 
 def test_route_rejects_missing_key(tmp_path, monkeypatch):
@@ -114,12 +91,11 @@ def test_route_rejects_missing_key(tmp_path, monkeypatch):
 
 def test_route_happy_path(tmp_path, monkeypatch):
     _isolate(tmp_path, monkeypatch)
-    monkeypatch.setattr(fa, "_extract_resume_text", lambda p: "x" * 200)
-    key = fa._mint_api_key("rep@arena.com")
+    key = fa._mint_api_key(_OWNER)
     r = _client().post(
         "/api/v1/candidates/import",
         headers={"X-API-Key": key},
-        files=[("files", ("tim.pdf", b"%PDF-1.4 fake", "application/pdf"))],
+        files=[("files", ("tim.txt", ("x" * 200).encode(), "text/plain"))],
     )
     assert r.status_code == 200
     body = r.json()
@@ -130,13 +106,47 @@ def test_route_happy_path(tmp_path, monkeypatch):
     assert body["results"][0]["name"] == "Tim Cooper"
 
 
+def test_route_skips_unparseable_file(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    key = fa._mint_api_key(_OWNER)
+    r = _client().post(
+        "/api/v1/candidates/import",
+        headers={"X-API-Key": key},
+        files=[("files", ("blank.txt", b"hi", "text/plain"))],
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["added"] == 0
+    assert body["results"][0]["status"] == "skipped"
+
+
+def test_import_is_dedupe_not_append_only(tmp_path, monkeypatch):
+    """Unlike the old Top Candidates pool, importing the same person twice
+    merges/dedupes in the ATS instead of creating two records."""
+    _isolate(tmp_path, monkeypatch)
+    key = fa._mint_api_key(_OWNER)
+    client = _client()
+    for _ in range(2):
+        r = client.post(
+            "/api/v1/candidates/import",
+            headers={"X-API-Key": key},
+            files=[("files", ("tim.txt", ("x" * 200).encode(), "text/plain"))],
+        )
+    assert r.status_code == 200
+    r2 = client.get("/api/v1/candidates/count", headers={"X-API-Key": key})
+    assert r2.json()["total"] == 1
+
+
 def test_count_endpoint(tmp_path, monkeypatch):
     _isolate(tmp_path, monkeypatch)
-    monkeypatch.setattr(fa, "_extract_resume_text", lambda p: "x" * 200)
-    key = fa._mint_api_key("rep@arena.com")
-    fa._CURRENT_USER_EMAIL.set("rep@arena.com")
-    fa._import_one_resume(str(tmp_path / "tim.pdf"), "tim.pdf")
-    r = _client().get("/api/v1/candidates/count", headers={"X-API-Key": key})
+    key = fa._mint_api_key(_OWNER)
+    client = _client()
+    client.post(
+        "/api/v1/candidates/import",
+        headers={"X-API-Key": key},
+        files=[("files", ("tim.txt", ("x" * 200).encode(), "text/plain"))],
+    )
+    r = client.get("/api/v1/candidates/count", headers={"X-API-Key": key})
     assert r.status_code == 200
     body = r.json()
     assert body["active"] == 1

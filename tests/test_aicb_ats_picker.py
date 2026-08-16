@@ -1,10 +1,10 @@
 """Unit tests for _aicb_ats_candidate_bullets (flowdrip_app.py:34059),
 the bullet-line builder for the ATS/Pipeline candidate-source picker.
 
-Mirrors _aicb_pool_candidate_bullets but adapted to the ats.py talents
-schema (current_title/city/state/summary -- no target_role or salary
-field), so it must never emit a salary bullet and must tolerate any
-subset of missing fields the way keyword_search() rows can arrive.
+Adapted to the ats.py talents schema (current_title/city/state/summary --
+no target_role or salary field), so it must never emit a salary bullet and
+must tolerate any subset of missing fields the way keyword_search() rows
+can arrive.
 """
 
 
