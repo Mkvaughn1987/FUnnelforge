@@ -5527,8 +5527,8 @@ async def api_import_candidates(request: Request):
     Auth: per-user API key (Authorization: Bearer <key> or X-API-Key); the
     owner is taken from the key, so a key can only ever write to its own
     candidates (owner_email-scoped in the ATS). Body: multipart/form-data
-    with one or more 'files' (pdf/doc/docx/txt/rtf). Unlike the old
-    append-only Top Candidates pool, the ATS keeps one record per person: a
+    with one or more 'files' (pdf/doc/docx/txt/rtf). Unlike the old,
+    append-only legacy candidate list, the ATS keeps one record per person: a
     résumé that matches an existing record for this owner updates it
     ('status':'updated') instead of creating a duplicate. A file that can't
     be parsed is reported per-file in 'results' and never fails the whole
@@ -5617,7 +5617,7 @@ async def api_import_candidates(request: Request):
 async def api_candidates_count(request: Request):
     """Lightweight verify endpoint - the key owner's ATS Talent Pool count, so
     an automation can confirm an import landed. The ATS doesn't track a
-    placement-status field the old Top Candidates pool had, so 'active'
+    placement-status field the old legacy candidate list had, so 'active'
     mirrors 'total' and 'placed'/'on_hold' are always 0 (kept only for
     response-shape compatibility with existing callers)."""
     from starlette.responses import JSONResponse
@@ -5639,13 +5639,24 @@ async def api_candidates_count(request: Request):
 
 @app.get("/api/v1/candidates/search")
 async def api_candidates_search(request: Request):
-    """Read-only keyword search over the key owner's ATS Talent Pool - matches
-    name, title, skills, and resume text via the ATS's FTS index. 'status' is
-    accepted for backward compatibility but is a no-op (the ATS doesn't track
-    a placement-status field; every result reports status:"active"). 'matched'
-    equals 'returned' (both capped at limit) since the FTS index doesn't do a
-    separate uncapped count. Lets an automation check "do we already have
-    someone for X" before importing/pitching."""
+    """Read-only search/browse over the key owner's ATS Talent Pool (the full
+    ~4k-record pool, not a subset). 'status' is accepted for backward
+    compatibility but is a no-op (the ATS doesn't track a placement-status
+    field; every result reports status:"active"). Two modes:
+      - q given: FTS keyword match over name/title/skills/resume text,
+        ranked by relevance, capped at limit. matched==returned (both
+        capped) since bm25 rank order doesn't support stable cursor paging
+        - a match set this size is meant to be re-queried, not paged.
+      - q omitted: plain browse of the whole pool, newest-first, paged via
+        cursor (pass back the previous page's next_cursor) so an automation
+        can walk every record. matched is a real uncapped count here.
+    state/city are exact matches on the ATS's normalized fields. has_email
+    (true/false) filters on whether an email was extracted. added_after is
+    a YYYY-MM-DD floor on when the candidate was added. There's no 'owner'
+    param: the key is bound to exactly one owner_email, so scoping always
+    comes from the key, never from the request (a caller-supplied owner
+    override would let a key read another account's candidates). 'industry'
+    isn't implemented - the ATS has no industry field on a talent record."""
     from starlette.responses import JSONResponse
     import ats
     auth = request.headers.get("authorization", "")
@@ -5657,13 +5668,23 @@ async def api_candidates_search(request: Request):
 
     q = (request.query_params.get("q") or "").strip()
     status = (request.query_params.get("status") or "").strip().lower()
+    state = (request.query_params.get("state") or "").strip() or None
+    city = (request.query_params.get("city") or "").strip() or None
+    added_after = (request.query_params.get("added_after") or "").strip() or None
+    has_email_raw = (request.query_params.get("has_email") or "").strip().lower()
+    has_email = {"true": True, "1": True, "false": False, "0": False}.get(has_email_raw)
     try:
-        limit = max(1, min(int(request.query_params.get("limit", "20")), 50))
+        limit = max(1, min(int(request.query_params.get("limit", "20")), 200))
     except ValueError:
         limit = 20
+    try:
+        cursor = int(request.query_params.get("cursor", "")) or None
+    except ValueError:
+        cursor = None
 
-    rows = ats.keyword_search(q, limit=limit, owner=owner) if q \
-        else ats.recent(limit=limit, owner=owner)
+    out = ats.search_pool(q=q or None, owner=owner, state=state, city=city,
+                           has_email=has_email, added_after=added_after,
+                           limit=limit, cursor=cursor)
 
     def _row_to_result(r):
         name = " ".join(p for p in [(r.get("first_name") or "").strip(),
@@ -5680,13 +5701,154 @@ async def api_candidates_search(request: Request):
             "added_date": (r.get("created_at") or "")[:10] or None,
         }
 
-    results = [_row_to_result(r) for r in rows]
+    results = [_row_to_result(r) for r in out["rows"]]
     return JSONResponse({
         "query": q or None,
         "status_filter": status or None,
-        "matched": len(results),
+        "matched": out["total_matched"],
         "returned": len(results),
+        "next_cursor": out["next_cursor"],
         "results": results,
+    })
+
+
+@app.get("/api/v1/candidates/{candidate_id}")
+async def api_candidate_get(candidate_id: str, request: Request):
+    """Full ATS record for one candidate, including résumé text - for an
+    automation that already has an id (from /search, /match, or /import) and
+    wants the whole record. Owner-scoped: a key can only fetch its own
+    candidates, even by guessing an id."""
+    from starlette.responses import JSONResponse
+    import ats
+
+    auth = request.headers.get("authorization", "")
+    key = (auth[7:].strip() if auth.lower().startswith("bearer ")
+           else request.headers.get("x-api-key", "").strip())
+    owner = _resolve_api_key(key)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+
+    raw = candidate_id[4:] if candidate_id.startswith("ats_") else candidate_id
+    try:
+        tid = int(raw)
+    except ValueError:
+        return JSONResponse({"error": "invalid candidate id"}, status_code=400)
+
+    r = ats.get_one(tid)
+    if not r or r.get("owner_email") != owner:
+        return JSONResponse({"error": "not found"}, status_code=404)
+
+    name = " ".join(p for p in [(r.get("first_name") or "").strip(),
+                                 (r.get("last_name") or "").strip()] if p) or None
+    loc = ", ".join(x for x in [(r.get("city") or ""), (r.get("state") or "")] if x) or None
+    return JSONResponse({
+        "id": f"ats_{r.get('id')}",
+        "name": name,
+        "first_name": r.get("first_name") or None,
+        "last_name": r.get("last_name") or None,
+        "email": r.get("email") or None,
+        "phone": r.get("phone") or None,
+        "location": loc,
+        "city": r.get("city") or None,
+        "state": r.get("state") or None,
+        "current_title": r.get("current_title") or None,
+        "current_employer": r.get("current_employer") or None,
+        "years_experience": r.get("years_experience") or None,
+        "seniority": r.get("seniority") or None,
+        "skills": [s.strip() for s in (r.get("skills") or "").split(",") if s.strip()],
+        "summary": r.get("summary") or None,
+        "work_history": r.get("work_history") or None,
+        "resume_text": r.get("resume_text") or None,
+        "status": "active",
+        "added_date": (r.get("created_at") or "")[:10] or None,
+        "updated_date": (r.get("updated_at") or "")[:10] or None,
+    })
+
+
+@app.post("/api/v1/candidates/match")
+async def api_candidates_match(request: Request):
+    """AI job-description match over the key owner's full ATS Talent Pool -
+    the same jd_extract -> FTS -> AI-fit-score pipeline the Candidates page's
+    "Match a Job Description" tab uses, exposed for server-to-server calls.
+
+    Body (JSON): job_description (required), title, location, radius_miles,
+    min_score, limit (default 20, hard-capped at 25), cursor.
+
+    limit is capped at 25 because every returned row gets a live, synchronous
+    AI-scoring call (one Anthropic request per candidate, ~1-2s each) so the
+    response has a real match_score for every row - uncapped, a large limit
+    would both blow past reasonable request timeouts and return partially-
+    scored results. Page past 25 with cursor (next_cursor from the previous
+    response). total_matched is the real, uncapped FTS match count (it does
+    not subtract radius_miles - see ats.match_pool's docstring)."""
+    from starlette.responses import JSONResponse
+    from nicegui import run as _run
+    import ats
+
+    auth = request.headers.get("authorization", "")
+    key = (auth[7:].strip() if auth.lower().startswith("bearer ")
+           else request.headers.get("x-api-key", "").strip())
+    owner = _resolve_api_key(key)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+
+    if not ANTHROPIC_API_KEY:
+        return JSONResponse({"error": "AI not configured on server"}, status_code=503)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "body must be JSON"}, status_code=400)
+
+    jd = (body.get("job_description") or "").strip()
+    if not jd:
+        return JSONResponse({"error": "job_description is required"}, status_code=400)
+    title = (body.get("title") or "").strip() or None
+    location = (body.get("location") or "").strip() or None
+    try:
+        radius_miles = float(body["radius_miles"]) if body.get("radius_miles") is not None else None
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "radius_miles must be a number"}, status_code=400)
+    try:
+        min_score = int(body["min_score"]) if body.get("min_score") is not None else None
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "min_score must be an integer"}, status_code=400)
+    try:
+        limit = max(1, min(int(body.get("limit", 20)), 25))
+    except (TypeError, ValueError):
+        limit = 20
+    try:
+        cursor = int(body["cursor"]) if body.get("cursor") is not None else None
+    except (TypeError, ValueError):
+        cursor = None
+
+    out = await _run.io_bound(ats.match_pool, jd, owner=owner, title=title,
+                               location=location, radius_mi=radius_miles,
+                               min_score=min_score, limit=limit, cursor=cursor)
+
+    def _row_to_result(r):
+        name = " ".join(p for p in [(r.get("first_name") or "").strip(),
+                                     (r.get("last_name") or "").strip()] if p) or None
+        loc = ", ".join(x for x in [(r.get("city") or ""), (r.get("state") or "")] if x) or None
+        return {
+            "candidate_id": f"ats_{r.get('id')}",
+            "name": name,
+            "current_title": r.get("current_title") or None,
+            "current_employer": r.get("current_employer") or None,
+            "location": loc,
+            "email": r.get("email") or None,
+            "phone": r.get("phone") or None,
+            "match_score": r.get("fit_score"),
+            "match_reasons": r.get("match_reasons") or [],
+            "resume_text": r.get("resume_text") or None,
+            "added_at": r.get("created_at") or None,
+            "owner": r.get("owner_email") or None,
+        }
+
+    return JSONResponse({
+        "total_matched": out["total_matched"],
+        "next_cursor": out["next_cursor"],
+        "results": [_row_to_result(r) for r in out["rows"]],
     })
 
 
@@ -11038,7 +11200,7 @@ SALES_NAV = [
     # is still callable as a subsection from p_newsletters.
     (None, "CONTENT & TOOLS",   None),
     ("📊", "Sales Assets",      "pdf_gen"),
-    # "Candidates" (Top Candidates roster) removed from sidebar 2026-06-09 —
+    # "Candidates" (legacy candidate roster) removed from sidebar 2026-06-09 —
     # candidates now live in the ATS. The page handler stays callable.
     # ── Settings ─────────────────────────────────
     (None, "SETTINGS",          None),
@@ -18540,8 +18702,8 @@ def _sq_pick(s, rf):
                         s.sp = "target_candidate"
                     elif k == "mpc":
                         # Most Placeable Candidate flow: candidates live in
-                        # the Pipeline (ATS) as of 2026-06-09. Top Candidates
-                        # was removed entirely 2026-08-16, so this always
+                        # the Pipeline (ATS) as of 2026-06-09. The legacy
+                        # candidate list was removed entirely 2026-08-16, so this always
                         # routes to the Pipeline to pick candidate(s); the
                         # ATS per-row / multi-select "Start an MPC Campaign"
                         # button hands the slate back to the MPC builder and
@@ -18550,7 +18712,7 @@ def _sq_pick(s, rf):
                         return
                     elif k == "fourbyfour":
                         # Arena 4×4 — straight into the AI campaign builder with the
-                        # 4×4 style pre-selected. No Top Candidates roster.
+                        # 4×4 style pre-selected. No legacy candidate roster.
                         s._nav_history.append(_nav_snapshot(s))
                         _reset_wizard_state(s)
                         s._chooser_origin = "fourbyfour"
@@ -35838,7 +36000,7 @@ def p_ai_campaign(s: AppState, rf):
                     ("ats", "🔍", "Search my ATS/Pipeline",
                      "Search your full candidate database (thousands of "
                      "profiles) by job title. Real names, real backgrounds, "
-                     "not limited to your Top Candidates roster."),
+                     "your full ATS talent pool."),
                 ]
                 _CARDS_BY_KEY = {k: (i, t, d) for k, i, t, d in _CARDS}
 

@@ -1,4 +1,4 @@
-"""Talks to DripDrop's real /api/v1/* routes (flowdrip_app.py:5511-5754) on
+"""Talks to DripDrop's real /api/v1/* routes (flowdrip_app.py:5522-5852) on
 behalf of an authenticated connector user.
 
 Each MCP tool call arrives with only an email (the OAuth access token's
@@ -145,19 +145,77 @@ class DripDropClient:
         await self._raise_for_error(resp)
         return resp.json()
 
-    async def candidates_search(self, q: str = "", status: str = "", limit: int = 20) -> dict:
+    async def candidates_search(
+        self,
+        q: str = "",
+        state: str = "",
+        city: str = "",
+        has_email: bool | None = None,
+        added_after: str = "",
+        limit: int = 20,
+        cursor: int | None = None,
+    ) -> dict:
         params: dict[str, str] = {}
         if q:
             params["q"] = q
-        if status:
-            params["status"] = status
+        if state:
+            params["state"] = state
+        if city:
+            params["city"] = city
+        if has_email is not None:
+            params["has_email"] = "true" if has_email else "false"
+        if added_after:
+            params["added_after"] = added_after
         if limit:
             params["limit"] = str(limit)
+        if cursor:
+            params["cursor"] = str(cursor)
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(
                 f"{self.base_url}/api/v1/candidates/search",
                 params=params,
                 headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def candidates_get(self, candidate_id: str) -> dict:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/candidates/{candidate_id}",
+                headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def candidates_match(
+        self,
+        job_description: str,
+        title: str = "",
+        location: str = "",
+        radius_miles: float | None = None,
+        min_score: int | None = None,
+        limit: int = 20,
+        cursor: int | None = None,
+    ) -> dict:
+        body: dict[str, Any] = {"job_description": job_description}
+        if title:
+            body["title"] = title
+        if location:
+            body["location"] = location
+        if radius_miles is not None:
+            body["radius_miles"] = radius_miles
+        if min_score is not None:
+            body["min_score"] = min_score
+        if limit:
+            body["limit"] = limit
+        if cursor:
+            body["cursor"] = cursor
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                f"{self.base_url}/api/v1/candidates/match",
+                json=body,
+                headers={**self._headers(), "Content-Type": "application/json"},
             )
         await self._raise_for_error(resp)
         return resp.json()

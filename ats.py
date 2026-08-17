@@ -842,6 +842,93 @@ def score_results(intent: str, results: list, top_n: int = 25) -> list:
     return results
 
 
+def match_pool(jd_text: str, owner: str = None, title: str = None, location: str = None,
+               radius_mi: float = None, min_score: int = None,
+               limit: int = 20, cursor: int = None) -> dict:
+    """JD-driven match for the REST API: same jd_extract -> FTS -> AI-score
+    pipeline as the Candidates page's 'Match a Job Description' tab, plus a
+    real uncapped total_matched and id-based cursor paging over the
+    bm25-ranked match set. title/location, when given, override what
+    jd_extract parses out of jd_text (useful when the caller already knows
+    them and wants to skip AI-extraction ambiguity).
+
+    Every returned row is AI-scored (one live Anthropic call each), so limit
+    is the actual number of AI calls this request makes - the caller (the
+    REST route) is expected to cap it low enough to keep latency sane and
+    keep every row's match_score populated, and to run this whole call via
+    run.io_bound since it blocks on network I/O.
+    """
+    crit = jd_extract(jd_text)
+    if title:
+        crit["title"] = title
+    if location:
+        crit["location"] = location
+    terms = list(_terms(crit.get("title", "")))
+    for s in (crit.get("must_have_skills") or []):
+        terms += _terms(s)
+    for s in (crit.get("nice_to_have") or []):
+        terms += _terms(s)
+    seen, uterms = set(), []
+    for t in terms:
+        if t.lower() in seen:
+            continue
+        seen.add(t.lower())
+        uterms.append(t)
+    if not uterms:
+        return {"crit": crit, "rows": [], "next_cursor": None, "total_matched": 0}
+
+    origin = geocode_text(crit.get("location", "")) if crit.get("location") else None
+    con = _con()
+    try:
+        _own = " AND t.owner_email=?" if owner else ""
+        expr = " OR ".join('"%s"' % t.replace('"', '') for t in uterms)
+        base_params = [expr] + ([owner] if owner else [])
+
+        # Real, uncapped keyword-match count. Doesn't account for radius_mi
+        # (computed in Python below, over at most 5000 rows) - a true
+        # post-radius count would mean geocoding the whole match set before
+        # this function can return anything, which defeats the point.
+        total_matched = con.execute(
+            f"""SELECT COUNT(*) FROM talents_fts f JOIN talents t ON t.id=f.rowid
+                WHERE talents_fts MATCH ?{_own}""", base_params).fetchone()[0]
+
+        # Guardrail LIMIT, not a business rule - keeps one request from
+        # pulling the whole pool through Python-side radius filtering below.
+        rows = [dict(r) for r in con.execute(
+            f"""SELECT t.*, bm25(talents_fts) AS rank FROM talents_fts f
+                JOIN talents t ON t.id=f.rowid WHERE talents_fts MATCH ?{_own}
+                ORDER BY rank LIMIT ?""", base_params + [5000]).fetchall()]
+    except Exception:
+        return {"crit": crit, "rows": [], "next_cursor": None, "total_matched": 0}
+    finally:
+        con.close()
+
+    if origin:
+        for r in rows:
+            d = candidate_distance(r, origin)
+            r["_distance_mi"] = round(d) if d is not None else None
+        if radius_mi:
+            rows = [r for r in rows
+                    if r["_distance_mi"] is not None and r["_distance_mi"] <= radius_mi]
+
+    if cursor:
+        idx = next((i for i, r in enumerate(rows) if r["id"] == cursor), None)
+        rows = rows[idx + 1:] if idx is not None else rows
+
+    page = rows[:limit]
+    for r in page:
+        r["match_reasons"] = match_reasons(r, uterms)
+    score_results(jd_text, page, top_n=len(page))
+    next_cursor = page[-1]["id"] if (len(page) == limit and len(rows) > limit) else None
+
+    result_rows = page
+    if min_score is not None:
+        result_rows = [r for r in result_rows if (r.get("fit_score") or 0) >= min_score]
+
+    return {"crit": crit, "rows": result_rows, "next_cursor": next_cursor,
+            "total_matched": total_matched}
+
+
 def recent(limit: int = 50, owner: str = None) -> list:
     """Most recently added candidates. Scoped to one owner when given (the
     dashboard's 'Recently Added' is per-user; the Candidates page is global)."""
@@ -883,6 +970,66 @@ def get_one(tid: int) -> dict:
         return dict(r) if r else {}
     except Exception:
         return {}
+    finally:
+        con.close()
+
+
+def search_pool(q: str = None, owner: str = None, state: str = None, city: str = None,
+                has_email: bool = None, added_after: str = None,
+                limit: int = 20, cursor: int = None) -> dict:
+    """Full-pool search/browse for the REST API, with structural filters on
+    top of the keyword match. Two modes:
+      - q given: FTS keyword match, ranked by bm25 relevance, capped at
+        limit. bm25 rank order isn't stable for keyset paging, so there's
+        no cursor/next_cursor here (matches api_candidates_search's existing
+        'matched == returned' behavior) - total_matched is just len(rows).
+      - q omitted: plain browse of the pool, newest-first, id-keyset
+        paginated via cursor (an id from a previous page's last row) so a
+        caller can walk the entire pool. total_matched is a real COUNT.
+    added_after compares against created_at's date prefix (YYYY-MM-DD),
+    same convention as the dashboard's 'added since' tile."""
+    con = _con()
+    try:
+        filt, params = [], []
+        if owner:
+            filt.append("t.owner_email=?"); params.append(owner)
+        if state:
+            filt.append("t.state=?"); params.append(state)
+        if city:
+            filt.append("t.city=?"); params.append(city)
+        if has_email is True:
+            filt.append("t.email IS NOT NULL AND t.email!=''")
+        elif has_email is False:
+            filt.append("(t.email IS NULL OR t.email='')")
+        if added_after:
+            filt.append("substr(t.created_at,1,10)>=?"); params.append(added_after)
+
+        terms = _terms(q) if q else []
+        if terms:
+            expr = " OR ".join('"%s"' % t.replace('"', '') for t in terms)
+            where = " AND ".join(["talents_fts MATCH ?"] + filt)
+            rows = [dict(r) for r in con.execute(
+                f"""SELECT t.*, bm25(talents_fts) AS rank FROM talents_fts f
+                    JOIN talents t ON t.id=f.rowid WHERE {where}
+                    ORDER BY rank LIMIT ?""",
+                [expr] + params + [limit]).fetchall()]
+            return {"rows": rows, "next_cursor": None, "total_matched": len(rows)}
+
+        where_sql = ("WHERE " + " AND ".join(filt)) if filt else ""
+        total = con.execute(
+            f"SELECT COUNT(*) FROM talents t {where_sql}", params).fetchone()[0]
+
+        page_filt, page_params = list(filt), list(params)
+        if cursor:
+            page_filt.append("t.id<?"); page_params.append(cursor)
+        page_where = ("WHERE " + " AND ".join(page_filt)) if page_filt else ""
+        rows = [dict(r) for r in con.execute(
+            f"SELECT t.* FROM talents t {page_where} ORDER BY t.id DESC LIMIT ?",
+            page_params + [limit]).fetchall()]
+        next_cursor = rows[-1]["id"] if len(rows) == limit else None
+        return {"rows": rows, "next_cursor": next_cursor, "total_matched": total}
+    except Exception:
+        return {"rows": [], "next_cursor": None, "total_matched": 0}
     finally:
         con.close()
 

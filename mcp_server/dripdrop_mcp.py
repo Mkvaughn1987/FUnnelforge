@@ -165,7 +165,7 @@ async def create_campaign(spec: dict) -> dict:
 @mcp.tool(
     description=(
         "Bulk-import resume files into the authenticated DripDrop user's "
-        "Top Candidates pool. Each file runs the same parse+save pipeline "
+        "ATS Talent Pool. Each file runs the same parse+save pipeline "
         "as the in-app Bulk Import Resumes button; imports are append-only."
     )
 )
@@ -192,9 +192,12 @@ async def import_candidates(files: list[dict]) -> dict:
 
 @mcp.tool(
     description=(
-        "Count the authenticated DripDrop user's Top Candidates pool by "
+        "Count the authenticated DripDrop user's ATS Talent Pool by "
         "status (active/placed/on_hold/total) - a lightweight way to "
-        "confirm an import landed."
+        "confirm an import landed. The ATS doesn't track a real placement "
+        "status, so 'active' and 'total' are always equal and "
+        "'placed'/'on_hold' are always 0 (kept for response-shape "
+        "compatibility)."
     )
 )
 async def candidates_count() -> dict:
@@ -210,24 +213,119 @@ async def candidates_count() -> dict:
 
 @mcp.tool(
     description=(
-        "Search the authenticated DripDrop user's Top Candidates pool by "
-        "keyword (matches name, target role, location, highlights, and "
-        "resume text) and/or status. Read-only - use this to check whether "
-        "a candidate for a given skill/role/location is already in the pool "
-        "before importing or pitching."
+        "Search or browse the authenticated DripDrop user's full ATS "
+        "Talent Pool (~4k candidates, not a subset) by keyword and/or "
+        "structural filters. Read-only - use this to check whether a "
+        "candidate for a given skill/role/location is already in the pool "
+        "before importing or pitching, or to page through the whole pool. "
+        "With q: relevance-ranked keyword match over name/title/skills/"
+        "resume text, capped at limit (not cursor-paginated - re-query with "
+        "a narrower q instead). Without q: plain newest-first browse of the "
+        "whole pool, paginated via cursor (pass back the previous "
+        "response's next_cursor to get the next page)."
     )
 )
-async def candidates_search(q: str = "", status: str = "", limit: int = 20) -> dict:
+async def candidates_search(
+    q: str = "",
+    state: str = "",
+    city: str = "",
+    has_email: bool | None = None,
+    added_after: str = "",
+    limit: int = 20,
+    cursor: int | None = None,
+) -> dict:
     """Args:
     q: keyword to search for (e.g. a skill, title, or location) - optional,
-        omit to just filter by status or list recent candidates.
-    status: optional status filter - "active", "placed", or "on_hold".
-    limit: max results to return (default 20, max 50).
+        omit to browse/filter without a keyword.
+    state: exact match on the candidate's state, e.g. "CO".
+    city: exact match on the candidate's city.
+    has_email: filter to candidates with (true) or without (false) an
+        extracted email address.
+    added_after: only candidates added on/after this date, "YYYY-MM-DD".
+    limit: max results to return (default 20, max 200).
+    cursor: pagination cursor from a previous response's next_cursor
+        (only meaningful when q is omitted).
     """
     email = _current_email()
     try:
         client = DripDropClient(DATA_DIR, email)
-        return await client.candidates_search(q=q, status=status, limit=limit)
+        return await client.candidates_search(
+            q=q, state=state, city=city, has_email=has_email,
+            added_after=added_after, limit=limit, cursor=cursor,
+        )
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
+@mcp.tool(
+    description=(
+        "Fetch the full ATS record for one candidate, including résumé "
+        "text - for when you already have an id (from candidates_search, "
+        "candidates_match, or import_candidates) and need the whole "
+        "record. Owner-scoped: only returns candidates belonging to the "
+        "authenticated DripDrop user."
+    )
+)
+async def candidates_get(candidate_id: str) -> dict:
+    """Args:
+    candidate_id: id as returned by candidates_search/candidates_match/
+        import_candidates, e.g. "ats_1234".
+    """
+    email = _current_email()
+    try:
+        client = DripDropClient(DATA_DIR, email)
+        return await client.candidates_get(candidate_id)
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
+@mcp.tool(
+    description=(
+        "AI-match a job description against the authenticated DripDrop "
+        "user's full ATS Talent Pool - the same pipeline as the "
+        "Candidates page's 'Match a Job Description' tab. Each returned "
+        "candidate has a live match_score and match_reasons. Slower than "
+        "candidates_search (every result gets a real-time AI scoring call), "
+        "so limit is capped at 25 per call - use cursor to page for more. "
+        "total_matched is the real, uncapped count of candidates matching "
+        "the extracted job criteria (does not subtract out radius_miles "
+        "filtering)."
+    )
+)
+async def candidates_match(
+    job_description: str,
+    title: str = "",
+    location: str = "",
+    radius_miles: float | None = None,
+    min_score: int | None = None,
+    limit: int = 20,
+    cursor: int | None = None,
+) -> dict:
+    """Args:
+    job_description: free-text job description or requirements to match
+        candidates against (required).
+    title: optional title override/hint if the job description's title
+        should be interpreted differently than what's extracted from it.
+    location: optional location override/hint, e.g. "Denver, CO".
+    radius_miles: if set (with location), only candidates within this many
+        miles of location are returned.
+    min_score: if set, only candidates scoring at least this fit score
+        (0-100) are returned.
+    limit: max results to return (default 20, hard-capped at 25).
+    cursor: pagination cursor from a previous response's next_cursor.
+    """
+    email = _current_email()
+    try:
+        client = DripDropClient(DATA_DIR, email)
+        return await client.candidates_match(
+            job_description, title=title, location=location,
+            radius_miles=radius_miles, min_score=min_score,
+            limit=limit, cursor=cursor,
+        )
     except NoApiKeyError as e:
         return {"error": str(e)}
     except DripDropApiError as e:

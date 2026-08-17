@@ -5,7 +5,7 @@ same ATS Talent Pool parse+save pipeline the Upload tab uses. Tests pin:
   - a successful import lands in the key owner's ATS Talent Pool (added),
   - short/blank resumes are skipped (never crash the batch),
   - re-importing the same person merges/dedupes instead of duplicating
-    (unlike the old append-only Top Candidates pool),
+    (unlike the old, append-only legacy candidate list),
   - the route rejects a missing/invalid key with 401,
   - the route + count happy paths.
 
@@ -121,7 +121,7 @@ def test_route_skips_unparseable_file(tmp_path, monkeypatch):
 
 
 def test_import_is_dedupe_not_append_only(tmp_path, monkeypatch):
-    """Unlike the old Top Candidates pool, importing the same person twice
+    """Unlike the old legacy candidate list, importing the same person twice
     merges/dedupes in the ATS instead of creating two records."""
     _isolate(tmp_path, monkeypatch)
     key = fa._mint_api_key(_OWNER)

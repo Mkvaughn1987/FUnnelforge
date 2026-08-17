@@ -49,7 +49,7 @@ def test_chooser_sets_origin_on_client_card():
 
 def test_mpc_card_routes_to_pipeline_ats():
     """'Start with an MPC' must route allowlisted users to the Pipeline
-    (ATS) to pick candidates, not the legacy Top Candidates
+    (ATS) to pick candidates, not the legacy candidate list
     (candidate_finder) page. Candidates moved into the ATS on 2026-06-09."""
     import flowdrip_app as fa
     src = inspect.getsource(fa)
