@@ -135,18 +135,32 @@ def test_resolve_start_date_explicit_passthrough():
     assert fa._resolve_start_date("2026-08-01") == "2026-08-01"
 
 
-def test_resolve_start_date_blank_uses_upcoming_monday():
-    resolved = fa._resolve_start_date("")
-    assert resolved == fa._upcoming_monday().isoformat()
-    assert date.fromisoformat(resolved).weekday() == 0  # a Monday
+def test_next_business_day_monday_through_thursday_is_tomorrow():
+    assert fa._next_business_day(date(2026, 7, 20)) == date(2026, 7, 21)  # Mon -> Tue
+    assert fa._next_business_day(date(2026, 7, 23)) == date(2026, 7, 24)  # Thu -> Fri
 
 
-def test_resolve_start_date_sentinel_uses_upcoming_monday():
-    assert fa._resolve_start_date("upcoming_monday") == fa._upcoming_monday().isoformat()
+def test_next_business_day_friday_saturday_sunday_is_coming_monday():
+    assert fa._next_business_day(date(2026, 7, 24)) == date(2026, 7, 27)  # Fri -> Mon
+    assert fa._next_business_day(date(2026, 7, 25)) == date(2026, 7, 27)  # Sat -> Mon
+    assert fa._next_business_day(date(2026, 7, 26)) == date(2026, 7, 27)  # Sun -> Mon
+
+
+def test_resolve_start_date_blank_uses_next_business_day():
+    assert fa._resolve_start_date("") == fa._next_business_day().isoformat()
+
+
+def test_resolve_start_date_sentinel_uses_next_business_day():
+    for sentinel in ("auto", "monday", "next_monday", "upcoming_monday"):
+        assert fa._resolve_start_date(sentinel) == fa._next_business_day().isoformat()
+
+
+def test_resolve_start_date_explicit_iso_passes_through():
+    assert fa._resolve_start_date("2026-08-15") == "2026-08-15"
 
 
 def test_validate_spec_ok_without_start_date():
-    # Omitting start_date is now valid — the server defaults to upcoming Monday.
+    # Omitting start_date is now valid — the server defaults to next business day.
     assert fa._validate_campaign_spec({"template": "fourbyfour",
                                        "company": "Acme"}) is None
 
@@ -296,15 +310,15 @@ def test_route_happy_path_owner_from_key(tmp_path, monkeypatch):
     assert cap["camp"]["aicb_camp_type"] == "fourbyfour"
 
 
-def test_route_defaults_start_date_to_upcoming_monday(tmp_path, monkeypatch):
+def test_route_defaults_start_date_to_next_business_day(tmp_path, monkeypatch):
     _isolate_keys(tmp_path, monkeypatch)
     cap = _stub_pipeline(monkeypatch)
     key = fa._mint_api_key("rep@arena.com")
     spec = {k: v for k, v in _SPEC.items() if k != "start_date"}
     status, body = _call({"authorization": f"Bearer {key}"}, spec)
     assert status == 200, body
-    # Server filled in the upcoming Monday; step 1 lands on that Monday.
-    assert date.fromisoformat(body["start_date"]).weekday() == 0
+    # Server filled in the next business day; step 1 lands on that day.
+    assert body["start_date"] == fa._next_business_day().isoformat()
     assert cap["camp"]["start_date"] == body["start_date"]
     assert body["schedule"][0]["date"] == body["start_date"]
 

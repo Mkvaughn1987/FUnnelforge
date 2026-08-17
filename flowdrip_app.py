@@ -5136,13 +5136,26 @@ def _upcoming_monday(today: date = None) -> date:
     return today + timedelta(days=(7 - today.weekday()) % 7)
 
 
+def _next_business_day(today: date = None) -> date:
+    """The next business day AFTER `today`. Mon–Thu -> tomorrow; Fri/Sat/Sun
+    -> the coming Monday. Never returns a weekend, and never returns `today`
+    itself (a campaign resolved with no explicit date always starts on a
+    later business day)."""
+    today = today or date.today()
+    wd = today.weekday()  # Mon=0 .. Sun=6
+    if wd <= 3:            # Mon, Tue, Wed, Thu
+        return today + timedelta(days=1)
+    return today + timedelta(days=(7 - wd))  # Fri->+3, Sat->+2, Sun->+1 == Monday
+
+
 def _resolve_start_date(raw) -> str:
     """Resolve a spec's start_date to an ISO string. Blank/omitted or a
     sentinel ('upcoming_monday', 'next_monday', 'monday', 'auto') defaults to
-    the upcoming Monday; an explicit ISO date is passed through verbatim."""
+    the next business day after today; an explicit ISO date is passed through
+    verbatim."""
     s = (raw or "").strip()
     if s.lower() in _START_DATE_AUTO:
-        return _upcoming_monday().isoformat()
+        return _next_business_day().isoformat()
     return s
 
 
