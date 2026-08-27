@@ -18961,6 +18961,58 @@ def _sq_pick(s, rf):
                             f"font-size:20px;color:{opt['border']};font-weight:700;"
                             f"flex-shrink:0;align-self:center;")
 
+        # ── "My Campaign Styles" — saved Free Flow variants, reusable
+        # directly from the chooser (2026-08-27). Reuses the exact row
+        # markup/behavior from the AICB sidebar's own list
+        # (flowdrip_app.py ~36664-36718), minus the inline
+        # selected/expand-description toggle, since clicking here
+        # navigates away immediately instead of staying on the page.
+        _chooser_my_styles = _load_my_campaign_styles()
+        if _chooser_my_styles:
+            with ui.element("div").style("max-width:860px;margin-top:22px;"):
+                ui.label("My Campaign Styles").style(
+                    f"font-size:11px;font-weight:700;color:{C['muted']};"
+                    f"text-transform:uppercase;letter-spacing:1.2px;"
+                    f"margin:0 0 8px;font-family:'Nunito',sans-serif;")
+                for _cst in _chooser_my_styles:
+                    _csid = _cst.get("id", "")
+                    _csname = _cst.get("name") or "Untitled Style"
+                    _csdesc = _cst.get("description") or ""
+                    _cscolor = C["teal"]
+                    def _pick_chooser_style(desc=_csdesc):
+                        s.aicb_camp_type = "byos"
+                        s.aicb_byos_desc = desc
+                        s.sp = "ai_campaign"
+                        rf()
+                    with ui.element("div").style(
+                            f"background:{C['surface']};"
+                            f"border:1px solid {C['border']};"
+                            f"border-left:3px solid {_cscolor};"
+                            f"border-radius:0 8px 8px 0;padding:8px 14px;"
+                            f"margin-bottom:5px;cursor:pointer;"
+                            f"transition:all .15s;display:flex;"
+                            f"align-items:center;gap:8px;"
+                            ).on("click", _pick_chooser_style):
+                        ui.label(f"⭐ {_csname}").style(
+                            f"font-size:13px;font-weight:700;"
+                            f"color:{_cscolor};"
+                            f"font-family:'Nunito',sans-serif;flex:1;")
+                        def _del_chooser_style(sid=_csid):
+                            _remaining = [
+                                x for x in _load_my_campaign_styles()
+                                if x.get("id") != sid]
+                            _save_my_campaign_styles(_remaining)
+                            ui.notify("Style removed.", type="info")
+                            rf()
+                        with ui.element("button").props(
+                                "@click.stop").style(
+                                f"background:transparent;border:none;"
+                                f"color:{C['muted']};font-size:11px;"
+                                f"cursor:pointer;padding:2px 6px;"
+                                f"margin-left:4px;"
+                                ).on("click", _del_chooser_style):
+                            ui.label("✕").style("pointer-events:none;")
+
         return
 
     # ── INSIDE A TAB  -  back button + tab label ──────────────────────────────
