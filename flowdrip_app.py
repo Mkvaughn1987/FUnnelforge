@@ -11621,16 +11621,22 @@ def _reset_wizard_state(s: "AppState") -> None:
     """Reset all wizard inputs to their defaults so a freshly-picked
     flow doesn't inherit Campaign A's research, locations, or steps.
 
-    Auto-discovers fields by prefix (aicb_*, custom_*, rc_*) from a
-    fresh AppState instance, so newly-added wizard fields are reset
+    Auto-discovers fields by prefix (aicb_*, custom_*, rc_*, sb_*) from
+    a fresh AppState instance, so newly-added wizard fields are reset
     automatically. See C2/C3 in
     docs/superpowers/specs/2026-04-26-dripdrop-critical-bug-triage-design.md
     for the failure mode (cross-campaign data contamination).
+
+    sb_* (Build Your Own Sequence) is included so that landing on that
+    page fresh always clears any abandoned generation left in
+    sb_pending_camp — otherwise the user gets dropped straight back
+    onto the "Name Your Sequence" save card for a stale campaign with
+    no way to reach the blank step editor.
     """
     fresh = AppState()
     import copy as _copy
     for name, default in vars(fresh).items():
-        if name.startswith(("aicb_", "custom_", "rc_")):
+        if name.startswith(("aicb_", "custom_", "rc_", "sb_")):
             # deep-copy so mutating the fresh default later doesn't
             # leak back into s (relevant when the default is a list/dict)
             try:
@@ -28681,11 +28687,30 @@ def _render_sb_save_card(s: AppState, rf):
             s.sb_save_as_style = False
             rf()
 
-        with ui.element("button").classes("fd-pb").style(
-                "padding:14px 28px;font-size:15px;width:100%;"
-                "justify-content:center;display:flex;border-radius:10px;"
-                ).on("click", _save_and_continue):
-            ui.label("Save & Continue →").style("pointer-events:none;")
+        def _discard_and_start_over():
+            # Abandon this generation and clear all sequence-builder
+            # state so the next visit lands on a blank step editor
+            # instead of re-showing this stale save card. Mirrors the
+            # reset block in _save_and_continue's success path.
+            s.sb_goal = ""
+            s.sb_audience = ""
+            s.sb_steps = []
+            s.sb_error = ""
+            s.sb_pending_camp = {}
+            s.sb_pending_name = ""
+            s.sb_save_as_style = False
+            rf()
+
+        with ui.element("div").style("display:flex;gap:12px;"):
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:14px 20px;font-size:13px;"
+                    ).on("click", _discard_and_start_over):
+                ui.label("Discard & start over").style("pointer-events:none;")
+            with ui.element("button").classes("fd-pb").style(
+                    "padding:14px 28px;font-size:15px;flex:1;"
+                    "justify-content:center;display:flex;border-radius:10px;"
+                    ).on("click", _save_and_continue):
+                ui.label("Save & Continue →").style("pointer-events:none;")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -36736,6 +36761,12 @@ def p_ai_campaign(s: AppState, rf):
                                             f"line-height:1.55;margin-bottom:10px;")
 
                                         def _go_seq_builder(k=ckey):
+                                            # Clear any abandoned sb_* state
+                                            # (e.g. sb_pending_camp from a
+                                            # prior generation the user never
+                                            # saved/discarded) so this always
+                                            # opens a fresh step editor.
+                                            _reset_wizard_state(s)
                                             s.aicb_camp_type = k
                                             s.sp = "seq_builder"
                                             rf()
