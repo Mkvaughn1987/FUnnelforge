@@ -40850,10 +40850,21 @@ def p_candidate_campaign(s: AppState, rf):
                         # 3rd, 5th) so recipients get the candidate's profile
                         # alongside the pitch.
                         _resume_pdfs = []
-                        for _sc in (s.cpc_candidates or [cand]):
+                        _slate_list = s.cpc_candidates or [cand]
+                        for _idx, _sc in enumerate(_slate_list):
                             _rt = (_sc.get("redacted_resume") or "").strip()
                             if _rt:
-                                _pf = _save_redacted_pdf(_sc.get("name", "Candidate"), _rt)
+                                # Never pass the real candidate name into the
+                                # redacted PDF's title — it's rendered
+                                # verbatim (see _save_redacted_pdf) and would
+                                # leak PII the body text already redacts.
+                                # Index suffix only when slating >1 candidate,
+                                # so same-role slate members don't collide on
+                                # filename and silently overwrite each other.
+                                _anon_label = ("Confidential Candidate"
+                                               if len(_slate_list) == 1 else
+                                               f"Confidential Candidate {_idx + 1}")
+                                _pf = _save_redacted_pdf(_anon_label, _rt)
                                 if _pf and _pf not in _resume_pdfs:
                                     _resume_pdfs.append(_pf)
                         if _resume_pdfs and emails:
