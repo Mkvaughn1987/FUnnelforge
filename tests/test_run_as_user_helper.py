@@ -48,7 +48,7 @@ def test_worker_resolves_per_user_path_not_base_dir(monkeypatch):
     monkeypatch.setattr(fa, "_SERVER_MODE", True)
     seen = {"path": None}
     def _t():
-        seen["path"] = fa._user_candidate_pool_path()
+        seen["path"] = fa._user_config_path()
     th = fa._run_as_user("bob@example.com", _t)
     th.join(timeout=2.0)
     p = str(seen["path"])

@@ -52,7 +52,7 @@ auth_provider = DripDropAuthProvider(data_dir=DATA_DIR, public_url=PUBLIC_URL)
 mcp = MCPServer(
     name="dripdrop",
     title="DripDrop",
-    description="Launch DripDrop outbound campaigns and manage the candidate pool.",
+    description="Launch DripDrop outbound campaigns and search the shared candidate Pipeline.",
     auth_server_provider=auth_provider,
     auth=AuthSettings(
         issuer_url=AnyHttpUrl(PUBLIC_URL),
@@ -164,9 +164,10 @@ async def create_campaign(spec: dict) -> dict:
 
 @mcp.tool(
     description=(
-        "Bulk-import resume files into the authenticated DripDrop user's "
-        "Top Candidates pool. Each file runs the same parse+save pipeline "
-        "as the in-app Bulk Import Resumes button; imports are append-only."
+        "Bulk-import resume files into DripDrop's shared candidate Pipeline "
+        "(the same ATS/Pipeline bench visible in-app). Each file runs the "
+        "same parse+save pipeline as the in-app Bulk Import Resumes button; "
+        "imports are append-only and owned by the authenticated caller."
     )
 )
 async def import_candidates(files: list[dict]) -> dict:
@@ -192,9 +193,8 @@ async def import_candidates(files: list[dict]) -> dict:
 
 @mcp.tool(
     description=(
-        "Count the authenticated DripDrop user's Top Candidates pool by "
-        "status (active/placed/on_hold/total) - a lightweight way to "
-        "confirm an import landed."
+        "Count candidates in DripDrop's shared Pipeline (ATS) - a "
+        "lightweight way to confirm an import landed."
     )
 )
 async def candidates_count() -> dict:
@@ -210,11 +210,11 @@ async def candidates_count() -> dict:
 
 @mcp.tool(
     description=(
-        "Search the authenticated DripDrop user's Top Candidates pool by "
-        "keyword (matches name, target role, location, highlights, and "
-        "resume text) and/or status. Read-only - use this to check whether "
-        "a candidate for a given skill/role/location is already in the pool "
-        "before importing or pitching."
+        "Search DripDrop's shared candidate Pipeline (ATS) by keyword "
+        "(matches name, title, employer, skills, and resume text) and/or "
+        "status. Read-only, team-wide - use this to check whether a "
+        "candidate for a given skill/role/location is already in the "
+        "Pipeline before importing or pitching."
     )
 )
 async def candidates_search(q: str = "", status: str = "", limit: int = 20) -> dict:
@@ -228,6 +228,44 @@ async def candidates_search(q: str = "", status: str = "", limit: int = 20) -> d
     try:
         client = DripDropClient(DATA_DIR, email)
         return await client.candidates_search(q=q, status=status, limit=limit)
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
+@mcp.tool(
+    description=(
+        "List DripDrop's 10 built-in campaign templates (blitz, fourbyfour, "
+        "fivebyfive, fivebythree, talentdrop, flood, sidequest, fullstream, "
+        "victorycard, byos) with a description and best-for guidance for "
+        "each. Read-only - use this to see what `template` values "
+        "create_campaign accepts and pick the right one before launching."
+    )
+)
+async def campaign_types() -> dict:
+    email = _current_email()
+    try:
+        client = DripDropClient(DATA_DIR, email)
+        return await client.campaign_types()
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
+@mcp.tool(
+    description=(
+        "List the authenticated DripDrop user's own saved custom \"My "
+        "Campaign Styles\" (bring-your-own-style descriptions created in "
+        "the app). Read-only, tenant-scoped to the caller."
+    )
+)
+async def my_campaign_styles() -> dict:
+    email = _current_email()
+    try:
+        client = DripDropClient(DATA_DIR, email)
+        return await client.my_campaign_styles()
     except NoApiKeyError as e:
         return {"error": str(e)}
     except DripDropApiError as e:
