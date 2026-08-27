@@ -26988,26 +26988,84 @@ def p_dashboard(s: AppState, rf):
                 else:
                     ui.label("No emails scheduled for today.").style(f"font-size:11px;color:{C['muted']};")
 
-            # Recent responses
-            _recent = recs[:4]
+            # Responses  -  headline stat + this-week list (interactive,
+            # same "I Responded" pattern as the full Replies page)
+            # NOTE: live replies are logged by ReplyMonitor with a "date" key;
+            # "replied_at" is only set by the add_responded() helper path, so
+            # both must be checked or "this week" silently comes back empty.
+            def _resp_date(r):
+                return r.get("date") or r.get("replied_at") or ""
+            _week_start_str = (today - timedelta(days=today.weekday())).strftime("%Y-%m-%d")
+            _week_recs = sorted(
+                (r for r in recs if _resp_date(r)[:10] >= _week_start_str),
+                key=_resp_date, reverse=True)
             with ui.element("div").style(
-                    f"background:{C['card']};border:1px solid {C['border']};"
-                    f"border-radius:10px;padding:14px 16px;margin-bottom:8px;"):
-                with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;"):
-                    ui.label(f"{len(recs)} total responses").style(
-                        f"font-size:13px;font-weight:600;color:{C['text_l']};")
+                    f"background:{C['card']};border:1px solid {C['teal']};"
+                    f"border-radius:10px;padding:16px 18px;margin-bottom:8px;"):
+                with ui.element("div").style("display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;"):
+                    with ui.element("div").style("display:flex;align-items:baseline;gap:8px;"):
+                        ui.label(str(len(recs))).style(
+                            f"font-size:30px;font-weight:800;color:{C['teal']};line-height:1;"
+                            f"font-family:'Nunito',sans-serif;")
+                        ui.label("total responses").style(
+                            f"font-size:13px;font-weight:600;color:{C['text_l']};")
                     def _go_resp():
                         nav_go(s, rf, hub="sales", page="responses")
                     with ui.element("button").style(
-                            f"font-size:10px;color:{C['teal']};background:transparent;border:none;"
+                            f"font-size:11px;color:{C['teal']};background:transparent;border:none;"
                             f"cursor:pointer;font-family:inherit;").on("click", _go_resp):
                         ui.label("View all")
-                if _recent:
-                    for _r in _recent:
-                        ui.label(f"{_r.get('name', _r.get('email',''))}  -  {_r.get('campaign','')}").style(
-                            f"font-size:11px;color:{C['muted']};padding:2px 0;")
+                ui.label(f"{len(_week_recs)} this week").style(
+                    f"font-size:11px;color:{C['muted']};margin-bottom:8px;")
+                if _week_recs:
+                    for _r in _week_recs[:6]:
+                        _email = _r.get("email", "")
+                        _name = _r.get("name", _email)
+                        _fu = _r.get("followed_up", False)
+                        _body = (_r.get("reply_body") or "").strip()
+                        _body_key = f"dash_resp_body_{_email}"
+                        _body_open = _body_key in s.expanded
+                        with ui.element("div").style(
+                                f"padding:8px 0;border-top:1px solid {C['border']}30;"):
+                            with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;gap:8px;"):
+                                with ui.element("div").style("min-width:0;flex:1;"):
+                                    ui.label(_name).style(
+                                        f"font-size:12px;font-weight:600;color:{C['text_l']};"
+                                        f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
+                                    ui.label(_r.get("campaign", "")).style(
+                                        f"font-size:11px;color:{C['muted']};"
+                                        f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
+                                if not _fu:
+                                    def _mark(e=_email):
+                                        all_r = load_responded()
+                                        for x in all_r:
+                                            if x.get("email", "").lower() == e.lower():
+                                                x["followed_up"] = True
+                                        save_responded(all_r); rf()
+                                    with ui.element("button").classes("fd-pb").style(
+                                            "padding:4px 10px;font-size:10px;flex-shrink:0;").on("click", _mark):
+                                        ui.label("✓ I Responded").style("pointer-events:none;")
+                                else:
+                                    ui.label("✓ Responded").style(
+                                        f"font-size:10px;color:{C['good']};flex-shrink:0;")
+                            if _body:
+                                def _tog_dash_body(k=_body_key):
+                                    s.expanded.symmetric_difference_update({k}); rf()
+                                with ui.element("button").style(
+                                        f"font-size:10px;color:{C['muted']};background:transparent;"
+                                        f"border:none;cursor:pointer;font-family:inherit;padding:0;margin-top:2px;"
+                                        ).on("click", _tog_dash_body):
+                                    ui.label("▾ Hide reply" if _body_open else "▸ Their reply").style("pointer-events:none;")
+                                if _body_open:
+                                    ui.label(_body[:400] + ("…" if len(_body) > 400 else "")).style(
+                                        f"font-size:11px;color:{C['text']};margin-top:4px;"
+                                        f"padding:8px 10px;background:{C['surface']};border-radius:6px;"
+                                        f"line-height:1.6;white-space:pre-wrap;")
+                    if len(_week_recs) > 6:
+                        ui.label(f"+{len(_week_recs)-6} more this week").style(
+                            f"font-size:10px;color:{C['muted']};margin-top:4px;")
                 else:
-                    ui.label("No responses yet.").style(f"font-size:11px;color:{C['muted']};")
+                    ui.label("No responses yet this week.").style(f"font-size:11px;color:{C['muted']};")
 
             # Tasks today
             with ui.element("div").style(
@@ -27046,11 +27104,12 @@ def p_dashboard(s: AppState, rf):
                         ui.label("View")
                 import ats as _ats
                 _pipe_email = _CURRENT_USER_EMAIL.get() or ""
-                _pipe_total = _ats.total_count()
-                _pipe_mine = _ats.total_count(owner=_pipe_email) if _pipe_email else 0
+                _pipe_stats = _ats.dashboard_stats()
+                _pipe_total = _pipe_stats["total"]
+                _pipe_week = _pipe_stats["added_week"]
                 ui.label(f"{_pipe_total:,} candidates in Pipeline").style(
                     f"font-size:11px;color:{C['muted']};padding:2px 0;")
-                ui.label(f"{_pipe_mine:,} added by you").style(
+                ui.label(f"{_pipe_week:,} added this week").style(
                     f"font-size:11px;color:{C['muted']};padding:2px 0;")
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -40352,10 +40411,21 @@ def p_candidate_campaign(s: AppState, rf):
                         # 3rd, 5th) so recipients get the candidate's profile
                         # alongside the pitch.
                         _resume_pdfs = []
-                        for _sc in (s.cpc_candidates or [cand]):
+                        _slate_list = s.cpc_candidates or [cand]
+                        for _idx, _sc in enumerate(_slate_list):
                             _rt = (_sc.get("redacted_resume") or "").strip()
                             if _rt:
-                                _pf = _save_redacted_pdf(_sc.get("name", "Candidate"), _rt)
+                                # Never pass the real candidate name into the
+                                # redacted PDF's title — it's rendered
+                                # verbatim (see _save_redacted_pdf) and would
+                                # leak PII the body text already redacts.
+                                # Index suffix only when slating >1 candidate,
+                                # so same-role slate members don't collide on
+                                # filename and silently overwrite each other.
+                                _anon_label = ("Confidential Candidate"
+                                               if len(_slate_list) == 1 else
+                                               f"Confidential Candidate {_idx + 1}")
+                                _pf = _save_redacted_pdf(_anon_label, _rt)
                                 if _pf and _pf not in _resume_pdfs:
                                     _resume_pdfs.append(_pf)
                         if _resume_pdfs and emails:
