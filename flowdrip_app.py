@@ -28382,9 +28382,11 @@ def _render_sb_save_card(s: AppState, rf):
             _camp["name"] = _final_name
 
             if s.sb_save_as_style:
+                _brief_bits = [s.sb_goal, s.sb_audience]
                 _desc = (
-                    " / ".join(filter(None, [s.sb_goal, s.sb_audience, s.sb_tone]))
-                    or _camp.get("synopsis", "") or _final_name)
+                    " / ".join(filter(None, _brief_bits + [s.sb_tone]))
+                    if any(_brief_bits)
+                    else (_camp.get("synopsis", "") or _final_name))
                 _styles = _load_my_campaign_styles()
                 _styles.append({
                     "id": str(uuid.uuid4()),
