@@ -3,7 +3,7 @@ fields after the migration to support the page intro strip."""
 
 EXPECTED_KEYS = {
     "dashboard", "drip", "start_seq", "seq_mgr", "evergreen",
-    "newsletters", "candidate_finder", "contacts", "pdf_gen",
+    "newsletters", "contacts", "pdf_gen",
     "queue", "responses", "signature", "dnc", "ai_settings",
 }
 

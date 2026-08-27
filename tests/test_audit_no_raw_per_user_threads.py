@@ -17,12 +17,7 @@ SOURCE_FILE = REPO_ROOT / "flowdrip_app.py"
 
 # Functions / patterns that indicate a per-user write is happening.
 PER_USER_WRITE_MARKERS = [
-    "save_candidate_pool",
     "save_dnc",
-    "add_candidate_to_pool",
-    "update_candidate_in_pool",
-    "remove_candidate_from_pool",
-    "_user_candidate_pool_path",
     "_user_pdf_dir",
     "_user_dnc_path",
     "_user_queue_path",
@@ -56,7 +51,6 @@ SYSTEM_THREAD_NAMES = {
 
 # Class-method workers that are correctly handled by other mechanisms:
 # - OutlookMonitor._loop / ._scan: desktop-only, single-user (gated by _SERVER_MODE elsewhere)
-# - CandidatePoolScanner._loop: server mode is gated inside _check_and_scan
 ALLOWLISTED_METHOD_WORKERS = {
     "self._loop",
     "self._scan",
