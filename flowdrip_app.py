@@ -11549,24 +11549,15 @@ class AppState:
         # renders p_seq_builder. State persists in app.storage.user
         # so a Cloudflare WS blip doesn't wipe a half-built sequence.
         # Brief
-        self.sb_tone: str = "consultative"      # consultative|direct|casual|formal
-        # Cadence — per-type touch counts + a preset span. AI builds the
-        # full sequence honoring these counts. Spacing is derived from
-        # total touches + span.
-        self.sb_counts: dict = {
-            "email": 5,
-            "linkedin": 2,
-            "call": 1,
-            "sms": 0,
-            "task": 0,
-        }
-        self.sb_span: str = "3 weeks"           # 1 week|2 weeks|3 weeks|4 weeks|6 weeks|2 months|3 months
-        # Free-text instructions Claude folds into the prompt (warm
-        # intro placement, candidate teasers, breakup positioning,
-        # etc.).
-        self.sb_special: str = ""
-        self.sb_generating: bool = False        # spinner flag during Claude call
-        self.sb_error: str = ""                 # last-error string for inline display
+        self.sb_goal: str = ""
+        self.sb_audience: str = ""
+        self.sb_tone: str = "consultative"
+        self.sb_steps: list = []
+        self.sb_generating: bool = False
+        self.sb_error: str = ""
+        self.sb_pending_camp: dict = {}
+        self.sb_pending_name: str = ""
+        self.sb_save_as_style: bool = False
 
         # Candidate Placement Campaign state
         self.cpc_step = 0              # 0=review, 1=generating, 2=done
