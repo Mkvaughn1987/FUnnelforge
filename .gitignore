@@ -37,3 +37,6 @@ funnel-forge/.env*
 # Large archives & one-off backup copies (Git history IS the backup)
 *.zip
 *.broken_backup
+
+# Git worktrees (superpowers:using-git-worktrees)
+.worktrees/
