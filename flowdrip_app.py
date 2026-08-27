@@ -54803,6 +54803,12 @@ def index():
         s.sp = "newsletters"
         s.hub = "sales"
 
+    # SortableJS: loaded once here at top-level page render (NOT inside
+    # p_seq_builder, which re-renders on every rf() — re-injecting a
+    # <script> tag on every refresh would be wasteful/buggy). Drives the
+    # drag-and-drop reordering in the Build Your Own Sequence step builder.
+    ui.add_head_html('<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>')
+
     # Registry of QEditors that participate in the merge-field round-trip.
     # Populated by helper `_register_qeditor` below (stored on `s` so module-
     # level page functions can access it); consumed by the 'dd_qeditor_change'
@@ -54831,6 +54837,27 @@ def index():
     # page with "'NoneType' object is not callable" — root cause of the
     # 2026-04-26 signup outage.
     ui.on('dd_qeditor_change', _on_qeditor_change)
+
+    def _on_sb_reorder(e):
+        """Handles the 'sb_reorder' event emitted by the Build Your Own
+        Sequence step builder's SortableJS onEnd callback (JS side wired
+        up in p_seq_builder) via window.emitEvent('sb_reorder',
+        {order: [...]}) — order is the new list of step `id` values.
+        """
+        order = (getattr(e, 'args', None) or {}).get('order') or []
+        if len(order) != len(s.sb_steps):
+            # Stale/mismatched client-side order — skip silently rather
+            # than risk dropping or duplicating steps.
+            return
+        by_id = {step.get("id"): step for step in s.sb_steps}
+        reordered = [by_id[sid] for sid in order if sid in by_id]
+        if len(reordered) != len(s.sb_steps):
+            # An id in `order` didn't match a current step — skip silently.
+            return
+        s.sb_steps = reordered
+        rf()
+
+    ui.on('sb_reorder', _on_sb_reorder)
 
     # Honor a pending page hand-off (e.g. from /setup → Email & AI Setup).
     # This overrides the default landing page because it's an explicit
