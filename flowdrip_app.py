@@ -54807,7 +54807,11 @@ def index():
     # p_seq_builder, which re-renders on every rf() — re-injecting a
     # <script> tag on every refresh would be wasteful/buggy). Drives the
     # drag-and-drop reordering in the Build Your Own Sequence step builder.
-    ui.add_head_html('<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>')
+    ui.add_head_html(
+        '<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" '
+        'integrity="sha384-BSxuMLxX+FCbTdYec3TbXlnMGEEM2QXTFdtDaveen71o+jswm2J36+xFqp8k4VHM" '
+        'crossorigin="anonymous"></script>'
+    )
 
     # Registry of QEditors that participate in the merge-field round-trip.
     # Populated by helper `_register_qeditor` below (stored on `s` so module-
@@ -54845,15 +54849,22 @@ def index():
         {order: [...]}) — order is the new list of step `id` values.
         """
         order = (getattr(e, 'args', None) or {}).get('order') or []
-        if len(order) != len(s.sb_steps):
-            # Stale/mismatched client-side order — skip silently rather
-            # than risk dropping or duplicating steps.
-            return
         by_id = {step.get("id"): step for step in s.sb_steps}
-        reordered = [by_id[sid] for sid in order if sid in by_id]
-        if len(reordered) != len(s.sb_steps):
-            # An id in `order` didn't match a current step — skip silently.
+        # Requires order to be an exact permutation of current step ids:
+        # same length, no duplicates, no unknown/missing ids. A duplicate
+        # id (e.g. [1, 1, 2] instead of [1, 2, 3]) would previously slip
+        # past the old length-only checks and silently drop one step while
+        # duplicating another. Note the length check is still required
+        # alongside the set check: sets discard multiplicity, so e.g.
+        # order=[1, 1, 2, 3] against ids {1, 2, 3} has a matching set but
+        # the wrong length — set equality alone would miss that. With both
+        # checks passing, len(order) == len(set(order)) is guaranteed
+        # (pigeonhole), so order is provably duplicate-free here. Stale/
+        # malformed order — skip silently rather than risk dropping or
+        # duplicating steps.
+        if len(order) != len(s.sb_steps) or set(order) != set(by_id.keys()):
             return
+        reordered = [by_id[sid] for sid in order]
         s.sb_steps = reordered
         rf()
 
