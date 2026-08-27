@@ -34234,62 +34234,67 @@ _SB_TYPE_TO_QUEUE_TYPE = {
 }
 
 
-def _sb_build_prompt(tone: str,
-                     counts: dict, span: str,
-                     special: str = "") -> str:
-    """Build the Claude prompt for generating the entire sequence
-    from a tone + per-type touch counts + total span + optional
-    per-email direction. AI handles step ordering, per-step content,
-    and day-offset spacing across the span.
+def _sb_build_prompt(tone: str, goal: str, audience: str, steps: list) -> str:
+    """Build the Claude prompt for generating a full sequence from a
+    brief (tone/goal/audience) plus an explicit, user-authored list of
+    steps. Each step already carries its type, day offset, and
+    optional user input (instructions to write from, or a draft to
+    polish) — the AI's job is per-step content generation, not
+    structural decisions like counts/ordering/spacing.
 
-    2026-05-25 — goal/audience params removed. They were optional
-    free-text fields whose intent is now carried by the per-email
-    direction box (`special`), which is what the AI actually needs."""
+    2026-08-27 — restored the step-based design. Per-type counts +
+    span + a single "special instructions" box (2026-05-25) didn't
+    give users control over ordering/spacing/per-step direction, so
+    the builder is back to an explicit step list the user assembles."""
     _tone = (tone or "consultative").strip().lower()
-    _span = (span or "3 weeks").strip()
-    _special = (special or "").strip()
+    _goal = (goal or "").strip()
+    _audience = (audience or "").strip()
+    _steps = steps or []
 
-    # Per-type count lines — only enumerate types the user actually
-    # picked. Zero-count types just confuse the AI.
-    _count_lines = []
-    _total = 0
-    for _t in _SB_VALID_TYPES:
-        _n = int((counts or {}).get(_t, 0) or 0)
-        if _n <= 0:
-            continue
-        _label = _SB_TYPE_LABELS.get(_t, _t.title())
-        _count_lines.append(f"  - {_n} {_label} touch{'es' if _n != 1 else ''}")
-        _total += _n
-    _counts_block = "\n".join(_count_lines) if _count_lines else "  (no touches specified)"
+    _goal_line = f"GOAL: {_goal}" if _goal else (
+        "GOAL: (not specified — infer from the steps below)"
+    )
+    _audience_line = f"AUDIENCE: {_audience}" if _audience else (
+        "AUDIENCE: (not specified — infer from the steps below)"
+    )
 
-    _special_block = ""
-    if _special:
-        _special_block = (
-            f"\nSPECIAL INSTRUCTIONS from the user (fold into the sequence):\n"
-            f"  {_special}\n"
+    # Per-step blocks, in the exact order the user built them.
+    _step_lines = []
+    for _i, _step in enumerate(_steps, start=1):
+        _stype = (_step.get("type") or "").strip().lower()
+        _label = _SB_TYPE_LABELS.get(_stype, _stype.title() or "Step")
+        _delay = int(_step.get("delay_days", 0) or 0)
+        _input = (_step.get("input") or "").strip()
+        _input_line = _input or (
+            "(none provided — improvise something appropriate for this "
+            "step type and position in the sequence)"
         )
+        _step_lines.append(
+            f"Step {_i}: {_label.upper()}, Day {_delay}\n"
+            f"  User direction or draft: {_input_line}"
+        )
+    _steps_block = "\n".join(_step_lines) if _step_lines else "  (no steps specified)"
 
     return (
         f"You are building a {_tone} outreach sequence for a recruiter.\n\n"
         + _DRIPDROP_PLAYBOOK + "\n"
         + _style_guide_prompt() + "\n"
-        + f"TONE: {_tone}\n\n"
-        f"CADENCE — build a sequence with exactly these touch counts, "
-        f"spaced naturally across {_span}:\n"
-        f"{_counts_block}\n"
-        f"  TOTAL: {_total} touches over {_span}\n"
-        f"{_special_block}\n"
+        + f"{_goal_line}\n"
+        f"{_audience_line}\n"
+        f"TONE: {_tone}\n\n"
+        f"STEPS — the user has already built this exact sequence of "
+        f"touches, in order. Do not add, remove, or reorder steps; do "
+        f"not change any step's type or delay_days:\n\n"
+        f"{_steps_block}\n\n"
+        f"For each step, decide whether the user's text is INSTRUCTIONS "
+        f"or DRAFTED COPY:\n"
+        f"- INSTRUCTIONS: write final copy from scratch.\n"
+        f"- DRAFTED COPY: lightly polish (typos, merge fields, "
+        f"tightening) without rewriting voice.\n\n"
         f"GUIDELINES:\n"
-        f"- Order the touches in a sensible flow (typical pattern: email "
-        f"first, LinkedIn connect after the first email, calls spaced 2-3 "
-        f"days after their related email, SMS as quick nudges between "
-        f"emails, tasks as reminders). Adjust if SPECIAL INSTRUCTIONS "
-        f"above suggest otherwise.\n"
-        f"- Space the touches naturally across the {_span}. Don't bunch "
-        f"everything in the first week unless the cadence is explicitly "
-        f"short.\n"
         f"- delay_days on each step is DAYS AFTER THE PREVIOUS STEP "
-        f"(NOT total days from start).\n"
+        f"(NOT total days from start). Carry the delay_days given above "
+        f"through unchanged.\n"
         f"- Use merge fields {{FirstName}}, {{LastName}}, {{Company}}, "
         f"{{JobTitle}} where appropriate.\n"
         f"- Each email gets a subject; LinkedIn/Call/SMS/Task don't.\n\n"
