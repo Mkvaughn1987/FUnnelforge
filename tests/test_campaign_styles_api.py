@@ -1,7 +1,7 @@
 """Campaign styles discovery: GET /api/v1/campaign_types + /api/v1/campaign_styles.
 
 Both let an MCP caller see what campaign styles exist before calling
-create_campaign: the 10 built-in templates (global, non-sensitive), and the
+create_campaign: the 11 built-in templates (global, non-sensitive), and the
 caller's own saved custom "My Campaign Styles" (BYOS descriptions, tenant-
 scoped to the calling key's owner).
 
@@ -81,18 +81,19 @@ def test_types_route_rejects_missing_key(_keys):
     assert r.status_code == 401
 
 
-def test_types_route_returns_all_ten_known_keys(_keys):
+def test_types_route_returns_all_eleven_known_keys(_keys):
     key = fa._mint_api_key(_OWNER_A)
     r = _client().get("/api/v1/campaign_types", headers={"X-API-Key": key})
     assert r.status_code == 200
     body = r.json()
     assert isinstance(body, list)
-    assert len(body) == 10
+    assert len(body) == 11
 
     keys = {t["key"] for t in body}
     assert keys == {
         "blitz", "fourbyfour", "fivebyfive", "fivebythree", "talentdrop",
         "flood", "sidequest", "fullstream", "victorycard", "byos",
+        "findcandidates",
     }
     for t in body:
         assert set(t.keys()) == {"key", "display_name", "description", "best_for"}
