@@ -13043,7 +13043,7 @@ def _show_step_preview_dialog(s, step: dict):
                     f"font-size:14px;font-weight:600;color:{C['text_l']};margin-bottom:16px;")
                 if _body.strip():
                     with ui.element("div").style(
-                            "background:#ffffff;border:1px solid #E2E8F0;border-radius:10px;"
+                            "background:#ffffff;color:#1F2937;border:1px solid #E2E8F0;border-radius:10px;"
                             "padding:20px 24px;font-family:'Segoe UI',Arial,sans-serif;"
                             "box-shadow:0 1px 3px rgba(15,23,42,.07);"):
                         ui.html(_body)
