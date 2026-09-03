@@ -10477,6 +10477,16 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
 .fd-auth-form .q-field__native,
 .fd-auth-form .q-field__input{{padding-left:14px !important;padding-right:14px !important}}
 .fd-auth-form .q-field__control{{padding:0 !important}}
+/* ATS search-card inputs  -  same treatment as the auth form. The pill
+   (`rounded`) control clips at its own padding edge, which sliced the first
+   character off a typed value: "SUPERINTENDENT" read as "sUPERINTENDENT" and
+   "Irvine, CA" as "rvine, CA". Zero the control's padding and carry the inset
+   on the native input instead, so the text sits inside the clip region. The
+   append slot keeps its own inset so the clearable x doesn't hug the curve. */
+.fd-search-field .q-field__native,
+.fd-search-field .q-field__input{{padding-left:16px !important;padding-right:16px !important}}
+.fd-search-field .q-field__control{{padding:0 !important}}
+.fd-search-field .q-field__append{{padding-right:12px !important}}
 /* Avatar + dropdown menu */
 .fd-avatar-btn:hover{{transform:scale(1.06);box-shadow:0 0 0 3px {C['teal']}30}}
 .fd-menu-item:hover{{background:{C['card_h']}}}
@@ -12859,6 +12869,20 @@ def _show_requeue_dialog(s, rf, camp: dict, cname: str, pending_count: int):
     dlg.open()
 
 
+# The step preview paints the email body on a white card. Email HTML almost
+# never declares its own text color (the 4x4/5x3 wrapper only sets font-family
+# and font-size), so whatever the card inherits is what the body renders in --
+# and in the dark theme <body> carries a near-white color. Pin the card's text
+# color to the light-theme body ink so the preview always reads like an inbox
+# does, in either theme.
+_STEP_PREVIEW_BODY_STYLE = (
+    "background:#ffffff;color:#0F172A;border:1px solid #E2E8F0;"
+    "border-radius:10px;padding:20px 24px;"
+    "font-family:'Segoe UI',Arial,sans-serif;"
+    "box-shadow:0 1px 3px rgba(15,23,42,.07);"
+)
+
+
 def _show_step_preview_dialog(s, step: dict):
     """Read-only preview of a sequence step's actual content  -  the
     subject + rendered HTML body for email steps, or the script/notes text
@@ -12905,10 +12929,7 @@ def _show_step_preview_dialog(s, step: dict):
                 ui.label(_subj).style(
                     f"font-size:14px;font-weight:600;color:{C['text_l']};margin-bottom:16px;")
                 if _body.strip():
-                    with ui.element("div").style(
-                            "background:#ffffff;border:1px solid #E2E8F0;border-radius:10px;"
-                            "padding:20px 24px;font-family:'Segoe UI',Arial,sans-serif;"
-                            "box-shadow:0 1px 3px rgba(15,23,42,.07);"):
+                    with ui.element("div").style(_STEP_PREVIEW_BODY_STYLE):
                         ui.html(_body)
                 else:
                     ui.label("This email has no body content yet.").style(
