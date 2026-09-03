@@ -139,18 +139,27 @@ async def login_submit(request: Request):
         "Create and launch a DripDrop outbound email campaign from a spec "
         "(template, company/niche, roles, contacts). Runs as the "
         "authenticated DripDrop user; the campaign is scheduled and queued "
-        "immediately, same as posting to /api/v1/campaigns."
+        "immediately, same as posting to /api/v1/campaigns. For the "
+        "`findcandidates` template - the only template that emails "
+        "candidates directly instead of companies - pass a job_description "
+        "instead of company/niche/roles."
     )
 )
 async def create_campaign(spec: dict) -> dict:
     """Args:
     spec: campaign spec matching DripDrop's /api/v1/campaigns body - at
-        minimum {"template": <template key>, "company" or "niche": str}.
-        Optional: contacts (list of {email, first_name, ...}), contacts_csv
-        (raw CSV text), candidates (list of candidate cards, used by the
-        fivebythree template), roles, location, industry, website, name,
-        start_date (ISO date, or omitted/"auto" for the upcoming Monday),
+        minimum {"template": <template key>, "company" or "niche": str},
+        except for template "findcandidates" (see below). Optional: contacts
+        (list of {email, first_name, ...}), contacts_csv (raw CSV text),
+        candidates (list of candidate cards, used by the fivebythree
+        template), roles, location, industry, website, name, start_date
+        (ISO date, or omitted/"auto" for the upcoming Monday),
         enroll_newsletter (newsletter name to also enroll contacts into).
+
+        For template "findcandidates": pass job_description (str, the full
+        JD text) instead of company/niche/roles, and contacts as the
+        candidates to reach (their emails). Optional cadence: "one_email"
+        (default), "two_emails_1day", or "three_emails_3days".
     """
     email = _current_email()
     try:
@@ -236,11 +245,12 @@ async def candidates_search(q: str = "", status: str = "", limit: int = 20) -> d
 
 @mcp.tool(
     description=(
-        "List DripDrop's 10 built-in campaign templates (blitz, fourbyfour, "
+        "List DripDrop's 11 built-in campaign templates (blitz, fourbyfour, "
         "fivebyfive, fivebythree, talentdrop, flood, sidequest, fullstream, "
-        "victorycard, byos) with a description and best-for guidance for "
-        "each. Read-only - use this to see what `template` values "
-        "create_campaign accepts and pick the right one before launching."
+        "victorycard, byos, findcandidates) with a description and best-for "
+        "guidance for each. Read-only - use this to see what `template` "
+        "values create_campaign accepts and pick the right one before "
+        "launching."
     )
 )
 async def campaign_types() -> dict:
@@ -266,6 +276,48 @@ async def my_campaign_styles() -> dict:
     try:
         client = DripDropClient(DATA_DIR, email)
         return await client.my_campaign_styles()
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
+@mcp.tool(
+    description=(
+        "List the authenticated DripDrop user's own campaigns, with the "
+        "template, step count, contact count, and queue stats (pending/"
+        "sent/failed/cancelled) for each. Read-only, tenant-scoped - use "
+        "this to see what's already been launched before creating a new "
+        "campaign, or to find a campaign_id for campaign_get."
+    )
+)
+async def campaigns_list() -> dict:
+    email = _current_email()
+    try:
+        client = DripDropClient(DATA_DIR, email)
+        return await client.campaigns_list()
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
+@mcp.tool(
+    description=(
+        "Get full detail on one of the authenticated DripDrop user's own "
+        "campaigns - all email steps (subject/body per step), contacts, "
+        "and queue stats. Read-only, tenant-scoped - use campaigns_list "
+        "first to find the campaign_id."
+    )
+)
+async def campaign_get(campaign_id: str) -> dict:
+    """Args:
+    campaign_id: id from campaigns_list (or a campaign name).
+    """
+    email = _current_email()
+    try:
+        client = DripDropClient(DATA_DIR, email)
+        return await client.campaign_get(campaign_id)
     except NoApiKeyError as e:
         return {"error": str(e)}
     except DripDropApiError as e:

@@ -179,3 +179,21 @@ class DripDropClient:
             )
         await self._raise_for_error(resp)
         return resp.json()
+
+    async def campaigns_list(self) -> dict:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/campaigns",
+                headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def campaign_get(self, campaign_id: str) -> dict:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/campaigns/{campaign_id}",
+                headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
