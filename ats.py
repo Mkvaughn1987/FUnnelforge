@@ -3152,7 +3152,8 @@ def _view_candidates(ff, st, refresh):
         def _location_input(width="230px"):
             _li = ui.input(value=st.get("location", ""),
                            placeholder="📍 City, ST  (e.g. Irvine, CA)").props(
-                "outlined dense rounded clearable").style(f"width:{width};flex-shrink:0;")
+                "outlined dense rounded clearable").classes("fd-search-field").style(
+                f"width:{width};flex-shrink:0;")
             _li.on_value_change(
                 lambda e: st.__setitem__("location", (e.value or "").strip()))
             return _li
@@ -3225,11 +3226,12 @@ def _view_candidates(ff, st, refresh):
                 # under the keyword bar, both the same width, rather than the
                 # two inputs splitting the row between them.
                 with ui.element("div").style(
-                        "flex:1;min-width:220px;display:flex;"
+                        "flex:1;min-width:220px;max-width:420px;display:flex;"
                         "flex-direction:column;gap:8px;"):
                     _inp = ui.input(value=st.get("query_draft", ""),
                                     placeholder="e.g.  superintendent data center").props(
-                        "outlined dense rounded clearable").style("width:100%;")
+                        "outlined dense rounded clearable").classes(
+                        "fd-search-field").style("width:100%;")
                     _inp.on_value_change(
                         lambda e: st.__setitem__("query_draft", e.value or ""))
                     _inp.on("keydown.enter", lambda _e: _do_kw())
