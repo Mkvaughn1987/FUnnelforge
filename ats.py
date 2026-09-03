@@ -1773,31 +1773,42 @@ def ingest_resumes(files, owner_email: str, added_by: str, rebuild: bool = True)
         name, data = f
         text = _extract_file_text(data, name)
         if len(text) < 80:
-            return (name, None, None, "scanned")
+            return (name, None, None, "scanned", "")
         try:
             d = _ai_parse_resume(text)
-        except Exception:
-            return (name, None, None, "error")
+        except Exception as e:
+            # Do NOT swallow this silently. A failure here is almost always an
+            # Anthropic-side problem — a revoked key, exhausted credit, a rate
+            # limit — but from the outside it looks identical to an unreadable
+            # résumé, and with no trace at all it costs hours to tell the two
+            # apart.
+            detail = "%s: %s" % (type(e).__name__, str(e)[:300])
+            print("[ats] resume parse failed for %r -- %s" % (name, detail),
+                  flush=True)
+            return (name, None, None, "error", detail)
         if not _is_resume_record(d):
-            return (name, None, None, "junk")
+            return (name, None, None, "junk", "")
         if not (d.get("email") or "").strip():
             ex_e, ex_p = _extract_contacts(text)
             if ex_e:
                 d["email"] = ex_e
             if ex_p and not (d.get("phone") or "").strip():
                 d["phone"] = ex_p
-        return (name, d, text, "ok")
+        return (name, d, text, "ok", "")
 
     parsed = []
     try:
         with ThreadPoolExecutor(max_workers=6) as ex:
-            for name, d, text, reason in ex.map(_work, files):
+            for name, d, text, reason, detail in ex.map(_work, files):
                 if reason == "ok":
                     parsed.append((name, d, text))
                 else:
                     stats[reason] += 1
-                    file_results.append({"filename": name, "name": "",
-                                         "title": "", "status": reason})
+                    row = {"filename": name, "name": "", "title": "",
+                           "status": reason}
+                    if detail:
+                        row["detail"] = detail
+                    file_results.append(row)
     except Exception:
         pass
 

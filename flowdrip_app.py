@@ -5563,11 +5563,18 @@ async def api_import_candidates(request: Request):
     import ats
     stats = ats.ingest_resumes(files, owner_email=owner, added_by=owner, rebuild=True)
 
-    results = [
-        {"file": f["filename"], "status": _ATS_IMPORT_STATUS_MAP.get(f["status"], "skipped"),
-         "name": f.get("name") or None}
-        for f in stats.get("files", [])
-    ]
+    results = []
+    for f in stats.get("files", []):
+        row = {"file": f["filename"],
+               "status": _ATS_IMPORT_STATUS_MAP.get(f["status"], "skipped"),
+               "name": f.get("name") or None}
+        # Why a file failed, when we know. Without this the caller sees only
+        # "error" and cannot tell an unreadable résumé from an Anthropic
+        # outage — which is exactly the ambiguity that made this hard to
+        # diagnose from outside the box.
+        if f.get("detail"):
+            row["detail"] = f["detail"]
+        results.append(row)
     added = sum(1 for r in results if r["status"] == "added")
     updated = sum(1 for r in results if r["status"] == "updated")
     skipped = sum(1 for r in results if r["status"] in ("skipped", "error"))
