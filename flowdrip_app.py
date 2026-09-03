@@ -10542,6 +10542,16 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
 .fd-auth-form .q-field__native,
 .fd-auth-form .q-field__input{{padding-left:14px !important;padding-right:14px !important}}
 .fd-auth-form .q-field__control{{padding:0 !important}}
+/* ATS search-card inputs  -  same treatment as the auth form. The pill
+   (`rounded`) control clips at its own padding edge, which sliced the first
+   character off a typed value: "SUPERINTENDENT" read as "sUPERINTENDENT" and
+   "Irvine, CA" as "rvine, CA". Zero the control's padding and carry the inset
+   on the native input instead, so the text sits inside the clip region. The
+   append slot keeps its own inset so the clearable x doesn't hug the curve. */
+.fd-search-field .q-field__native,
+.fd-search-field .q-field__input{{padding-left:16px !important;padding-right:16px !important}}
+.fd-search-field .q-field__control{{padding:0 !important}}
+.fd-search-field .q-field__append{{padding-right:12px !important}}
 /* Avatar + dropdown menu */
 .fd-avatar-btn:hover{{transform:scale(1.06);box-shadow:0 0 0 3px {C['teal']}30}}
 .fd-menu-item:hover{{background:{C['card_h']}}}
