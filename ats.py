@@ -622,6 +622,40 @@ def candidate_distance(row, origin):
         return None
 
 
+def _geo_filter(rows, origin, radius_mi):
+    """Annotate rows with `_distance_mi` from origin and, when radius_mi is set,
+    drop the ones outside it.
+
+    Returns (rows, hidden) where `hidden` counts candidates dropped purely
+    because we couldn't locate them — the caller surfaces that so a shrunken
+    result set doesn't look like an empty pool.
+    """
+    if not origin:
+        return rows, 0
+    for r in rows:
+        d = candidate_distance(r, origin)
+        r["_distance_mi"] = (round(d) if d is not None else None)
+    if not radius_mi:
+        return rows, 0
+    kept, hidden = [], 0
+    for r in rows:
+        if r["_distance_mi"] is None:
+            hidden += 1
+        elif r["_distance_mi"] <= radius_mi:
+            kept.append(r)
+    return kept, hidden
+
+
+def _added_since(days):
+    """Cutoff timestamp for an 'added within N days' filter, in the same
+    '%Y-%m-%dT%H:%M:%S' shape talents.created_at is written in (so a plain
+    string compare in SQL orders correctly)."""
+    if not days:
+        return None
+    import time
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(time.time() - int(days) * 86400))
+
+
 def backfill_coords() -> dict:
     """Geocode every candidate's city/state into talents.lat/lng. Re-runnable
     (only fills rows without coords). Offline lookup — fast, no AI."""
@@ -669,31 +703,60 @@ def _terms(text: str) -> list:
 
 
 def keyword_search(q: str, limit: int = 80, strict: bool = False,
-                   owner: str = None) -> list:
+                   owner: str = None, location: str = None,
+                   radius_mi: float = None, added_within_days: int = None,
+                   with_meta: bool = False):
     """FTS keyword search. Global by default (whole team's pool); scoped to
-    one owner's candidates when owner is given ('My candidates' filter)."""
+    one owner's candidates when owner is given ('My candidates' filter).
+
+    Optionally narrowed by `location` + `radius_mi` (miles from that place) and
+    `added_within_days` (how recently the résumé was imported into the pool).
+
+    Returns a list of rows. With `with_meta=True` returns (rows, meta) instead,
+    where meta carries `origin`, `bad_location` (a location string we couldn't
+    geocode) and `hidden_no_location` for the UI to report honestly.
+    """
+    meta = {"origin": None, "bad_location": "", "hidden_no_location": 0}
     terms = _terms(q)
     if not terms:
-        return []
+        return ([], meta) if with_meta else []
+    origin = geocode_text(location) if location else None
+    if location and not origin:
+        # e.g. a bare city like "Irvine" — geocode_text needs "Irvine, CA".
+        # Fall through unfiltered rather than silently returning nothing, and
+        # tell the caller so it can show a warning.
+        meta["bad_location"] = location
+    meta["origin"] = origin
+    since = _added_since(added_within_days)
     con = _con()
     try:
         _own = " AND t.owner_email=?" if owner else ""
+        _since = " AND t.created_at>=?" if since else ""
+        # With a radius we have to pull a wider net first, because the distance
+        # filter runs in Python and would otherwise trim an already-cut page.
+        fetch = (max(limit, min(500, limit * 6)) if (origin and radius_mi) else limit)
 
         def run(joiner):
             expr = joiner.join('"%s"' % t.replace('"', '') for t in terms)
-            params = [expr] + ([owner] if owner else []) + [limit]
+            params = ([expr] + ([owner] if owner else []) + ([since] if since else [])
+                      + [fetch])
             return con.execute(
                 """SELECT t.*, bm25(talents_fts) AS rank
                    FROM talents_fts f JOIN talents t ON t.id=f.rowid
-                   WHERE talents_fts MATCH ?%s ORDER BY rank LIMIT ?""" % _own,
+                   WHERE talents_fts MATCH ?%s%s ORDER BY rank LIMIT ?"""
+                % (_own, _since),
                 params).fetchall()
         rows = run(" AND ")
         # General search broadens to OR for recall; strict (pipelines) does not.
         if not rows and not strict:
             rows = run(" OR ")
-        return [dict(r) for r in rows]
+        rows = [dict(r) for r in rows]
+        rows, hidden = _geo_filter(rows, origin, radius_mi)
+        meta["hidden_no_location"] = hidden
+        rows = rows[:limit]
+        return (rows, meta) if with_meta else rows
     except Exception:
-        return []
+        return ([], meta) if with_meta else []
     finally:
         con.close()
 
@@ -721,7 +784,13 @@ def jd_extract(jd_text: str) -> dict:
 
 
 def jd_search(jd_text: str, limit: int = 80, owner: str = None,
-              radius_mi: float = None):
+              radius_mi: float = None, location: str = None,
+              added_within_days: int = None):
+    """Match candidates against a job description.
+
+    `location`, when given, OVERRIDES whatever location the AI parsed out of
+    the JD — that's what lets the radius work on a JD that doesn't name a city.
+    """
     crit = jd_extract(jd_text)
     terms = list(_terms(crit.get("title", "")))
     for s in (crit.get("must_have_skills") or []):
@@ -736,29 +805,32 @@ def jd_search(jd_text: str, limit: int = 80, owner: str = None,
         uterms.append(t)
     if not uterms:
         return crit, [], []
-    # Geocode the JD's parsed location so we can rank/filter by distance.
-    origin = geocode_text(crit.get("location", "")) if crit.get("location") else None
+    # Geocode the search location so we can rank/filter by distance. An
+    # explicit location from the filter bar wins over the AI-parsed one.
+    _loc = (location or "").strip() or crit.get("location", "")
+    origin = geocode_text(_loc) if _loc else None
     crit["_origin"] = origin
+    crit["_location_used"] = _loc
+    crit["_bad_location"] = (location.strip() if (location and location.strip()
+                                                  and not origin) else "")
+    since = _added_since(added_within_days)
     con = _con()
     try:
         _own = " AND t.owner_email=?" if owner else ""
+        _since = " AND t.created_at>=?" if since else ""
         expr = " OR ".join('"%s"' % t.replace('"', '') for t in uterms)
         # When filtering by radius, pull a broader set first (distance filter
         # then trims it back down to `limit`).
         fetch = (max(limit, min(500, limit * 6)) if (origin and radius_mi) else limit)
-        params = [expr] + ([owner] if owner else []) + [fetch]
+        params = ([expr] + ([owner] if owner else []) + ([since] if since else [])
+                  + [fetch])
         rows = [dict(r) for r in con.execute(
             """SELECT t.*, bm25(talents_fts) AS rank
                FROM talents_fts f JOIN talents t ON t.id=f.rowid
-               WHERE talents_fts MATCH ?%s ORDER BY rank LIMIT ?""" % _own,
+               WHERE talents_fts MATCH ?%s%s ORDER BY rank LIMIT ?""" % (_own, _since),
             params).fetchall()]
-        if origin:
-            for r in rows:
-                d = candidate_distance(r, origin)
-                r["_distance_mi"] = (round(d) if d is not None else None)
-            if radius_mi:
-                rows = [r for r in rows
-                        if r["_distance_mi"] is not None and r["_distance_mi"] <= radius_mi]
+        rows, hidden = _geo_filter(rows, origin, radius_mi)
+        crit["_hidden_no_location"] = hidden
         return crit, rows[:limit], uterms
     except Exception:
         return crit, [], uterms
@@ -2818,33 +2890,41 @@ def _view_candidates(ff, st, refresh):
     with ui.element("div").style(
             f"background:{_c(C,'card','#15203A')};border:1px solid {_c(C,'border','#243049')};"
             f"border-radius:12px;padding:16px 18px;margin-bottom:16px;"):
+        st.setdefault("location", "")
+        st.setdefault("added", None)
+        st.setdefault("meta", {})
+        st.setdefault("query_draft", st.get("query", ""))
+        st.setdefault("jd_draft", st.get("jd", ""))
+
         def _set_mode(m):
             st["mode"] = m; refresh()
 
         _scope_owner = lambda: (st.get("email") if st.get("scope") == "mine" else None)
 
-        async def _apply_scope(scope):
-            st["scope"] = scope
+        async def _rerun():
+            """Re-run whatever search is already on screen with the current
+            filters. Filter controls never *start* a search — in JD mode that
+            would fire an AI parse on half-typed text."""
             from nicegui import run as _run
-            owner = st.get("email") if scope == "mine" else None
-            if st.get("query") and st.get("mode") == "keywords":
-                st["searching"] = True; refresh()
+            owner = _scope_owner()
+            loc = (st.get("location") or "").strip()
+            if st.get("mode") == "keywords" and st.get("query"):
                 q = st["query"]
-                st["results"] = await _run.io_bound(
-                    lambda: score_results(q, keyword_search(q, owner=owner)))
-                st["searching"] = False; refresh()
-            elif st.get("jd") and st.get("mode") == "jd":
                 st["searching"] = True; refresh()
-                jd = st["jd"]
-                crit, results, terms = await _run.io_bound(
-                    jd_search, jd, 80, owner, st.get("radius"))
-                results = await _run.io_bound(lambda: score_results(jd, results))
-                st["crit"], st["results"], st["terms"] = crit, results, terms
+                rows, meta = await _run.io_bound(
+                    lambda: keyword_search(q, owner=owner, location=loc,
+                                           radius_mi=st.get("radius"),
+                                           added_within_days=st.get("added"),
+                                           with_meta=True))
+                st["results"] = await _run.io_bound(lambda: score_results(q, rows))
+                st["meta"] = meta
                 st["searching"] = False; refresh()
+            elif st.get("mode") == "jd" and st.get("jd") and st.get("crit"):
+                await _run_jd_search(st["jd"])
             else:
                 refresh()
 
-        # Run a JD match (used by Find Matches + the radius pills, since the
+        # Run a JD match (used by Find Matches + the filter bar, since the
         # textarea isn't present once the search collapses).
         async def _run_jd_search(jd):
             jd = (jd or "").strip()
@@ -2857,51 +2937,99 @@ def _view_candidates(ff, st, refresh):
             from nicegui import run as _run
             owner = _scope_owner()
             crit, results, terms = await _run.io_bound(
-                jd_search, jd, 80, owner, st.get("radius"))
+                jd_search, jd, 80, owner, st.get("radius"),
+                (st.get("location") or "").strip(), st.get("added"))
             results = await _run.io_bound(lambda: score_results(jd, results))
             st["crit"], st["results"], st["terms"] = crit, results, terms
+            st["meta"] = {"bad_location": crit.get("_bad_location", ""),
+                          "hidden_no_location": crit.get("_hidden_no_location", 0)}
             st["searching"] = False
             refresh()
 
-        async def _set_radius(mi):
-            st["radius"] = mi
-            if st.get("jd") and st.get("mode") == "jd":
-                await _run_jd_search(st["jd"])
-            else:
-                refresh()
+        async def _set_filter(key, val):
+            st[key] = val
+            await _rerun()
 
-        def _radius_pills():
+        def _pill_row(caption, opts, cur, key):
             with ui.element("div").style(
                     "display:flex;gap:4px;align-items:center;flex-shrink:0;"):
-                ui.label("📍 Within").style(
+                ui.label(caption).style(
                     f"font-size:11px;color:{_c(C,'muted','#94A3B8')};")
-                for mi, lbl in ((None, "Any"), (25, "25mi"), (50, "50mi"), (100, "100mi")):
-                    _ron = (st.get("radius") == mi)
+                for val, lbl in opts:
+                    _on = (cur == val)
                     with ui.element("button").style(
                             f"padding:3px 9px;font-size:11px;font-weight:700;border-radius:6px;"
                             f"cursor:pointer;font-family:inherit;border:1px solid "
-                            f"{_c(C,'teal','#1AE3D9') if _ron else _c(C,'border','#243049')};"
-                            f"background:{(_c(C,'teal','#1AE3D9')+'22') if _ron else 'transparent'};"
-                            f"color:{_c(C,'teal','#1AE3D9') if _ron else _c(C,'text','#CBD5E1')};"
-                            ).on("click", lambda _e, m=mi: _set_radius(m)):
+                            f"{_c(C,'teal','#1AE3D9') if _on else _c(C,'border','#243049')};"
+                            f"background:{(_c(C,'teal','#1AE3D9')+'22') if _on else 'transparent'};"
+                            f"color:{_c(C,'teal','#1AE3D9') if _on else _c(C,'text','#CBD5E1')};"
+                            ).on("click", lambda _e, k=key, v=val: _set_filter(k, v)):
                         ui.label(lbl).style("pointer-events:none;")
 
-        # Scope toggle builder — reused next to the "Recently added" header.
+        # Scope toggle builder — also reused next to the "Recently added" header.
         def _scope_toggle(compact=True):
             _scope = st.get("scope", "all")
             with ui.element("div").style(
                     f"display:flex;gap:2px;background:{_c(C,'surface','#0E1726')};"
                     f"border:1px solid {_c(C,'border','#243049')};border-radius:7px;"
                     f"padding:2px;flex-shrink:0;"):
-                for sk, sl in (("all", "All"), ("mine", "Mine")):
+                for sk, sl in (("all", "Team"), ("mine", "Mine")):
                     _son = (_scope == sk)
                     with ui.element("button").style(
                             f"padding:4px 11px;font-size:11px;font-weight:700;border-radius:5px;"
                             f"cursor:pointer;font-family:inherit;border:0;"
                             f"background:{_c(C,'teal','#1AE3D9') if _son else 'transparent'};"
                             f"color:{'#08121f' if _son else _c(C,'text','#CBD5E1')};"
-                            ).on("click", lambda _e, x=sk: _apply_scope(x)):
+                            ).on("click", lambda _e, x=sk: _set_filter("scope", x)):
                         ui.label(sl).style("pointer-events:none;")
+
+        def _location_input(width="230px"):
+            _li = ui.input(value=st.get("location", ""),
+                           placeholder="📍 City, ST  (e.g. Irvine, CA)").props(
+                "outlined dense clearable").style(f"width:{width};flex-shrink:0;")
+            _li.on_value_change(
+                lambda e: st.__setitem__("location", (e.value or "").strip()))
+            return _li
+
+        def _warnings():
+            """Say out loud when a filter quietly shrank the pool — a smaller
+            result set shouldn't be mistaken for an empty bench."""
+            _m = st.get("meta") or {}
+            if _m.get("bad_location"):
+                ui.label(f"⚠ Couldn't locate “{_m['bad_location']}” — use a City, ST "
+                         f"format like “Irvine, CA”. Distance filter not applied.").style(
+                    f"font-size:11px;color:{_c(C,'warn','#D97706')};margin-top:7px;")
+            _hid = _m.get("hidden_no_location") or 0
+            if _hid:
+                ui.label(f"ℹ {_hid:,} candidate{'s' if _hid != 1 else ''} hidden — "
+                         f"no location on file to measure distance from.").style(
+                    f"font-size:11px;color:{_c(C,'muted','#94A3B8')};margin-top:5px;")
+
+        def _filter_bar():
+            """One filter row, shared by both search modes."""
+            with ui.element("div").style(
+                    f"display:flex;align-items:center;gap:16px;flex-wrap:wrap;"
+                    f"margin-top:12px;padding-top:11px;"
+                    f"border-top:1px solid {_c(C,'border','#243049')};"):
+                _pill_row("📍 Within", ((None, "Any"), (25, "25mi"), (50, "50mi")),
+                          st.get("radius"), "radius")
+                _pill_row("📅 Added",
+                          ((None, "Any"), (30, "30d"), (90, "90d"),
+                           (180, "6mo"), (365, "1yr")),
+                          st.get("added"), "added")
+                # Hidden inside a tearsheet — its rows are a fixed list, so
+                # switching whose pipeline you are searching would do nothing.
+                if not st.get("tearsheet_id"):
+                    with ui.element("div").style(
+                            "display:flex;gap:6px;align-items:center;flex-shrink:0;"):
+                        ui.label("👤 Pipeline").style(
+                            f"font-size:11px;color:{_c(C,'muted','#94A3B8')};")
+                        _scope_toggle()
+                if st.get("query") or st.get("crit"):
+                    ui.label(f"{len(st.get('results') or []):,} results").style(
+                        f"margin-left:auto;font-size:11px;font-weight:700;"
+                        f"color:{_c(C,'muted','#94A3B8')};flex-shrink:0;")
+            _warnings()
 
         with ui.element("div").style("display:flex;gap:8px;margin-bottom:12px;"):
             for mk, ml in (("keywords", "🔍 Keywords"), ("jd", "📄 Match a Job Description")):
@@ -2916,33 +3044,33 @@ def _view_candidates(ff, st, refresh):
                     ui.label(ml).style("pointer-events:none;")
 
         if st["mode"] == "keywords":
-            _inp = ui.input(value=st.get("query", ""),
-                            placeholder="e.g.  superintendent data center San Diego").props("outlined dense").style(
-                f"width:100%;")
-
             async def _do_kw():
                 st.pop("tearsheet_id", None)
                 st.pop("job_title", None); st.pop("job_id", None)
-                st["query"] = (_inp.value or "").strip()
+                st["query"] = (st.get("query_draft") or "").strip()
                 st["crit"] = {}
                 st["terms"] = _terms(st["query"])
                 if not st["query"]:
-                    st["results"] = []; refresh(); return
-                st["searching"] = True; refresh()
-                from nicegui import run as _run
-                q = st["query"]
-                owner = _scope_owner()
-                st["results"] = await _run.io_bound(
-                    lambda: score_results(q, keyword_search(q, owner=owner)))
-                st["searching"] = False
-                refresh()
-            _inp.on("keydown.enter", lambda _e: _do_kw())
-            with ui.element("div").style("display:flex;justify-content:flex-end;margin-top:10px;"):
+                    st["results"] = []; st["meta"] = {}; refresh(); return
+                await _rerun()
+
+            with ui.element("div").style(
+                    "display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;"):
+                _inp = ui.input(value=st.get("query_draft", ""),
+                                placeholder="e.g.  superintendent data center").props(
+                    "outlined dense clearable").style("flex:1;min-width:220px;")
+                _inp.on_value_change(
+                    lambda e: st.__setitem__("query_draft", e.value or ""))
+                _inp.on("keydown.enter", lambda _e: _do_kw())
+                _loc = _location_input()
+                _loc.on("keydown.enter", lambda _e: _do_kw())
                 with ui.element("button").style(
                         f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;"
-                        f"border-radius:8px;padding:8px 24px;font-size:13px;font-weight:700;"
-                        f"cursor:pointer;font-family:inherit;").on("click", _do_kw):
+                        f"border-radius:8px;padding:9px 26px;font-size:13px;font-weight:700;"
+                        f"cursor:pointer;font-family:inherit;flex-shrink:0;").on(
+                        "click", _do_kw):
                     ui.label("Search")
+            _filter_bar()
         else:
             # Once a match has run, collapse to a compact bar to free room.
             if st.get("results") and st.get("crit") and not st.get("search_open"):
@@ -2953,13 +3081,12 @@ def _view_candidates(ff, st, refresh):
                         f"border:1px solid {_c(C,'teal','#1AE3D9')}40;"
                         f"border-radius:8px;padding:9px 14px;"):
                     ui.label(f"📄 Matching: {cr.get('title','job description')} · "
-                             f"{cr.get('location','any location')}").style(
+                             f"{cr.get('_location_used') or cr.get('location') or 'any location'}").style(
                         f"font-size:12px;font-weight:700;color:{_c(C,'teal','#1AE3D9')};"
                         f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:160px;")
-                    if cr.get("_origin"):
-                        _radius_pills()
 
                     def _edit_jd(_e=None):
+                        st["jd_draft"] = st.get("jd", "")
                         st["search_open"] = True; refresh()
                     with ui.element("button").style(
                             f"background:transparent;border:1px solid {_c(C,'border','#243049')};"
@@ -2967,23 +3094,37 @@ def _view_candidates(ff, st, refresh):
                             f"font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;"
                             f"flex-shrink:0;").on("click", _edit_jd):
                         ui.label("✎ New / edit JD")
-                if st.get("radius") and not cr.get("_origin"):
-                    ui.label("⚠ No location found in this JD — radius can't be applied.").style(
+                with ui.element("div").style(
+                        "display:flex;gap:8px;align-items:center;margin-top:10px;"
+                        "flex-wrap:wrap;"):
+                    _location_input()
+                    ui.label("overrides the location in the JD").style(
+                        f"font-size:11px;color:{_c(C,'muted','#94A3B8')};")
+                if st.get("radius") and not cr.get("_origin") and not cr.get("_bad_location"):
+                    ui.label("⚠ No location in this JD — type one above to apply the "
+                             "distance filter.").style(
                         f"font-size:11px;color:{_c(C,'warn','#D97706')};margin-top:6px;")
+                _filter_bar()
             else:
-                _ta = ui.textarea(value=st.get("jd", ""),
+                _ta = ui.textarea(value=st.get("jd_draft", ""),
                                   placeholder="Paste the full job description here…").props(
                     "outlined").style("width:100%;min-height:110px;max-height:170px;overflow:auto;")
+                _ta.on_value_change(lambda e: st.__setitem__("jd_draft", e.value or ""))
                 with ui.element("div").style(
                         "display:flex;justify-content:space-between;align-items:center;"
                         "gap:10px;margin-top:10px;flex-wrap:wrap;"):
-                    _radius_pills()
+                    with ui.element("div").style(
+                            "display:flex;gap:8px;align-items:center;flex-wrap:wrap;"):
+                        _location_input()
+                        ui.label("optional — overrides the location in the JD").style(
+                            f"font-size:11px;color:{_c(C,'muted','#94A3B8')};")
                     with ui.element("button").style(
                             f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;"
                             f"border-radius:8px;padding:8px 24px;font-size:13px;font-weight:700;"
-                            f"cursor:pointer;font-family:inherit;").on(
-                            "click", lambda: _run_jd_search(_ta.value)):
+                            f"cursor:pointer;font-family:inherit;flex-shrink:0;").on(
+                            "click", lambda: _run_jd_search(st.get("jd_draft"))):
                         ui.label("✦ Find Matches")
+                _filter_bar()
                 if st.get("crit"):
                     cr = st["crit"]
                     sk = ", ".join((cr.get("must_have_skills") or [])[:8])
@@ -2991,7 +3132,7 @@ def _view_candidates(ff, st, refresh):
                             f"background:{_c(C,'teal','#1AE3D9')}14;border:1px solid {_c(C,'teal','#1AE3D9')}40;"
                             f"border-radius:8px;padding:10px 14px;margin-top:10px;"):
                         ui.label(f"AI parsed: {cr.get('title','?')} ({cr.get('seniority','')}) · "
-                                 f"{cr.get('location','any location')}").style(
+                                 f"{cr.get('_location_used') or cr.get('location') or 'any location'}").style(
                             f"font-size:12px;font-weight:600;color:{_c(C,'teal','#1AE3D9')};")
                         if sk:
                             ui.label("Looking for: " + sk).style(
@@ -3188,9 +3329,6 @@ def _view_candidates(ff, st, refresh):
                             f"color:{_c(C,'teal','#1AE3D9') if _eon else _c(C,'text','#CBD5E1')};"
                             ).on("click", _toggle_email):
                         ui.label(("✓ " if _eon else "✉ ") + "Has email").style("pointer-events:none;")
-                    # All / Mine scope filter.
-                    if not _tsid:
-                        _scope_toggle()
             _candidate_rows(C, st, refresh, rows, terms)
         # RIGHT: résumé preview
         with ui.element("div").style(
