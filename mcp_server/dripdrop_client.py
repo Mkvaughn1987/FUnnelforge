@@ -136,6 +136,16 @@ class DripDropClient:
         await self._raise_for_error(resp)
         return resp.json()
 
+    async def import_candidate_records(self, records: list[dict]) -> dict:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            resp = await client.post(
+                f"{self.base_url}/api/v1/candidates/records",
+                json={"records": records},
+                headers={**self._headers(), "Content-Type": "application/json"},
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
     async def candidates_count(self) -> dict:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(

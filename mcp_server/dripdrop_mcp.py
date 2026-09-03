@@ -202,6 +202,42 @@ async def import_candidates(files: list[dict]) -> dict:
 
 @mcp.tool(
     description=(
+        "Import candidates into DripDrop's shared Pipeline (ATS) from "
+        "STRUCTURED records rather than resume files - no upload, no file "
+        "bytes, no resume parsing. Use this whenever you already have the "
+        "candidate's details (a job-board export, another ATS, a scraped "
+        "profile) instead of a PDF, and prefer it over import_candidates "
+        "when you have both: it is faster and cannot fail on an unparseable "
+        "file. Give each record an external_id - the candidate's stable id "
+        "in the system you got them from - and re-sending the same batch "
+        "updates those rows in place instead of creating duplicates, so you "
+        "never need to track what you have already sent."
+    )
+)
+async def import_candidate_records(records: list[dict]) -> dict:
+    """Args:
+    records: list of candidate dicts, max 500 per call. Per record:
+        external_id (str, strongly recommended - the stable id in the source
+        system; it is the dedupe key), name (or first_name/last_name),
+        email, phone, city, state, current_title (or title),
+        current_employer (or employer), years_experience, seniority, skills
+        (list or comma-separated string), summary, resume_text (the full
+        resume as plain text), source (a label for where it came from).
+        A record needs a first and last name plus at least one of
+        title/skills/email/phone to be accepted.
+    """
+    email = _current_email()
+    try:
+        client = DripDropClient(DATA_DIR, email)
+        return await client.import_candidate_records(records)
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
+@mcp.tool(
+    description=(
         "Count candidates in DripDrop's shared Pipeline (ATS) - a "
         "lightweight way to confirm an import landed."
     )

@@ -5580,6 +5580,87 @@ async def api_import_candidates(request: Request):
     })
 
 
+_MAX_RECORDS_PER_BATCH = 500
+
+
+def _api_import_records_blocking(records, owner):
+    """DB-bound ingest for /api/v1/candidates/records. Offloaded via
+    run_in_executor so a large batch can't stall the event loop - and
+    therefore /healthz - on the single-vCPU prod host."""
+    import ats
+    return ats.ingest_records(records, owner_email=owner, added_by=owner,
+                              rebuild=True)
+
+
+@app.post("/api/v1/candidates/records")
+async def api_import_candidate_records(request: Request):
+    """Import ALREADY-STRUCTURED candidate records into the shared Pipeline
+    (ATS) bench, owned by the calling key's account.
+
+    The sibling of /api/v1/candidates/import, for callers that already hold
+    the fields instead of a file. Nothing is uploaded, nothing is parsed by a
+    model: the caller sends name/email/phone/resume_text as JSON and it lands
+    directly. That matters for two reasons - an agent that cannot get file
+    bytes into a request can still load candidates, and the import no longer
+    fails when the resume-parsing model call does.
+
+    Idempotency: each record may carry `external_id`, its stable id in the
+    source system. Re-POSTing the same batch updates those rows in place
+    rather than duplicating them, so callers do not need to keep a local
+    ledger of what they have already sent.
+
+    Auth: per-user API key (Authorization: Bearer <key> or X-API-Key), gated
+    by `_ats_allowed` (Pipeline access only). Body: JSON, either
+    {"records": [...]} or a bare list, capped at _MAX_RECORDS_PER_BATCH per
+    call. Per-owner dedupe/merge is the same keep-best logic the UI applies."""
+    from starlette.responses import JSONResponse
+
+    auth = request.headers.get("authorization", "")
+    key = (auth[7:].strip() if auth.lower().startswith("bearer ")
+           else request.headers.get("x-api-key", "").strip())
+    owner = _resolve_api_key(key)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    if not _ats_allowed(owner):
+        return JSONResponse({"error": "Pipeline access is not enabled for this account"}, status_code=403)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "body must be JSON: {\"records\": [...]}"},
+                            status_code=400)
+    records = body.get("records") if isinstance(body, dict) else body
+    if not isinstance(records, list) or not records:
+        return JSONResponse({"error": "no records provided (field name: 'records')"},
+                            status_code=400)
+    if len(records) > _MAX_RECORDS_PER_BATCH:
+        return JSONResponse(
+            {"error": "too many records in one call (max %d); send them in batches"
+                      % _MAX_RECORDS_PER_BATCH},
+            status_code=413)
+
+    stats = await asyncio.get_event_loop().run_in_executor(
+        None, _api_import_records_blocking, records, owner
+    )
+
+    results = [
+        {"external_id": f.get("external_id") or None,
+         "status": _ATS_IMPORT_STATUS_MAP.get(f["status"], "skipped"),
+         "name": f.get("name") or None}
+        for f in stats.get("files", [])
+    ]
+    added = sum(1 for r in results if r["status"] == "added")
+    updated = sum(1 for r in results if r["status"] == "updated")
+    skipped = sum(1 for r in results if r["status"] in ("skipped", "error"))
+    return JSONResponse({
+        "requested": len(records),
+        "added": added,
+        "updated": updated,
+        "skipped": skipped,
+        "results": results,
+    })
+
+
 @app.get("/api/v1/candidates/count")
 async def api_candidates_count(request: Request):
     """Lightweight verify endpoint - total Pipeline (ATS) candidate count,
