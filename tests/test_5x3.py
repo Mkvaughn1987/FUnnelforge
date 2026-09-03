@@ -32,7 +32,10 @@ def test_fivebythree_in_slate_family():
     import flowdrip_app as fa
     assert "fivebythree" in fa._ARENA_SLATE_TYPES
     assert fa._camp_is_4x4({"aicb_camp_type": "fivebythree"}) is True
-    assert fa._resume_attach_indices("fivebythree", 5) == [1, 3]
+    # 5x3 is in the slate family but carries NO resume attachments:
+    # its candidates ship as profiles written into emails 2 and 5.
+    assert fa._resume_attach_indices("fivebythree", 5) == []
+    assert fa._resume_attach_indices("fivebyfive", 5) == [1, 3]
 
 
 def _sample_5x3_generated():
@@ -42,7 +45,7 @@ def _sample_5x3_generated():
          "delay_days": 0, "attachments": []},
         {"name": "Step 2 - Candidate Slate", "step_type": "email_auto",
          "subject": "A few candidates...", "body": "Hi {FirstName},<br><br>slate",
-         "delay_days": 3, "attachments": ["Resume_Candidate_A_Redacted.pdf"]},
+         "delay_days": 3, "attachments": ["Resume_Candidate_A_Redacted.pdf"]},  # stale
         {"name": "Step 3 - Interview Guide", "step_type": "email_auto",
          "subject": "An interview guide, in case it helps",
          "body": '<div style="font-family:Aptos,Calibri,Arial,sans-serif;font-size:11pt;">Hi {FirstName},<br><br>guide</div>',
@@ -63,17 +66,57 @@ def test_5x3_overrides_noop_for_other_types():
     assert "AI DRIFT TEXT" in bump["body"]
 
 
-def test_5x3_bump_verbatim_keeps_attachments_and_schedule():
+def test_5x3_bump_verbatim_says_profiles_and_drops_resumes():
     import flowdrip_app as fa
     data = fa._apply_fivebythree_overrides("fivebythree", _sample_5x3_generated())
     bump = next(e for e in data["emails"] if e["name"].startswith("Step 4"))
     assert bump["subject"] == "Following up"
     assert "AI DRIFT TEXT" not in bump["body"]
-    assert "review the résumés" in bump["body"] or "look over the résumés" in bump["body"]
-    # 5x3 bump RE-ATTACHES resumes — must NOT be cleared (unlike the 5x5)
-    assert bump["attachments"] == ["Resume_Candidate_A_Redacted.pdf"]
+    assert "profiles" in bump["body"]
+    assert "résumé" not in bump["body"] and "resume" not in bump["body"].lower()
+    # the 5x3 no longer attaches resumes anywhere — the bump is cleared too
+    assert bump["attachments"] == []
     assert bump["delay_days"] == 2  # pinned from a drifted 9
     assert "—" not in bump["body"] and "–" not in bump["body"]
+
+
+def test_5x3_strips_resumes_from_every_step():
+    import flowdrip_app as fa
+    data = fa._apply_fivebythree_overrides("fivebythree", _sample_5x3_generated())
+    for em in data["emails"]:
+        assert not any("redacted" in (a or "").lower()
+                       for a in em.get("attachments") or []), em["name"]
+
+
+def test_5x3_pins_step5_recap_subject():
+    import flowdrip_app as fa
+    data = fa._apply_fivebythree_overrides("fivebythree", _sample_5x3_generated())
+    close = next(e for e in data["emails"] if e["name"].startswith("Step 5"))
+    assert close["subject"] == fa._FIVEBYTHREE_RECAP_SUBJECT
+    assert close["subject"] == "Did you get a chance to see the profiles I sent?"
+    assert "resume" not in close["subject"].lower()
+
+
+def test_5x3_strips_hallucinated_attachment_promises():
+    import flowdrip_app as fa
+    data = _sample_5x3_generated()
+    data["emails"][1]["body"] = ("Hi {FirstName},<br><br>Three profiles below. "
+                                 "I have attached their resumes for you. Worth a chat?")
+    out = fa._apply_fivebythree_overrides("fivebythree", data)
+    slate = next(e for e in out["emails"] if e["name"].startswith("Step 2"))
+    assert "attach" not in slate["body"].lower()
+    assert "Three profiles below." in slate["body"]
+    assert "Worth a chat?" in slate["body"]
+    # Step 3 is the ONE step allowed to promise a file
+    guide = next(e for e in out["emails"] if e["name"].startswith("Step 3"))
+    assert "interview guide" in guide["body"].lower()
+
+
+def test_strip_attachment_promises_noop_without_the_word():
+    import flowdrip_app as fa
+    body = "Hi there,<br><br>Nothing to see here."
+    assert fa._strip_attachment_promises(body) == body
+    assert fa._strip_attachment_promises("") == ""
 
 
 def test_5x3_interview_line_once_inside_div():
@@ -247,15 +290,23 @@ def _emails_n(n):
     return [{"name": f"Step {i+1}", "attachments": []} for i in range(n)]
 
 
-def test_attach_5x3_all_resumes_on_both_slate_emails():
+def test_attach_5x3_never_attaches_resumes():
     import flowdrip_app as fa
     emails = _emails_n(5)
     pdfs = ["Resume_A_Redacted.pdf", "Resume_B_Redacted.pdf", "Resume_C_Redacted.pdf"]
     fa._attach_resumes_to_emails("fivebythree", emails, pdfs)
-    assert emails[1]["attachments"] == pdfs   # email 2: all 3
-    assert emails[3]["attachments"] == pdfs   # email 4: all 3
-    assert emails[0]["attachments"] == []
-    assert emails[2]["attachments"] == []
+    assert all(e["attachments"] == [] for e in emails)
+
+
+def test_attach_5x5_still_attaches_resumes():
+    import flowdrip_app as fa
+    emails = _emails_n(5)
+    pdfs = ["Resume_A_Redacted.pdf", "Resume_B_Redacted.pdf", "Resume_C_Redacted.pdf"]
+    fa._attach_resumes_to_emails("fivebyfive", emails, pdfs)
+    # legacy positional pairing: one resume per target email (indices 1 and 3)
+    assert emails[1]["attachments"] == ["Resume_A_Redacted.pdf"]
+    assert emails[3]["attachments"] == ["Resume_B_Redacted.pdf"]
+    assert emails[0]["attachments"] == [] and emails[2]["attachments"] == []
 
 
 def test_attach_legacy_positional_pairing_unchanged():
@@ -303,3 +354,48 @@ def test_aicb_build_redacted_resumes_delegates(with_user):
         aicb_camp_type = "fivebythree"
     saved = fa._aicb_build_redacted_resumes(_S(), client=None)
     assert saved == ["Resume_Candidate_A_Redacted.pdf"]
+
+
+def test_5x3_interview_guide_pins_to_step_3(monkeypatch):
+    import flowdrip_app as fa
+    monkeypatch.setattr(fa, "_build_named_pdf",
+                        lambda *a, **k: "Acme_Interview_Guide.pdf")
+    data = _sample_5x3_generated()
+    for em in data["emails"]:
+        em["attachments"] = []
+    out = fa._fivebythree_attach_interview_guide(
+        data, "Acme", pdf_data={"interview_guide": {"sections": [{"h": "x"}]}})
+    assert out == "Acme_Interview_Guide.pdf"
+    guide = next(e for e in data["emails"] if e["name"].startswith("Step 3"))
+    assert guide["attachments"] == ["Acme_Interview_Guide.pdf"]
+    # nothing else picks it up
+    assert all(e["attachments"] == [] for e in data["emails"]
+               if not e["name"].startswith("Step 3"))
+    # idempotent: a second pass must not double-attach
+    fa._fivebythree_attach_interview_guide(
+        data, "Acme", pdf_data={"interview_guide": {"sections": [{"h": "x"}]}})
+    assert guide["attachments"] == ["Acme_Interview_Guide.pdf"]
+
+
+def test_5x3_interview_guide_falls_back_to_third_email(monkeypatch):
+    import flowdrip_app as fa
+    monkeypatch.setattr(fa, "_build_named_pdf",
+                        lambda *a, **k: "Acme_Interview_Guide.pdf")
+    data = _sample_5x3_generated()
+    for em in data["emails"]:
+        em["attachments"] = []
+    data["emails"][2]["name"] = "Interview Guide"   # step number drifted away
+    fa._fivebythree_attach_interview_guide(
+        data, "Acme", pdf_data={"interview_guide": {"sections": [{"h": "x"}]}})
+    assert data["emails"][2]["attachments"] == ["Acme_Interview_Guide.pdf"]
+
+
+def test_5x3_interview_guide_no_build_no_attach(monkeypatch):
+    import flowdrip_app as fa
+    monkeypatch.setattr(fa, "_build_named_pdf", lambda *a, **k: "")
+    data = _sample_5x3_generated()
+    for em in data["emails"]:
+        em["attachments"] = []
+    assert fa._fivebythree_attach_interview_guide(
+        data, "Acme", pdf_data={"interview_guide": {"sections": [{"h": "x"}]}}) == ""
+    assert all(e["attachments"] == [] for e in data["emails"])

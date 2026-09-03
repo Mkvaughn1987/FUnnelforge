@@ -4208,9 +4208,10 @@ AICB_CAMPAIGN_TYPES = [
      "No hard sell."),
     ("fivebythree", "Arena 5×3", "5 steps - 2 weeks", "#0EA5A5",
      "PipelineBlast's warm 5-email slate. Introduces 3 pipeline-matched "
-     "candidates to a company hiring your role, with redacted résumés on "
-     "emails 2 and 4 and an interview guide on email 3. Softer, "
-     "relationship-first voice.",
+     "candidates to a company hiring your role as full profiles written "
+     "into the emails themselves — no résumé attachments — recaps the "
+     "slate on email 5, and attaches an interview guide on email 3. "
+     "Softer, relationship-first voice.",
      "Automated slate outreach - 3 candidates - relationship-first",
      "GLOBAL VOICE: Write warm, personable, and human — NOT salesy. Sound "
      "like a helpful professional who happens to know great people. Short "
@@ -4235,21 +4236,28 @@ AICB_CAMPAIGN_TYPES = [
      "Step 2 - Candidate Slate (delay_days:3, step_type:email_auto) - "
      "Subject exactly: 'A few candidates who caught my eye, for [Company]'. "
      "Present the slate from CANDIDATE HIGHLIGHTS using the alias rule "
-     "above — a short spotlight per person. Do NOT use bracketed "
-     "placeholders. Mention their résumés are attached. Warm CTA to chat.\n"
+     "above — a short spotlight per person, EXACTLY 3 bullets each. Do "
+     "NOT use bracketed placeholders. The profiles ARE the email: do NOT "
+     "mention, promise or reference a résumé, an attachment, or any file "
+     "— nothing is attached to this step. Warm CTA to chat.\n"
      "Step 3 - Interview Guide (delay_days:3, step_type:email_auto) - "
      "Subject exactly: 'An interview guide, in case it helps'. Offer a "
      "short interview guide for the role; do NOT re-list the candidates. "
      "Keep it brief and helpful. (The system attaches the guide.)\n"
      "Step 4 - Following up (delay_days:2, step_type:email_auto) - Subject "
      "exactly: 'Following up'. A very short, warm bump. No candidates, no "
-     "market data. (The system replaces this body verbatim after "
-     "generation and re-attaches the résumés.)\n"
-     "Step 5 - Closing the loop (delay_days:3, step_type:email_auto) - "
-     "Subject exactly: 'Closing the loop for now'. A warm, human sign-off: "
-     "you don't want to crowd their inbox; you'll add them to your monthly "
-     "newsletter so useful market news still reaches them; the door's "
-     "always open. No hard sell."),
+     "market data, no attachments. (The system replaces this body "
+     "verbatim after generation.)\n"
+     "Step 5 - Profile recap and close (delay_days:3, "
+     "step_type:email_auto) - Subject exactly: 'Did you get a chance to "
+     "see the profiles I sent?'. Open with that exact question — say "
+     "'profiles', NEVER 'résumés'. Then put the whole slate back in front "
+     "of them: a short 2-3 sentence write-up of EVERY candidate from "
+     "CANDIDATE HIGHLIGHTS, same alias as before, prose not bullets. Then "
+     "close warmly: you don't want to crowd their inbox; you'll add them "
+     "to your monthly newsletter so useful market news still reaches "
+     "them; the door's always open. No hard sell, and do NOT mention "
+     "attachments."),
     ("talentdrop", "Candidate-Led Pitch", "7 steps - 2 weeks", "#10B981",
      "Lead with real candidates. Enter your candidate details and AI builds the outreach "
      "around them  -  intro with profiles, market data follow-ups, and value-add PDFs. "
@@ -5775,10 +5783,25 @@ def _api_create_campaign_blocking(client, spec, owner):
     campaign_data.pop("_brief", None)
     if template == "fivebythree" and emails:
         try:
-            pdfs = _build_redacted_resumes_from_cards(cards, template, client, owner=owner)
-            _attach_resumes_to_emails(template, emails, pdfs)
+            # Still RENDER the redacted résumés so they sit in the Candidate
+            # Résumés picker for a manual send, but the 5x3 no longer ATTACHES
+            # them — emails 2 and 5 carry the profiles in the body instead.
+            _build_redacted_resumes_from_cards(cards, template, client, owner=owner)
         except Exception as _re:
-            print(f"[api] 5x3 résumé attach skipped: {_re}", flush=True)
+            print(f"[api] 5x3 résumé render skipped: {_re}", flush=True)
+        try:
+            # The one file the 5x3 does send. Step 3's copy promises it, and
+            # this path never ran the PDF phase at all before 2026-09-03, so
+            # every API-created 5x3 shipped that promise unbacked.
+            _fivebythree_attach_interview_guide(
+                campaign_data, (spec.get("company") or "").strip(),
+                client=client,
+                roles_str=list(spec.get("roles") or []),
+                location_str=(spec.get("location") or "").strip(),
+                industry=(spec.get("industry") or "").strip(),
+                owner_email=owner)
+        except Exception as _ge:
+            print(f"[api] 5x3 interview guide skipped: {_ge}", flush=True)
     return {"template": template, "campaign_data": campaign_data, "emails": emails}
 
 
@@ -8164,10 +8187,11 @@ def _apply_fivebyfive_overrides(camp_type, campaign_data):
 
 _FIVEBYTHREE_BUMP_SUBJECT = "Following up"
 _FIVEBYTHREE_BUMP_BODY = (
-    "Hi {FirstName}, did you get a chance to look over the résumés I sent? "
+    "Hi {FirstName}, did you get a chance to look over the profiles I sent? "
     "And are you the right person on the hiring side, or is there someone "
     "else I should loop in? Happy to share more on any of them."
 )
+_FIVEBYTHREE_RECAP_SUBJECT = "Did you get a chance to see the profiles I sent?"
 _FIVEBYTHREE_INTERVIEW_LINE = (
     "<br><br>I've attached a short interview guide for the role, the "
     "questions worth asking and what to listen for, so it's handy either way."
@@ -8176,22 +8200,47 @@ _FIVEBYTHREE_INTERVIEW_LINE = (
 _FIVEBYTHREE_DELAYS = {1: 0, 2: 3, 3: 3, 4: 2, 5: 3}
 
 
-def _apply_fivebythree_overrides(camp_type, campaign_data):
-    """Stamp the Arena 5×3's hand-authored bump + interview line and pin its
-    schedule. No-op for any other type. Idempotent.
+# A sentence that tells the reader something is attached. Bounded by
+# sentence punctuation AND by '<'/'>' so the scan can never chew through
+# an HTML tag — worst case it trims less than it could.
+_ATTACH_PROMISE_RE = re.compile(
+    r"[^.!?<>]*\battach(?:ed|es|ing|ment|ments)?\b[^.!?<>]*[.!?]*", re.I)
 
-    Unlike the 5×5, the 5×3's bump (Step 4) KEEPS its attachments — that
-    email re-attaches the résumés — so we never clear em['attachments']."""
+
+def _strip_attachment_promises(body: str) -> str:
+    """Delete any sentence claiming a file is attached, and tidy the seam.
+
+    The Arena 5×3 carries exactly one file — the interview guide on Step 3.
+    Everything else is profiles written into the email. When the model
+    slipped a "their résumés are attached" line into another step the send
+    could not make good on it, which is the whole complaint this guards
+    against. Sentence-scoped, so the rest of the paragraph survives."""
+    if not body or "attach" not in body.lower():
+        return body
+    out = _ATTACH_PROMISE_RE.sub("", body)
+    out = re.sub(r"(?:\s*<br\s*/?>\s*){3,}", "<br><br>", out, flags=re.I)
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    return out
+
+
+def _apply_fivebythree_overrides(camp_type, campaign_data):
+    """Stamp the Arena 5×3's hand-authored touches and pin its schedule.
+    No-op for any other type. Idempotent.
+
+    As of 2026-09-03 the 5×3 sends NO résumés: the candidates ship as full
+    profiles inside Step 2 and are recapped in Step 5, and the only file the
+    sequence carries is the interview guide on Step 3. So Step 4's bump is
+    stamped verbatim AND emptied of attachments, Step 5's subject is pinned
+    to the recap question it is built around, and every step but Step 3 gets
+    its résumé attachments dropped and any attachment promise scrubbed out
+    of the copy."""
     if (camp_type or "").strip() != "fivebythree":
         return campaign_data
     for em in (campaign_data or {}).get("emails", []) or []:
         n = _fivebyfive_step_no(em.get("name"))  # generic "Step N -" parser
         if n in _FIVEBYTHREE_DELAYS:
             em["delay_days"] = _FIVEBYTHREE_DELAYS[n]
-        if n == 4:  # verbatim following-up bump; KEEP résumé attachments
-            em["subject"] = _FIVEBYTHREE_BUMP_SUBJECT
-            em["body"] = _wrap_4x4_font(_strip_dashes(_FIVEBYTHREE_BUMP_BODY))
-        elif n == 3:  # interview-guide line once, inside the font div
+        if n == 3:  # the ONE step allowed to promise a file
             body = em.get("body") or ""
             if "interview guide" not in body.lower():
                 if body.rstrip().endswith("</div>"):
@@ -8199,24 +8248,40 @@ def _apply_fivebythree_overrides(camp_type, campaign_data):
                                   + _FIVEBYTHREE_INTERVIEW_LINE + "</div>")
                 else:
                     em["body"] = body + _FIVEBYTHREE_INTERVIEW_LINE
+            continue
+        if n == 4:  # verbatim following-up bump, nothing attached
+            em["subject"] = _FIVEBYTHREE_BUMP_SUBJECT
+            em["body"] = _wrap_4x4_font(_strip_dashes(_FIVEBYTHREE_BUMP_BODY))
+        elif n == 5:  # pin the recap question the whole step is built on
+            em["subject"] = _FIVEBYTHREE_RECAP_SUBJECT
+        em["attachments"] = [a for a in (em.get("attachments") or [])
+                             if not _is_redacted_resume_pdf(a)]
+        em["body"] = _strip_attachment_promises(em.get("body") or "")
     return campaign_data
 
 
 def _resume_attach_indices(camp_type, n_emails):
     """Email indices (0-based) that should carry redacted resume PDFs.
 
-    Arena 4x4 places them on Email 2 and Email 4 (indices 1 and 3) so the
-    resumes sit beside the candidate-heavy touches. Every other campaign
+    Arena 5x3 carries NONE of them (2026-09-03): its candidates ship as
+    profiles written into emails 2 and 5, and the only attachment in that
+    sequence is the interview guide on email 3.
+
+    Arena 4x4 / 5x5 place them on Email 2 and Email 4 (indices 1 and 3) so
+    the resumes sit beside the candidate-heavy touches. Every other campaign
     keeps the legacy Email 1 and Email 3 placement (indices 0 and 2).
     Indices past the available email count are dropped.
     """
+    if (camp_type or "").strip() == "fivebythree":
+        return []
     targets = [1, 3] if camp_type in _ARENA_SLATE_TYPES else [0, 2]
     return [i for i in targets if i < n_emails]
 
 
 def _attach_resumes_to_emails(camp_type, emails, resume_pdfs):
     """Attach redacted-résumé filenames onto the right email steps.
-    5x3: ALL résumés onto BOTH slate emails (indices 1 & 3).
+    5x3: nothing — that sequence sends profiles, not résumés, so
+    _resume_attach_indices hands back an empty list and this is a no-op.
     Other types: one résumé per target email, positional (legacy behavior).
     No-op when resume_pdfs is empty."""
     ct = (camp_type or "").strip()
@@ -18579,9 +18644,10 @@ CHOOSER_OPTIONS = [
         "title": "Arena 5×3",
         "subtitle": "Automated 3-candidate slate, warm 5-email cadence",
         "desc": ("PipelineBlast's send-ready play. Introduces 3 "
-                 "pipeline-matched candidates to a company hiring "
-                 "your role — redacted résumés on emails 2 and 4, an "
-                 "interview guide on email 3, and a warm day-8 bump."),
+                 "pipeline-matched candidates to a company hiring your "
+                 "role — full profiles written into email 2 (no résumé "
+                 "attachments), an interview guide on email 3, a warm "
+                 "day-8 bump, and a profile recap on email 5."),
         "best_for": ["Automated slate", "3 candidates", "Relationship-first"],
         "border": "#0EA5A5",
     },
@@ -32082,6 +32148,62 @@ def _aicb_pdf_filename(slug_prefix: str, company: str) -> str:
     return f"{slug_prefix}_{slug}.pdf"
 
 
+_AICB_PDF_KIND_META = {k[0]: k for k in _AICB_PDF_KINDS}
+
+
+def _build_named_pdf(kind_id: str, data: dict, company: str,
+                     owner_email: str = "") -> str:
+    """Build ONE branded PDF from already-generated rich data, save its
+    sidecar, publish it, and return the filename ("" if there was nothing
+    to build or the build failed).
+
+    Shared by the five-kind attach phase and the Arena 5×3's single-kind
+    interview-guide path so both land byte-identical files in the same
+    per-user directory. owner_email rebinds the per-user ContextVar for
+    callers running off the request thread (the API path offloads to an
+    executor); the wizard path has already bound it."""
+    if kind_id not in _AICB_PDF_KIND_META:
+        return ""
+    if not ((data or {}).get("sections") or []):
+        return ""
+    try:
+        if owner_email:
+            _CURRENT_USER_EMAIL.set(owner_email)
+    except Exception as _ex:
+        print(f"[AICB] ContextVar rebind failed (build): {_ex}", flush=True)
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parent / "funnel_forge"))
+        import importlib, arena_pdfs as _ap; importlib.reload(_ap)
+        from arena_pdfs import build_custom_pdf
+    except ImportError:
+        print("[AICB] reportlab not installed - skipping PDF build")
+        return ""
+    _kid, _slug_prefix, _human_label, _intro_tpl = _AICB_PDF_KIND_META[kind_id]
+    try:
+        _cfg = load_config()
+        fname = _aicb_pdf_filename(_slug_prefix, company)
+        fpath = str(_user_pdf_dir() / fname)
+        build = {
+            "title": data.get("title") or f"{_human_label} - {company}",
+            "badge": data.get("badge") or _human_label.upper(),
+            "date": date.today().strftime("%B %d, %Y"),
+            "prepared_by": _cfg.get("sig_name", _get_company_name()) or _get_company_name(),
+            "prepared_email": _cfg.get("sig_email", ""),
+            "logo_path": _get_company_logo_path(),
+            "intro": data.get("intro", ""),
+            "sections": data.get("sections", []),
+            "cta": data.get("cta", ""),
+        }
+        build_custom_pdf(fpath, build)
+        _save_pdf_sidecar(fpath, build)
+        _publish_pdf(fpath)
+        return fname
+    except Exception as e:
+        print(f"[AICB] {kind_id} build error: {e}", flush=True)
+        return ""
+
+
 def _aicb_distribute_pdf_placeholders(campaign_data, location_str="", roles_str=""):
     """Pre-distribute '_pending:{Label}' placeholders + value-prop intro lines
     across email steps so the saved campaign + editor view show ⏳ chips
@@ -32363,53 +32485,28 @@ def _aicb_attach_pdfs(pdf_data: dict, campaign_data: dict, company: str,
         import sys as _sys
         _sys.path.insert(0, str(Path(__file__).resolve().parent / "funnel_forge"))
         import importlib, arena_pdfs as _ap; importlib.reload(_ap)
-        from arena_pdfs import build_custom_pdf
+        from arena_pdfs import build_custom_pdf  # noqa: F401 - availability probe
     except ImportError:
         print("[AICB] reportlab not installed - skipping PDF build/attach")
         return 0
-
-    _cfg = load_config()
-    dt = date.today().strftime("%B %d, %Y")
-    prep = _cfg.get("sig_name", _get_company_name()) or _get_company_name()
-    prep_email = _cfg.get("sig_email", "")
 
     # ── Phase 2a: build every PDF whose AI data came back. Track the
     # built filename per kind so the topic-match pass can wire them up.
     built_by_kind: dict = {}
     for _idx, (_kind_id, _slug_prefix, _human_label, _intro_tpl) in enumerate(_AICB_PDF_KINDS):
-        try:
-            _data_key = "tenure" if _kind_id == "tenure_snapshot" else _kind_id
-            data = pdf_data.get(_data_key, {}) or {}
-            if not (data.get("sections") or []):
-                print(f"[AICB] SKIP {_kind_id} — no sections (AI generation failed)",
-                      flush=True)
-                continue
-            _fname = _aicb_pdf_filename(_slug_prefix, company)
-            fpath = str(_user_pdf_dir() / _fname)
-            _aicb_build_dict = {
-                "title": data.get("title") or f"{_human_label} - {company}",
-                "badge": data.get("badge") or _human_label.upper(),
-                "date": dt,
-                "prepared_by": prep,
-                "prepared_email": prep_email,
-                "logo_path": _get_company_logo_path(),
-                "intro": data.get("intro", ""),
-                "sections": data.get("sections", []),
-                "cta": data.get("cta", ""),
-            }
-            build_custom_pdf(fpath, _aicb_build_dict)
-            _save_pdf_sidecar(fpath, _aicb_build_dict)
-            _publish_pdf(fpath)
+        _data_key = "tenure" if _kind_id == "tenure_snapshot" else _kind_id
+        _fname = _build_named_pdf(_kind_id, pdf_data.get(_data_key, {}) or {},
+                                  company)
+        if _fname:
             built_by_kind[_kind_id] = _fname
             print(f"[AICB] Generated {_fname}")
-        except Exception as e:
-            print(f"[AICB] {_kind_id} build error: {e}")
-        finally:
-            try:
-                if appstate is not None:
-                    appstate._aicb_pdfs_done = _idx + 1
-            except Exception:
-                pass
+        else:
+            print(f"[AICB] SKIP {_kind_id} — nothing built", flush=True)
+        try:
+            if appstate is not None:
+                appstate._aicb_pdfs_done = _idx + 1
+        except Exception:
+            pass
 
     # ── Phase 2b: topic-match emails to PDFs. Each PDF kind attaches
     # to AT MOST one email (whichever scored highest for that kind).
@@ -32464,6 +32561,57 @@ def _aicb_attach_pdfs(pdf_data: dict, campaign_data: dict, company: str,
     print(f"[AICB] PDF build complete: {len(built_by_kind)} built, "
           f"{attached_count} attached by topic-match")
     return attached_count
+
+
+def _fivebythree_attach_interview_guide(campaign_data, company, *, client=None,
+                                        pdf_data=None, roles_str="",
+                                        location_str="", industry="",
+                                        owner_email="") -> str:
+    """Build the interview guide and pin it to the Arena 5×3's Step 3.
+
+    Step 3's body says "I've attached a short interview guide", so the file
+    has to be there every single time. Two ways it wasn't: the API path
+    (PipelineBlast, the MCP connector) never ran the PDF phase at all, so
+    every campaign it created shipped that email with an empty attachment
+    list; and on the wizard path the greedy topic-match could hand the guide
+    to a different step. This is deterministic — one kind, one file, pinned
+    to the step whose copy promises it.
+
+    Costs one AI call, or none when `pdf_data` already carries the
+    interview-guide payload from the wizard's parallel phase-1 thread.
+    Returns the attached filename, or "" when nothing could be built."""
+    emails = (campaign_data or {}).get("emails") or []
+    if not emails:
+        return ""
+    data = (pdf_data or {}).get("interview_guide") or {}
+    if not (data.get("sections") or []) and client is not None:
+        try:
+            data = _generate_rich_pdf_data(
+                client, "interview_guide",
+                {"company": company, "primary_industry": industry,
+                 "secondary_industries": [], "positions": roles_str,
+                 "location": location_str, "exp_level": ""},
+                research_context="", style_guide=_style_guide_prompt()) or {}
+        except Exception as ex:
+            print(f"[5x3] interview guide generation failed: {ex}", flush=True)
+            return ""
+    fname = _build_named_pdf("interview_guide", data, company,
+                             owner_email=owner_email)
+    if not fname:
+        print("[5x3] interview guide not built — Step 3 ships without it",
+              flush=True)
+        return ""
+    target = next((e for e in emails
+                   if _fivebyfive_step_no(e.get("name")) == 3), None)
+    if target is None and len(emails) >= 3:
+        target = emails[2]  # positional fallback if the step name drifted
+    if target is None:
+        return ""
+    slot = target.setdefault("attachments", [])
+    if fname not in slot:
+        slot.append(fname)
+    print(f"[5x3] Attached {fname} to Step 3", flush=True)
+    return fname
 
 
 def _aicb_generate_pdfs(client, brief, roles_str, location_str, company, sig_name, campaign_data, appstate=None):
@@ -37413,8 +37561,11 @@ def p_ai_campaign(s: AppState, rf):
                             # 2026-04-26 user report: "PDF creation keeps
                             # adding 2 of each when I only asked for 1".
 
-                            # Attach redacted résumé PDFs (5x3: all 3 on emails
-                            # 2 & 4; other slate types: one per email, legacy).
+                            # Attach redacted résumé PDFs (4x4 / 5x5: one per
+                            # email on 2 & 4. The 5x3 attaches none — it sends
+                            # profiles in the body — so this is a no-op there,
+                            # but the files are still rendered and available in
+                            # the Candidate Résumés picker.)
                             if _resume_pdfs and campaign_data.get("emails"):
                                 _attach_resumes_to_emails(
                                     (s.aicb_camp_type or "").strip(),
@@ -37442,18 +37593,36 @@ def p_ai_campaign(s: AppState, rf):
                                 # behavior since their preset already
                                 # lists PDFs in its sequence.
                                 _restrict = None
-                                if (s.aicb_camp_type or "").strip() == "byos":
+                                _ct = (s.aicb_camp_type or "").strip()
+                                if _ct == "byos":
                                     _restrict = _extract_requested_pdf_kinds(
                                         s.aicb_byos_desc or ""
                                     )
                                     if _restrict is None:
                                         _restrict = set()  # empty desc = no PDFs
+                                elif _ct == "fivebythree":
+                                    # The 5x3 sends exactly one file, the
+                                    # interview guide, pinned to Step 3 below.
+                                    # Topic-match must not scatter the other
+                                    # four kinds onto steps 2/4/5 — they used
+                                    # to be skipped only because résumés were
+                                    # already sitting in their attachment list.
+                                    _restrict = set()
                                 try:
                                     _aicb_attach_pdfs(_pdf_data_payload, campaign_data,
                                                       pdf_target, appstate=s,
                                                       restrict_kinds=_restrict)
                                 except Exception as _att_ex:
                                     print(f"[AICB] sync attach error: {_att_ex}", flush=True)
+                                if _ct == "fivebythree":
+                                    try:
+                                        _fivebythree_attach_interview_guide(
+                                            campaign_data, pdf_target,
+                                            pdf_data=_pdf_data_payload,
+                                            owner_email=getattr(s, "_user_email", ""))
+                                    except Exception as _ig_ex:
+                                        print(f"[AICB] 5x3 guide attach error: {_ig_ex}",
+                                              flush=True)
                             # PDFs are attached at this point (single
                             # synchronous call above; no background fallback
                             # any more — see comment about the duplicate-
@@ -49169,10 +49338,22 @@ def _aicb_force_market_for_4x4(camp_type, is_niche_mode, niche_str,
 def _aicb_candidate_weave_block(camp_type):
     """Placement + angle instructions for the candidate-highlights block.
     Arena 4×4 lists the slate on EVERY email (its spec promises "candidate
-    highlights on every email"); every other campaign type weaves candidates
+    highlights on every email"); the Arena 5×3 puts full profiles on Email 2
+    and recaps them on Email 5; every other campaign type weaves candidates
     into every other email starting from Email 2. Pure — returns prompt text
     only. Caller splices this between the count preamble and the label rules."""
-    if (camp_type or "").strip() == "fourbyfour":
+    _ct = (camp_type or "").strip()
+    if _ct == "fivebythree":
+        return (
+            'Include ALL candidates on Email 2 and Email 5 ONLY:\n'
+            '  - Email 2: the full slate — 3 bullets per candidate\n'
+            '  - Email 5: a short 2-3 sentence write-up per candidate, prose '
+            'not bullets, reminding them who you sent\n'
+            'Emails 1, 3 and 4 carry NO candidates.\n'
+            'Call them "profiles", never "résumés", and never say a résumé '
+            'or any file is attached — the profiles are in the email itself.\n'
+        )
+    if _ct == "fourbyfour":
         return (
             'Include ALL candidates on EVERY email (Email 1, 2, 3, and 4). '
             'Each time you feature them, use a DIFFERENT angle:\n'
