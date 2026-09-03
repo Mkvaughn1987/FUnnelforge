@@ -10420,6 +10420,27 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
 .fd-theme-moon{{opacity:1;transform:rotate(0deg)}}
 :root[data-theme="light"] .fd-theme-sun{{opacity:1;transform:rotate(0deg)}}
 :root[data-theme="light"] .fd-theme-moon{{opacity:0;transform:rotate(90deg)}}
+/* ── Quasar popup surfaces (BOTH themes) ───────────────────────
+   Quasar hardcodes `.q-menu{{background:#fff}}` and `.q-item{{color:inherit}}`,
+   and only paints them dark when its OWN Dark plugin ($q.dark.isActive)
+   is on. This app themes via a data-theme attribute + --dd-* custom
+   properties and merely ADDS the `body--dark` class, which Quasar's
+   plugin never sees. So in dark mode every dropdown opened as a WHITE
+   panel inheriting the app's light-grey body text — a ~1.3:1 contrast
+   list that is effectively invisible. Clicking any ui.select looked
+   like nothing happened at all (reported against the Create Newsletter
+   "Market Sector" field; it affected every select in the app).
+   These use the --dd-* vars, so ONE unscoped copy is correct in both
+   themes. Deliberately NOT !important: the app's stylesheet is
+   unlayered and already beats Quasar's layered rules, so leaving these
+   weak lets per-element .style() overrides keep winning. The
+   :root[data-theme="light"] duplicates below are higher-specificity
+   and still take precedence in light mode. */
+.q-menu{{background:{C['card']};color:{C['text']};border:1px solid {C['border']}}}
+.q-menu .q-item{{color:{C['text']}}}
+.q-menu .q-item:hover,
+.q-menu .q-item--active,
+.q-menu .q-manual-focusable--focused{{background:{C['card_h']}}}
 /* ── Light mode: override ALL Quasar dark-mode internals ─────────── */
 :root[data-theme="light"] .q-dark{{background:transparent !important;color:{C_LIGHT['text']} !important}}
 :root[data-theme="light"] .q-field--dark .q-field__control,
