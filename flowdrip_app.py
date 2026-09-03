@@ -12869,6 +12869,20 @@ def _show_requeue_dialog(s, rf, camp: dict, cname: str, pending_count: int):
     dlg.open()
 
 
+# The step preview paints the email body on a white card. Email HTML almost
+# never declares its own text color (the 4x4/5x3 wrapper only sets font-family
+# and font-size), so whatever the card inherits is what the body renders in --
+# and in the dark theme <body> carries a near-white color. Pin the card's text
+# color to the light-theme body ink so the preview always reads like an inbox
+# does, in either theme.
+_STEP_PREVIEW_BODY_STYLE = (
+    "background:#ffffff;color:#0F172A;border:1px solid #E2E8F0;"
+    "border-radius:10px;padding:20px 24px;"
+    "font-family:'Segoe UI',Arial,sans-serif;"
+    "box-shadow:0 1px 3px rgba(15,23,42,.07);"
+)
+
+
 def _show_step_preview_dialog(s, step: dict):
     """Read-only preview of a sequence step's actual content  -  the
     subject + rendered HTML body for email steps, or the script/notes text
@@ -12915,10 +12929,7 @@ def _show_step_preview_dialog(s, step: dict):
                 ui.label(_subj).style(
                     f"font-size:14px;font-weight:600;color:{C['text_l']};margin-bottom:16px;")
                 if _body.strip():
-                    with ui.element("div").style(
-                            "background:#ffffff;border:1px solid #E2E8F0;border-radius:10px;"
-                            "padding:20px 24px;font-family:'Segoe UI',Arial,sans-serif;"
-                            "box-shadow:0 1px 3px rgba(15,23,42,.07);"):
+                    with ui.element("div").style(_STEP_PREVIEW_BODY_STYLE):
                         ui.html(_body)
                 else:
                     ui.label("This email has no body content yet.").style(
