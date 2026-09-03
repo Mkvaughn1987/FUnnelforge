@@ -2082,7 +2082,7 @@ def _c(C, k, d):
 
 _NAV = [
     ("dashboard",  "▦", "Dashboard"),
-    ("candidates", "👥", "Candidates"),
+    ("candidates", "👥", "Search Candidates"),
     ("jobs",       "📋", "Jobs"),
     ("companies",  "🏢", "Companies"),
     ("searches",   "🔎", "Saved Searches"),
@@ -2889,7 +2889,7 @@ def _view_candidates(ff, st, refresh):
     # Search card
     with ui.element("div").style(
             f"background:{_c(C,'card','#15203A')};border:1px solid {_c(C,'border','#243049')};"
-            f"border-radius:12px;padding:16px 18px;margin-bottom:16px;"):
+            f"border-radius:18px;padding:18px 20px;margin-bottom:16px;"):
         st.setdefault("location", "")
         st.setdefault("added", None)
         st.setdefault("meta", {})
@@ -2950,43 +2950,43 @@ def _view_candidates(ff, st, refresh):
             st[key] = val
             await _rerun()
 
-        def _pill_row(caption, opts, cur, key):
+        def _segmented(opts, cur, on_pick):
+            """One capsule holding the choices. Every filter group on this card
+            uses it, so the row reads as three controls, not twelve buttons."""
             with ui.element("div").style(
-                    "display:flex;gap:4px;align-items:center;flex-shrink:0;"):
-                ui.label(caption).style(
-                    f"font-size:11px;color:{_c(C,'muted','#94A3B8')};")
+                    f"display:flex;gap:2px;background:{_c(C,'surface','#0E1726')};"
+                    f"border:1px solid {_c(C,'border','#243049')};border-radius:999px;"
+                    f"padding:3px;flex-shrink:0;"):
                 for val, lbl in opts:
                     _on = (cur == val)
                     with ui.element("button").style(
-                            f"padding:3px 9px;font-size:11px;font-weight:700;border-radius:6px;"
-                            f"cursor:pointer;font-family:inherit;border:1px solid "
-                            f"{_c(C,'teal','#1AE3D9') if _on else _c(C,'border','#243049')};"
-                            f"background:{(_c(C,'teal','#1AE3D9')+'22') if _on else 'transparent'};"
-                            f"color:{_c(C,'teal','#1AE3D9') if _on else _c(C,'text','#CBD5E1')};"
-                            ).on("click", lambda _e, k=key, v=val: _set_filter(k, v)):
+                            f"padding:4px 12px;font-size:11px;font-weight:700;"
+                            f"border-radius:999px;cursor:pointer;font-family:inherit;border:0;"
+                            f"background:{_c(C,'teal','#1AE3D9') if _on else 'transparent'};"
+                            f"color:{'#08121f' if _on else _c(C,'text','#CBD5E1')};"
+                            ).on("click", lambda _e, v=val: on_pick(v)):
                         ui.label(lbl).style("pointer-events:none;")
+
+        def _cap(text):
+            ui.label(text).style(
+                f"font-size:11px;font-weight:700;white-space:nowrap;"
+                f"color:{_c(C,'muted','#94A3B8')};")
+
+        def _pill_row(caption, opts, cur, key):
+            with ui.element("div").style(
+                    "display:flex;gap:8px;align-items:center;flex-shrink:0;"):
+                _cap(caption)
+                _segmented(opts, cur, lambda v, k=key: _set_filter(k, v))
 
         # Scope toggle builder — also reused next to the "Recently added" header.
         def _scope_toggle(compact=True):
-            _scope = st.get("scope", "all")
-            with ui.element("div").style(
-                    f"display:flex;gap:2px;background:{_c(C,'surface','#0E1726')};"
-                    f"border:1px solid {_c(C,'border','#243049')};border-radius:7px;"
-                    f"padding:2px;flex-shrink:0;"):
-                for sk, sl in (("all", "Team"), ("mine", "Mine")):
-                    _son = (_scope == sk)
-                    with ui.element("button").style(
-                            f"padding:4px 11px;font-size:11px;font-weight:700;border-radius:5px;"
-                            f"cursor:pointer;font-family:inherit;border:0;"
-                            f"background:{_c(C,'teal','#1AE3D9') if _son else 'transparent'};"
-                            f"color:{'#08121f' if _son else _c(C,'text','#CBD5E1')};"
-                            ).on("click", lambda _e, x=sk: _set_filter("scope", x)):
-                        ui.label(sl).style("pointer-events:none;")
+            _segmented((("all", "Team"), ("mine", "Mine")), st.get("scope", "all"),
+                       lambda v: _set_filter("scope", v))
 
         def _location_input(width="230px"):
             _li = ui.input(value=st.get("location", ""),
                            placeholder="📍 City, ST  (e.g. Irvine, CA)").props(
-                "outlined dense clearable").style(f"width:{width};flex-shrink:0;")
+                "outlined dense rounded clearable").style(f"width:{width};flex-shrink:0;")
             _li.on_value_change(
                 lambda e: st.__setitem__("location", (e.value or "").strip()))
             return _li
@@ -3008,8 +3008,8 @@ def _view_candidates(ff, st, refresh):
         def _filter_bar():
             """One filter row, shared by both search modes."""
             with ui.element("div").style(
-                    f"display:flex;align-items:center;gap:16px;flex-wrap:wrap;"
-                    f"margin-top:12px;padding-top:11px;"
+                    f"display:flex;align-items:center;gap:18px;flex-wrap:wrap;"
+                    f"margin-top:14px;padding-top:13px;"
                     f"border-top:1px solid {_c(C,'border','#243049')};"):
                 _pill_row("📍 Within", ((None, "Any"), (25, "25mi"), (50, "50mi")),
                           st.get("radius"), "radius")
@@ -3021,9 +3021,8 @@ def _view_candidates(ff, st, refresh):
                 # switching whose pipeline you are searching would do nothing.
                 if not st.get("tearsheet_id"):
                     with ui.element("div").style(
-                            "display:flex;gap:6px;align-items:center;flex-shrink:0;"):
-                        ui.label("👤 Pipeline").style(
-                            f"font-size:11px;color:{_c(C,'muted','#94A3B8')};")
+                            "display:flex;gap:8px;align-items:center;flex-shrink:0;"):
+                        _cap("👤 Pipeline")
                         _scope_toggle()
                 if st.get("query") or st.get("crit"):
                     ui.label(f"{len(st.get('results') or []):,} results").style(
@@ -3035,7 +3034,7 @@ def _view_candidates(ff, st, refresh):
             for mk, ml in (("keywords", "🔍 Keywords"), ("jd", "📄 Match a Job Description")):
                 on = (st["mode"] == mk)
                 with ui.element("button").style(
-                        f"padding:7px 16px;font-size:12px;font-weight:600;border-radius:8px;"
+                        f"padding:8px 18px;font-size:12px;font-weight:700;border-radius:999px;"
                         f"cursor:pointer;font-family:inherit;border:1px solid "
                         f"{_c(C,'teal','#1AE3D9') if on else _c(C,'border','#243049')};"
                         f"background:{(_c(C,'teal','#1AE3D9')+'22') if on else 'transparent'};"
@@ -3056,17 +3055,23 @@ def _view_candidates(ff, st, refresh):
 
             with ui.element("div").style(
                     "display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;"):
-                _inp = ui.input(value=st.get("query_draft", ""),
-                                placeholder="e.g.  superintendent data center").props(
-                    "outlined dense clearable").style("flex:1;min-width:220px;")
-                _inp.on_value_change(
-                    lambda e: st.__setitem__("query_draft", e.value or ""))
-                _inp.on("keydown.enter", lambda _e: _do_kw())
-                _loc = _location_input()
-                _loc.on("keydown.enter", lambda _e: _do_kw())
+                # Keyword and city stack in one column so the city box sits
+                # under the keyword bar, both the same width, rather than the
+                # two inputs splitting the row between them.
+                with ui.element("div").style(
+                        "flex:1;min-width:220px;display:flex;"
+                        "flex-direction:column;gap:8px;"):
+                    _inp = ui.input(value=st.get("query_draft", ""),
+                                    placeholder="e.g.  superintendent data center").props(
+                        "outlined dense rounded clearable").style("width:100%;")
+                    _inp.on_value_change(
+                        lambda e: st.__setitem__("query_draft", e.value or ""))
+                    _inp.on("keydown.enter", lambda _e: _do_kw())
+                    _loc = _location_input(width="100%")
+                    _loc.on("keydown.enter", lambda _e: _do_kw())
                 with ui.element("button").style(
                         f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;"
-                        f"border-radius:8px;padding:9px 26px;font-size:13px;font-weight:700;"
+                        f"border-radius:999px;padding:10px 28px;font-size:13px;font-weight:700;"
                         f"cursor:pointer;font-family:inherit;flex-shrink:0;").on(
                         "click", _do_kw):
                     ui.label("Search")
@@ -3079,7 +3084,7 @@ def _view_candidates(ff, st, refresh):
                         f"display:flex;align-items:center;justify-content:space-between;gap:10px;"
                         f"background:{_c(C,'teal','#1AE3D9')}14;flex-wrap:wrap;"
                         f"border:1px solid {_c(C,'teal','#1AE3D9')}40;"
-                        f"border-radius:8px;padding:9px 14px;"):
+                        f"border-radius:14px;padding:10px 15px;"):
                     ui.label(f"📄 Matching: {cr.get('title','job description')} · "
                              f"{cr.get('_location_used') or cr.get('location') or 'any location'}").style(
                         f"font-size:12px;font-weight:700;color:{_c(C,'teal','#1AE3D9')};"
@@ -3090,7 +3095,7 @@ def _view_candidates(ff, st, refresh):
                         st["search_open"] = True; refresh()
                     with ui.element("button").style(
                             f"background:transparent;border:1px solid {_c(C,'border','#243049')};"
-                            f"color:{_c(C,'text','#CBD5E1')};border-radius:7px;padding:5px 12px;"
+                            f"color:{_c(C,'text','#CBD5E1')};border-radius:999px;padding:6px 14px;"
                             f"font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;"
                             f"flex-shrink:0;").on("click", _edit_jd):
                         ui.label("✎ New / edit JD")
@@ -3120,7 +3125,7 @@ def _view_candidates(ff, st, refresh):
                             f"font-size:11px;color:{_c(C,'muted','#94A3B8')};")
                     with ui.element("button").style(
                             f"background:{_c(C,'teal','#1AE3D9')};color:#08121f;border:0;"
-                            f"border-radius:8px;padding:8px 24px;font-size:13px;font-weight:700;"
+                            f"border-radius:999px;padding:10px 26px;font-size:13px;font-weight:700;"
                             f"cursor:pointer;font-family:inherit;flex-shrink:0;").on(
                             "click", lambda: _run_jd_search(st.get("jd_draft"))):
                         ui.label("✦ Find Matches")
