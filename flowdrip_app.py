@@ -11194,7 +11194,6 @@ SALES_NAV = [
     (None, "SEQUENCES",         None),
     ("▷",  "Start a Sequence",  "start_seq"),
     ("📁", "Campaign Library",  "drafts_saved"),
-    ("🎯", "Sales Campaign",   "sales_campaign"),
     ("≡",  "Contacts",          "contacts"),
     ("🚫", "Opt-Out List",     "dnc"),
     ("🛡", "Existing Customers", "active_clients"),
@@ -11204,6 +11203,7 @@ SALES_NAV = [
     # always-on touch points in one place). The "evergreen" page handler
     # is still callable as a subsection from p_newsletters.
     (None, "CONTENT & TOOLS",   None),
+    ("🎯", "AI Prompts",        "ai_prompts"),
     ("📊", "Sales Assets",      "pdf_gen"),
     # "Candidates" (Top Candidates roster) removed from sidebar 2026-06-09 —
     # candidates now live in the ATS. The page handler stays callable.
@@ -52366,6 +52366,16 @@ def render_page(s: AppState, rf):
             # newsletters are created via the Slow Drip → Create
             # Newsletter dialog (_create_newsletter_dialog) instead.
             elif page == "admin":        p_admin(s, rf)
+            elif page == "ai_prompts":
+                # Same lazy-import pattern as sales_campaign / ats: one bad
+                # module takes out one page, not the whole app.
+                try:
+                    import ai_prompts as _aip
+                    _aip.p_ai_prompts(s, rf)
+                except Exception as _aip_ex:
+                    print(f"[AIPrompts] page failed: {_aip_ex}", flush=True)
+                    ui.label(f"AI Prompts is unavailable: {_aip_ex}").style(
+                        f"font-size:14px;color:{C['warn']};padding:20px 0;")
             elif page == "sales_campaign":
                 # Companion module (same pattern as ats.py). Imported here
                 # rather than at module load so a failure disables one page
