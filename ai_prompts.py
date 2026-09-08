@@ -74,9 +74,12 @@ ROUTINES = [
                   "candidates_search", "create_campaign"],
         "steps": [
             "Search the job boards for companies hiring those roles in that "
-            "geography, posted in the last 30 days. ZipRecruiter first, then "
-            "LinkedIn. Operating companies only — no recruiting firms, no job "
-            "aggregators, no government, no in-house-recruiting shops.",
+            "geography, posted in the last 30 days. Google Jobs first — it "
+            "casts the widest net — then ZipRecruiter, then LinkedIn. If "
+            "Google shows a bot check, do not try to solve it: drop to "
+            "ZipRecruiter and tell me Google was skipped. Run ZipRecruiter "
+            "either way. Operating companies only — no recruiting firms, no "
+            "job aggregators, no government, no in-house-recruiting shops.",
             "Size about 12 companies to land 5, and name 3 ranked reserves. "
             "For every pick give the concrete signal that earned it — the "
             "actual fact from the posting, not \"good fit\". For every "

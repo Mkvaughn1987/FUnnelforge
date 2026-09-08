@@ -529,7 +529,8 @@ def worked_company_keys(owner_email=None):
 # ══════════════════════════════════════════════════════════════════════════
 # Step 2 — sourcing
 # ══════════════════════════════════════════════════════════════════════════
-# The Claude skill sources from ZipRecruiter/LinkedIn/Indeed MCP connectors.
+# The Claude skill sources from Google Jobs (browser) plus the ZipRecruiter/
+# LinkedIn/Indeed MCP connectors.
 # Those are client-side; this server cannot call them. What it CAN call is the
 # same restricted web-search tool the AI Campaign Builder already uses, which
 # reaches the same boards. Different transport, same boards, and it needs no
@@ -592,7 +593,7 @@ def _source_companies(client, target, want=None):
         'Return ONLY a JSON array, no prose:\n'
         '[{"company": "Legal or trading name", "state": "Two-letter state", '
         '"role": "The role as posted", "days_ago": 7, '
-        '"source": "ziprecruiter|indeed|linkedin|other", '
+        '"source": "google|ziprecruiter|indeed|linkedin|other", '
         '"why": "One concrete observed fact - what the posting says, not '
         'an opinion"}]'
         % (want, target.get("emp_min") or DEFAULT_EMP_MIN,
@@ -1026,8 +1027,11 @@ def handoff_brief(rec):
         "",
         "DO ONLY THE TWO THINGS THIS SERVER CANNOT DO",
         "  1. Source companies hiring those roles in that geography off the",
-        "     job boards — ZipRecruiter first, then LinkedIn, Indeed",
-        "     sparingly. Operating companies only: no recruiting firms, no",
+        "     job boards — Google Jobs (udm=8) first, then ZipRecruiter,",
+        "     then LinkedIn, Indeed sparingly. Google casts the widest net",
+        "     but bot-checks: if it does, never solve it — drop to",
+        "     ZipRecruiter and say Google was skipped. Run ZipRecruiter",
+        "     either way. Operating companies only: no recruiting firms, no",
         "     aggregators, no government, no in-house-recruiting shops.",
         "  2. Pull the buying centre for each out of ZoomInfo. Target %d"
         % CONTACTS_TARGET,
