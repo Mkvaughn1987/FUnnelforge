@@ -285,3 +285,112 @@ def test_real_city_geocoding_discriminates_25_from_50_miles(ats_mod):
     d_mid = ats_mod.candidate_distance({"city": "Los Angeles", "state": "CA"}, origin)
     d_far = ats_mod.candidate_distance({"city": "San Diego", "state": "CA"}, origin)
     assert d_near < 25 < d_mid < 50 < d_far
+
+
+# ── radius origin precision ───────────────────────────────────────────────
+# A radius is only meaningful from a real point. `geocode` used to fall back
+# to a state centroid whenever the city string missed, so "Orange County, CA"
+# silently became the middle of California (256 mi from Irvine) and every
+# 25mi search came back empty with nothing to explain why.
+
+def _needs_geo(ats_mod):
+    if not ats_mod._load_geo():
+        pytest.skip("us_geo.csv not present (prod data file, not in the repo)")
+
+
+def test_county_input_resolves_near_the_county_not_the_state_centroid(ats_mod):
+    _needs_geo(ats_mod)
+    origin = ats_mod.geocode_text("Orange County, CA")
+    assert origin is not None
+    assert origin != ats_mod._STATE_CENTROID["CA"]
+    # Must land close enough that Irvine is inside a 25mi radius.
+    assert ats_mod._haversine(origin, (33.7357, -117.7672)) < 25
+
+
+def test_metro_and_city_and_county_phrasings_also_resolve(ats_mod):
+    _needs_geo(ats_mod)
+    for text, near in (("Los Angeles County, CA", (33.9731, -118.2479)),
+                       ("Greater Boston, MA", (42.3576, -71.0684)),
+                       ("Salt Lake County, UT", (40.7559, -111.8967))):
+        origin = ats_mod.geocode_text(text)
+        assert origin is not None, text
+        assert ats_mod._haversine(origin, near) < 25, text
+
+
+def test_unresolvable_region_is_reported_not_silently_recentred(ats_mod):
+    """"Bay Area, CA" has no matching city. Better to say so and skip the
+    distance filter than to quietly measure from the middle of the state."""
+    _needs_geo(ats_mod)
+    assert ats_mod.geocode_text("Bay Area, CA") is None
+
+
+def test_bare_state_is_not_a_radius_origin(ats_mod):
+    """A state is not a point; a radius around its centroid is meaningless."""
+    _needs_geo(ats_mod)
+    assert ats_mod.geocode_text("CA") is None
+    assert ats_mod.geocode_text("California") is None
+
+
+def test_keyword_search_falls_through_unfiltered_on_a_region_it_cant_place(ats_mod):
+    _needs_geo(ats_mod)
+    _seed(ats_mod, "Near", "Irvine", "CA", _NEAR, days_ago=1)
+    _seed(ats_mod, "Far", "San Diego", "CA", _FAR, days_ago=1)
+    rows, meta = ats_mod.keyword_search(
+        "Project Manager", location="Bay Area, CA", radius_mi=25, with_meta=True)
+    assert meta["bad_location"] == "Bay Area, CA"
+    assert sorted(_names(rows)) == ["Far", "Near"]
+
+
+def test_keyword_search_applies_the_radius_for_a_county(ats_mod):
+    """The reported bug, end to end: PM search, Orange County, 25mi."""
+    _needs_geo(ats_mod)
+    _seed(ats_mod, "Near", "Irvine", "CA", _NEAR, days_ago=1)
+    _seed(ats_mod, "Far", "San Diego", "CA", _FAR, days_ago=1)
+    rows, meta = ats_mod.keyword_search(
+        "Project Manager", location="Orange County, CA", radius_mi=25,
+        with_meta=True)
+    assert _names(rows) == ["Near"]
+    assert meta["bad_location"] == ""
+
+
+def test_meta_discloses_the_city_a_region_was_resolved_to(ats_mod):
+    """Resolving "Orange County" to Orange, CA is a guess. Say it out loud so
+    a wrong guess (Maricopa County -> the town of Maricopa) is visible."""
+    _needs_geo(ats_mod)
+    _seed(ats_mod, "Near", "Irvine", "CA", _NEAR, days_ago=1)
+    _, meta = ats_mod.keyword_search(
+        "Project Manager", location="Orange County, CA", radius_mi=25,
+        with_meta=True)
+    assert meta["origin_label"] == "Orange, CA"
+    # An exact city needs no disclosure.
+    _, meta2 = ats_mod.keyword_search(
+        "Project Manager", location="Irvine, CA", radius_mi=25, with_meta=True)
+    assert meta2["origin_label"] == ""
+
+
+def test_candidate_in_an_unknown_city_is_unlocatable_not_state_centred(ats_mod):
+    """Otherwise an unplaceable CA candidate sits at the CA centroid and shows
+    up as ~0 mi from a Fresno search — a false positive."""
+    _needs_geo(ats_mod)
+    origin = ats_mod.geocode_text("Fresno, CA")
+    assert origin is not None
+    assert ats_mod.candidate_distance(
+        {"city": "Nowhereville", "state": "CA"}, origin) is None
+
+
+def test_backfill_coords_stores_only_precise_coordinates(ats_mod):
+    """Stored coords bypass the geocode path entirely, so a centroid written
+    here would be trusted as a real position forever after."""
+    _needs_geo(ats_mod)
+    _seed(ats_mod, "Placed", "Irvine", "CA", None, days_ago=1)
+    _seed(ats_mod, "Unplaceable", "Nowhereville", "CA", None, days_ago=1)
+    out = ats_mod.backfill_coords()
+    assert out["state_only"] == 0
+    con = ats_mod._con()
+    try:
+        got = {r["first_name"]: r["lat"] for r in
+               con.execute("SELECT first_name, lat FROM talents").fetchall()}
+    finally:
+        con.close()
+    assert got["Placed"] is not None
+    assert got["Unplaceable"] is None
