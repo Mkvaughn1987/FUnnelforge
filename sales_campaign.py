@@ -1338,65 +1338,165 @@ def _field(label, hint=""):
     if hint:
         ui.label(hint).style(
             f"font-size:10px;color:{ff.C['muted']};margin-top:-2px;"
-            f"margin-bottom:2px;display:block;")
+            f"margin-bottom:2px;display:block;line-height:1.45;")
 
 
-# ── Credentials + settings ────────────────────────────────────────────────
+def _pill(text, color):
+    ui.label(text).style(
+        f"display:inline-block;font-size:10px;font-weight:800;"
+        f"letter-spacing:.06em;text-transform:uppercase;padding:3px 10px;"
+        f"border-radius:999px;color:{color};border:1px solid {color}66;"
+        f"background:{color}18;font-family:'Nunito',sans-serif;"
+        f"white-space:nowrap;")
+
+
+def _sc_css():
+    """Quasar's standard q-field reserves 56px for a floating label slot this
+    page never uses, and .fd-input adds its own padding on the wrapper. Together
+    that gave every field here a 72px box with the text stranded at the bottom.
+
+    Scoped to .sc-wrap on purpose - .fd-input is used on forty-odd other pages
+    and none of them should move because of this one."""
+    ui.html(
+        "<style>"
+        ".sc-wrap .fd-input{padding:0 10px !important;}"
+        ".sc-wrap .fd-input .q-field__control{min-height:38px !important;}"
+        ".sc-wrap .fd-input .q-field__control:before,"
+        ".sc-wrap .fd-input .q-field__control:after{display:none !important;}"
+        ".sc-wrap .fd-input .q-field__bottom{display:none !important;}"
+        ".sc-wrap .fd-input .q-field__marginal{height:38px !important;}"
+        ".sc-wrap .sc-ta .q-field__control{min-height:64px !important;"
+        "padding:6px 0 !important;}"
+        ".sc-wrap .fd-fl{letter-spacing:.04em;}"
+        ".sc-wrap .sc-sec{font-size:10px;font-weight:800;letter-spacing:.10em;"
+        "text-transform:uppercase;display:block;margin:2px 0 10px;}"
+        "</style>")
+
+
+def _conn_state(owner):
+    """(label, colour, detail) for the credentials header.
+
+    'Saved' and 'proven' are different things. Only Test connection proves the
+    endpoint paths against the user's own tenant, so a saved-but-untested
+    account says exactly that rather than showing green."""
+    C = _ff().C
+    if not has_credentials(owner):
+        return ("Not connected", C["warn"],
+                "Paste your ZoomInfo API credentials below to switch this "
+                "page on. Nothing else on the page works until you do.")
+    t = sc_settings().get("last_test") or {}
+    if t.get("error"):
+        return ("Test failed", C["warn"], t.get("error"))
+    if t.get("ok"):
+        return ("Connected", C["good"],
+                "Tested %s - the probe search returned %s rows."
+                % ((t.get("at") or "").replace("T", " at "), t.get("rows")))
+    return ("Saved, not tested", C["muted"],
+            "Run Test connection. It is free, it spends no credits, and it is "
+            "the only thing that proves these endpoints work for your tenant.")
+
+
 def _sc_credentials_panel(s, rf, owner):
     ff = _ff()
     C = ff.C
     st = sc_settings()
     connected = has_credentials(owner)
+    state, state_col, state_detail = _conn_state(owner)
+    last = st.get("last_test") or {}
+
+    # A failed test is the one time the endpoint fields are worth showing
+    # unprompted - they are the thing that would fix it. Tri-state, not a
+    # bool: once the user has actually pressed the toggle their choice wins,
+    # otherwise the button reads "Hide endpoints" and does nothing visible
+    # for as long as the failure stands.
+    _adv_flag = getattr(s, "_sc_show_advanced", None)
+    show_adv = (bool(_adv_flag) if _adv_flag is not None
+                else bool(connected and last.get("error")))
 
     with ui.element("div").style(
-            f"background:{C['card']};border:1px solid "
-            f"{C['good'] if connected else C['warn']}60;"
-            f"border-left:4px solid {C['good'] if connected else C['warn']};"
-            f"border-radius:0 12px 12px 0;padding:16px 20px;margin-bottom:18px;"):
-        ui.label("Your ZoomInfo API credentials").style(
-            f"font-size:14px;font-weight:700;color:{C['text_l']};"
-            f"font-family:'Nunito',sans-serif;margin-bottom:4px;display:block;")
-        ui.label(
-            "These are API credentials, which ZoomInfo provisions separately "
-            "from a web seat — your web login will not authenticate here. They "
-            "are encrypted on this server and are never shown back to you or "
-            "sent anywhere but ZoomInfo."
-        ).style(f"font-size:11px;color:{C['muted']};line-height:1.5;"
-                f"margin-bottom:12px;display:block;")
+            f"background:{C['card']};border:1px solid {C['border']};"
+            f"border-left:4px solid {state_col};"
+            f"border-radius:0 12px 12px 0;padding:18px 22px;margin-bottom:18px;"):
 
         with ui.element("div").style(
-                "display:grid;grid-template-columns:1fr 1fr;gap:10px;"
-                "margin-bottom:12px;"):
+                "display:flex;align-items:center;justify-content:space-between;"
+                "gap:12px;margin-bottom:6px;"):
+            ui.label("Step 1 - connect ZoomInfo" if not connected
+                     else "Your ZoomInfo connection").style(
+                f"font-size:15px;font-weight:700;color:{C['text_l']};"
+                f"font-family:'Nunito',sans-serif;")
+            _pill(state, state_col)
+
+        ui.label(state_detail).style(
+            f"font-size:12px;color:{C['text_l'] if connected else C['muted']};"
+            f"line-height:1.55;margin-bottom:14px;display:block;")
+
+        # The single most common way this goes wrong is someone pasting their
+        # web seat login, so say where the real credentials come from before
+        # showing the boxes rather than in fine print underneath them.
+        with ui.element("div").style(
+                f"background:{C['bg']};border:1px solid {C['border']};"
+                f"border-radius:10px;padding:11px 14px;margin-bottom:14px;"):
+            ui.label("These are API credentials, not your web login.").style(
+                f"font-size:12px;font-weight:700;color:{C['text_l']};"
+                f"display:block;margin-bottom:3px;")
+            ui.label(
+                "ZoomInfo provisions them separately, in the admin portal "
+                "under API. If you cannot see that section, your ZoomInfo "
+                "admin or CSM issues them. Your seat login will not "
+                "authenticate here. What you paste is encrypted on this "
+                "server, is never shown back to you, and is never sent "
+                "anywhere but ZoomInfo."
+            ).style(f"font-size:11px;color:{C['muted']};line-height:1.6;"
+                    f"display:block;")
+
+        with ui.element("div").style(
+                "display:grid;grid-template-columns:1fr 1fr;gap:12px;"
+                "margin-bottom:14px;"):
             with ui.element("div"):
                 _field("API username *")
                 _u = ui.input(
-                    placeholder="stored" if connected else "ZoomInfo API username"
-                ).classes("fd-input")
+                    placeholder="Saved - leave blank to keep" if connected
+                    else "ZoomInfo API username"
+                ).props("dense").classes("fd-input")
             with ui.element("div"):
                 _field("API password *")
                 _p = ui.input(
-                    placeholder="stored" if connected else "ZoomInfo API password",
-                    password=True).classes("fd-input")
+                    placeholder="Saved - leave blank to keep" if connected
+                    else "ZoomInfo API password",
+                    password=True).props("dense").classes("fd-input")
 
         # Endpoints. Editable because contracts differ and the parameter
-        # naming differs between the REST surface and the MCP surface — a
+        # naming differs between the REST surface and the MCP surface - a
         # wrong path here should be fixable without a redeploy.
-        if getattr(s, "_sc_show_advanced", False):
+        if show_adv:
             with ui.element("div").style(
-                    "display:grid;grid-template-columns:1fr 1fr;gap:10px;"
-                    "margin-bottom:12px;"):
-                _base = _adv("Base URL", st.get("base_url"))
-                _auth = _adv("Auth path", st.get("auth_path"))
-                _search = _adv("Contact search path", st.get("search_path"))
-                _enrich = _adv("Contact enrich path", st.get("enrich_path"))
-                with ui.element("div"):
-                    _field("Parameter style",
-                           "Switch to 'list' if Test connection returns zero "
-                           "rows on a company that plainly has contacts.")
-                    _style = ui.select(
-                        options={"rest": "rest — rpp / requiredFields",
-                                 "list": "list — pageSize / requiredFieldsList"},
-                        value=st.get("param_style") or "rest").classes("fd-input")
+                    f"background:{C['bg']};border:1px solid {C['border']};"
+                    f"border-radius:10px;padding:14px 16px;margin-bottom:14px;"):
+                ui.label("Endpoints").classes("sc-sec").style(
+                    f"color:{C['muted']};")
+                if last.get("error"):
+                    ui.label(
+                        "The last test failed, so these are open. If the error "
+                        "above mentions a bad path, fix it here. If the test "
+                        "succeeded but returned zero rows on a company that "
+                        "plainly has contacts, switch the parameter style."
+                    ).style(f"font-size:11px;color:{C['warn']};line-height:1.6;"
+                            f"margin-bottom:10px;display:block;")
+                with ui.element("div").style(
+                        "display:grid;grid-template-columns:1fr 1fr;gap:12px;"):
+                    _base = _adv("Base URL", st.get("base_url"))
+                    _auth = _adv("Auth path", st.get("auth_path"))
+                    _search = _adv("Contact search path", st.get("search_path"))
+                    _enrich = _adv("Contact enrich path", st.get("enrich_path"))
+                    with ui.element("div"):
+                        _field("Parameter style")
+                        _style = ui.select(
+                            options={"rest": "rest - rpp / requiredFields",
+                                     "list": "list - pageSize / "
+                                             "requiredFieldsList"},
+                            value=st.get("param_style") or "rest"
+                        ).props("dense").classes("fd-input")
         else:
             _base = _auth = _search = _enrich = _style = None
 
@@ -1411,95 +1511,140 @@ def _sc_credentials_panel(s, rf, owner):
                 "param_style": _style.value or "rest",
             }
 
-        def _save():
+        def _persist(notify_empty=True):
+            """Save whatever is in the boxes. Returns True if the account has
+            usable credentials afterwards, False if the user needs to type
+            more. Shared by Save and by Save & test so the two cannot drift."""
             _sc_owner(s)
             patch = _collect_settings()
             if patch:
                 save_sc_settings(patch)
             u, p = (_u.value or "").strip(), (_p.value or "").strip()
             if not u and not p:
-                if patch:
-                    ui.notify("Settings saved.", type="positive")
-                    rf()
-                    return
-                ui.notify("Enter both the API username and password.",
-                          type="warning")
-                return
+                if has_credentials(owner):
+                    return True          # editing endpoints only, creds stand
+                if notify_empty:
+                    ui.notify("Enter both the API username and password.",
+                              type="warning")
+                return False
             if not u or not p:
                 ui.notify("Both the username and the password are required.",
                           type="warning")
-                return
+                return False
             try:
                 save_credentials(owner, u, p)
             except Exception as ex:
                 ui.notify("Could not save: %s" % ex, type="negative")
+                return False
+            # New credentials invalidate whatever the last test proved.
+            save_sc_settings({"last_test": {}})
+            return True
+
+        def _save():
+            if not _persist():
                 return
-            ui.notify("Credentials saved. Run Test connection to prove them.",
+            ui.notify("Saved. Run Test connection to prove it.",
                       type="positive")
             rf()
 
-        async def _test():
+        # The outcome is recorded in settings, not just raised as a toast, so
+        # the status pill survives the refresh instead of vanishing with the
+        # notification the user has already clicked away.
+        async def _test(save_first=False):
             _sc_owner(s)
-            creds = load_credentials(owner)
-            if not creds:
+            if save_first and not _persist(notify_empty=False):
+                if not has_credentials(owner):
+                    ui.notify("Enter both the API username and password.",
+                              type="warning")
+                    return
+            if not has_credentials(owner):
                 ui.notify("Save your credentials first.", type="warning")
                 return
             settings = dict(sc_settings())
             settings.update(_collect_settings() or {})
-            ui.notify("Testing — this authenticates and runs one free search.",
+            creds = load_credentials(owner)
+            if not creds:
+                ui.notify("Save your credentials first.", type="warning")
+                return
+            ui.notify("Testing - this authenticates and runs one free search.",
                       type="info")
 
             def _work():
                 return ZoomInfoClient(creds[0], creds[1], settings).test()
 
+            stamp = datetime.now().isoformat(timespec="minutes")
             try:
                 res = await asyncio.get_event_loop().run_in_executor(None, _work)
             except ZoomInfoError as ex:
                 # The literal upstream error, never an inferred cause.
+                save_sc_settings({"last_test": {"ok": False, "at": stamp,
+                                                "error": "ZoomInfo said: %s"
+                                                         % ex}})
                 ui.notify("ZoomInfo said: %s" % ex, type="negative",
                           timeout=15000, multi_line=True)
+                rf()
                 return
             except Exception as ex:
+                save_sc_settings({"last_test": {
+                    "ok": False, "at": stamp,
+                    "error": "%s: %s" % (type(ex).__name__, ex)}})
                 ui.notify("%s: %s" % (type(ex).__name__, ex), type="negative",
                           timeout=15000, multi_line=True)
+                rf()
                 return
+            rows = res.get("sample_total")
+            save_sc_settings({"last_test": {"ok": True, "at": stamp,
+                                            "rows": rows, "error": ""}})
             ui.notify(
                 "Connected. Auth and the search endpoint both answered "
-                "(%s rows on the probe)." % res.get("sample_total"),
+                "(%s rows on the probe)." % rows,
                 type="positive", timeout=8000)
+            rf()
+
+        async def _save_and_test():
+            await _test(save_first=True)
 
         def _clear():
             _sc_owner(s)
             clear_credentials(owner)
+            save_sc_settings({"last_test": {}})
             ui.notify("Credentials removed.", type="positive")
             rf()
 
         def _toggle_adv():
-            s._sc_show_advanced = not bool(getattr(s, "_sc_show_advanced", False))
+            s._sc_show_advanced = not show_adv
             rf()
 
-        with ui.element("div").style("display:flex;gap:8px;flex-wrap:wrap;"):
+        # Test connection is the primary action, not Save. Saving proves
+        # nothing; the probe is free and is the only thing that tells the user
+        # whether this page will work for them.
+        with ui.element("div").style(
+                "display:flex;gap:8px;flex-wrap:wrap;align-items:center;"):
             with ui.element("button").classes("fd-pb").style(
-                    "padding:9px 16px;font-size:12px;").on("click", _save):
-                ui.label("Save")
+                    "padding:10px 18px;font-size:12px;"
+                    ).on("click", _save_and_test):
+                ui.label("Save & test connection")
             with ui.element("button").classes("fd-gb").style(
-                    "padding:9px 16px;font-size:12px;").on("click", _test):
-                ui.label("Test connection")
+                    "padding:10px 16px;font-size:12px;").on("click", _save):
+                ui.label("Save only")
             with ui.element("button").classes("fd-gb").style(
-                    "padding:9px 16px;font-size:12px;").on("click", _toggle_adv):
-                ui.label("Hide endpoints" if getattr(s, "_sc_show_advanced", False)
-                         else "Endpoints")
+                    "padding:10px 16px;font-size:12px;").on("click", _toggle_adv):
+                ui.label("Hide endpoints" if show_adv else "Endpoints")
             if connected:
                 with ui.element("button").classes("fd-gb").style(
-                        f"padding:9px 16px;font-size:12px;color:{C['warn']};"
-                        ).on("click", _clear):
+                        f"padding:10px 16px;font-size:12px;color:{C['warn']};"
+                        f"margin-left:auto;").on("click", _clear):
                     ui.label("Remove credentials")
+
+        ui.label("Testing is free - it authenticates and runs one search, "
+                 "which spends no credits.").style(
+            f"font-size:11px;color:{C['muted']};margin-top:10px;display:block;")
 
 
 def _adv(label, value):
     with ui.element("div"):
         _field(label)
-        return ui.input(value=value or "").classes("fd-input")
+        return ui.input(value=value or "").props("dense").classes("fd-input")
 
 
 # ── The target form ───────────────────────────────────────────────────────
@@ -1507,49 +1652,65 @@ def _sc_form(s, rf, owner):
     ff = _ff()
     C = ff.C
 
+    # The escape hatch belongs above the form, not buried under a screenful of
+    # fields where you only find it after scrolling past everything.
+    if latest_run(owner):
+        def _back():
+            s._sc_new = False
+            rf()
+        with ui.element("button").classes("fd-gb").style(
+                "padding:7px 14px;font-size:12px;margin-bottom:12px;"
+                ).on("click", _back):
+            ui.label("← Back to the last run")
+
     _note("These are live email sends. Contacts are trimmed on the review "
-          "screen BEFORE launch — a live campaign cannot be edited, contacts "
+          "screen BEFORE launch - a live campaign cannot be edited, contacts "
           "cannot be added to it, and relaunching under the same name creates "
           "an empty duplicate rather than replacing it.", C["warn"], C["warn"])
 
     with ui.element("div").style(
             f"background:{C['card']};border:1px solid {C['border']};"
-            f"border-radius:12px;padding:18px 20px;margin-bottom:18px;"):
+            f"border-radius:12px;padding:20px 22px;margin-bottom:18px;"):
+
+        ui.label("Who to target").classes("sc-sec").style(f"color:{C['teal']};")
         with ui.element("div").style(
-                "display:grid;grid-template-columns:1fr 1fr;gap:12px;"
-                "margin-bottom:10px;"):
+                "display:grid;grid-template-columns:1fr 1fr;gap:14px;"
+                "margin-bottom:14px;"):
             with ui.element("div"):
-                _field("Industry / vertical *", "Free text — how you'd say it.")
+                _field("Industry / vertical *", "Free text - how you'd say it.")
                 _ind = ui.input(placeholder="e.g. Commercial construction"
-                                ).classes("fd-input")
+                                ).props("dense").classes("fd-input")
             with ui.element("div"):
                 _field("Geography *",
-                       "States or metros. Name them explicitly — a region "
-                       "name left to interpretation poisons the whole run.")
-                _geo = ui.input(placeholder="e.g. Colorado — Denver, "
+                       "States or metros, named explicitly. A region name "
+                       "left to interpretation poisons the whole run.")
+                _geo = ui.input(placeholder="e.g. Colorado - Denver, "
                                             "Colorado Springs, Fort Collins"
-                                ).classes("fd-input")
+                                ).props("dense").classes("fd-input")
 
         with ui.element("div").style(
-                "display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;"
-                "margin-bottom:10px;"):
+                "display:grid;grid-template-columns:2fr 1fr 1fr;gap:14px;"
+                "margin-bottom:18px;"):
             with ui.element("div"):
-                _field("Target roles *", "Three to five works best, comma separated.")
+                _field("Target roles *",
+                       "Three to five works best, comma separated.")
                 _roles = ui.input(
                     placeholder="Project Manager, Superintendent, Estimator"
-                ).classes("fd-input")
+                ).props("dense").classes("fd-input")
             with ui.element("div"):
-                _field("Employees, min")
+                _field("Employees, min", "Company size decides the whole run.")
                 _emin = ui.number(value=DEFAULT_EMP_MIN, min=1, max=500000,
-                                  format="%.0f").classes("fd-input")
+                                  format="%.0f").props("dense").classes("fd-input")
             with ui.element("div"):
-                _field("Employees, max")
+                _field("Employees, max", " ")
                 _emax = ui.number(value=DEFAULT_EMP_MAX, min=1, max=500000,
-                                  format="%.0f").classes("fd-input")
+                                  format="%.0f").props("dense").classes("fd-input")
 
+        ui.label("How to reach them").classes("sc-sec").style(
+            f"color:{C['teal']};")
         with ui.element("div").style(
-                "display:grid;grid-template-columns:1fr 1fr;gap:12px;"
-                "margin-bottom:10px;"):
+                "display:grid;grid-template-columns:1fr 1fr;gap:14px;"
+                "margin-bottom:18px;"):
             with ui.element("div"):
                 _field("Cadence")
                 # (key, name, duration, colour, ...) - show the duration,
@@ -1559,9 +1720,9 @@ def _sc_form(s, rf, owner):
                 _tpl = ui.select(
                     options=_tpl_opts,
                     value="fivebyfive" if "fivebyfive" in _tpl_opts
-                    else next(iter(_tpl_opts))).classes("fd-input")
+                    else next(iter(_tpl_opts))).props("dense").classes("fd-input")
             with ui.element("div"):
-                _field("Newsletter to enroll in (optional)")
+                _field("Newsletter to enroll in", "Optional.")
                 try:
                     _ever = [c.get("name") for c in ff.load_campaigns()
                              if c.get("evergreen_only") and c.get("name")]
@@ -1569,22 +1730,25 @@ def _sc_form(s, rf, owner):
                     _ever = []
                 _nl = ui.select(options={**{"": "None"},
                                          **{n: n for n in _ever}},
-                                value="").classes("fd-input")
+                                value="").props("dense").classes("fd-input")
 
+        ui.label("Fine tuning").classes("sc-sec").style(f"color:{C['teal']};")
         with ui.element("div").style(
-                "display:grid;grid-template-columns:2fr 1fr;gap:12px;"
-                "margin-bottom:12px;"):
+                "display:grid;grid-template-columns:2fr 1fr;gap:14px;"
+                "margin-bottom:18px;"):
             with ui.element("div"):
-                _field("Companies to avoid (optional)",
-                       "One per line, or comma separated. Companies you have "
-                       "already worked in this account are excluded "
+                _field("Companies to avoid",
+                       "Optional. One per line, or comma separated. Companies "
+                       "you have already worked in this account are excluded "
                        "automatically.")
-                _avoid = ui.textarea(placeholder="Acme Construction\nBeta Builders"
-                                     ).classes("fd-input").style("min-height:70px;")
+                _avoid = ui.textarea(
+                    placeholder="Acme Construction\nBeta Builders"
+                ).props("dense").classes("fd-input sc-ta")
             with ui.element("div"):
-                _field("Start date (optional)",
-                       "Blank uses the upcoming Monday.")
-                _start = ui.input(placeholder="YYYY-MM-DD").classes("fd-input")
+                _field("Start date",
+                       "Optional. Blank uses the upcoming Monday.")
+                _start = ui.input(placeholder="YYYY-MM-DD"
+                                  ).props("dense").classes("fd-input")
 
         def _go():
             _sc_owner(s)
@@ -1621,22 +1785,25 @@ def _sc_form(s, rf, owner):
             s._sc_new = False
             rf()
 
-        with ui.element("button").classes("fd-pb").style(
-                "padding:11px 22px;font-size:13px;").on("click", _go):
-            ui.label("Start the run")
-        ui.label(
-            "The run sources about %d companies, sizes them in ZoomInfo "
-            "(search is free), keeps the top %d, and aims for %d contacts each. "
-            "It stops at a review screen. Nothing is sent until you launch."
-            % (SIZE_SHORTLIST, COMPANIES_PER_RUN, CONTACTS_TARGET)
-        ).style(f"font-size:11px;color:{C['muted']};margin-top:10px;display:block;")
-
-    if latest_run(owner):
-        def _back():
-            s._sc_new = False; rf()
-        with ui.element("button").classes("fd-gb").style(
-                "padding:8px 14px;font-size:12px;").on("click", _back):
-            ui.label("← Back to the last run")
+        # What pressing this actually costs, next to the button rather than
+        # discovered afterwards. Search is free; enrichment is not.
+        with ui.element("div").style(
+                f"border-top:1px solid {C['border']};padding-top:16px;"
+                f"display:flex;align-items:center;gap:16px;flex-wrap:wrap;"):
+            with ui.element("button").classes("fd-pb").style(
+                    "padding:11px 24px;font-size:13px;flex-shrink:0;"
+                    ).on("click", _go):
+                ui.label("Start the run")
+            ui.label(
+                "Sources about %d companies, sizes them in ZoomInfo (search is "
+                "free), keeps the top %d and aims for %d contacts each - up to "
+                "%d people. Enrichment spends credits; sending does not start. "
+                "The run stops at a review screen where you trim, and nothing "
+                "is sent until you press Launch there."
+                % (SIZE_SHORTLIST, COMPANIES_PER_RUN, CONTACTS_TARGET,
+                   COMPANIES_PER_RUN * CONTACTS_TARGET)
+            ).style(f"font-size:11px;color:{C['muted']};line-height:1.6;"
+                    f"flex:1;min-width:240px;")
 
 
 # ── Progress ──────────────────────────────────────────────────────────────
@@ -1995,13 +2162,19 @@ def _sc_summary(s, rf, owner, rec):
 
 # ── The page ──────────────────────────────────────────────────────────────
 def p_sales_campaign(s, rf):
-    """Sales Campaign — source companies, pull the buying centre, review,
+    """Sales Campaign - source companies, pull the buying centre, review,
     launch. Nothing sends without an explicit Launch unless the user has
     turned auto-launch on for their own account."""
     ff = _ff()
     C = ff.C
     owner = _sc_owner(s)
 
+    with ui.element("div").classes("sc-wrap"):
+        _sc_css()
+        _sc_body(s, rf, owner, C)
+
+
+def _sc_body(s, rf, owner, C):
     with ui.element("div").style(
             "display:flex;align-items:flex-start;justify-content:space-between;"
             "gap:16px;margin-bottom:6px;"):
@@ -2018,23 +2191,32 @@ def p_sales_campaign(s, rf):
                 s._sc_settings_open = not bool(
                     getattr(s, "_sc_settings_open", False))
                 rf()
-            with ui.element("div").style("display:flex;gap:8px;flex-shrink:0;"):
+            state, state_col, _ = _conn_state(owner)
+            with ui.element("div").style(
+                    "display:flex;align-items:center;gap:10px;flex-shrink:0;"):
+                _pill(state, state_col)
                 with ui.element("button").classes("fd-gb").style(
                         "padding:9px 16px;font-size:12px;"
                         ).on("click", _toggle_settings):
-                    ui.label("ZoomInfo settings")
+                    ui.label("Hide settings"
+                             if getattr(s, "_sc_settings_open", False)
+                             else "ZoomInfo settings")
 
     if not owner:
         _note("Sign in to use Sales Campaign.", C["warn"], C["warn"])
         return
 
     connected = has_credentials(owner)
-    if not connected or getattr(s, "_sc_settings_open", False):
+    settings_open = bool(getattr(s, "_sc_settings_open", False))
+    if not connected or settings_open:
         _sc_credentials_panel(s, rf, owner)
 
-        # Auto-launch. Off by default and deliberately here rather than on the
-        # run form: it is an account-level decision about whether a run may
-        # send with nobody in the chair, not a per-run one.
+    # Auto-launch. Off by default, and deliberately not shown to someone who
+    # has not connected yet: at that point it is a scary switch attached to a
+    # page they cannot use. It is an account-level decision about whether a run
+    # may send with nobody in the chair, not a per-run one, so it lives in
+    # settings rather than on the form.
+    if connected and settings_open:
         st = sc_settings()
 
         def _toggle_auto(e):
@@ -2042,18 +2224,28 @@ def p_sales_campaign(s, rf):
             save_sc_settings({"auto_launch": bool(e.value)})
             ui.notify("Auto-launch is %s." % ("ON" if e.value else "OFF"),
                       type="warning" if e.value else "positive")
+        auto_on = bool(st.get("auto_launch"))
         with ui.element("div").style(
-                f"background:{C['card']};border:1px solid {C['border']};"
-                f"border-radius:12px;padding:14px 18px;margin-bottom:18px;"):
+                f"background:{C['card']};border:1px solid "
+                f"{C['warn'] if auto_on else C['border']};"
+                f"border-radius:12px;padding:16px 20px;margin-bottom:18px;"):
+            with ui.element("div").style(
+                    "display:flex;align-items:center;justify-content:"
+                    "space-between;gap:12px;margin-bottom:4px;"):
+                ui.label("Review before sending").style(
+                    f"font-size:14px;font-weight:700;color:{C['text_l']};"
+                    f"font-family:'Nunito',sans-serif;")
+                _pill("Auto-launch on" if auto_on else "Review gate on",
+                      C["warn"] if auto_on else C["good"])
             ui.checkbox("Launch automatically, without a review screen",
-                        value=bool(st.get("auto_launch")),
+                        value=auto_on,
                         on_change=_toggle_auto).style("font-size:12px;")
             ui.label(
                 "Off by default. With this on, a run sends as soon as it "
-                "finishes building — you will not see the contacts or read "
+                "finishes building - you will not see the contacts or read "
                 "the emails first, and a sent campaign cannot be recalled, "
                 "edited or added to."
-            ).style(f"font-size:11px;color:{C['muted']};line-height:1.5;"
+            ).style(f"font-size:11px;color:{C['muted']};line-height:1.55;"
                     f"margin-top:4px;display:block;")
 
     if not connected:
