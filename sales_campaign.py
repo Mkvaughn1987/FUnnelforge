@@ -32,6 +32,7 @@ import sys
 import threading
 import time
 import traceback
+import uuid
 from datetime import date, datetime
 from pathlib import Path
 
@@ -870,7 +871,11 @@ _RUN_LOCK = threading.Lock()
 
 def new_run(owner_email, target):
     return {
-        "run_id": "sc_%s" % datetime.now().strftime("%Y%m%d_%H%M%S"),
+        # Second resolution alone collides: two runs queued in the same
+        # second write to the same file and one silently overwrites the
+        # other. The suffix is for uniqueness, not secrecy.
+        "run_id": "sc_%s_%s" % (datetime.now().strftime("%Y%m%d_%H%M%S"),
+                                uuid.uuid4().hex[:4]),
         "owner": owner_email,
         "status": "queued",
         "created_at": datetime.now().isoformat(timespec="seconds"),
@@ -892,14 +897,32 @@ def new_run(owner_email, target):
     }
 
 
-def start_run(owner_email, target):
-    """Create the run record and hand it to a worker thread. Returns the
-    record, or raises if this user already has one in flight."""
+def start_run(owner_email, target, engine="claude"):
+    """Create the run record.
+
+    engine="claude" (the default) queues it for Claude and returns -- no
+    worker thread, because this server cannot do the sourcing itself: the
+    ZoomInfo seat is entitled for the MCP surface Claude talks to, not the
+    REST API this process would have to call, and no endpoint setting on the
+    Settings panel changes that.
+
+    engine="rest" runs the old in-process ZoomInfo pipeline. It is kept
+    working, not dead code, so the day the REST entitlement is granted this
+    is a one-word change rather than a rebuild."""
+    if engine == "claude":
+        rec = new_run(owner_email, target)
+        rec["engine"] = "claude"
+        rec["status"] = "handoff"
+        save_run(rec, owner_email)
+        _log(rec, "Queued for Claude -- waiting to be picked up")
+        return rec
+
     with _RUN_LOCK:
         if owner_email in _RUNNING:
             raise RuntimeError("a run is already in progress for this account")
         _RUNNING.add(owner_email)
     rec = new_run(owner_email, target)
+    rec["engine"] = "rest"
     try:
         save_run(rec, owner_email)
     except Exception:
@@ -915,6 +938,472 @@ def start_run(owner_email, target):
 def is_running(owner_email):
     with _RUN_LOCK:
         return owner_email in _RUNNING
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Claude handoff — the run queue Claude reads and writes
+# ══════════════════════════════════════════════════════════════════════════
+# DripDrop is not a ZoomInfo client. The seat entitlement here is for
+# ZoomInfo's MCP surface, not its REST API, so the server's own
+# /authenticate call comes back "User ... is not authorized to access the
+# API" whatever the endpoint paths are set to. That is an entitlement, not a
+# path this module can correct.
+#
+# So the page queues the run and Claude — which IS entitled — does the two
+# things only it can do: source companies off the job boards through its
+# connectors, and pull the buying centre out of ZoomInfo. It writes the
+# result back here and stops.
+#
+# Everything after that still happens on this server, unchanged: candidate
+# matching, campaign generation, the review screen, the trim, the launch.
+# That split is the point. Nothing Claude writes can send mail — it has no
+# path to the queue — so the review gate is still the only door and it is
+# still on this side of it.
+
+# Statuses a run can be written to over the API. Once the build starts the
+# record is the server's and remote writes are refused.
+HANDOFF_STATUSES = ("handoff", "working", "sourced")
+
+# What Claude may set. "done" is absent on purpose: done means launched, and
+# only launch_run says that.
+_CLAUDE_STATUSES = ("working", "sourced", "error", "cancelled")
+
+
+_DAY_NAMES = {"mon": "Monday", "tue": "Tuesday", "wed": "Wednesday",
+              "thu": "Thursday", "fri": "Friday", "sat": "Saturday",
+              "sun": "Sunday"}
+
+# cron day-of-week, Sunday is 0
+_CRON_DOW = {"sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5,
+             "sat": 6}
+
+
+def _hhmm(val):
+    """'8:00', '08:00', '0800' -> (8, 0). Raises on anything that is not a
+    time, so a typo is caught on the form rather than baked into a cron."""
+    s = re.sub(r"[^0-9:]", "", str(val or "")).strip()
+    if ":" not in s and len(s) == 4:
+        s = s[:2] + ":" + s[2:]
+    hh, _, mm = s.partition(":")
+    h, m = int(hh), int(mm or 0)
+    if not (0 <= h <= 23 and 0 <= m <= 59):
+        raise ValueError("time out of range")
+    return h, m
+
+
+def _hhmm_str(val):
+    return "%02d:%02d" % _hhmm(val)
+
+
+def schedule_line(sched):
+    """'Every Tuesday at 08:00 America/Denver' — one phrasing, used by the
+    form, the handoff brief and the summary so the three cannot drift."""
+    if not sched or not sched.get("enabled"):
+        return ""
+    day = _DAY_NAMES.get(sched.get("day"), sched.get("day") or "?")
+    return "Every %s at %s %s" % (day, sched.get("time") or "?",
+                                  sched.get("tz") or "?")
+
+
+def handoff_brief(rec):
+    """The instruction the user hands Claude, and the exact text the API
+    returns to it. One source, so what the page shows and what the tool says
+    cannot drift apart."""
+    t = rec.get("target") or {}
+    roles = ", ".join(t.get("roles") or []) or "(none named)"
+    avoid = ", ".join(t.get("avoid") or []) or "(none)"
+    L = [
+        "DripDrop Sales Campaign run %s is queued and waiting for you."
+        % rec.get("run_id"),
+        "",
+        "TARGET",
+        "  Industry:   %s" % (t.get("industry") or "?"),
+        "  Geography:  %s" % (t.get("geography") or "?"),
+        "  Roles:      %s" % roles,
+        "  Employees:  %s to %s" % (t.get("emp_min"), t.get("emp_max")),
+        "  Avoid:      %s" % avoid,
+        "  Cadence:    %s" % (t.get("template") or "fivebyfive"),
+        "",
+        "DO ONLY THE TWO THINGS THIS SERVER CANNOT DO",
+        "  1. Source companies hiring those roles in that geography off the",
+        "     job boards — ZipRecruiter first, then LinkedIn, Indeed",
+        "     sparingly. Operating companies only: no recruiting firms, no",
+        "     aggregators, no government, no in-house-recruiting shops.",
+        "  2. Pull the buying centre for each out of ZoomInfo. Target %d"
+        % CONTACTS_TARGET,
+        "     contacts per company, floor %d, cap %d, working down"
+        % (CONTACTS_FLOOR, CONTACTS_CAP),
+        "     %s." % " -> ".join(SENIORITY_TIERS),
+        "     HR/TA fills the last slots only, never leads. Never pitch a req",
+        "     to the person whose own seat it is. Read meta.totalResults and",
+        "     pull against it — %d is the number to aim for, %d is only the"
+        % (CONTACTS_TARGET, CONTACTS_FLOOR),
+        "     floor that qualifies a company at all.",
+        "",
+        "  Size %d companies to land %d, and name %d ranked reserves."
+        % (SIZE_SHORTLIST, COMPANIES_PER_RUN, RESERVES_PER_RUN),
+        "  The already_worked list on this run is the dedupe check — every",
+        "  key in it has been worked from this account already. Skip those.",
+        "",
+        "CLAIM IT FIRST",
+        "  Call sales_run_update with run_id '%s' and status 'working'"
+        % rec.get("run_id"),
+        "  before you start, so the page stops saying it is waiting.",
+        "",
+        "THEN POST IT BACK AND STOP",
+        "  Call sales_run_update with run_id '%s', the companies you kept"
+        % rec.get("run_id"),
+        "  (each with its contacts), the reserves, what you dropped and why,",
+        "  and status 'sourced'.",
+        "",
+        "  Do NOT call create_campaign and do NOT send anything. DripDrop",
+        "  writes the emails itself the moment you set 'sourced', matches",
+        "  candidates off its own bench, and holds the whole run at a review",
+        "  screen. Launching is the user's press, on this side.",
+        "",
+        "COMPANY SHAPE",
+        '  {"company": "Acme Builders", "state": "CO",',
+        '   "role": "Project Manager", "why": "two open reqs, posted today",',
+        '   "source": "ziprecruiter", "zi_total": 84,',
+        '   "contacts": [{"email": "...", "first_name": "...",',
+        '                 "last_name": "...", "title": "...",',
+        '                 "linkedin": "...", "state": "CO"}]}',
+        "  Contacts are cleaned and deduped on arrival; a contact with no",
+        "  usable email is dropped with a reason rather than silently kept.",
+    ]
+    sched = (t.get("schedule") or {})
+    if sched.get("enabled"):
+        L += [
+            "",
+            "ALSO SCHEDULE IT",
+            "  The user asked, in DripDrop, for this run to repeat. They",
+            "  already chose the name and the cadence — do not re-ask, and do",
+            "  not substitute your own:",
+            "    Routine name: %s" % (sched.get("name") or "?"),
+            "    Cadence:      %s" % schedule_line(sched),
+            "    Cron:         %s" % (sched.get("cron") or "?"),
+            "    Approval:     %s" % ("auto-launch, nobody in the chair"
+                                      if sched.get("approval") == "auto"
+                                      else "stop at the review screen"),
+            "  Create it with the full target above baked into the prompt —",
+            "  industry, the exact geography, roles, size band, contact",
+            "  target, avoid list — so the scheduled run needs no answers.",
+            "  Confirm the name and cadence back when you have made it, and",
+            "  report it here with sales_run_update's schedule_result.",
+        ]
+    return "\n".join(L)
+
+
+def _run_summary(rec):
+    """What the API hands Claude. Deliberately not the whole record: the log
+    runs to hundreds of lines and the launch results carry contact emails
+    Claude has no reason to read back."""
+    t = rec.get("target") or {}
+    worked = []
+    try:
+        worked = sorted(worked_company_keys(rec.get("owner")).keys())
+    except Exception:
+        pass
+    return {
+        "run_id": rec.get("run_id"),
+        "status": rec.get("status"),
+        "created_at": rec.get("created_at"),
+        "updated_at": rec.get("updated_at"),
+        "target": t,
+        "schedule": t.get("schedule") or {},
+        "companies_wanted": COMPANIES_PER_RUN,
+        "reserves_wanted": RESERVES_PER_RUN,
+        "shortlist_to_size": SIZE_SHORTLIST,
+        "contacts_per_company": {"target": CONTACTS_TARGET,
+                                 "floor": CONTACTS_FLOOR,
+                                 "cap": CONTACTS_CAP},
+        "seniority_order": list(SENIORITY_TIERS),
+        "companies_received": len(rec.get("companies") or []),
+        # The dedupe check, handed over rather than left to be browsed out of
+        # the Companies page one screen at a time.
+        "already_worked": worked[:2000],
+        "already_worked_truncated": len(worked) > 2000,
+        "instructions": handoff_brief(rec),
+    }
+
+
+def pending_runs(owner, limit=5):
+    """Every run of this user's still waiting on Claude, newest first."""
+    _bind_user(owner)
+    out = []
+    for rec in list_runs(owner, limit=25):
+        if rec.get("status") in HANDOFF_STATUSES:
+            out.append(_run_summary(rec))
+            if len(out) >= limit:
+                break
+    return out
+
+
+def claim_run(owner, run_id=None):
+    """Mark a queued run as being worked. Idempotent — re-claiming a run
+    already in progress returns it rather than failing, because a dropped
+    Claude session retrying is the normal case, not an error."""
+    _bind_user(owner)
+    if not run_id:
+        pend = [r for r in list_runs(owner, limit=25)
+                if r.get("status") == "handoff"]
+        if not pend:
+            raise RuntimeError("no run is waiting for Claude on this account")
+        run_id = pend[0]["run_id"]
+    rec = load_run(run_id, owner)
+    if not rec:
+        raise RuntimeError("run %s not found" % run_id)
+    if rec.get("status") not in HANDOFF_STATUSES:
+        raise RuntimeError("run %s is %s, not waiting for Claude"
+                           % (run_id, rec.get("status")))
+    if rec.get("status") == "handoff":
+        rec["status"] = "working"
+        _log(rec, "Claude picked the run up")
+    return _run_summary(load_run(run_id, owner) or rec)
+
+
+def _norm_company_row(row):
+    """Coerce one company Claude posted into the shape the build step, the
+    review screen and launch_run all read.
+
+    Claude's own extra keys are kept — the review screen ignores what it does
+    not know — but every key the launch path depends on is forced to exist
+    with the right type. Contacts go through the same _clean_contacts the
+    ZoomInfo path uses, so a bad email is dropped with a literal reason here
+    exactly as it would be there."""
+    row = dict(row or {})
+    name = (row.get("company") or row.get("name") or "").strip()
+    if not name:
+        raise ValueError("every company needs a 'company' name")
+    # Ampersands correlate with 500s out of the generator and zero out
+    # ZoomInfo searches; they have no business in a campaign name.
+    row["company"] = name.replace("&", "and")
+    row.pop("name", None)
+    row["key"] = norm_company(row["company"])
+    row["state"] = (row.get("state") or "").strip()
+    row["role"] = (row.get("role") or "").strip()
+    try:
+        row["zi_total"] = int(row.get("zi_total") or 0)
+    except Exception:
+        row["zi_total"] = 0
+    raw = [dict(c) for c in (row.get("contacts") or []) if isinstance(c, dict)]
+    for c in raw:
+        c.setdefault("company", row["company"])
+    kept, dropped = _clean_contacts(raw)
+    for k in kept:
+        k["send"] = True
+        k["company"] = row["company"]     # the sourced name, not a ZI variant
+    row["contacts"] = kept[:CONTACTS_CAP]
+    row["contacts_dropped"] = list(row.get("contacts_dropped") or []) + dropped
+    row["send"] = True
+    # The server writes the emails and only launch_run records a launch.
+    row.pop("campaign", None)
+    row.pop("launch", None)
+    return row
+
+
+def update_run(owner, run_id, patch):
+    """Claude's write-back. Returns the run summary as it stands afterwards.
+
+    Setting status 'sourced' is what starts the server-side build, so it is
+    the last call of a successful handoff and there is nothing to do after
+    it."""
+    _bind_user(owner)
+    patch = dict(patch or {})
+    rec = load_run(run_id, owner)
+    if not rec:
+        raise RuntimeError("run %s not found" % run_id)
+    if rec.get("status") not in HANDOFF_STATUSES:
+        raise RuntimeError(
+            "run %s is '%s' — it has already left the handoff and the server "
+            "owns it now" % (run_id, rec.get("status")))
+    if is_running(owner):
+        raise RuntimeError("this run is already building on the server")
+
+    status = (patch.get("status") or "").strip().lower()
+    if status and status not in _CLAUDE_STATUSES:
+        raise ValueError("status must be one of %s"
+                         % ", ".join(_CLAUDE_STATUSES))
+
+    if "companies" in patch:
+        rows = patch.get("companies") or []
+        if not isinstance(rows, list):
+            raise ValueError("companies must be a list")
+        rec["companies"] = [_norm_company_row(r) for r in rows]
+        _log(rec, "Claude posted %d companies, %d contacts total"
+             % (len(rec["companies"]),
+                sum(len(c["contacts"]) for c in rec["companies"])))
+    for key in ("reserves", "dropped"):
+        if key in patch and isinstance(patch[key], list):
+            rec[key] = patch[key]
+    if patch.get("claude_notes"):
+        rec["claude_notes"] = patch["claude_notes"]
+    if patch.get("schedule_result"):
+        rec["schedule_result"] = patch["schedule_result"]
+        _log(rec, "Claude scheduled the repeat: %s"
+             % str(patch["schedule_result"])[:200])
+    for line in _as_lines(patch.get("log")):
+        _log(rec, line[:500])
+
+    if status == "error":
+        rec["status"] = "error"
+        rec["error"] = str(patch.get("error") or "Claude reported a failure")
+        _log(rec, "RUN FAILED — %s" % rec["error"])
+        save_run(rec, owner)
+        return _run_summary(rec)
+    if status == "cancelled":
+        rec["status"] = "cancelled"
+        _log(rec, "Cancelled by Claude")
+        save_run(rec, owner)
+        return _run_summary(rec)
+
+    if status == "sourced":
+        usable = [c for c in (rec.get("companies") or [])
+                  if len(c.get("contacts") or []) >= CONTACTS_FLOOR]
+        if not usable:
+            # Not an error on the server's part, and not something to paper
+            # over: with nothing above the floor there is nothing to build.
+            rec["status"] = "error"
+            rec["error"] = ("no company came back with at least %d usable "
+                            "contacts" % CONTACTS_FLOOR)
+            _log(rec, "RUN FAILED — %s" % rec["error"])
+            save_run(rec, owner)
+            return _run_summary(rec)
+        rec["status"] = "sourced"
+        _log(rec, "Sourcing complete — building %d campaigns" % len(usable))
+        save_run(rec, owner)
+        _start_build(owner, run_id)
+        return _run_summary(load_run(run_id, owner) or rec)
+
+    if status == "working" and rec.get("status") == "handoff":
+        rec["status"] = "working"
+    rec["updated_at"] = datetime.now().isoformat(timespec="seconds")
+    save_run(rec, owner)
+    return _run_summary(rec)
+
+
+def _as_lines(val):
+    if not val:
+        return []
+    if isinstance(val, str):
+        return [val]
+    if isinstance(val, list):
+        return [str(x) for x in val if str(x).strip()]
+    return [str(val)]
+
+
+def cancel_run(owner, run_id):
+    _bind_user(owner)
+    rec = load_run(run_id, owner)
+    if not rec:
+        raise RuntimeError("run %s not found" % run_id)
+    if rec.get("status") not in HANDOFF_STATUSES:
+        raise RuntimeError("run %s is %s and cannot be cancelled here"
+                           % (run_id, rec.get("status")))
+    rec["status"] = "cancelled"
+    _log(rec, "Cancelled from DripDrop")
+    save_run(rec, owner)
+    return rec
+
+
+# ── The build, shared by both paths ───────────────────────────────────────
+def _build_and_review(owner, rec):
+    """Everything after sourcing: candidate matching, campaign generation,
+    and the stop at review.
+
+    Shared by the ZoomInfo pipeline and the Claude handoff — they differ only
+    in where the companies and their contacts came from, and nothing below
+    this line cares."""
+    ff = _ff()
+    target = rec.get("target") or {}
+    picks = rec.get("companies") or []
+    if not getattr(ff, "ANTHROPIC_API_KEY", ""):
+        raise RuntimeError("AI is not configured on this server")
+    import anthropic
+    client = anthropic.Anthropic(api_key=ff.ANTHROPIC_API_KEY)
+
+    rec["status"] = "building"
+    save_run(rec, owner)
+    template = target.get("template") or "fivebyfive"
+    for c in picks:
+        if len(c.get("contacts") or []) < CONTACTS_FLOOR:
+            c["build_error"] = ("below the contact floor after cleaning — "
+                                "%d usable" % len(c.get("contacts") or []))
+            _log(rec, "%s — skipped, %s" % (c["company"], c["build_error"]))
+            continue
+        role = c.get("role") or ", ".join(target.get("roles") or [])
+        cands = _pick_candidates(c["company"], role, owner)
+        c["candidate_source"] = "pipeline" if cands else "ai-written"
+        _log(rec, "Writing the %s campaign for %s (%s candidates)"
+             % (template, c["company"], c["candidate_source"]))
+        try:
+            data = ff.generate_aicb_campaign(
+                client,
+                camp_type=template,
+                company=c["company"],
+                niche=target.get("industry") or "",
+                industry=target.get("industry_key") or "",
+                roles=[role] if role else (target.get("roles") or []),
+                location="",            # never send location
+                candidate_cards=cands or None,
+                byos_desc=target.get("byos_desc") or "",
+            )
+        except Exception as ex:
+            c["build_error"] = "%s: %s" % (type(ex).__name__, ex)
+            _log(rec, "%s — campaign generation failed: %s" % (c["company"], ex))
+            continue
+        c["campaign"] = {
+            "name": _campaign_name(c, target),
+            "synopsis": data.get("synopsis", ""),
+            "emails": data.get("emails", []),
+        }
+        c["send"] = True
+
+    rec["companies"] = picks
+    rec["status"] = "review"
+    built = sum(1 for c in picks if c.get("campaign"))
+    vol = send_volume(rec)
+    _log(rec, "Ready for review — %d campaigns, %d emails if launched as-is"
+         % (built, vol))
+    save_run(rec, owner)
+
+    if sc_settings().get("auto_launch") and built:
+        _log(rec, "Auto-launch is ON for this account — launching without review")
+        launch_run(owner, rec["run_id"])
+
+
+def _start_build(owner, run_id):
+    """Registered in _RUNNING before the thread starts, not inside it, so a
+    second write-back landing in the same second cannot start a second
+    build against the same record."""
+    with _RUN_LOCK:
+        if owner in _RUNNING:
+            raise RuntimeError("a run is already building for this account")
+        _RUNNING.add(owner)
+    t = threading.Thread(target=_build_worker, args=(owner, run_id),
+                         daemon=True, name="sales-build-%s" % run_id)
+    t.start()
+
+
+def _build_worker(owner, run_id):
+    _bind_user(owner)
+    rec = load_run(run_id, owner)
+    try:
+        if rec is None:
+            return
+        _build_and_review(owner, rec)
+    except Exception as ex:
+        if rec is not None:
+            rec["status"] = "error"
+            rec["error"] = "%s: %s" % (type(ex).__name__, ex)
+            rec["traceback"] = traceback.format_exc()[-2000:]
+            _log(rec, "BUILD FAILED — %s" % rec["error"])
+        print("[SalesCampaign] build %s failed: %s" % (run_id, ex), flush=True)
+        traceback.print_exc()
+    finally:
+        with _RUN_LOCK:
+            _RUNNING.discard(owner)
+
 
 
 def _bind_user(owner):
@@ -1065,58 +1554,10 @@ def _pipeline(owner, rec):
                 c.get("zi_total") or 0))
     rec["zi_calls"] = {"search": zi.search_calls, "enrich": zi.enrich_calls}
 
-    # ── Build campaigns (generate only — nothing is queued here) ──────────
-    rec["status"] = "building"
-    save_run(rec, owner)
-    template = target.get("template") or "fivebyfive"
-    for c in picks:
-        if len(c.get("contacts") or []) < CONTACTS_FLOOR:
-            c["build_error"] = ("below the contact floor after cleaning — "
-                                "%d usable" % len(c.get("contacts") or []))
-            _log(rec, "%s — skipped, %s" % (c["company"], c["build_error"]))
-            continue
-        role = c.get("role") or ", ".join(target.get("roles") or [])
-        cands = _pick_candidates(c["company"], role, owner)
-        c["candidate_source"] = "pipeline" if cands else "ai-written"
-        _log(rec, "Writing the %s campaign for %s (%s candidates)"
-             % (template, c["company"], c["candidate_source"]))
-        try:
-            data = ff.generate_aicb_campaign(
-                client,
-                camp_type=template,
-                company=c["company"],
-                niche=target.get("industry") or "",
-                industry=target.get("industry_key") or "",
-                roles=[role] if role else (target.get("roles") or []),
-                location="",            # never send location
-                candidate_cards=cands or None,
-                byos_desc=target.get("byos_desc") or "",
-            )
-        except Exception as ex:
-            c["build_error"] = "%s: %s" % (type(ex).__name__, ex)
-            _log(rec, "%s — campaign generation failed: %s" % (c["company"], ex))
-            continue
-        c["campaign"] = {
-            "name": _campaign_name(c, target),
-            "synopsis": data.get("synopsis", ""),
-            "emails": data.get("emails", []),
-        }
-        c["send"] = True
-
+    # Everything from here on is shared with the Claude handoff path -- the
+    # two differ only in where the companies and contacts came from.
     rec["companies"] = picks
-    rec["status"] = "review"
-    built = sum(1 for c in picks if c.get("campaign"))
-    vol = sum(len([x for x in (c.get("contacts") or []) if x.get("send")])
-              * len([e for e in c["campaign"]["emails"]
-                     if (e.get("step_type") or "").startswith("email")])
-              for c in picks if c.get("campaign"))
-    _log(rec, "Ready for review — %d campaigns, %d emails if launched as-is"
-         % (built, vol))
-    save_run(rec, owner)
-
-    if sc_settings().get("auto_launch") and built:
-        _log(rec, "Auto-launch is ON for this account — launching without review")
-        launch_run(owner, rec["run_id"])
+    _build_and_review(owner, rec)
 
 
 def _campaign_name(company_row, target):
@@ -1295,6 +1736,9 @@ _ACTIVE_STATUSES = ("queued", "sourcing", "sizing", "contacts", "building",
 
 _STATUS_TEXT = {
     "queued": "Queued",
+    "handoff": "Waiting for Claude",
+    "working": "Claude is sourcing",
+    "sourced": "Sourcing done",
     "sourcing": "Finding companies that are hiring",
     "sizing": "Sizing companies in ZoomInfo",
     "contacts": "Pulling and enriching contacts",
@@ -1702,7 +2146,7 @@ def _sc_form(s, rf, owner):
                 _emin = ui.number(value=DEFAULT_EMP_MIN, min=1, max=500000,
                                   format="%.0f").props("dense").classes("fd-input")
             with ui.element("div"):
-                _field("Employees, max", " ")
+                _field("Employees, max", " ")
                 _emax = ui.number(value=DEFAULT_EMP_MAX, min=1, max=500000,
                                   format="%.0f").props("dense").classes("fd-input")
 
@@ -1750,6 +2194,83 @@ def _sc_form(s, rf, owner):
                 _start = ui.input(placeholder="YYYY-MM-DD"
                                   ).props("dense").classes("fd-input")
 
+        # ── Repeat ────────────────────────────────────────────────────────
+        # The name and the cadence are chosen here and handed over verbatim,
+        # rather than being inferred later from a sentence. A scheduled run
+        # has nobody in the chair, so the approval mode is asked outright
+        # instead of inheriting the account default silently.
+        ui.label("Repeat").classes("sc-sec").style(f"color:{C['teal']};")
+        _sched_box = ui.element("div").style("margin-bottom:6px;")
+        with _sched_box:
+            _rep = ui.checkbox("Run this target again on a schedule",
+                               value=False).style("font-size:13px;")
+            _rep_body = ui.element("div").style("display:none;")
+            with _rep_body:
+                with ui.element("div").style(
+                        "display:grid;grid-template-columns:2fr 1fr 1fr 1fr;"
+                        "gap:14px;margin:12px 0 10px;"):
+                    with ui.element("div"):
+                        _field("Routine name *",
+                               "What the schedule will be called.")
+                        _sname = ui.input(
+                            placeholder="e.g. Colorado construction BD"
+                        ).props("dense").classes("fd-input")
+                    with ui.element("div"):
+                        _field("Day")
+                        _sday = ui.select(
+                            options={"mon": "Monday", "tue": "Tuesday",
+                                     "wed": "Wednesday", "thu": "Thursday",
+                                     "fri": "Friday", "sat": "Saturday",
+                                     "sun": "Sunday"},
+                            value="tue").props("dense").classes("fd-input")
+                    with ui.element("div"):
+                        _field("Time", "24-hour, HH:MM.")
+                        _stime = ui.input(value="08:00", placeholder="08:00"
+                                          ).props("dense").classes("fd-input")
+                    with ui.element("div"):
+                        _field("Timezone")
+                        _stz = ui.select(
+                            options={z: z for z in
+                                     ("America/Denver", "America/Chicago",
+                                      "America/New_York", "America/Phoenix",
+                                      "America/Los_Angeles", "UTC")},
+                            value="America/Denver"
+                        ).props("dense").classes("fd-input")
+
+                _field("On a scheduled run, who approves the send?",
+                       "There is nobody at the screen when it fires.")
+                _sappr = ui.radio(
+                    {"review": "Stop at the review screen and wait for me",
+                     "auto": "Launch automatically, without review"},
+                    value="review").props("dense").style("font-size:12px;")
+
+                _echo = ui.label("").style(
+                    f"font-size:11px;color:{C['muted']};line-height:1.6;"
+                    f"display:block;margin-top:8px;"
+                    f"font-family:ui-monospace,Menlo,Consolas,monospace;")
+
+        def _cron():
+            hh, mm = _hhmm(_stime.value)
+            return "%d %d * * %d" % (mm, hh, _CRON_DOW.get(_sday.value, 2))
+
+        def _redraw(_=None):
+            on = bool(_rep.value)
+            _rep_body.style("display:block;" if on else "display:none;")
+            if not on:
+                return
+            try:
+                sched = {"enabled": True, "day": _sday.value,
+                         "time": _hhmm_str(_stime.value), "tz": _stz.value}
+                _echo.set_text("%s  ·  cron %s  ·  %s"
+                               % (schedule_line(sched), _cron(),
+                                  "auto-launch" if _sappr.value == "auto"
+                                  else "stops for review"))
+            except Exception:
+                _echo.set_text("Time must look like 08:00.")
+
+        for _w in (_rep, _sday, _stime, _stz, _sappr):
+            _w.on_value_change(_redraw)
+
         def _go():
             _sc_owner(s)
             ind = (_ind.value or "").strip()
@@ -1763,9 +2284,25 @@ def _sc_form(s, rf, owner):
             if not roles:
                 ui.notify("At least one target role is required.",
                           type="warning"); return
-            if not has_credentials(owner):
-                ui.notify("Save your ZoomInfo credentials first.",
-                          type="warning"); return
+            schedule = {"enabled": False}
+            if _rep.value:
+                if not (_sname.value or "").strip():
+                    ui.notify("Name the routine, or turn the repeat off.",
+                              type="warning"); return
+                try:
+                    _hhmm(_stime.value)
+                except Exception:
+                    ui.notify("Time must look like 08:00.",
+                              type="warning"); return
+                schedule = {
+                    "enabled": True,
+                    "name": _sname.value.strip(),
+                    "day": _sday.value,
+                    "time": _hhmm_str(_stime.value),
+                    "tz": _stz.value,
+                    "approval": _sappr.value,
+                    "cron": _cron(),
+                }
             target = {
                 "industry": ind,
                 "geography": geo,
@@ -1777,6 +2314,7 @@ def _sc_form(s, rf, owner):
                 "template": _tpl.value or "fivebyfive",
                 "newsletter": _nl.value or "",
                 "start_date": (_start.value or "").strip(),
+                "schedule": schedule,
             }
             try:
                 start_run(owner, target)
@@ -1786,21 +2324,22 @@ def _sc_form(s, rf, owner):
             rf()
 
         # What pressing this actually costs, next to the button rather than
-        # discovered afterwards. Search is free; enrichment is not.
+        # discovered afterwards.
         with ui.element("div").style(
                 f"border-top:1px solid {C['border']};padding-top:16px;"
                 f"display:flex;align-items:center;gap:16px;flex-wrap:wrap;"):
             with ui.element("button").classes("fd-pb").style(
                     "padding:11px 24px;font-size:13px;flex-shrink:0;"
                     ).on("click", _go):
-                ui.label("Start the run")
+                ui.label("Queue the run for Claude")
             ui.label(
-                "Sources about %d companies, sizes them in ZoomInfo (search is "
-                "free), keeps the top %d and aims for %d contacts each - up to "
-                "%d people. Enrichment spends credits; sending does not start. "
-                "The run stops at a review screen where you trim, and nothing "
-                "is sent until you press Launch there."
-                % (SIZE_SHORTLIST, COMPANIES_PER_RUN, CONTACTS_TARGET,
+                "Claude sources about %d companies off the job boards, sizes "
+                "them and pulls the buying centre out of your ZoomInfo - "
+                "aiming for %d contacts at each of the %d it keeps, up to %d "
+                "people. DripDrop then writes the campaigns here and stops at "
+                "a review screen where you trim. Nothing sends until you "
+                "press Launch there."
+                % (SIZE_SHORTLIST, CONTACTS_TARGET, COMPANIES_PER_RUN,
                    COMPANIES_PER_RUN * CONTACTS_TARGET)
             ).style(f"font-size:11px;color:{C['muted']};line-height:1.6;"
                     f"flex:1;min-width:240px;")
@@ -1994,6 +2533,177 @@ def _sc_company_block(s, rf, owner, rec, c, on_change):
                         ui.label(body).style(
                             f"font-size:11px;color:{C['text_l']};line-height:1.6;"
                             f"white-space:pre-wrap;display:block;")
+
+
+def _sc_handoff(s, rf, owner, rec):
+    """The run is queued and Claude has not finished with it yet.
+
+    This screen exists because the work happens in a different place from the
+    button that started it. It says plainly what is waiting on what, and hands
+    over the one sentence that starts it - rather than leaving the user to
+    guess the wording."""
+    ff = _ff()
+    C = ff.C
+    t = rec.get("target") or {}
+    status = rec.get("status")
+    run_id = rec.get("run_id")
+
+    label, colour = {
+        "handoff": ("Waiting for Claude", C["warn"]),
+        "working": ("Claude is working on it", C["teal"]),
+        "sourced": ("Sourcing done - building the campaigns", C["good"]),
+    }.get(status, (status, C["muted"]))
+
+    with ui.element("div").style(
+            f"background:{C['card']};border:1px solid {C['border']};"
+            f"border-radius:12px;padding:20px 22px;margin-bottom:18px;"):
+        with ui.element("div").style(
+                "display:flex;align-items:center;justify-content:space-between;"
+                "gap:12px;margin-bottom:10px;"):
+            ui.label(label).style(
+                f"font-size:15px;font-weight:700;color:{colour};"
+                f"font-family:'Nunito',sans-serif;")
+            _pill(run_id, C["muted"])
+
+        ui.label(
+            "ZoomInfo only lets DripDrop's server read your data through "
+            "Claude, so the sourcing happens there and the campaigns are "
+            "written back here. Claude cannot send anything - the run still "
+            "stops at the review screen on this page."
+        ).style(f"font-size:12px;color:{C['muted']};line-height:1.6;"
+                f"display:block;margin-bottom:14px;")
+
+        with ui.element("div").style(
+                f"display:grid;grid-template-columns:repeat(auto-fit,"
+                f"minmax(150px,1fr));gap:10px 18px;padding:12px 14px;"
+                f"background:{C['bg']};border:1px solid {C['border']};"
+                f"border-radius:10px;margin-bottom:16px;"):
+            for cap, val in (
+                    ("Industry", t.get("industry") or "-"),
+                    ("Geography", t.get("geography") or "-"),
+                    ("Roles", ", ".join(t.get("roles") or []) or "-"),
+                    ("Size", "%s - %s employees"
+                     % (t.get("emp_min"), t.get("emp_max"))),
+                    ("Cadence", t.get("template") or "fivebyfive"),
+                    ("Repeat", schedule_line(t.get("schedule")) or "one-off")):
+                with ui.element("div"):
+                    ui.label(cap).style(
+                        f"font-size:10px;letter-spacing:.06em;"
+                        f"text-transform:uppercase;color:{C['muted']};"
+                        f"display:block;margin-bottom:2px;")
+                    ui.label(str(val)).style(
+                        f"font-size:12px;color:{C['text_l']};display:block;"
+                        f"word-break:break-word;")
+
+        if status == "handoff":
+            ui.label("Say this to Claude").classes("sc-sec").style(
+                f"color:{C['teal']};")
+            phrase = ("Run my pending DripDrop sales campaign - call "
+                      "sales_runs_pending, take run %s, and follow the "
+                      "instructions it gives you." % run_id)
+            with ui.element("div").style(
+                    f"background:{C['bg']};border:1px solid {C['teal']};"
+                    f"border-radius:10px;padding:12px 14px;margin-bottom:10px;"):
+                ui.label(phrase).style(
+                    f"font-family:ui-monospace,Menlo,Consolas,monospace;"
+                    f"font-size:12px;color:{C['text_l']};line-height:1.6;"
+                    f"display:block;white-space:pre-wrap;")
+
+            def _copy(text, what):
+                # https, so the async clipboard API is available. json.dumps
+                # does the escaping - the brief contains quotes and newlines.
+                ui.run_javascript("navigator.clipboard.writeText(%s)"
+                                  % json.dumps(text))
+                ui.notify("%s copied." % what, type="positive")
+
+            brief = handoff_brief(rec)
+            with ui.element("div").style(
+                    "display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px;"):
+                with ui.element("button").classes("fd-pb").style(
+                        "padding:9px 18px;font-size:12px;"
+                        ).on("click", lambda: _copy(phrase, "Phrase")):
+                    ui.label("Copy the phrase")
+                with ui.element("button").classes("fd-gb").style(
+                        "padding:9px 18px;font-size:12px;"
+                        ).on("click", lambda: _copy(brief, "Full brief")):
+                    ui.label("Copy the full brief")
+
+                def _toggle_brief():
+                    s._sc_brief_open = not bool(
+                        getattr(s, "_sc_brief_open", False))
+                    rf()
+                with ui.element("button").classes("fd-gb").style(
+                        "padding:9px 18px;font-size:12px;"
+                        ).on("click", _toggle_brief):
+                    ui.label("Hide the brief"
+                             if getattr(s, "_sc_brief_open", False)
+                             else "Show the brief")
+
+            if getattr(s, "_sc_brief_open", False):
+                with ui.element("div").style(
+                        f"background:{C['bg']};border:1px solid {C['border']};"
+                        f"border-radius:10px;padding:12px 14px;"
+                        f"max-height:340px;overflow-y:auto;margin-bottom:16px;"):
+                    ui.label(brief).style(
+                        f"font-family:ui-monospace,Menlo,Consolas,monospace;"
+                        f"font-size:11px;color:{C['text_l']};line-height:1.65;"
+                        f"display:block;white-space:pre-wrap;")
+
+        if (t.get("schedule") or {}).get("enabled"):
+            sr = rec.get("schedule_result")
+            _note("Repeat: %s. %s" % (
+                schedule_line(t["schedule"]),
+                "Claude has set it up." if sr else
+                "Claude sets this up as part of the run - it is not scheduled "
+                "yet."), C["good"] if sr else C["muted"],
+                C["good"] if sr else C["border"])
+
+    ui.label("Progress").classes("sc-sec").style(f"color:{C['teal']};")
+    ui.label("You can leave this page - nothing here has to stay open.").style(
+        f"font-size:11px;color:{C['muted']};margin-bottom:10px;display:block;")
+    _sc_log(rec)
+
+    with ui.element("div").style("display:flex;gap:10px;flex-wrap:wrap;"):
+        def _refresh():
+            rf()
+        with ui.element("button").classes("fd-gb").style(
+                "padding:9px 18px;font-size:12px;").on("click", _refresh):
+            ui.label("Refresh")
+
+        def _cancel():
+            try:
+                cancel_run(owner, run_id)
+            except Exception as ex:
+                ui.notify(str(ex), type="negative"); return
+            ui.notify("Run cancelled.", type="warning")
+            rf()
+        with ui.element("button").classes("fd-gb").style(
+                f"padding:9px 18px;font-size:12px;color:{C['warn']};"
+                ).on("click", _cancel):
+            ui.label("Cancel this run")
+
+        def _new():
+            s._sc_new = True
+            rf()
+        with ui.element("button").classes("fd-gb").style(
+                "padding:9px 18px;font-size:12px;").on("click", _new):
+            ui.label("Start a different run")
+
+    # once=True + re-arm, never a recurring timer: recurring timers accumulate
+    # across re-renders and that is exactly what caused the old refresh storm.
+    seen = rec.get("updated_at")
+
+    def _poll():
+        cur = load_run(run_id, owner)
+        if cur is None or cur.get("updated_at") != seen:
+            try:
+                rf()
+            except Exception as ex:
+                print("[SalesCampaign] refresh error: %s" % ex, flush=True)
+            return
+        ui.timer(5.0, _poll, once=True)
+
+    ui.timer(5.0, _poll, once=True)
 
 
 def _sc_review(s, rf, owner, rec):
@@ -2257,6 +2967,9 @@ def _sc_body(s, rf, owner, C):
         return
 
     status = rec.get("status")
+    if status in HANDOFF_STATUSES:
+        _sc_handoff(s, rf, owner, rec)
+        return
     if status in _ACTIVE_STATUSES:
         _sc_progress(s, rf, owner, rec)
         return

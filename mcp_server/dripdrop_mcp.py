@@ -360,6 +360,69 @@ async def campaign_get(campaign_id: str) -> dict:
         return {"error": str(e.body), "status_code": e.status_code}
 
 
+@mcp.tool(
+    description=(
+        "List the Sales Campaign runs the DripDrop user has queued for you "
+        "from the app's Sales Campaign page. DripDrop cannot do the sourcing "
+        "itself - its ZoomInfo seat is entitled for this MCP surface, not the "
+        "REST API - so it queues the target here. Each run comes back with "
+        "the full target (industry, geography, roles, size band, avoid list), "
+        "the already_worked dedupe keys, the contact targets, and an "
+        "'instructions' field that is the literal brief: follow it. Read-only."
+    )
+)
+async def sales_runs_pending() -> dict:
+    email = _current_email()
+    try:
+        client = DripDropClient(DATA_DIR, email)
+        return await client.sales_runs_pending()
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
+@mcp.tool(
+    description=(
+        "Write back to a queued DripDrop Sales Campaign run. Call it once "
+        "with {\"status\": \"working\"} when you start, and once at the end "
+        "with the companies you kept and status 'sourced'. Setting 'sourced' "
+        "is what makes DripDrop write the campaigns - it matches candidates "
+        "off its own bench and stops at a review screen, so do NOT call "
+        "create_campaign for these companies and do not send anything."
+    )
+)
+async def sales_run_update(run_id: str, update: dict) -> dict:
+    """Args:
+    run_id: the run_id from sales_runs_pending.
+    update: any of -
+        status: "working" (you picked it up), "sourced" (done - starts the
+            build), "error" (with an "error" string saying what stopped you),
+            "cancelled".
+        companies: list of the companies you kept, each
+            {"company": str, "state": str, "role": str, "why": str,
+             "source": str, "zi_total": int,
+             "contacts": [{"email", "first_name", "last_name", "title",
+                           "linkedin", "state"}]}.
+            Contacts are cleaned and deduped on arrival; one with no usable
+            email is dropped with a reason rather than silently kept. A
+            company below the contact floor is skipped at build time.
+        reserves: ranked reserves, same shape, each with its demerit.
+        dropped: what you dropped and why.
+        claude_notes: anything the user should read on the review screen.
+        schedule_result: if the run asked for a repeat, what you created.
+        log: str or list of str, appended to the run's progress log.
+    """
+    email = _current_email()
+    try:
+        client = DripDropClient(DATA_DIR, email)
+        return await client.sales_run_update(run_id, update or {})
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
 def main() -> None:
     transport = os.environ.get("DRIPDROP_MCP_TRANSPORT", "streamable-http")
     if transport == "stdio":

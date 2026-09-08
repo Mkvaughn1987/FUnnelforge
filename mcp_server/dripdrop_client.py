@@ -207,3 +207,24 @@ class DripDropClient:
             )
         await self._raise_for_error(resp)
         return resp.json()
+
+    async def sales_runs_pending(self) -> dict:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/sales_runs/pending",
+                headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def sales_run_update(self, run_id: str, patch: dict) -> dict:
+        # Generous timeout: posting 'sourced' is what kicks the server-side
+        # build off, and it normalises every company and contact first.
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                f"{self.base_url}/api/v1/sales_runs/{run_id}",
+                json=patch,
+                headers={**self._headers(), "Content-Type": "application/json"},
+            )
+        await self._raise_for_error(resp)
+        return resp.json()

@@ -5782,6 +5782,86 @@ def _api_create_campaign_blocking(client, spec, owner):
     return {"template": template, "campaign_data": campaign_data, "emails": emails}
 
 
+def _sales_run_owner(request):
+    """Same key -> owner resolution every /api/v1 route uses. Returns
+    (owner, error_response); exactly one of the two is ever set."""
+    from starlette.responses import JSONResponse
+    auth = request.headers.get("authorization", "")
+    key = (auth[7:].strip() if auth.lower().startswith("bearer ")
+           else request.headers.get("x-api-key", "").strip())
+    owner = _resolve_api_key(key)
+    if not owner:
+        return None, JSONResponse({"error": "invalid or missing API key"},
+                                  status_code=401)
+    return owner, None
+
+
+@app.get("/api/v1/sales_runs/pending")
+async def api_sales_runs_pending(request: Request):
+    """Sales Campaign runs this account has queued for Claude.
+
+    The page queues a run because this server cannot do the sourcing itself -
+    the ZoomInfo seat is entitled for the MCP surface Claude talks to, not the
+    REST API. Each entry carries the full target, the dedupe list and the
+    literal instructions, so nothing has to be inferred from the UI."""
+    from starlette.responses import JSONResponse
+    owner, err = _sales_run_owner(request)
+    if err:
+        return err
+    import sales_campaign as _sc
+    try:
+        runs = await asyncio.get_event_loop().run_in_executor(
+            None, lambda: _sc.pending_runs(owner))
+    except Exception as ex:
+        return JSONResponse({"error": str(ex)}, status_code=500)
+    return JSONResponse({"runs": runs, "count": len(runs)})
+
+
+@app.post("/api/v1/sales_runs/{run_id}")
+async def api_sales_run_update(run_id: str, request: Request):
+    """Claude's write-back on one queued run.
+
+    Accepts status ('working', 'sourced', 'error', 'cancelled'), companies
+    with their contacts, reserves, dropped, claude_notes, schedule_result and
+    log lines. Setting 'sourced' is what starts the server-side build; the run
+    then stops at the review screen, which is the only door to a send.
+
+    A run that has left the handoff is refused rather than silently patched -
+    once the server owns it, a late write from a retrying session must not be
+    able to change what the user is about to launch."""
+    from starlette.responses import JSONResponse
+    owner, err = _sales_run_owner(request)
+    if err:
+        return err
+    try:
+        patch = await request.json()
+    except Exception:
+        patch = {}
+    if not isinstance(patch, dict):
+        return JSONResponse({"error": "body must be a JSON object"},
+                            status_code=400)
+    import sales_campaign as _sc
+    try:
+        if (patch.get("status") or "").strip().lower() == "working" and \
+                len(patch) == 1:
+            # Bare claim. claim_run is idempotent on purpose - a dropped
+            # Claude session retrying is the normal case, not an error.
+            summary = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: _sc.claim_run(owner, run_id))
+        else:
+            summary = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: _sc.update_run(owner, run_id, patch))
+    except ValueError as ex:
+        return JSONResponse({"error": str(ex)}, status_code=400)
+    except RuntimeError as ex:
+        return JSONResponse({"error": str(ex)}, status_code=409)
+    except Exception as ex:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(ex)}, status_code=500)
+    return JSONResponse(summary)
+
+
 @app.post("/api/v1/campaigns")
 async def api_create_campaign(request: Request):
     """Create + launch an AICB campaign from a posted spec. Auth via a per-user
