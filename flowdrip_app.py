@@ -11114,6 +11114,7 @@ SALES_NAV = [
     (None, "SEQUENCES",         None),
     ("▷",  "Start a Sequence",  "start_seq"),
     ("📁", "Campaign Library",  "drafts_saved"),
+    ("🎯", "Sales Campaign",   "sales_campaign"),
     ("≡",  "Contacts",          "contacts"),
     ("🚫", "Opt-Out List",     "dnc"),
     ("🛡", "Existing Customers", "active_clients"),
@@ -52285,6 +52286,17 @@ def render_page(s: AppState, rf):
             # newsletters are created via the Slow Drip → Create
             # Newsletter dialog (_create_newsletter_dialog) instead.
             elif page == "admin":        p_admin(s, rf)
+            elif page == "sales_campaign":
+                # Companion module (same pattern as ats.py). Imported here
+                # rather than at module load so a failure disables one page
+                # instead of the whole app.
+                try:
+                    import sales_campaign as _sc
+                    _sc.p_sales_campaign(s, rf)
+                except Exception as _sc_ex:
+                    print(f"[SalesCampaign] page failed: {_sc_ex}", flush=True)
+                    ui.label(f"Sales Campaign is unavailable: {_sc_ex}").style(
+                        f"font-size:14px;color:{C['warn']};padding:20px 0;")
             elif page == "ats":
                 # ATS is now its own page (/ats). Redirect any stale in-app
                 # route there.
