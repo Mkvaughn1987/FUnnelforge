@@ -102,6 +102,20 @@ def _con():
             con.execute("ALTER TABLE talents ADD COLUMN work_history TEXT DEFAULT ''")
         except Exception:
             pass
+        try:
+            # Stable id of this person in whatever system the record came from
+            # (a job-board export, another ATS). The idempotency key used by
+            # ingest_records: re-sending a batch updates in place instead of
+            # duplicating, and unlike email/name matching it survives a
+            # renamed file and a lost client-side ledger.
+            con.execute("ALTER TABLE talents ADD COLUMN external_id TEXT DEFAULT ''")
+        except Exception:
+            pass  # already exists
+        try:
+            con.execute("CREATE INDEX IF NOT EXISTS idx_talents_owner_extid "
+                        "ON talents(owner_email, external_id)")
+        except Exception:
+            pass
         for _gc in ("lat", "lng"):
             try:
                 con.execute(f"ALTER TABLE talents ADD COLUMN {_gc} REAL")
@@ -1759,31 +1773,42 @@ def ingest_resumes(files, owner_email: str, added_by: str, rebuild: bool = True)
         name, data = f
         text = _extract_file_text(data, name)
         if len(text) < 80:
-            return (name, None, None, "scanned")
+            return (name, None, None, "scanned", "")
         try:
             d = _ai_parse_resume(text)
-        except Exception:
-            return (name, None, None, "error")
+        except Exception as e:
+            # Do NOT swallow this silently. A failure here is almost always an
+            # Anthropic-side problem — a revoked key, exhausted credit, a rate
+            # limit — but from the outside it looks identical to an unreadable
+            # résumé, and with no trace at all it costs hours to tell the two
+            # apart.
+            detail = "%s: %s" % (type(e).__name__, str(e)[:300])
+            print("[ats] resume parse failed for %r -- %s" % (name, detail),
+                  flush=True)
+            return (name, None, None, "error", detail)
         if not _is_resume_record(d):
-            return (name, None, None, "junk")
+            return (name, None, None, "junk", "")
         if not (d.get("email") or "").strip():
             ex_e, ex_p = _extract_contacts(text)
             if ex_e:
                 d["email"] = ex_e
             if ex_p and not (d.get("phone") or "").strip():
                 d["phone"] = ex_p
-        return (name, d, text, "ok")
+        return (name, d, text, "ok", "")
 
     parsed = []
     try:
         with ThreadPoolExecutor(max_workers=6) as ex:
-            for name, d, text, reason in ex.map(_work, files):
+            for name, d, text, reason, detail in ex.map(_work, files):
                 if reason == "ok":
                     parsed.append((name, d, text))
                 else:
                     stats[reason] += 1
-                    file_results.append({"filename": name, "name": "",
-                                         "title": "", "status": reason})
+                    row = {"filename": name, "name": "", "title": "",
+                           "status": reason}
+                    if detail:
+                        row["detail"] = detail
+                    file_results.append(row)
     except Exception:
         pass
 
@@ -1813,6 +1838,147 @@ def ingest_resumes(files, owner_email: str, added_by: str, rebuild: bool = True)
                 _status = "added"
             file_results.append({"filename": name, "name": _person_name(d),
                                  "title": (d.get("current_title") or "").strip(),
+                                 "status": _status})
+        if rebuild and (stats["added"] or stats["merged"]):
+            con.execute("INSERT INTO talents_fts(talents_fts) VALUES('rebuild')")
+        con.commit()
+    finally:
+        con.close()
+    stats["files"] = file_results
+    return stats
+
+
+def _find_by_external_id(con, ext: str, owner: str):
+    """This owner's row for a given source-system id, if we have seen it."""
+    if not ext:
+        return None
+    try:
+        return con.execute(
+            "SELECT * FROM talents WHERE owner_email=? AND external_id=? LIMIT 1",
+            (owner, ext)).fetchone()
+    except Exception:
+        return None
+
+
+def _record_to_parsed(rec: dict) -> tuple:
+    """Normalise one caller-supplied record into the same dict shape
+    _ai_parse_resume would have produced, plus its resume text. No AI call --
+    the caller already has the structured fields, so there is nothing to infer.
+    Accepts the field names source systems actually use (first/last, title,
+    employer, skills) alongside the canonical ones."""
+    d = {}
+    first = str(rec.get("first_name") or rec.get("first") or "").strip()
+    last = str(rec.get("last_name") or rec.get("last") or "").strip()
+    if not (first and last):
+        parts = str(rec.get("name") or "").split()
+        if parts:
+            first = first or parts[0]
+            last = last or (" ".join(parts[1:]) if len(parts) > 1 else "")
+    d["first_name"], d["last_name"] = first, last
+    for f in ("email", "phone", "city", "state", "current_title",
+              "current_employer", "years_experience", "seniority", "summary"):
+        d[f] = str(rec.get(f) or "").strip()
+    d["current_title"] = d["current_title"] or str(rec.get("title") or "").strip()
+    d["current_employer"] = (d["current_employer"]
+                             or str(rec.get("employer") or "").strip())
+    sk = rec.get("key_skills") or rec.get("skills") or []
+    if isinstance(sk, str):
+        sk = [x.strip() for x in re.split(r"[,;|]", sk) if x.strip()]
+    d["key_skills"] = [str(x).strip() for x in sk if str(x).strip()]
+
+    text = str(rec.get("resume_text") or "").strip()
+    if not (d["email"] and d["phone"]):
+        ex_e, ex_p = _extract_contacts(text)
+        d["email"] = d["email"] or (ex_e or "")
+        d["phone"] = d["phone"] or (ex_p or "")
+    return d, text
+
+
+def ingest_records(records, owner_email: str, added_by: str,
+                   rebuild: bool = True) -> dict:
+    """Insert/update already-structured candidate records -- the no-file,
+    no-AI sibling of ingest_resumes().
+
+    ingest_resumes() exists to turn opaque bytes into fields, so every file
+    costs an AI parse and the caller has to get the bytes here somehow. When
+    the caller ALREADY has the fields (a job-board export, an ATS sync), both
+    of those are pure overhead -- and the AI parse is a hard dependency that
+    fails the whole file when the model call errors. This path takes the
+    fields directly and touches no model.
+
+    Each record may carry `external_id`: its stable id in the source system.
+    That is the idempotency key. Re-sending the same batch updates in place
+    instead of duplicating, and unlike email/name/sha256 matching it survives
+    a renamed file, a lost client-side ledger, and the same person arriving
+    under a different spelling.
+
+    Match order per record: this owner's external_id, then the same per-owner
+    email / name+state dedupe ingest_resumes uses (so people already imported
+    from resume files are adopted rather than duplicated), then insert. An
+    existing row is keep-best merged exactly as in ingest_resumes, so a sparse
+    re-send never overwrites a richer row -- but it still gets stamped with
+    the external_id so the next send matches by id directly.
+
+    records: list of dicts. Recognised keys: external_id, name (or
+        first_name/last_name), email, phone, city, state, current_title (or
+        title), current_employer (or employer), years_experience, seniority,
+        skills/key_skills (list or delimited string), summary, resume_text,
+        source (a label stored as the record's source_file).
+    Returns the same stats shape as ingest_resumes, per-record outcomes in
+    "files".
+    """
+    import time
+    stats = {"total": len(records), "added": 0, "merged": 0, "dup": 0,
+             "junk": 0, "scanned": 0, "error": 0}
+    file_results = []
+
+    con = _con()
+    now = time.strftime("%Y-%m-%dT%H:%M:%S")
+    try:
+        for rec in records:
+            if not isinstance(rec, dict):
+                stats["error"] += 1
+                file_results.append({"filename": "", "external_id": "", "name": "",
+                                     "title": "", "status": "error"})
+                continue
+            ext = str(rec.get("external_id") or "").strip()
+            d, text = _record_to_parsed(rec)
+            person = " ".join(p for p in (d["first_name"], d["last_name"]) if p)
+            src = (str(rec.get("source") or rec.get("source_file") or "").strip()
+                   or ("external:" + ext if ext else "external record"))
+            if not _is_resume_record(d):
+                stats["junk"] += 1
+                file_results.append({"filename": src, "external_id": ext,
+                                     "name": person, "title": "", "status": "junk"})
+                continue
+
+            cols = _talent_columns(d, text, owner_email, added_by, src, now)
+            cols["external_id"] = ext
+            existing = (_find_by_external_id(con, ext, owner_email)
+                        or _find_owner_dup(con, d, owner_email))
+            if existing:
+                if _upload_completeness(d, text) > _completeness(dict(existing)):
+                    sets = ", ".join("%s=?" % k for k in cols if k != "created_at")
+                    vals = [v for k, v in cols.items() if k != "created_at"]
+                    con.execute("UPDATE talents SET %s WHERE id=?" % sets,
+                                (*vals, existing["id"]))
+                    stats["merged"] += 1
+                    _status = "merged"
+                else:
+                    if ext:
+                        con.execute("UPDATE talents SET external_id=? WHERE id=?",
+                                    (ext, existing["id"]))
+                    stats["dup"] += 1
+                    _status = "dup"
+            else:
+                con.execute(
+                    "INSERT INTO talents(%s) VALUES(%s)" % (
+                        ", ".join(cols.keys()), ", ".join("?" * len(cols))),
+                    tuple(cols.values()))
+                stats["added"] += 1
+                _status = "added"
+            file_results.append({"filename": src, "external_id": ext, "name": person,
+                                 "title": d.get("current_title", ""),
                                  "status": _status})
         if rebuild and (stats["added"] or stats["merged"]):
             con.execute("INSERT INTO talents_fts(talents_fts) VALUES('rebuild')")
@@ -2986,7 +3152,8 @@ def _view_candidates(ff, st, refresh):
         def _location_input(width="230px"):
             _li = ui.input(value=st.get("location", ""),
                            placeholder="📍 City, ST  (e.g. Irvine, CA)").props(
-                "outlined dense rounded clearable").style(f"width:{width};flex-shrink:0;")
+                "outlined dense rounded clearable").classes("fd-search-field").style(
+                f"width:{width};flex-shrink:0;")
             _li.on_value_change(
                 lambda e: st.__setitem__("location", (e.value or "").strip()))
             return _li
@@ -3059,11 +3226,12 @@ def _view_candidates(ff, st, refresh):
                 # under the keyword bar, both the same width, rather than the
                 # two inputs splitting the row between them.
                 with ui.element("div").style(
-                        "flex:1;min-width:220px;display:flex;"
+                        "flex:1;min-width:220px;max-width:420px;display:flex;"
                         "flex-direction:column;gap:8px;"):
                     _inp = ui.input(value=st.get("query_draft", ""),
                                     placeholder="e.g.  superintendent data center").props(
-                        "outlined dense rounded clearable").style("width:100%;")
+                        "outlined dense rounded clearable").classes(
+                        "fd-search-field").style("width:100%;")
                     _inp.on_value_change(
                         lambda e: st.__setitem__("query_draft", e.value or ""))
                     _inp.on("keydown.enter", lambda _e: _do_kw())
@@ -3559,10 +3727,7 @@ def _view_upload(ff, st, refresh):
     # handler (a safe context that survives refresh(), unlike a ui.timer whose
     # slot root.clear() deletes mid-callback): every uploaded file bumps a token
     # and waits ~0.8s; only the last one still holding the latest token fires the
-    # import, so a multi-file burst triggers exactly one run.
-    _imp = {"token": 0}
-
-    async def _maybe_autoimport():
+    # import, so a multi-file burst triggers exactly one sync def _maybe_autoimport():
         import asyncio
         _imp["token"] += 1
         mine = _imp["token"]
