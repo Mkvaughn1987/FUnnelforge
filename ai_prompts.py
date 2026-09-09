@@ -164,6 +164,18 @@ SKIP_FIELDS = [
 # of the derived values in _derived(). A step that comes out empty is
 # dropped, which is how the exclusions step disappears when nothing is
 # ticked.
+NEWSLETTER_MODES = [
+    "Find the one that fits, skip it if none does",
+    "Yes - the one I name below",
+    "No newsletter",
+]
+NEWSLETTER_DEFAULT = NEWSLETTER_MODES[0]
+# The newsletter answers say what to DO, not what the target is, so they get
+# stated once as an instruction and are kept out of the DETAILS table - a
+# stale "Which newsletter" sitting under a "No newsletter" would contradict it.
+NEWSLETTER_KEYS = {"newsletter_mode", "newsletter"}
+
+
 ROUTINES = [
     {
         "key": "slate_campaign",
@@ -174,8 +186,14 @@ ROUTINES = [
         "example": "Find package manufacturers in Colorado hiring maintenance "
                    "techs, put three of my people in front of each of them",
         "tools": ["candidates_search", "campaign_types", "my_campaign_styles",
-                  "create_campaign"],
+                  "campaigns_list", "create_campaign"],
         "fields": [
+            F("newsletter_mode", "Add them to a newsletter", "details",
+              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
+            F("newsletter", "Which newsletter", "details",
+              placeholder="Only if you're naming one above",
+              hint="Leave this blank and Claude picks the newsletter that "
+                   "fits, or leaves it off when none does."),
             F("industry", "What kind of company", "details", ask=True,
               placeholder="e.g. package manufacturing"),
             F("location", "Where", "details", ask=True,
@@ -201,9 +219,6 @@ ROUTINES = [
               default="owners and C-level first, then VPs, then directors, "
                       "then managers, with HR and talent acquisition last",
               hint="Never the person whose own job the opening is."),
-            F("good_fit", "What makes a good one", "details", "textarea",
-              placeholder="Anything that separates a company worth calling "
-                          "from one that just has a posting up"),
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
@@ -212,8 +227,6 @@ ROUTINES = [
               "select", default="Next Monday", options=WHEN_OPTIONS),
             F("campaign_name", "What to call the campaigns", "emails",
               default="the company name"),
-            F("newsletter", "Also add them to a newsletter", "emails",
-              placeholder="Name of the newsletter, or leave blank"),
             F("companies", "How many companies you want to end up with",
               "size", "number", default="5"),
             F("contacts_each", "How many people at each company", "size",
@@ -237,7 +250,7 @@ ROUTINES = [
             "{company_size}, and name 3 ranked reserves. For every pick give "
             "the concrete signal that earned it, the actual fact from the "
             "posting, not \"good fit\". For every reserve give its "
-            "demerit.{good_fit_clause}",
+            "demerit.",
             "Now build the slate. For each company, search the DripDrop "
             "Pipeline with candidates_search for {slate_size} people who "
             "genuinely fit the openings you found there. Use a limit of 1 or "
@@ -277,9 +290,15 @@ ROUTINES = [
         "example": "Find commercial construction companies in Colorado hiring "
                    "project managers and superintendents, 50 to 1000 people, "
                    "and set up outreach",
-        "tools": ["campaign_types", "my_campaign_styles",
-                  "candidates_search", "create_campaign"],
+        "tools": ["campaign_types", "my_campaign_styles", "candidates_search",
+                  "campaigns_list", "create_campaign"],
         "fields": [
+            F("newsletter_mode", "Add them to a newsletter", "details",
+              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
+            F("newsletter", "Which newsletter", "details",
+              placeholder="Only if you're naming one above",
+              hint="Leave this blank and Claude picks the newsletter that "
+                   "fits, or leaves it off when none does."),
             F("industry", "What kind of company", "details", ask=True,
               placeholder="e.g. package manufacturing"),
             F("location", "Where", "details", ask=True,
@@ -292,9 +311,6 @@ ROUTINES = [
               default="owners and C-level first, then VPs, then directors, "
                       "then managers, with HR and talent acquisition last",
               hint="Never the person whose own job the opening is."),
-            F("good_fit", "What makes a good one", "details", "textarea",
-              placeholder="Anything that separates a company worth calling "
-                          "from one that just has a posting up"),
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
@@ -303,8 +319,6 @@ ROUTINES = [
               "select", default="Next Monday", options=WHEN_OPTIONS),
             F("campaign_name", "What to call the campaigns", "emails",
               default="the company name"),
-            F("newsletter", "Also add them to a newsletter", "emails",
-              placeholder="Name of the newsletter, or leave blank"),
             F("companies", "How many companies you want to end up with",
               "size", "number", default="5"),
             F("contacts_each", "How many people at each company", "size",
@@ -328,7 +342,7 @@ ROUTINES = [
             "{company_size}, and name 3 ranked reserves. For every pick give "
             "the concrete signal that earned it, the actual fact from the "
             "posting, not \"good fit\". For every reserve give its "
-            "demerit.{good_fit_clause}",
+            "demerit.",
             "Pull the buying centre for each company out of ZoomInfo. Aim "
             "for {contacts_each} contacts per company; 3 is the floor that "
             "qualifies a company at all, 15 is the cap. Work down "
@@ -351,8 +365,15 @@ ROUTINES = [
                  "for what they do, then pitch them in.",
         "example": "Market my three senior estimators out to general "
                    "contractors in the Denver metro",
-        "tools": ["candidates_search", "campaign_types", "create_campaign"],
+        "tools": ["candidates_search", "campaign_types", "campaigns_list",
+                  "create_campaign"],
         "fields": [
+            F("newsletter_mode", "Add them to a newsletter", "details",
+              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
+            F("newsletter", "Which newsletter", "details",
+              placeholder="Only if you're naming one above",
+              hint="Leave this blank and Claude picks the newsletter that "
+                   "fits, or leaves it off when none does."),
             F("candidates", "Which people", "details", ask=True,
               placeholder="Names, or how you'd describe them"),
             F("target_company", "What kind of company to pitch them to",
@@ -380,8 +401,6 @@ ROUTINES = [
                        "Let DripDrop pick the best match"]),
             F("start_when", "When the first email goes out", "emails",
               "select", default="Next Monday", options=WHEN_OPTIONS),
-            F("newsletter", "Also add them to a newsletter", "emails",
-              placeholder="Name of the newsletter, or leave blank"),
             F("companies_each", "How many companies each", "size", "number",
               default="3"),
             F("contacts_each", "How many people at each company", "size",
@@ -557,8 +576,15 @@ ROUTINES = [
                  "have.",
         "example": "Launch a 5x5 campaign to the contacts on my list starting "
                    "Monday",
-        "tools": ["campaign_types", "my_campaign_styles", "create_campaign"],
+        "tools": ["campaign_types", "my_campaign_styles", "campaigns_list",
+                  "create_campaign"],
         "fields": [
+            F("newsletter_mode", "Add them to a newsletter", "details",
+              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
+            F("newsletter", "Which newsletter", "details",
+              placeholder="Only if you're naming one above",
+              hint="Leave this blank and Claude picks the newsletter that "
+                   "fits, or leaves it off when none does."),
             F("who", "Who you're sending to", "details", "textarea", ask=True,
               placeholder="The list, the file, or where Claude will find it"),
             F("company_niche", "Which company or niche", "details", ask=True,
@@ -578,8 +604,6 @@ ROUTINES = [
             F("start_when", "When the first email goes out", "emails",
               "select", default="Next Monday", options=WHEN_OPTIONS),
             F("campaign_name", "What to call it", "emails"),
-            F("newsletter", "Also add them to a newsletter", "emails",
-              placeholder="Name of the newsletter, or leave blank"),
             F("email_cap", "Most emails this run should send", "size",
               "number", default="175"),
         ],
@@ -797,15 +821,33 @@ def _derived(r, vals):
     want = _n(r, vals, "companies", 5)
     d["pool"] = str(max(want + 3, int(round(want * 2.4))))
 
-    good = d.get("good_fit") or ""
-    d["good_fit_clause"] = (" What makes one worth calling: %s" % good
-                            if good else "")
     name = d.get("campaign_name") or ""
     d["name_clause"] = " Name each campaign after %s." % name if name else ""
-    news = d.get("newsletter") or ""
-    d["newsletter_clause"] = (
-        ' Also enrol the contacts in my "%s" newsletter — that is the '
-        'enroll_newsletter argument.' % news if news else "")
+    # Newsletter. Three answers, and "find the one that fits" is the default:
+    # Claude looks at what is already there rather than being handed a name
+    # that has to be typed exactly right, and an unnamed newsletter is left
+    # off rather than invented.
+    news = (d.get("newsletter") or "").strip()
+    mode = (d.get("newsletter_mode") or NEWSLETTER_DEFAULT).lower()
+    if mode.startswith("no"):
+        d["newsletter_clause"] = ""
+    elif news:
+        d["newsletter_clause"] = (
+            ' Also enrol the contacts in my "%s" newsletter — that is the '
+            'enroll_newsletter argument. If that name does not match, the '
+            'launch comes back with the newsletters I do have: pick the one '
+            'that fits and enrol them in that instead, and if none of them '
+            'fit, leave it off and tell me.' % news)
+    else:
+        d["newsletter_clause"] = (
+            " Newsletter: run campaigns_list first and look at my evergreen "
+            "newsletters — they are the ongoing ones, usually named for an "
+            "industry and an area. If one of them genuinely covers this "
+            "industry and this geography, pass its exact name as the "
+            "enroll_newsletter argument so these contacts get it too. If "
+            "none of them fit, leave enroll_newsletter off entirely: do not "
+            "create a newsletter, and do not stretch a loose match. Tell me "
+            "which one you used, or that there wasn't one.")
     d["anon_clause"] = (
         " Do not use their names or their current employers anywhere in the "
         "outreach. Describe them by what they have actually done."
@@ -1138,7 +1180,8 @@ def build_prompt(req):
     # stated twice with two different values.
     rows = [(f["label"], str(_val(r, vals, f["key"]) or "").strip())
             for f in r["fields"]
-            if f["section"] == "details" and f["type"] != "toggle"]
+            if f["section"] == "details" and f["type"] != "toggle"
+            and f["key"] not in NEWSLETTER_KEYS]
     rows = [(lbl, v) for lbl, v in rows if v]
     if rows:
         L += ["", "THE DETAILS"]
@@ -1695,36 +1738,17 @@ def _aip_confirm(s, rf, C):
         _text("Everything below is already answered. Change anything you like.",
               C, 12, colour=C["muted"], mb=16)
 
-        _sec("What kind of job is this?", C)
+        # No job picker here. The job was chosen on the screen before this
+        # one; repeating the choice next to the answers it decides only
+        # invited a change that silently reset them. Going back is the way
+        # to pick a different job.
+        _text(r["blurb"], C, 11, colour=C["muted"], mb=16)
 
-        def _switch(e):
-            key = e.value or DEFAULT_ROUTINE
-            if key == req.get("routine"):
-                return
-            nr = ROUTINE_BY_KEY.get(key)
-            if nr is None:
-                return
-            # Carry answers across on matching keys — location and roles mean
-            # the same thing whichever job it turns out to be.
-            keep = {k: v for k, v in vals.items() if k in nr["field_by_key"]}
-            nvals = defaults_for(nr)
-            nvals.update(keep)
-            req["routine"] = key
-            req["vals"] = nvals
-            s._aip_open = None
-            rf()
-
-        with ui.element("div").style("margin-bottom:16px;"):
-            ui.select(options={x["key"]: x["name"] for x in ROUTINES},
-                      value=req.get("routine") or DEFAULT_ROUTINE,
-                      on_change=_switch).props("dense").classes("fd-input")
-            _text(r["blurb"], C, 11, colour=C["muted"], mb=0)
-
-        # No "in one line" box here. The dropdown above already says what the
-        # job is, and its blurb says it in a sentence — asking the same
-        # question twice just invited two answers that could disagree. The
-        # summary still exists, it just comes from the routine, and the words
-        # that are actually the user's own go in the fields below.
+        # No "in one line" box here either. The blurb above already says what
+        # the job is in a sentence — asking the same question again just
+        # invited two answers that could disagree. The summary still exists,
+        # it just comes from the routine, and the words that are actually the
+        # user's own go in the fields below.
 
         unanswered = _open_questions(r, vals, req.get("ask_extra"))
         if unanswered:
