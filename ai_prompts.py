@@ -1128,7 +1128,10 @@ def build_prompt(req):
          if r["tools"] else "I need you to do this for me.",
          "",
          "WHAT I WANT"]
-    L += _wrap(req.get("summary") or req.get("raw") or "")
+    # The blurb is the last resort, not decoration: a setup saved before the
+    # "in one line" box was removed can carry an empty summary, and an empty
+    # WHAT I WANT is the one section the prompt cannot afford to lose.
+    L += _wrap(req.get("summary") or req.get("raw") or r["blurb"])
 
     # The scannable table. Only the "details" answers go here: the numbers
     # live in the numbered steps that use them, so there is never a limit
@@ -1291,7 +1294,11 @@ STARTERS = [
         "sub": "Anything the three above do not cover. You write the job in "
                "your own words on the next screen and Claude turns it into "
                "the same kind of prompt, with the same rules on it.",
-        "summary": "",
+        # Non-empty on purpose: with the "in one line" box gone this is the
+        # only thing left to open WHAT I WANT with. The job itself is the
+        # "What you want done" answer, which reaches the prompt through
+        # THE DETAILS table like every other field.
+        "summary": "Do the job described in the details below.",
         "routine": "other",
         "vals": {},
     },
@@ -1576,11 +1583,9 @@ def _aip_field(s, rf, C, r, vals, f):
         ui.label(f["hint"]).style(
             f"font-size:10px;color:{C['muted']};margin-top:-2px;"
             f"margin-bottom:3px;display:block;line-height:1.45;")
-    elif f["ask"] and not str(_val(r, vals, key) or "").strip():
-        ui.label("You didn't say — fill it in, or leave it and Claude will "
-                 "ask you.").style(
-            f"font-size:10px;color:{C['muted']};margin-top:-2px;"
-            f"margin-bottom:3px;display:block;line-height:1.45;")
+    # An empty ask=True field gets no scolding line. The label already asks the
+    # question and the placeholder already shows the shape of an answer —
+    # "You didn't say" only told the user off for a box they hadn't reached yet.
 
     cur = str(_val(r, vals, key) or "")
     if f["type"] == "select":
@@ -1687,9 +1692,7 @@ def _aip_confirm(s, rf, C):
         heard = bool((req.get("raw") or "").strip())
         _text("Here's what I understood" if heard else req.get("title")
               or "Set this up", C, 15, 700, C["text_l"], 4)
-        _text("Fill in the specifics. Most of these are already answered "
-              "sensibly — the only ones Claude will ask you about are the "
-              "ones called out below. Change anything you like.",
+        _text("Everything below is already answered. Change anything you like.",
               C, 12, colour=C["muted"], mb=16)
 
         _sec("What kind of job is this?", C)
@@ -1717,21 +1720,20 @@ def _aip_confirm(s, rf, C):
                       on_change=_switch).props("dense").classes("fd-input")
             _text(r["blurb"], C, 11, colour=C["muted"], mb=0)
 
-        _sec("In one line", C)
-
-        def _set_sum(e):
-            req["summary"] = e.value
-        ui.textarea(value=req.get("summary") or req.get("raw") or "",
-                    on_change=_set_sum).props("dense autogrow").classes(
-            "fd-input aip-ta").style("width:100%;margin-bottom:6px;")
+        # No "in one line" box here. The dropdown above already says what the
+        # job is, and its blurb says it in a sentence — asking the same
+        # question twice just invited two answers that could disagree. The
+        # summary still exists, it just comes from the routine, and the words
+        # that are actually the user's own go in the fields below.
 
         unanswered = _open_questions(r, vals, req.get("ask_extra"))
         if unanswered:
-            _text("Claude will ask you about: " + ", ".join(unanswered) + ".",
+            # Stated as what Claude still needs, not as what the user failed to
+            # provide. Leaving these blank is a valid way to use the page.
+            _text("Claude will ask for: " + ", ".join(unanswered) + ".",
                   C, 11, colour=C["warn"], mb=16)
         else:
-            _text("Nothing left for Claude to ask — it can start straight "
-                  "away.", C, 11, colour=C["muted"], mb=16)
+            _text("Ready to go.", C, 11, colour=C["muted"], mb=16)
 
     for key, name in _aip_sections_for(r):
         is_open = bool(opened.get(key))
