@@ -188,12 +188,6 @@ ROUTINES = [
         "tools": ["candidates_search", "campaign_types", "my_campaign_styles",
                   "campaigns_list", "create_campaign"],
         "fields": [
-            F("newsletter_mode", "Add them to a newsletter", "details",
-              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
-            F("newsletter", "Which newsletter", "details",
-              placeholder="Only if you're naming one above",
-              hint="Leave this blank and Claude picks the newsletter that "
-                   "fits, or leaves it off when none does."),
             F("industry", "What kind of company", "details", ask=True,
               placeholder="e.g. package manufacturing"),
             F("location", "Where", "details", ask=True,
@@ -219,6 +213,12 @@ ROUTINES = [
               default="owners and C-level first, then VPs, then directors, "
                       "then managers, with HR and talent acquisition last",
               hint="Never the person whose own job the opening is."),
+            F("newsletter_mode", "Add them to a newsletter", "details",
+              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
+            F("newsletter", "Which newsletter", "details",
+              placeholder="Only if you're naming one above",
+              hint="Leave this blank and Claude picks whichever of your "
+                   "newsletters is in the same line of work."),
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
@@ -293,12 +293,6 @@ ROUTINES = [
         "tools": ["campaign_types", "my_campaign_styles", "candidates_search",
                   "campaigns_list", "create_campaign"],
         "fields": [
-            F("newsletter_mode", "Add them to a newsletter", "details",
-              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
-            F("newsletter", "Which newsletter", "details",
-              placeholder="Only if you're naming one above",
-              hint="Leave this blank and Claude picks the newsletter that "
-                   "fits, or leaves it off when none does."),
             F("industry", "What kind of company", "details", ask=True,
               placeholder="e.g. package manufacturing"),
             F("location", "Where", "details", ask=True,
@@ -311,6 +305,12 @@ ROUTINES = [
               default="owners and C-level first, then VPs, then directors, "
                       "then managers, with HR and talent acquisition last",
               hint="Never the person whose own job the opening is."),
+            F("newsletter_mode", "Add them to a newsletter", "details",
+              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
+            F("newsletter", "Which newsletter", "details",
+              placeholder="Only if you're naming one above",
+              hint="Leave this blank and Claude picks whichever of your "
+                   "newsletters is in the same line of work."),
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
@@ -368,12 +368,6 @@ ROUTINES = [
         "tools": ["candidates_search", "campaign_types", "campaigns_list",
                   "create_campaign"],
         "fields": [
-            F("newsletter_mode", "Add them to a newsletter", "details",
-              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
-            F("newsletter", "Which newsletter", "details",
-              placeholder="Only if you're naming one above",
-              hint="Leave this blank and Claude picks the newsletter that "
-                   "fits, or leaves it off when none does."),
             F("candidates", "Which people", "details", ask=True,
               placeholder="Names, or how you'd describe them"),
             F("target_company", "What kind of company to pitch them to",
@@ -391,6 +385,12 @@ ROUTINES = [
               "toggle", default=True),
             F("who_to_reach", "Who to reach", "details",
               default="owners and C-level first, then VPs, then directors"),
+            F("newsletter_mode", "Add them to a newsletter", "details",
+              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
+            F("newsletter", "Which newsletter", "details",
+              placeholder="Only if you're naming one above",
+              hint="Leave this blank and Claude picks whichever of your "
+                   "newsletters is in the same line of work."),
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
@@ -579,12 +579,6 @@ ROUTINES = [
         "tools": ["campaign_types", "my_campaign_styles", "campaigns_list",
                   "create_campaign"],
         "fields": [
-            F("newsletter_mode", "Add them to a newsletter", "details",
-              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
-            F("newsletter", "Which newsletter", "details",
-              placeholder="Only if you're naming one above",
-              hint="Leave this blank and Claude picks the newsletter that "
-                   "fits, or leaves it off when none does."),
             F("who", "Who you're sending to", "details", "textarea", ask=True,
               placeholder="The list, the file, or where Claude will find it"),
             F("company_niche", "Which company or niche", "details", ask=True,
@@ -597,6 +591,12 @@ ROUTINES = [
               "select", default="One email",
               options=["One email", "Two, a day apart",
                        "Three, over three days"]),
+            F("newsletter_mode", "Add them to a newsletter", "details",
+              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
+            F("newsletter", "Which newsletter", "details",
+              placeholder="Only if you're naming one above",
+              hint="Leave this blank and Claude picks whichever of your "
+                   "newsletters is in the same line of work."),
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
@@ -634,12 +634,19 @@ ROUTINES = [
             F("what", "What you want done", "details", "textarea", ask=True),
             F("done_when", "How you'll know it worked", "details",
               placeholder="What you want to be holding at the end"),
+            F("newsletter_mode", "Add them to a newsletter", "details",
+              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
+            F("newsletter", "Which newsletter", "details",
+              placeholder="Only if you're naming one above",
+              hint="Leave this blank and Claude picks whichever of your "
+                   "newsletters is in the same line of work."),
         ],
         "steps": [
             "Work out what is actually being asked before starting, and tell "
             "me what you took it to mean.",
             "{what}",
             "{done_clause}",
+            "{newsletter_step}",
             "Show me the result before acting on anything that leaves this "
             "machine.",
         ],
@@ -836,18 +843,26 @@ def _derived(r, vals):
             ' Also enrol the contacts in my "%s" newsletter — that is the '
             'enroll_newsletter argument. If that name does not match, the '
             'launch comes back with the newsletters I do have: pick the one '
-            'that fits and enrol them in that instead, and if none of them '
-            'fit, leave it off and tell me.' % news)
+            'in the same line of work and enrol them in that instead. Only '
+            'if nothing on that list is in the same line of work, leave it '
+            'off and tell me.' % news)
     else:
         d["newsletter_clause"] = (
             " Newsletter: run campaigns_list first and look at my evergreen "
-            "newsletters — they are the ongoing ones, usually named for an "
-            "industry and an area. If one of them genuinely covers this "
-            "industry and this geography, pass its exact name as the "
-            "enroll_newsletter argument so these contacts get it too. If "
-            "none of them fit, leave enroll_newsletter off entirely: do not "
-            "create a newsletter, and do not stretch a loose match. Tell me "
-            "which one you used, or that there wasn't one.")
+            "newsletters — the ongoing ones, usually named for a trade or an "
+            "industry, sometimes with an area in the name too. Match on the "
+            "line of work, not the map: a manufacturing newsletter is the "
+            "right home for a manufacturing campaign and a construction one "
+            "for a construction campaign, and the area in the name does not "
+            "have to match — I keep broad ones for exactly this. Pass that "
+            "newsletter's exact name as the enroll_newsletter argument. Only "
+            "if nothing on the list is in the same line of work, leave "
+            "enroll_newsletter off entirely: do not create a newsletter. "
+            "Tell me which one you used, or that there wasn't one.")
+    d["newsletter_step"] = (
+        "" if not d["newsletter_clause"] else
+        "If this ends up creating a campaign or putting contacts into "
+        "DripDrop:" + d["newsletter_clause"])
     d["anon_clause"] = (
         " Do not use their names or their current employers anywhere in the "
         "outreach. Describe them by what they have actually done."
@@ -1162,12 +1177,21 @@ def build_prompt(req):
     vals = dict(req.get("vals") or {})
     d = _derived(r, vals)
     solo = (_txt(r, vals, "unattended") or "").startswith("Run it all")
+    # A routine can declare no tools and still be sent to the connector by
+    # the newsletter answer - "Something else" is exactly that. Name the
+    # tool the steps tell it to call, or the prompt asks for something it
+    # never introduced.
+    tools = list(r["tools"])
+    if (d.get("newsletter_clause")
+            and any("newsletter_" in st for st in r["steps"])
+            and "campaigns_list" not in tools):
+        tools.append("campaigns_list")
 
     # Only claim the connector when the routine actually reaches for it —
     # a research prompt that opens by naming a tool it never calls reads
     # like it was written for someone else.
     L = ["I need you to do this for me, using my DripDrop connector."
-         if r["tools"] else "I need you to do this for me.",
+         if tools else "I need you to do this for me.",
          "",
          "WHAT I WANT"]
     # The blurb is the last resort, not decoration: a setup saved before the
@@ -1208,12 +1232,12 @@ def build_prompt(req):
         n += 1
         L += _numbered(n, extra)
 
-    if r["tools"]:
+    if tools:
         L += ["", "TOOLS"]
         L += _wrap("Use my DripDrop connector: %s. If a tool is missing or "
                    "returns an auth error then the connector is not "
                    "connected — stop and tell me, do not work around it."
-                   % ", ".join(r["tools"]))
+                   % ", ".join(tools))
 
     L += ["", "HOW I WANT YOU TO WORK"]
     for i, rule in enumerate(STANDING_RULES):
