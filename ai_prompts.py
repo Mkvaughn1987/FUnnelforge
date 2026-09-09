@@ -111,7 +111,8 @@ WHEN_OPTIONS = ["Next Monday", "The Monday after next", "As soon as it's built",
 POSTING_AGE = ["Posted in the last 7 days", "Posted in the last 14 days",
                "Posted in the last 30 days", "Posted in the last 60 days"]
 
-CADENCE = ["Every week", "Every two weeks", "Every month"]
+CADENCE = ["Every weekday", "Every day", "Every week", "Every two weeks",
+           "Every month"]
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 TIMES = ["7:00am", "8:00am", "9:00am", "10:00am", "1:00pm", "3:00pm"]
 ZONES = ["Mountain", "Central", "Eastern", "Pacific"]
@@ -625,6 +626,74 @@ ROUTINES = [
         ],
     },
     {
+        "key": "linkedin_touches",
+        "name": "Work today's LinkedIn tasks",
+        "blurb": "Send the day's LinkedIn connection requests off Today's "
+                 "Tasks and mark them done.",
+        "example": "Send all of today's LinkedIn connection requests",
+        # No connector tool covers this. Nothing in the DripDrop API exposes
+        # the drip tasks, and LinkedIn has no tool at all, so the whole run
+        # is the browser: read the cards off Today's Tasks, act on LinkedIn,
+        # come back and tick them off. Declaring [] here is what keeps the
+        # prompt from opening by naming a connector it never calls.
+        "tools": [],
+        "fields": [
+            F("which_tasks", "Which LinkedIn tasks", "details", "select",
+              default="Everything due today, plus anything overdue",
+              options=["Everything due today, plus anything overdue",
+                       "Only what's due today",
+                       "Only the overdue ones"]),
+            F("message_source", "The connection note", "details", "select",
+              default="Use the message DripDrop shows, word for word",
+              options=["Use the message DripDrop shows, word for word",
+                       "Rewrite it for each person"],
+              hint="The message on the card is already written for that "
+                   "campaign and already fits LinkedIn's 300-character "
+                   "limit."),
+            F("if_connected", "If you're already connected to them",
+              "details", "select",
+              default="Skip them and mark the task done",
+              options=["Skip them and mark the task done",
+                       "Send the note as a message instead",
+                       "Skip them and leave the task open"]),
+            F("mark_done", "Mark each task done in DripDrop once the request "
+              "is sent", "details", "toggle", default=True),
+            F("daily_cap", "How many to send at most in one run", "size",
+              "number", default="25",
+              hint="LinkedIn throttles invitations - roughly 100 a week on a "
+                   "normal account. Going over gets the account restricted, "
+                   "so this stops the run rather than working the whole "
+                   "backlog in one sitting."),
+        ],
+        "steps": [
+            "Open dripdripdrop.ai in the browser and go to Today's Tasks. If "
+            "it asks you to sign in, stop and tell me - do not try to work "
+            "around the login.",
+            "Read every LinkedIn card on that page.{which_tasks_clause} Each "
+            "card gives you the person's name, their title and company, a "
+            "link to their LinkedIn profile, and the connection message "
+            "DripDrop wrote for that campaign. Collect all of them before "
+            "you send anything.",
+            "Tell me how many you found and which campaigns they came from, "
+            "then {report_gate}.",
+            "{go_prefix} work them one at a time. Open the person's profile "
+            "from the link on their card, send a connection "
+            "request, and attach the note.{message_clause}",
+            "{connected_clause}",
+            "Stop at {daily_cap} requests in this run even if there are more "
+            "cards left, and stop immediately if LinkedIn shows you any "
+            "limit or restriction warning - quote it to me word for word if "
+            "it does. Do not retry a request LinkedIn refused.",
+            "{mark_done_clause}",
+            "Do not send a request to anyone whose card you could not "
+            "actually read, and do not guess a profile URL from a name. If a "
+            "card has no LinkedIn link, skip it and list it for me.",
+            "When you finish, tell me how many requests went out, how many "
+            "you skipped and the reason for each, and how many cards are "
+            "still waiting.",
+        ],
+    },
+    {
         "key": "other",
         "name": "Something else",
         "blurb": "Anything that is not one of the above.",
@@ -815,6 +884,9 @@ def _derived(r, vals):
     solo = unattended.startswith("Run it all")
     d["gate"] = ("note anything that looks wrong, say so, and keep going"
                  if solo else "stop and wait for me to say go")
+    d["report_gate"] = ("carry on without waiting for me - flag anything "
+                        "that looks wrong as you go"
+                        if solo else "stop and wait for me to say go")
     d["go_prefix"] = "Then" if solo else "Once I say go,"
 
     d["template_clause"] = _template_clause(r, vals)
@@ -961,6 +1033,65 @@ def _derived(r, vals):
         'job_description, and set cadence to "%s".'
         % CADENCE_KEY.get(d.get("cand_cadence") or "", "one_email")
         if jd else "")
+    # ── Today's LinkedIn tasks ────────────────────────────────────────────
+    # The Today's Tasks page always renders overdue cards alongside today's,
+    # so "only what's due today" and "only the overdue ones" are both a
+    # filter the run has to apply on the page rather than something the URL
+    # can do. Say which, or the run works whatever it happens to see.
+    which = d.get("which_tasks") or ""
+    if which.startswith("Only what"):
+        d["which_tasks_clause"] = (
+            " Take only the ones due today - leave the cards flagged OVERDUE "
+            "where they are.")
+    elif which.startswith("Only the overdue"):
+        d["which_tasks_clause"] = (
+            " Take only the cards flagged OVERDUE - leave today's alone.")
+    else:
+        d["which_tasks_clause"] = (
+            " Take today's and the ones flagged OVERDUE both.")
+
+    d["message_clause"] = (
+        " Send DripDrop's message exactly as it appears on the card - it is "
+        "already written for that campaign and already inside LinkedIn's "
+        "300-character limit. Do not reword it, do not add to it, and do not "
+        "swap in a name the card does not show."
+        if (d.get("message_source") or "").startswith("Use the message")
+        else " Rewrite the note for each person off what their card says "
+             "about their role and company, keeping DripDrop's version as "
+             "the starting point and staying under 300 characters." + (
+                 " Put the first three you write in the log before sending "
+                 "the rest." if solo else
+                 " Show me the first three you write before sending the "
+                 "rest."))
+
+    conn = d.get("if_connected") or ""
+    if conn.startswith("Send the note"):
+        d["connected_clause"] = (
+            "If you are already connected to someone there is no request to "
+            "send - send them the note as a direct message instead and say "
+            "in your read-back that it went as a message, not a request.")
+    elif conn.startswith("Skip them and leave"):
+        d["connected_clause"] = (
+            "If you are already connected to someone, skip them and leave "
+            "their task open in DripDrop - I will decide what to do with it. "
+            "List every one you skipped this way.")
+    else:
+        d["connected_clause"] = (
+            "If you are already connected to someone, there is nothing to "
+            "send: mark that task done in DripDrop and move on. List every "
+            "one you handled this way.")
+
+    d["mark_done_clause"] = (
+        "After each request actually goes through, go back to the DripDrop "
+        "tab and mark that person's task done with the Done button on their "
+        "row. Mark it only once the request has genuinely sent - a task "
+        "ticked off for a request that never went is worse than one left "
+        "open, because nothing will bring it back."
+        if _flag(r, vals, "mark_done") else
+        "Do not mark anything done in DripDrop. Leave every task open and "
+        "give me the list of who the requests went to so I can tick them "
+        "off myself.")
+
     done = d.get("done_when") or ""
     d["done_clause"] = ("I will know it worked when %s." % done if done
                         else "Tell me plainly whether it worked, and how you "
@@ -1244,11 +1375,17 @@ def build_prompt(req):
         L += _bullet(UNATTENDED_RULE if (i == 0 and solo) else rule)
 
     if _flag(r, vals, "repeat_on"):
+        every = (_txt(r, vals, "repeat_every") or "every week").lower()
+        # A daily cadence has no weekday to name - "every weekday on Monday"
+        # reads as a contradiction and leaves Claude to pick which half of it
+        # to believe.
+        when = ("" if every.startswith("every day")
+                or every.startswith("every weekday")
+                else " on %s" % (_txt(r, vals, "repeat_day") or "Monday"))
         L += ["", "THEN MAKE IT REPEAT"]
-        L += _wrap("Run this again %s on %s at %s %s time, and keep running "
+        L += _wrap("Run this again %s%s at %s %s time, and keep running "
                    "it on that schedule."
-                   % ((_txt(r, vals, "repeat_every") or "every week").lower(),
-                      _txt(r, vals, "repeat_day") or "Monday",
+                   % (every, when,
                       _txt(r, vals, "repeat_time") or "8:00am",
                       _txt(r, vals, "repeat_tz") or "Mountain"))
         L += _wrap(
@@ -1303,7 +1440,7 @@ def _save_setups(rows):
 
 # ── Page ──────────────────────────────────────────────────────────────────
 
-# The three runs this page exists for, and a way out for anything else.
+# The runs this page exists for, and a way out for anything else.
 # Each one names a routine and, where it is a variant of one, the answers
 # that make it that variant. There is no free-text box on the first screen:
 # picking from here is the only way in, so every run starts on a schema the
@@ -1356,9 +1493,32 @@ STARTERS = [
         },
     },
     {
+        "id": "linkedin",
+        "label": "Send today's LinkedIn connection requests",
+        "sub": "Claude opens Today's Tasks, reads every LinkedIn card on it, "
+               "sends each person the connection request with the note "
+               "DripDrop already wrote for that campaign, and marks the task "
+               "done on the way back. Needs a browser it can drive and you "
+               "signed in to LinkedIn.",
+        "summary": "Work every LinkedIn card on Today's Tasks and send "
+                   "each person the connection request DripDrop wrote for "
+                   "them.",
+        "routine": "linkedin_touches",
+        # The only starter that opens with the schedule already on: a day's
+        # LinkedIn cards are a daily job by definition, and a run that has
+        # to be started by hand every morning is the thing this replaces.
+        # It runs unattended for the same reason - a scheduled run that
+        # parks at a review point every morning is a run that never sends.
+        # What review would have caught is handled in the steps instead:
+        # the cap stops it at 25, a card it cannot read is skipped rather
+        # than guessed at, and any LinkedIn warning stops the run outright.
+        "vals": {"repeat_on": True, "repeat_every": "Every weekday",
+                 "unattended": "Run it all the way through"},
+    },
+    {
         "id": "other",
         "label": "Something else - I'll describe it",
-        "sub": "Anything the three above do not cover. You write the job in "
+        "sub": "Anything the four above do not cover. You write the job in "
                "your own words on the next screen and Claude turns it into "
                "the same kind of prompt, with the same rules on it.",
         # Non-empty on purpose: with the "in one line" box gone this is the
@@ -1519,7 +1679,15 @@ def _aip_ask(s, rf, C):
         def _go():
             key = getattr(s, "_aip_pick", "") or STARTERS[0]["id"]
             starter = STARTER_BY_ID.get(key) or STARTERS[0]
-            s._aip_req = _req_from_starter(starter)
+            # Answers left behind by Back are picked up again only for the
+            # same job. A different job is a different set of questions, so
+            # carrying answers across would be carrying the wrong ones.
+            _prev = getattr(s, "_aip_back", None)
+            if _prev and _prev.get("starter") == starter["id"]:
+                s._aip_req = _prev
+            else:
+                s._aip_req = _req_from_starter(starter)
+            s._aip_back = None
             s._aip_open = None
             s._aip_saving = False
             s._aip_err = ""
@@ -1779,10 +1947,31 @@ def _aip_confirm(s, rf, C):
         vals.setdefault(f["key"], f["default"])
     opened = _aip_open_state(s, r, req)
 
+    def _restart():
+        # Defined up here because the header card renders before the button
+        # row and needs to be able to reach it.
+        s._aip_req = None
+        s._aip_back = None
+        s._aip_prompt = None
+        s._aip_open = None
+        s._aip_saving = False
+        s._aip_err = ""
+        rf()
+
     with _card(C, C["teal"]):
         heard = bool((req.get("raw") or "").strip())
-        _text("Here's what I understood" if heard else req.get("title")
-              or "Set this up", C, 15, 700, C["text_l"], 4)
+        with ui.element("div").style(
+                "display:flex;align-items:baseline;justify-content:space-between;"
+                "gap:12px;flex-wrap:wrap;"):
+            _text("Here's what I understood" if heard else req.get("title")
+                  or "Set this up", C, 15, 700, C["text_l"], 4)
+            # Up here rather than beside "Write my prompt": throwing the
+            # answers away is not a step in filling them in.
+            with ui.element("button").style(
+                    f"font-size:11px;color:{C['muted']};background:transparent;"
+                    f"border:none;cursor:pointer;font-family:inherit;padding:0;"
+                    ).on("click", _restart):
+                ui.label("Start over").style("pointer-events:none;")
         _text("Everything below is already answered. Change anything you like.",
               C, 12, colour=C["muted"], mb=16)
 
@@ -1855,10 +2044,14 @@ def _aip_confirm(s, rf, C):
             s._aip_saving = False
             rf()
 
-        def _restart():
+        def _back():
+            # Back, not "start over" - the answers are kept, so going out to
+            # read what the other jobs do costs nothing. They come back when
+            # you re-pick the same job. Start over, in the header, is the one
+            # that discards.
+            s._aip_back = s._aip_req
             s._aip_req = None
             s._aip_prompt = None
-            s._aip_open = None
             s._aip_saving = False
             s._aip_err = ""
             rf()
@@ -1870,8 +2063,8 @@ def _aip_confirm(s, rf, C):
                 ui.label("Write my prompt")
             _aip_save_setup(s, rf, C, req)
             with ui.element("button").classes("fd-gb").style(
-                    "padding:9px 18px;font-size:12px;").on("click", _restart):
-                ui.label("Start over")
+                    "padding:9px 18px;font-size:12px;").on("click", _back):
+                ui.label("← Back")
 
 
 # ── View 3: the prompt ────────────────────────────────────────────────────
@@ -1908,6 +2101,7 @@ def _aip_result(s, rf, C):
 
         def _restart():
             s._aip_req = None
+            s._aip_back = None
             s._aip_prompt = None
             s._aip_raw = ""
             s._aip_pick = ""

@@ -6789,9 +6789,23 @@ def add_domain_to_dnc(domain: str, company: str = "", reason: str = "Domain bloc
     return count
 
 
+# How far back the Today view reaches for tasks that were never worked.
+# Without a floor this grows without bound - a user who steps away for a
+# month comes back to thousands of "overdue" rows, and a number that large
+# says nothing except that they were away. Seven days is the window where
+# a missed call or connection request is still worth making; older than
+# that the touch has gone stale anyway, so it stops being surfaced.
+# The cutoff lives here rather than at each display site so the Home stat,
+# the alert line, the Overdue pill, the sidebar badge and the Overdue tab
+# itself cannot disagree about what "overdue" counts. Tasks outside the
+# window are not deleted or marked done - they are simply not shown.
+OVERDUE_WINDOW_DAYS = 7
+
+
 def build_drip_tasks(target_date=None):
     tasks = []
     today = date.today()
+    overdue_floor = today - timedelta(days=OVERDUE_WINDOW_DAYS)
     if target_date is None:
         target_date = today
     responded = {x["email"].lower() for x in load_responded()}
@@ -6837,6 +6851,11 @@ def build_drip_tasks(target_date=None):
                 # For today view, include overdue tasks (sd <= today) too
                 if target_date == today:
                     if sd > today:
+                        continue
+                    # Rolling window: anything due more than
+                    # OVERDUE_WINDOW_DAYS ago is dropped here, which is what
+                    # keeps the overdue count meaningful everywhere it shows.
+                    if sd < overdue_floor:
                         continue
                 else:
                     if sd != target_date:
@@ -12057,7 +12076,7 @@ PAGE_HELP = {
         "next_action": "Click any colored stat at the top to jump into that filtered list, or pick a campaign card to drill in.",
         "sections": [
             ("What is this?", "Your daily command center. Overdue tasks, emails sending today, active campaigns, and recent responses  -  all on one screen."),
-            ("Stat Bar", "Clickable colored numbers at the top:\n- Overdue (red): Tasks past their due date.\n- Tasks Today (amber): Calls, LinkedIn touches, and tasks due today.\n- Active (teal): Campaigns currently running.\n- Replies (green): Contacts who replied to your campaigns."),
+            ("Stat Bar", "Clickable colored numbers at the top:\n- Overdue (red): Tasks from the last 7 days that are past their due date.\n- Tasks Today (amber): Calls, LinkedIn touches, and tasks due today.\n- Active (teal): Campaigns currently running.\n- Replies (green): Contacts who replied to your campaigns."),
             ("Today's Drip / Tomorrow / Overdue", "Pills that jump you into Today's Drip with that filter active."),
             ("Recent Campaigns", "Most recent campaigns with progress bars. 'View all' jumps to Manage Campaigns."),
             ("Today's Activity", "Right column: emails sending today, recent responses, tasks due, and your pool status."),
@@ -12071,7 +12090,7 @@ PAGE_HELP = {
             ("What is this?", "Your daily to-do list for sales outreach  -  every call, LinkedIn touch, and task that needs to happen today, grouped by campaign."),
             ("Task Types", "Each task has a colored badge:\n- Call (amber): Phone call with script + talking points.\n- LinkedIn (indigo): Connection request or DM.\n- Task (gray): General action item.\n- Slow Drip (purple): Task from an evergreen campaign."),
             ("Completing Tasks", "Click a task to expand. Use the action buttons to mark it done, skip, or log an outcome."),
-            ("Overdue Tab", "Tasks from past days that weren't completed show with a red indicator."),
+            ("Overdue Tab", "Tasks from the last 7 days that weren't completed show with a red indicator. Anything older has aged out and is no longer listed."),
             ("Tomorrow", "Preview what's coming tomorrow so you can plan ahead."),
         ]
     },
@@ -27005,6 +27024,41 @@ def count_archivable_queue_entries(days: int = 30) -> int:
     )
 
 
+def _queue_body_plain(item: dict) -> str:
+    """The text of an email we actually sent, from its queue entry.
+
+    Every queue item inlines its rendered body except newsletter campaigns,
+    which store body="" and are resolved from the campaign file at send
+    time - so the same fallback is needed here or a newsletter reads as an
+    empty email. The result is plain text on purpose: these bodies are
+    full HTML documents and the caller is a 11px line in a sidebar card,
+    not a mail client.
+    """
+    import html as _html
+    body = (item.get("body") or "").strip()
+    if not body:
+        try:
+            body = _resolve_body_from_campaign(item, _user_dir())
+        except Exception:
+            body = ""
+    if not body:
+        return ""
+    # Style and script first - their contents are not text, and stripping
+    # the tags without them would spill CSS into the preview.
+    txt = re.sub(r"<(?:style|script)[^>]*>.*?</(?:style|script)>", " ", body,
+                 flags=re.I | re.S)
+    txt = re.sub(r"<(?:br|/p|/div|/tr|/h[1-6]|/li)[^>]*>", "\n", txt, flags=re.I)
+    txt = re.sub(r"<[^>]+>", "", txt)
+    txt = _html.unescape(txt)
+    # Tag stripping leaves the indentation of prettified HTML behind as
+    # ragged whitespace and long runs of blank lines; both would dominate
+    # a short preview.
+    txt = re.sub(r"[ \t]+", " ", txt)
+    txt = re.sub(r" *\n *", "\n", txt)
+    txt = re.sub(r"\n{3,}", "\n\n", txt)
+    return txt.strip()
+
+
 def p_dashboard(s: AppState, rf):
     """Dashboard - stats + active campaigns + Today/Tomorrow drip tabs."""
     _render_page_intro_strip(s, rf, "dashboard")
@@ -27408,27 +27462,83 @@ def p_dashboard(s: AppState, rf):
                             f"font-family:'Nunito',sans-serif;")
                         ui.label("responses this week").style(
                             f"font-size:13px;font-weight:600;color:{C['text_l']};")
+                        _unanswered = sum(1 for _r in _week_recs
+                                          if not _r.get("followed_up"))
+                        if _unanswered:
+                            ui.label(f"{_unanswered} not replied to").style(
+                                f"font-size:11px;font-weight:700;color:{C['warn']};")
                     def _go_resp():
                         nav_go(s, rf, hub="sales", page="responses")
                     with ui.element("button").style(
                             f"font-size:11px;color:{C['teal']};background:transparent;border:none;"
                             f"cursor:pointer;font-family:inherit;").on("click", _go_resp):
                         ui.label("View all")
+                # A responded record keeps only the reply - add_responded()
+                # never stores the outbound body - so the email we sent has
+                # to come back out of the queue, which is where the rendered
+                # body actually lives. Indexed once for the whole card
+                # instead of re-scanned per row.
+                _sent_by_to = {}
+
+                def _index_sent(_items):
+                    for _q in _items:
+                        if _q.get("status") != "sent":
+                            continue
+                        _t = (_q.get("to") or "").strip().lower()
+                        if _t:
+                            _sent_by_to.setdefault(_t, []).append(_q)
+
+                _index_sent(queue)
+                if any((_r.get("email") or "").strip().lower() not in _sent_by_to
+                       for _r in _week_recs[:6]):
+                    # Only read when a reply has no send in the live queue:
+                    # sends age out into the archive file after 30 days, and
+                    # that is a disk hit worth not taking on every render.
+                    _index_sent(_load_queue_archive())
+                for _lst in _sent_by_to.values():
+                    _lst.sort(key=lambda q: q.get("sent_at") or q.get("send_dt") or "")
+
                 if _week_recs:
                     for _r in _week_recs[:6]:
-                        _email = _r.get("email", "")
-                        _name = _r.get("name", _email)
+                        _email = (_r.get("email") or "").strip()
+                        # A logged reply can arrive with no name on it - a list
+                        # address, a shared inbox - and the row still has to
+                        # identify someone, so fall back to the address rather
+                        # than render a blank line where the name goes.
+                        _name = (_r.get("name") or "").strip() or _email or "(no address)"
                         _fu = _r.get("followed_up", False)
                         _body = (_r.get("reply_body") or "").strip()
                         _body_key = f"dash_resp_body_{_email}"
                         _body_open = _body_key in s.expanded
+                        # The reply answers the last thing that went out
+                        # before it, which is not always the most recent
+                        # send - a campaign keeps going until the reply is
+                        # logged, so a later touch can already have shipped.
+                        _sends = _sent_by_to.get(_email.lower()) or []
+                        _sent = None
+                        for _q in _sends:
+                            if (_q.get("sent_at") or "")[:10] <= _resp_date(_r)[:10]:
+                                _sent = _q
+                        if _sent is None and _sends:
+                            _sent = _sends[-1]
+                        _sent_key = f"dash_resp_sent_{_email}"
+                        _sent_open = _sent_key in s.expanded
                         with ui.element("div").style(
-                                f"padding:8px 0;border-top:1px solid {C['border']}30;"):
+                                f"padding:8px 0 8px 8px;border-top:1px solid {C['border']};"
+                                + (f"border-left:2px solid {C['warn']};"
+                                   if not _fu else "border-left:2px solid transparent;")):
                             with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;gap:8px;"):
                                 with ui.element("div").style("min-width:0;flex:1;"):
                                     ui.label(_name).style(
                                         f"font-size:12px;font-weight:600;color:{C['text_l']};"
                                         f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
+                                    # Skipped when the name already is the
+                                    # address - printing it twice tells you
+                                    # nothing and costs a line.
+                                    if _email and _email != _name:
+                                        ui.label(_email).style(
+                                            f"font-size:11px;color:{C['text']};"
+                                            f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
                                     ui.label(_r.get("campaign", "")).style(
                                         f"font-size:11px;color:{C['muted']};"
                                         f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
@@ -27439,21 +27549,79 @@ def p_dashboard(s: AppState, rf):
                                             if x.get("email", "").lower() == e.lower():
                                                 x["followed_up"] = True
                                         save_responded(all_r); rf()
-                                    with ui.element("button").classes("fd-pb").style(
-                                            "padding:4px 10px;font-size:10px;flex-shrink:0;").on("click", _mark):
-                                        ui.label("✓ I Responded").style("pointer-events:none;")
+                                    with ui.element("div").style(
+                                            "display:flex;flex-direction:column;align-items:flex-end;"
+                                            "gap:4px;flex-shrink:0;"):
+                                        # The button on its own reads as a
+                                        # state - "I Responded" - when it is
+                                        # actually the action. So the state
+                                        # gets said outright, above it.
+                                        ui.label("Not replied to").style(
+                                            f"font-size:10px;font-weight:700;color:{C['warn']};"
+                                            f"white-space:nowrap;")
+                                        with ui.element("button").classes("fd-pb").style(
+                                                "padding:4px 10px;font-size:10px;").on("click", _mark):
+                                            ui.label("✓ I Responded").style("pointer-events:none;")
                                 else:
                                     ui.label("✓ Responded").style(
                                         f"font-size:10px;color:{C['good']};flex-shrink:0;")
-                            if _body:
-                                def _tog_dash_body(k=_body_key):
-                                    s.expanded.symmetric_difference_update({k}); rf()
-                                with ui.element("button").style(
-                                        f"font-size:10px;color:{C['muted']};background:transparent;"
-                                        f"border:none;cursor:pointer;font-family:inherit;padding:0;margin-top:2px;"
-                                        ).on("click", _tog_dash_body):
-                                    ui.label("▾ Hide reply" if _body_open else "▸ Their reply").style("pointer-events:none;")
-                                if _body_open:
+                            # Both halves of the exchange, in the order it
+                            # happened: what we sent, then what came back.
+                            # Reading the reply without the email it answers
+                            # is most of the reason a reply sits unanswered -
+                            # you cannot tell what it is a reply to.
+                            if _sent is not None or _body:
+                                with ui.element("div").style(
+                                        "display:flex;align-items:center;gap:14px;"
+                                        "flex-wrap:wrap;margin-top:2px;"):
+                                    if _sent is not None:
+                                        def _tog_dash_sent(k=_sent_key):
+                                            s.expanded.symmetric_difference_update({k}); rf()
+                                        with ui.element("button").style(
+                                                f"font-size:10px;color:{C['muted']};background:transparent;"
+                                                f"border:none;cursor:pointer;font-family:inherit;padding:0;"
+                                                ).on("click", _tog_dash_sent):
+                                            ui.label("▾ Hide my email" if _sent_open
+                                                     else "▸ The email I sent").style("pointer-events:none;")
+                                    if _body:
+                                        def _tog_dash_body(k=_body_key):
+                                            s.expanded.symmetric_difference_update({k}); rf()
+                                        with ui.element("button").style(
+                                                f"font-size:10px;color:{C['muted']};background:transparent;"
+                                                f"border:none;cursor:pointer;font-family:inherit;padding:0;"
+                                                ).on("click", _tog_dash_body):
+                                            ui.label("▾ Hide reply" if _body_open
+                                                     else "▸ Their reply").style("pointer-events:none;")
+                                if _sent is not None and _sent_open:
+                                    _sent_body = _queue_body_plain(_sent)
+                                    with ui.element("div").style(
+                                            f"margin-top:4px;padding:8px 10px;background:{C['surface']};"
+                                            f"border-radius:6px;"):
+                                        _sent_on = (_sent.get("sent_at")
+                                                    or _sent.get("send_dt") or "")[:10]
+                                        # Date and subject first: which touch
+                                        # this was is usually the whole
+                                        # question, and the body only
+                                        # confirms it.
+                                        ui.label((f"Sent {_sent_on}  ·  " if _sent_on else "")
+                                                 + (_sent.get("subject") or "(no subject)")).style(
+                                            f"font-size:10px;font-weight:700;color:{C['text_l']};"
+                                            f"margin-bottom:4px;")
+                                        if _sent_body:
+                                            ui.label(_sent_body[:400]
+                                                     + ("…" if len(_sent_body) > 400 else "")).style(
+                                                f"font-size:11px;color:{C['text']};"
+                                                f"line-height:1.6;white-space:pre-wrap;")
+                                        else:
+                                            # The send is real - it is in the
+                                            # queue with a sent_at - but its
+                                            # body would not resolve. Say so
+                                            # instead of showing an empty box
+                                            # that reads like a blank email.
+                                            ui.label("Couldn't load the body of this one - the "
+                                                     "Queue has it.").style(
+                                                f"font-size:11px;color:{C['muted']};")
+                                if _body and _body_open:
                                     ui.label(_body[:400] + ("…" if len(_body) > 400 else "")).style(
                                         f"font-size:11px;color:{C['text']};margin-top:4px;"
                                         f"padding:8px 10px;background:{C['surface']};border-radius:6px;"
