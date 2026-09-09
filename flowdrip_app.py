@@ -11185,24 +11185,35 @@ window.ddMaybeStartTour = function() {
 # Nav items: (icon, label, page_key)
 # Section dividers use page_key=None  -  sidebar renders them as labels, not buttons
 SALES_NAV = [
-    # ── Home ─────────────────────────────────────
-    (None, "HOME",              None),
-    ("⬡",  "Dashboard",        "dashboard"),
-    ("☼",  "Today",             "drip"),
+    # ── My Day ───────────────────────────────────
+    # Section header is "MY DAY" not "HOME" so it doesn't stutter against
+    # the "Home" row directly beneath it (2026-09-09).
+    (None, "MY DAY",            None),
+    ("⬡",  "Home",              "dashboard"),
+    ("☼",  "Today's Tasks",     "drip"),
     ("◎",  "Replies",           "responses"),
-    # ── Sequences ────────────────────────────────
-    (None, "SEQUENCES",         None),
-    ("▷",  "Start a Sequence",  "start_seq"),
-    ("📁", "Campaign Library",  "drafts_saved"),
+    # ── Campaigns ───────────────────────────────
+    # Renamed from SEQUENCES 2026-09-09 — the app says "campaign"
+    # everywhere else (top bar, Saved Campaigns copy), so the sidebar
+    # now matches. Page keys are unchanged; only labels moved.
+    (None, "CAMPAIGNS",         None),
+    ("▷",  "New Campaign",      "start_seq"),
+    # Current Campaigns (seq_mgr) was top-bar-only until 2026-09-09, which
+    # left it unreachable once the top bar collapses on mobile.
+    ("▶",  "Current Campaigns", "seq_mgr"),
+    ("📁", "Saved Campaigns",   "drafts_saved"),
     ("≡",  "Contacts",          "contacts"),
-    ("🚫", "Opt-Out List",     "dnc"),
-    ("🛡", "Existing Customers", "active_clients"),
+    ("🚫", "Do Not Contact",   "dnc"),
+    ("🛡", "Current Clients",  "active_clients"),
     # ── Content & Tools ──────────────────────────
     # Slow Drip removed from sidebar 2026-05-20 — now lives as a section
     # at the bottom of the Newsletters page (merged so users see both
     # always-on touch points in one place). The "evergreen" page handler
     # is still callable as a subsection from p_newsletters.
     (None, "CONTENT & TOOLS",   None),
+    # Newsletters was top-bar-only until 2026-09-09 — added here so the
+    # sidebar is a complete map of the app and survives on mobile.
+    ("📰", "Newsletters",       "newsletters"),
     ("🎯", "AI Prompts",        "ai_prompts"),
     ("📊", "Sales Assets",      "pdf_gen"),
     # "Candidates" (Top Candidates roster) removed from sidebar 2026-06-09 —
@@ -12041,7 +12052,7 @@ def _seq_wizard_footer(s: AppState, rf, current_page: str, can_advance: bool = T
 
 PAGE_HELP = {
     "dashboard": {
-        "title": "Dashboard",
+        "title": "Home",
         "summary": "Your daily command center — overdue tasks, emails sending today, active campaigns, and recent replies, all on one screen.",
         "next_action": "Click any colored stat at the top to jump into that filtered list, or pick a campaign card to drill in.",
         "sections": [
@@ -12053,7 +12064,7 @@ PAGE_HELP = {
         ]
     },
     "drip": {
-        "title": "Today",
+        "title": "Today's Tasks",
         "summary": "Today's to-do list — every cold call, LinkedIn touch, and email task across your active campaigns, grouped by campaign.",
         "next_action": "Work through the list; click ✓ Done on each card or ✓ Mark All Done to clear a campaign group.",
         "sections": [
@@ -12065,7 +12076,7 @@ PAGE_HELP = {
         ]
     },
     "start_seq": {
-        "title": "Start a Sequence",
+        "title": "New Campaign",
         "summary": "Build a multi-step outreach campaign — pick contacts, write the emails, set delays, and queue.",
         "next_action": "Pick a preset on the right (Quick Sprint, Steady BD Cadence, etc.) or click Custom Build to build from scratch.",
         "sections": [
@@ -12074,11 +12085,11 @@ PAGE_HELP = {
             ("The 4 Steps", "Follow the sidebar:\n1. Emails  -  Write or edit each step.\n2. Sequence  -  Set delay between steps.\n3. Contacts  -  Upload or pick a CSV list.\n4. Launch  -  Review and queue."),
             ("AI Campaign Builder", "Click 'AI Campaign Builder' for a Claude-written full campaign after researching the target company."),
             ("Merge Variables", "{FirstName}, {LastName}, {Company}, {JobTitle} get replaced with each contact's info at send time."),
-            ("Unsubscribe Footer", "Every email auto-appends a 'Reply UNSUBSCRIBE to opt out' line + your company address (CAN-SPAM compliance). Replies with opt-out keywords auto-land in your Opt-Out List."),
+            ("Unsubscribe Footer", "Every email auto-appends a 'Reply UNSUBSCRIBE to opt out' line + your company address (CAN-SPAM compliance). Replies with opt-out keywords auto-land in your Do Not Contact list."),
         ]
     },
     "seq_mgr": {
-        "title": "Sequences",
+        "title": "Current Campaigns",
         "summary": "Every campaign you've launched — progress, sent counts, pending emails, contact status.",
         "next_action": "Click any campaign card to expand its emails, contacts, and queue. Pause or delete from there.",
         "sections": [
@@ -12095,7 +12106,7 @@ PAGE_HELP = {
         "sections": [
             ("What is this?", "Long-running campaigns on a fixed schedule. Enroll anytime  -  contacts pick up at the next upcoming email."),
             ("How It Works", "Regular campaigns start from Day 1 per contact. Slow Drips use fixed dates or rolling schedules. Contacts enrolled mid-sequence skip past emails."),
-            ("Enrolling Contacts", "'+ Enroll' on any campaign adds contacts from a saved CSV. Already-enrolled and Opt-Out List contacts are auto-skipped."),
+            ("Enrolling Contacts", "'+ Enroll' on any campaign adds contacts from a saved CSV. Already-enrolled and Do Not Contact contacts are auto-skipped."),
             ("Reply → Enroll Popup", "When you click Send Reply on a Responses page reply, a popup asks whether to enroll that contact in a Slow Drip or Newsletter. Keeps you in touch long-term."),
             ("Reminder Banner", "Amber banner shows emails sending in the next 7/14/30 days  -  review content before it ships."),
             ("Creating New", "'+ Create New Slow Drip Campaign' builds from scratch. Relative delays (Day 7, 14...) or fixed dates (May 1, June 1...)."),
@@ -12156,7 +12167,7 @@ PAGE_HELP = {
         ]
     },
     "dnc": {
-        "title": "Opt-Out List",
+        "title": "Do Not Contact",
         "summary": "Anyone here is auto-excluded from every campaign. Replies with \"unsubscribe\" auto-add.",
         "next_action": "Add an email manually, or upload a CSV of opt-outs.",
         "sections": [
@@ -18578,7 +18589,7 @@ def p_seq(s: AppState, rf):
     _page_decor(variant=1)  # Flowing Ribbon  -  the main Start a Campaign picker
 
     with ui.element("div").style("display:flex;align-items:center;"):
-        ui.label("Start a Sequence").classes("fd-h1")
+        ui.label("New Campaign").classes("fd-h1")
         _show_page_help(s, rf, "start_seq")
 
     # ── Wizard header ────────────────────────────────────────────────────
@@ -18711,7 +18722,7 @@ CHOOSER_OPTIONS = [
     {
         "key": "saved",
         "icon": "📁",
-        "title": "Campaign Library",
+        "title": "Saved Campaigns",
         "subtitle": "Resume a draft or re-use a finished sequence",
         "desc": ("Pick up a draft you started earlier, or load a sequence "
                  "from your library. Swap in a fresh contact list and send. "
@@ -18758,7 +18769,7 @@ def _sq_pick(s, rf):
             "Going to a single company? Pick Target a Company. "
             "Working a vertical or region? Target a Market. "
             "Working a specific role? Find Candidates. "
-            "Re-running something that worked? Campaign Library. "
+            "Re-running something that worked? Saved Campaigns. "
             "Want full manual control? Create a Campaign Style."
         ).style(
             f"font-size:12px;color:{C['muted']};margin-bottom:24px;line-height:1.55;"
@@ -18972,7 +18983,7 @@ def _sq_pick(s, rf):
     # ── INSIDE A TAB  -  back button + tab label ──────────────────────────────
     label_map = {
         "custom":    "Build from scratch",
-        "saved":     "Campaign Library",
+        "saved":     "Saved Campaigns",
         "community": "Community",
         "templates": "Templates",
     }
@@ -29210,7 +29221,7 @@ def p_seq_mgr(s, rf):
     completed.sort(key=_camp_recency_ts, reverse=True)
 
     with ui.element("div").style("display:flex;align-items:center;"):
-        ui.label("Sequences").classes("fd-h1")
+        ui.label("Current Campaigns").classes("fd-h1")
         _show_page_help(s, rf, "seq_mgr")
     ui.label(f"{len(active)} active · {len(completed)} completed").classes("fd-sub")
 
@@ -30229,7 +30240,7 @@ def p_dnc(s, rf):
     with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;"):
         with ui.element("div"):
             with ui.element("div").style("display:flex;align-items:center;"):
-                ui.label("Opt-Out List").classes("fd-h1")
+                ui.label("Do Not Contact").classes("fd-h1")
                 _show_page_help(s, rf, "dnc")
             ui.label(f"{len(dnc)} blocked email{'s' if len(dnc) != 1 else ''}  -  "
                      "these contacts will never receive emails from any campaign.").classes("fd-sub")
@@ -30397,7 +30408,7 @@ def p_active_clients(s, rf):
             "display:flex;align-items:flex-start;justify-content:space-between;"
             "gap:16px;margin-bottom:6px;"):
         with ui.element("div").style("flex:1;min-width:0;"):
-            ui.label("Existing Customers").classes("fd-h1")
+            ui.label("Current Clients").classes("fd-h1")
             ui.label(
                 "Contacts at these domains get flagged before sending — so we don't "
                 "accidentally recruit from our own clients. "
@@ -35661,7 +35672,7 @@ def p_ai_campaign(s: AppState, rf):
     # Cleared on successful campaign generation (see Generate handler).
     try:
         _save_wizard_draft(s)
-        _autosave_campaign_draft(s)  # also land it in the Campaign Library as a draft
+        _autosave_campaign_draft(s)  # also land it in Saved Campaigns as a draft
     except Exception:
         pass
 
