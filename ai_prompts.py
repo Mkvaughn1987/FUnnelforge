@@ -166,6 +166,109 @@ SKIP_FIELDS = [
 # ticked.
 ROUTINES = [
     {
+        "key": "slate_campaign",
+        "name": "Find companies hiring and pitch them a slate",
+        "blurb": "Source companies hiring in an industry and geography, build "
+                 "a slate of candidates for each one out of the DripDrop "
+                 "Pipeline, and run the sequence into the buying centre.",
+        "example": "Find package manufacturers in Colorado hiring maintenance "
+                   "techs, put three of my people in front of each of them",
+        "tools": ["candidates_search", "campaign_types", "my_campaign_styles",
+                  "create_campaign"],
+        "fields": [
+            F("industry", "What kind of company", "details", ask=True,
+              placeholder="e.g. package manufacturing"),
+            F("location", "Where", "details", ask=True,
+              placeholder="e.g. Colorado and Wyoming"),
+            F("roles", "What jobs they're hiring for", "details", ask=True,
+              placeholder="e.g. plant managers and maintenance techs"),
+            F("slate_size", "How many candidates to put in front of each "
+              "company", "details", "number", default="3",
+              hint="1 is the fewest, 6 the most a campaign will carry."),
+            F("ai_fallback", "If the Pipeline comes up short", "details",
+              "select", default="Have DripDrop's AI build the rest",
+              options=["Have DripDrop's AI build the rest",
+                       "Send fewer - real bench people only"],
+              hint="The same choice as Create profiles with AI on the "
+                   "Candidates step of the sequence wizard: an anonymous "
+                   "sample profile built from the job title and what the "
+                   "posting is asking for."),
+            F("anonymise", "Hide their names and current employers", "details",
+              "toggle", default=True),
+            F("company_size", "How big a company", "details",
+              default="50 to 1000 people"),
+            F("who_to_reach", "Who to reach", "details",
+              default="owners and C-level first, then VPs, then directors, "
+                      "then managers, with HR and talent acquisition last",
+              hint="Never the person whose own job the opening is."),
+            F("good_fit", "What makes a good one", "details", "textarea",
+              placeholder="Anything that separates a company worth calling "
+                          "from one that just has a posting up"),
+            F("sequence", "Which sequence", "emails", "select",
+              default="Arena 5x5", options=SEQUENCES),
+            F("saved_style", "Which saved style", "emails",
+              hint="Only if you picked one of your saved styles above."),
+            F("start_when", "When the first email goes out", "emails",
+              "select", default="Next Monday", options=WHEN_OPTIONS),
+            F("campaign_name", "What to call the campaigns", "emails",
+              default="the company name"),
+            F("newsletter", "Also add them to a newsletter", "emails",
+              placeholder="Name of the newsletter, or leave blank"),
+            F("companies", "How many companies you want to end up with",
+              "size", "number", default="5"),
+            F("contacts_each", "How many people at each company", "size",
+              "number", default="7",
+              hint="3 is the fewest worth doing, 15 the most."),
+            F("email_cap", "Most emails this run should send", "size",
+              "number", default="175"),
+            F("posting_age", "How recent the job postings have to be", "size",
+              "select", default="Posted in the last 30 days",
+              options=POSTING_AGE),
+            F("boards", "Where to look for the jobs", "size",
+              default="Google Jobs first, then ZipRecruiter, then LinkedIn"),
+        ] + SKIP_FIELDS,
+        "steps": [
+            "Search the job boards for companies hiring {roles} in "
+            "{location}, {posting_age_lc}. {boards}. If Google shows a bot "
+            "check, do not try to solve it: drop to ZipRecruiter and tell me "
+            "Google was skipped. Run ZipRecruiter either way.",
+            "{skip_clause}",
+            "Size about {pool} companies to land {companies} of about "
+            "{company_size}, and name 3 ranked reserves. For every pick give "
+            "the concrete signal that earned it, the actual fact from the "
+            "posting, not \"good fit\". For every reserve give its "
+            "demerit.{good_fit_clause}",
+            "Now build the slate. For each company, search the DripDrop "
+            "Pipeline with candidates_search for {slate_size} people who "
+            "genuinely fit the openings you found there. Use a limit of 1 or "
+            "2 per query - the full resume text is large and a wide query "
+            "will blow the context. Score each one against the actual "
+            "posting and say what the evidence was. The same title is not "
+            "the same job.",
+            "{fallback_clause}",
+            "Pull the buying centre for each company out of ZoomInfo. Aim "
+            "for {contacts_each} contacts per company; 3 is the floor that "
+            "qualifies a company at all, 15 is the cap. Work down "
+            "{who_to_reach}.",
+            "Show me the companies, the slate you built for each, the "
+            "contacts and the total send volume. This run must not send more "
+            "than {email_cap} emails - if it would, cut the weakest "
+            "companies until it doesn't. Then {gate}.",
+            "{go_prefix} build one campaign per company with create_campaign "
+            "using {template_clause}, start_date {start_date}, and industry, "
+            "location and roles set from THE DETAILS above. Pass that "
+            "company's {slate_size} people in the candidates argument, one "
+            "card each, shaped {{\"label\": \"Candidate A\", \"role\": a real "
+            "job title, \"bullets\": three bullets}} - and each bullet is a "
+            "skillset, a notable project, or a company they have worked for. "
+            "No years-of-experience, location or salary "
+            "bullets.{anon_clause}{name_clause}{newsletter_clause} Read back "
+            "the campaign id, the step count, the queued-contact count and "
+            "which slate went out for every one, and tell me about any that "
+            "came back short.",
+        ],
+    },
+    {
         "key": "sales_campaign",
         "name": "Find companies to sell to",
         "blurb": "Source companies hiring in an industry and geography, pull "
@@ -258,12 +361,17 @@ ROUTINES = [
               placeholder="e.g. the Denver metro"),
             F("travel", "How far they'll travel", "details",
               default="the metro they are already in"),
+            F("breadth", "How wide to go", "details", "select",
+              default="Only the companies that are a strong fit",
+              options=["Only the companies that are a strong fit",
+                       "Every live opening they genuinely fit, however many "
+                       "that is"]),
             F("anonymise", "Hide their names and current employers", "details",
               "toggle", default=True),
             F("who_to_reach", "Who to reach", "details",
               default="owners and C-level first, then VPs, then directors"),
             F("sequence", "Which sequence", "emails", "select",
-              default="Arena 5x3", options=SEQUENCES),
+              default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
               hint="Only if you picked one of your saved styles above."),
             F("pin_slate", "Send these exact people, or let DripDrop pick",
@@ -291,9 +399,9 @@ ROUTINES = [
             "have run, the size of company they have done it "
             "at.{anon_clause}",
             "Find live openings at {target_company} in {location} that "
-            "genuinely fit each one. The same title is not the same job - "
-            "score the fit and say what the evidence was. Keep it inside "
-            "{travel}.",
+            "genuinely fit each one.{breadth_clause} The same title is not "
+            "the same job - score the fit and say what the evidence was. "
+            "Keep it inside {travel}.",
             "{skip_clause}",
             "Land {companies_each} companies per candidate, and pull "
             "{contacts_each} contacts at each out of ZoomInfo. Work down "
@@ -702,6 +810,36 @@ def _derived(r, vals):
         " Do not use their names or their current employers anywhere in the "
         "outreach. Describe them by what they have actually done."
         if _flag(r, vals, "anonymise") else "")
+    # What to do when the bench cannot fill the slate. "Have DripDrop's AI
+    # build the rest" is the same thing as the wizard's Create profiles with
+    # AI button: an anonymous archetype card, not a real person, and the
+    # read-back has to say which is which.
+    n_slate = _n(r, vals, "slate_size", 3)
+    if (d.get("ai_fallback") or "").startswith("Have DripDrop"):
+        d["fallback_clause"] = (
+            "If a company comes up short - fewer than %d real people in the "
+            "Pipeline who actually fit - do not drop the company and do not "
+            "pad the slate with someone who does not fit. Fill the gap the "
+            "way DripDrop's own Create profiles with AI step does: write "
+            "each missing one as an anonymous sample profile built from the "
+            "job title and what the posting is asking for - the right level, "
+            "the focus, the certifications - and label them Candidate A, "
+            "Candidate B, Candidate C in order. Never give a sample profile "
+            "a real person's name or employer. In your read-back, say for "
+            "every company which slots are real bench people and which are "
+            "AI-built samples." % n_slate)
+    else:
+        d["fallback_clause"] = (
+            "If a company comes up short, send the real people you have and "
+            "nothing else. Do not invent a profile to fill the slate. Tell "
+            "me which companies went out light and how light.")
+
+    d["breadth_clause"] = (
+        " Sweep for every one you can find rather than stopping at the first "
+        "handful, and do not narrow it down by industry or company type - "
+        "coverage is the whole point of this run."
+        if (d.get("breadth") or "").startswith("Every live opening") else "")
+
     d["slate_clause"] = (
         " Pass the exact people I named in the candidates argument so "
         "DripDrop does not substitute anyone."
@@ -1095,103 +1233,64 @@ def _save_setups(rows):
 
 # ── Page ──────────────────────────────────────────────────────────────────
 
-# Starter sentences. Deliberately written the way someone would actually
-# type them — half-specified, no jargon — because the point is to show that
-# a rough sentence is enough, not to show off a perfect one.
-# The ten things you can start. Each one names a routine and, where it is a
-# variant of one, the answers that make it that variant. There is no free-text
-# box: picking from here is the only way in, so every run starts on a schema
-# the next screen already knows how to render.
+# The three runs this page exists for, and a way out for anything else.
+# Each one names a routine and, where it is a variant of one, the answers
+# that make it that variant. There is no free-text box on the first screen:
+# picking from here is the only way in, so every run starts on a schema the
+# next screen already knows how to render.
+#
+# The catalogue still holds the other routines - loading resumes, searching
+# the bench, reading back what is running, writing a brief. They work, they
+# are just not what this dropdown is for. Add one here when it earns a slot.
 STARTERS = [
     {
-        "id": "companies",
-        "label": "Find companies to sell to",
-        "sub": "Companies hiring in an industry and area, the people who own "
-               "the hiring there, and outreach to them.",
-        "summary": "Find companies hiring and set up outreach to them.",
-        "routine": "sales_campaign",
+        "id": "slate",
+        "label": "Find companies hiring in a market and put candidates in "
+                 "front of them",
+        "sub": "You give an industry and an area. Claude finds the companies "
+               "with live openings, pulls three people out of your DripDrop "
+               "Pipeline for each of them - and has DripDrop's AI build the "
+               "rest of the slate if the bench comes up short - then runs the "
+               "Arena 5x5 into the buying centre.",
+        "summary": "Find companies hiring in an industry and area, build a "
+                   "candidate slate for each, and run the Arena 5x5.",
+        "routine": "slate_campaign",
         "vals": {},
     },
     {
-        "id": "companies_weekly",
-        "label": "Find companies to sell to, and run it again every week",
-        "sub": "The same thing, set to run again on its own on a day and "
-               "time you pick.",
-        "summary": "Find companies hiring and set up outreach, and run it "
-                   "again every week.",
-        "routine": "sales_campaign",
-        "vals": {"repeat_on": True},
-    },
-    {
         "id": "market",
-        "label": "Market my candidates out",
-        "sub": "Start from the people on your bench and find companies who "
-               "could use them.",
-        "summary": "Market my available candidates out to companies who "
-                   "could use them.",
+        "label": "Take candidates from my Pipeline out to companies hiring "
+                 "them",
+        "sub": "You name the people. Claude pulls them out of the DripDrop "
+               "Pipeline, finds companies with openings they genuinely fit, "
+               "pulls the contacts, and runs the Arena 5x5.",
+        "summary": "Market named candidates out to companies hiring for what "
+                   "they do.",
         "routine": "market_candidates",
         "vals": {},
     },
     {
-        "id": "launch",
-        "label": "Email a list I already have",
-        "sub": "Build a sequence and send it to contacts you already have, "
-               "from a file or a list.",
-        "summary": "Send an outreach sequence to a list I already have.",
-        "routine": "launch_campaign",
-        "vals": {},
-    },
-    {
-        "id": "jd",
-        "label": "Send a job description out to candidates",
-        "sub": "Email people about one specific opening, a couple of emails "
-               "over a couple of days.",
-        "summary": "Email candidates about a specific opening.",
-        "routine": "launch_campaign",
-        "vals": {"cand_cadence": "Two, a day apart"},
-        "ask_extra": ["jd"],
-    },
-    {
-        "id": "bench",
-        "label": "Search my bench for someone",
-        "sub": "Find people already in DripDrop who could do a particular "
-               "job.",
-        "summary": "Find people already in DripDrop who match a role.",
-        "routine": "find_candidates",
-        "vals": {},
-    },
-    {
-        "id": "load",
-        "label": "Load resumes into DripDrop",
-        "sub": "Bring candidates or resumes in from a folder, a file or a "
-               "list, without creating duplicates.",
-        "summary": "Import candidates into DripDrop without duplicating "
-                   "anyone.",
-        "routine": "load_candidates",
-        "vals": {},
-    },
-    {
-        "id": "write",
-        "label": "Write a newsletter or a market brief",
-        "sub": "Read the web on a subject and write it up, with the sources "
-               "for every number in it.",
-        "summary": "Research a subject and write it up.",
-        "routine": "research",
-        "vals": {},
-    },
-    {
-        "id": "running",
-        "label": "Tell me what's running",
-        "sub": "Read back your live campaigns, their emails, and how they "
-               "are doing.",
-        "summary": "Show me what I have running and how it is doing.",
-        "routine": "campaign_report",
-        "vals": {},
+        "id": "sweep",
+        "label": "Take one candidate out to every company with a job for them",
+        "sub": "One person, nothing narrowed down. Claude sweeps for every "
+               "live opening that genuinely fits them, however wide that "
+               "goes, and runs the Arena 5x5 at all of it.",
+        "summary": "Sweep for every live opening one candidate fits, and run "
+                   "the Arena 5x5 at all of them.",
+        "routine": "market_candidates",
+        "vals": {
+            "target_company": "any company at all",
+            "breadth": "Every live opening they genuinely fit, however many "
+                       "that is",
+            "companies_each": "10",
+        },
     },
     {
         "id": "other",
-        "label": "Something else",
-        "sub": "Describe it in your own words on the next screen.",
+        "label": "Something else - I'll describe it",
+        "sub": "Anything the three above do not cover. You write the job in "
+               "your own words on the next screen and Claude turns it into "
+               "the same kind of prompt, with the same rules on it.",
         "summary": "",
         "routine": "other",
         "vals": {},
