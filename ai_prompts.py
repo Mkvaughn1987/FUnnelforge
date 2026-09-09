@@ -1521,6 +1521,7 @@ def _aip_ask(s, rf, C):
             starter = STARTER_BY_ID.get(key) or STARTERS[0]
             s._aip_req = _req_from_starter(starter)
             s._aip_open = None
+            s._aip_saving = False
             s._aip_err = ""
             rf()
 
@@ -1569,6 +1570,7 @@ def _aip_setup_row(s, rf, C, row, setups):
         }
         s._aip_prompt = None
         s._aip_open = None
+        s._aip_saving = False
         s._aip_err = ""
         rf()
 
@@ -1712,10 +1714,23 @@ def _aip_extra(s, rf, C, req):
 
 
 def _aip_save_setup(s, rf, C, req):
+    # The name box used to sit here unasked, pre-filled with the job's own
+    # one-line description - full width, no label, right under the build
+    # button. It read as one more question about the run rather than as a
+    # name for a bookmark. Now nothing shows until you ask to save, and the
+    # box starts empty: nothing to read past, nothing to clear.
+    if not getattr(s, "_aip_saving", False):
+        def _open():
+            s._aip_saving = True
+            rf()
+        with ui.element("button").classes("fd-gb").style(
+                "padding:8px 18px;font-size:12px;").on("click", _open):
+            ui.label("Save these answers")
+        return
+
     name_box = ui.input(
-        value=req.get("title") or "",
         placeholder="Name it, e.g. Colorado HVAC weekly"
-    ).props("dense").classes("fd-input").style("max-width:320px;")
+    ).props("dense autofocus").classes("fd-input").style("max-width:280px;")
 
     def _save():
         name = (name_box.value or "").strip()
@@ -1736,14 +1751,23 @@ def _aip_save_setup(s, rf, C, req):
             "saved_at": date.today().isoformat(),
         })
         if _save_setups(rows[:30]):
+            s._aip_saving = False
             ui.notify("Saved. It'll be on the first screen next time.",
                       type="positive")
+            rf()
         else:
             ui.notify("Couldn't save that.", type="negative")
 
+    def _cancel():
+        s._aip_saving = False
+        rf()
+
     with ui.element("button").classes("fd-gb").style(
             "padding:8px 18px;font-size:12px;").on("click", _save):
-        ui.label("Save these answers")
+        ui.label("Save")
+    with ui.element("button").classes("fd-gb").style(
+            "padding:8px 14px;font-size:12px;").on("click", _cancel):
+        ui.label("Cancel")
 
 
 def _aip_confirm(s, rf, C):
@@ -1828,12 +1852,14 @@ def _aip_confirm(s, rf, C):
     with _card(C):
         def _build():
             s._aip_prompt = build_prompt(req)
+            s._aip_saving = False
             rf()
 
         def _restart():
             s._aip_req = None
             s._aip_prompt = None
             s._aip_open = None
+            s._aip_saving = False
             s._aip_err = ""
             rf()
 
@@ -1886,6 +1912,7 @@ def _aip_result(s, rf, C):
             s._aip_raw = ""
             s._aip_pick = ""
             s._aip_open = None
+            s._aip_saving = False
             s._aip_err = ""
             rf()
 
