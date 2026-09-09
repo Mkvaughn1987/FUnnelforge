@@ -1,16 +1,16 @@
-"""AI Prompts — one box, any request, a ready-to-paste Claude prompt out.
+"""AI Prompts — answer as much or as little as you like, get a prompt out.
 
-The user types what they want in their own words. DripDrop reads it, says back
-what it understood so it can be corrected before anything is built, and then
-writes the full instruction to hand Claude.
+The user types what they want in their own words. DripDrop reads it, shows
+back what it understood as a set of plain-English questions it has already
+part-answered, and then writes the full instruction to hand Claude.
 
-Why this exists: everything DripDrop can't do server-side — reading job boards,
-ZoomInfo pulls on a Claude connector seat, web research, making a routine
-repeat — has to be done by Claude, and the quality of that run is decided
-almost entirely by how well the first message was written. Most people write it
-badly. This writes it for them.
+Why this exists: everything DripDrop can't do server-side — reading job
+boards, ZoomInfo pulls on a Claude connector seat, web research, making a
+routine repeat — has to be done by Claude, and the quality of that run is
+decided almost entirely by how well the first message was written. Most
+people write it badly. This writes it for them.
 
-Two rules the module is built around:
+Four rules the module is built around:
 
   1. ONE SOURCE FOR THE TEXT. build_prompt() is the only place a prompt is
      assembled. The page shows exactly what it returns, character for
@@ -18,20 +18,34 @@ Two rules the module is built around:
      user copies and what this module thinks it produced cannot drift apart.
      (Same rule sales_campaign.handoff_brief follows.)
 
-  2. THE PARSE IS A DRAFT, NOT A VERDICT. The model's reading of a sentence is
-     shown as editable fields, never applied silently. A wrong industry or a
-     mis-read geography is cheap to fix here and expensive to fix after a run
-     has spent ZoomInfo credits against it.
+  2. THE PARSE IS A DRAFT, NOT A VERDICT. The model's reading of a sentence
+     is shown as editable fields, never applied silently. A wrong industry
+     or a mis-read geography is cheap to fix here and expensive to fix after
+     a run has spent ZoomInfo credits against it.
 
-Scheduling is deliberately NOT stored on this side. DripDrop asks the yes/no;
-if yes, the generated prompt tells Claude to settle the day, time and timezone
-and create the recurring task itself with the whole brief baked in. That keeps
-one schedule in one place — Claude's — instead of two that can disagree.
+  3. THE QUESTIONS ARE FIXED, THE ANSWERS ARE GUESSED. Every routine
+     declares its own FIELDS list. The screen is built from that list, not
+     from whatever labels the model invented this time, so the same job
+     always asks the same questions in the same order. The parse only fills
+     them in.
+
+  4. A BLANK IS NOT AUTOMATICALLY A QUESTION. With this many fields, turning
+     every empty box into something Claude has to ask about would open a run
+     with twenty questions. So a field either carries a default good enough
+     to write straight into the prompt, or it is marked ask=True and only
+     then becomes a question. See _open_questions().
+
+Scheduling is deliberately NOT stored on this side. The user answers the
+cadence here; the generated prompt tells Claude to create the recurring task
+itself with the whole brief baked in. That keeps one schedule in one place —
+Claude's — instead of two that can disagree.
 """
 import asyncio
 import json
 import re
 import sys
+import uuid
+from datetime import date, timedelta
 
 from nicegui import ui
 
@@ -50,16 +64,106 @@ def _ff():
 
 MODEL = "claude-haiku-4-5-20251001"
 
-# ── The routine catalogue ─────────────────────────────────────────────────
+# ── The sections of the confirm screen ────────────────────────────────────
+#
+# `open_always` is the section the user is expected to read every time. The
+# rest start collapsed and open themselves if the parse put a value in one,
+# so a value the model chose is never hidden behind a closed heading.
+SECTIONS = [
+    ("details", "The details", True),
+    ("emails", "The emails", False),
+    ("size", "How big this run is", False),
+    ("skip", "Leave these out", False),
+    ("repeat", "Repeat it", False),
+    ("extra", "Anything else Claude should know", False),
+]
+SECTION_NAME = {k: n for k, n, _ in SECTIONS}
+
+
+def F(key, label, section="details", type="text", default="", ask=False,
+      hint="", placeholder="", options=None):
+    """One question on the screen.
+
+    ask=True means "only the user can answer this" — left blank it becomes a
+    question in the prompt. ask=False means the default is good enough to
+    write in without asking, which is what keeps the prompt short.
+    """
+    return {"key": key, "label": label, "section": section, "type": type,
+            "default": default, "ask": ask, "hint": hint,
+            "placeholder": placeholder, "options": options or []}
+
+
+SEQUENCES = ["Arena 5x5", "Arena 5x3", "Arena 4x4", "One of my saved styles",
+             "Let Claude choose"]
+
+# Which create_campaign template each sequence name means. The prompt names
+# the template key outright rather than describing the sequence, so Claude
+# does not have to guess which one "the five-step one" was.
+TEMPLATE_KEY = {
+    "Arena 5x5": "fivebyfive",
+    "Arena 5x3": "fivebythree",
+    "Arena 4x4": "fourbyfour",
+}
+
+WHEN_OPTIONS = ["Next Monday", "The Monday after next", "As soon as it's built",
+                "A date I'll give Claude"]
+
+POSTING_AGE = ["Posted in the last 7 days", "Posted in the last 14 days",
+               "Posted in the last 30 days", "Posted in the last 60 days"]
+
+CADENCE = ["Every week", "Every two weeks", "Every month"]
+DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+TIMES = ["7:00am", "8:00am", "9:00am", "10:00am", "1:00pm", "3:00pm"]
+ZONES = ["Mountain", "Central", "Eastern", "Pacific"]
+UNATTENDED = ["Stop and check with me first", "Run it all the way through"]
+
+# Asked on every job, whatever it is. Appended to each routine's own list.
+COMMON_FIELDS = [
+    F("repeat_on", "Run this again on a schedule", "repeat", "toggle",
+      default=False),
+    F("repeat_every", "How often", "repeat", "select", default="Every week",
+      options=CADENCE),
+    F("repeat_day", "Which day", "repeat", "select", default="Monday",
+      options=DAYS),
+    F("repeat_time", "What time", "repeat", "select", default="8:00am",
+      options=TIMES),
+    F("repeat_tz", "Your timezone", "repeat", "select", default="Mountain",
+      options=ZONES),
+    F("unattended", "When it runs on its own, should Claude stop and check "
+      "with you, or finish it?", "repeat", "select",
+      default="Stop and check with me first", options=UNATTENDED,
+      hint="Nobody is in the chair on a scheduled run. If Claude stops and "
+           "waits, the run just sits there until you find it."),
+]
+
+# The three exclusions nearly every outbound job wants, kept identical
+# across routines so the generated wording is identical too.
+SKIP_FIELDS = [
+    F("skip_worked", "Companies someone on the team has already worked",
+      "skip", "toggle", default=True),
+    F("skip_customers", "Companies we already do business with", "skip",
+      "toggle", default=True),
+    F("skip_recruiters", "Other recruiters, job boards and government",
+      "skip", "toggle", default=True),
+    F("never_these", "Never these companies", "skip", "text",
+      placeholder="e.g. Acme Industrial, Northgate Group"),
+    F("only_these", "Only these companies", "skip", "text",
+      hint="Fill this in and everything else is ignored.",
+      placeholder="Leave blank unless you have a fixed list"),
+]
+
+
+# ── The job catalogue ─────────────────────────────────────────────────────
 #
 # What a DripDrop user can actually get Claude to do. This one table drives
-# both halves of the feature: the parse is told to choose a `key` from it, and
-# build_prompt() writes `steps` and `tools` straight out of the row that was
-# chosen. Adding a routine here adds it to both at once — there is no second
-# list to keep in step.
+# the whole feature: the parse is told to choose a `key` from it, the screen
+# renders that row's `fields`, and build_prompt() fills that row's `steps`
+# with the answers. Adding a job here adds it everywhere at once.
 #
-# `steps` are the parts a good run always has and a bad one skips. The parse
-# adds the target-specific detail on top; it does not replace these.
+# `steps` are format templates. A {placeholder} is either a field key or one
+# of the derived values in _derived(). A step that comes out empty is
+# dropped, which is how the exclusions step disappears when nothing is
+# ticked.
 ROUTINES = [
     {
         "key": "sales_campaign",
@@ -72,30 +176,69 @@ ROUTINES = [
                    "and set up outreach",
         "tools": ["campaign_types", "my_campaign_styles",
                   "candidates_search", "create_campaign"],
+        "fields": [
+            F("industry", "What kind of company", "details", ask=True,
+              placeholder="e.g. package manufacturing"),
+            F("location", "Where", "details", ask=True,
+              placeholder="e.g. Colorado and Wyoming"),
+            F("roles", "What jobs they're hiring for", "details", ask=True,
+              placeholder="e.g. plant managers and maintenance techs"),
+            F("company_size", "How big a company", "details",
+              default="50 to 1000 people"),
+            F("who_to_reach", "Who to reach", "details",
+              default="owners and C-level first, then VPs, then directors, "
+                      "then managers, with HR and talent acquisition last",
+              hint="Never the person whose own job the opening is."),
+            F("good_fit", "What makes a good one", "details", "textarea",
+              placeholder="Anything that separates a company worth calling "
+                          "from one that just has a posting up"),
+            F("sequence", "Which sequence", "emails", "select",
+              default="Arena 5x5", options=SEQUENCES),
+            F("saved_style", "Which saved style", "emails",
+              hint="Only if you picked one of your saved styles above."),
+            F("start_when", "When the first email goes out", "emails",
+              "select", default="Next Monday", options=WHEN_OPTIONS),
+            F("campaign_name", "What to call the campaigns", "emails",
+              default="the company name"),
+            F("newsletter", "Also add them to a newsletter", "emails",
+              placeholder="Name of the newsletter, or leave blank"),
+            F("companies", "How many companies you want to end up with",
+              "size", "number", default="5"),
+            F("contacts_each", "How many people at each company", "size",
+              "number", default="7",
+              hint="3 is the fewest worth doing, 15 the most."),
+            F("email_cap", "Most emails this run should send", "size",
+              "number", default="175"),
+            F("posting_age", "How recent the job postings have to be", "size",
+              "select", default="Posted in the last 30 days",
+              options=POSTING_AGE),
+            F("boards", "Where to look for the jobs", "size",
+              default="Google Jobs first, then ZipRecruiter, then LinkedIn"),
+        ] + SKIP_FIELDS,
         "steps": [
-            "Search the job boards for companies hiring those roles in that "
-            "geography, posted in the last 30 days. Google Jobs first — it "
-            "casts the widest net — then ZipRecruiter, then LinkedIn. If "
-            "Google shows a bot check, do not try to solve it: drop to "
-            "ZipRecruiter and tell me Google was skipped. Run ZipRecruiter "
-            "either way. Operating companies only — no recruiting firms, no "
-            "job aggregators, no government, no in-house-recruiting shops.",
-            "Size about 12 companies to land 5, and name 3 ranked reserves. "
-            "For every pick give the concrete signal that earned it — the "
-            "actual fact from the posting, not \"good fit\". For every "
-            "reserve give its demerit.",
-            "Pull the buying centre for each company out of ZoomInfo. Aim for "
-            "7 contacts per company; 3 is the floor that qualifies a company "
-            "at all, 15 is the cap. Work down C-level, then VP, then "
-            "Director, then Manager. HR and Talent Acquisition fill the last "
-            "slots only, never lead. Never pitch a req to the person whose "
-            "own seat it is.",
-            "Show me the companies, the contacts and the total send volume, "
-            "and wait for my go.",
-            "Once I say go, build one campaign per company with "
-            "create_campaign, four candidates on each. Read back the campaign "
-            "id, the step count and the queued-contact count for every one, "
-            "and tell me about any that came back short.",
+            "Search the job boards for companies hiring {roles} in "
+            "{location}, {posting_age_lc}. {boards}. If Google shows a bot "
+            "check, do not try to solve it: drop to ZipRecruiter and tell me "
+            "Google was skipped. Run ZipRecruiter either way.",
+            "{skip_clause}",
+            "Size about {pool} companies to land {companies} of about "
+            "{company_size}, and name 3 ranked reserves. For every pick give "
+            "the concrete signal that earned it, the actual fact from the "
+            "posting, not \"good fit\". For every reserve give its "
+            "demerit.{good_fit_clause}",
+            "Pull the buying centre for each company out of ZoomInfo. Aim "
+            "for {contacts_each} contacts per company; 3 is the floor that "
+            "qualifies a company at all, 15 is the cap. Work down "
+            "{who_to_reach}.",
+            "Show me the companies, the contacts and the total send volume. "
+            "This run must not send more than {email_cap} emails - if it "
+            "would, cut the weakest companies until it doesn't. Then {gate}.",
+            "{go_prefix} build one campaign per company with create_campaign "
+            "using {template_clause}, start_date "
+            "{start_date}, and industry, location and roles set from THE "
+            "DETAILS above.{name_clause}{newsletter_clause} Read back the "
+            "campaign id, the step count and the queued-contact count for "
+            "every one, and tell me about any that came back short.",
         ],
     },
     {
@@ -106,18 +249,61 @@ ROUTINES = [
         "example": "Market my three senior estimators out to general "
                    "contractors in the Denver metro",
         "tools": ["candidates_search", "campaign_types", "create_campaign"],
+        "fields": [
+            F("candidates", "Which people", "details", ask=True,
+              placeholder="Names, or how you'd describe them"),
+            F("target_company", "What kind of company to pitch them to",
+              "details", ask=True, placeholder="e.g. general contractors"),
+            F("location", "Where", "details", ask=True,
+              placeholder="e.g. the Denver metro"),
+            F("travel", "How far they'll travel", "details",
+              default="the metro they are already in"),
+            F("anonymise", "Hide their names and current employers", "details",
+              "toggle", default=True),
+            F("who_to_reach", "Who to reach", "details",
+              default="owners and C-level first, then VPs, then directors"),
+            F("sequence", "Which sequence", "emails", "select",
+              default="Arena 5x3", options=SEQUENCES),
+            F("saved_style", "Which saved style", "emails",
+              hint="Only if you picked one of your saved styles above."),
+            F("pin_slate", "Send these exact people, or let DripDrop pick",
+              "emails", "select", default="Send these exact people",
+              options=["Send these exact people",
+                       "Let DripDrop pick the best match"]),
+            F("start_when", "When the first email goes out", "emails",
+              "select", default="Next Monday", options=WHEN_OPTIONS),
+            F("newsletter", "Also add them to a newsletter", "emails",
+              placeholder="Name of the newsletter, or leave blank"),
+            F("companies_each", "How many companies each", "size", "number",
+              default="3"),
+            F("contacts_each", "How many people at each company", "size",
+              "number", default="7",
+              hint="3 is the fewest worth doing, 15 the most."),
+            F("email_cap", "Most emails this run should send", "size",
+              "number", default="175"),
+        ] + SKIP_FIELDS,
         "steps": [
-            "Pull each named candidate out of DripDrop with candidates_search "
-            "— use a limit of 1 or 2 per query. The full résumé text is large "
-            "and a wide query will blow the context.",
-            "Build an anonymised card per candidate: skills, the kind of "
-            "project they have run, the size of company they have done it at. "
-            "No name, no current employer.",
-            "Find live openings that genuinely fit each one. The same title "
-            "is not the same job — score the fit and say what the evidence "
-            "was.",
-            "Show me the shortlist and the fit reasoning, and wait for my go "
-            "before anything launches.",
+            "Pull each of these people out of DripDrop with "
+            "candidates_search - {candidates} - using a limit of 1 or 2 per "
+            "query. The full resume text is large and a wide query will blow "
+            "the context.",
+            "Build a card per candidate: skills, the kind of project they "
+            "have run, the size of company they have done it "
+            "at.{anon_clause}",
+            "Find live openings at {target_company} in {location} that "
+            "genuinely fit each one. The same title is not the same job - "
+            "score the fit and say what the evidence was. Keep it inside "
+            "{travel}.",
+            "{skip_clause}",
+            "Land {companies_each} companies per candidate, and pull "
+            "{contacts_each} contacts at each out of ZoomInfo. Work down "
+            "{who_to_reach}.",
+            "Show me the shortlist, the fit reasoning and the total send "
+            "volume - it must not exceed {email_cap} emails - and {gate}.",
+            "{go_prefix} build one campaign per company with create_campaign "
+            "using {template_clause}, start_date "
+            "{start_date}.{slate_clause}{newsletter_clause} Read back the "
+            "campaign id and the queued-contact count for every one.",
         ],
     },
     {
@@ -128,11 +314,20 @@ ROUTINES = [
         "example": "Show me every campaign I have running and how many "
                    "contacts are in each",
         "tools": ["campaigns_list", "campaign_get"],
+        "fields": [
+            F("which", "Which campaigns", "details", default="all of them"),
+            F("what_to_know", "What you want to know", "details", "textarea",
+              default="how many contacts are in each, which step they are "
+                      "on, and anything that looks stalled"),
+            F("period", "Over what period", "details",
+              placeholder="e.g. the last 30 days - blank means everything"),
+        ],
         "steps": [
-            "List the campaigns with campaigns_list.",
+            "List the campaigns with campaigns_list. I want {which}.",
             "Pull the detail on the ones that matter with campaign_get.",
-            "Answer in a table, not prose. Say plainly what the data does not "
-            "cover rather than filling the gap.",
+            "Tell me {what_to_know}.{period_clause}",
+            "Answer in a table, not prose. Say plainly what the data does "
+            "not cover rather than filling the gap.",
         ],
     },
     {
@@ -142,27 +337,60 @@ ROUTINES = [
         "example": "Who do I already have who could run a $30M healthcare "
                    "build in Phoenix",
         "tools": ["candidates_search", "candidates_count"],
+        "fields": [
+            F("search_for", "What to search for", "details", ask=True,
+              placeholder="e.g. senior superintendent, healthcare builds"),
+            F("must_have", "Must have", "details", "textarea",
+              placeholder="The things that disqualify someone if missing"),
+            F("nice_to_have", "Nice to have", "details", "textarea"),
+            F("location", "Where", "details",
+              placeholder="e.g. Phoenix, or anywhere"),
+            F("status", "Only people marked", "details", "select",
+              default="Anyone", options=["Anyone", "Available", "Placed",
+                                         "Contacted"]),
+            F("evidence", "What would prove it", "details",
+              default="something concrete from the resume, not a job title"),
+            F("how_many", "How many to bring back", "size", "number",
+              default="10"),
+        ],
         "steps": [
-            "Search DripDrop with candidates_search. Use a limit of 1 or 2 "
-            "per query and run several narrow queries rather than one wide "
-            "one — résumé text is large and a big limit fails outright.",
+            "Search DripDrop with candidates_search for {search_for}. Use a "
+            "limit of 1 or 2 per query and run several narrow queries rather "
+            "than one wide one - resume text is large and a big limit fails "
+            "outright.{status_clause}",
             "Judge every match against this specific role, not the industry. "
-            "An estimator is not a superintendent.",
-            "Give me the matches with the evidence from each résumé, and say "
-            "how many you looked at to get there.",
+            "An estimator is not a "
+            "superintendent.{must_clause}{nice_clause}{loc_clause}",
+            "Bring me back {how_many} at most, with the evidence from each "
+            "resume - I want {evidence} - and say how many you looked at to "
+            "get there.",
         ],
     },
     {
         "key": "load_candidates",
-        "name": "Load résumés into DripDrop",
-        "blurb": "Import candidates or résumés into the pipeline.",
-        "example": "Import the résumés in my downloads folder into DripDrop",
+        "name": "Load resumes into DripDrop",
+        "blurb": "Import candidates or resumes into the pipeline.",
+        "example": "Import the resumes in my downloads folder into DripDrop",
         "tools": ["import_candidates", "import_candidate_records",
                   "candidates_count"],
+        "fields": [
+            F("where", "Where the files are", "details", ask=True,
+              placeholder="e.g. my Downloads folder"),
+            F("what_kind", "What you're loading", "details", "select",
+              default="Resume files",
+              options=["Resume files", "Details I'll paste in"]),
+            F("whose", "Who they belong to", "details",
+              placeholder="Leave blank and they're yours"),
+            F("dupes", "If someone's already in there", "details", "select",
+              default="Skip them", options=["Skip them", "Load them anyway"]),
+            F("batch", "How many at a time", "size", "number", default="10"),
+        ],
         "steps": [
             "Take a candidates_count first so there is a before number.",
-            "Import in batches and read the response on every batch — how "
-            "many landed, how many were skipped, and why.",
+            "{what_kind_clause} They are here: {where}.",
+            "Import in batches of about {batch} and read the response on "
+            "every batch - how many landed, how many were skipped, and "
+            "why.{dupes_clause}{whose_clause}",
             "Take a candidates_count again and reconcile it against what the "
             "imports claimed. Report the difference if there is one.",
         ],
@@ -170,19 +398,48 @@ ROUTINES = [
     {
         "key": "research",
         "name": "Research and write something",
-        "blurb": "Market research, a newsletter, a company brief — anything "
+        "blurb": "Market research, a newsletter, a company brief - anything "
                  "that needs the web read and written up.",
         "example": "Write me a newsletter on what is happening in Denver "
                    "commercial construction this quarter",
         "tools": [],
+        "fields": [
+            F("topic", "What about", "details", ask=True,
+              placeholder="e.g. Denver commercial construction"),
+            F("audience", "Who's reading it", "details",
+              default="hiring managers and owners in that industry"),
+            F("length", "How long", "details", "select",
+              default="A newsletter, 600 to 800 words",
+              options=["A short brief, about 300 words",
+                       "A newsletter, 600 to 800 words",
+                       "A full report, 1500 words or more"]),
+            F("tone", "How it should sound", "details",
+              default="plain and direct, no marketing language"),
+            F("period", "What period it covers", "details",
+              default="the last 90 days"),
+            F("lean_on", "Sources to lean on", "details",
+              placeholder="e.g. trade press, permit filings"),
+            F("avoid", "Sources to avoid", "details",
+              placeholder="e.g. vendor blogs, press releases"),
+            F("citations", "Show me where each fact came from", "details",
+              "toggle", default=True),
+            F("lands", "What to do with it when it's written", "emails",
+              "select", default="Give it to me in the chat",
+              options=["Give it to me in the chat",
+                       "Save it as a DripDrop newsletter"]),
+            F("newsletter", "Name the newsletter", "emails",
+              hint="Only if you asked for it to be saved as one."),
+        ],
         "steps": [
-            "Research it on the web. Use current sources and say how current "
-            "each one is.",
-            "Write it for the audience named above, at the length named "
-            "above.",
-            "Every specific — a number, a project, a company name — must come "
-            "from a source you actually read. Do not invent detail to make it "
-            "read well.",
+            "Research {topic} on the web, covering {period}. Use current "
+            "sources and say how current each one "
+            "is.{lean_clause}{avoid_clause}",
+            "Write it for {audience}. Length: {length}. It should sound "
+            "{tone}.",
+            "Every specific - a number, a project, a company name - must "
+            "come from a source you actually read. Do not invent detail to "
+            "make it read well.{cite_clause}",
+            "{lands_clause}",
         ],
     },
     {
@@ -193,16 +450,44 @@ ROUTINES = [
         "example": "Launch a 5x5 campaign to the contacts on my list starting "
                    "Monday",
         "tools": ["campaign_types", "my_campaign_styles", "create_campaign"],
+        "fields": [
+            F("who", "Who you're sending to", "details", "textarea", ask=True,
+              placeholder="The list, the file, or where Claude will find it"),
+            F("company_niche", "Which company or niche", "details", ask=True,
+              placeholder="What the emails are about"),
+            F("jd", "If you're emailing candidates, paste the job "
+              "description", "details", "textarea",
+              hint="Filling this in switches the campaign to the one that "
+                   "emails candidates instead of companies."),
+            F("cand_cadence", "How many emails to the candidates", "details",
+              "select", default="One email",
+              options=["One email", "Two, a day apart",
+                       "Three, over three days"]),
+            F("sequence", "Which sequence", "emails", "select",
+              default="Arena 5x5", options=SEQUENCES),
+            F("saved_style", "Which saved style", "emails",
+              hint="Only if you picked one of your saved styles above."),
+            F("start_when", "When the first email goes out", "emails",
+              "select", default="Next Monday", options=WHEN_OPTIONS),
+            F("campaign_name", "What to call it", "emails"),
+            F("newsletter", "Also add them to a newsletter", "emails",
+              placeholder="Name of the newsletter, or leave blank"),
+            F("email_cap", "Most emails this run should send", "size",
+              "number", default="175"),
+        ],
         "steps": [
-            "Call campaign_types — and my_campaign_styles if I named a saved "
-            "style of my own — and confirm the sequence exists before "
+            "Call campaign_types - and my_campaign_styles if I named a saved "
+            "style of my own - and confirm the sequence exists before "
             "building anything.",
             "Get the contact list right before launching. A live campaign "
             "cannot be edited, contacts cannot be added to one, and "
             "relaunching under the same name creates an empty duplicate "
-            "rather than replacing it.",
-            "Show me the contact list, the sequence and the email bodies, and "
-            "wait for my go.",
+            "rather than replacing it. Sending to: {who}.",
+            "Show me the contact list, the sequence and the email bodies - "
+            "no more than {email_cap} emails - and {gate}.",
+            "{go_prefix} build it with create_campaign using "
+            "{template_clause}, {company_clause}, start_date "
+            "{start_date}.{jd_clause}{name_clause}{newsletter_clause}",
             "After launching, read back the campaign id, the step count and "
             "the number of contacts queued, and tell me all three.",
         ],
@@ -213,9 +498,16 @@ ROUTINES = [
         "blurb": "Anything that is not one of the above.",
         "example": "",
         "tools": [],
+        "fields": [
+            F("what", "What you want done", "details", "textarea", ask=True),
+            F("done_when", "How you'll know it worked", "details",
+              placeholder="What you want to be holding at the end"),
+        ],
         "steps": [
             "Work out what is actually being asked before starting, and tell "
             "me what you took it to mean.",
+            "{what}",
+            "{done_clause}",
             "Show me the result before acting on anything that leaves this "
             "machine.",
         ],
@@ -225,9 +517,18 @@ ROUTINES = [
 ROUTINE_BY_KEY = {r["key"]: r for r in ROUTINES}
 DEFAULT_ROUTINE = "other"
 
-# What every generated prompt ends with, whatever the routine. DripDrop sends
-# live email and spends real ZoomInfo credits, so a prompt written here is
-# never allowed to read as blanket authorisation to go ahead unattended.
+# Every job also gets the schedule and autonomy questions. Doing it here
+# rather than in each literal keeps the wording identical everywhere.
+for _r in ROUTINES:
+    _r["fields"] = list(_r["fields"]) + list(COMMON_FIELDS)
+    _r["field_by_key"] = {f["key"]: f for f in _r["fields"]}
+
+FIELD_KEYS = sorted({f["key"] for r in ROUTINES for f in r["fields"]})
+
+
+# What every generated prompt ends with, whatever the job. DripDrop sends
+# live email and spends real ZoomInfo credits, so the first rule is a hard
+# stop unless the user has explicitly said to run unattended.
 STANDING_RULES = [
     "Show me what you have before anything sends, imports or spends credits, "
     "and wait for me to say go.",
@@ -237,12 +538,273 @@ STANDING_RULES = [
     "to come from something you actually read.",
 ]
 
+# The swap when the user chose to let it run start to finish. Everything else
+# in the list stands — this one rule is the only thing autonomy changes.
+UNATTENDED_RULE = (
+    "Run this start to finish without stopping to ask. Nobody is watching. "
+    "Log every judgement call you made so I can read them afterwards, and "
+    "stop only if you would otherwise have to invent something.")
+
+
+# ── Answers ───────────────────────────────────────────────────────────────
+
+def defaults_for(r):
+    """Every field of a routine seeded with its default. The confirm screen
+    starts from this, so a value being absent later means the user cleared
+    it on purpose rather than never having seen it."""
+    return {f["key"]: f["default"] for f in r["fields"]}
+
+
+def _val(r, vals, key):
+    """The answer, falling back to the default only if the key was never set.
+    A key present-but-empty is a deliberate blank and is honoured."""
+    if key in vals:
+        return vals[key]
+    f = r["field_by_key"].get(key)
+    return f["default"] if f else ""
+
+
+def _txt(r, vals, key):
+    v = _val(r, vals, key)
+    if isinstance(v, bool):
+        return "yes" if v else ""
+    s = str(v or "").strip()
+    if s:
+        return s
+    f = r["field_by_key"].get(key)
+    # An unanswered must-answer field is written as a visible gap, not
+    # silently dropped, so the sentence still reads and Claude can see
+    # exactly which blank the question in I HAVEN'T DECIDED THESE refers to.
+    if f and f.get("ask"):
+        return "<%s>" % f["label"].lower()
+    return ""
+
+
+def _flag(r, vals, key):
+    v = _val(r, vals, key)
+    if isinstance(v, bool):
+        return v
+    return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _n(r, vals, key, fallback):
+    try:
+        return max(1, int(float(str(_val(r, vals, key)).strip() or fallback)))
+    except Exception:
+        return fallback
+
+
+class _Fill(dict):
+    """A missing placeholder renders as nothing rather than raising. A step
+    that comes out empty is dropped, which is how the exclusions step
+    disappears when the user unticked everything."""
+
+    def __missing__(self, key):
+        return ""
+
+
+def _start_date(r, vals):
+    """create_campaign takes an ISO date or the literal "auto", which the
+    server resolves to the upcoming Monday. Say which one and why, so the
+    date in the prompt cannot be read as a typo for another week."""
+    when = _txt(r, vals, "start_when") or "Next Monday"
+    today = date.today()
+    if when.startswith("The Monday after"):
+        nxt = today + timedelta(days=(7 - today.weekday()) % 7 or 7)
+        return '"%s"' % (nxt + timedelta(days=7)).isoformat()
+    if when.startswith("As soon"):
+        return '"%s" (today)' % today.isoformat()
+    if when.startswith("A date"):
+        return "the date I give you — ask me for it before you build anything"
+    return '"auto", which the server resolves to the upcoming Monday'
+
+
+def _template_clause(r, vals):
+    seq = _txt(r, vals, "sequence") or "Arena 5x5"
+    if seq.startswith("Let Claude"):
+        return ("whichever template campaign_types shows is the best fit for "
+                "this, and tell me which one you picked and why")
+    if seq.startswith("One of my saved"):
+        style = _txt(r, vals, "saved_style")
+        base = TEMPLATE_KEY.get(
+            r["field_by_key"]["sequence"]["default"], "fivebyfive")
+        named = ' called "%s"' % style if style else " I point you at"
+        return ('template "%s" with style_id set to my saved style%s — call '
+                'my_campaign_styles to get its id, do not guess it'
+                % (base, named))
+    return 'template "%s"' % TEMPLATE_KEY.get(seq, "fivebyfive")
+
+
+def _skip_clause(r, vals):
+    only = _txt(r, vals, "only_these")
+    if only:
+        return ("Work only these companies and ignore everything else you "
+                "find: %s." % only)
+    outs = []
+    if _flag(r, vals, "skip_worked"):
+        outs.append("anything someone on my team has already worked")
+    if _flag(r, vals, "skip_customers"):
+        outs.append("companies we already do business with")
+    if _flag(r, vals, "skip_recruiters"):
+        outs.append("other recruiters, staffing firms, job boards and "
+                    "government listings")
+    never = _txt(r, vals, "never_these")
+    if never:
+        outs.append("these by name: %s" % never)
+    if not outs:
+        return ""
+    return ("Take these out before you go any further: %s. Tell me how many "
+            "you dropped and why." % "; ".join(outs))
+
+
+CADENCE_KEY = {
+    "One email": "one_email",
+    "Two, a day apart": "two_emails_1day",
+    "Three, over three days": "three_emails_3days",
+}
+
+
+def _derived(r, vals):
+    """Everything a step template can ask for: the raw answers by key, plus
+    the sentences that only make sense once several answers are read
+    together."""
+    d = _Fill()
+    for f in r["fields"]:
+        d[f["key"]] = _txt(r, vals, f["key"])
+
+    unattended = _txt(r, vals, "unattended") or UNATTENDED[0]
+    solo = unattended.startswith("Run it all")
+    d["gate"] = ("note anything that looks wrong, say so, and keep going"
+                 if solo else "stop and wait for me to say go")
+    d["go_prefix"] = "Then" if solo else "Once I say go,"
+
+    d["template_clause"] = _template_clause(r, vals)
+    d["start_date"] = _start_date(r, vals)
+    d["skip_clause"] = _skip_clause(r, vals)
+    d["posting_age_lc"] = (d.get("posting_age") or "").lower()
+
+    # Roughly 2.4 looked at per one landed, which is what the Denver and
+    # Colorado runs actually needed once exclusions and thin contact sets
+    # had taken their cut.
+    want = _n(r, vals, "companies", 5)
+    d["pool"] = str(max(want + 3, int(round(want * 2.4))))
+
+    good = d.get("good_fit") or ""
+    d["good_fit_clause"] = (" What makes one worth calling: %s" % good
+                            if good else "")
+    name = d.get("campaign_name") or ""
+    d["name_clause"] = " Name each campaign after %s." % name if name else ""
+    news = d.get("newsletter") or ""
+    d["newsletter_clause"] = (
+        ' Also enrol the contacts in my "%s" newsletter — that is the '
+        'enroll_newsletter argument.' % news if news else "")
+    d["anon_clause"] = (
+        " Do not use their names or their current employers anywhere in the "
+        "outreach. Describe them by what they have actually done."
+        if _flag(r, vals, "anonymise") else "")
+    d["slate_clause"] = (
+        " Pass the exact people I named in the candidates argument so "
+        "DripDrop does not substitute anyone."
+        if (d.get("pin_slate") or "").startswith("Send these")
+        else " Leave candidates empty and let DripDrop match the best people "
+             "itself.")
+
+    period = d.get("period") or ""
+    d["period_clause"] = " Cover %s." % period if period else ""
+
+    status = d.get("status") or ""
+    d["status_clause"] = (' Only people whose status is "%s".' % status.lower()
+                          if status and status != "Anyone" else "")
+    must = d.get("must_have") or ""
+    d["must_clause"] = (" They must have: %s." % must) if must else ""
+    nice = d.get("nice_to_have") or ""
+    d["nice_clause"] = (" Nice to have, not required: %s." % nice
+                        if nice else "")
+    loc = d.get("location") or ""
+    d["loc_clause"] = (" Keep it to %s." % loc) if loc else ""
+
+    kind = d.get("what_kind") or ""
+    d["what_kind_clause"] = (
+        "Import them with import_candidate_records, one record per person, "
+        "each carrying a stable external_id so running this twice cannot "
+        "duplicate anyone."
+        if kind.startswith("Details")
+        else "Import the resume files with import_candidates.")
+    d["dupes_clause"] = (
+        " Load them even if they are already in there, and tell me which ones "
+        "doubled up." if (d.get("dupes") or "").startswith("Load")
+        else " If someone is already in there, skip them rather than making a "
+             "second record.")
+    whose = d.get("whose") or ""
+    d["whose_clause"] = (" They belong to %s, not to me." % whose
+                         if whose else "")
+
+    lean = d.get("lean_on") or ""
+    d["lean_clause"] = (" Lean on %s." % lean) if lean else ""
+    avoid = d.get("avoid") or ""
+    d["avoid_clause"] = (" Do not use %s." % avoid) if avoid else ""
+    d["cite_clause"] = (
+        " Put the source next to every fact so I can check it."
+        if _flag(r, vals, "citations") else "")
+    lands = d.get("lands") or ""
+    if lands.startswith("Save it"):
+        nm = d.get("newsletter") or ""
+        d["lands_clause"] = (
+            'Then save it in DripDrop as a newsletter%s and tell me the id.'
+            % (' called "%s"' % nm if nm else ""))
+    else:
+        d["lands_clause"] = ("Give me the finished piece in the chat. Do not "
+                             "save it anywhere or send it to anyone.")
+
+    niche = d.get("company_niche") or ""
+    d["company_clause"] = ('company set to "%s"' % niche if niche
+                           else "company set from THE DETAILS above")
+    jd = d.get("jd") or ""
+    d["jd_clause"] = (
+        ' Because I gave you a job description, use the "findcandidates" '
+        'template instead of the one above, pass the job description as '
+        'job_description, and set cadence to "%s".'
+        % CADENCE_KEY.get(d.get("cand_cadence") or "", "one_email")
+        if jd else "")
+    done = d.get("done_when") or ""
+    d["done_clause"] = ("I will know it worked when %s." % done if done
+                        else "Tell me plainly whether it worked, and how you "
+                             "know.")
+    return d
+
+
+def _open_questions(r, vals):
+    """The blanks worth stopping for. Only fields marked ask=True qualify —
+    everything else carries a default that is written straight into the
+    prompt, which is what keeps a twenty-field form from producing a
+    twenty-question opening message."""
+    qs = []
+    for f in r["fields"]:
+        if not f.get("ask"):
+            continue
+        if not str(_val(r, vals, f["key"]) or "").strip():
+            qs.append(f["label"])
+    if str(_val(r, vals, "start_when") or "").startswith("A date"):
+        qs.append("What date the first email should go out")
+    return qs
+
 
 # ── Parse ─────────────────────────────────────────────────────────────────
 
 def _catalogue_for_prompt():
-    return "\n".join("  %s — %s %s" % (r["key"], r["name"], r["blurb"])
-                     for r in ROUTINES)
+    """The routines and the exact keys the model is allowed to fill. Sending
+    the key names is the whole point: the screen's questions are fixed, so
+    the model's only job is to put values against keys that already exist."""
+    out = []
+    for r in ROUTINES:
+        keys = [f for f in r["fields"]
+                if f["section"] in ("details", "emails", "size")
+                and f["key"] not in ("saved_style",)]
+        out.append("  %s — %s %s\n     fields: %s"
+                   % (r["key"], r["name"], r["blurb"],
+                      ", ".join("%s (%s)" % (f["key"], f["label"])
+                                for f in keys)))
+    return "\n".join(out)
 
 
 PARSE_SYSTEM = (
@@ -278,20 +840,21 @@ def parse_request(raw):
         "- summary: one sentence, second person, plainly restating what they "
         "asked for. This is shown back to them to confirm, so it has to be "
         "checkable — no flourish, nothing added.\n"
-        "- fields: the concrete details you actually found IN THEIR TEXT. "
-        "Label them the way a person would say it (Industry, Geography, "
-        "Roles, Company size). Never invent a value. If they did not say it, "
-        "it does not go here.\n"
-        "- missing: things this routine needs that they did NOT give. Label "
-        "only, no value. Empty list if they gave everything.\n"
+        "- values: an object keyed by the field names listed against the "
+        "routine you picked. ONLY keys from that routine's list. Fill in a "
+        "key only if the answer is actually IN THEIR TEXT — never invent a "
+        "value, never restate a key back with a guess, and leave out any key "
+        "they said nothing about.\n"
+        "- repeat: true only if they said this should run again on a "
+        "schedule. Otherwise false.\n"
         "- detail: up to four extra instructions specific to THIS request "
         "that a generic version of the routine would miss. Empty list if "
         "there is nothing worth adding.\n\n"
         "Return ONLY this JSON, no prose:\n"
         '{"routine": "<key from the list>", "title": "...", '
         '"summary": "...", '
-        '"fields": [{"label": "Industry", "value": "Commercial construction"}], '
-        '"missing": ["Company size"], "detail": ["..."]}'
+        '"values": {"industry": "commercial construction"}, '
+        '"repeat": false, "detail": ["..."]}'
         % (raw.strip()[:4000], _catalogue_for_prompt())
     )
 
@@ -315,41 +878,60 @@ def parse_request(raw):
 
 
 def normalise(data, raw):
-    """Everything downstream assumes these shapes. The model gets them right
-    almost always, and the page breaks on the times it doesn't."""
+    """Model output onto this module's shapes. Anything the model returned
+    that is not a real field key of the chosen routine is dropped — the
+    screen renders the routine's schema, so a stray key would be written
+    into the prompt without ever being shown."""
     key = str(data.get("routine") or "").strip()
     if key not in ROUTINE_BY_KEY:
         key = DEFAULT_ROUTINE
+    r = ROUTINE_BY_KEY[key]
 
-    fields = []
-    for f in (data.get("fields") or []):
-        if not isinstance(f, dict):
-            continue
-        label = str(f.get("label") or "").strip()
-        value = str(f.get("value") or "").strip()
-        if label and value:
-            fields.append({"label": label, "value": value})
+    vals = defaults_for(r)
+    given = data.get("values")
+    filled = []
+    if isinstance(given, dict):
+        for k, v in given.items():
+            k = str(k or "").strip()
+            f = r["field_by_key"].get(k)
+            if not f or k in ("repeat_on", "unattended"):
+                continue
+            if f["type"] == "toggle":
+                vals[k] = str(v).strip().lower() in ("1", "true", "yes", "on")
+                filled.append(k)
+                continue
+            v = str(v or "").strip()
+            if not v:
+                continue
+            # A select can only hold one of its own options; a near miss is
+            # matched case-insensitively and anything else is ignored rather
+            # than written in and breaking the dropdown.
+            if f["options"]:
+                hit = next((o for o in f["options"]
+                            if o.lower() == v.lower()), "")
+                if not hit:
+                    hit = next((o for o in f["options"]
+                                if v.lower() in o.lower()
+                                or o.lower() in v.lower()), "")
+                if not hit:
+                    continue
+                v = hit
+            vals[k] = v
+            filled.append(k)
 
-    # A "missing" the model also filled in as a field is not missing.
-    have = {f["label"].lower() for f in fields}
-    missing, seen = [], set()
-    for lbl in (data.get("missing") or []):
-        if isinstance(lbl, dict):
-            lbl = lbl.get("label") or lbl.get("value") or ""
-        lbl = str(lbl or "").strip()
-        if lbl and lbl.lower() not in have and lbl.lower() not in seen:
-            seen.add(lbl.lower())
-            missing.append({"label": lbl, "value": ""})
+    if str(data.get("repeat") or "").lower() in ("1", "true", "yes") \
+            or data.get("repeat") is True:
+        vals["repeat_on"] = True
 
     return {
         "raw": raw.strip(),
         "routine": key,
-        "title": str(data.get("title") or ROUTINE_BY_KEY[key]["name"]).strip(),
+        "title": str(data.get("title") or r["name"]).strip(),
         "summary": str(data.get("summary") or "").strip(),
-        "fields": fields,
-        "missing": missing,
+        "vals": vals,
+        "filled": filled,
         "detail": [str(d).strip() for d in (data.get("detail") or [])
-                   if str(d).strip()][:4],
+                   if str(d).strip()][:6],
     }
 
 
@@ -381,11 +963,15 @@ def _bullet(text):
     return lines
 
 
-def build_prompt(req, weekly=False):
+def build_prompt(req):
     """The prompt the user copies. The ONLY place this text is assembled — the
     page renders exactly what comes back from here."""
     r = ROUTINE_BY_KEY.get(req.get("routine") or "",
                            ROUTINE_BY_KEY[DEFAULT_ROUTINE])
+    vals = dict(req.get("vals") or {})
+    d = _derived(r, vals)
+    solo = (_txt(r, vals, "unattended") or "").startswith("Run it all")
+
     # Only claim the connector when the routine actually reaches for it —
     # a research prompt that opens by naming a tool it never calls reads
     # like it was written for someone else.
@@ -395,22 +981,20 @@ def build_prompt(req, weekly=False):
          "WHAT I WANT"]
     L += _wrap(req.get("summary") or req.get("raw") or "")
 
-    fields = [f for f in (req.get("fields") or [])
-              if str(f.get("label") or "").strip()
-              and str(f.get("value") or "").strip()]
-    if fields:
+    # The scannable table. Only the "details" answers go here: the numbers
+    # live in the numbered steps that use them, so there is never a limit
+    # stated twice with two different values.
+    rows = [(f["label"], str(_val(r, vals, f["key"]) or "").strip())
+            for f in r["fields"]
+            if f["section"] == "details" and f["type"] != "toggle"]
+    rows = [(lbl, v) for lbl, v in rows if v]
+    if rows:
         L += ["", "THE DETAILS"]
-        pad = max(len(f["label"]) for f in fields) + 1
-        for f in fields:
-            L.append("  %-*s %s" % (pad, f["label"].strip() + ":",
-                                    f["value"].strip()))
+        pad = max(len(lbl) for lbl, _ in rows) + 1
+        for lbl, v in rows:
+            L += _wrap("%-*s %s" % (pad, lbl + ":", v), indent="  ")
 
-    # An unanswered field is stated as unanswered rather than dropped, so
-    # Claude asks about it instead of quietly choosing for them.
-    open_qs = [str(m.get("label") or "").strip()
-               for m in (req.get("missing") or [])
-               if str(m.get("label") or "").strip()
-               and not str(m.get("value") or "").strip()]
+    open_qs = _open_questions(r, vals)
     if open_qs:
         L += ["", "I HAVEN'T DECIDED THESE"]
         L += ["  " + q for q in open_qs]
@@ -420,8 +1004,11 @@ def build_prompt(req, weekly=False):
     L += ["", "HOW TO DO IT"]
     n = 0
     for step in r["steps"]:
+        text = " ".join(step.format_map(d).split())
+        if not text:
+            continue
         n += 1
-        L += _numbered(n, step)
+        L += _numbered(n, text)
     for extra in (req.get("detail") or []):
         n += 1
         L += _numbered(n, extra)
@@ -434,21 +1021,27 @@ def build_prompt(req, weekly=False):
                    % ", ".join(r["tools"]))
 
     L += ["", "HOW I WANT YOU TO WORK"]
-    for rule in STANDING_RULES:
-        L += _bullet(rule)
+    for i, rule in enumerate(STANDING_RULES):
+        L += _bullet(UNATTENDED_RULE if (i == 0 and solo) else rule)
 
-    if weekly:
+    if _flag(r, vals, "repeat_on"):
         L += ["", "THEN MAKE IT REPEAT"]
+        L += _wrap("Run this again %s on %s at %s %s time, and keep running "
+                   "it on that schedule."
+                   % ((_txt(r, vals, "repeat_every") or "every week").lower(),
+                      _txt(r, vals, "repeat_day") or "Monday",
+                      _txt(r, vals, "repeat_time") or "8:00am",
+                      _txt(r, vals, "repeat_tz") or "Mountain"))
         L += _wrap(
-            "I want this to run every week from now on. Ask me which day and "
-            "what time, confirm my timezone, and ask whether it should run "
-            "start to finish on its own or stop and wait for me — nobody is "
-            "in the chair on a scheduled run, so make me choose.")
-        L += _wrap(
-            "Then create the recurring task with this whole brief baked into "
-            "it, filled in with whatever I answer, so the scheduled run needs "
-            "nothing from me. Read the name and the cadence back to me once "
+            "Create the recurring task with this whole brief baked into it, "
+            "filled in with everything above, so a scheduled run needs "
+            "nothing from me. Read the name and the schedule back to me once "
             "you have made it.")
+        if not solo:
+            L += _wrap(
+                "On a scheduled run nobody is at the keyboard. I still want "
+                "you to stop at the review point, so leave the run parked "
+                "there and tell me it is waiting rather than going ahead.")
 
     L += ["", ""]
     L += _wrap("If any of this is ambiguous, ask me before you start rather "
@@ -456,9 +1049,91 @@ def build_prompt(req, weekly=False):
     return "\n".join(L)
 
 
+# ── Saved setups ──────────────────────────────────────────────────────────
+#
+# A saved setup is just the answers: routine, summary, values, extras. The
+# generated prompt is never stored — it is regenerated from the answers, so
+# a saved setup picks up any later improvement to the wording instead of
+# freezing a prompt written months ago.
+
+def _setups_path():
+    return _ff()._resolve_user_root() / "ai_prompt_setups.json"
+
+
+def _load_setups():
+    try:
+        p = _setups_path()
+        if p.exists():
+            data = json.loads(p.read_text(encoding="utf-8"))
+            return data if isinstance(data, list) else []
+    except Exception:
+        pass
+    return []
+
+
+def _save_setups(rows):
+    try:
+        p = _setups_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(rows, indent=2, default=str),
+                     encoding="utf-8")
+        return True
+    except Exception:
+        return False
+
+
 # ── Page ──────────────────────────────────────────────────────────────────
 
-EXAMPLES = [r["example"] for r in ROUTINES if r.get("example")]
+# Starter sentences. Deliberately written the way someone would actually
+# type them — half-specified, no jargon — because the point is to show that
+# a rough sentence is enough, not to show off a perfect one.
+EXAMPLES = [
+    ("Find companies to sell to", [
+        "Find commercial construction companies in Colorado hiring project "
+        "managers and superintendents, 50 to 1000 people, and set up outreach",
+        "Package manufacturers in Ohio and Indiana hiring maintenance techs — "
+        "owners and plant managers only",
+        "HVAC companies in Phoenix hiring service managers, everything posted "
+        "in the last two weeks",
+        "Civil contractors in the Denver metro hiring estimators, and make it "
+        "run again every Monday morning",
+    ]),
+    ("Market my candidates out", [
+        "Market my three senior estimators out to general contractors in the "
+        "Denver metro",
+        "Pitch my available superintendents to healthcare builders in "
+        "Phoenix, don't use their names",
+        "Take my two plant managers and find manufacturers within an hour of "
+        "Columbus who could use them",
+    ]),
+    ("Launch a campaign", [
+        "Launch a 5x5 campaign to the contacts on my list starting Monday",
+        "Send my saved style to the 40 contacts in this spreadsheet, first "
+        "email a week Monday",
+        "Email these candidates the attached job description, three emails "
+        "over three days",
+    ]),
+    ("Search my bench", [
+        "Who do I already have who could run a $30M healthcare build in "
+        "Phoenix",
+        "Find me available estimators with heavy civil experience in Texas",
+    ]),
+    ("Load resumes into DripDrop", [
+        "Import the resumes in my downloads folder into DripDrop",
+        "Load these 40 candidate records in without creating duplicates",
+    ]),
+    ("Research and write something", [
+        "Write me a newsletter on what is happening in Denver commercial "
+        "construction this quarter",
+        "Brief me on the five biggest manufacturers hiring in Salt Lake right "
+        "now and who runs them",
+    ]),
+    ("Tell me what's running", [
+        "Show me every campaign I have running and how many contacts are in "
+        "each",
+        "Which of my campaigns have stalled in the last 30 days",
+    ]),
+]
 
 
 def _aip_owner(s):
@@ -489,6 +1164,8 @@ def _aip_css():
         ".aip-wrap .aip-sec{font-size:10px;font-weight:800;"
         "letter-spacing:.10em;text-transform:uppercase;display:block;"
         "margin:2px 0 10px;}"
+        ".aip-wrap .aip-grid{display:grid;gap:14px;"
+        "grid-template-columns:repeat(auto-fit,minmax(260px,1fr));}"
         "</style>")
 
 
@@ -521,10 +1198,10 @@ def p_ai_prompts(s, rf):
         with ui.element("div").style("margin-bottom:14px;"):
             ui.label("AI Prompts").classes("fd-h1")
             ui.label(
-                "Say what you want done. DripDrop works out which routine "
-                "that is, checks it back with you, and writes the message to "
-                "paste into Claude — with everything Claude needs to do it "
-                "properly already in it."
+                "Say what you want done. DripDrop works out which job that "
+                "is, asks you the questions worth asking, and writes the "
+                "message to paste into Claude — with everything Claude needs "
+                "to do it properly already in it."
             ).classes("fd-sub")
 
         if getattr(s, "_aip_prompt", None):
@@ -548,8 +1225,8 @@ def _aip_ask(s, rf, C):
 
     with _card(C):
         _sec("What do you want done?", C)
-        _text("Plain English. A sentence or two is enough — the more specific "
-              "you are, the less Claude has to ask you.",
+        _text("Plain English. A sentence or two is enough — you get to check "
+              "and change everything on the next screen.",
               C, 12, colour=C["muted"], mb=10)
 
         box = ui.textarea(
@@ -575,6 +1252,7 @@ def _aip_ask(s, rf, C):
                 # request on the box, not just this page.
                 s._aip_req = await asyncio.get_running_loop().run_in_executor(
                     None, parse_request, raw)
+                s._aip_open = None
             except Exception as ex:
                 s._aip_err = str(ex) or ex.__class__.__name__
             finally:
@@ -596,12 +1274,32 @@ def _aip_ask(s, rf, C):
                       "sentence so you can check it before the prompt is "
                       "written.", C, 11, colour=C["muted"])
 
-    if not busy:
+    if busy:
+        return
+
+    setups = _load_setups()
+    if setups:
         with _card(C):
-            _sec("Or start from one of these", C)
+            _sec("Pick up where you left off", C)
+            _text("Your saved answers. Loading one takes you straight to the "
+                  "questions with everything already filled in.",
+                  C, 12, colour=C["muted"], mb=10)
             with ui.element("div").style(
                     "display:flex;flex-direction:column;gap:8px;"):
-                for ex in EXAMPLES:
+                for row in setups:
+                    _aip_setup_row(s, rf, C, row, setups)
+
+    with _card(C):
+        _sec("Or start from one of these", C)
+        _text("Click one, change the bits that are wrong, and read it.",
+              C, 12, colour=C["muted"], mb=12)
+        for group, lines in EXAMPLES:
+            ui.label(group).style(
+                f"font-size:11px;font-weight:700;color:{C['muted']};"
+                f"display:block;margin:10px 0 6px;")
+            with ui.element("div").style(
+                    "display:flex;flex-direction:column;gap:8px;"):
+                for ex in lines:
                     def _use(_ex=ex):
                         s._aip_raw = _ex
                         s._aip_err = ""
@@ -616,93 +1314,323 @@ def _aip_ask(s, rf, C):
                             f"line-height:1.5;")
 
 
-# ── View 2: check it back ─────────────────────────────────────────────────
+def _aip_setup_row(s, rf, C, row, setups):
+    def _load():
+        key = row.get("routine") or DEFAULT_ROUTINE
+        r = ROUTINE_BY_KEY.get(key, ROUTINE_BY_KEY[DEFAULT_ROUTINE])
+        vals = defaults_for(r)
+        # Only keys the routine still has. A setup saved before a field was
+        # renamed loads with that one answer missing rather than failing.
+        for k, v in (row.get("vals") or {}).items():
+            if k in r["field_by_key"]:
+                vals[k] = v
+        s._aip_req = {
+            "raw": row.get("raw") or "",
+            "routine": r["key"],
+            "title": row.get("name") or r["name"],
+            "summary": row.get("summary") or "",
+            "vals": vals,
+            "filled": list(vals.keys()),
+            "detail": list(row.get("detail") or []),
+        }
+        s._aip_prompt = None
+        s._aip_open = None
+        s._aip_err = ""
+        rf()
+
+    def _delete():
+        keep = [x for x in setups if x.get("id") != row.get("id")]
+        _save_setups(keep)
+        ui.notify("Deleted.", type="positive")
+        rf()
+
+    with ui.element("div").style(
+            f"display:flex;align-items:center;gap:10px;background:{C['bg']};"
+            f"border:1px solid {C['border']};border-radius:9px;"
+            f"padding:10px 14px;"):
+        with ui.element("div").style("flex:1;min-width:0;"):
+            ui.label(row.get("name") or "Untitled").style(
+                f"font-size:12px;font-weight:700;color:{C['text_l']};"
+                f"display:block;")
+            ui.label(ROUTINE_BY_KEY.get(
+                row.get("routine") or "", {}).get("name", "")).style(
+                f"font-size:11px;color:{C['muted']};display:block;")
+        with ui.element("button").classes("fd-gb").style(
+                "padding:6px 14px;font-size:11px;").on("click", _load):
+            ui.label("Use it")
+        with ui.element("button").classes("fd-gb").style(
+                "padding:6px 12px;font-size:11px;").on("click", _delete):
+            ui.label("Delete")
+
+
+# ── View 2: the questions ─────────────────────────────────────────────────
+
+def _aip_sections_for(r):
+    """The sections this routine actually has something in, in SECTIONS
+    order. "extra" is always last and always present — it is the free-text
+    escape hatch for anything the fixed questions did not cover."""
+    used = {f["section"] for f in r["fields"]}
+    return [(k, name) for k, name, _ in SECTIONS
+            if k in used or k == "extra"]
+
+
+def _aip_open_state(s, r, req):
+    """Which sections start open. The one the user must read is always open;
+    the rest open themselves if the parse put an answer in one, so a value
+    DripDrop chose is never hidden behind a closed heading."""
+    if getattr(s, "_aip_open", None) is not None:
+        return s._aip_open
+    filled = set(req.get("filled") or [])
+    state = {}
+    for key, _name, always in SECTIONS:
+        touched = any(f["key"] in filled for f in r["fields"]
+                      if f["section"] == key)
+        state[key] = bool(always or touched)
+    if req.get("detail"):
+        state["extra"] = True
+    s._aip_open = state
+    return state
+
+
+def _aip_field(s, rf, C, r, vals, f):
+    """One question. Every widget writes straight back into vals so a value
+    survives its section being collapsed — a collapsed section is not
+    rendered at all, and an unsaved widget value would go with it."""
+    key = f["key"]
+
+    def _set(e):
+        vals[key] = e.value
+
+    if f["type"] == "toggle":
+        cb = ui.checkbox(f["label"], value=_flag(r, vals, key),
+                         on_change=_set)
+        cb.style(f"color:{C['text_l']};font-size:12px;")
+        if f["hint"]:
+            ui.label(f["hint"]).style(
+                f"font-size:10px;color:{C['muted']};display:block;"
+                f"line-height:1.45;margin:-2px 0 0 32px;")
+        return
+
+    ui.label(f["label"]).classes("fd-fl")
+    if f["hint"]:
+        ui.label(f["hint"]).style(
+            f"font-size:10px;color:{C['muted']};margin-top:-2px;"
+            f"margin-bottom:3px;display:block;line-height:1.45;")
+    elif f["ask"] and not str(_val(r, vals, key) or "").strip():
+        ui.label("You didn't say — fill it in, or leave it and Claude will "
+                 "ask you.").style(
+            f"font-size:10px;color:{C['muted']};margin-top:-2px;"
+            f"margin-bottom:3px;display:block;line-height:1.45;")
+
+    cur = str(_val(r, vals, key) or "")
+    if f["type"] == "select":
+        opts = list(f["options"])
+        if cur and cur not in opts:
+            opts = [cur] + opts
+        ui.select(options=opts, value=cur or (opts[0] if opts else None),
+                  on_change=_set).props("dense").classes("fd-input")
+    elif f["type"] == "textarea":
+        ui.textarea(value=cur, placeholder=f["placeholder"],
+                    on_change=_set).props("dense autogrow").classes(
+            "fd-input aip-ta").style("width:100%;")
+    else:
+        inp = ui.input(value=cur, placeholder=f["placeholder"],
+                       on_change=_set).props("dense").classes("fd-input")
+        if f["type"] == "number":
+            inp.props("type=number")
+
+
+def _aip_extra(s, rf, C, req):
+    """Anything the fixed questions missed, as numbered steps appended to the
+    end of HOW TO DO IT."""
+    _text("Each line becomes its own instruction at the end of the steps. "
+          "Leave it empty if the questions above already say it.",
+          C, 11, colour=C["muted"], mb=10)
+
+    detail = req.setdefault("detail", [])
+
+    def _mk(i):
+        def _set(e):
+            detail[i] = e.value
+        return _set
+
+    for i, line in enumerate(list(detail)):
+        with ui.element("div").style(
+                "display:flex;align-items:center;gap:8px;margin-bottom:8px;"):
+            with ui.element("div").style("flex:1;min-width:0;"):
+                ui.input(value=line, on_change=_mk(i)).props(
+                    "dense").classes("fd-input")
+
+            def _drop(_i=i):
+                if 0 <= _i < len(detail):
+                    del detail[_i]
+                rf()
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:6px 12px;font-size:11px;flex-shrink:0;"
+                    ).on("click", _drop):
+                ui.label("Remove")
+
+    def _add():
+        detail.append("")
+        rf()
+
+    with ui.element("button").classes("fd-gb").style(
+            "padding:7px 16px;font-size:11px;").on("click", _add):
+        ui.label("Add another")
+
+
+def _aip_save_setup(s, rf, C, req):
+    name_box = ui.input(
+        value=req.get("title") or "",
+        placeholder="Name it, e.g. Colorado HVAC weekly"
+    ).props("dense").classes("fd-input").style("max-width:320px;")
+
+    def _save():
+        name = (name_box.value or "").strip()
+        if not name:
+            ui.notify("Give it a name first.", type="warning")
+            return
+        rows = _load_setups()
+        rows = [x for x in rows
+                if (x.get("name") or "").lower() != name.lower()]
+        rows.insert(0, {
+            "id": uuid.uuid4().hex[:12],
+            "name": name,
+            "routine": req.get("routine") or DEFAULT_ROUTINE,
+            "raw": req.get("raw") or "",
+            "summary": req.get("summary") or "",
+            "vals": dict(req.get("vals") or {}),
+            "detail": list(req.get("detail") or []),
+            "saved_at": date.today().isoformat(),
+        })
+        if _save_setups(rows[:30]):
+            ui.notify("Saved. It'll be on the first screen next time.",
+                      type="positive")
+        else:
+            ui.notify("Couldn't save that.", type="negative")
+
+    with ui.element("button").classes("fd-gb").style(
+            "padding:8px 18px;font-size:12px;").on("click", _save):
+        ui.label("Save these answers")
+
 
 def _aip_confirm(s, rf, C):
     req = s._aip_req
+    r = ROUTINE_BY_KEY.get(req.get("routine") or "",
+                           ROUTINE_BY_KEY[DEFAULT_ROUTINE])
+    vals = req.setdefault("vals", defaults_for(r))
+    for f in r["fields"]:
+        vals.setdefault(f["key"], f["default"])
+    opened = _aip_open_state(s, r, req)
 
     with _card(C, C["teal"]):
         _text("Here's what I understood", C, 15, 700, C["text_l"], 4)
-        _text("Fix anything that's wrong before I write the prompt. Whatever "
-              "you leave blank becomes a question Claude asks you.",
+        _text("Change anything that's wrong. Most of these are already "
+              "answered sensibly — the only ones Claude will ask you about "
+              "are the ones marked as not said.",
               C, 12, colour=C["muted"], mb=16)
 
-        _sec("The job", C)
+        _sec("What kind of job is this?", C)
+
+        def _switch(e):
+            key = e.value or DEFAULT_ROUTINE
+            if key == req.get("routine"):
+                return
+            nr = ROUTINE_BY_KEY.get(key)
+            if nr is None:
+                return
+            # Carry answers across on matching keys — location and roles mean
+            # the same thing whichever job it turns out to be.
+            keep = {k: v for k, v in vals.items() if k in nr["field_by_key"]}
+            nvals = defaults_for(nr)
+            nvals.update(keep)
+            req["routine"] = key
+            req["vals"] = nvals
+            s._aip_open = None
+            rf()
+
         with ui.element("div").style("margin-bottom:16px;"):
-            _sel = ui.select(
-                options={r["key"]: r["name"] for r in ROUTINES},
-                value=req.get("routine") or DEFAULT_ROUTINE
-            ).props("dense").classes("fd-input")
+            ui.select(options={x["key"]: x["name"] for x in ROUTINES},
+                      value=req.get("routine") or DEFAULT_ROUTINE,
+                      on_change=_switch).props("dense").classes("fd-input")
+            _text(r["blurb"], C, 11, colour=C["muted"], mb=0)
 
         _sec("In one line", C)
-        _sum = ui.textarea(
-            value=req.get("summary") or req.get("raw") or ""
-        ).props("dense autogrow").classes("fd-input aip-ta").style(
-            "width:100%;margin-bottom:16px;")
 
-        rows = list(req.get("fields") or []) + list(req.get("missing") or [])
-        inputs = []
-        if rows:
-            _sec("The details", C)
-            with ui.element("div").style(
-                    "display:grid;grid-template-columns:1fr 1fr;gap:14px;"
-                    "margin-bottom:16px;"):
-                for row in rows:
-                    with ui.element("div"):
-                        ui.label(row.get("label") or "").classes("fd-fl")
-                        if not str(row.get("value") or "").strip():
-                            ui.label("You didn't say — fill it in, or leave "
-                                     "it for Claude to ask.").style(
-                                f"font-size:10px;color:{C['muted']};"
-                                f"margin-top:-2px;margin-bottom:2px;"
-                                f"display:block;line-height:1.45;")
-                        inputs.append((
-                            row.get("label") or "",
-                            ui.input(value=row.get("value") or ""
-                                     ).props("dense").classes("fd-input")))
+        def _set_sum(e):
+            req["summary"] = e.value
+        ui.textarea(value=req.get("summary") or req.get("raw") or "",
+                    on_change=_set_sum).props("dense autogrow").classes(
+            "fd-input aip-ta").style("width:100%;margin-bottom:6px;")
 
-        _sec("Repeat it", C)
-        _wk = ui.checkbox("Run this every week",
-                          value=bool(getattr(s, "_aip_weekly", True))).style(
-            f"color:{C['text_l']};font-size:12px;")
-        _text("Ticked, the prompt asks Claude to set the recurring run up "
-              "once you have agreed the day and time. The schedule lives with "
-              "Claude, not here.", C, 11, colour=C["muted"], mb=16)
+        unanswered = _open_questions(r, vals)
+        if unanswered:
+            _text("Claude will ask you about: " + ", ".join(unanswered) + ".",
+                  C, 11, colour=C["warn"], mb=16)
+        else:
+            _text("Nothing left for Claude to ask — it can start straight "
+                  "away.", C, 11, colour=C["muted"], mb=16)
 
+    for key, name in _aip_sections_for(r):
+        is_open = bool(opened.get(key))
+        rows = [f for f in r["fields"] if f["section"] == key]
+        count = len([f for f in rows
+                     if str(_val(r, vals, f["key"]) or "").strip()])
+
+        with _card(C):
+            def _toggle(_k=key):
+                # Read the state back through the helper: a routine switch
+                # clears it, and a click can land on a screen that hasn't
+                # re-rendered yet.
+                state = _aip_open_state(s, r, req)
+                state[_k] = not state.get(_k)
+                rf()
+
+            with ui.element("button").style(
+                    "display:flex;align-items:center;gap:10px;width:100%;"
+                    "background:transparent;border:none;padding:0;"
+                    "cursor:pointer;text-align:left;"
+                    ).on("click", _toggle):
+                ui.label("▾" if is_open else "▸").style(
+                    f"font-size:12px;color:{C['teal']};")
+                ui.label(name).classes("aip-sec").style(
+                    f"color:{C['teal']};margin:0;")
+                if not is_open:
+                    ui.label("%d answered" % count if rows
+                             else "nothing yet").style(
+                        f"font-size:10px;color:{C['muted']};"
+                        f"margin-left:auto;")
+
+            if not is_open:
+                continue
+
+            with ui.element("div").style("margin-top:14px;"):
+                if key == "extra":
+                    _aip_extra(s, rf, C, req)
+                else:
+                    with ui.element("div").classes("aip-grid"):
+                        for f in rows:
+                            with ui.element("div"):
+                                _aip_field(s, rf, C, r, vals, f)
+
+    with _card(C):
         def _build():
-            # Rebuilt from the boxes rather than patched into the old dict, so
-            # what is on screen is what gets written — including a field the
-            # user deliberately blanked out.
-            fields, missing = [], []
-            for label, inp in inputs:
-                val = (inp.value or "").strip()
-                (fields if val else missing).append(
-                    {"label": label, "value": val})
-            s._aip_req = {
-                "raw": req.get("raw") or "",
-                "routine": _sel.value or DEFAULT_ROUTINE,
-                "title": req.get("title") or "",
-                "summary": (_sum.value or "").strip(),
-                "fields": fields,
-                "missing": missing,
-                "detail": req.get("detail") or [],
-            }
-            s._aip_weekly = bool(_wk.value)
-            s._aip_prompt = build_prompt(s._aip_req, weekly=s._aip_weekly)
+            s._aip_prompt = build_prompt(req)
             rf()
 
         def _restart():
             s._aip_req = None
             s._aip_prompt = None
+            s._aip_open = None
             s._aip_err = ""
             rf()
 
         with ui.element("div").style(
-                f"border-top:1px solid {C['border']};padding-top:16px;"
-                f"display:flex;align-items:center;gap:12px;flex-wrap:wrap;"):
+                "display:flex;align-items:center;gap:12px;flex-wrap:wrap;"):
             with ui.element("button").classes("fd-pb").style(
                     "padding:11px 24px;font-size:13px;").on("click", _build):
                 ui.label("Write my prompt")
+            _aip_save_setup(s, rf, C, req)
             with ui.element("button").classes("fd-gb").style(
                     "padding:9px 18px;font-size:12px;").on("click", _restart):
                 ui.label("Start over")
@@ -744,6 +1672,7 @@ def _aip_result(s, rf, C):
             s._aip_req = None
             s._aip_prompt = None
             s._aip_raw = ""
+            s._aip_open = None
             s._aip_err = ""
             rf()
 
@@ -755,7 +1684,7 @@ def _aip_result(s, rf, C):
                 ui.label("Copy the prompt")
             with ui.element("button").classes("fd-gb").style(
                     "padding:9px 18px;font-size:12px;").on("click", _back):
-                ui.label("Change the details")
+                ui.label("Change my answers")
             with ui.element("button").classes("fd-gb").style(
                     "padding:9px 18px;font-size:12px;").on("click", _restart):
                 ui.label("Ask for something else")
