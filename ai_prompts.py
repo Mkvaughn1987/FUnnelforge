@@ -773,14 +773,20 @@ def _derived(r, vals):
     return d
 
 
-def _open_questions(r, vals):
+def _open_questions(r, vals, extra=()):
     """The blanks worth stopping for. Only fields marked ask=True qualify —
     everything else carries a default that is written straight into the
     prompt, which is what keeps a twenty-field form from producing a
-    twenty-question opening message."""
+    twenty-question opening message.
+
+    `extra` are field keys the chosen starter makes essential even though
+    the routine as a whole can do without them — the job description is
+    optional on "Email a list", and the whole point of "Send a job
+    description out"."""
+    extra = set(extra or ())
     qs = []
     for f in r["fields"]:
-        if not f.get("ask"):
+        if not (f.get("ask") or f["key"] in extra):
             continue
         if not str(_val(r, vals, f["key"]) or "").strip():
             qs.append(f["label"])
@@ -815,6 +821,11 @@ PARSE_SYSTEM = (
 )
 
 
+# NOT WIRED TO ANY SCREEN. View 1 used to be a free-text box that was
+# read by this; it is a dropdown of STARTERS now, so nothing calls
+# parse_request() or normalise(). Both are kept, working and in step with
+# the routine schema, because "or just type it" is the obvious thing to
+# add back alongside the dropdown. Delete them if that never happens.
 def parse_request(raw):
     """Free text in, a structured request out.
 
@@ -994,7 +1005,7 @@ def build_prompt(req):
         for lbl, v in rows:
             L += _wrap("%-*s %s" % (pad, lbl + ":", v), indent="  ")
 
-    open_qs = _open_questions(r, vals)
+    open_qs = _open_questions(r, vals, req.get("ask_extra"))
     if open_qs:
         L += ["", "I HAVEN'T DECIDED THESE"]
         L += ["  " + q for q in open_qs]
@@ -1087,53 +1098,129 @@ def _save_setups(rows):
 # Starter sentences. Deliberately written the way someone would actually
 # type them — half-specified, no jargon — because the point is to show that
 # a rough sentence is enough, not to show off a perfect one.
-EXAMPLES = [
-    ("Find companies to sell to", [
-        "Find commercial construction companies in Colorado hiring project "
-        "managers and superintendents, 50 to 1000 people, and set up outreach",
-        "Package manufacturers in Ohio and Indiana hiring maintenance techs — "
-        "owners and plant managers only",
-        "HVAC companies in Phoenix hiring service managers, everything posted "
-        "in the last two weeks",
-        "Civil contractors in the Denver metro hiring estimators, and make it "
-        "run again every Monday morning",
-    ]),
-    ("Market my candidates out", [
-        "Market my three senior estimators out to general contractors in the "
-        "Denver metro",
-        "Pitch my available superintendents to healthcare builders in "
-        "Phoenix, don't use their names",
-        "Take my two plant managers and find manufacturers within an hour of "
-        "Columbus who could use them",
-    ]),
-    ("Launch a campaign", [
-        "Launch a 5x5 campaign to the contacts on my list starting Monday",
-        "Send my saved style to the 40 contacts in this spreadsheet, first "
-        "email a week Monday",
-        "Email these candidates the attached job description, three emails "
-        "over three days",
-    ]),
-    ("Search my bench", [
-        "Who do I already have who could run a $30M healthcare build in "
-        "Phoenix",
-        "Find me available estimators with heavy civil experience in Texas",
-    ]),
-    ("Load resumes into DripDrop", [
-        "Import the resumes in my downloads folder into DripDrop",
-        "Load these 40 candidate records in without creating duplicates",
-    ]),
-    ("Research and write something", [
-        "Write me a newsletter on what is happening in Denver commercial "
-        "construction this quarter",
-        "Brief me on the five biggest manufacturers hiring in Salt Lake right "
-        "now and who runs them",
-    ]),
-    ("Tell me what's running", [
-        "Show me every campaign I have running and how many contacts are in "
-        "each",
-        "Which of my campaigns have stalled in the last 30 days",
-    ]),
+# The ten things you can start. Each one names a routine and, where it is a
+# variant of one, the answers that make it that variant. There is no free-text
+# box: picking from here is the only way in, so every run starts on a schema
+# the next screen already knows how to render.
+STARTERS = [
+    {
+        "id": "companies",
+        "label": "Find companies to sell to",
+        "sub": "Companies hiring in an industry and area, the people who own "
+               "the hiring there, and outreach to them.",
+        "summary": "Find companies hiring and set up outreach to them.",
+        "routine": "sales_campaign",
+        "vals": {},
+    },
+    {
+        "id": "companies_weekly",
+        "label": "Find companies to sell to, and run it again every week",
+        "sub": "The same thing, set to run again on its own on a day and "
+               "time you pick.",
+        "summary": "Find companies hiring and set up outreach, and run it "
+                   "again every week.",
+        "routine": "sales_campaign",
+        "vals": {"repeat_on": True},
+    },
+    {
+        "id": "market",
+        "label": "Market my candidates out",
+        "sub": "Start from the people on your bench and find companies who "
+               "could use them.",
+        "summary": "Market my available candidates out to companies who "
+                   "could use them.",
+        "routine": "market_candidates",
+        "vals": {},
+    },
+    {
+        "id": "launch",
+        "label": "Email a list I already have",
+        "sub": "Build a sequence and send it to contacts you already have, "
+               "from a file or a list.",
+        "summary": "Send an outreach sequence to a list I already have.",
+        "routine": "launch_campaign",
+        "vals": {},
+    },
+    {
+        "id": "jd",
+        "label": "Send a job description out to candidates",
+        "sub": "Email people about one specific opening, a couple of emails "
+               "over a couple of days.",
+        "summary": "Email candidates about a specific opening.",
+        "routine": "launch_campaign",
+        "vals": {"cand_cadence": "Two, a day apart"},
+        "ask_extra": ["jd"],
+    },
+    {
+        "id": "bench",
+        "label": "Search my bench for someone",
+        "sub": "Find people already in DripDrop who could do a particular "
+               "job.",
+        "summary": "Find people already in DripDrop who match a role.",
+        "routine": "find_candidates",
+        "vals": {},
+    },
+    {
+        "id": "load",
+        "label": "Load resumes into DripDrop",
+        "sub": "Bring candidates or resumes in from a folder, a file or a "
+               "list, without creating duplicates.",
+        "summary": "Import candidates into DripDrop without duplicating "
+                   "anyone.",
+        "routine": "load_candidates",
+        "vals": {},
+    },
+    {
+        "id": "write",
+        "label": "Write a newsletter or a market brief",
+        "sub": "Read the web on a subject and write it up, with the sources "
+               "for every number in it.",
+        "summary": "Research a subject and write it up.",
+        "routine": "research",
+        "vals": {},
+    },
+    {
+        "id": "running",
+        "label": "Tell me what's running",
+        "sub": "Read back your live campaigns, their emails, and how they "
+               "are doing.",
+        "summary": "Show me what I have running and how it is doing.",
+        "routine": "campaign_report",
+        "vals": {},
+    },
+    {
+        "id": "other",
+        "label": "Something else",
+        "sub": "Describe it in your own words on the next screen.",
+        "summary": "",
+        "routine": "other",
+        "vals": {},
+    },
 ]
+
+STARTER_BY_ID = {x["id"]: x for x in STARTERS}
+
+
+def _req_from_starter(st):
+    """A starter becomes the same shape the AI parse used to return, so view 2
+    and build_prompt() cannot tell the difference."""
+    r = ROUTINE_BY_KEY.get(st["routine"], ROUTINE_BY_KEY[DEFAULT_ROUTINE])
+    vals = defaults_for(r)
+    preset = {k: v for k, v in (st.get("vals") or {}).items()
+              if k in r["field_by_key"]}
+    vals.update(preset)
+    return {
+        "raw": "",
+        "starter": st["id"],
+        "ask_extra": [k for k in (st.get("ask_extra") or ())
+                      if k in r["field_by_key"]],
+        "routine": r["key"],
+        "title": st["label"],
+        "summary": st.get("summary") or "",
+        "vals": vals,
+        "filled": list(preset),
+        "detail": [],
+    }
 
 
 def _aip_owner(s):
@@ -1198,10 +1285,10 @@ def p_ai_prompts(s, rf):
         with ui.element("div").style("margin-bottom:14px;"):
             ui.label("AI Prompts").classes("fd-h1")
             ui.label(
-                "Say what you want done. DripDrop works out which job that "
-                "is, asks you the questions worth asking, and writes the "
-                "message to paste into Claude — with everything Claude needs "
-                "to do it properly already in it."
+                "Pick what you want done. DripDrop asks you the questions "
+                "worth asking and writes the message to paste into Claude "
+                "— with everything Claude needs to do it properly already "
+                "in it."
             ).classes("fd-sub")
 
         if getattr(s, "_aip_prompt", None):
@@ -1212,10 +1299,9 @@ def p_ai_prompts(s, rf):
             _aip_ask(s, rf, C)
 
 
-# ── View 1: the box ───────────────────────────────────────────────────────
+# ── View 1: pick a job ────────────────────────────────────────────────────
 
 def _aip_ask(s, rf, C):
-    busy = bool(getattr(s, "_aip_busy", False))
     err = getattr(s, "_aip_err", "") or ""
 
     if err:
@@ -1223,59 +1309,58 @@ def _aip_ask(s, rf, C):
             _text("That didn't work", C, 14, 700, C["text_l"], 4)
             _text(err, C, 12, colour=C["muted"])
 
+    pick = getattr(s, "_aip_pick", "") or STARTERS[0]["id"]
+    if pick not in STARTER_BY_ID:
+        pick = STARTERS[0]["id"]
+    st = STARTER_BY_ID[pick]
+    r = ROUTINE_BY_KEY.get(st["routine"], ROUTINE_BY_KEY[DEFAULT_ROUTINE])
+
     with _card(C):
-        _sec("What do you want done?", C)
-        _text("Plain English. A sentence or two is enough — you get to check "
-              "and change everything on the next screen.",
-              C, 12, colour=C["muted"], mb=10)
+        _sec("What do you want to do?", C)
+        _text("Pick the closest one. The next screen is where you put in the "
+              "specifics — the industry, the area, who to email, how many — "
+              "and you can change every one of them there.",
+              C, 12, colour=C["muted"], mb=12)
 
-        box = ui.textarea(
-            value=getattr(s, "_aip_raw", "") or "",
-            placeholder="e.g. Find HVAC companies in Phoenix hiring service "
-                        "managers and set up outreach"
-        ).props("dense autogrow").classes(
-            "fd-input aip-ta").style("width:100%;")
-
-        async def _understand():
-            raw = (box.value or "").strip()
-            if len(raw) < 8:
-                ui.notify("Tell me what you want in a sentence or two.",
-                          type="warning")
-                return
-            s._aip_raw = raw
+        def _pick(e):
+            s._aip_pick = e.value or STARTERS[0]["id"]
             s._aip_err = ""
-            s._aip_busy = True
             rf()
-            try:
-                # Off the event loop on purpose. The app runs on a single
-                # vCPU and a blocking Anthropic call here stalls every other
-                # request on the box, not just this page.
-                s._aip_req = await asyncio.get_running_loop().run_in_executor(
-                    None, parse_request, raw)
-                s._aip_open = None
-            except Exception as ex:
-                s._aip_err = str(ex) or ex.__class__.__name__
-            finally:
-                s._aip_busy = False
-                rf()
+
+        ui.select(options={x["id"]: x["label"] for x in STARTERS},
+                  value=pick, on_change=_pick).props("dense").classes(
+            "fd-input").style("width:100%;max-width:560px;")
+
+        with ui.element("div").style(
+                f"margin-top:12px;padding:12px 14px;background:{C['bg']};"
+                f"border:1px solid {C['border']};border-radius:10px;"
+                f"max-width:560px;"):
+            _text(st["sub"], C, 12, colour=C["text_l"], mb=6)
+            main = len([f for f in r["fields"] if f["section"] == "details"])
+            rest = len(r["fields"]) - main
+            _text("%d question%s on the next screen, and %d more in the "
+                  "sections under them if you want them."
+                  % (main, "" if main == 1 else "s", rest),
+                  C, 11, colour=C["muted"])
+
+        def _go():
+            key = getattr(s, "_aip_pick", "") or STARTERS[0]["id"]
+            starter = STARTER_BY_ID.get(key) or STARTERS[0]
+            s._aip_req = _req_from_starter(starter)
+            s._aip_open = None
+            s._aip_err = ""
+            rf()
 
         with ui.element("div").style(
                 "display:flex;align-items:center;gap:14px;margin-top:16px;"
                 "flex-wrap:wrap;"):
-            if busy:
-                ui.spinner(size="22px", color=C["teal"])
-                _text("Reading what you asked for…", C, 12, colour=C["muted"])
-            else:
-                with ui.element("button").classes("fd-pb").style(
-                        "padding:11px 24px;font-size:13px;flex-shrink:0;"
-                        ).on("click", _understand):
-                    ui.label("Read this")
-                _text("Nothing runs and nothing sends. This only reads your "
-                      "sentence so you can check it before the prompt is "
-                      "written.", C, 11, colour=C["muted"])
-
-    if busy:
-        return
+            with ui.element("button").classes("fd-pb").style(
+                    "padding:11px 24px;font-size:13px;flex-shrink:0;"
+                    ).on("click", _go):
+                ui.label("Set this up")
+            _text("Nothing runs and nothing sends here. All you are doing is "
+                  "writing the message you'll paste into Claude.",
+                  C, 11, colour=C["muted"])
 
     setups = _load_setups()
     if setups:
@@ -1288,30 +1373,6 @@ def _aip_ask(s, rf, C):
                     "display:flex;flex-direction:column;gap:8px;"):
                 for row in setups:
                     _aip_setup_row(s, rf, C, row, setups)
-
-    with _card(C):
-        _sec("Or start from one of these", C)
-        _text("Click one, change the bits that are wrong, and read it.",
-              C, 12, colour=C["muted"], mb=12)
-        for group, lines in EXAMPLES:
-            ui.label(group).style(
-                f"font-size:11px;font-weight:700;color:{C['muted']};"
-                f"display:block;margin:10px 0 6px;")
-            with ui.element("div").style(
-                    "display:flex;flex-direction:column;gap:8px;"):
-                for ex in lines:
-                    def _use(_ex=ex):
-                        s._aip_raw = _ex
-                        s._aip_err = ""
-                        rf()
-                    with ui.element("button").style(
-                            f"text-align:left;background:{C['bg']};"
-                            f"border:1px solid {C['border']};"
-                            f"border-radius:9px;padding:10px 14px;"
-                            f"cursor:pointer;width:100%;").on("click", _use):
-                        ui.label(ex).style(
-                            f"font-size:12px;color:{C['text_l']};"
-                            f"line-height:1.5;")
 
 
 def _aip_setup_row(s, rf, C, row, setups):
@@ -1524,10 +1585,12 @@ def _aip_confirm(s, rf, C):
     opened = _aip_open_state(s, r, req)
 
     with _card(C, C["teal"]):
-        _text("Here's what I understood", C, 15, 700, C["text_l"], 4)
-        _text("Change anything that's wrong. Most of these are already "
-              "answered sensibly — the only ones Claude will ask you about "
-              "are the ones marked as not said.",
+        heard = bool((req.get("raw") or "").strip())
+        _text("Here's what I understood" if heard else req.get("title")
+              or "Set this up", C, 15, 700, C["text_l"], 4)
+        _text("Fill in the specifics. Most of these are already answered "
+              "sensibly — the only ones Claude will ask you about are the "
+              "ones called out below. Change anything you like.",
               C, 12, colour=C["muted"], mb=16)
 
         _sec("What kind of job is this?", C)
@@ -1563,7 +1626,7 @@ def _aip_confirm(s, rf, C):
                     on_change=_set_sum).props("dense autogrow").classes(
             "fd-input aip-ta").style("width:100%;margin-bottom:6px;")
 
-        unanswered = _open_questions(r, vals)
+        unanswered = _open_questions(r, vals, req.get("ask_extra"))
         if unanswered:
             _text("Claude will ask you about: " + ", ".join(unanswered) + ".",
                   C, 11, colour=C["warn"], mb=16)
@@ -1672,6 +1735,7 @@ def _aip_result(s, rf, C):
             s._aip_req = None
             s._aip_prompt = None
             s._aip_raw = ""
+            s._aip_pick = ""
             s._aip_open = None
             s._aip_err = ""
             rf()
