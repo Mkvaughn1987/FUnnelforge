@@ -122,6 +122,20 @@ def _con():
             except Exception:
                 pass
         try:
+            # The name a client sees in outreach ("Trent K."), paired with the
+            # talent id as "Ref #1042". Minted once by ensure_client_alias and
+            # never changed, so a client asking about "Trent K." months later
+            # still resolves to the same person.
+            con.execute("ALTER TABLE talents ADD COLUMN client_alias TEXT")
+        except Exception:
+            pass
+        try:
+            con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_talents_owner_alias "
+                        "ON talents(owner_email, client_alias) "
+                        "WHERE client_alias IS NOT NULL AND client_alias!=''")
+        except Exception:
+            pass
+        try:
             # "pipelines" table now backs Tearsheets. kind='smart' = saved
             # search (auto count); kind='manual' = hand-picked candidate list
             # whose members live in tearsheet_members.
@@ -716,6 +730,128 @@ def _terms(text: str) -> list:
     return out
 
 
+# ── Client alias + Ref # ──────────────────────────────────────────────────
+# Outreach never shows a candidate's real name. Each real candidate used in a
+# campaign gets a stable alias ("Trent K.") and is cited with their talent id
+# ("Ref #1042"), so a client reply about "Trent K." leads straight back to the
+# Pipeline record.
+
+_ALIAS_FIRST_NAMES = (
+    "Aaron", "Adrian", "Alec", "Allison", "Andre", "Angela", "Blake", "Brandon",
+    "Brenda", "Brett", "Caleb", "Cameron", "Carla", "Carmen", "Casey", "Chad",
+    "Colin", "Connor", "Craig", "Dana", "Dante", "Darren", "Dean", "Derek",
+    "Devin", "Diana", "Dylan", "Elena", "Elliot", "Emmett", "Erin", "Evan",
+    "Felix", "Fiona", "Gavin", "Gina", "Grant", "Greta", "Hana", "Heath",
+    "Holly", "Hugo", "Ian", "Irene", "Ivy", "Jared", "Jenna", "Joel", "Jolene",
+    "Julian", "Kara", "Keith", "Kelsey", "Kent", "Kyle", "Lance", "Laura",
+    "Leah", "Leon", "Logan", "Lydia", "Malcolm", "Marcus", "Marissa", "Megan",
+    "Miles", "Monica", "Nadia", "Nathan", "Neil", "Nina", "Noah", "Nolan",
+    "Olivia", "Omar", "Owen", "Paige", "Pierce", "Preston", "Quinn", "Rachel",
+    "Reed", "Renee", "Rhett", "Rosa", "Ross", "Ruby", "Russell", "Sabrina",
+    "Seth", "Sierra", "Simone", "Spencer", "Tara", "Tessa", "Trent", "Trevor",
+    "Troy", "Vanessa", "Vince", "Wade", "Wes", "Whitney", "Xavier", "Yvonne",
+    "Zane", "Zoe",
+)
+_ALIAS_INITIALS = "ABCDEFGHJKLMNPRSTVW"
+
+_REF_RE = re.compile(r"^\s*(?:ref\b\s*)?#?\s*(\d{1,9})\s*$", re.I)
+_ALIAS_RE = re.compile(
+    r"^\s*([A-Za-z][A-Za-z'\-]*)\s+([A-Za-z])\.?"
+    r"(?:\s*[(·\-,]?\s*ref\s*#?\s*(\d{1,9})\s*\)?)?\s*$", re.I)
+
+
+def ref_label(tid) -> str:
+    """'Ref #1042' for a talent id."""
+    return "Ref #%s" % int(tid)
+
+
+def _alias_candidates(real_first: str):
+    import random
+    real = (real_first or "").strip().lower()
+    names = [n for n in _ALIAS_FIRST_NAMES if n.lower() != real]
+    combos = ["%s %s." % (n, i) for n in names for i in _ALIAS_INITIALS]
+    random.shuffle(combos)
+    return combos
+
+
+def ensure_client_alias(tid) -> str:
+    """Return the talent's client alias, minting one on first use.
+
+    The alias is a curated first name + last initial, unique among the owner's
+    candidates and never the candidate's real first name. Once set it never
+    changes. Returns '' when the talent does not exist."""
+    con = _con()
+    try:
+        row = con.execute("SELECT id, first_name, owner_email, client_alias "
+                          "FROM talents WHERE id=?", (int(tid),)).fetchone()
+        if not row:
+            return ""
+        if (row["client_alias"] or "").strip():
+            return row["client_alias"]
+        owner = row["owner_email"] or ""
+        taken = {(r[0] or "").lower() for r in con.execute(
+            "SELECT client_alias FROM talents WHERE owner_email=? "
+            "AND client_alias IS NOT NULL AND client_alias!=''", (owner,))}
+        for alias in _alias_candidates(row["first_name"]):
+            if alias.lower() in taken:
+                continue
+            try:
+                cur = con.execute(
+                    "UPDATE talents SET client_alias=? WHERE id=? AND "
+                    "(client_alias IS NULL OR client_alias='')", (alias, row["id"]))
+                con.commit()
+            except sqlite3.IntegrityError:
+                taken.add(alias.lower())  # lost a race for this alias
+                continue
+            if cur.rowcount:
+                return alias
+            # Another writer minted one for this talent first; use theirs.
+            r2 = con.execute("SELECT client_alias FROM talents WHERE id=?",
+                             (row["id"],)).fetchone()
+            return (r2[0] or "") if r2 else ""
+        return ""
+    finally:
+        con.close()
+
+
+def find_by_ref_or_alias(q: str, owner: str = None) -> list:
+    """Talent rows a query names directly: a Ref # ('1042', '#1042',
+    'Ref #1042') or an exact client alias ('Trent K.', 'Trent K. (Ref #1042)').
+    Empty when the query is neither."""
+    q = (q or "").strip()
+    if not q:
+        return []
+    ref = None
+    alias = None
+    m = _REF_RE.match(q)
+    if m:
+        ref = int(m.group(1))
+    else:
+        m = _ALIAS_RE.match(q)
+        if not m:
+            return []
+        if m.group(3):
+            ref = int(m.group(3))
+        alias = "%s %s." % (m.group(1), m.group(2).upper())
+    con = _con()
+    try:
+        _own = " AND owner_email=?" if owner else ""
+        _op = [owner] if owner else []
+        rows = []
+        if ref is not None:
+            rows = con.execute("SELECT * FROM talents WHERE id=?" + _own,
+                               [ref] + _op).fetchall()
+        elif alias:
+            rows = con.execute(
+                "SELECT * FROM talents WHERE lower(client_alias)=lower(?)" + _own
+                + " ORDER BY id", [alias] + _op).fetchall()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
+    finally:
+        con.close()
+
+
 def keyword_search(q: str, limit: int = 80, strict: bool = False,
                    owner: str = None, location: str = None,
                    radius_mi: float = None, added_within_days: int = None,
@@ -726,14 +862,32 @@ def keyword_search(q: str, limit: int = 80, strict: bool = False,
     Optionally narrowed by `location` + `radius_mi` (miles from that place) and
     `added_within_days` (how recently the résumé was imported into the pool).
 
+    A query that is a Ref # or a client alias puts that exact candidate first
+    (ahead of any keyword hits, ignoring the location/recency filters), so
+    "Ref #1042" or "Trent K." from a client email finds the person.
+
     Returns a list of rows. With `with_meta=True` returns (rows, meta) instead,
     where meta carries `origin`, `bad_location` (a location string we couldn't
     geocode) and `hidden_no_location` for the UI to report honestly.
     """
+    direct = find_by_ref_or_alias(q, owner=owner)
+    if direct:
+        rows, meta = _keyword_search_fts(q, limit, strict, owner, location,
+                                         radius_mi, added_within_days)
+        ids = {r["id"] for r in direct}
+        rows = (direct + [r for r in rows if r.get("id") not in ids])[:limit]
+        return (rows, meta) if with_meta else rows
+    rows, meta = _keyword_search_fts(q, limit, strict, owner, location,
+                                     radius_mi, added_within_days)
+    return (rows, meta) if with_meta else rows
+
+
+def _keyword_search_fts(q, limit, strict, owner, location, radius_mi,
+                        added_within_days):
     meta = {"origin": None, "bad_location": "", "hidden_no_location": 0}
     terms = _terms(q)
     if not terms:
-        return ([], meta) if with_meta else []
+        return [], meta
     origin = geocode_text(location) if location else None
     if location and not origin:
         # e.g. a bare city like "Irvine" — geocode_text needs "Irvine, CA".
@@ -767,10 +921,9 @@ def keyword_search(q: str, limit: int = 80, strict: bool = False,
         rows = [dict(r) for r in rows]
         rows, hidden = _geo_filter(rows, origin, radius_mi)
         meta["hidden_no_location"] = hidden
-        rows = rows[:limit]
-        return (rows, meta) if with_meta else rows
+        return rows[:limit], meta
     except Exception:
-        return ([], meta) if with_meta else []
+        return [], meta
     finally:
         con.close()
 
@@ -1941,45 +2094,11 @@ def ingest_records(records, owner_email: str, added_by: str,
                 file_results.append({"filename": "", "external_id": "", "name": "",
                                      "title": "", "status": "error"})
                 continue
-            ext = str(rec.get("external_id") or "").strip()
-            d, text = _record_to_parsed(rec)
-            person = " ".join(p for p in (d["first_name"], d["last_name"]) if p)
-            src = (str(rec.get("source") or rec.get("source_file") or "").strip()
-                   or ("external:" + ext if ext else "external record"))
-            if not _is_resume_record(d):
-                stats["junk"] += 1
-                file_results.append({"filename": src, "external_id": ext,
-                                     "name": person, "title": "", "status": "junk"})
-                continue
-
-            cols = _talent_columns(d, text, owner_email, added_by, src, now)
-            cols["external_id"] = ext
-            existing = (_find_by_external_id(con, ext, owner_email)
-                        or _find_owner_dup(con, d, owner_email))
-            if existing:
-                if _upload_completeness(d, text) > _completeness(dict(existing)):
-                    sets = ", ".join("%s=?" % k for k in cols if k != "created_at")
-                    vals = [v for k, v in cols.items() if k != "created_at"]
-                    con.execute("UPDATE talents SET %s WHERE id=?" % sets,
-                                (*vals, existing["id"]))
-                    stats["merged"] += 1
-                    _status = "merged"
-                else:
-                    if ext:
-                        con.execute("UPDATE talents SET external_id=? WHERE id=?",
-                                    (ext, existing["id"]))
-                    stats["dup"] += 1
-                    _status = "dup"
-            else:
-                con.execute(
-                    "INSERT INTO talents(%s) VALUES(%s)" % (
-                        ", ".join(cols.keys()), ", ".join("?" * len(cols))),
-                    tuple(cols.values()))
-                stats["added"] += 1
-                _status = "added"
-            file_results.append({"filename": src, "external_id": ext, "name": person,
-                                 "title": d.get("current_title", ""),
-                                 "status": _status})
+            res = _upsert_record(con, rec, owner_email, added_by, now)
+            stats[res["status"]] += 1
+            file_results.append({"filename": res["src"], "external_id": res["ext"],
+                                 "name": res["name"], "title": res["title"],
+                                 "status": res["status"]})
         if rebuild and (stats["added"] or stats["merged"]):
             con.execute("INSERT INTO talents_fts(talents_fts) VALUES('rebuild')")
         con.commit()
@@ -1987,6 +2106,69 @@ def ingest_records(records, owner_email: str, added_by: str,
         con.close()
     stats["files"] = file_results
     return stats
+
+
+def _upsert_record(con, rec: dict, owner_email: str, added_by: str, now: str) -> dict:
+    """Match-or-insert ONE structured record (see ingest_records for the match
+    order). Returns {status: added|merged|dup|junk, id, ext, name, title, src};
+    id is None only for junk."""
+    ext = str(rec.get("external_id") or "").strip()
+    d, text = _record_to_parsed(rec)
+    person = " ".join(p for p in (d["first_name"], d["last_name"]) if p)
+    src = (str(rec.get("source") or rec.get("source_file") or "").strip()
+           or ("external:" + ext if ext else "external record"))
+    out = {"status": "junk", "id": None, "ext": ext, "name": person,
+           "title": "", "src": src}
+    if not _is_resume_record(d):
+        return out
+    out["title"] = d.get("current_title", "")
+
+    cols = _talent_columns(d, text, owner_email, added_by, src, now)
+    cols["external_id"] = ext
+    existing = (_find_by_external_id(con, ext, owner_email)
+                or _find_owner_dup(con, d, owner_email))
+    if existing:
+        out["id"] = existing["id"]
+        if _upload_completeness(d, text) > _completeness(dict(existing)):
+            sets = ", ".join("%s=?" % k for k in cols if k != "created_at")
+            vals = [v for k, v in cols.items() if k != "created_at"]
+            con.execute("UPDATE talents SET %s WHERE id=?" % sets,
+                        (*vals, existing["id"]))
+            out["status"] = "merged"
+        else:
+            if ext:
+                con.execute("UPDATE talents SET external_id=? WHERE id=?",
+                            (ext, existing["id"]))
+            out["status"] = "dup"
+    else:
+        cur = con.execute(
+            "INSERT INTO talents(%s) VALUES(%s)" % (
+                ", ".join(cols.keys()), ", ".join("?" * len(cols))),
+            tuple(cols.values()))
+        out["id"] = cur.lastrowid
+        out["status"] = "added"
+    return out
+
+
+def upsert_card_record(rec: dict, owner_email: str, added_by: str = "") -> dict:
+    """Put the real person behind a campaign candidate card into the Pipeline
+    (or find them if already there) and return
+    {status, id, alias, ref}. status is 'junk' with id None when the card
+    lacks a first + last name and an email/phone/title to identify them."""
+    import time
+    con = _con()
+    try:
+        res = _upsert_record(con, rec, owner_email, added_by or owner_email,
+                             time.strftime("%Y-%m-%dT%H:%M:%S"))
+        if res["status"] in ("added", "merged"):
+            con.execute("INSERT INTO talents_fts(talents_fts) VALUES('rebuild')")
+        con.commit()
+    finally:
+        con.close()
+    if res["id"] is None:
+        return {"status": res["status"], "id": None, "alias": "", "ref": ""}
+    return {"status": res["status"], "id": res["id"],
+            "alias": ensure_client_alias(res["id"]), "ref": ref_label(res["id"])}
 
 
 def ingest_resume_text(text: str, owner_email: str, added_by: str) -> dict:
