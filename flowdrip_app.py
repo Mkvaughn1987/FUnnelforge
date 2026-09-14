@@ -4163,11 +4163,14 @@ AICB_CAMPAIGN_TYPES = [
      "helpful professional who happens to know great people, not a rep working a "
      "pitch. Short paragraphs, plain words, no hype, no pressure. Refer to the "
      "company's OVERALL MARKET (e.g. construction, manufacturing) rather than the "
-     "specific job title wherever a general reference reads naturally. When a "
-     "candidate is anonymized, render them as a friendly first-name alias whose "
-     "initial matches the slot plus a last initial (Candidate A -> 'Aaron M.', "
-     "Candidate B -> 'Ben T.', Candidate C -> 'Carlos R.'); use the real first "
-     "name if the highlights provide one. Use the same alias for the same person "
+     "specific job title wherever a general reference reads naturally. Refer to "
+     "each candidate by the label given in CANDIDATE HIGHLIGHTS. When a label "
+     "has a Ref # (e.g. 'Trent K. (Ref #1042)'), use that alias exactly and "
+     "write it as 'Trent K. (Ref #1042)' on the first mention in each email. "
+     "Only a label with no Ref # ('Candidate A') gets a slot alias: a friendly "
+     "first name whose initial matches the slot plus a last initial (Candidate "
+     "A -> 'Aaron M.', Candidate B -> 'Ben T.', Candidate C -> 'Carlos R.'). "
+     "Never use a candidate's real name. Use the same alias for the same person "
      "across every email.\n"
      "Step 1 - Introducing Myself (delay_days:0, step_type:email_auto) - "
      "Subject exactly: 'Quick note for [Company]' (write the real company "
@@ -4216,12 +4219,15 @@ AICB_CAMPAIGN_TYPES = [
      "like a helpful professional who happens to know great people. Short "
      "paragraphs, plain words, no hype, no pressure. Refer to the company's "
      "OVERALL MARKET (e.g. construction, manufacturing) rather than the "
-     "specific job title where it reads naturally. When a candidate is "
-     "anonymized, render them as a friendly first-name alias whose initial "
-     "matches the slot plus a last initial (Candidate A -> 'Aaron M.', "
-     "Candidate B -> 'Ben T.', Candidate C -> 'Carlos R.'); use the real "
-     "first name if the highlights provide one. Same alias for the same "
-     "person across every email.\n"
+     "specific job title where it reads naturally. Refer to each candidate "
+     "by the label given in CANDIDATE HIGHLIGHTS. When a label has a Ref # "
+     "(e.g. 'Trent K. (Ref #1042)'), use that alias exactly and write it as "
+     "'Trent K. (Ref #1042)' on the first mention in each email. Only a "
+     "label with no Ref # ('Candidate A') gets a slot alias: a friendly "
+     "first name whose initial matches the slot plus a last initial "
+     "(Candidate A -> 'Aaron M.', Candidate B -> 'Ben T.', Candidate C -> "
+     "'Carlos R.'). Never use a candidate's real name. Same alias for the "
+     "same person across every email.\n"
      "Step 1 - Warm Intro (delay_days:0, step_type:email_auto) - Subject "
      "exactly: 'Quick note for [Company]' (write the real company name in). "
      "Open warmly: introduce yourself, mention you place [the specific "
@@ -5211,6 +5217,8 @@ def _format_candidate_block(cards: list, camp_type: str) -> str:
     lines = []
     for c in cards:
         label = (c.get("label") or c.get("name") or "Candidate").strip()
+        if c.get("ref"):
+            label = f"{label} ({c['ref']})"
         role = (c.get("role") or "").strip()
         head = f"{label}: {role}" if role else label
         # Only the candidate's own skill/project/company highlights become
@@ -5231,8 +5239,18 @@ def _format_candidate_block(cards: list, camp_type: str) -> str:
         + _aicb_candidate_weave_block(camp_type) +
         f'When email subjects or body text references the count, use '
         f'"{n} profiles" or "{n} candidates" (or the spelled-out word). Use '
-        f'the candidate labels exactly as they appear above.\n\n'
+        f'the candidate labels exactly as they appear above.'
+        + _CAND_REF_RULE + '\n\n'
     )
+
+
+# Appended to every CANDIDATE HIGHLIGHTS block: a label carrying a Ref # is how
+# the recruiter finds the real person when a client replies.
+_CAND_REF_RULE = (
+    " When a label carries a Ref # (e.g. 'Trent K. (Ref #1042)'), write the "
+    "alias followed by ' (Ref #N)' the first time that candidate is named in "
+    "each email, and never swap the alias for a different name."
+)
 
 
 def _aicb_research_brief(client, *, camp_type="", company="", website="",
@@ -5726,6 +5744,158 @@ async def api_campaign_styles(request: Request):
     return JSONResponse(_load_my_campaign_styles())
 
 
+# Fields that identify the real person behind a candidate card. They are used to
+# find/add the Pipeline record, then stripped so they never reach the prompt.
+_CARD_IDENTITY_FIELDS = ("name", "first_name", "last_name", "email", "phone",
+                         "resume_text", "external_id", "state")
+
+
+def _link_candidate_cards(cards, owner, strict=True):
+    """Tie each real candidate card to a Pipeline record so outreach cites a
+    stable client alias + Ref # instead of a reused slot alias.
+
+    Per card: `_synthetic` fill cards pass through untouched; `_pool_id` /
+    `_ats_id` / `_talent_id` load that record; name + email or phone finds or
+    adds the person. A card with none of those passes through unchanged (no
+    ref). A bad id or an unaddable person is an error when `strict` (API/MCP),
+    otherwise that card passes through too (wizard, sales runs).
+    Accounts without Pipeline access keep today's behaviour: nothing is linked
+    or added, and nothing is rejected. Returns (cards, error)."""
+    if not cards or not _ats_allowed(owner):
+        return cards, None
+    import ats
+    out = []
+    for i, card in enumerate(cards or []):
+        if not isinstance(card, dict) or card.get("_synthetic"):
+            out.append(card)
+            continue
+        letter = "ABCDEF"[i] if i < 6 else str(i + 1)
+        tid = card.get("_pool_id") or card.get("_ats_id") or card.get("_talent_id")
+        alias = ""
+        if tid not in (None, ""):
+            try:
+                tid = int(tid)
+            except (TypeError, ValueError):
+                if strict:
+                    return cards, f"candidate card {i + 1}: Pipeline id '{tid}' is not a number"
+                out.append(card)
+                continue
+            if not ats.get_one(tid):
+                if strict:
+                    return cards, f"candidate card {i + 1}: Pipeline id {tid} not found"
+                out.append(card)
+                continue
+            alias = ats.ensure_client_alias(tid)
+        else:
+            name = (card.get("name") or " ".join(
+                p for p in (card.get("first_name"), card.get("last_name")) if p)).strip()
+            if name and (card.get("email") or card.get("phone")):
+                res = ats.upsert_card_record({
+                    "name": name,
+                    "email": card.get("email") or "",
+                    "phone": card.get("phone") or "",
+                    "state": card.get("state") or "",
+                    "current_title": card.get("role") or card.get("current_title") or "",
+                    "resume_text": card.get("resume_text") or "",
+                    "external_id": card.get("external_id") or "",
+                }, owner)
+                if res.get("id") is None:
+                    if strict:
+                        return cards, (f"candidate card {i + 1}: couldn't add "
+                                       f"'{name}' to the Pipeline (needs a first "
+                                       "and last name)")
+                    out.append(card)
+                    continue
+                tid, alias = res["id"], res.get("alias") or ""
+            else:
+                # Pre-anonymized cards (CandidateBlast, older routines) still
+                # generate; the caller reports them via _unlinked_card_warnings.
+                out.append(card)
+                continue
+        linked = {k: v for k, v in card.items() if k not in _CARD_IDENTITY_FIELDS}
+        linked.update({"_talent_id": tid, "ref": ats.ref_label(tid), "alias": alias,
+                       "label": alias or f"Candidate {letter}"})
+        out.append(linked)
+    return out, None
+
+
+def _unlinked_card_warnings(cards):
+    """One warning per real card that went out without a Ref #, so API/MCP
+    callers learn what to send next time without the campaign failing."""
+    out = []
+    for i, c in enumerate(cards or []):
+        if isinstance(c, dict) and not c.get("_synthetic") and not c.get("_talent_id"):
+            out.append(f"candidate card {i + 1} has no Pipeline link, so it has no "
+                       "Ref #. Send _pool_id (from candidates_search) or name + "
+                       "email or phone to make it traceable.")
+    return out
+
+
+def _candidate_refs(cards):
+    """[{slot, alias, ref, talent_id}] for the linked cards, saved on the
+    campaign so a client reply can be traced to the Pipeline record."""
+    refs = []
+    for i, c in enumerate(cards or []):
+        if isinstance(c, dict) and c.get("_talent_id"):
+            refs.append({"slot": "ABCDEF"[i] if i < 6 else str(i + 1),
+                         "alias": c.get("alias") or "", "ref": c.get("ref") or "",
+                         "talent_id": c["_talent_id"]})
+    return refs
+
+
+def _ensure_candidate_refs_in_emails(emails, cards):
+    """If the model dropped a Ref #, add ' (Ref #N)' after the first mention of
+    that candidate's alias in each email body. Subjects are left alone."""
+    import re as _re
+    linked = [c for c in (cards or []) if isinstance(c, dict)
+              and c.get("alias") and c.get("ref")]
+    if not linked:
+        return emails
+    for em in emails or []:
+        body = em.get("body") if isinstance(em, dict) else None
+        if not isinstance(body, str) or not body:
+            continue
+        for c in linked:
+            if c["ref"] in body:
+                continue
+            pat = _re.compile(r"(?<![A-Za-z])" + _re.escape(c["alias"]))
+            body = pat.sub(lambda m: f"{m.group(0)} ({c['ref']})", body, count=1)
+        em["body"] = body
+    return emails
+
+
+def _render_candidate_refs_panel(refs):
+    """Campaign detail: one row per featured candidate - the alias recipients
+    saw, its Ref #, and the real name, linking to the Pipeline record."""
+    import ats
+    with ui.element("div").style(
+            f"background:{C['card']};border:1px solid {C['border']};"
+            f"border-radius:10px;padding:12px 16px;margin-bottom:16px;"):
+        ui.label("Candidates").style(
+            f"font-size:14px;font-weight:600;color:{C['text_l']};"
+            f"margin-bottom:6px;font-family:'Nunito',sans-serif;")
+        for r in refs:
+            tid = r.get("talent_id")
+            try:
+                rec = ats.get_one(int(tid)) if tid else {}
+            except Exception:
+                rec = {}
+            real = " ".join(p for p in ((rec or {}).get("first_name"),
+                                         (rec or {}).get("last_name")) if p)
+            with ui.element("div").style(
+                    "display:flex;align-items:center;gap:10px;padding:4px 0;"
+                    "font-size:13px;"):
+                ui.label(r.get("alias") or f"Candidate {r.get('slot', '')}").style(
+                    f"font-weight:600;color:{C['text_l']};")
+                ui.label(r.get("ref") or "").style(f"color:{C['muted']};")
+                if real and tid:
+                    ui.link(real, f"/ats?talent={int(tid)}", new_tab=True).style(
+                        f"color:{C['teal']};")
+                else:
+                    ui.label("not found in the Pipeline").style(
+                        f"color:{C['warn']};")
+
+
 def _api_create_campaign_blocking(client, spec, owner):
     """Runs AI campaign generation + (for 5x3) redacted-resume PDF rendering.
     Called via run_in_executor from api_create_campaign so this CPU/network
@@ -5754,6 +5924,12 @@ def _api_create_campaign_blocking(client, spec, owner):
         if skip:
             return {"skip": skip}
     try:
+        cards, link_err = _link_candidate_cards(cards, owner, strict=True)
+    except Exception as le:
+        return {"error": f"candidate linking error: {le}", "status": 500}
+    if link_err:
+        return {"error": link_err, "status": 400}
+    try:
         campaign_data = generate_aicb_campaign(
             client,
             camp_type=template,
@@ -5773,13 +5949,19 @@ def _api_create_campaign_blocking(client, spec, owner):
 
     emails = campaign_data.get("emails", [])
     campaign_data.pop("_brief", None)
+    _ensure_candidate_refs_in_emails(emails, cards)
+    refs = _candidate_refs(cards)
+    if refs:
+        campaign_data["candidate_refs"] = refs
     if template == "fivebythree" and emails:
         try:
             pdfs = _build_redacted_resumes_from_cards(cards, template, client, owner=owner)
             _attach_resumes_to_emails(template, emails, pdfs)
         except Exception as _re:
             print(f"[api] 5x3 résumé attach skipped: {_re}", flush=True)
-    return {"template": template, "campaign_data": campaign_data, "emails": emails}
+    warnings = _unlinked_card_warnings(cards) if cards and _ats_allowed(owner) else []
+    return {"template": template, "campaign_data": campaign_data, "emails": emails,
+            "candidate_refs": refs, "candidate_warnings": warnings}
 
 
 def _sales_run_owner(request):
@@ -5931,6 +6113,8 @@ async def api_create_campaign(request: Request):
             "Industry": (spec.get("industry") or "").strip(),
         },
     }
+    if result.get("candidate_refs"):
+        camp["candidate_refs"] = result["candidate_refs"]
 
     try:
         save_campaign(camp)
@@ -5963,6 +6147,10 @@ async def api_create_campaign(request: Request):
         "start_date": start_date,
         "schedule": _schedule_from_steps(emails, start_date),
     }
+    if result.get("candidate_refs"):
+        resp["candidate_refs"] = result["candidate_refs"]
+    if result.get("candidate_warnings"):
+        resp["candidate_warnings"] = result["candidate_warnings"]
     if queued == 0:
         resp["warning"] = ("no contacts queued (empty list or all filtered by "
                            "DNC/opt-out/MX)")
@@ -29872,6 +30060,12 @@ def p_seq_mgr(s, rf):
                                     "click", _retry_all_failed):
                                 ui.label("\u21ba Retry All Failed").style("pointer-events:none;")
 
+                    # Candidates featured: alias + Ref # -> the real Pipeline
+                    # record, so a client reply about "Trent K." is traceable.
+                    _crefs = sel_camp.get("candidate_refs") or []
+                    if _crefs and _ats_allowed(getattr(s, "_user_email", "")):
+                        _render_candidate_refs_panel(_crefs)
+
                     # Email sequence table  -  header with Re-queue button
                     with ui.element("div").style(
                             "display:flex;align-items:flex-start;justify-content:space-between;"
@@ -32930,11 +33124,15 @@ def _is_redacted_resume_pdf(filename: str) -> bool:
 
 def _redacted_resume_label(filename: str) -> str:
     """Friendly display name for a redacted résumé file:
-    'Resume_Candidate_A_Redacted.pdf' -> 'Candidate A'. Falls back to the
+    'Resume_Candidate_A_Redacted.pdf' -> 'Candidate A',
+    'Resume_Ref1042_Redacted.pdf' -> 'Ref #1042'. Falls back to the
     raw filename for anything that isn't a redacted résumé."""
     if not _is_redacted_resume_pdf(filename):
         return filename
     core = filename[len("Resume_"):-len("_Redacted.pdf")]
+    m = re.fullmatch(r"Ref(\d+)", core)
+    if m:
+        return f"Ref #{m.group(1)}"
     return core.replace("_", " ").strip() or filename
 
 
@@ -32948,14 +33146,26 @@ def _step_features_candidates(step) -> bool:
     if step.get("step_type", "") not in (ST.EMAIL_AUTO, ST.EMAIL_MANUAL, ""):
         return False
     body = step.get("body", "") or ""
-    if re.search(r"Candidate [A-Z]\b", body):
+    if re.search(r"Candidate [A-Z]\b|Ref #\d+", body):
         return True
     # Real-name profile: a bold header within ~80 chars of a "•" bullet.
     return bool(re.search(r"<(?:b|strong)>.{0,80}?</(?:b|strong)>.{0,80}?•",
                           body, re.IGNORECASE | re.DOTALL))
 
 
-def _save_redacted_pdf(candidate_name: str, redacted_text: str) -> str:
+def _redacted_pdf_fname(label: str, ref_id=None) -> str:
+    """Resume_Ref1042_Redacted.pdf for a Pipeline-linked candidate (unique per
+    person), else Resume_<label slug>_Redacted.pdf."""
+    if ref_id not in (None, ""):
+        try:
+            return f"Resume_Ref{int(ref_id)}_Redacted.pdf"
+        except (TypeError, ValueError):
+            pass
+    slug = re.sub(r'[^\w\s-]', '', label or "").strip().replace(' ', '_')[:40] or "Candidate"
+    return f"Resume_{slug}_Redacted.pdf"
+
+
+def _save_redacted_pdf(candidate_name: str, redacted_text: str, ref_id=None) -> str:
     """Save redacted resume text as a simple PDF. Returns the filename."""
     try:
         from reportlab.lib.pagesizes import letter
@@ -32964,8 +33174,7 @@ def _save_redacted_pdf(candidate_name: str, redacted_text: str) -> str:
         from reportlab.lib.units import inch
         from reportlab.lib.colors import HexColor
 
-        slug = re.sub(r'[^\w\s-]', '', candidate_name).strip().replace(' ', '_')[:40] or "Candidate"
-        fname = f"Resume_{slug}_Redacted.pdf"
+        fname = _redacted_pdf_fname(candidate_name, ref_id)
         _user_pdf_dir().mkdir(parents=True, exist_ok=True)
         fpath = str(_user_pdf_dir() / fname)
 
@@ -33040,8 +33249,7 @@ def _build_polished_resume_pdf(resume: dict) -> str:
         NAVY, ACCENT, DARK, GRAY, LIGHT = (HexColor('#16283f'), HexColor('#1f6f78'),
             HexColor('#222831'), HexColor('#5c6672'), HexColor('#8a929c'))
         label = (resume.get("code") or "Candidate").strip() or "Candidate"
-        slug = re.sub(r'[^\w\s-]', '', label).strip().replace(' ', '_')[:40] or "Candidate"
-        fname = f"Resume_{slug}_Redacted.pdf"
+        fname = _redacted_pdf_fname(label, resume.get("ref_id"))
         _user_pdf_dir().mkdir(parents=True, exist_ok=True)
         fpath = str(_user_pdf_dir() / fname)
 
@@ -33518,11 +33726,16 @@ def _build_redacted_resumes_from_cards(cards, camp_type, client=None, owner=None
     for card in (cards or []):
         try:
             label = (card.get("label") or "Candidate").strip() or "Candidate"
+            tid = card.get("_talent_id")
+            if tid and card.get("ref"):
+                label = f"{label} · {card['ref']}"
             if is_5x3:
                 resume = None
-                pid = card.get("_pool_id")
+                pid = tid or card.get("_pool_id")
                 if pid and client is not None:
-                    rec = _pool_record_by_id(pid, owner=owner)
+                    # A linked card was already validated against the
+                    # team-wide Pipeline, so don't re-scope it to the owner.
+                    rec = _pool_record_by_id(pid, owner=None if tid else owner)
                     if rec:
                         resume = _ai_structure_resume(client, rec, redact_companies=redact_companies)
                 if resume is None:
@@ -33531,12 +33744,14 @@ def _build_redacted_resumes_from_cards(cards, camp_type, client=None, owner=None
                 if not resume:
                     continue
                 resume["code"] = label
+                if tid:
+                    resume["ref_id"] = tid
                 fname = _build_polished_resume_pdf(resume)
             else:
                 body = _aicb_card_to_resume_text(card)
                 if not body:
                     continue
-                fname = _save_redacted_pdf(label, body)
+                fname = _save_redacted_pdf(label, body, ref_id=tid)
             if fname:
                 saved.append(fname)
         except Exception as _ex:
@@ -34812,6 +35027,8 @@ def _aicb_cards_to_text(cards: list) -> str:
     blocks = []
     for c in cards:
         label = c.get("label", "Candidate")
+        if c.get("ref"):
+            label = f"{label} ({c['ref']})"
         role = c.get("role", "")
         bullets = c.get("bullets", [])
         head = f"{label}: {role}" if role else label
@@ -37590,8 +37807,28 @@ def p_ai_campaign(s: AppState, rf):
                         # the cards are anonymized, and the email editor's
                         # "reuse a generated PDF" dropdown surfaces these for
                         # manual attach on whichever steps the user wants.
+                        # Link real (pool / Pipeline-picked) cards to their
+                        # Pipeline record so the copy and PDFs cite a stable
+                        # alias + Ref #. AI-generated and fill cards pass
+                        # through. The picker's own cards on AppState keep
+                        # the real names the user sees.
+                        _gen_cards = list(getattr(s, 'aicb_cand_cards', []) or [])
                         try:
-                            _saved_resumes = _aicb_build_redacted_resumes(s, client)
+                            _gen_cards, _ = _link_candidate_cards(
+                                _gen_cards, getattr(s, "_user_email", "") or "",
+                                strict=False)
+                        except Exception as _lk_ex:
+                            print(f"[AICB] candidate linking skipped: {_lk_ex}",
+                                  flush=True)
+                        _any_linked = any(isinstance(c, dict) and c.get("_talent_id")
+                                          for c in _gen_cards)
+                        try:
+                            _saved_resumes = _build_redacted_resumes_from_cards(
+                                _gen_cards,
+                                (getattr(s, "aicb_camp_type", "") or "").strip(),
+                                client,
+                                owner=getattr(s, "_user_email", "") or "",
+                                redact_companies=bool(getattr(s, "aicb_redact_companies", True)))
                             # 5x3 auto-attaches; 4x4/5x5 stay manual-attach only
                             if (s.aicb_camp_type or "").strip() == "fivebythree":
                                 _resume_pdfs = _saved_resumes
@@ -37608,6 +37845,8 @@ def p_ai_campaign(s: AppState, rf):
                         # the actual number ("6 profiles", "4 candidates")
                         # in subjects + body — no hardcoded "Three".
                         _cand_text = getattr(s, '_aicb_cand_text', '').strip()
+                        if _any_linked:
+                            _cand_text = _aicb_cards_to_text(_gen_cards).strip()
                         n_cands = len(getattr(s, 'aicb_cand_cards', []) or []) or 0
                         if _cand_text and n_cands == 0:
                             # Best-effort count from the text format
@@ -37633,7 +37872,8 @@ def p_ai_campaign(s: AppState, rf):
                                 f'lead with the count.\n'
                                 f'Use the candidate labels exactly as they '
                                 f'appear above (Candidate A/B/C..., or real '
-                                f'names if the user provided them).\n\n'
+                                f'names if the user provided them).'
+                                + _CAND_REF_RULE + '\n\n'
                             )
 
                         elif s.aicb_resumes and any(r.get("candidate") for r in s.aicb_resumes):
@@ -37687,6 +37927,10 @@ def p_ai_campaign(s: AppState, rf):
                         )
 
                         if campaign_data:
+                            _ensure_candidate_refs_in_emails(
+                                campaign_data.get("emails", []), _gen_cards)
+                            if _candidate_refs(_gen_cards):
+                                campaign_data["candidate_refs"] = _candidate_refs(_gen_cards)
                             s.aicb_docs["campaign"] = campaign_data
                             s.aicb_docs["brief"] = brief
                             s.aicb_docs["synopsis"] = campaign_data.get("synopsis", "")
@@ -38264,6 +38508,8 @@ def p_ai_campaign(s: AppState, rf):
                     status="draft", responders=[],
                     created_date=date.today().isoformat(),
                 )
+                if campaign_data.get("candidate_refs"):
+                    camp["candidate_refs"] = campaign_data["candidate_refs"]
                 save_campaign(camp)
                 _cache_campaigns.invalidate()
                 s._nav_history.append(_nav_snapshot(s))

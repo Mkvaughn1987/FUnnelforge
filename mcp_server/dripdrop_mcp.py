@@ -152,7 +152,12 @@ async def create_campaign(spec: dict) -> dict:
         except for template "findcandidates" (see below). Optional: contacts
         (list of {email, first_name, ...}), contacts_csv (raw CSV text),
         candidates (list of candidate cards, used by the fivebythree
-        template), roles, location, industry, website, name, start_date
+        and fivebyfive templates - each real person needs "_pool_id" (the
+        id from candidates_search) or "name" plus "email" or "phone"
+        (optionally "resume_text", "external_id"); people not yet in the
+        Pipeline are added. Emails cite them by a stable client alias and
+        Ref # (e.g. "Trent K. (Ref #1042)"); real names never reach the
+        email. Mark AI-written sample profiles "_synthetic": true), roles, location, industry, website, name, start_date
         (ISO date, or omitted/"auto" for the upcoming Monday),
         enroll_newsletter (newsletter name to also enroll contacts into).
 

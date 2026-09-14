@@ -37,11 +37,15 @@ path. Per card:
 - `_pool_id` / `_ats_id` -> load that record.
 - identity (name + email or phone) -> `upsert_card_record`, get id.
 - `_synthetic` -> unchanged, no ref.
-- real card with neither -> API returns 400
-  `candidate card N needs name + email or phone`. The wizard never produces
-  such cards except fill cards.
+- real card with neither -> passes through unchanged (no ref); the API response
+  lists it in `candidate_warnings`. (Changed from the approved 400 during
+  build: CandidateBlast and the denver-construction-bd-weekly routine send
+  pre-anonymized cards, and a 400 would have stopped those campaigns.)
+- a bad `_pool_id` or an identity that can't be added -> 400 on the API/MCP;
+  the wizard and sales runs pass that card through instead.
 Linked cards get `alias` and `ref`; real name/contact fields are stripped
-before the prompt is built.
+before the prompt is built. Accounts without Pipeline access are untouched:
+nothing is linked, added or rejected.
 
 ### 3. Prompts
 Both fivebyfive and fivebythree GLOBAL VOICE blocks: use the card's alias

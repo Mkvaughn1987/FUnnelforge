@@ -28,7 +28,7 @@ The plaintext key is printed once; only its hash is stored.
 | `roles` | string[] | no | Target roles, e.g. `["Plant Manager"]`. |
 | `location` | string | no | Geography, e.g. `"Windsor, CO"`. |
 | `name` | string | no | Override the campaign name (else auto-named). |
-| `candidates` | object[] | no | Candidate slate. Each: `{label, role, bullets[], years?, location?, target_salary?}`. `label` is what recipients see (e.g. `"Candidate A"`). |
+| `candidates` | object[] | no | Candidate slate. Each: `{label, role, bullets[], years?, location?, target_salary?}` plus an identity link: `_pool_id` (a Pipeline id from `/api/v1/candidates/search`) or `name` + `email`/`phone` (optional `resume_text`, `external_id`). Linked people not yet in the Pipeline are added; identity fields are stripped before generation and the email cites a stable client alias + Ref # (`"Trent K. (Ref #1042)"`), returned as `candidate_refs`. Cards with no link keep `label` (e.g. `"Candidate A"`) and are listed in `candidate_warnings`; `_synthetic: true` marks an AI sample profile. A bad `_pool_id` returns 400. |
 | `contacts` | object[] | no* | Recipients. Each: `{email, first_name?, last_name?, company?, title?}`. |
 | `contacts_csv` | string | no* | Alternative to `contacts`: raw CSV text with a header row. Columns map from `Email/email`, `FirstName/first_name`, `LastName/last_name`, `Company/company`, `JobTitle/Title/title`. |
 

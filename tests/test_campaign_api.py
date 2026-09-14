@@ -236,6 +236,9 @@ def _call(headers, body):
 def _stub_pipeline(monkeypatch, queued=1, raise_queue=None):
     # Keep the route from mutating global per-user path state during tests.
     monkeypatch.setattr(fa, "_switch_to_user_paths", lambda *a, **k: None)
+    # Pipeline linking has its own tests (test_candidate_alias_refs_app.py).
+    monkeypatch.setattr(fa, "_link_candidate_cards",
+                        lambda cards, owner, strict=True: (cards, None))
     monkeypatch.setattr(fa, "generate_aicb_campaign", lambda *a, **k: {
         "synopsis": "S", "campaign_name": "Acme - Plant Manager Campaign",
         "emails": [

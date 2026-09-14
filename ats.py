@@ -4682,6 +4682,13 @@ def ats_page():
         "name": app.storage.user.get("name", "") or email,
         "email": email,  # owner key for per-user dashboard + pipelines
     }
+    # /ats?talent=1042 opens that record (the Ref # links on a campaign).
+    try:
+        _tid = int(ui.context.client.request.query_params.get("talent") or 0)
+    except Exception:
+        _tid = 0
+    if _tid and get_one(_tid):
+        st.update({"sel": _tid, "tab": "resume", "view": "profile"})
     root = ui.element("div").style(
         f"position:fixed;inset:0;overflow:hidden;display:flex;flex-direction:column;"
         f"background:{_c(ff.C,'surface','#0E1726')};")

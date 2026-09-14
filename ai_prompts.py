@@ -272,8 +272,12 @@ ROUTINES = [
             "using {template_clause}, start_date {start_date}, and industry, "
             "location and roles set from THE DETAILS above. Pass that "
             "company's {slate_size} people in the candidates argument, one "
-            "card each, shaped {{\"label\": \"Candidate A\", \"role\": a real "
-            "job title, \"bullets\": three bullets}} - and each bullet is a "
+            "card each, shaped {{\"_pool_id\": the id candidates_search "
+            "returned for that person, \"label\": \"Candidate A\", \"role\": a "
+            "real job title, \"bullets\": three bullets}} - DripDrop uses the "
+            "id to cite them by a client alias and Ref # so a reply can be "
+            "traced back. An AI-built sample profile has no id: give it "
+            "\"_synthetic\": true instead. Each bullet is a "
             "skillset, a notable project, or a company they have worked for. "
             "No years-of-experience, location or salary "
             "bullets.{anon_clause}{name_clause}{newsletter_clause} Read back "
@@ -971,7 +975,9 @@ def _derived(r, vals):
 
     d["slate_clause"] = (
         " Pass the exact people I named in the candidates argument so "
-        "DripDrop does not substitute anyone."
+        "DripDrop does not substitute anyone, and put each person's "
+        "candidates_search id on their card as \"_pool_id\" so DripDrop can "
+        "cite them by client alias and Ref #."
         if (d.get("pin_slate") or "").startswith("Send these")
         else " Leave candidates empty and let DripDrop match the best people "
              "itself.")

@@ -857,6 +857,7 @@ def _pick_candidates(company, role, owner_email):
                       + (r.get("last_name") or "Candidate")),
             "role": r.get("current_title") or role,
             "bullets": bullets[:4],
+            "_pool_id": r.get("id"),
             "_fit_score": score,
             "_fit_reason": reason,
         })
@@ -1338,6 +1339,12 @@ def _build_and_review(owner, rec):
         role = c.get("role") or ", ".join(target.get("roles") or [])
         cands = _pick_candidates(c["company"], role, owner)
         c["candidate_source"] = "pipeline" if cands else "ai-written"
+        if cands:
+            # Real candidates are cited by client alias + Ref #, never by name.
+            try:
+                cands, _ = ff._link_candidate_cards(cands, owner, strict=False)
+            except Exception as ex:
+                _log(rec, "%s — candidate linking failed: %s" % (c["company"], ex))
         _log(rec, "Writing the %s campaign for %s (%s candidates)"
              % (template, c["company"], c["candidate_source"]))
         try:
@@ -1356,11 +1363,18 @@ def _build_and_review(owner, rec):
             c["build_error"] = "%s: %s" % (type(ex).__name__, ex)
             _log(rec, "%s — campaign generation failed: %s" % (c["company"], ex))
             continue
+        emails = data.get("emails", [])
+        refs = []
+        if cands:
+            ff._ensure_candidate_refs_in_emails(emails, cands)
+            refs = ff._candidate_refs(cands)
         c["campaign"] = {
             "name": _campaign_name(c, target),
             "synopsis": data.get("synopsis", ""),
-            "emails": data.get("emails", []),
+            "emails": emails,
         }
+        if refs:
+            c["campaign"]["candidate_refs"] = refs
         c["send"] = True
 
     rec["companies"] = picks
@@ -1654,6 +1668,7 @@ def launch_run(owner, run_id):
             "_chooser_origin": target.get("template") or "fivebyfive",
             "_owner_email": owner,
             "_sales_campaign_run": run_id,
+            "candidate_refs": camp_data.get("candidate_refs") or [],
             "variables": {
                 "CompanyName": c["company"],
                 "TargetRole": c.get("role") or ", ".join(target.get("roles") or []),
