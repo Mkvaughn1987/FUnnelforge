@@ -38,6 +38,8 @@ PREFIXES = (
     "DRIPDROP_TERM_",
     "DRIPDROP_THEME_",
     "DRIPDROP_GREETINGS",
+    "DRIPDROP_NAV_",
+    "DRIPDROP_WORKSPACE_",
 )
 
 _ASSIGN = re.compile(r"^(?P<key>[A-Z][A-Z0-9_]*)=(?P<val>.*)$")

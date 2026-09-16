@@ -279,6 +279,20 @@ BRAND_COPY = _env_str("DRIPDROP_BRAND_COPY", "recruiting")
 if BRAND_COPY not in LANDING_COPY:
     BRAND_COPY = "recruiting"
 
+# ── Navigation layout (2026-09-16) ──────────────────────────────────────────
+# "classic" = Arena's chrome: the 162px top bar with hub pills plus the 196px
+# sidebar. "sidebar" = the inboxslide layout: one full-height 240px sidebar
+# (logo, workspace selector, New Campaign, grouped nav, Settings + profile
+# pinned to the bottom) plus a compact page header. Unset → classic, so
+# Arena's instance is byte-for-byte unchanged.
+NAV_LAYOUT = _env_str("DRIPDROP_NAV_LAYOUT", "classic").lower()
+if NAV_LAYOUT not in ("classic", "sidebar"):
+    NAV_LAYOUT = "classic"
+_SIDEBAR_LAYOUT = NAV_LAYOUT == "sidebar"
+# Name shown in the sidebar workspace selector. Empty → the tenant's saved
+# company name, then the team domain, then the brand name.
+WORKSPACE_NAME = _env_str("DRIPDROP_WORKSPACE_NAME", "")
+
 # The long-cadence, low-touch sequence type. "Slow Drip" on Arena.
 TERM_NURTURE = _env_str("DRIPDROP_TERM_NURTURE", "Slow Drip")
 # The daily work queue. "Today's Drip" on Arena.
@@ -10837,6 +10851,139 @@ def ch_color(channel):
 #  CSS
 # ═══════════════════════════════════════════════════════════════════════════
 
+def _sidebar_layout_css() -> str:
+    """CSS for the sidebar layout (DRIPDROP_NAV_LAYOUT=sidebar). Every rule
+    is scoped to .fd-side / .fd-ph / .fd-shell-side so the classic layout
+    is untouched even though the rules are always injected."""
+    return f"""
+/* ── Sidebar layout shell ── */
+.fd-shell-side{{flex-direction:row;height:100vh;min-height:100vh;overflow:hidden}}
+.fd-side-wrap,.fd-tb-wrap{{display:contents}}
+.fd-main{{flex:1;min-width:0;display:flex;flex-direction:column;height:100vh}}
+.fd-main-ct{{flex:1;min-height:0;overflow-y:auto;width:100%}}
+.fd-shell-side .fd-h1{{font-size:20px}}
+
+/* ── Sidebar ── */
+.fd-side{{width:240px;flex:0 0 240px;height:100vh;display:flex;flex-direction:column;
+  background:{C['surface']};border-right:1px solid {C['border']};
+  font-family:inherit;color:{C['text']};overflow:hidden}}
+.fd-side .fd-ico{{flex:0 0 auto;opacity:.85}}
+.fd-side-top{{padding:16px 12px 8px;display:flex;flex-direction:column;gap:10px}}
+.fd-side-logo{{display:flex;align-items:center;height:28px;padding:0 6px;cursor:pointer}}
+.fd-side-logo img{{height:26px;width:auto;max-width:190px;object-fit:contain;object-position:left}}
+.fd-ws{{display:flex;align-items:center;gap:10px;width:100%;padding:8px 8px;border-radius:10px;
+  border:1px solid {C['border']};background:{C['card']};color:{C['text']};cursor:pointer;
+  text-align:left;font-family:inherit;transition:background .12s,border-color .12s}}
+.fd-ws:hover{{background:{C['card_h']};border-color:{C['teal_dim']}}}
+.fd-ws-mark{{width:28px;height:28px;border-radius:8px;background:{C['teal']};color:#0D1520;
+  font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}}
+.fd-ws-name{{font-size:14px;font-weight:600;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.fd-ws-sub{{font-size:11px;color:{C['muted']};line-height:1.2}}
+.fd-ws-chev{{display:flex;color:{C['muted']}}}
+.fd-side-cta{{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:42px;
+  border-radius:10px;border:none;background:{C['teal']};color:#0D1520;font-weight:700;font-size:14px;
+  cursor:pointer;font-family:inherit;box-shadow:0 1px 2px rgba(0,0,0,.08);transition:filter .12s,transform .12s}}
+.fd-side-cta:hover{{filter:brightness(1.06)}}
+.fd-side-cta:active{{transform:translateY(1px)}}
+.fd-side-cta.on{{box-shadow:0 0 0 3px {C['teal_dim']}}}
+.fd-side-nav{{flex:1;min-height:0;overflow-y:auto;padding:4px 12px 8px;display:flex;flex-direction:column}}
+.fd-side-sec{{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  color:{C['muted']};padding:14px 10px 4px;opacity:.85}}
+.fd-side-row{{display:flex;align-items:center;gap:10px;height:40px;padding:0 10px;border-radius:9px;
+  color:{C['text']};cursor:pointer;user-select:none;transition:background .12s,color .12s}}
+.fd-side-row:hover{{background:{C['card_h']}}}
+.fd-side-row.on{{background:{C['teal_dim']};color:{C['teal']};font-weight:600}}
+.fd-side-row.on .fd-ico{{opacity:1}}
+.fd-side-lbl{{font-size:14px;line-height:1;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.fd-side-sub{{height:36px;padding-left:22px}}
+.fd-side-sub .fd-side-lbl{{font-size:13px}}
+.fd-side-badge{{font-size:11px;font-weight:700;line-height:1;padding:4px 7px;border-radius:999px;
+  background:{C['teal_dim']};color:{C['teal']};min-width:20px;text-align:center}}
+.fd-side-badge.hot{{background:{C['danger']};color:#fff}}
+.fd-side-badge.setup{{background:{C['warn']};color:#0D1520}}
+.fd-side-bottom{{padding:8px 12px 12px;border-top:1px solid {C['border']};display:flex;flex-direction:column;gap:2px}}
+.fd-side-user{{display:flex;align-items:center;gap:10px;width:100%;margin-top:6px;padding:8px;border-radius:10px;
+  border:1px solid transparent;background:transparent;color:{C['text']};cursor:pointer;text-align:left;font-family:inherit;
+  transition:background .12s,border-color .12s}}
+.fd-side-user:hover{{background:{C['card_h']};border-color:{C['border']}}}
+.fd-side-av{{width:32px;height:32px;border-radius:50%;background:{C['teal_dim']};color:{C['teal']};
+  font-weight:700;font-size:12px;display:flex;align-items:center;justify-content:center;overflow:hidden;flex:0 0 auto}}
+.fd-side-av img{{width:100%;height:100%;object-fit:cover}}
+.fd-side-uname{{font-size:13px;font-weight:600;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.fd-side-umail{{font-size:11px;color:{C['muted']};line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.fd-side-menu{{min-width:220px;padding:6px;background:{C['card']} !important;color:{C['text']};
+  border:1px solid {C['border']};border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.18)}}
+.fd-side-menu-head{{padding:8px 10px 10px;border-bottom:1px solid {C['border']};margin-bottom:4px}}
+.fd-side-menu-title{{font-size:13px;font-weight:700}}
+.fd-side-menu-sub{{font-size:11px;color:{C['muted']}}}
+.fd-side-mi{{display:flex;align-items:center;gap:10px;font-size:13px;padding:8px 10px;border-radius:8px;cursor:pointer}}
+.fd-side-mi.danger{{color:{C['danger']}}}
+.fd-side-menu-div{{height:1px;background:{C['border']};margin:4px 0}}
+
+/* ── Compact page header ── */
+.fd-ph{{display:flex;align-items:center;gap:14px;height:56px;flex:0 0 56px;padding:0 20px;
+  background:{C['surface']};border-bottom:1px solid {C['border']};position:relative;z-index:5}}
+.fd-ph-titles{{display:flex;flex-direction:column;justify-content:center;min-width:0;margin-right:6px}}
+.fd-ph-crumb{{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:{C['muted']};line-height:1.1}}
+.fd-ph-title{{font-size:16px;font-weight:700;color:{C['text']};line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.fd-ph-tabs{{display:flex;align-items:center;gap:2px;padding:3px;border-radius:10px;background:{C['card']};border:1px solid {C['border']}}}
+.fd-ph-tab{{border:none;background:transparent;color:{C['muted']};font-family:inherit;font-size:13px;font-weight:600;
+  padding:6px 12px;border-radius:8px;cursor:pointer;transition:background .12s,color .12s}}
+.fd-ph-tab:hover{{color:{C['text']}}}
+.fd-ph-tab.on{{background:{C['teal_dim']};color:{C['teal']}}}
+.fd-ph-act{{display:flex;align-items:center;gap:7px;border:1px solid {C['border']};background:{C['card']};color:{C['text']};
+  font-family:inherit;font-size:13px;font-weight:600;padding:7px 12px;border-radius:9px;cursor:pointer;transition:background .12s}}
+.fd-ph-act:hover{{background:{C['card_h']}}}
+.fd-ph-search{{position:relative;display:flex;align-items:center;gap:8px;margin-left:auto;width:min(340px,38vw);height:36px;
+  padding:0 12px;border:1px solid {C['border']};border-radius:10px;background:{C['card']};color:{C['muted']}}}
+.fd-ph-search:focus-within{{border-color:{C['teal']};box-shadow:0 0 0 3px {C['teal_dim']}}}
+.fd-ph-search .q-field{{flex:1;min-width:0}}
+.fd-ph-search .q-field__control{{height:34px;min-height:34px;padding:0 !important;background:transparent !important;box-shadow:none !important}}
+.fd-ph-search .q-field__control:before,.fd-ph-search .q-field__control:after{{display:none}}
+.fd-ph-search .q-field__native{{font-size:13px;color:{C['text']};padding:0;min-height:34px}}
+.fd-ph-search .q-field__native::placeholder{{color:{C['muted']};opacity:.9}}
+.fd-ph-search .q-field__append{{height:34px;color:{C['muted']}}}
+.fd-ph-results{{position:absolute;top:calc(100% + 6px);left:0;right:0;max-height:360px;overflow-y:auto;padding:6px;
+  background:{C['card']};border:1px solid {C['border']};border-radius:12px;box-shadow:0 12px 32px rgba(0,0,0,.18);z-index:50}}
+.fd-ph-res{{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;cursor:pointer;color:{C['text']}}}
+.fd-ph-res:hover{{background:{C['card_h']}}}
+.fd-ph-res-lbl{{flex:1;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.fd-ph-res-kind{{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:{C['muted']}}}
+.fd-ph-res-empty{{font-size:12px;color:{C['muted']};padding:8px 10px}}
+.fd-ph .fd-theme-toggle{{position:static;transform:none;flex:0 0 auto}}
+
+/* Light theme: the accent is a dark green, so text on it must be white. */
+:root[data-theme="light"] .fd-side-cta,:root[data-theme="light"] .fd-ws-mark,
+:root[data-theme="light"] .fd-side-badge.setup{{color:#fff}}
+@media (prefers-color-scheme: light){{
+  :root:not([data-theme="dark"]) .fd-side-cta,:root:not([data-theme="dark"]) .fd-ws-mark,
+  :root:not([data-theme="dark"]) .fd-side-badge.setup{{color:#fff}}
+}}
+
+/* Narrow screens: sidebar collapses to a horizontal strip above the page. */
+@media (max-width:768px){{
+  .fd-shell-side{{flex-direction:column;height:auto;min-height:100vh;overflow:visible}}
+  .fd-main{{height:auto;min-height:0}}
+  .fd-main-ct{{overflow:visible}}
+  .fd-side{{width:100%;flex:0 0 auto;height:auto;border-right:none;border-bottom:1px solid {C['border']}}}
+  .fd-side-top{{flex-direction:row;align-items:center;padding:10px 12px}}
+  .fd-side-logo{{flex:0 0 auto}}
+  .fd-ws{{width:auto;flex:1;min-width:0}}
+  .fd-ws-sub{{display:none}}
+  .fd-side-cta{{width:auto;padding:0 14px;height:38px}}
+  .fd-side-nav{{flex-direction:row;flex-wrap:wrap;gap:2px;padding:0 10px 8px;overflow:visible}}
+  .fd-side-sec{{display:none}}
+  .fd-side-row{{height:36px;padding:0 10px}}
+  .fd-side-bottom{{flex-direction:row;flex-wrap:wrap;align-items:center;padding:6px 10px}}
+  .fd-side-sub{{padding-left:10px}}
+  .fd-side-user{{width:auto;margin:0 0 0 auto;padding:4px}}
+  .fd-side-uname,.fd-side-umail{{display:none}}
+  .fd-ph{{height:auto;flex-wrap:wrap;padding:10px 14px;gap:10px}}
+  .fd-ph-search{{width:100%;margin-left:0}}
+}}
+"""
+
+
 def inject_styles():
     # Non-blocking Google Fonts load  -  preconnect + display=swap means the page
     # renders immediately with fallback fonts; Nunito/DM Sans swap in once loaded.
@@ -11366,6 +11513,7 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
     grid-template-columns:1fr !important;
   }}
 }}
+{_sidebar_layout_css()}
 </style>""")
     # Global JS helper  -  insert text at cursor position in any focused input/textarea
     # or contenteditable (QEditor body). Tracks last-focused input so that
@@ -11805,6 +11953,76 @@ EMAILS_NAV = [
     ("◎",  "Campaign Radar",   "e_responses"),
     (" - ",  "Signature",        "e_signature"),
 ]
+
+# ── Sidebar layout nav (DRIPDROP_NAV_LAYOUT=sidebar) ─────────────────────────
+# (row_key, label, page_key). page_key None = the destination has no backing
+# page yet, so _sidebar_v2 does NOT render the row — we don't ship empty pages
+# or placeholder metrics. The entries stay listed so the intended information
+# architecture lives in one place when Companies / Pipeline / reporting are
+# built (see docs/superpowers/specs/2026-09-16-inboxslide-sidebar-redesign-design.md).
+SIDEBAR_NAV = [
+    ("WORKSPACE", [
+        ("overview",   "Overview",           "dashboard"),
+        ("myday",      "My Day",             "drip"),
+        ("replies",    "Replies",            "responses"),
+    ]),
+    ("SALES", [
+        ("companies",  "Companies",          None),   # no company records or page yet
+        ("contacts",   "Contacts",           "contacts"),
+        ("pipeline",   "Pipeline",           None),   # a *sales* pipeline; the ATS is not one
+        ("clients",    "Clients",            "active_clients"),
+    ]),
+    ("OUTREACH", [
+        ("campaigns",  "Campaigns",          "seq_mgr"),
+        ("library",    "Content Library",    "newsletters"),
+    ]),
+    ("PERFORMANCE", [
+        ("sales_dash", "Sales Dashboard",    None),   # no sales reporting page yet
+        ("analytics",  "Outreach Analytics", None),   # no analytics page yet
+    ]),
+]
+# Everything that used to be its own sidebar row (Team, My Profile, Settings)
+# or top-bar-only (Do Not Contact, Signature, Timezone), consolidated under one
+# Settings entry. Rendered as sub-rows while a settings page is open.
+SIDEBAR_SETTINGS = [
+    ("mail",     "Email & AI Setup", "ai_settings"),
+    ("building", "Company Profile",  "company_profile"),
+    ("users",    "Team",             "team_settings"),
+    ("pen",      "Signature",        "signature"),
+    ("clock",    "Timezone",         "timezone"),
+    ("ban",      "Do Not Contact",   "dnc"),
+]
+# page_key → sidebar row that lights up. Anything not listed is a campaign
+# wizard / detail page and lights the "+ New Campaign" button instead.
+SIDEBAR_PAGE_ROW = {
+    "dashboard": "overview", "market_intel": "overview",
+    "drip": "myday", "tasks": "myday",
+    "responses": "replies", "e_responses": "replies",
+    "contacts": "contacts", "e_contacts": "contacts",
+    "active_clients": "clients",
+    "seq_mgr": "campaigns", "active_camps": "campaigns", "queue": "campaigns",
+    "evergreen": "campaigns", "evergreen_create": "campaigns", "e_evergreen": "campaigns",
+    "newsletters": "library", "pdf_gen": "library",
+    "ai_settings": "settings", "company_profile": "settings", "team_settings": "settings",
+    "signature": "settings", "e_signature": "settings", "timezone": "settings", "dnc": "settings",
+    "admin": "admin",
+}
+# Compact page header titles. Fallback: the page key, humanised.
+SIDEBAR_TITLES = {
+    "dashboard": "Overview", "market_intel": "Market Intel",
+    "drip": "My Day", "tasks": "Tasks", "responses": "Replies", "e_responses": "Replies",
+    "contacts": "Contacts", "e_contacts": "Contacts", "active_clients": "Clients",
+    "seq_mgr": "Campaigns", "active_camps": "Campaigns", "queue": "Email Queue",
+    "evergreen": "Nurture Campaigns", "evergreen_create": "New Nurture Campaign",
+    "newsletters": "Content Library", "pdf_gen": "Content Library",
+    "ai_settings": "Email & AI Setup", "company_profile": "Company Profile",
+    "team_settings": "Team", "signature": "Signature", "e_signature": "Signature",
+    "timezone": "Timezone", "dnc": "Do Not Contact", "admin": "Admin",
+    "start_seq": "New Campaign", "ai_campaign": "New Campaign", "seq_builder": "New Campaign",
+    "camp_gen": "New Campaign", "preview": "Preview", "launch": "Launch",
+    "create_camp": "New Campaign", "emails_build": "New Campaign", "sequence": "Sequence",
+    "prev_launch": "Preview & Launch",
+}
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  APP STATE
@@ -13277,7 +13495,438 @@ def _show_profile_modal(s: AppState, rf):
     dlg.open()
 
 
+# ═══ SIDEBAR LAYOUT (DRIPDROP_NAV_LAYOUT=sidebar) ═══════════════════════════
+# One full-height 240px sidebar plus a compact page header, used by the
+# inboxslide instance. Arena keeps the classic top bar + 196px sidebar:
+# nothing below runs unless _SIDEBAR_LAYOUT is True (see topbar()/sidebar()
+# early returns and the shell branch in index()).
+
+# Lucide-style outline icons, inner markup only (24x24 viewBox, stroked with
+# currentColor so the row's text colour drives the icon colour).
+_SIDEBAR_ICONS = {
+    "overview":   '<rect width="7" height="9" x="3" y="3" rx="1"/><rect width="7" height="5" x="14" y="3" rx="1"/>'
+                  '<rect width="7" height="9" x="14" y="12" rx="1"/><rect width="7" height="5" x="3" y="16" rx="1"/>',
+    "myday":      '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/>'
+                  '<path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/>'
+                  '<path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/>',
+    "replies":    '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/>'
+                  '<path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+    "companies":  '<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/>'
+                  '<path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>',
+    "contacts":   '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>'
+                  '<path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    "pipeline":   '<path d="M6 5v11"/><path d="M12 5v6"/><path d="M18 5v14"/>',
+    "clients":    '<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
+    "campaigns":  '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
+    "library":    '<path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/>',
+    "sales_dash": '<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+    "analytics":  '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
+    "settings":   '<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/>'
+                  '<line x1="8" x2="3" y1="12" y2="12"/><line x1="21" x2="16" y1="20" y2="20"/><line x1="12" x2="3" y1="20" y2="20"/>'
+                  '<line x1="14" x2="14" y1="2" y2="6"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="16" x2="16" y1="18" y2="22"/>',
+    "admin":      '<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72'
+                  'a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
+    "plus":       '<path d="M5 12h14"/><path d="M12 5v14"/>',
+    "search":     '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+    "chevrons":   '<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>',
+    "mail":       '<rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/>',
+    "building":   '<path d="M6 22V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v18Z"/><path d="M6 12H4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2"/>'
+                  '<path d="M18 9h2a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><path d="M10 6h4"/><path d="M10 10h4"/><path d="M10 14h4"/><path d="M10 18h4"/>',
+    "users":      '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>'
+                  '<path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+    "pen":        '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>',
+    "clock":      '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+    "ban":        '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
+    "user":       '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    "logout":     '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
+    "dot":        '<circle cx="12" cy="12" r="3"/>',
+}
+
+
+def _svg_icon(key: str, size: int = 18) -> str:
+    body = _SIDEBAR_ICONS.get(key) or _SIDEBAR_ICONS["dot"]
+    return (f'<svg class="fd-ico" width="{size}" height="{size}" viewBox="0 0 24 24" fill="none" '
+            f'stroke="currentColor" stroke-width="1.75" stroke-linecap="round" '
+            f'stroke-linejoin="round" aria-hidden="true">{body}</svg>')
+
+
+def _sidebar_current_page(s) -> str:
+    return s.sp if s.hub == "sales" else s.ep
+
+
+def _sidebar_active(s) -> str:
+    """Which sidebar row is lit for the current page. 'new' = the
+    + New Campaign button (chooser + every wizard/detail page)."""
+    page = _sidebar_current_page(s)
+    if page == "start_seq":
+        return "campaigns" if getattr(s, "_tab", "") == "saved" else "new"
+    return SIDEBAR_PAGE_ROW.get(page, "new")
+
+
+def _sidebar_workspace_name(s) -> str:
+    if WORKSPACE_NAME:
+        return WORKSPACE_NAME
+    try:
+        prof = _load_tenant_profile(getattr(s, "_user_email", "") or None) or {}
+        nm = (prof.get("company_name") or "").strip()
+        if nm:
+            return nm
+    except Exception:
+        pass
+    try:
+        dom = _team_domain_for(getattr(s, "_user_email", "") or "")
+        if dom:
+            return dom
+    except Exception:
+        pass
+    return BRAND
+
+
+def _sidebar_page_title(s) -> tuple:
+    """(section crumb, page title) for the compact header."""
+    page = _sidebar_current_page(s)
+    row = _sidebar_active(s)
+    crumb = {"new": "Outreach", "settings": "Settings", "admin": "Admin"}.get(row, "")
+    if not crumb:
+        for sec, rows in SIDEBAR_NAV:
+            if any(r[0] == row for r in rows):
+                crumb = sec.title(); break
+    title = SIDEBAR_TITLES.get(page) or page.replace("_", " ").title()
+    if page == "start_seq" and getattr(s, "_tab", "") == "saved":
+        title = "Campaigns"
+    return crumb, title
+
+
+def _sidebar_setup_status() -> dict:
+    if _SERVER_MODE:
+        try:
+            return _setup_status()
+        except Exception:
+            pass
+    return {"email": True, "company": True, "timezone": True, "ready": True}
+
+
+def _sidebar_nav(s, rf, k: str, setup: dict, tab: str = ""):
+    """Navigate from the sidebar / page header. Mirrors the classic
+    sidebar's _go() exactly: setup gate on New Campaign, back-history
+    snapshot, draft auto-save + wizard reset when starting a campaign,
+    and the Saved tab shortcut (drafts_saved in the classic nav)."""
+    if (k == "start_seq" and _SERVER_MODE
+            and not setup.get("ready", True)
+            and not getattr(s, "_setup_gate_dismissed", False)):
+        _show_setup_gate_dialog(s, rf, setup); return
+    s._nav_history.append(_nav_snapshot(s))
+    if len(s._nav_history) > 20:
+        s._nav_history = s._nav_history[-20:]
+    s.hub = "sales"      # every sidebar destination lives in the Sales hub
+    s.sp = k
+    if k == "dashboard":
+        s.launch_result = None
+    if k == "start_seq" and tab == "saved":
+        s._tab = "saved"; s._nav_history.clear(); rf(); return
+    if k == "start_seq":
+        try:
+            if s.loaded_camp:
+                save_campaign(s.loaded_camp)
+            elif s.custom_steps or (s.custom_name or "").strip():
+                _draft_name = (s.custom_name or "").strip() or f"Untitled draft - {date.today().isoformat()}"
+                _draft = {"schema": 2, "name": _draft_name, "status": "draft",
+                          "emails": list(s.custom_steps or []), "contacts": [], "contact_count": 0,
+                          "variables": dict(s.svars or {}), "created_date": date.today().isoformat(),
+                          "_owner_email": getattr(s, "_user_email", "") or ""}
+                save_campaign(_draft)
+        except Exception as _save_ex:
+            print(f"[Nav] auto-save draft on New Campaign click failed: {_save_ex}", flush=True)
+        s.loaded_camp = None; s.loaded_tab = 0; s.loaded_view = "emails"
+        s.launch_result = None; s.custom_editing = False
+        s.sq = 1; s._tab = ""; s.sq_review = False; s.stpl = None
+        s.custom_steps = []; s.custom_name = ""; s.custom_preset_picked = False
+        s.custom_selected_type = ""; s.custom_editing_idx = -1
+        s.svars = {}; s.scon = []
+        s._nav_history.clear()
+    rf()
+
+
+def _sidebar_v2(s: AppState, rf):
+    """Full-height sidebar: logo, workspace selector, + New Campaign,
+    grouped nav, then Admin (authorised users only) / Settings / profile
+    pinned to the bottom. Rows whose destination has no page are skipped."""
+    if s.hub == "today":
+        s.hub = "sales"; s.sp = "dashboard"
+    _uemail = getattr(s, "_user_email", "") or ""
+    _uname_full = getattr(s, "_user_name", "") or _uemail
+    active = _sidebar_active(s)
+    page = _sidebar_current_page(s)
+    _setup = _sidebar_setup_status()
+    _setup_missing = _SERVER_MODE and not _setup.get("ready", True)
+
+    # My Day badge: open tasks due today; red when any are overdue.
+    _due = 0; _overdue = 0
+    try:
+        _today_tasks = build_drip_tasks(target_date=date.today())
+        _outcomes_now = s.outcomes if hasattr(s, "outcomes") else load_outcomes()
+        _open = [t for t in _today_tasks if t["id"] not in _outcomes_now]
+        _due = len(_open)
+        _overdue = sum(1 for t in _open if t.get("overdue"))
+    except Exception:
+        pass
+
+    def _go(k, tab=""):
+        _sidebar_nav(s, rf, k, _setup, tab)
+
+    def _row(ik, lbl, key, on=False, badge=None, badge_cls="", tour="", sub=False):
+        cls = "fd-side-row" + (" on" if on else "") + (" fd-side-sub" if sub else "")
+        el = ui.element("div").classes(cls)
+        if tour:
+            el.props(f'data-tour="{tour}"')
+        with el.on("click", lambda k=key: _go(k)):
+            ui.html(_svg_icon(ik, 16 if sub else 18))
+            ui.label(lbl).classes("fd-side-lbl")
+            if badge:
+                ui.label(str(badge)).classes("fd-side-badge " + badge_cls)
+
+    with ui.element("aside").classes("fd-side"):
+        # ── Top: logo, workspace, New Campaign ──
+        with ui.element("div").classes("fd-side-top"):
+            with ui.element("div").classes("fd-side-logo").on("click", lambda: _go("dashboard")):
+                ui.html(
+                    f'<img class="dd-logo-light" src="{BRAND_LOGO}" alt="{BRAND}" />'
+                    f'<img class="dd-logo-dark" src="{BRAND_LOGO_DARK}" alt="{BRAND}" />')
+            _ws = _sidebar_workspace_name(s)
+            _ws_menu = {"m": None}
+            def _open_ws():
+                if _ws_menu["m"]:
+                    _ws_menu["m"].open()
+            with ui.element("button").classes("fd-ws").props('type="button" aria-label="Workspace"').on("click", _open_ws):
+                ui.label((_ws[:1] or "W").upper()).classes("fd-ws-mark")
+                with ui.element("div").style("flex:1;min-width:0;"):
+                    ui.label(_ws).classes("fd-ws-name")
+                    ui.label("Workspace").classes("fd-ws-sub")
+                ui.html(f'<span class="fd-ws-chev">{_svg_icon("chevrons", 15)}</span>')
+                with ui.menu().props(
+                        "no-parent-event anchor='bottom left' self='top left' "
+                        "transition-show='jump-down' transition-hide='jump-up'"
+                        ).classes("fd-side-menu") as _wm:
+                    _ws_menu["m"] = _wm
+                    with ui.element("div").classes("fd-side-menu-head"):
+                        ui.label(_ws).classes("fd-side-menu-title")
+                        ui.label("Current workspace").classes("fd-side-menu-sub")
+                    for ik, lbl, key in (("building", "Company Profile", "company_profile"),
+                                         ("users",    "Team",            "team_settings"),
+                                         ("ban",      "Do Not Contact",  "dnc")):
+                        with ui.element("div").classes("fd-menu-item fd-side-mi").on("click", lambda k=key: _go(k)):
+                            ui.html(_svg_icon(ik, 16))
+                            ui.label(lbl)
+            with ui.element("button").classes("fd-side-cta" + (" on" if active == "new" else "")).props(
+                    'type="button" data-tour="nav-start_seq"').on("click", lambda: _go("start_seq")):
+                ui.html(_svg_icon("plus", 18))
+                ui.label("New Campaign")
+
+        # ── Grouped navigation ──
+        with ui.element("nav").classes("fd-side-nav"):
+            for sec, rows in SIDEBAR_NAV:
+                rows = [r for r in rows if r[2]]   # skip destinations with no page
+                if not rows:
+                    continue
+                ui.label(sec).classes("fd-side-sec")
+                for ik, lbl, key in rows:
+                    badge = None; badge_cls = ""
+                    if ik == "myday" and _due:
+                        badge = _due if _due < 100 else "99+"
+                        badge_cls = "hot" if _overdue else ""
+                    tour = {"overview": "nav-dashboard", "contacts": "nav-contacts"}.get(ik, "")
+                    _row(ik, lbl, key, on=(active == ik), badge=badge, badge_cls=badge_cls, tour=tour)
+
+        # ── Bottom: Admin, Settings (+ sub-rows), profile ──
+        with ui.element("div").classes("fd-side-bottom"):
+            if _is_admin(_uemail):
+                _row("admin", "Admin", "admin", on=(active == "admin"))
+            _row("settings", "Settings", "ai_settings", on=(active == "settings"),
+                 badge="Setup" if _setup_missing else None, badge_cls="setup",
+                 tour="nav-ai_settings")
+            if active == "settings":
+                _needs = {"ai_settings": not _setup.get("email", True),
+                          "company_profile": not _setup.get("company", True),
+                          "timezone": not _setup.get("timezone", True)}
+                for ik, lbl, key in SIDEBAR_SETTINGS:
+                    on = page == key or (key == "signature" and page == "e_signature")
+                    _row(ik, lbl, key, on=on, sub=True,
+                         badge="Setup" if (_SERVER_MODE and _needs.get(key)) else None,
+                         badge_cls="setup")
+
+            if _uname_full and _SERVER_MODE:
+                _user_rec = _get_user_record(_uemail) or {}
+                _has_photo = bool(_get_user_photo_path(_uemail))
+                _safe_key = _uemail.lower().strip().replace("@", "_at_").replace(".", "_")
+                _initials = _user_initials(_uname_full, _uemail)
+                _bust = str(_user_rec.get("photo_updated", ""))
+
+                def _logout():
+                    app.storage.user.clear()
+                    ui.navigate.to("/login")
+
+                _pm = {"m": None}
+                def _open_pm():
+                    if _pm["m"]:
+                        _pm["m"].open()
+                with ui.element("button").classes("fd-side-user").props(
+                        'type="button" data-tour="avatar"').on("click", _open_pm):
+                    with ui.element("div").classes("fd-side-av"):
+                        if _has_photo:
+                            ui.html(f'<img src="/avatar/{_safe_key}?v={_bust}" alt="avatar" />')
+                        else:
+                            ui.label(_initials)
+                    with ui.element("div").style("flex:1;min-width:0;"):
+                        ui.label(_uname_full).classes("fd-side-uname")
+                        ui.label(_uemail).classes("fd-side-umail")
+                    ui.html(f'<span class="fd-ws-chev">{_svg_icon("chevrons", 15)}</span>')
+                    with ui.menu().props(
+                            "no-parent-event anchor='top left' self='bottom left' "
+                            "transition-show='jump-up' transition-hide='jump-down'"
+                            ).classes("fd-side-menu") as _um:
+                        _pm["m"] = _um
+                        with ui.element("div").classes("fd-side-menu-head"):
+                            ui.label(_uname_full).classes("fd-side-menu-title")
+                            ui.label(_uemail).classes("fd-side-menu-sub")
+                        for ik, lbl, key in (("user", "My Profile",       "company_profile"),
+                                             ("pen",  "Signature",        "signature"),
+                                             ("mail", "Email & AI Setup", "ai_settings")):
+                            with ui.element("div").classes("fd-menu-item fd-side-mi").on("click", lambda k=key: _go(k)):
+                                ui.html(_svg_icon(ik, 16))
+                                ui.label(lbl)
+                        ui.element("div").classes("fd-side-menu-div")
+                        with ui.element("div").classes("fd-menu-item fd-side-mi danger").on("click", _logout):
+                            ui.html(_svg_icon("logout", 16))
+                            ui.label("Logout")
+
+
+def _page_header_v2(s: AppState, rf):
+    """Compact 56px page header: section crumb + title, contextual actions
+    (Campaigns status tabs, Content Library tabs, suppression shortcut),
+    quick-find search over campaigns and contacts, theme toggle."""
+    if s.hub == "today":
+        s.hub = "sales"; s.sp = "dashboard"
+    page = _sidebar_current_page(s)
+    crumb, title = _sidebar_page_title(s)
+    _setup = _sidebar_setup_status()
+
+    def _go(k, tab=""):
+        _sidebar_nav(s, rf, k, _setup, tab)
+
+    def _tab(lbl, on, handler):
+        with ui.element("button").classes("fd-ph-tab" + (" on" if on else "")).props('type="button"').on("click", handler):
+            ui.label(lbl)
+
+    with ui.element("header").classes("fd-ph"):
+        with ui.element("div").classes("fd-ph-titles"):
+            if crumb:
+                ui.label(crumb).classes("fd-ph-crumb")
+            ui.label(title).classes("fd-ph-title")
+
+        # ── Contextual actions ──
+        _saved_tab = page == "start_seq" and getattr(s, "_tab", "") == "saved"
+        if page == "seq_mgr" or _saved_tab:
+            def _show(completed):
+                s._mgr_show_completed = completed
+                s.sel_camp_name = ""      # let the manager pick the first of that list
+                _go("seq_mgr")
+            with ui.element("div").classes("fd-ph-tabs"):
+                _tab("Active",    page == "seq_mgr" and not s._mgr_show_completed, lambda: _show(False))
+                _tab("Completed", page == "seq_mgr" and bool(s._mgr_show_completed), lambda: _show(True))
+                _tab("Saved",     _saved_tab, lambda: _go("start_seq", "saved"))
+                # Templates = the campaign-type chooser (4x4, 5x3, AI builder,
+                # from scratch...). It is the app's template gallery today.
+                _tab("Templates", False, lambda: _go("start_seq"))
+        elif page in ("newsletters", "pdf_gen"):
+            with ui.element("div").classes("fd-ph-tabs"):
+                _tab("Newsletters",  page == "newsletters", lambda: _go("newsletters"))
+                _tab("Sales Assets", page == "pdf_gen",     lambda: _go("pdf_gen"))
+        elif page in ("contacts", "e_contacts"):
+            with ui.element("button").classes("fd-ph-act").props('type="button"').on("click", lambda: _go("dnc")):
+                ui.html(_svg_icon("ban", 15))
+                ui.label("Do Not Contact")
+        elif page == "dnc":
+            with ui.element("button").classes("fd-ph-act").props('type="button"').on("click", lambda: _go("contacts")):
+                ui.html(_svg_icon("contacts", 15))
+                ui.label("Contacts")
+
+        # ── Quick find ──
+        _idx = {"camps": None, "contacts": None}
+        with ui.element("div").classes("fd-ph-search"):
+            ui.html(_svg_icon("search", 15))
+            _inp = ui.input(placeholder="Search campaigns and contacts").props(
+                'borderless dense clearable aria-label="Search"')
+            _box = ui.element("div").classes("fd-ph-results")
+            _box.set_visibility(False)
+
+            def _close():
+                _box.set_visibility(False)
+
+            def _open_camp(c):
+                _close()
+                name = c.get("name", "") or ""
+                if (c.get("status") or "") == "draft" or not c.get("contacts"):
+                    _go("start_seq", "saved")
+                else:
+                    s.sel_camp_name = name
+                    _go("seq_mgr")
+
+            def _open_contacts():
+                _close(); _go("contacts")
+
+            def _cname(c):
+                return f"{c.get('first_name', '') or ''} {c.get('last_name', '') or ''}".strip()
+
+            def _search(e):
+                q = (e.value or "").strip().lower()
+                _box.clear()
+                if len(q) < 2:
+                    _box.set_visibility(False); return
+                if _idx["camps"] is None:
+                    try:
+                        _idx["camps"] = load_campaigns()
+                    except Exception:
+                        _idx["camps"] = []
+                if _idx["contacts"] is None:
+                    try:
+                        _idx["contacts"] = load_contacts()
+                    except Exception:
+                        _idx["contacts"] = []
+                camps = [c for c in _idx["camps"] if q in (c.get("name", "") or "").lower()][:6]
+                cons = [c for c in _idx["contacts"]
+                        if q in _cname(c).lower() or q in (c.get("company", "") or "").lower()
+                        or q in (c.get("email", "") or "").lower()][:6]
+                with _box:
+                    if not camps and not cons:
+                        ui.label("No campaigns or contacts match.").classes("fd-ph-res-empty")
+                    for c in camps:
+                        with ui.element("div").classes("fd-ph-res").on("click", lambda _c=c: _open_camp(_c)):
+                            ui.html(_svg_icon("campaigns", 14))
+                            ui.label(c.get("name", "") or "Untitled").classes("fd-ph-res-lbl")
+                            ui.label("draft" if (c.get("status") or "") == "draft" else "campaign").classes("fd-ph-res-kind")
+                    for c in cons:
+                        with ui.element("div").classes("fd-ph-res").on("click", lambda: _open_contacts()):
+                            ui.html(_svg_icon("contacts", 14))
+                            _lbl = _cname(c) or (c.get("email", "") or "")
+                            if c.get("company"):
+                                _lbl += f" - {c['company']}"
+                            ui.label(_lbl).classes("fd-ph-res-lbl")
+                            ui.label("contact").classes("fd-ph-res-kind")
+                _box.set_visibility(True)
+
+            _inp.on_value_change(_search)
+            _inp.on("keydown.escape", lambda: (_inp.set_value(""), _close()))
+
+        # ── Theme toggle (same control as the classic top bar) ──
+        with ui.element("button").classes("fd-theme-toggle").props('type="button" aria-label="Toggle theme"').on(
+                "click", lambda: ui.run_javascript("ddToggleTheme()")):
+            ui.label("☀").classes("fd-theme-icon fd-theme-sun")
+            ui.label("☾").classes("fd-theme-icon fd-theme-moon")
+
+
 def topbar(s: AppState, rf):
+    if _SIDEBAR_LAYOUT:
+        return _page_header_v2(s, rf)
     # Clickable logo — click goes Home (Dashboard) and clears history
     # so the Back button next to the page title disappears (nothing to
     # back into on the home page).
@@ -13746,6 +14395,8 @@ def _show_setup_gate_dialog(s, rf, setup: dict):
 
 
 def sidebar(s: AppState, rf):
+    if _SIDEBAR_LAYOUT:
+        return _sidebar_v2(s, rf)
     if s.hub == "today":
         s.hub = "sales"; s.sp = "dashboard"
     nav = list(SALES_NAV if s.hub == "sales" else EMAILS_NAV)
@@ -27942,27 +28593,29 @@ def p_dashboard(s: AppState, rf):
                 else:
                     ui.label("No responses yet this week.").style(f"font-size:11px;color:{C['muted']};")
 
-            # Pipeline (ATS) status
-            with ui.element("div").style(
-                    f"background:{C['card']};border:1px solid {C['border']};"
-                    f"border-radius:10px;padding:14px 16px;margin-top:8px;"):
-                with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;"):
-                    ui.label("Pipeline").style(
-                        f"font-size:13px;font-weight:600;color:{C['text_l']};")
-                    def _go_pipeline():
-                        ui.navigate.to("/ats")
-                    with ui.element("button").style(
-                            f"font-size:10px;color:{C['teal']};background:transparent;border:none;"
-                            f"cursor:pointer;font-family:inherit;").on("click", _go_pipeline):
-                        ui.label("View")
-                import ats as _ats
-                _pipe_stats = _ats.dashboard_stats()
-                _pipe_total = _pipe_stats["total"]
-                _pipe_week = _pipe_stats["added_week"]
-                ui.label(f"{_pipe_total:,} candidates in Pipeline").style(
-                    f"font-size:11px;color:{C['muted']};padding:2px 0;")
-                ui.label(f"{_pipe_week:,} added this week").style(
-                    f"font-size:11px;color:{C['muted']};padding:2px 0;")
+            # Pipeline (ATS) status — only when the ATS is enabled on this
+            # instance (sales-only instances run with DRIPDROP_ATS_ENABLED=0).
+            if _ATS_ENABLED:
+                with ui.element("div").style(
+                        f"background:{C['card']};border:1px solid {C['border']};"
+                        f"border-radius:10px;padding:14px 16px;margin-top:8px;"):
+                    with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;"):
+                        ui.label("Pipeline").style(
+                            f"font-size:13px;font-weight:600;color:{C['text_l']};")
+                        def _go_pipeline():
+                            ui.navigate.to("/ats")
+                        with ui.element("button").style(
+                                f"font-size:10px;color:{C['teal']};background:transparent;border:none;"
+                                f"cursor:pointer;font-family:inherit;").on("click", _go_pipeline):
+                            ui.label("View")
+                    import ats as _ats
+                    _pipe_stats = _ats.dashboard_stats()
+                    _pipe_total = _pipe_stats["total"]
+                    _pipe_week = _pipe_stats["added_week"]
+                    ui.label(f"{_pipe_total:,} candidates in Pipeline").style(
+                        f"font-size:11px;color:{C['muted']};padding:2px 0;")
+                    ui.label(f"{_pipe_week:,} added this week").style(
+                        f"font-size:11px;color:{C['muted']};padding:2px 0;")
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  EMAIL SEQUENCER: CREATE CAMPAIGN (create_camp)
@@ -30309,7 +30962,8 @@ def p_active_clients(s, rf):
             ui.label("Current Clients").classes("fd-h1")
             ui.label(
                 "Contacts at these domains get flagged before sending — so we don't "
-                "accidentally recruit from our own clients. "
+                + ("accidentally pitch our own clients. " if BRAND_COPY == "sales"
+                   else "accidentally recruit from our own clients. ")
                 + (f"Shared across the {_team_dom} team." if _team_dom else
                    "Shared across the team.")
             ).classes("fd-sub")
@@ -55480,14 +56134,26 @@ def index():
         with refs["ct"]:
             render_page(s, rf)
 
-    with ui.element("div").classes("fd-shell"):
-        with ui.element("div") as tb:
-            refs["tb"] = tb; topbar(s, rf)
-        with ui.element("div").classes("fd-row"):
-            with ui.element("div") as sb:
+    if _SIDEBAR_LAYOUT:
+        # Sidebar layout: full-height sidebar on the left, compact page
+        # header + scrolling content on the right (DRIPDROP_NAV_LAYOUT=sidebar).
+        with ui.element("div").classes("fd-shell fd-shell-side"):
+            with ui.element("div").classes("fd-side-wrap") as sb:
                 refs["sb"] = sb; sidebar(s, rf)
-            with ui.element("div").style("flex:1;overflow-y:auto;width:100%;min-width:0;") as ct:
-                refs["ct"] = ct; render_page(s, rf)
+            with ui.element("div").classes("fd-main"):
+                with ui.element("div").classes("fd-tb-wrap") as tb:
+                    refs["tb"] = tb; topbar(s, rf)
+                with ui.element("div").classes("fd-main-ct") as ct:
+                    refs["ct"] = ct; render_page(s, rf)
+    else:
+        with ui.element("div").classes("fd-shell"):
+            with ui.element("div") as tb:
+                refs["tb"] = tb; topbar(s, rf)
+            with ui.element("div").classes("fd-row"):
+                with ui.element("div") as sb:
+                    refs["sb"] = sb; sidebar(s, rf)
+                with ui.element("div").style("flex:1;overflow-y:auto;width:100%;min-width:0;") as ct:
+                    refs["ct"] = ct; render_page(s, rf)
 
     # ── First-visit onboarding tour ──
     # Fires once per device (localStorage-gated). We inject the step config

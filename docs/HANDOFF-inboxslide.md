@@ -261,4 +261,12 @@ systemctl restart dripdrop
 
 Config: `/opt/dripdrop/.env` — Data: `/opt/dripdrop/data` — App: `/opt/dripdrop/app`
 
+**Sidebar layout (2026-09-16).** This instance runs `DRIPDROP_NAV_LAYOUT=sidebar`
+and `DRIPDROP_WORKSPACE_NAME=ThriveModal`: one full-height sidebar, no hub
+pills, a compact page header. Arena leaves both unset and keeps the classic
+chrome. `deploy/sync_brand_env.py --apply` carries both keys onto the box. The
+design and the audit of which requested destinations were *not* wired (no page
+exists for them) is in
+`docs/superpowers/specs/2026-09-16-inboxslide-sidebar-redesign-design.md`.
+
 Nothing in any of those touches Arena.
