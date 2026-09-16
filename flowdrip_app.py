@@ -106,6 +106,11 @@ def _env_color(var: str, default: str) -> str:
 # product inside Arena's app.
 BRAND = _env_str("DRIPDROP_BRAND_NAME", "DripDrop")
 BRAND_WORDMARK = _env_str("DRIPDROP_BRAND_WORDMARK", "DripDripDrop")
+# Short brand line shown under the hero headline, in the landing footer and
+# under the logo on the signed-out auth pages. Empty -> nothing renders, so
+# Arena's pages are byte-for-byte unchanged. Stored in sentence case; the
+# landing page uppercases it in CSS.
+BRAND_TAGLINE = _env_str("DRIPDROP_BRAND_TAGLINE", "")
 BRAND_LOGO = _env_str("DRIPDROP_BRAND_LOGO", "/static/dripdrop_logo.png?v=3")
 # Reversed logo, for the places that sit on a dark ground: the signed-out
 # auth pages, the landing hero, and the topbar in dark theme. Defaults to
@@ -289,6 +294,16 @@ NAV_LAYOUT = _env_str("DRIPDROP_NAV_LAYOUT", "classic").lower()
 if NAV_LAYOUT not in ("classic", "sidebar"):
     NAV_LAYOUT = "classic"
 _SIDEBAR_LAYOUT = NAV_LAYOUT == "sidebar"
+
+# ── Landing page layout (2026-09-16) ───────────────────────────────────────
+# "full" = the original page: eight feature cards plus the seven-row
+# comparison table. "lean" = three benefit cards, a supporting-tools band,
+# four steps, no comparison table -- the same facts stated once instead of
+# three times. Unset -> full, so Arena's landing page is unchanged.
+LANDING_LAYOUT = _env_str("DRIPDROP_LANDING_LAYOUT", "full").lower()
+if LANDING_LAYOUT not in ("full", "lean"):
+    LANDING_LAYOUT = "full"
+_LEAN_LANDING = LANDING_LAYOUT == "lean"
 # Name shown in the sidebar workspace selector. Empty → the tenant's saved
 # company name, then the team domain, then the brand name.
 WORKSPACE_NAME = _env_str("DRIPDROP_WORKSPACE_NAME", "")
@@ -54707,6 +54722,14 @@ def login_page(next: str = "/"):
                 'style="max-height:220px;max-width:100%;width:auto;height:auto;'
                 'display:block;margin:0 auto 8px;" />'
             )
+            # Brand tagline under the logo. Empty on Arena -> nothing renders.
+            if BRAND_TAGLINE:
+                ui.html(
+                    f'<div style="font-family:&#39;Nunito&#39;,sans-serif;font-size:11px;'
+                    f'font-weight:900;letter-spacing:2px;text-transform:uppercase;'
+                    f'color:{WEB_ACCENT};text-align:center;margin:0 0 10px;">'
+                    f'{BRAND_TAGLINE}</div>'
+                )
             ui.label("Sign in to your account").style(
                 f"font-size:13px;color:{WEB_MUTED};text-align:center;display:block;margin-bottom:28px;")
 
@@ -55080,6 +55103,14 @@ def register_page(next: str = "/setup"):
                 'style="max-height:180px;max-width:100%;width:auto;height:auto;'
                 'display:block;margin:0 auto 4px;" />'
             )
+            # Brand tagline under the logo. Empty on Arena -> nothing renders.
+            if BRAND_TAGLINE:
+                ui.html(
+                    f'<div style="font-family:&#39;Nunito&#39;,sans-serif;font-size:11px;'
+                    f'font-weight:900;letter-spacing:2px;text-transform:uppercase;'
+                    f'color:{WEB_ACCENT};text-align:center;margin:0 0 10px;">'
+                    f'{BRAND_TAGLINE}</div>'
+                )
             ui.label("Create your account").style(
                 f"font-size:13px;color:{WEB_MUTED};text-align:center;display:block;margin-bottom:20px;")
 
@@ -55487,7 +55518,10 @@ def _render_landing_page():
         comfortably on a laptop screen without scrolling to see the headline.
       - NO position:fixed, normal flow works once the reset is in place.
     """
-    ui.page_title(f"{BRAND}, AI-powered sales outreach")
+    # Arena (no tagline set) keeps the original tab title verbatim.
+    ui.page_title(
+        f"{BRAND} - {BRAND_TAGLINE}" if BRAND_TAGLINE
+        else f"{BRAND}, AI-powered sales outreach")
 
     # The editorial voice for this instance. Values are pre-formatted here so
     # the markup below stays readable and {BRAND} works inside the copy too.
@@ -55721,7 +55755,140 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
 </style>
 """)
 
-    html = f"""
+    if _LEAN_LANDING:
+        # Classes used only by the lean layout. Kept in their own block so the
+        # shared sheet above stays byte-identical for Arena.
+        ui.add_head_html(f"""
+<style>
+.dd-tagline{{font-family:'Nunito',sans-serif;font-size:14px;font-weight:900;letter-spacing:2.4px;text-transform:uppercase;color:{teal};margin-top:26px}}
+.dd-eyebrow{{display:block;text-align:center;font-size:10.5px;font-weight:800;letter-spacing:1.6px;text-transform:uppercase;color:{teal};margin-bottom:10px}}
+.dd-band{{background:{navy_deep};border-top:1px solid {border};border-bottom:1px solid {border};padding:56px 0;margin:20px 0 0}}
+.dd-band-inner{{max-width:1000px;margin:0 auto;padding:0 5vw;display:grid;grid-template-columns:1.1fr 1fr;gap:36px;align-items:center}}
+.dd-band h2{{font-family:'Nunito',sans-serif;font-size:24px;font-weight:900;margin:0 0 10px;color:{text_l};text-wrap:balance}}
+.dd-band p{{font-size:13px;color:{text};line-height:1.65;margin:0;max-width:480px}}
+.dd-collateral{{display:flex;flex-direction:column;gap:10px}}
+.dd-collateral-item{{display:flex;align-items:center;gap:12px;background:{card};border:1px solid {border};border-radius:10px;padding:12px 14px}}
+.dd-collateral-item .ic{{width:32px;height:32px;border-radius:8px;background:{teal}1F;color:{teal};display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}}
+.dd-collateral-item b{{display:block;font-family:'Nunito',sans-serif;font-size:13px;font-weight:800;color:{text_l}}}
+.dd-collateral-item span{{font-size:11.5px;color:{muted}}}
+.dd-footer .tag{{font-family:'Nunito',sans-serif;font-weight:900;letter-spacing:1.8px;text-transform:uppercase;color:{teal};font-size:10.5px}}
+@media (max-width:900px){{
+  .dd-band-inner{{grid-template-columns:1fr}}
+  .dd-band h2{{font-size:22px}}
+}}
+</style>
+""")
+
+    if _LEAN_LANDING:
+        html = f"""
+<div class="dd-land">
+  <nav class="dd-nav">
+    <div class="dd-nav-logo"></div>
+    <div class="dd-nav-links">
+      <a href="/login" class="dd-btn dd-btn-ghost">Sign In</a>
+      <a href="/register" class="dd-btn dd-btn-primary">Sign up with invite code &rarr;</a>
+    </div>
+  </nav>
+
+  <section class="dd-hero">
+    <div class="dd-hero-left">
+      <h1>{_c['hero_h1']}</h1>
+      <p class="lead">{_c['hero_lead']}</p>
+      <div class="dd-tagline">{BRAND_TAGLINE}</div>
+    </div>
+    <div class="dd-hero-right">
+      <img src="{BRAND_LOGO_DARK}" alt="{BRAND} logo" />
+    </div>
+  </section>
+
+  <section class="dd-section">
+    <span class="dd-eyebrow">Core benefits</span>
+    <h2>From prospect research to your next conversation.</h2>
+    <p class="sub">Three things {BRAND} does every day so you don&#39;t have to.</p>
+    <div class="dd-features">
+      <div class="dd-feat">
+        <div class="dd-feat-icon">&#10022;</div>
+        <h3>Start with relevant outreach.</h3>
+        <p>Give {BRAND} a target company or describe your audience. AI helps research the business and draft a sequence you can review, edit, and approve.</p>
+      </div>
+      <div class="dd-feat">
+        <div class="dd-feat-icon">&#11042;</div>
+        <h3>See your whole day in one plan.</h3>
+        <p>Scheduled emails, calls, LinkedIn touches, and follow-up tasks in one daily view. Spend less time rebuilding your to-do list and more time working through it.</p>
+      </div>
+      <div class="dd-feat">
+        <div class="dd-feat-icon">&#8767;</div>
+        <h3>Never let a follow-up go cold.</h3>
+        <p>Plan follow-ups across channels and build nurture campaigns for prospects who aren&#39;t ready yet. Set the timing and give each touch a purpose.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="dd-band">
+    <div class="dd-band-inner">
+      <div>
+        <span class="dd-eyebrow" style="text-align:left">Supporting tools</span>
+        <h2>Give prospects something worth following up on.</h2>
+        <p>Create branded one-pagers, ROI summaries, and market newsletters to support your outreach. Review the content, add your perspective, and share information relevant to the buyer&#39;s business.</p>
+      </div>
+      <div class="dd-collateral">
+        <div class="dd-collateral-item"><div class="ic">&#128209;</div><div><b>Branded one-pagers</b><span>Market Pulse and benchmark snapshots, refreshed before every send.</span></div></div>
+        <div class="dd-collateral-item"><div class="ic">&#9636;</div><div><b>ROI summaries</b><span>A page of numbers the buyer can forward to their boss.</span></div></div>
+        <div class="dd-collateral-item"><div class="ic">&#128240;</div><div><b>Market newsletters</b><span>Monthly, written for your region and sector, sent from your inbox.</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="dd-how">
+    <h2>Build your first campaign.</h2>
+    <p class="sub">Four steps from a fresh account to a running sequence.</p>
+    <div class="dd-steps">
+      <div class="dd-step">
+        <div class="dd-step-num">1</div>
+        <h3>Connect your email.</h3>
+        <p>Link your Outlook or Gmail account. Every email goes out from your own mailbox, so deliverability is yours, not a relay&#39;s.</p>
+      </div>
+      <div class="dd-step">
+        <div class="dd-step-num">2</div>
+        <h3>Add your contacts.</h3>
+        <p>Import your prospect list and review the contact details.</p>
+      </div>
+      <div class="dd-step">
+        <div class="dd-step-num">3</div>
+        <h3>Prepare your outreach.</h3>
+        <p>Use AI to draft a sequence, then edit the messages and set your schedule.</p>
+      </div>
+      <div class="dd-step">
+        <div class="dd-step-num">4</div>
+        <h3>Work your daily plan.</h3>
+        <p>Manage scheduled outreach and complete calls, LinkedIn touches, and follow-ups from one place.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="dd-cta">
+    <h2>Bring your next campaign into {BRAND}.</h2>
+    <p>{BRAND} is in invite-only beta. Got a code? Create your account in under a minute and start sending from your real inbox today.</p>
+    <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
+      <a href="/register" class="dd-btn dd-btn-primary">Sign up with invite code &rarr;</a>
+      <a href="/login" class="dd-btn dd-btn-outline">Sign In</a>
+    </div>
+  </section>
+
+  <footer class="dd-footer">
+    <div>&copy; 2026 {BRAND}. All rights reserved. &nbsp;&middot;&nbsp; <span class="tag">{BRAND_TAGLINE}</span></div>
+    <div>
+      <a href="/login">Sign In</a>
+      <a href="/register">Sign Up</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/terms">Terms</a>
+      <a href="mailto:{BRAND_SUPPORT_EMAIL}">Contact</a>
+    </div>
+  </footer>
+</div>
+"""
+    else:
+        html = f"""
 <div class="dd-land">
   <nav class="dd-nav">
     <div class="dd-nav-logo"></div>

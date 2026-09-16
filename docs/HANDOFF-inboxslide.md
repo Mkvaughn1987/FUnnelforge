@@ -276,4 +276,23 @@ design and the audit of which requested destinations were *not* wired (no page
 exists for them) is in
 `docs/superpowers/specs/2026-09-16-inboxslide-sidebar-redesign-design.md`.
 
+**Tagline + lean landing page (2026-09-16).** Two more keys, same pattern:
+
+- `DRIPDROP_BRAND_TAGLINE=Slide in. Stand out. Win business.` — rendered under
+  the hero headline and in the landing footer, under the logo on `/login` and
+  `/register`, and appended to the landing page's tab title. Stored in sentence
+  case; every surface uppercases it in CSS. Unset (Arena) renders nothing and
+  leaves the tab title at `{BRAND}, AI-powered sales outreach`.
+- `DRIPDROP_LANDING_LAYOUT=lean` — replaces the eight feature cards and the
+  seven-row comparison table with three benefit cards, a supporting-tools band
+  and four steps. The old page said the same four things three times each.
+  Unset (Arena) -> `full`, the original page, byte for byte.
+
+The lean page is invite-only: Sign In and "Sign up with invite code" are the
+only calls to action, there is no nav logo and no Request Beta Access mailto.
+In `_render_landing_page()` the lean branch is a separate `html = f"""..."""`
+plus its own `ui.add_head_html` block, so Arena's markup and stylesheet are
+untouched. `DRIPDROP_LANDING_` was added to `PREFIXES` in
+`deploy/sync_brand_env.py` so the layout key actually reaches `/opt/dripdrop/.env`.
+
 Nothing in any of those touches Arena.
