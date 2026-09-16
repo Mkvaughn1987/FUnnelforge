@@ -32,8 +32,17 @@ from pathlib import Path
 
 # Only variables whose names start with one of these are considered. Anything
 # to do with credentials, hosts, paths or limits is out of scope on purpose.
+#
+# COMPANY_ and VALUE_PROPS are not branding in the visual sense, but they are
+# the same kind of thing: per-instance identity that is wrong by default and
+# has to travel with the rest of it. The sending entity named in the CAN-SPAM
+# footer and the sales claims asserted to every prospect are the two values
+# most damaging to leave at Arena's, and hand-transcribing a paragraph of
+# claims onto a server is exactly what this script exists to avoid.
 PREFIXES = (
     "DRIPDROP_BRAND_",
+    "DRIPDROP_COMPANY_",
+    "DRIPDROP_VALUE_PROPS",
     "DRIPDROP_WEB_",
     "DRIPDROP_TERM_",
     "DRIPDROP_THEME_",
