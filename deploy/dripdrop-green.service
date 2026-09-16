@@ -1,0 +1,28 @@
+[Unit]
+# The GREEN half of the blue/green pair. Identical to dripdrop.service except
+# for the port: blue is :8080, green is :8081, and Caddy sends traffic to
+# whichever answers /healthz (see deploy/Caddyfile and deploy/Caddyfile.171).
+#
+# Both units must be installed on every box. _deploy_zero_downtime.sh alternates
+# between them -- it starts the inactive color, health-checks it, then stops the
+# other. On a fresh box where neither is running it picks blue, so the FIRST
+# deploy succeeds even if this unit is missing; the SECOND deploy targets green
+# and fails with "Unit dripdrop-green.service not found". That is why this file
+# is installed up front rather than the first time it is needed.
+Description=DripDrop Sales Hub (green)
+After=network.target
+
+[Service]
+Type=simple
+User=dripdrop
+Group=dripdrop
+WorkingDirectory=/opt/dripdrop/app
+Environment=DRIPDROP_DATA_DIR=/opt/dripdrop/data
+Environment=DRIPDROP_PORT=8081
+EnvironmentFile=/opt/dripdrop/.env
+ExecStart=/opt/dripdrop/venv/bin/python flowdrip_app.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
