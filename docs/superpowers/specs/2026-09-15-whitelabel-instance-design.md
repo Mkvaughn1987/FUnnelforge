@@ -298,31 +298,54 @@ needs a decision about what terms the venture actually offers, not a code change
    identity the send worker runs as. Set it to the address Mike intends to keep
    permanently — not a provisioning placeholder. Moving it later means copying issues
    across user folders, so the cost of getting it wrong rises with every issue sent.
-5. Register the Google callback URL. **This was previously recorded as blocked on
-   the partner. It is not** — corrected 2026-09-16. Every scope the app requests
-   (`gmail_oauth.py:48`: `gmail.send`, `gmail.readonly`, `openid`/`email`/`profile`)
-   is consented per user for that user's own mailbox. There is no domain-wide
-   delegation anywhere in the flow, so no Workspace admin is involved and the Cloud
-   project can live under a personal Google account with the consent screen set to
-   External. Mike will **not** have a `thrivemodal.com` mailbox, and does not need one.
+5. **Skip Google OAuth entirely. Leave `GOOGLE_CLIENT_ID` and
+   `GOOGLE_CLIENT_SECRET` unset.** Mike's requirement, stated 2026-09-16: the
+   instance is tied to his gmail *account*, but mail is not sent from gmail.
 
-   The real constraint is publishing status. An app left in **Testing** has its
-   refresh tokens expired by Google after ~7 days, which for a scheduled sender means
-   every connected mailbox stops sending about a week after it is connected, silently.
-   Move the app to **In production** before relying on it; `gmail.*` are restricted
-   scopes, so that is where verification review applies.
+   Those two halves are separable in this codebase, but only if Google stays off.
+   The login identity and the sending mailbox are already independent — the send
+   chain (`flowdrip_app.py:3031-3097`) reads Microsoft Graph, then Gmail OAuth, then
+   SMTP/SendGrid/Brevo, all out of *per-user config*, and never once consults the
+   account's login email. So a gmail login sending over SMTP from another domain
+   needs no code change.
 
-   Microsoft is optional and can be skipped entirely — `ms_email.is_configured()`
-   is False unless both `MS_CLIENT_ID` and `MS_CLIENT_SECRET` are set. The redirect
-   URIs are already environment-driven (`deploy/gmail_oauth.py:33`,
-   `deploy/ms_email.py:16`); no code change needed.
+   The trap is that the chain takes the **first** provider holding a token, and
+   there is only one Google flow in the app (`/auth/google/callback`,
+   `flowdrip_app.py:54296`, saving via `_gmail_oauth.save_tokens` at `:54356`) whose
+   scopes include `gmail.send`. "Sign in with Google" and "connect Gmail for
+   sending" are therefore the same act: authenticating with Google saves a token
+   that outranks the SMTP settings, and campaigns start going out from `@gmail.com`
+   silently. Leaving the credentials unset makes `is_configured()` False
+   (`gmail_oauth.py:57`), `_HAS_GMAIL_OAUTH` False, the branch unreachable, and the
+   connect-Gmail buttons (`flowdrip_app.py:44245-44260`) unrendered.
 
-   **Deliverability is the part that the gmail decision actually costs.** Outbound
-   carries the connected mailbox's domain, and cold B2B outreach from a consumer
-   `@gmail.com` address has no SPF/DKIM/DMARC under the venture's control and is
-   filtered hard. Mike already owns `dripdripdrop.ai`, so a mailbox on that domain is
-   available today, needs nobody's permission, and is strictly better than gmail for
-   sending. Recorded as a recommendation, not a blocker.
+   Register the account with email + password instead — that path exists
+   independently of OAuth (`_hash_password` at `flowdrip_app.py:2427`, stored at
+   `:2471`) — using `mkvaughn1987@gmail.com`, which is already what every
+   `DRIPDROP_*` identity var points at. Configure sending over SMTP in the app's
+   settings for whatever domain actually sends. This removes the Google Cloud
+   project, the consent screen, the restricted-scope verification review, and the
+   7-day refresh-token expiry from provisioning altogether.
+
+   Microsoft is likewise optional and skipped the same way —
+   `ms_email.is_configured()` is False unless both `MS_CLIENT_ID` and
+   `MS_CLIENT_SECRET` are set.
+
+   **Corrections this supersedes.** OAuth was recorded as blocked on the partner; it
+   was not — every scope (`gmail_oauth.py:48`) is consented per user for that
+   user's own mailbox, with no domain-wide delegation, so no Workspace admin was
+   ever in the flow. And the deliverability recommendation (prefer a
+   `dripdripdrop.ai` mailbox over gmail for cold B2B, which has no SPF/DKIM/DMARC
+   under the venture's control) is now moot as an argument *about gmail sending* —
+   gmail is not sending. It still applies to whatever domain the SMTP mailbox lives
+   on: that domain needs SPF, DKIM and DMARC before the first cold send.
+
+   If a Google-connected mailbox is ever wanted later, both redirect URIs are
+   already environment-driven (`deploy/gmail_oauth.py:33`, `deploy/ms_email.py:16`),
+   default to Arena's host, and must be overridden to this instance's and registered
+   at the provider byte-for-byte; and the app must be moved to **In production**
+   before it is relied on, or Google expires its refresh tokens after ~7 days and
+   every connected mailbox stops sending, silently.
 6. Deploy, create the first admin account, and send one test campaign to a
    controlled mailbox before any real recipient.
 7. Install the queue-pruning cron immediately. Arena's instance reached a 133MB
