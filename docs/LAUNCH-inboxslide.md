@@ -9,28 +9,33 @@ untouched, on its own server. They share a code repository and nothing else.
 
 ---
 
-## Before you start: two accounts that must be yours
+## Before you start: two new accounts
 
-This is the whole point of the exercise, so get it right.
+Everything Arena runs on today is already yours — your DigitalOcean account,
+your card, your Anthropic org, your Cloudflare zone — and you have said you
+would transfer any of it to them.
 
-**DigitalOcean — use a NEW account, not the existing one.** Arena's production
-droplet currently sits in Mike's personal DigitalOcean account, on his personal
-card, and handing that account to Arena is on the table. Anything created in
-that account travels with it. So the new server goes in a **separate
-DigitalOcean account**, created fresh for this venture. That costs one signup
-and removes the entire question of what gets untangled later.
+That is exactly why the new instance needs its own accounts. **The risk is not
+losing access to Arena's things. It is handing Arena your own venture by
+accident**, because it happened to be sitting in the same account on transfer
+day. Two signups now, instead of an untangling later under time pressure.
 
-This is not a hypothetical concern — it is the same mistake being made twice.
-The reason Arena's hosting is awkward to hand over is that it was created under
-a personal identity. Create this one under the venture's.
+**DigitalOcean — a new account.** Create the droplet in a fresh DigitalOcean
+account, not the one holding Arena's droplet. DigitalOcean does not cleanly move
+a single droplet between accounts; a handover is realistically the whole account.
+So anything you leave in there goes with it.
 
-**Anthropic.** Same logic, sharper edge. An API key created inside an
-organization is tied to the person who made it, and Anthropic **deactivates it
-when that person leaves the organization**. A key minted in Arena's org will
-simply stop working one day with no warning. The key you use here must come from
-your own organization on your own card.
+**Anthropic — a new organization.** Same reasoning, one extra edge. An API key
+belongs to the person who created it *inside that organization*, and Anthropic
+deactivates the key when that person is removed from the org. So a key minted in
+the org you may transfer has two ways to fail: Arena can see and revoke it, and
+it dies on its own if you are later removed as a member. Create the key in a new
+org on your own card, with **no expiry** and a workspace spend limit.
 
-Everything else — the domain, the Cloudflare zone — you already own.
+**Cloudflare — the existing account is fine.** `inboxslide.ai` and
+`dripdripdrop.ai` both live there. Unlike DigitalOcean, Cloudflare *does* move
+individual zones between accounts cleanly, so `dripdripdrop.ai` can be handed
+over later on its own without disturbing `inboxslide.ai`. No action needed now.
 
 ---
 
@@ -224,33 +229,31 @@ accounts Arena is actively working, in one line each.
 
 ---
 
-## Separately: untangling Arena's hosting
+## Separately: handing Arena's hosting over
 
-Not required to launch, and not urgent this week, but do not let it drift.
+Not required to launch. But you have said you would transfer anything to them,
+so here is the order that avoids breaking their production on the way out.
 
-Arena's production currently depends on two things owned personally:
+Arena currently depends on three things of yours: the **DigitalOcean account and
+card** paying for the droplet, the **Cloudflare zone** for `dripdripdrop.ai`
+that their production resolves through, and the **Anthropic org** the app's API
+key lives in.
 
-- The **DigitalOcean account and card** paying for the droplet.
-- The **Cloudflare zone** for `dripdripdrop.ai`, which is where Arena's
-  production resolves.
+**Do the new accounts first.** Every item above is only awkward to hand over
+because your own work is mixed into it. Once inboxslide is on its own
+DigitalOcean account and its own Anthropic org, all three become clean handovers.
 
-Three things follow.
+**Their card goes on before yours comes off.** If your card is removed while it
+is the only one on file, Arena's production stops at the next billing cycle.
+This applies to DigitalOcean and Anthropic both.
 
-**Hand over both or neither.** Giving Arena the server while keeping the domain
-leaves their production depending on a personal Cloudflare account. That is the
-same entanglement in a different place.
+**Move the zone, do not move the account.** In Cloudflare, transfer the
+`dripdripdrop.ai` zone to Arena's account. Do not hand over your whole Cloudflare
+account — `inboxslide.ai` is in it.
 
-**Their card goes on before yours comes off.** If the card is removed while it
-is still the only one on file, Arena's production goes down at the next billing
-cycle. Order matters.
-
-**Decide what continued access means.** Mike has said he will keep using Arena's
-instance after leaving. That is an arrangement with Arena, not a technical
-setting — and it is much easier to agree on before the handover than to ask for
-afterwards. Worth settling explicitly rather than assuming the account access
-quietly persists.
-
----
+**Agree continued access in writing, before the transfer.** You have said you
+will keep using Arena's instance. The moment the accounts are theirs, that is
+their decision to make, not a setting you control. Much easier to agree now.
 
 ## The one rule for keeping the two instances apart
 
