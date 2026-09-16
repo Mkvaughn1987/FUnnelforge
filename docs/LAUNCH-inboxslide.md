@@ -20,10 +20,13 @@ losing access to Arena's things. It is handing Arena your own venture by
 accident**, because it happened to be sitting in the same account on transfer
 day. Two signups now, instead of an untangling later under time pressure.
 
-**DigitalOcean — a new account.** Create the droplet in a fresh DigitalOcean
-account, not the one holding Arena's droplet. DigitalOcean does not cleanly move
-a single droplet between accounts; a handover is realistically the whole account.
-So anything you leave in there goes with it.
+**The server — a different provider entirely.** Arena's droplet is on
+DigitalOcean, in your account, on your card. Put this one somewhere else. These
+instructions use **Vultr**; any host offering plain Ubuntu 24.04 works, because
+nothing we install is provider-specific. Using a separate provider is the
+cleanest possible separation — DigitalOcean does not cleanly move a single
+droplet between accounts anyway, so a handover there is realistically the whole
+account, and anything you leave in it goes with it.
 
 **Anthropic — a new organization.** Same reasoning, one extra edge. An API key
 belongs to the person who created it *inside that organization*, and Anthropic
@@ -33,32 +36,43 @@ it dies on its own if you are later removed as a member. Create the key in a new
 org on your own card, with **no expiry** and a workspace spend limit.
 
 **Cloudflare — the existing account is fine.** `inboxslide.ai` and
-`dripdripdrop.ai` both live there. Unlike DigitalOcean, Cloudflare *does* move
-individual zones between accounts cleanly, so `dripdripdrop.ai` can be handed
+`dripdripdrop.ai` both live there. Unlike a hosting account, Cloudflare *does*
+move individual zones between accounts cleanly, so `dripdripdrop.ai` can be handed
 over later on its own without disturbing `inboxslide.ai`. No action needed now.
 
 ---
 
 ## Step 1 — Create the server
 
-In DigitalOcean: **Create → Droplet**.
+In Vultr: **Compute → Create Instance**.
 
 | Setting | Choose |
 |---|---|
-| Region | Whichever is closest to you |
-| Image | **Ubuntu 24.04 LTS** |
-| Size | Basic → Regular → **2 GB RAM / 1 vCPU** ($12–14/mo) |
-| Authentication | **SSH key** if you have one, otherwise Password |
-| Hostname | `inboxslide` |
+| Plan | **Shared CPU** — *not* the Dedicated CPU box it defaults to |
+| Plan Selection | The row with **2 GB Memory** (~$0.018/hr, ~$12/mo) |
+| Location | Whichever US city is closest to you |
+| Operating System | **Ubuntu 24.04 LTS x64** |
+| SSH Keys | Add your public key, then **tick it** |
+| Hostname & Label | `inboxslide` |
 
-Make sure you are in the **new** DigitalOcean account before you click Create,
-not the one holding Arena's droplet. The account name is in the top-right.
+Untick the add-ons — auto backups, IPv6, DDoS protection. All extra monthly cost,
+none of it needed.
 
-On size: 1 GB is too small — the app parses large JSON files in memory and will
-be killed by the kernel under load. 2 GB is the floor.
+Two things that quietly cost money or break the install:
 
-When it finishes, copy the **IP address** from the droplet page. You need it in
-the next step. It looks like `164.92.x.x`.
+- **Shared CPU, not Dedicated.** Vultr's newer UI opens on Dedicated CPU at
+  around $43/mo. Shared CPU is the same class of machine Arena runs on.
+- **2 GB RAM is the floor.** There is a 1 GB plan for about half the price. The
+  app parses large JSON files in memory and the kernel will kill it under load.
+
+Sign up and deploy with any VPN **switched off**. Hosting providers score new
+signups for fraud, and a VPN is the single most common reason a brand-new
+account gets locked before it deploys anything.
+
+When it finishes, check the instance is **Running**, not `Stopped` — start it if
+it is not — and copy the **IP address**. You need it in the next step. It looks
+like `216.128.x.x`. Do not confuse it with the instance ID, which is a long
+string of letters and dashes.
 
 ---
 
@@ -70,7 +84,7 @@ In Cloudflare, select the **inboxslide.ai** zone → **DNS** → **Add record**.
 |---|---|
 | Type | `A` |
 | Name | `app` |
-| IPv4 address | your droplet's IP from Step 1 |
+| IPv4 address | your server's IP from Step 1 |
 | Proxy status | **DNS only** — click the orange cloud so it turns **grey** |
 
 **The grey cloud matters and it is temporary.** When your server starts, it asks
@@ -85,7 +99,7 @@ Wait about a minute for this to take effect.
 
 ## Step 3 — Prepare the server
 
-Open a terminal. Connect to the droplet, substituting your IP:
+Open a terminal. Connect to the server, substituting your IP:
 
 ```
 ssh root@YOUR_DROPLET_IP
@@ -240,8 +254,8 @@ that their production resolves through, and the **Anthropic org** the app's API
 key lives in.
 
 **Do the new accounts first.** Every item above is only awkward to hand over
-because your own work is mixed into it. Once inboxslide is on its own
-DigitalOcean account and its own Anthropic org, all three become clean handovers.
+because your own work is mixed into it. Once inboxslide is on its own host and
+its own Anthropic org, all three become clean handovers.
 
 **Their card goes on before yours comes off.** If your card is removed while it
 is the only one on file, Arena's production stops at the next billing cycle.
