@@ -59,6 +59,29 @@ read -rp "Postal address, pipe-separated (Name | Street | City, ST ZIP US): " AD
 SECRET="$(openssl rand -hex 32)"
 INVITE="$(openssl rand -hex 6)"
 
+# Caddy requests a certificate the moment it starts, over HTTP-01 on port 80.
+# That only works if the hostname already resolves to THIS box and Cloudflare is
+# not proxying it yet (grey cloud). Checking now turns a confusing 20-minute
+# TLS failure into a clear message before anything is written.
+echo
+echo "Checking DNS for $DOMAIN ..."
+MYIP="$(curl -fsS --max-time 10 https://api.ipify.org || true)"
+DNSIP="$(getent ahostsv4 "$DOMAIN" 2>/dev/null | awk '{print $1; exit}' || true)"
+if [ -z "$DNSIP" ]; then
+    echo "ERROR: $DOMAIN does not resolve yet." >&2
+    echo "  Add an A record for it pointing at $MYIP, DNS-only (grey cloud)," >&2
+    echo "  wait a minute, then run this again." >&2
+    exit 1
+fi
+if [ -n "$MYIP" ] && [ "$DNSIP" != "$MYIP" ]; then
+    echo "WARNING: $DOMAIN resolves to $DNSIP but this droplet is $MYIP." >&2
+    echo "  If that is a Cloudflare proxy IP, set the record to DNS-only (grey" >&2
+    echo "  cloud) until the certificate is issued, or Caddy cannot complete the" >&2
+    echo "  HTTP-01 challenge." >&2
+    read -rp "  Continue anyway? [y/N] " _go
+    [ "$_go" = "y" ] || [ "$_go" = "Y" ] || exit 1
+fi
+
 echo
 echo "[1/6] Cloning $BRANCH ..."
 if [ -d "$APP/.git" ]; then
@@ -135,11 +158,17 @@ echo "=== Done ==="
 echo "  URL:          https://$DOMAIN"
 echo "  Invite code:  $INVITE      <-- you need this to register"
 echo
-echo "Remaining, in the browser:"
-echo "  1. Cloudflare: A record for $DOMAIN -> this droplet's IP,"
-echo "     and SSL/TLS mode set to Full (strict). Flexible causes a redirect loop."
-echo "  2. Register at https://$DOMAIN with email + password (NOT Google --"
-echo "     the Google flow carries gmail.send and would hijack sending)."
-echo "  3. Settings -> connect Brevo or SendGrid for outbound mail."
-echo "  4. Review DRIPDROP_VALUE_PROPS in $ENVFILE before the first 4x4 send,"
+echo "Remaining, in this order:"
+echo "  1. Wait ~30s, then open https://$DOMAIN. If it loads with a valid"
+echo "     padlock, Caddy got its certificate. If not:"
+echo "       journalctl -u caddy -n 40 --no-pager"
+echo "  2. ONLY after that works, go to Cloudflare and: set SSL/TLS mode to"
+echo "     Full (strict), then switch the A record to Proxied (orange cloud)."
+echo "     Doing it in the other order breaks certificate issuance, and"
+echo "     Flexible mode causes an infinite redirect loop."
+echo "  3. Register at https://$DOMAIN with email + password. Use the invite"
+echo "     code above. Do NOT use any Google sign-in button -- that flow also"
+echo "     grants gmail.send and would make the app send from your gmail."
+echo "  4. Settings -> connect Brevo or SendGrid for outbound mail."
+echo "  5. Review DRIPDROP_VALUE_PROPS in $ENVFILE before the first 4x4 send,"
 echo "     then: systemctl restart dripdrop"
