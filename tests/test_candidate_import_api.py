@@ -1,4 +1,4 @@
-"""Resume import API: POST /api/v1/candidates/import (+ count).
+"""Resume import API: POST /api/v1/candidates/import (+ count, + search).
 
 The route is a thin server-to-server wrapper around _import_one_resume, the
 same per-file core the "Bulk Import Resumes" UI worker calls. Tests pin:
@@ -51,6 +51,8 @@ def _client():
         Route("/api/v1/candidates/import", fa.api_import_candidates,
               methods=["POST"]),
         Route("/api/v1/candidates/count", fa.api_candidates_count,
+              methods=["GET"]),
+        Route("/api/v1/candidates/search", fa.api_candidates_search,
               methods=["GET"]),
     ])
     return TestClient(app)
@@ -141,3 +143,53 @@ def test_count_endpoint(tmp_path, monkeypatch):
     body = r.json()
     assert body["active"] == 1
     assert body["total"] == 1
+
+
+def test_search_route_rejects_missing_key(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    r = _client().get("/api/v1/candidates/search")
+    assert r.status_code == 401
+
+
+def test_search_route_matches_keyword_across_fields(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    key = fa._mint_api_key("rep@arena.com")
+    fa._CURRENT_USER_EMAIL.set("rep@arena.com")
+    monkeypatch.setattr(fa, "_extract_resume_text", lambda p: "x" * 200)
+    fa._import_one_resume(str(tmp_path / "tim.pdf"), "tim.pdf")  # Tim Cooper, CNC Machinist, Denver, CO
+
+    r = _client().get("/api/v1/candidates/search",
+                      params={"q": "machinist"}, headers={"X-API-Key": key})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total_matches"] == 1
+    assert body["returned"] == 1
+    assert body["candidates"][0]["name"] == "Tim Cooper"
+
+    r = _client().get("/api/v1/candidates/search",
+                      params={"q": "nonexistent-skill"}, headers={"X-API-Key": key})
+    assert r.json()["total_matches"] == 0
+
+
+def test_search_route_filters_by_status_and_limit(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    key = fa._mint_api_key("rep@arena.com")
+    fa._CURRENT_USER_EMAIL.set("rep@arena.com")
+    monkeypatch.setattr(fa, "_extract_resume_text", lambda p: "x" * 200)
+    fa._import_one_resume(str(tmp_path / "a.pdf"), "a.pdf")
+    fa._import_one_resume(str(tmp_path / "b.pdf"), "b.pdf")
+    pool = fa.load_candidate_pool()
+    pool[0]["status"] = "placed"
+    fa.save_candidate_pool(pool)
+
+    r = _client().get("/api/v1/candidates/search",
+                      params={"status": "active"}, headers={"X-API-Key": key})
+    body = r.json()
+    assert body["total_matches"] == 1
+    assert body["candidates"][0]["status"] == "active"
+
+    r = _client().get("/api/v1/candidates/search",
+                      params={"limit": 1}, headers={"X-API-Key": key})
+    body = r.json()
+    assert body["total_matches"] == 2   # matches ignore limit
+    assert body["returned"] == 1        # only 1 returned, capped by limit

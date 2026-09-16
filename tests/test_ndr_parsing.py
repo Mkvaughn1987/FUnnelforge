@@ -213,3 +213,34 @@ def test_soft_bounce_records_last_status():
     fa._record_soft_bounce(t, "a@x.com", "m1", "5.2.2", 3)
     fa._record_soft_bounce(t, "a@x.com", "m2", "5.4.316", 3)
     assert t["a@x.com"]["last_status"] == "5.4.316"
+
+
+# ── _soft_bounce_threshold_for (5.7.x spam/policy suppresses sooner) ──
+
+def test_threshold_for_571_is_tighter():
+    assert fa._soft_bounce_threshold_for("5.7.1") == 2
+
+
+def test_threshold_for_57350_is_tighter():
+    # Real-world code seen from a domain-level "suspected spam" rejection.
+    assert fa._soft_bounce_threshold_for("5.7.350") == 2
+
+
+def test_threshold_for_mailbox_full_is_general():
+    assert fa._soft_bounce_threshold_for("5.2.2") == 3
+
+
+def test_threshold_for_transient_is_general():
+    assert fa._soft_bounce_threshold_for("4.4.4") == 3
+
+
+def test_threshold_for_no_code_is_general():
+    assert fa._soft_bounce_threshold_for("") == 3
+
+
+def test_spam_policy_bounce_suppresses_after_two():
+    t = {}
+    threshold = fa._soft_bounce_threshold_for("5.7.350")
+    assert fa._record_soft_bounce(t, "a@x.com", "m1", "5.7.350", threshold) is False
+    assert fa._record_soft_bounce(t, "a@x.com", "m2", "5.7.350", threshold) is True
+    assert t["a@x.com"]["count"] == 2
