@@ -27,9 +27,23 @@
 
 set -e
 
-SERVER="root@134.199.237.206"
-SSH_KEY="$HOME/.ssh/dripdrop"
+# Deploy target. Defaults to Arena's production droplet, so running this
+# script with no environment set behaves exactly as it always has. A
+# white-label instance sets these to its own droplet and key:
+#
+#   DRIPDROP_DEPLOY_SERVER=root@203.0.113.9 \
+#   DRIPDROP_DEPLOY_KEY=~/.ssh/dripdrop_171 \
+#   ./_deploy_zero_downtime.sh
+#
+# One repository, two deploy targets -- no fork, no divergence. See
+# docs/superpowers/specs/2026-09-15-whitelabel-instance-design.md
+SERVER="${DRIPDROP_DEPLOY_SERVER:-root@134.199.237.206}"
+SSH_KEY="${DRIPDROP_DEPLOY_KEY:-$HOME/.ssh/dripdrop}"
+# Hostname used only for the post-deploy HTTPS health check at the end.
+PUBLIC_HOST="${DRIPDROP_PUBLIC_HOST:-dripdripdrop.ai}"
 SSH="ssh -o ConnectTimeout=90 -o ServerAliveInterval=15 -i $SSH_KEY $SERVER"
+
+echo "== Deploy target: $SERVER ($PUBLIC_HOST, key: $SSH_KEY) =="
 
 LOCAL_FILE="flowdrip_app.py"
 REMOTE_FILE="/opt/dripdrop/app/flowdrip_app.py"
@@ -204,4 +218,4 @@ echo "== Deploy complete. Active: $UP_SVC on :$UP_PORT =="
 # sleep, the curl sometimes lands right when Caddy is between polls and
 # returns a transient 502 even though the site is healthy.
 sleep 4
-$SSH "curl -s https://dripdripdrop.ai/healthz -o /dev/null -w 'https check: HTTP %{http_code} in %{time_total}s\n'" || true
+$SSH "curl -s https://$PUBLIC_HOST/healthz -o /dev/null -w 'https check: HTTP %{http_code} in %{time_total}s\n'" || true
