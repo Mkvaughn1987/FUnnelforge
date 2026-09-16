@@ -37,7 +37,7 @@ a fully functional product on day one — with nobody in it.
 | Purpose | White-label for an outside firm |
 | Branding | Identical DripDrop — no theming layer |
 | Hosting | New droplet, full isolation from Arena's box |
-| Domain | Subdomain of `dripdripdrop.ai` in the existing Cloudflare zone |
+| Domain | `171.dripdripdrop.ai` — a subdomain in the existing Cloudflare zone |
 | Credentials | The firm supplies their own Anthropic key and Google/Microsoft OAuth apps |
 | Code | One repository, two deploy targets — no fork |
 
@@ -51,7 +51,7 @@ dedupe script, which walks every tenant's campaigns on the local disk.
 
 ### Why a subdomain
 
-Branding stays identical, so `<firm>.dripdripdrop.ai` is coherent. It costs
+Branding stays identical, so `171.dripdripdrop.ai` is coherent. It costs
 nothing, needs no new registration, and keeps DNS in the Cloudflare account we
 already control. Migrating to a vanity domain later is one additional Caddy
 hostname and one A record — no server changes.
@@ -67,8 +67,16 @@ hardcoded value**, so deploying this change to Arena's production site is a no-o
 | `flowdrip_app.py:59` | `_ATS_ALLOWED_DOMAINS` | `DRIPDROP_ATS_DOMAINS` | Pipeline/ATS tab invisible to the firm |
 | `flowdrip_app.py:61-64`, `:87`, `:2583` | individual email allowlists | `DRIPDROP_ATS_EMAILS` | Arena staff implicitly privileged on their site |
 | `flowdrip_app.py:84` | `_ROUNDUP_OWNER_EMAIL` | `DRIPDROP_ROUNDUP_OWNER` | Their roundups email an Arena employee |
-| `ats.py:31`, `:36` | allowlist + `_OWNER_BACKFILL_EMAIL` | reuses the two vars above | Same as above, in the ATS module |
+| `flowdrip_app.py:85-89` | `_ROUNDUP_ALLOWED_EMAILS` | `DRIPDROP_ROUNDUP_EMAILS` | Arena staff can read the firm's roundups |
+| `ats.py:31` | `ALLOWED_EMAILS` | reuses `DRIPDROP_ATS_EMAILS` | Same as above, in the ATS module |
+| `ats.py:36` | `_OWNER_BACKFILL_EMAIL` | `DRIPDROP_OWNER_EMAIL` | Pre-multi-user records assigned to an Arena account |
 | `ats.py:879` | `_EMAIL_SKIP_DOMAINS` | `DRIPDROP_INTERNAL_DOMAINS` | **Candidate sequences can be mailed to their own recruiters** |
+
+Six variables in total. `DRIPDROP_ROUNDUP_EMAILS` and `DRIPDROP_OWNER_EMAIL`
+were added during implementation: the roundup viewer allowlist and the ATS
+owner-backfill address are separate gates from the two they sit beside, and
+leaving either hardcoded would have named an Arena account on the firm's
+instance.
 
 `ats.py:879` is the most serious. It skips recruiter addresses when choosing which
 address on a record belongs to the candidate. Configured for Arena only, it will
@@ -80,19 +88,22 @@ dropped. An unset variable yields today's Arena value.
 
 ## Provisioning sequence
 
-1. Ship the four config vars to Arena production. Verify Pipeline still loads for
+1. Ship the six config vars to Arena production. Verify Pipeline still loads for
    `@arenastaffing.net` — the change is expected to be behaviorally inert.
 2. Provision the droplet and run `deploy/setup-server.sh`.
-3. Add an A record for `<firm>.dripdripdrop.ai` to the new droplet in the existing
+3. Add an A record for `171.dripdripdrop.ai` to the new droplet in the existing
    Cloudflare zone. Set SSL/TLS mode to **Full (strict)** — Flexible mode sends
    plain HTTP to a Caddy that redirects to HTTPS, producing a redirect loop.
 4. Write `/opt/dripdrop/.env`:
    - `DRIPDROP_SECRET` — freshly generated, never reused from Arena's instance
    - `ANTHROPIC_API_KEY` — the firm's own key
    - `DRIPDROP_INVITE_CODES`, `DRIPDROP_SUPER_ADMINS` — the firm's values
-   - `GOOGLE_REDIRECT_URI`, `MS_REDIRECT_URI` — on the new hostname
-   - `DRIPDROP_ATS_DOMAINS`, `DRIPDROP_ATS_EMAILS`, `DRIPDROP_ROUNDUP_OWNER`,
-     `DRIPDROP_INTERNAL_DOMAINS` — the firm's domain and admins
+   - `GOOGLE_REDIRECT_URI`, `MS_REDIRECT_URI` — on `171.dripdripdrop.ai`
+   - `DRIPDROP_ATS_DOMAINS`, `DRIPDROP_INTERNAL_DOMAINS` — the firm's email
+     domain. **Both must be set**, or the résumé extractor will not skip the
+     firm's own recruiters (see `ats.py:879` above).
+   - `DRIPDROP_ATS_EMAILS`, `DRIPDROP_ROUNDUP_OWNER`, `DRIPDROP_ROUNDUP_EMAILS`,
+     `DRIPDROP_OWNER_EMAIL` — the firm's admin accounts
 5. The firm registers the two callback URLs in their own Google Cloud and Azure
    app registrations. The redirect URIs are already environment-driven
    (`deploy/gmail_oauth.py:33`, `deploy/ms_email.py:16`); no code change needed.
@@ -120,7 +131,7 @@ either target. One repository, two `.env` files, no divergence.
 
 ## Verification
 
-- The four new variables, unset, reproduce current behavior exactly — verified by
+- The six new variables, unset, reproduce current behavior exactly — verified by
   the existing test suite against a 15-failure baseline.
 - `ats.py:879` behavior is verified with the new firm's domain configured: their
   recruiter addresses must be skipped when selecting a candidate address.

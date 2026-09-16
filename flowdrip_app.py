@@ -51,24 +51,46 @@ _logging.getLogger("nicegui").addFilter(_NiceGUIClientWarningFilter())
 # can forge a session cookie for any user.
 _STORAGE_SECRET = os.getenv("DRIPDROP_SECRET", "dripdrop-local-dev-secret-change-me")
 
+# ── Per-instance identity ───────────────────────────────────────────────────
+# DripDrop runs as more than one isolated instance (Arena's own site, plus
+# white-label deployments for other firms on their own droplet + domain). The
+# allowlists below used to hardcode arenastaffing.net, which silently degraded
+# any other instance: no Pipeline tab, roundups mailed to an Arena employee,
+# and — worst — the résumé contact extractor failing to skip the *local* firm's
+# recruiter addresses. Each is now env-driven.
+#
+# Every var defaults to the historical Arena value, so an instance that sets
+# none of them behaves exactly as before. See
+# docs/superpowers/specs/2026-09-15-whitelabel-instance-design.md
+def _env_list(var: str, default: str) -> list:
+    """Comma-separated env var -> lowercased, trimmed list. Empty entries
+    dropped. Unset or blank falls back to `default`."""
+    raw = os.getenv(var)
+    if raw is None or not raw.strip():
+        raw = default
+    return [p.strip().lower() for p in raw.split(",") if p.strip()]
+
+
 # ── ATS (Pipeline) ──────────────────────────────────────────────────────────
-# The Pipeline (ATS) section is visible to every @arenastaffing.net account,
-# plus a few individually-allowlisted accounts outside that domain (e.g. the
-# founder's personal gmail used for local/dev sessions). Other tenants
+# The Pipeline (ATS) section is visible to every account on this instance's own
+# domain(s), plus a few individually-allowlisted accounts outside them (e.g.
+# the founder's personal gmail used for local/dev sessions). Other tenants
 # (DripDrop is sold as SaaS to other companies) never see it.
-_ATS_ALLOWED_DOMAINS = {"arenastaffing.net"}
-_ATS_ALLOWED_EMAILS = {
-    "michael.vaughn@arenastaffing.net",
-    "mkvaughn1987@gmail.com",
-    "sarah.henze@arenastaffing.net",
+_ATS_ALLOWED_DOMAINS = set(_env_list(
+    "DRIPDROP_ATS_DOMAINS", "arenastaffing.net"))
+_ATS_ALLOWED_EMAILS = set(_env_list(
+    "DRIPDROP_ATS_EMAILS",
+    "michael.vaughn@arenastaffing.net,"
+    "mkvaughn1987@gmail.com,"
+    "sarah.henze@arenastaffing.net,"
     "elizabeth.simonov@arenastaffing.net",
-}
+))
 
 
 def _ats_allowed(email: str) -> bool:
-    """True if this account may see the Pipeline (ATS) tab: any
-    @arenastaffing.net user, or one of the individually allowlisted
-    accounts outside that domain."""
+    """True if this account may see the Pipeline (ATS) tab: any user on one of
+    this instance's own domains (DRIPDROP_ATS_DOMAINS), or one of the
+    individually allowlisted accounts outside them."""
     e = (email or "").strip().lower()
     if not e or "@" not in e:
         return False
@@ -81,12 +103,12 @@ def _ats_allowed(email: str) -> bool:
 # to the owner + Michael. Everyone else's Newsletters page shows no trace.
 # "Rothany owns, you view": all issue data lives under the OWNER's per-user
 # folder, so Michael's session reads the same source of truth.
-_ROUNDUP_OWNER_EMAIL = "rothany.vu@arenastaffing.net"
-_ROUNDUP_ALLOWED_EMAILS = {
-    _ROUNDUP_OWNER_EMAIL,
-    "michael.vaughn@arenastaffing.net",
-    "mkvaughn1987@gmail.com",
-}
+_ROUNDUP_OWNER_EMAIL = _env_list(
+    "DRIPDROP_ROUNDUP_OWNER", "rothany.vu@arenastaffing.net")[0]
+_ROUNDUP_ALLOWED_EMAILS = {_ROUNDUP_OWNER_EMAIL} | set(_env_list(
+    "DRIPDROP_ROUNDUP_EMAILS",
+    "michael.vaughn@arenastaffing.net,mkvaughn1987@gmail.com",
+))
 
 
 def _roundup_allowed(email: str) -> bool:
