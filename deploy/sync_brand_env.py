@@ -50,6 +50,11 @@ PREFIXES = (
     "DRIPDROP_NAV_",
     "DRIPDROP_LANDING_",
     "DRIPDROP_WORKSPACE_",
+    # Instance-level playbook pin. Not brand copy, but it belongs to the
+    # same "what kind of box is this" layer and has to arrive with it: the
+    # app reads it at import, so a deploy that carried the code without
+    # this key would leave the box unpinned and behaving as Arena.
+    "DRIPDROP_PLAYBOOK",
 )
 
 _ASSIGN = re.compile(r"^(?P<key>[A-Z][A-Z0-9_]*)=(?P<val>.*)$")

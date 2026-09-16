@@ -760,3 +760,24 @@ def test_a_deliberately_cleared_field_stays_cleared():
     assert ctx["tm_pricing"] == "" and ctx["tm_proof"] == ""
     text = fa._thrivemodal_playbook_text({"tm_pricing": "", "tm_proof": ""})
     assert text.count("NOTHING APPROVED") >= 2
+
+
+# ── 14. the pin has to survive a deploy ───────────────────────────────────
+
+def test_the_lock_is_carried_onto_the_box_by_the_env_sync():
+    # The app reads DRIPDROP_PLAYBOOK at import. A deploy that shipped the
+    # code but not this key would leave inboxslide unpinned and behaving as
+    # Arena, which is the exact failure this whole change exists to prevent.
+    import importlib.util
+    import pathlib
+    root = pathlib.Path(__file__).resolve().parents[1]
+    spec = importlib.util.spec_from_file_location(
+        "sync_brand_env", root / "deploy" / "sync_brand_env.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    assert "DRIPDROP_PLAYBOOK" in mod.PREFIXES
+    assert mod._in_scope("DRIPDROP_PLAYBOOK")
+
+    example = (root / "deploy" / "env.inboxslide.example").read_text(
+        encoding="utf-8")
+    assert "DRIPDROP_PLAYBOOK=thrivemodal" in example
