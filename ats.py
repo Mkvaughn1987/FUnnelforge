@@ -45,6 +45,15 @@ ALLOWED_EMAILS = set(_env_list(
     "michael.vaughn@arenastaffing.net,mkvaughn1987@gmail.com",
 ))
 
+# Instance-wide off switch, mirroring flowdrip_app._ATS_ENABLED. Read here too
+# rather than via _ff() because this runs at import time, and because without
+# it a sales-only instance would hide the nav button but still serve /ats to
+# anyone who typed the URL (ALLOWED_EMAILS above is a fallback, not a gate).
+# Default on == Arena's behaviour unchanged.
+ATS_ENABLED = (os.getenv("DRIPDROP_ATS_ENABLED") or "1").strip().lower() not in (
+    "0", "false", "no", "off",
+)
+
 # Legacy candidates + pipelines (pre multi-user) belong to this instance's
 # owner — Michael on Arena's instance, the local admin on a white-label.
 _OWNER_BACKFILL_EMAIL = _env_list(
@@ -71,6 +80,8 @@ def is_allowed(email: str) -> bool:
     Falls back to the static _allowed_set() email list for standalone/
     test runs where flowdrip_app's domain check isn't reachable.
     """
+    if not ATS_ENABLED:
+        return False
     e = (email or "").strip().lower()
     if not e:
         return False

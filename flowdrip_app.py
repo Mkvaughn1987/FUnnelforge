@@ -131,12 +131,22 @@ _ATS_ALLOWED_EMAILS = set(_env_list(
     "sarah.henze@arenastaffing.net,"
     "elizabeth.simonov@arenastaffing.net",
 ))
+# Instance-wide off switch. An allowlist cannot be emptied by setting the env
+# var blank -- _env_list() falls back to its default when the value is blank --
+# so a sales-only instance that wants no ATS at all needs this instead of
+# fighting the lists. Default "1" = on, which is Arena's behaviour unchanged.
+_ATS_ENABLED = _env_str("DRIPDROP_ATS_ENABLED", "1").strip().lower() not in (
+    "0", "false", "no", "off",
+)
 
 
 def _ats_allowed(email: str) -> bool:
     """True if this account may see the Pipeline (ATS) tab: any user on one of
     this instance's own domains (DRIPDROP_ATS_DOMAINS), or one of the
-    individually allowlisted accounts outside them."""
+    individually allowlisted accounts outside them. Always False when the
+    instance has DRIPDROP_ATS_ENABLED turned off."""
+    if not _ATS_ENABLED:
+        return False
     e = (email or "").strip().lower()
     if not e or "@" not in e:
         return False
