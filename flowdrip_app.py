@@ -77,6 +77,27 @@ def _env_str(var: str, default: str) -> str:
     return raw.strip() if raw and raw.strip() else default
 
 
+# Defined here, beside the other env helpers, and NOT further down next to
+# _env_palette: the WEB_* palette below is assigned at module level, so this
+# has to exist by the time those lines execute. Moving it back down is an
+# import-time NameError that takes the whole app out.
+def _env_color(var: str, default: str) -> str:
+    """A single colour from the environment. The leading "#" is optional, for
+    the same reason as in _env_palette: /opt/dripdrop/.env is read both by
+    systemd (EnvironmentFile=) and by python-dotenv, which disagree about when
+    a "#" begins a trailing comment. Anything that is not a bare 3/6/8-digit
+    hex value is passed through untouched, so "rgb(...)" or a CSS keyword
+    still works."""
+    v = _env_str(var, default)
+    if not v.startswith("#") and len(v) in (3, 6, 8):
+        try:
+            int(v, 16)
+            return "#" + v
+        except ValueError:
+            pass
+    return v
+
+
 # ── Brand + vocabulary ──────────────────────────────────────────────────────
 # Every value below defaults to the wording this app has always used, so an
 # instance that sets none of these is byte-for-byte unchanged. A white-label
@@ -267,23 +288,6 @@ TERM_DRIP_TITLE = TERM_DRIP[:1].upper() + TERM_DRIP[1:]
 # time -- an instance replaces the whole set or keeps Arena's.
 BRAND_GREETINGS = [g.strip() for g in
                    (os.getenv("DRIPDROP_GREETINGS") or "").split("|") if g.strip()]
-
-
-def _env_color(var: str, default: str) -> str:
-    """A single colour from the environment. The leading "#" is optional, for
-    the same reason as in _env_palette: /opt/dripdrop/.env is read both by
-    systemd (EnvironmentFile=) and by python-dotenv, which disagree about when
-    a "#" begins a trailing comment. Anything that is not a bare 3/6/8-digit
-    hex value is passed through untouched, so "rgb(...)" or a CSS keyword
-    still works."""
-    v = _env_str(var, default)
-    if not v.startswith("#") and len(v) in (3, 6, 8):
-        try:
-            int(v, 16)
-            return "#" + v
-        except ValueError:
-            pass
-    return v
 
 
 def _env_palette(var: str) -> dict:
