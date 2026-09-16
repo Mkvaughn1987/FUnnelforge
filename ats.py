@@ -24,16 +24,31 @@ def _ff():
     return m
 
 
+def _env_list(var: str, default: str) -> list:
+    """Comma-separated env var -> lowercased, trimmed list. Empty entries
+    dropped. Unset or blank falls back to `default`.
+
+    Deliberately duplicated from flowdrip_app rather than imported — this
+    module must never `import flowdrip_app` (see the module docstring), and
+    these values are read at import time, before _ff() can resolve."""
+    raw = os.getenv(var)
+    if raw is None or not raw.strip():
+        raw = default
+    return [p.strip().lower() for p in raw.split(",") if p.strip()]
+
+
 # Fallback allowlist. The SINGLE SOURCE OF TRUTH is flowdrip_app's
 # _ATS_ALLOWED_EMAILS (it gates the nav button); _allowed_set() unions it in so
 # adding a user there grants BOTH the button and /ats page access in one edit.
-ALLOWED_EMAILS = {
-    "michael.vaughn@arenastaffing.net",
-    "mkvaughn1987@gmail.com",
-}
+ALLOWED_EMAILS = set(_env_list(
+    "DRIPDROP_ATS_EMAILS",
+    "michael.vaughn@arenastaffing.net,mkvaughn1987@gmail.com",
+))
 
-# Legacy candidates + pipelines (pre multi-user) belong to Michael.
-_OWNER_BACKFILL_EMAIL = "michael.vaughn@arenastaffing.net"
+# Legacy candidates + pipelines (pre multi-user) belong to this instance's
+# owner — Michael on Arena's instance, the local admin on a white-label.
+_OWNER_BACKFILL_EMAIL = _env_list(
+    "DRIPDROP_OWNER_EMAIL", "michael.vaughn@arenastaffing.net")[0]
 
 
 def _allowed_set() -> set:
@@ -875,8 +890,12 @@ _EMAIL_RE = re.compile(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}")
 _PHONE_RE = re.compile(
     r"(?<!\d)(?:\+?1[\s.\-]?)?\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]?\d{4}(?!\d)")
 # The recruiter's own address shows up in some résumés / fit-summaries — never
-# treat it as the candidate's email.
-_EMAIL_SKIP_DOMAINS = ("arenastaffing.net",)
+# treat it as the candidate's email. This MUST name the domain(s) of whichever
+# firm runs this instance: configured for the wrong firm, the extractor happily
+# returns a local recruiter's address as the candidate's, and that recruiter
+# gets enrolled into candidate outreach.
+_EMAIL_SKIP_DOMAINS = tuple(_env_list(
+    "DRIPDROP_INTERNAL_DOMAINS", "arenastaffing.net"))
 
 
 def _extract_contacts(text: str) -> tuple:
