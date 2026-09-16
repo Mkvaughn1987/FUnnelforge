@@ -120,7 +120,14 @@ class ArenaDoc(BaseDocTemplate):
         # Footer — Arena Direct Hire | {recruiter name} | {recruiter email}
         canv.setFillColor(SILVER)
         canv.setFont("Helvetica", 7)
-        _parts = ["Arena Direct Hire"]
+        # Firm name comes from config so a non-Arena workspace (ThriveModal)
+        # does not footer its buyer-facing assets with someone else's brand.
+        # Falls back to "Arena Direct Hire" exactly as before when unset.
+        try:
+            _firm = get_sender()[1] or "Arena Direct Hire"
+        except Exception:
+            _firm = "Arena Direct Hire"
+        _parts = [_firm]
         if getattr(self, "prepared_by", ""):
             _parts.append(self.prepared_by)
         if getattr(self, "prepared_email", ""):
