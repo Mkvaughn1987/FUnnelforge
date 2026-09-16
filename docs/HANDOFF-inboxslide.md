@@ -4,7 +4,7 @@ Written to be read cold, with no memory of the conversation that produced it.
 Companion to `LAUNCH-inboxslide.md`, which is the full runbook. This file is the
 shorter question: what is already true, and what is left.
 
-**Last verified: 2026-09-16 (second pass, after key + Cloudflare went in).** Everything in the first section was checked by
+**Last verified: 2026-09-16 (third pass, after the rebrand was pushed but before the server pulled it -- see step 0).** Everything in the first section was checked by
 running a command, not by remembering. Re-check before trusting any of it.
 
 ---
@@ -55,6 +55,50 @@ Two settings that are already correct and should not be "fixed":
 ---
 
 ## What is left, in order
+
+### 0. Deploy the rebrand -- one command, and nothing is visible until it runs
+
+**This is the live blocker as of 2026-09-16.** The whole forest/ivory rebrand is
+committed and pushed (`34bd0a2` on `feat/whitelabel-instance`, which is also what
+`origin` has). The *server* is still on `b37053b` and `/opt/dripdrop/.env` has
+none of the new variables, so `app.inboxslide.ai` still renders in DripDrop navy.
+Mike has reported this as "the site is still the exact same" -- that is expected,
+not a bug.
+
+Pulling on the server is **blocked by the permission classifier** in this session
+(see "Rules that must not be broken" below). Hand Mike this one line; do not try
+to route around the denial:
+
+```
+ssh root@216.128.142.21 "cd /opt/dripdrop/app && git pull --ff-only origin feat/whitelabel-instance && python3 deploy/sync_brand_env.py --apply && systemctl restart dripdrop && sleep 3 && systemctl is-active dripdrop"
+```
+
+Four steps chained: pull, write the branding variables, restart, print `active`.
+
+`deploy/sync_brand_env.py` is new in `34bd0a2`. It upserts **only** keys matching
+`DRIPDROP_BRAND_*`, `_WEB_*`, `_TERM_*`, `_THEME_*` and `_GREETINGS` out of
+`deploy/env.inboxslide.example` (27 of them) into `/opt/dripdrop/.env`, taking a
+timestamped backup first. The scoping is deliberate: the example file carries
+placeholder values for real credentials, so a general "sync everything" tool
+would overwrite a live API key with the word `CHANGEME`. It is idempotent, and a
+dry run unless given `--apply`.
+
+Afterwards Mike must hard-refresh (Ctrl+Shift+R) -- and note the separate gotcha
+that an already-open tab's client-side nav dies across a restart, so reloading
+the tab is required regardless.
+
+**What he should then see:** forest green and ivory on every signed-out page
+(login, register, forgot, reset, setup, landing, `/privacy`, `/terms`), the
+inboxslide logo instead of the DripDrop wordmark, sales copy instead of
+recruiting on the landing page, and slide-metaphor dashboard greetings instead
+of the water-metaphor ones.
+
+**Arena is unaffected**, by construction: every one of those variables falls back
+to Arena's current value when unset, and Arena sets none of them. Byte-identity
+of Arena's rendered output was proven for every customer-facing page. The one
+documented exception is the internal admin AI-usage page, where five
+near-identical navy shades were folded onto the nine palette names.
+
 
 ### 1-2. API key and Cloudflare — DONE 2026-09-16
 
