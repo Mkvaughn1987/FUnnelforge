@@ -30,7 +30,12 @@ from typing import Any
 import httpx
 
 DEFAULT_API_BASE_URL = "http://127.0.0.1:8080"
-PUBLIC_ORIGIN = "https://dripdripdrop.ai"
+# Origin/Referer stamped on loopback API calls so Cloudflare-shaped request
+# checks pass. Must be THIS instance's public origin — a white-label instance
+# sending Arena's origin is misidentifying itself. Defaults to Arena's, so
+# leaving it unset is a no-op there.
+PUBLIC_ORIGIN = (os.environ.get("DRIPDROP_PUBLIC_ORIGIN")
+                 or "https://dripdripdrop.ai").rstrip("/")
 
 
 class NoApiKeyError(Exception):

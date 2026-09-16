@@ -4037,7 +4037,11 @@ def _view_profile(ff, st, refresh):
                     f"font-size:14px;font-weight:700;color:{_c(C,'teal','#1AE3D9')};margin:2px 0 12px;")
                 ui.label("OWNER").style(
                     f"font-size:10px;font-weight:700;letter-spacing:.06em;color:{_c(C,'muted','#94A3B8')};")
-                ui.label(d.get("added_by", "Mike Vaughn") or "Mike Vaughn").style(
+                # A record with no added_by used to render "Mike Vaughn" as its
+                # owner — wrong on any instance but Arena's, and wrong even on
+                # Arena's for a record another recruiter imported before the
+                # field existed.
+                ui.label(d.get("added_by") or "Unassigned").style(
                     f"font-size:13px;color:{_c(C,'text_l','#E6EDF7')};margin:2px 0 12px;")
                 ui.element("div").style(f"height:1px;background:{_c(C,'border','#243049')};margin:6px 0 14px;")
                 def _mpc_one(_e=None, _i=d.get("id")):

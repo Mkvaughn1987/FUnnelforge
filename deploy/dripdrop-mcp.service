@@ -12,7 +12,12 @@ Environment=DRIPDROP_MCP_TRANSPORT=streamable-http
 Environment=DRIPDROP_MCP_HOST=127.0.0.1
 Environment=DRIPDROP_MCP_PORT=8090
 Environment=DRIPDROP_MCP_PUBLIC_URL=https://mcp.dripdripdrop.ai
-Environment=DRIPDROP_API_BASE_URL=http://127.0.0.1:8080
+# :8082 is Caddy's loopback blue/green failover endpoint (see deploy/Caddyfile).
+# This was :8080 — pinned to blue — which broke every MCP tool call whenever a
+# deploy left the app on green. Fixed live on 2026-08-29 but never committed
+# back here; this line is that hotfix. Do not pin it to 8080 or 8081 again.
+Environment=DRIPDROP_API_BASE_URL=http://127.0.0.1:8082
+# Last, so /opt/dripdrop/.env can override any of the above per instance.
 EnvironmentFile=/opt/dripdrop/.env
 ExecStart=/opt/dripdrop/venv/bin/python -m mcp_server.dripdrop_mcp
 Restart=always

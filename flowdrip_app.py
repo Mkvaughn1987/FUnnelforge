@@ -71,6 +71,35 @@ def _env_list(var: str, default: str) -> list:
     return [p.strip().lower() for p in raw.split(",") if p.strip()]
 
 
+def _env_str(var: str, default: str) -> str:
+    """Single-value env var, trimmed. Unset or blank falls back to `default`."""
+    raw = os.getenv(var)
+    return raw.strip() if raw and raw.strip() else default
+
+
+# This instance's own public origin, no trailing slash. Used for every absolute
+# URL that leaves the box: hosted email images, password-reset links, deep links
+# in notification mail. Hardcoding Arena's host here meant a white-label
+# instance wrote image files to its OWN disk and then linked them on Arena's
+# domain, so every image in its outgoing mail 404'd.
+_PUBLIC_ORIGIN = _env_str(
+    "DRIPDROP_PUBLIC_ORIGIN", "https://dripdripdrop.ai").rstrip("/")
+
+# Company identity stamped on outgoing mail and PDFs. COMPANY_ADDRESS is the
+# CAN-SPAM postal footer on The Roundup — it must be the sending firm's own
+# registered address, never the default.
+_COMPANY_NAME = _env_str("DRIPDROP_COMPANY_NAME", "Arena Staffing")
+_COMPANY_ADDRESS = _env_str(
+    "DRIPDROP_COMPANY_ADDRESS",
+    "Arena Staffing | 4750 Ontario Mills Pkwy | Ontario, CA 91764 US")
+
+# Banner artwork stamped into every J's Way newsletter body. Arena's is bundled
+# under /static/; other instances set this to empty to drop the image entirely
+# rather than ship Arena's branded artwork in their own mail.
+_JWAY_BANNER_URL = _env_str(
+    "DRIPDROP_JWAY_BANNER_URL", f"{_PUBLIC_ORIGIN}/static/jway_banner.png")
+
+
 # ── ATS (Pipeline) ──────────────────────────────────────────────────────────
 # The Pipeline (ATS) section is visible to every account on this instance's own
 # domain(s), plus a few individually-allowlisted accounts outside them (e.g.
@@ -1353,6 +1382,35 @@ def _user_responded_json_path(): return _resolve_user_root() / "Campaigns" / "re
 def _user_nl_dir(): return _resolve_user_root() / "Newsletters"
 def _user_mi_path(): return _resolve_user_root() / "market_intel.json"
 def _user_mi_results_path(): return _resolve_user_root() / "market_intel_results.json"
+
+
+def _sig_first_name(default: str = "the recruiter") -> str:
+    """First name to write AI-generated drafts as.
+
+    Reads the first token of the signed-in user's signature file. Four callers
+    used to inline this read with a hardcoded `sig_name = "Mike"` fallback —
+    and a missing or blank signature file is the DEFAULT state for every new
+    account, so any user who had not yet written a signature had drafts
+    generated as Mike Vaughn. Falls back to the local part of their own
+    address, and only then to `default`.
+    """
+    try:
+        p = _user_sig_path()
+        if p.exists():
+            first_line = p.read_text(encoding="utf-8").strip().split("\n")[0]
+            parts = first_line.strip().split()
+            if parts:
+                return parts[0]
+    except Exception:
+        pass
+    try:
+        local = (_CURRENT_USER_EMAIL.get() or "").split("@")[0]
+        word = re.split(r"[^A-Za-z]+", local)[0]
+        if word:
+            return word[:1].upper() + word[1:]
+    except Exception:
+        pass
+    return default
 def _user_wizard_draft_path(): return _resolve_user_root() / "wizard_draft.json"
 
 
@@ -2601,15 +2659,20 @@ def _delete_user_completely(email: str) -> tuple:
 
     return True, f"Deleted {email} and all their data."
 
-_ADMIN_EMAILS = {
-    "michael.vaughn@arenastaffing.net",
-    "mkvaughn2023@gmail.com",
-}
+# Permanent admin accounts for THIS instance. Was hardcoded to two Arena
+# addresses, which made them admins on every white-label instance regardless of
+# DRIPDROP_SUPER_ADMINS — a tenancy hole, since that gate is what the firm's own
+# admin is configured through. Defaults to the historical pair, so Arena is
+# unchanged.
+_ADMIN_EMAILS = set(_env_list(
+    "DRIPDROP_ADMIN_EMAILS",
+    "michael.vaughn@arenastaffing.net,mkvaughn2023@gmail.com",
+))
 
 def _is_admin(email: str) -> bool:
-    """Admin if either (a) hardcoded in _ADMIN_EMAILS (permanent founder
-    accounts) or (b) the user record has is_admin=True (granted via the
-    admin panel)."""
+    """Admin if either (a) listed in _ADMIN_EMAILS (this instance's permanent
+    founder accounts, DRIPDROP_ADMIN_EMAILS) or (b) the user record has
+    is_admin=True (granted via the admin panel)."""
     e = (email or "").lower().strip()
     if not e:
         return False
@@ -4432,7 +4495,7 @@ FULL_STREAM_MONTHS = [
         ms(touch_number=1,  delay_days=0,  channel="email", name="Tailored intro",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="Quick insight on {CompanyName}'s {Geography} hiring environment",
-           body="Hi {FirstName},\n\n[AI: 2-3 sentences referencing a delivery pressure for {CompanyName} in {Geography}. Real projects. Diagnostic question. No pitch.]\n\nBest,\nMike",
+           body="Hi {FirstName},\n\n[AI: 2-3 sentences referencing a delivery pressure for {CompanyName} in {Geography}. Real projects. Diagnostic question. No pitch.]",
            script_notes="Open with a specific reference to their portfolio and one delivery pressure. End with a diagnostic question. Never pitch."),
         ms(touch_number=2,  delay_days=2,  channel="li", name="LinkedIn connect",
            step_type=ST.LINKEDIN, tags=[],
@@ -4443,26 +4506,26 @@ FULL_STREAM_MONTHS = [
         ms(touch_number=4,  delay_days=4,  channel="email", name="Market pulse",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="60-second market pulse  -  {Geography} {Vertical}",
-           body="Hi {FirstName},\n\n[AI: 2-sentence value-add note with market insight.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: 2-sentence value-add note with market insight.]",
            attachments=[],
            script_notes="Short cover note only. AI generates the pulse with their real projects and comp ranges."),
         ms(touch_number=5,  delay_days=7, channel="email", name="Industry alert",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="{Geography} construction alert  -  what's tightening delivery",
-           body="Hi {FirstName},\n\n[AI: 3 structural trends in {Vertical} in {Geography}. Executive tone. No pitch.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: 3 structural trends in {Vertical} in {Geography}. Executive tone. No pitch.]",
            script_notes="Three structural trends in their vertical. One operational implication. Executive tone  -  short paragraphs."),
     ]},
     {"label": "Month 2  -  7 touches", "steps": [
         ms(touch_number=6,  delay_days=7, channel="email", name="Role scorecard",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="A {TargetRole} scorecard for {CompanyName}'s environment",
-           body="Hi {FirstName},\n\n[AI: 2-sentence follow-up with relevant insight.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: 2-sentence follow-up with relevant insight.]",
            attachments=[],
            script_notes="AI generates scorecard for their project types and delivery complexity."),
         ms(touch_number=7,  delay_days=7, channel="email", name="Comp check",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="Current comp bands  -  {Geography} {TargetRole}",
-           body="Hi {FirstName},\n\n[AI: Current comp bands for {TargetRole} in {Geography}. Counteroffer trends.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: Current comp bands for {TargetRole} in {Geography}. Counteroffer trends.]",
            script_notes="Current comp bands for their exact roles and market. Counteroffer trends included."),
         ms(touch_number=8,  delay_days=3, channel="call", name="Value check-in call",
            step_type=ST.CALL, tags=["high"],
@@ -4470,18 +4533,18 @@ FULL_STREAM_MONTHS = [
         ms(touch_number=9,  delay_days=4, channel="email", name="Case study",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="How a {Geography} {Vertical} team solved their {TargetRole} gap",
-           body="Hi {FirstName},\n\n[AI: Anonymized case study matching their delivery environment.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: Anonymized case study matching their delivery environment.]",
            script_notes="Anonymized case study matching their delivery environment. Never name the client."),
         ms(touch_number=10,  delay_days=7, channel="email", name="Bench snapshot",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="Two profiles worth a look  -  {Geography} {TargetRole}",
-           body="Hi {FirstName},\n\n[AI: Short intro for bench snapshot. CTA: fit check call.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: Short intro for bench snapshot. CTA: fit check call.]",
            attachments=[],
            script_notes="Two anonymized profiles matched to their environment. CTA: 10-min fit check call."),
         ms(touch_number=11, delay_days=7, channel="email", name="Diagnostic question",
            step_type=ST.EMAIL_MANUAL, tags=["manual", "gate"],
            subject="One question  -  {CompanyName}",
-           body="Hi {FirstName},\n\nWhere are you feeling the most delivery pressure right now?\n\nMike",
+           body="Hi {FirstName},\n\nWhere are you feeling the most delivery pressure right now?",
            script_notes="Must be hand-written. No template. 'Where are you feeling the most delivery pressure right now?'\nGATE: Gates Month 3 touches."),
         ms(touch_number=12, delay_days=3, channel="call", name="Pipeline review call",
            step_type=ST.CALL, gate=True, tags=["gate", "high"],
@@ -4491,18 +4554,18 @@ FULL_STREAM_MONTHS = [
         ms(touch_number=13, delay_days=4, channel="email", name="Second industry alert",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="What's shifting in {Geography} {Vertical} right now",
-           body="Hi {FirstName},\n\n[AI: New angle  -  retention risk or time-to-fill trends. Not a repeat.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: New angle  -  retention risk or time-to-fill trends. Not a repeat.]",
            script_notes="New angle only  -  not a repeat. Focus on retention risk or time-to-fill trends."),
         ms(touch_number=14, delay_days=7, channel="email", name="Tenure snapshot",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="The 5-year filter is costing {Geography} teams  -  here's why",
-           body="Hi {FirstName},\n\n[AI: Challenge the 5-year filter with real market data.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: Challenge the 5-year filter with real market data.]",
            attachments=[],
            script_notes="Challenge the 5-year filter with real market data. AI generates for their geography."),
         ms(touch_number=15, delay_days=7, channel="email", name="Executive framing",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="Speed as a competitive edge  -  {CompanyName}",
-           body="Hi {FirstName},\n\n[AI: Position fast, clear hiring as a talent advantage. Short. Strategic.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: Position fast, clear hiring as a talent advantage. Short. Strategic.]",
            script_notes="Position a fast, clear hiring process as a talent advantage. Short. Strategic."),
         ms(touch_number=16, delay_days=3, channel="call", name="Final push call",
            step_type=ST.CALL, tags=["high"],
@@ -4510,19 +4573,19 @@ FULL_STREAM_MONTHS = [
         ms(touch_number=17, delay_days=4, channel="email", name="Close the loop",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="Closing the loop  -  {CompanyName}",
-           body="Hi {FirstName},\n\nWanted to close the loop. If a {TargetRole} seat opens, I'm here.\n\nMike",
+           body="Hi {FirstName},\n\nWanted to close the loop. If a {TargetRole} seat opens, I'm here.",
            script_notes="'Wanted to close the loop  -  if timing shifts or a seat opens, I'm here.' One short paragraph."),
         ms(touch_number=18, delay_days=7, channel="email", name="Breakup",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="Last note  -  {FirstName}",
-           body="Hi {FirstName},\n\n[AI: One-line professional breakup. Clean exit. Leave door open.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: One-line professional breakup. Clean exit. Leave door open.]",
            script_notes="Clean exit. One line. Leave the door open. Never sound bitter."),
     ]},
     {"label": "Re-engagement  -  bonus touch", "steps": [
         ms(touch_number=19, delay_days=30, channel="email", name="Re-engagement",
            step_type=ST.EMAIL_AUTO, tags=["auto", "bonus"],
            subject="New data  -  {Geography} {Vertical} hiring",
-           body="Hi {FirstName},\n\n[AI: New market data or genuine insight only  -  never 'just checking in.']\n\nMike",
+           body="Hi {FirstName},\n\n[AI: New market data or genuine insight only  -  never 'just checking in.']",
            script_notes="New market data or genuine insight only  -  never 'just checking in.' Treat like Touch 1 of a new sequence."),
     ]},
 ]
@@ -4537,7 +4600,7 @@ THE_SQUEEZE_MONTHS = [
         ms(touch_number=1, delay_days=0,  channel="email", name="Tailored intro",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="Quick note  -  {CompanyName} + {TargetRole} talent in {Geography}",
-           body="Hi {FirstName},\n\n[AI: One delivery pressure, one question. Very direct.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: One delivery pressure, one question. Very direct.]",
            script_notes="One delivery pressure. One question. Very direct. Get to the point fast."),
         ms(touch_number=2, delay_days=2,  channel="li", name="LinkedIn connect",
            step_type=ST.LINKEDIN, tags=[],
@@ -4548,18 +4611,18 @@ THE_SQUEEZE_MONTHS = [
         ms(touch_number=4, delay_days=5, channel="email", name="Market pulse",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="Market pulse  -  {Geography} {TargetRole}",
-           body="Hi {FirstName},\n\n[AI: One-line cover note only.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: One-line cover note only.]",
            attachments=[],
            script_notes="One-line cover note only. Attach AI-generated pulse."),
         ms(touch_number=5, delay_days=7, channel="email", name="Candidate snapshot",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="Two profiles  -  best fit for {CompanyName}",
-           body="Hi {FirstName},\n\n[AI: Short intro. Best two profiles. CTA: fit check.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: Short intro. Best two profiles. CTA: fit check.]",
            attachments=[],
            script_notes="Best two profiles for what you learned on the call. CTA: fit check. Keep it tight."),
         ms(touch_number=6, delay_days=11, channel="email", name="Breakup",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
-           body="Hi {FirstName},\n\n[AI: One-line professional breakup.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: One-line professional breakup.]",
            script_notes="Short, professional, leaves the door open. One line."),
     ]},
 ]
@@ -4574,7 +4637,7 @@ STEADY_FLOW_MONTHS = [
         ms(touch_number=1, delay_days=0, channel="email", name="Tailored intro",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="Quick insight on {CompanyName}'s {Geography} hiring environment",
-           body="Hi {FirstName},\n\n[AI: Shorter than Waterfall intro. One delivery pressure, one question. Reference a real {CompanyName} project.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: Shorter than Waterfall intro. One delivery pressure, one question. Reference a real {CompanyName} project.]",
            script_notes="One delivery pressure. One diagnostic question. Reference a real project. No pitch."),
         ms(touch_number=2, delay_days=2, channel="li", name="LinkedIn connect",
            step_type=ST.LINKEDIN, tags=[],
@@ -4585,37 +4648,37 @@ STEADY_FLOW_MONTHS = [
         ms(touch_number=4, delay_days=5, channel="email", name="Market pulse",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="60-second market pulse  -  {Geography} {Vertical}",
-           body="Hi {FirstName},\n\n[AI: 2-sentence cover note. Attach the market pulse PDF.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: 2-sentence cover note. Attach the market pulse PDF.]",
            attachments=[],
            script_notes="Short cover note only. AI generates the pulse."),
         ms(touch_number=5, delay_days=7, channel="email", name="Industry alert",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="{Geography} construction alert  -  3 signals worth watching",
-           body="Hi {FirstName},\n\n[AI: 2-3 trends, executive tone, one operational implication. Short.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: 2-3 trends, executive tone, one operational implication. Short.]",
            script_notes="2-3 trends. Executive tone. One operational implication. Keep it short."),
     ]},
     {"label": "Month 2  -  4 touches", "steps": [
         ms(touch_number=6, delay_days=7, channel="email", name="Role scorecard",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="A {TargetRole} scorecard for {CompanyName}'s environment",
-           body="Hi {FirstName},\n\n[AI: 2-sentence follow-up with relevant insight.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: 2-sentence follow-up with relevant insight.]",
            attachments=[],
            script_notes="AI generates scorecard for their project types and delivery complexity."),
         ms(touch_number=7, delay_days=7, channel="email", name="Candidate snapshot",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="Two profiles worth a look  -  {Geography} {TargetRole}",
-           body="Hi {FirstName},\n\n[AI: Short intro for bench snapshot. CTA: fit check call.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: Short intro for bench snapshot. CTA: fit check call.]",
            attachments=[],
            script_notes="Two anonymized profiles matched to their environment. CTA: 10-min fit check call."),
         ms(touch_number=8, delay_days=16, channel="email", name="Close the loop",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="Closing the loop  -  {CompanyName}",
-           body="Hi {FirstName},\n\nWanted to close the loop. If a {TargetRole} seat opens, I'm here.\n\nMike",
+           body="Hi {FirstName},\n\nWanted to close the loop. If a {TargetRole} seat opens, I'm here.",
            script_notes="Short and clean. One paragraph. Leave the door open."),
         ms(touch_number=9, delay_days=10, channel="email", name="Breakup",
            step_type=ST.EMAIL_AUTO, tags=["auto"],
            subject="Last note  -  {FirstName}",
-           body="Hi {FirstName},\n\n[AI: One-line professional breakup. Clean exit.]\n\nMike",
+           body="Hi {FirstName},\n\n[AI: One-line professional breakup. Clean exit.]",
            script_notes="Clean exit. One line. Leave the door open. Never sound bitter."),
     ]},
 ]
@@ -9722,9 +9785,9 @@ Structure for step 1:
      [the sequence's niche / industry / role family — pull from the
      BRIEF's market_sector, market_niche, target roles, or
      primary_industry; pick the most specific available].
-     Example: "I'm a recruiter at Arena Direct Hire and we specialize
-     in Project Managers and Superintendents in the Denver commercial
-     construction market."
+     Example shape (substitute the BRIEF's own firm, roles and market —
+     never these placeholders): "I'm a recruiter at [firm] and we
+     specialize in [roles] in the [city] [industry] market."
   3. THEN transition to a substantive market observation, question,
      candidate teaser, or insight tied to the recipient's company,
      role, market, or recent activity. Keep the email substantive
@@ -12375,7 +12438,7 @@ PAGE_HELP = {
             ("What is this?", "Connect your email (so DripDrop can send) and add your AI key (so DripDrop can generate content). Both are required end-to-end."),
             ("Email Sending", "Three options:\n- Microsoft: one-click OAuth for Outlook / Office 365.\n- Gmail: OAuth via Google.\n- SMTP / SendGrid / Brevo: any provider via SMTP or HTTP API  -  works from the server when SMTP is blocked."),
             ("AI Key", "Get yours at console.anthropic.com. Paste + Save. Powers campaign generation, market analysis, candidate matching, highlights, and PDF content."),
-            ("Writing Style Guide", "Custom rules for how AI writes your emails. Examples: 'Never use exclamation marks', 'Sign off as Mike, never Michael', 'No em dashes anywhere'. Applied to all AI-generated content."),
+            ("Writing Style Guide", "Custom rules for how AI writes your emails. Examples: 'Never use exclamation marks', 'Sign off with my first name only', 'No em dashes anywhere'. Applied to all AI-generated content."),
         ]
     },
     "responses": {
@@ -15744,12 +15807,7 @@ def p_responses(s, rf):
                                                     try:
                                                         import anthropic
                                                         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-                                                        sig_name = "Mike"
-                                                        try:
-                                                            if _user_sig_path().exists():
-                                                                sig_lines = _user_sig_path().read_text(encoding="utf-8").strip().split("\n")
-                                                                if sig_lines and sig_lines[0].strip().split(): sig_name = sig_lines[0].strip().split()[0]
-                                                        except Exception: pass
+                                                        sig_name = _sig_first_name()
                                                         prompt = (
                                                             f"You are {sig_name} from {_get_company_name()}.\n\n"
                                                             "CONTACT:\n" + _wrap_untrusted("contact_name", nm, max_chars=200) + "\n"
@@ -15809,12 +15867,7 @@ def p_responses(s, rf):
                                 try:
                                     import anthropic
                                     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-                                    sig_name = "Mike"
-                                    try:
-                                        if _user_sig_path().exists():
-                                            sig_lines = _user_sig_path().read_text(encoding="utf-8").strip().split("\n")
-                                            if sig_lines and sig_lines[0].strip().split(): sig_name = sig_lines[0].strip().split()[0]
-                                    except Exception: pass
+                                    sig_name = _sig_first_name()
                                     prompt = (
                                         f"You are {sig_name} from {_get_company_name()}, a staffing/recruiting firm.\n\n"
                                         f"A contact replied to your campaign email. Draft a short, professional reply.\n\n"
@@ -25542,7 +25595,9 @@ def _roundup_pdf_to_pages(raw: bytes):
 # ── The Roundup: email HTML renderer ───────────────────────────────────────
 _ROUNDUP_BLUE = "#2e5c8a"
 _ROUNDUP_NAVY = "#1d3a5f"
-_ROUNDUP_FOOTER = "Arena Staffing | 4750 Ontario Mills Pkwy | Ontario, CA 91764 US"
+# CAN-SPAM postal footer on every issue. Must be the SENDING firm's own
+# registered address — see DRIPDROP_COMPANY_ADDRESS.
+_ROUNDUP_FOOTER = _COMPANY_ADDRESS
 
 
 def _roundup_section_bar(text: str) -> str:
@@ -25729,7 +25784,7 @@ def _roundup_tab(s, rf):
 
     ui.label("The Roundup").classes("fd-h1").style(
         "margin:0 0 4px;text-align:center;")
-    ui.label("Arena's internal company newsletter. "
+    ui.label(f"{_COMPANY_NAME}'s internal company newsletter. "
              "Create or edit an issue, then send it to all staff."
              ).classes("fd-sub").style("text-align:center;margin-bottom:18px;")
 
@@ -25965,7 +26020,7 @@ def _roundup_send_dialog(s, rf, issue: dict):
             f"font-size:18px;font-weight:800;color:{C['text_l']};"
             f"margin-bottom:8px;")
         if not saved:
-            ui.label("No saved contact lists yet. Import an 'All Arena Staff' "
+            ui.label("No saved contact lists yet. Import an all-staff "
                      "CSV from the Contact List page first.").style(
                 f"font-size:13px;color:{C['muted']};")
             with ui.element("button").classes("fd-gb").style(
@@ -36885,14 +36940,7 @@ def p_ai_campaign(s: AppState, rf):
                     roles_str = ", ".join(s.aicb_sel_roles)
 
                     # Load signature name
-                    sig_name = "Mike"
-                    try:
-                        if _user_sig_path().exists():
-                            sig_lines = _user_sig_path().read_text(encoding="utf-8").strip().split("\n")
-                            if sig_lines and sig_lines[0].strip().split():
-                                sig_name = sig_lines[0].strip().split()[0]
-                    except Exception:
-                        pass
+                    sig_name = _sig_first_name()
 
                     # Resolve PDF target now so the PDF thread can start in
                     # parallel with the email thread (2026-04-26 user request:
@@ -40861,12 +40909,7 @@ def p_candidate_campaign(s: AppState, rf):
                         mr = co.get("match_reasons", [])
                         if mr: co_context += f"\n  Why Candidate Fits: {'; '.join(mr[:2])}"
                         co_context += "\n"
-                    sig_name = "Mike"
-                    try:
-                        if _user_sig_path().exists():
-                            sig_lines = _user_sig_path().read_text(encoding="utf-8").strip().split("\n")
-                            if sig_lines and sig_lines[0].strip().split(): sig_name = sig_lines[0].strip().split()[0]
-                    except Exception: pass
+                    sig_name = _sig_first_name()
 
                     # Build the candidate context: single candidate uses
                     # the existing single-candidate framing; 2-3 candidates
@@ -41333,7 +41376,7 @@ def p_candidate_campaign(s: AppState, rf):
 #  CANDIDATE POOL
 # ═══════════════════════════════════════════════════════════════════════════
 
-MATCH_JD_INSTRUCTION = """You are a recruiting intelligence assistant for Mike Vaughn at Arena Direct Hire in Denver, CO. Mike is a full-desk recruiter specializing in direct hire placements in manufacturing, construction, and skilled trades.
+MATCH_JD_INSTRUCTION = """You are a recruiting intelligence assistant for a full-desk recruiter specializing in direct hire placements in manufacturing, construction, and skilled trades.
 
 Below is EITHER a full job description, OR a short role query (1-5 words like "welder", "CNC programmer", "construction superintendent"). Both are valid inputs.
 
@@ -41374,7 +41417,7 @@ TONE for 'fit' and 'summary':
 """
 
 
-SUBMITTAL_INSTRUCTION = """You are writing a detailed candidate submittal writeup for Mike Vaughn at Arena Direct Hire, a full-desk recruiter in manufacturing/construction/skilled trades.
+SUBMITTAL_INSTRUCTION = """You are writing a detailed candidate submittal writeup for a full-desk recruiter in manufacturing/construction/skilled trades.
 
 Below is a job / role query, then ONE candidate's resume. Produce a submittal-ready writeup in HTML (no markdown, no code fences).
 
@@ -41431,12 +41474,12 @@ Output format:
   </ol>
 </div>
 
-After the candidate block, close with a short submittal-email snippet Mike can paste into a client email:
+After the candidate block, close with a short submittal-email snippet the recruiter can paste into a client email:
 
 <div style="background:#F1F5F9;border-radius:8px;padding:14px 18px;margin-top:16px;font-size:13px;color:#0F172A;line-height:1.6;">
   <div style="font-weight:800;color:#0F172A;margin-bottom:6px;">SUBMITTAL EMAIL (paste-ready)</div>
   <div style="white-space:pre-wrap;font-family:Calibri,Arial,sans-serif;">
-  [2-3 short paragraphs, direct tone, highlights up front, gaps disclosed, call to action at the end. Write as if Mike is sending this to his client right now.]
+  [2-3 short paragraphs, direct tone, highlights up front, gaps disclosed, call to action at the end. Write as if the recruiter is sending this to their client right now.]
   </div>
 </div>
 
@@ -44321,7 +44364,7 @@ def p_ai_settings(s, rf):
                         "- No asterisks or bold markdown.\n"
                         "- Keep sentences under 20 words.\n"
                         "- Casual but professional tone.\n"
-                        "- Sign off as Mike, never Michael.\n"
+                        "- Sign off with my first name, never my full name.\n"
                         "- Don't use the word 'synergy' or 'leverage'.\n"
                         "- Use bullet points sparingly."
                     ),
@@ -44443,7 +44486,7 @@ def p_ai_settings(s, rf):
                 f"font-size:11px;color:{C['muted']};margin-top:6px;")
             ui.html(
                 "<pre style='font-size:11px;white-space:pre-wrap;"
-                "margin:4px 0;'>POST https://dripdripdrop.ai/api/v1/"
+                f"margin:4px 0;'>POST {_PUBLIC_ORIGIN}/api/v1/"
                 "campaigns\nAuthorization: Bearer &lt;your key&gt;</pre>")
 
             def _copy():
@@ -45023,7 +45066,7 @@ def _email_img_src(b64_data: str, subdir: str, mime: str = "image/jpeg") -> str:
             cache_path.write_bytes(raw)
         except Exception:
             return f"data:{mime};base64,{b64_data}"
-    return f"https://dripdripdrop.ai/email_img/{subdir}/{fname}"
+    return f"{_PUBLIC_ORIGIN}/email_img/{subdir}/{fname}"
 
 
 def _roundup_cache_image(raw: bytes, filename: str = "image.png") -> str:
@@ -46657,9 +46700,9 @@ def _pop_last_generated_corner(user_email: str, camp_name: str,
 
 _HOLIDAYS = [
     {"month": 1,  "name": "New Year's Day",   "rule": ("fixed", 1),
-     "note": "Cheers to a strong year ahead. Arena's here when it's time to scale the team."},
+     "note": "Cheers to a strong year ahead. We're here when it's time to scale the team."},
     {"month": 1,  "name": "MLK Day",          "rule": ("nth-weekday", 3, 0),
-     "note": "Honoring the dream and the work that continues. Arena is committed to opening doors and building diverse teams."},
+     "note": "Honoring the dream and the work that continues. We're committed to opening doors and building diverse teams."},
     {"month": 2,  "name": "Valentine's Day",  "rule": ("fixed", 14),
      "note": "A little appreciation goes a long way — for your team, your clients, and the people who keep projects moving."},
     {"month": 3,  "name": "St. Patrick's Day","rule": ("fixed", 17),
@@ -46673,7 +46716,7 @@ _HOLIDAYS = [
     {"month": 6,  "name": "Father's Day",     "rule": ("nth-weekday", 3, 6),
      "note": "Happy Father's Day to all the dads. Proud to support the families that build this country."},
     {"month": 6,  "name": "Juneteenth",       "rule": ("fixed", 19),
-     "note": "Recognizing freedom and progress. Arena is committed to equitable opportunity — skill drives every hire."},
+     "note": "Recognizing freedom and progress. We're committed to equitable opportunity — skill drives every hire."},
     {"month": 7,  "name": "Independence Day", "rule": ("fixed", 4),
      "note": "Wishing you a safe and happy 4th. Proud to support the workforce that builds and keeps the country running."},
     {"month": 9,  "name": "Labor Day",        "rule": ("nth-weekday", 1, 0),
@@ -47316,13 +47359,19 @@ def _jway_render(d: dict, contact_name: str) -> str:
         out.append(f"<p style='{P}'>{_md(d['intro'])}</p>")
     out.append(f"<p style='{P}'>If I missed anything or you want to dig into something "
                f"further, just let me know - happy to discuss.</p>")
-    # Fixed Arena "Recruitment Rundown" banner — J's Way is Arena-only, so this
-    # branded image is bundled (not user-pickable) and served via /static/.
-    # Sits between the personal intro note and the Highlights block.
-    out.append(
-        "<img src='https://dripdripdrop.ai/static/jway_banner.png' width='600' "
-        "style='display:block;width:100%;max-width:600px;height:auto;border:0;"
-        "margin:6px 0 14px 0;' alt='Arena Direct Hire - Recruitment Rundown' />")
+    # Fixed "Recruitment Rundown" banner — a bundled (not user-pickable) image
+    # served via /static/, sitting between the personal intro note and the
+    # Highlights block. The artwork is Arena-branded, and J's Way is NOT
+    # Arena-only in practice: _get_or_create_jway_handoff_newsletter() creates
+    # one for any user and the 4x4 send worker auto-enrolls non-responders. So
+    # the URL is env-driven and set to empty on instances with no banner of
+    # their own, which drops the <img> rather than stamping Arena's artwork on
+    # another firm's newsletter.
+    if _JWAY_BANNER_URL:
+        out.append(
+            f"<img src='{_JWAY_BANNER_URL}' width='600' "
+            "style='display:block;width:100%;max-width:600px;height:auto;border:0;"
+            f"margin:6px 0 14px 0;' alt='{_esc(_COMPANY_NAME)} - Recruitment Rundown' />")
     if d.get("highlights"):
         mo = _esc(d.get("highlights_label") or "Highlights")
         out.append(f"<p style='{H}'>{mo}:</p>{_ul(d['highlights'])}")
@@ -48518,7 +48567,7 @@ def _auto_refresh_newsletter_tick():
                     # this campaign.
                     from urllib.parse import quote as _urlq
                     _edit_link = (
-                        f"https://dripdripdrop.ai/?edit_newsletter="
+                        f"{_PUBLIC_ORIGIN}/?edit_newsletter="
                         f"{_urlq(camp_name)}"
                     )
                     _banner = (
@@ -50610,7 +50659,7 @@ def _4x4_email_prompt(sig_name: str, company: str,
         "EMAIL 2 (delay_days 3) subject \"Top Talent Insights\": brief note that the best "
         "candidates are gainfully employed and passively looking, then [[MARKET]], then "
         "[[HIGHLIGHTS]], then a soft CTA.\n"
-        "EMAIL 3 (delay_days 4) subject \"Thoughts on this?\": follow-up; present Arena's "
+        f"EMAIL 3 (delay_days 4) subject \"Thoughts on this?\": follow-up; present {company}'s "
         f"proven results as an HTML bullet list built from: {_4X4_VALUE_PROPS} Then "
         "[[HIGHLIGHTS]]. Then CTA.\n"
         "EMAIL 4 (delay_days 4) subject "
@@ -52304,7 +52353,7 @@ def p_team_settings(s: AppState, rf):
                 ui.label("Company name").classes("fd-fl")
                 _t_name = ui.input(
                     value=_t_profile.get("company_name", ""),
-                    placeholder="e.g. Arena Direct Hire",
+                    placeholder="Your company name",
                 ).classes("fd-input")
             with ui.element("div"):
                 ui.label("Brand color").classes("fd-fl")
@@ -53815,7 +53864,7 @@ def forgot_password_page():
                                 _req = _ctx.client.request
                                 _base = f"{_req.url.scheme}://{_req.url.netloc}"
                             except Exception:
-                                _base = "https://dripdripdrop.ai"
+                                _base = _PUBLIC_ORIGIN
                             _send_password_reset_email(email, _tok, _base)
                         # Always render the same confirmation, regardless
                         # of whether the email was registered (no account

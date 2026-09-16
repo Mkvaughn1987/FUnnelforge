@@ -1,0 +1,15 @@
+# Files that are executed or parsed on the Linux droplet must keep LF endings in
+# the WORKING TREE, not just in the blob. This repo is cloned on Windows with
+# core.autocrlf=true, which rewrites checked-out files to CRLF; the deploy script
+# then pushes those working-tree files verbatim to Ubuntu, where a CRLF bash
+# script fails as:
+#
+#     /bin/bash^M: bad interpreter: No such file or directory
+#
+# Deliberately narrow. A repo-wide `* text=auto` would renormalize every source
+# file on the next checkout, which is a much larger change than this protects
+# against.
+*.sh                text eol=lf
+deploy/Caddyfile*   text eol=lf
+deploy/*.service    text eol=lf
+deploy/env.*        text eol=lf
