@@ -1,19 +1,21 @@
-### Caddyfile for the white-label instance at 171.dripdripdrop.ai
+### Caddyfile for the inboxslide.ai instance
 #
 # This is a SEPARATE file from deploy/Caddyfile (Arena's) on purpose. The two
 # hosts cannot share one file: Caddy tries to obtain a certificate for every
-# site block it loads, so dropping a 171 block into Arena's Caddyfile would
-# make Arena's box repeatedly fail ACME for a hostname whose A record points
+# site block it loads, so dropping an inboxslide block into Arena's Caddyfile
+# would make Arena's box repeatedly fail ACME for a hostname whose A record points
 # at a different droplet, and vice versa.
 #
-# Install on the 171 droplet:
-#   cp /opt/dripdrop/app/deploy/Caddyfile.171 /etc/caddy/Caddyfile
+# Install on the inboxslide droplet:
+#   cp /opt/dripdrop/app/deploy/Caddyfile.inboxslide /etc/caddy/Caddyfile
 #   systemctl restart caddy
 #
 # Cloudflare SSL/TLS must be **Full (strict)**. Flexible sends plain HTTP to a
 # Caddy that redirects to HTTPS, producing a redirect loop.
 
-171.dripdripdrop.ai {
+# NOTE: bootstrap-instance.sh substitutes the hostname on the line below by
+# matching it literally. If you edit it here, edit the sed in that script too.
+app.inboxslide.ai {
     # Blue/green failover — try :8080 (blue) first, fall back to :8081 (green)
     # based on active health checks against /healthz. Works for both
     # directions of the zero-downtime swap in _deploy_zero_downtime.sh:

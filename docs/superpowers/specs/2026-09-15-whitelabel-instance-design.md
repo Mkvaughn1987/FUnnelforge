@@ -46,7 +46,7 @@ a fully functional product on day one — with nobody in it.
 | Purpose | Operating instance for Mike's new venture; Arena's becomes legacy |
 | Branding | Identical DripDrop — no theming layer |
 | Hosting | New droplet, full isolation from Arena's box |
-| Domain | `171.dripdripdrop.ai` — a subdomain in the existing Cloudflare zone |
+| Domain | `app.inboxslide.ai` — a subdomain of the domain Mike bought 2026-09-16 in his own Cloudflare account; the apex is left free for a marketing site |
 | Credentials | Own Anthropic org, own OAuth apps — none shared with Arena |
 | Code | Same code, no fork. Deploy targets parameterized; repo ownership to move — see **Dependencies to sever** |
 
@@ -59,7 +59,7 @@ timed to his departure.
 | Dependency | Status | Action |
 |---|---|---|
 | Anthropic org | Arena's, `Admin · Arena` | **Own org.** A workspace under Arena's org was tried first and abandoned: workspace keys are linked to the creating user and are *deactivated when that user leaves the organization* — the key would die exactly when the venture starts. Own org also removes the awkwardness of Arena's card funding the venture's tokens. Cost: a new org starts at rate-limit Tier 1, cleared by prepaying credits. |
-| `dripdripdrop.ai` | **Mike holds it** | No action. `171.` as a subdomain stands. Note the mirror: after departure *Arena's* production sits on a domain Mike controls — decide whether they migrate off or he hosts them. |
+| `dripdripdrop.ai` | **Mike holds it** | No action for this instance -- it now lives on its own domain. But note Arena's production still resolves through a zone in **Mike's personal Cloudflare account**, and he is keeping Arena running. Note the mirror: after departure *Arena's* production sits on a domain Mike controls — decide whether they migrate off or he hosts them. |
 | Repository | Shared with Arena | A repo Mike owns. "One repository, two deploy targets" assumes indefinite access to Arena's origin, which departure may end. Same code today; the point is that no future fix has to route through Arena's repo. |
 | Arena-named campaign products | Shipped in code | See **What was deliberately not changed** — unresolved, and the sharper problem now. |
 
@@ -75,7 +75,7 @@ unwind later.
 
 ### Why a subdomain
 
-Branding stays identical, so `171.dripdripdrop.ai` is coherent. It costs nothing,
+Branding stays identical, so `app.inboxslide.ai` is coherent. It costs nothing,
 needs no new registration, and keeps DNS in a Cloudflare account **Mike personally
 holds** — confirmed, and the reason this is not a dependency on Arena. Worth picking
 the permanent hostname before launch rather than after: renaming later means DNS, the
@@ -128,7 +128,7 @@ variable did not revoke them. It becomes `DRIPDROP_ADMIN_EMAILS`.
 
 > **Open question for Mike.** The historical pair is
 > `michael.vaughn@arenastaffing.net,mkvaughn2023@gmail.com`. Everything else in
-> the codebase and in `deploy/env.171.example` uses **`mkvaughn1987@gmail.com`**.
+> the codebase and in `deploy/env.inboxslide.example` uses **`mkvaughn1987@gmail.com`**.
 > The `2023` address is preserved verbatim as the default rather than silently
 > corrected, because changing a default that grants admin on Arena production is
 > not a change to make on inference. Confirm whether `2023` is a real account or
@@ -172,7 +172,7 @@ AI-generated drafts went out written as Mike.
 
 | File | Change |
 |---|---|
-| `deploy/Caddyfile.171` | **New.** A separate Caddyfile for `171.dripdripdrop.ai`. It cannot be a second site block in Arena's file: Caddy tries to obtain a certificate for **every** block it loads, so a 171 block on Arena's box would fail ACME forever for a hostname whose A record points elsewhere, and vice versa. Carries the same blue/green `lb_policy first` + `/healthz` failover, and deliberately omits the `mcp.*` and internal `:8082` blocks. |
+| `deploy/Caddyfile.inboxslide` | **New.** A separate Caddyfile for `app.inboxslide.ai`. It cannot be a second site block in Arena's file: Caddy tries to obtain a certificate for **every** block it loads, so an inboxslide block on Arena's box would fail ACME forever for a hostname whose A record points elsewhere, and vice versa. Carries the same blue/green `lb_policy first` + `/healthz` failover, and deliberately omits the `mcp.*` and internal `:8082` blocks. |
 | `deploy/setup-server.sh` | Steps 5–6 now name the right Caddyfile per instance and state why, and call out the Cloudflare **Full (strict)** requirement. Normalized to LF — it runs on Ubuntu, and CRLF yields `bad interpreter: /bin/bash^M`. |
 | `mcp_server/dripdrop_client.py` | `PUBLIC_ORIGIN` now reads `DRIPDROP_PUBLIC_ORIGIN`. It is stamped as `Origin`/`Referer` on loopback API calls; a white-label instance sending Arena's origin is misidentifying itself. |
 | `deploy/dripdrop-mcp.service` | `DRIPDROP_MCP_PUBLIC_URL` made explicit, and `EnvironmentFile=` moved last so `/opt/dripdrop/.env` can override per instance. Also commits the 2026-08-29 live hotfix that was never committed back: `DRIPDROP_API_BASE_URL` is `:8082`, Caddy's loopback blue/green endpoint, not `:8080`, which was pinned to blue and broke every MCP tool call whenever a deploy left the app on green. |
@@ -250,14 +250,14 @@ needs a decision about what terms the venture actually offers, not a code change
    correct on the new instance, but on Arena a two-address value would silently
    revoke Pipeline access for Sarah Henze and Elizabeth Simonov.
 2. Provision the droplet and run `deploy/setup-server.sh`.
-3. Add an A record for `171.dripdripdrop.ai` to the new droplet in the existing
+3. Add an A record for `app.inboxslide.ai` to the new droplet in the existing
    Cloudflare zone. Set SSL/TLS mode to **Full (strict)** — Flexible mode sends
    plain HTTP to a Caddy that redirects to HTTPS, producing a redirect loop.
-3a. Install **the 171 Caddyfile, not Arena's**:
-   `cp /opt/dripdrop/app/deploy/Caddyfile.171 /etc/caddy/Caddyfile && systemctl restart caddy`.
+3a. Install **the inboxslide Caddyfile, not Arena's**:
+   `cp /opt/dripdrop/app/deploy/Caddyfile.inboxslide /etc/caddy/Caddyfile && systemctl restart caddy`.
    Copying Arena's file — which is what `setup-server.sh` used to say — leaves
    the box with no site block for this hostname and therefore no TLS cert.
-4. Write `/opt/dripdrop/.env` from the annotated template `deploy/env.171.example`,
+4. Write `/opt/dripdrop/.env` from the annotated template `deploy/env.inboxslide.example`,
    which carries every variable below with the venture's domain already filled in:
    - `DRIPDROP_SECRET` — freshly generated, never reused from Arena's instance
    - `ANTHROPIC_API_KEY` — a key from **Mike's own Anthropic org**, not Arena's.
@@ -265,7 +265,7 @@ needs a decision about what terms the venture actually offers, not a code change
      workspace keys are linked to their creating user and are deactivated when that
      user leaves the organization. A `Thrive Modal` workspace
      (`wrkspc_012cqUFL1Bb2cQ16z33TaVHj`) was created under Arena's org on 2026-09-15
-     before this was understood. The `dripdrop-171` key was **deleted 2026-09-15**;
+     before this was understood. The `dripdrop-171` key (named before the domain was chosen) was **deleted 2026-09-15**;
      the empty workspace still needs archiving (Console → Organization settings →
      Workspaces → ⋮ on the Thrive Modal row → Archive).
      Set no expiry on the replacement: an expiring key on an unattended box fails as
@@ -276,13 +276,13 @@ needs a decision about what terms the venture actually offers, not a code change
      included, so an unset value lets anyone holding Arena's code register on
      the new instance.
    - `DRIPDROP_SUPER_ADMINS` — Mike. No client handover; this is his instance.
-   - `GOOGLE_REDIRECT_URI`, `MS_REDIRECT_URI` — on `171.dripdripdrop.ai`
+   - `GOOGLE_REDIRECT_URI`, `MS_REDIRECT_URI` — on `app.inboxslide.ai`
    - `DRIPDROP_ATS_DOMAINS`, `DRIPDROP_INTERNAL_DOMAINS` — the venture's email
      domain, `thrivemodal.com`. **Both must be set**, or the résumé extractor
      will not skip the venture's own recruiters (see `ats.py:897` above).
    - `DRIPDROP_ATS_EMAILS`, `DRIPDROP_ROUNDUP_OWNER`, `DRIPDROP_ROUNDUP_EMAILS`,
      `DRIPDROP_OWNER_EMAIL`, `DRIPDROP_ADMIN_EMAILS` — the venture's admin accounts
-   - `DRIPDROP_PUBLIC_ORIGIN` — `https://171.dripdripdrop.ai`. Left at the
+   - `DRIPDROP_PUBLIC_ORIGIN` — `https://app.inboxslide.ai`. Left at the
      default, every image in the venture's outgoing mail 404s.
    - `DRIPDROP_COMPANY_NAME`, `DRIPDROP_COMPANY_ADDRESS` — the **legal name and
      registered postal address of the entity actually sending** (CAN-SPAM). Placeholder
@@ -358,6 +358,61 @@ needs a decision about what terms the venture actually offers, not a code change
 environment variable defaulting to Arena's address, so the same script deploys to
 either target. One repository, two `.env` files, no divergence.
 
+## Running both instances in parallel
+
+Superseded premise: earlier drafts said Arena's instance becomes legacy. It does
+not. Mike confirmed 2026-09-16 he keeps operating Arena's instance **as well as**
+this one, indefinitely, from the same repository. That makes cross-contamination
+the primary risk of this design rather than a footnote, and it retroactively
+justifies the env-var approach: the same code must produce both behaviours.
+
+**Separate by construction** (no discipline required):
+
+| Surface | Why it cannot leak |
+|---|---|
+| Candidate/client/campaign data | Different droplets, so different `DRIPDROP_DATA_DIR`. No shared filesystem, no shared database, no tenant key that could collide. |
+| TLS + routing | One Caddyfile per hostname on its own box. Caddy ACMEs every block it loads, so the files must stay separate anyway. |
+| Sessions | `DRIPDROP_SECRET` is generated fresh by `bootstrap-instance.sh`. Reusing Arena's would let a session cookie minted on either instance authenticate on the other. |
+| Registration | `DRIPDROP_INVITE_CODES` is generated fresh. Leaving it unset is the failure mode: `_load_invite_codes` falls back to a code compiled into every build, Arena's included. |
+| AI spend and rate limits | Separate Anthropic organisation and key, so no shared quota, no shared bill, and the key does not die when Mike's Arena account is removed. |
+
+**Shared by construction, and therefore the actual risk:**
+
+1. **One repository, two deployments.** Do not maintain two branches. Merge
+   `feat/whitelabel-instance` to `main` and run both instances from `main` --
+   every variable it introduces defaults to Arena's previous hardcoded value, so
+   `main` is a no-op on Arena *provided the new variables stay unset there*.
+   Inertness comes from leaving them unset, not from the defaults alone.
+   `DRIPDROP_ATS_EMAILS` is the sharp one: it is read by both `flowdrip_app.py`
+   and `ats.py`, which held two different allowlists that `_allowed_set()`
+   unions, so setting it on Arena silently revokes Pipeline access for Sarah
+   Henze and Elizabeth Simonov. **Nothing from `env.inboxslide.example` may ever
+   be copied onto Arena's box.**
+
+2. **Arena prod carries undocumented hotfixes.** The MCP `:8082` Caddy block, the
+   `create_campaign` event-loop offload, byos `style_id`, and the step-preview
+   dialog were all patched live and are not all on `main`. Reconcile before any
+   Arena deploy; see `dripdrop-prod-deploy-drift`. This instance is unaffected --
+   it starts from the branch.
+
+3. **No shared suppression list.** `dnc_list.json` is per user, per instance
+   (`flowdrip_app.py:998`), and so is everything bounce handling learns. A
+   contact who unsubscribed from Arena, or whose address hard-bounced there, is
+   unknown here. Two live instances run by the same person can therefore email
+   the same prospect twice in a week, and can email someone who already opted
+   out. Mitigation before the first cold send: export Arena's DNC entries and
+   any hard-bounced addresses and seed them into this instance. The DNC format
+   accepts `@domain` entries as well as addresses (`:9069-9070`), so whole client
+   accounts Arena is working can be excluded wholesale.
+
+4. **Scheduled routines are host- and key-pinned.** The BD/CandidateBlast routines
+   embed `dripdripdrop.ai` and an API key in their prompts. Cloning one for this
+   instance without repointing both would have it create campaigns on Arena.
+
+5. **Arena's DNS sits in Mike's personal Cloudflare account.** Not a
+   contamination risk, but it is shared fate in the other direction and should be
+   settled deliberately rather than by default.
+
 ## Out of scope
 
 - **Theming layer.** Branding is identical; there is nothing to abstract.
@@ -380,8 +435,8 @@ either target. One repository, two `.env` files, no divergence.
 - `python -m py_compile flowdrip_app.py ats.py mcp_server/dripdrop_client.py`
   clean.
 - Line endings verified before deploy. `flowdrip_app.py` (0 CRLF / 56,526 LF),
-  `ats.py`, `deploy/Caddyfile.171`, `deploy/dripdrop-mcp.service`,
-  `deploy/env.171.example` and `deploy/setup-server.sh` are all pure LF. This is
+  `ats.py`, `deploy/Caddyfile.inboxslide`, `deploy/dripdrop-mcp.service`,
+  `deploy/env.inboxslide.example` and `deploy/setup-server.sh` are all pure LF. This is
   not pedantry: `core.autocrlf=true` with no `.gitattributes` means `git apply`
   CRLF-ifies the *working* file while git's clean filter normalizes the blob to
   LF — and the working file is what the deploy script pushes to the Linux box.

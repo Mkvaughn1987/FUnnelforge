@@ -1,7 +1,7 @@
 [Unit]
 # The GREEN half of the blue/green pair. Identical to dripdrop.service except
 # for the port: blue is :8080, green is :8081, and Caddy sends traffic to
-# whichever answers /healthz (see deploy/Caddyfile and deploy/Caddyfile.171).
+# whichever answers /healthz (see deploy/Caddyfile and deploy/Caddyfile.inboxslide).
 #
 # Both units must be installed on every box. _deploy_zero_downtime.sh alternates
 # between them -- it starts the inactive color, health-checks it, then stops the

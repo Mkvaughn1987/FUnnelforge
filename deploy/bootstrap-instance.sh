@@ -32,8 +32,8 @@ echo
 # ---------------------------------------------------------------- questions
 # Everything else is derived or generated. Defaults are shown in brackets.
 
-read -rp "Hostname for this instance (e.g. app.yourdomain.com): " DOMAIN
-[ -n "$DOMAIN" ] || { echo "Hostname is required." >&2; exit 1; }
+read -rp "Hostname for this instance [app.inboxslide.ai]: " DOMAIN
+DOMAIN="${DOMAIN:-app.inboxslide.ai}"
 
 read -rp "Your login email [mkvaughn1987@gmail.com]: " OWNER
 OWNER="${OWNER:-mkvaughn1987@gmail.com}"
@@ -112,7 +112,7 @@ echo "[4/6] Configuring Caddy for $DOMAIN ..."
 # One Caddyfile per hostname: Caddy attempts ACME for every site block it
 # loads, so a stray block for a host pointing at another droplet makes this box
 # fail certificate renewal forever.
-sed "s|^171\.dripdripdrop\.ai {|$DOMAIN {|" "$APP/deploy/Caddyfile.171" > /etc/caddy/Caddyfile
+sed "s|^app\.inboxslide\.ai {|$DOMAIN {|" "$APP/deploy/Caddyfile.inboxslide" > /etc/caddy/Caddyfile
 caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 systemctl restart caddy
 
