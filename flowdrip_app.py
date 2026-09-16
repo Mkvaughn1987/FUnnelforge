@@ -99,6 +99,23 @@ _COMPANY_ADDRESS = _env_str(
 _JWAY_BANNER_URL = _env_str(
     "DRIPDROP_JWAY_BANNER_URL", f"{_PUBLIC_ORIGIN}/static/jway_banner.png")
 
+# The "proven results" the 4×4 and its variants assert to prospects. These are
+# factual claims about THIS firm's performance and commercial terms — a fill
+# rate, a fill time, a replacement guarantee. They are Arena's, they are
+# load-bearing in the sales copy, and no other instance can truthfully make them
+# until it has its own numbers. A new firm has no fill-rate history at all, so
+# this MUST be set (to its own claims, or to empty) before that instance's first
+# 4×4 send. Read at both generation sites: AICB_CAMPAIGN_TYPES' "fourbyfour"
+# entry and the 4×4 prompt builder.
+_4X4_VALUE_PROPS = _env_str(
+    "DRIPDROP_VALUE_PROPS",
+    "High Success Rate — 80–90% fill rate, typically a 2–3 week fill time. "
+    "Contingency-Based — you pay nothing to review our candidates. "
+    "Replacement Guarantee — if a hire doesn't work out, we replace them at no cost. "
+    "Cost-Effective — internal hiring can cost upwards of $25,000 per role. "
+    "Competitive Advantage — many of your competitors are already benefiting from our services.",
+)
+
 
 # ── ATS (Pipeline) ──────────────────────────────────────────────────────────
 # The Pipeline (ATS) section is visible to every account on this instance's own
@@ -4231,10 +4248,8 @@ AICB_CAMPAIGN_TYPES = [
      "'Sent you an email  -  wanted to connect here as well. Always sharing industry insights "
      "and market data in your space.'\n"
      "Step 5 - Proven Results (delay_days:4, step_type:email_auto) - "
-     "Subject 'Thoughts on this?'. Present the firm's proven results as a bullet list: High "
-     "Success Rate (80-90% fill rate, 2-3 week fill time), Contingency-Based (no cost to review "
-     "candidates), Replacement Guarantee (replaced at no cost if a hire doesn't work out), "
-     "Cost-Effective (internal hiring can cost $25,000+ per role), Competitive Advantage. Then "
+     "Subject 'Thoughts on this?'. Present the sending firm's proven results "
+     f"as an HTML bullet list built from: {_4X4_VALUE_PROPS} Then "
      "the candidate highlights. CTA.\n"
      "Step 6 - Market Trends & Final Note (delay_days:4, step_type:email_auto) - "
      "Subject 'Market Trends and Hiring Solutions for <Role>' using the actual role (write "
@@ -50496,14 +50511,7 @@ def _normalize_email_merge_tokens(emails):
     return emails
 
 
-# ── Arena 4×4 generation ──────────────────────────────────────────────────
-_4X4_VALUE_PROPS = (
-    "High Success Rate — 80–90% fill rate, typically a 2–3 week fill time. "
-    "Contingency-Based — you pay nothing to review our candidates. "
-    "Replacement Guarantee — if a hire doesn't work out, we replace them at no cost. "
-    "Cost-Effective — internal hiring can cost upwards of $25,000 per role. "
-    "Competitive Advantage — many of your competitors are already benefiting from our services."
-)
+# ── 4×4 generation ──────────────────────────────────────────────────
 
 
 def _4x4_candidate_block(client, label, cand) -> str:

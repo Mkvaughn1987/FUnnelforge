@@ -1,14 +1,23 @@
-# White-Label DripDrop Instance — Design
+# Second DripDrop Instance — Design
+
+*(Originally "White-Label DripDrop Instance"; rescoped — see Status.)*
 
 **Date:** 2026-09-15
-**Status:** Approved, ready for implementation
+**Status:** Rescoped 2026-09-15 — target changed from an outside client firm to
+Mike's own new venture. Code changes complete and committed; provisioning not
+started. Test suite at the known 15-failure baseline, no new failures.
 **Branch:** `feat/whitelabel-instance`
 
 ## Goal
 
-Stand up a second, fully isolated DripDrop instance for an outside firm, containing
-none of Arena's candidates or clients. Same code, same DripDrop branding, own
-domain, own server, own credentials.
+Stand up a second, fully isolated DripDrop instance as the operating platform for
+Mike's new venture, containing none of Arena's candidates or clients. Same code,
+same DripDrop branding, own domain, own server, own credentials.
+
+**This is not a client white-label.** Mike is leaving Arena; this instance is where
+he continues operating, and Arena's deployment becomes the legacy one. That changes
+the design in one structural way: every dependency this instance carries on Arena is
+a dependency that fails the day he leaves. See **Dependencies to sever**.
 
 ## Why the data needs no scrubbing
 
@@ -34,26 +43,44 @@ a fully functional product on day one — with nobody in it.
 
 | Decision | Choice |
 |---|---|
-| Purpose | White-label for an outside firm |
+| Purpose | Operating instance for Mike's new venture; Arena's becomes legacy |
 | Branding | Identical DripDrop — no theming layer |
 | Hosting | New droplet, full isolation from Arena's box |
 | Domain | `171.dripdripdrop.ai` — a subdomain in the existing Cloudflare zone |
-| Credentials | The firm supplies their own Anthropic key and Google/Microsoft OAuth apps |
-| Code | One repository, two deploy targets — no fork |
+| Credentials | Own Anthropic org, own OAuth apps — none shared with Arena |
+| Code | Same code, no fork. Deploy targets parameterized; repo ownership to move — see **Dependencies to sever** |
+
+### Dependencies to sever
+
+Written for a client instance, this design treated shared Arena infrastructure as
+harmless. For Mike's own venture each shared piece is a single point of failure
+timed to his departure.
+
+| Dependency | Status | Action |
+|---|---|---|
+| Anthropic org | Arena's, `Admin · Arena` | **Own org.** A workspace under Arena's org was tried first and abandoned: workspace keys are linked to the creating user and are *deactivated when that user leaves the organization* — the key would die exactly when the venture starts. Own org also removes the awkwardness of Arena's card funding the venture's tokens. Cost: a new org starts at rate-limit Tier 1, cleared by prepaying credits. |
+| `dripdripdrop.ai` | **Mike holds it** | No action. `171.` as a subdomain stands. Note the mirror: after departure *Arena's* production sits on a domain Mike controls — decide whether they migrate off or he hosts them. |
+| Repository | Shared with Arena | A repo Mike owns. "One repository, two deploy targets" assumes indefinite access to Arena's origin, which departure may end. Same code today; the point is that no future fix has to route through Arena's repo. |
+| Arena-named campaign products | Shipped in code | See **What was deliberately not changed** — unresolved, and the sharper problem now. |
 
 ### Why a new droplet
 
 Arena's box is a single vCPU; `create_campaign` already had to be moved off the
-event loop because one slow request stalled the whole app. An outside firm's load
+event loop because one slow request stalled the whole app. A second business's load
 would contend for that same core. A separate droplet also keeps sending reputation
-separate, and keeps the outside firm's data out of reach of the cross-tenant
-dedupe script, which walks every tenant's campaigns on the local disk.
+separate, and keeps the new venture's data out of reach of the cross-tenant dedupe
+script, which walks every tenant's campaigns on the local disk. Given the departure,
+isolation is also the point in itself: no shared box means no shared access to
+unwind later.
 
 ### Why a subdomain
 
-Branding stays identical, so `171.dripdripdrop.ai` is coherent. It costs
-nothing, needs no new registration, and keeps DNS in the Cloudflare account we
-already control. Migrating to a vanity domain later is one additional Caddy
+Branding stays identical, so `171.dripdripdrop.ai` is coherent. It costs nothing,
+needs no new registration, and keeps DNS in a Cloudflare account **Mike personally
+holds** — confirmed, and the reason this is not a dependency on Arena. Worth picking
+the permanent hostname before launch rather than after: renaming later means DNS, the
+Caddyfile, both OAuth redirect URIs, `DRIPDROP_PUBLIC_ORIGIN`, and every image URL
+already baked into sent mail. Migrating to a vanity domain later is one additional Caddy
 hostname and one A record — no server changes.
 
 ## Code changes
@@ -69,10 +96,10 @@ instance.
 
 | Site | Symbol | New var | Effect if left unfixed |
 |---|---|---|---|
-| `flowdrip_app.py:59` | `_ATS_ALLOWED_DOMAINS` | `DRIPDROP_ATS_DOMAINS` | Pipeline/ATS tab invisible to the firm |
+| `flowdrip_app.py:59` | `_ATS_ALLOWED_DOMAINS` | `DRIPDROP_ATS_DOMAINS` | Pipeline/ATS tab invisible on the new instance |
 | `flowdrip_app.py:61-64`, `:87`, `:2583` | individual email allowlists | `DRIPDROP_ATS_EMAILS` | Arena staff implicitly privileged on their site |
 | `flowdrip_app.py:84` | `_ROUNDUP_OWNER_EMAIL` | `DRIPDROP_ROUNDUP_OWNER` | Their roundups email an Arena employee |
-| `flowdrip_app.py:85-89` | `_ROUNDUP_ALLOWED_EMAILS` | `DRIPDROP_ROUNDUP_EMAILS` | Arena staff can read the firm's roundups |
+| `flowdrip_app.py:85-89` | `_ROUNDUP_ALLOWED_EMAILS` | `DRIPDROP_ROUNDUP_EMAILS` | Arena staff can read the new instance's roundups |
 | `ats.py:31` | `ALLOWED_EMAILS` | reuses `DRIPDROP_ATS_EMAILS` | Same as above, in the ATS module |
 | `ats.py:36` | `_OWNER_BACKFILL_EMAIL` | `DRIPDROP_OWNER_EMAIL` | Pre-multi-user records assigned to an Arena account |
 | `ats.py:897` | `_EMAIL_SKIP_DOMAINS` | `DRIPDROP_INTERNAL_DOMAINS` | **Candidate sequences can be mailed to their own recruiters** |
@@ -80,20 +107,20 @@ instance.
 Six variables in total. `DRIPDROP_ROUNDUP_EMAILS` and `DRIPDROP_OWNER_EMAIL`
 were added during implementation: the roundup viewer allowlist and the ATS
 owner-backfill address are separate gates from the two they sit beside, and
-leaving either hardcoded would have named an Arena account on the firm's
+leaving either hardcoded would have named an Arena account on the new
 instance.
 
 `ats.py:897` is the most serious. It skips recruiter addresses when choosing which
 address on a record belongs to the candidate. Configured for Arena only, it will
-not skip the new firm's own staff addresses, so their internal recruiters can be
+not skip the venture's own staff addresses, so its internal recruiters can be
 enrolled into candidate outreach.
 
 `DRIPDROP_SUPER_ADMINS` is a seventh Arena-specific gate, but it was already
 environment-driven before this work (`flowdrip_app.py:1683`), so it needs no code
 change — only a value in the new instance's `.env`. It is listed here because it
 shares the others' failure mode: left unset it names
-`michael.vaughn@arenastaffing.net`, and the firm's own admin holds no keys on
-their own instance.
+`michael.vaughn@arenastaffing.net`, and the venture's own admin holds no keys on
+his own instance.
 
 `_ADMIN_EMAILS` turned out to be an eighth, and a worse one: a hardcoded pair of
 Arena addresses checked *in addition to* `DRIPDROP_SUPER_ADMINS`, so setting that
@@ -113,14 +140,14 @@ dropped. An unset variable yields today's Arena value.
 ### 2. Outbound identity — what leaves the box
 
 The access gates only govern who gets in. A second class of hardcoding governs
-what the firm's *recipients* see, and it fails silently: mail sends, images 404,
+what the venture's *recipients* see, and it fails silently: mail sends, images 404,
 and the footer names the wrong company. A central block in `flowdrip_app.py`
 (just after `_env_list`) defines `_env_str`, `_PUBLIC_ORIGIN`, `_COMPANY_NAME`,
 `_COMPANY_ADDRESS` and `_JWAY_BANNER_URL`; the rest is call sites reading them.
 
 | New var | Default | Effect if left unfixed |
 |---|---|---|
-| `DRIPDROP_PUBLIC_ORIGIN` | `https://dripdripdrop.ai` | Every absolute URL in outgoing mail — hosted images, password-reset links, newsletter deep links, the onboarding API example — points at Arena's host. The instance writes image files to its **own** disk and links them on Arena's domain, so every image in the firm's mail 404s. |
+| `DRIPDROP_PUBLIC_ORIGIN` | `https://dripdripdrop.ai` | Every absolute URL in outgoing mail — hosted images, password-reset links, newsletter deep links, the onboarding API example — points at Arena's host. The instance writes image files to its **own** disk and links them on Arena's domain, so every image in the venture's mail 404s. |
 | `DRIPDROP_COMPANY_NAME` | `Arena Staffing` | AI drafting prompts, submittal/match instructions and the Roundup page all name Arena as the sender's employer. |
 | `DRIPDROP_COMPANY_ADDRESS` | Arena's street address | The CAN-SPAM postal footer on every Roundup issue carries Arena's registered address. This is a legal requirement on commercial email and it must be the *sending* firm's own address. |
 | `DRIPDROP_JWAY_BANNER_URL` | `{origin}/static/jway_banner.png` | Arena-branded artwork in every J's Way newsletter body. Set empty to drop the image entirely. |
@@ -156,18 +183,72 @@ The Arena 4×4 / 5×5 / 5×3 sequences are Arena's **named BD product**, shipped
 a DripDrop feature — not stray branding. The campaign registry, the chooser
 tiles, and the hand-authored step bodies stay. Critically, the campaign-type
 detection regex at `flowdrip_app.py:~8513` matches on the literal `arena`;
-removing it breaks campaign detection outright. Renaming the product in the
-firm's UI is a licensing decision for Mike, not a code cleanup.
+removing it breaks campaign detection outright.
 
-Also unchanged: `_4X4_VALUE_PROPS` asserts Arena's specific commercial claims
-(80–90% fill rate, 2–3 week fill time, Replacement Guarantee) as fact in
-outgoing email. It is not an identity leak, but the firm cannot truthfully make
-those claims. Should become config-driven before the firm sends 4×4 campaigns.
+**This is the one open question the departure makes sharper, not easier.** The
+instance ships campaigns named for the company Mike is leaving, and prospects will
+see that name. Three options, none free:
+
+1. **Keep the names.** Zero work, zero risk of breaking detection. But the venture
+   markets a product carrying Arena's name, which is a licensing question for Mike.
+2. **Rename in the UI only**, leaving the internal registry keys and the `arena`
+   regex untouched. Moderate work, detection keeps working, prospect-visible name is
+   clean. **Recommended.**
+3. **Rename throughout**, keys and regex included. Cleanest, and the most likely to
+   break campaign detection on data already written with the old keys.
+
+Whichever is chosen, it is a pre-launch decision: it changes what recipients see.
+
+### `_4X4_VALUE_PROPS` — launch blocker (code done, copy still owed)
+
+`_4X4_VALUE_PROPS` asserts Arena's specific commercial claims (80–90% fill rate,
+2–3 week fill time, Replacement Guarantee) as fact in outgoing email. On a client
+instance this was a "should fix." For a new venture it is a **blocker before the
+first 4×4 send**: a company with no placement history cannot truthfully assert a
+fill rate or guarantee, and these are outbound commercial claims to strangers.
+
+**Now config-driven** via `DRIPDROP_VALUE_PROPS`, defaulting to Arena's text so
+Arena is unaffected. The audit found the claims at **two** module-level sites, not
+one:
+
+| Site | What it was |
+|---|---|
+| `AICB_CAMPAIGN_TYPES` → `"fourbyfour"` entry | the claims written out longhand inside the step-5 prompt |
+| the 4×4 prompt builder | interpolated `_4X4_VALUE_PROPS` |
+
+Both now read the one constant. Because the registry is a module-level literal
+evaluated at import, the constant had to move up into the identity block
+(`flowdrip_app.py:110`) — it is a config value, and it now sits with the others.
+
+The 5×5 and 5×3 registry entries were audited and carry no performance or
+guarantee language of their own — no fill rate, no fill time, no guarantee, no
+cost figure. Whatever claims they make come through the shared slate machinery
+(`_ARENA_SLATE_TYPES`), so they are covered by the same variable.
+
+**Still owed, and still a blocker:** the actual replacement text. Setting
+`DRIPDROP_VALUE_PROPS=` (empty) drops the section and is the honest default until
+there are real numbers. One softer instance remains at `flowdrip_app.py:~30845`,
+where the one-pager generator instructs the model to write bullets on
+"replacement guarantees, no-fee-until-start, outcome-based pricing." It asserts no
+figures, but it does presume commercial terms. Left alone deliberately — fixing it
+needs a decision about what terms the venture actually offers, not a code change.
 
 ## Provisioning sequence
 
-1. Ship the config vars to Arena production. Verify Pipeline still loads for
-   `@arenastaffing.net` — the change is expected to be behaviorally inert.
+1. Ship the config vars to Arena production, **leaving every new variable
+   unset there**. Verify Pipeline still loads for `@arenastaffing.net`.
+
+   Inertness was verified against `main` on 2026-09-15: every new variable's
+   default is byte-equal to the value `main` had hardcoded, `_env_list`'s
+   lowercasing is a no-op because every default was already lowercase, and the
+   new `if _JWAY_BANNER_URL:` guard is always true under its default.
+
+   The safety comes from leaving them **unset**, not from the defaults alone.
+   `DRIPDROP_ATS_EMAILS` is the one variable name read by *both* `flowdrip_app.py`
+   and `ats.py`, which on `main` held two *different* allowlists (four addresses
+   and two) that `_allowed_set()` unions. Setting it collapses them into one —
+   correct on the new instance, but on Arena a two-address value would silently
+   revoke Pipeline access for Sarah Henze and Elizabeth Simonov.
 2. Provision the droplet and run `deploy/setup-server.sh`.
 3. Add an A record for `171.dripdripdrop.ai` to the new droplet in the existing
    Cloudflare zone. Set SSL/TLS mode to **Full (strict)** — Flexible mode sends
@@ -177,33 +258,51 @@ those claims. Should become config-driven before the firm sends 4×4 campaigns.
    Copying Arena's file — which is what `setup-server.sh` used to say — leaves
    the box with no site block for this hostname and therefore no TLS cert.
 4. Write `/opt/dripdrop/.env` from the annotated template `deploy/env.171.example`,
-   which carries every variable below with the firm's domain already filled in:
+   which carries every variable below with the venture's domain already filled in:
    - `DRIPDROP_SECRET` — freshly generated, never reused from Arena's instance
-   - `ANTHROPIC_API_KEY` — the firm's own key
+   - `ANTHROPIC_API_KEY` — a key from **Mike's own Anthropic org**, not Arena's.
+     Must not be a key created under Arena's org, including in a workspace there:
+     workspace keys are linked to their creating user and are deactivated when that
+     user leaves the organization. A `Thrive Modal` workspace
+     (`wrkspc_012cqUFL1Bb2cQ16z33TaVHj`) was created under Arena's org on 2026-09-15
+     before this was understood. The `dripdrop-171` key was **deleted 2026-09-15**;
+     the empty workspace still needs archiving (Console → Organization settings →
+     Workspaces → ⋮ on the Thrive Modal row → Archive).
+     Set no expiry on the replacement: an expiring key on an unattended box fails as
+     scattered AI errors, not as anything that says "expired." Set a workspace spend
+     limit.
    - `DRIPDROP_INVITE_CODES` — a fresh code. **Unset does not mean closed**:
      the loader falls back to a code hardcoded into every build, Arena's
      included, so an unset value lets anyone holding Arena's code register on
-     the firm's instance.
-   - `DRIPDROP_SUPER_ADMINS` — the firm's admin, plus Mike while he provisions
+     the new instance.
+   - `DRIPDROP_SUPER_ADMINS` — Mike. No client handover; this is his instance.
    - `GOOGLE_REDIRECT_URI`, `MS_REDIRECT_URI` — on `171.dripdripdrop.ai`
-   - `DRIPDROP_ATS_DOMAINS`, `DRIPDROP_INTERNAL_DOMAINS` — the firm's email
+   - `DRIPDROP_ATS_DOMAINS`, `DRIPDROP_INTERNAL_DOMAINS` — the venture's email
      domain, `thrivemodal.com`. **Both must be set**, or the résumé extractor
-     will not skip the firm's own recruiters (see `ats.py:897` above).
+     will not skip the venture's own recruiters (see `ats.py:897` above).
    - `DRIPDROP_ATS_EMAILS`, `DRIPDROP_ROUNDUP_OWNER`, `DRIPDROP_ROUNDUP_EMAILS`,
-     `DRIPDROP_OWNER_EMAIL`, `DRIPDROP_ADMIN_EMAILS` — the firm's admin accounts
+     `DRIPDROP_OWNER_EMAIL`, `DRIPDROP_ADMIN_EMAILS` — the venture's admin accounts
    - `DRIPDROP_PUBLIC_ORIGIN` — `https://171.dripdripdrop.ai`. Left at the
-     default, every image in the firm's outgoing mail 404s.
-   - `DRIPDROP_COMPANY_NAME`, `DRIPDROP_COMPANY_ADDRESS` — the firm's own name
-     and **registered postal address** (CAN-SPAM)
-   - `DRIPDROP_JWAY_BANNER_URL` — leave empty until the firm has its own artwork
+     default, every image in the venture's outgoing mail 404s.
+   - `DRIPDROP_COMPANY_NAME`, `DRIPDROP_COMPANY_ADDRESS` — the **legal name and
+     registered postal address of the entity actually sending** (CAN-SPAM). Placeholder
+     values are fine while provisioning; they must name the real sending entity before
+     any real recipient. Settle first whether the venture is its own entity or trades
+     under the partner's — this field has to match that answer.
+   - Sending identity note: outbound mail carries the connected mailbox's domain. While
+     that domain is the partner's, the venture's sending reputation and the partner's
+     web presence are the same reputation. A bad early run damages theirs too.
+   - `DRIPDROP_JWAY_BANNER_URL` — leave empty until the venture has its own artwork
 
-   `DRIPDROP_ROUNDUP_OWNER` is the account whose folder *stores* every issue and
-   the identity the send worker runs as. Set to Mike for provisioning; hand it
-   to one of the firm's own people **before they use the Roundup**, while the
-   folder is still empty — moving it later means copying issues across user
-   folders.
-5. The firm registers the two callback URLs in their own Google Cloud and Azure
-   app registrations. The redirect URIs are already environment-driven
+   `DRIPDROP_ROUNDUP_OWNER` is the account whose folder *stores* every issue and the
+   identity the send worker runs as. Set it to the address Mike intends to keep
+   permanently — not a provisioning placeholder. Moving it later means copying issues
+   across user folders, so the cost of getting it wrong rises with every issue sent.
+5. Register the two callback URLs in Google Cloud and Azure app registrations for
+   the venture's own domain. **`thrivemodal.com` is held by a partner, not Mike**, so
+   this step needs that partner to either perform the registrations or grant admin on
+   the Workspace/tenant — OAuth consent is granted only by the domain owner. Same
+   blocker applies to creating a mailbox on the domain, which the admin account needs. The redirect URIs are already environment-driven
    (`deploy/gmail_oauth.py:33`, `deploy/ms_email.py:16`); no code change needed.
 6. Deploy, create the first admin account, and send one test campaign to a
    controlled mailbox before any real recipient.
@@ -223,7 +322,7 @@ either target. One repository, two `.env` files, no divergence.
 - **MCP connector on the new instance.** It is a separate service needing its own
   subdomain and OAuth registration, and has caused three separate production
   incidents (transport-security 421s, blue/green mismatch, Caddy regression). Add
-  it only if the firm asks.
+  it only if the venture needs it.
 - **Shared reporting across instances.** The instances are deliberately isolated.
 - **Data migration of any kind.** The new instance starts empty.
 
