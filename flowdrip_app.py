@@ -123,6 +123,29 @@ BRAND_LOGO_W_SM = _env_str("DRIPDROP_BRAND_LOGO_W_SM", "40px")
 BRAND_LOGO_H_SM = _env_str("DRIPDROP_BRAND_LOGO_H_SM", "40px")
 # Browser tab icon. A filesystem path relative to the app directory.
 BRAND_FAVICON = _env_str("DRIPDROP_BRAND_FAVICON", "assets/dripdrop_icon.png")
+
+
+def _favicon_for_ui_run() -> str:
+    """What to hand ui.run(favicon=...).
+
+    Arena (var unset) keeps serving the file at /favicon.ico, byte-for-byte
+    as before. A rebranded instance instead inlines the icon as a data URL:
+    browsers cache /favicon.ico by URL for weeks, so app.inboxslide.ai kept
+    showing the old droplet long after the file behind that URL had changed
+    (2026-09-16). A data URL travels inside the page, so a new icon shows on
+    the next reload. Falls back to the path if the file cannot be read.
+    """
+    path = _APP_DIR / BRAND_FAVICON
+    if "DRIPDROP_BRAND_FAVICON" not in os.environ:
+        return str(path)
+    try:
+        raw = path.read_bytes()
+    except OSError:
+        return str(path)
+    import base64 as _b64, mimetypes as _mt
+    mime = _mt.guess_type(path.name)[0] or "image/png"
+    return f"data:{mime};base64,{_b64.b64encode(raw).decode('ascii')}"
+
 BRAND_SUPPORT_EMAIL = _env_str(
     "DRIPDROP_BRAND_SUPPORT_EMAIL", "support@dripdripdrop.ai")
 
@@ -56797,7 +56820,7 @@ if __name__ in {"__main__", "__mp_main__"}:
         reload=False,
         show=not _SERVER_MODE,
         host="0.0.0.0" if _SERVER_MODE else "127.0.0.1",
-        favicon=str(_APP_DIR / BRAND_FAVICON),
+        favicon=_favicon_for_ui_run(),
         storage_secret=_STORAGE_SECRET,
         # Short cache for NiceGUI's internal JS/CSS. Default is 1-year
         # immutable, which prevents browsers from ever re-fetching patched
