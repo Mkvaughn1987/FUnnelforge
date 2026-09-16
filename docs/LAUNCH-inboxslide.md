@@ -13,10 +13,16 @@ untouched, on its own server. They share a code repository and nothing else.
 
 This is the whole point of the exercise, so get it right.
 
-**DigitalOcean.** If you create the new server inside Arena's DigitalOcean
-account, it stops being yours the day you lose access to that account. Create it
-under an account billed to your own card. If you are unsure which account you
-are in, check the billing page — whose card is on file is the real answer.
+**DigitalOcean — use a NEW account, not the existing one.** Arena's production
+droplet currently sits in Mike's personal DigitalOcean account, on his personal
+card, and handing that account to Arena is on the table. Anything created in
+that account travels with it. So the new server goes in a **separate
+DigitalOcean account**, created fresh for this venture. That costs one signup
+and removes the entire question of what gets untangled later.
+
+This is not a hypothetical concern — it is the same mistake being made twice.
+The reason Arena's hosting is awkward to hand over is that it was created under
+a personal identity. Create this one under the venture's.
 
 **Anthropic.** Same logic, sharper edge. An API key created inside an
 organization is tied to the person who made it, and Anthropic **deactivates it
@@ -39,6 +45,9 @@ In DigitalOcean: **Create → Droplet**.
 | Size | Basic → Regular → **2 GB RAM / 1 vCPU** ($12–14/mo) |
 | Authentication | **SSH key** if you have one, otherwise Password |
 | Hostname | `inboxslide` |
+
+Make sure you are in the **new** DigitalOcean account before you click Create,
+not the one holding Arena's droplet. The account name is in the top-right.
 
 On size: 1 GB is too small — the app parses large JSON files in memory and will
 be killed by the kernel under load. 2 GB is the floor.
@@ -212,6 +221,34 @@ you can email the same prospect from two companies in one week, or email someone
 who explicitly opted out. Export Arena's DNC entries and load them here first.
 The list accepts whole domains as `@company.com`, so you can also exclude
 accounts Arena is actively working, in one line each.
+
+---
+
+## Separately: untangling Arena's hosting
+
+Not required to launch, and not urgent this week, but do not let it drift.
+
+Arena's production currently depends on two things owned personally:
+
+- The **DigitalOcean account and card** paying for the droplet.
+- The **Cloudflare zone** for `dripdripdrop.ai`, which is where Arena's
+  production resolves.
+
+Three things follow.
+
+**Hand over both or neither.** Giving Arena the server while keeping the domain
+leaves their production depending on a personal Cloudflare account. That is the
+same entanglement in a different place.
+
+**Their card goes on before yours comes off.** If the card is removed while it
+is still the only one on file, Arena's production goes down at the next billing
+cycle. Order matters.
+
+**Decide what continued access means.** Mike has said he will keep using Arena's
+instance after leaving. That is an arrangement with Arena, not a technical
+setting — and it is much easier to agree on before the handover than to ask for
+afterwards. Worth settling explicitly rather than assuming the account access
+quietly persists.
 
 ---
 
