@@ -901,8 +901,9 @@ _EMAIL_SKIP_DOMAINS = tuple(_env_list(
 def _extract_contacts(text: str) -> tuple:
     """Best-effort (email, phone) pulled straight from raw résumé text.
 
-    Picks the candidate's own address (skips the recruiter's arenastaffing.net
-    address that some docs carry in a header) and the first plausible phone.
+    Picks the candidate's own address (skips the recruiter's own address, on
+    any domain in DRIPDROP_INTERNAL_DOMAINS, that some docs carry in a header)
+    and the first plausible phone.
     Never guesses — returns '' for anything it can't find."""
     text = text or ""
     email = ""

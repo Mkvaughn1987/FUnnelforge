@@ -70,7 +70,7 @@ hardcoded value**, so deploying this change to Arena's production site is a no-o
 | `flowdrip_app.py:85-89` | `_ROUNDUP_ALLOWED_EMAILS` | `DRIPDROP_ROUNDUP_EMAILS` | Arena staff can read the firm's roundups |
 | `ats.py:31` | `ALLOWED_EMAILS` | reuses `DRIPDROP_ATS_EMAILS` | Same as above, in the ATS module |
 | `ats.py:36` | `_OWNER_BACKFILL_EMAIL` | `DRIPDROP_OWNER_EMAIL` | Pre-multi-user records assigned to an Arena account |
-| `ats.py:879` | `_EMAIL_SKIP_DOMAINS` | `DRIPDROP_INTERNAL_DOMAINS` | **Candidate sequences can be mailed to their own recruiters** |
+| `ats.py:897` | `_EMAIL_SKIP_DOMAINS` | `DRIPDROP_INTERNAL_DOMAINS` | **Candidate sequences can be mailed to their own recruiters** |
 
 Six variables in total. `DRIPDROP_ROUNDUP_EMAILS` and `DRIPDROP_OWNER_EMAIL`
 were added during implementation: the roundup viewer allowlist and the ATS
@@ -78,10 +78,17 @@ owner-backfill address are separate gates from the two they sit beside, and
 leaving either hardcoded would have named an Arena account on the firm's
 instance.
 
-`ats.py:879` is the most serious. It skips recruiter addresses when choosing which
+`ats.py:897` is the most serious. It skips recruiter addresses when choosing which
 address on a record belongs to the candidate. Configured for Arena only, it will
 not skip the new firm's own staff addresses, so their internal recruiters can be
 enrolled into candidate outreach.
+
+`DRIPDROP_SUPER_ADMINS` is a seventh Arena-specific gate, but it was already
+environment-driven before this work (`flowdrip_app.py:1683`), so it needs no code
+change — only a value in the new instance's `.env`. It is listed here because it
+shares the others' failure mode: left unset it names
+`michael.vaughn@arenastaffing.net`, and the firm's own admin holds no keys on
+their own instance.
 
 Each variable parses as a comma-separated list, trimmed, lowercased, empty entries
 dropped. An unset variable yields today's Arena value.
@@ -94,14 +101,15 @@ dropped. An unset variable yields today's Arena value.
 3. Add an A record for `171.dripdripdrop.ai` to the new droplet in the existing
    Cloudflare zone. Set SSL/TLS mode to **Full (strict)** — Flexible mode sends
    plain HTTP to a Caddy that redirects to HTTPS, producing a redirect loop.
-4. Write `/opt/dripdrop/.env`:
+4. Write `/opt/dripdrop/.env` from the annotated template `deploy/env.171.example`,
+   which carries every variable below with the firm's domain already filled in:
    - `DRIPDROP_SECRET` — freshly generated, never reused from Arena's instance
    - `ANTHROPIC_API_KEY` — the firm's own key
    - `DRIPDROP_INVITE_CODES`, `DRIPDROP_SUPER_ADMINS` — the firm's values
    - `GOOGLE_REDIRECT_URI`, `MS_REDIRECT_URI` — on `171.dripdripdrop.ai`
    - `DRIPDROP_ATS_DOMAINS`, `DRIPDROP_INTERNAL_DOMAINS` — the firm's email
-     domain. **Both must be set**, or the résumé extractor will not skip the
-     firm's own recruiters (see `ats.py:879` above).
+     domain, `thrivemodal.com`. **Both must be set**, or the résumé extractor
+     will not skip the firm's own recruiters (see `ats.py:897` above).
    - `DRIPDROP_ATS_EMAILS`, `DRIPDROP_ROUNDUP_OWNER`, `DRIPDROP_ROUNDUP_EMAILS`,
      `DRIPDROP_OWNER_EMAIL` — the firm's admin accounts
 5. The firm registers the two callback URLs in their own Google Cloud and Azure
@@ -133,7 +141,18 @@ either target. One repository, two `.env` files, no divergence.
 
 - The six new variables, unset, reproduce current behavior exactly — verified by
   the existing test suite against a 15-failure baseline.
-- `ats.py:879` behavior is verified with the new firm's domain configured: their
-  recruiter addresses must be skipped when selecting a candidate address.
+- `ats.py:897` behavior is verified with the new firm's domain configured: their
+  recruiter addresses must be skipped when selecting a candidate address. Done
+  2026-09-15 against `thrivemodal.com`, both directions, on a résumé carrying a
+  `dana.reed@thrivemodal.com` sourcing header above the candidate's own
+  `jordan.blake@gmail.com`:
+
+  | `DRIPDROP_INTERNAL_DOMAINS` | Extracted as the candidate's email |
+  |---|---|
+  | unset (Arena default) | `dana.reed@thrivemodal.com` — **the recruiter** |
+  | `thrivemodal.com` | `jordan.blake@gmail.com` — correct |
+
+  The failure is silent: nothing errors, the recruiter is simply enrolled into
+  candidate outreach. This is why the variable is not optional.
 - Arena production is confirmed unchanged after step 1 before the new droplet is
   provisioned.
