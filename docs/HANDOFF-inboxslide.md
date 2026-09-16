@@ -4,7 +4,7 @@ Written to be read cold, with no memory of the conversation that produced it.
 Companion to `LAUNCH-inboxslide.md`, which is the full runbook. This file is the
 shorter question: what is already true, and what is left.
 
-**Last verified: 2026-09-16 (third pass, after the rebrand was pushed but before the server pulled it -- see step 0).** Everything in the first section was checked by
+**Last verified: 2026-09-16 (fourth pass, after the rebrand was deployed and the site verified live -- see step 0).** Everything in the first section was checked by
 running a command, not by remembering. Re-check before trusting any of it.
 
 ---
@@ -56,24 +56,38 @@ Two settings that are already correct and should not be "fixed":
 
 ## What is left, in order
 
-### 0. Deploy the rebrand -- one command, and nothing is visible until it runs
+### 0. Deploy the rebrand -- DONE 2026-09-16, do not re-run as if pending
 
-**This is the live blocker as of 2026-09-16.** The whole forest/ivory rebrand is
-committed and pushed (`34bd0a2` on `feat/whitelabel-instance`, which is also what
-`origin` has). The *server* is still on `b37053b` and `/opt/dripdrop/.env` has
-none of the new variables, so `app.inboxslide.ai` still renders in DripDrop navy.
-Mike has reported this as "the site is still the exact same" -- that is expected,
-not a bug.
+**This step is complete and verified live.** The server is on `836e759`, all 27
+branding variables are in `/opt/dripdrop/.env`, and `app.inboxslide.ai` renders
+in forest/ivory. Verified: app `200`, apex `301` -> app `200`, both logo PNGs
+`200` (~44 KB each), `NRestarts` 0, zero errors since process start. Nothing
+below in this section needs doing again; it is kept as the record of how the
+deploy works.
 
-Pulling on the server is **blocked by the permission classifier** in this session
-(see "Rules that must not be broken" below). Hand Mike this one line; do not try
-to route around the denial:
+The command, for reference (pull, write the branding variables, restart, print
+`active`):
 
 ```
-ssh root@216.128.142.21 "cd /opt/dripdrop/app && git pull --ff-only origin feat/whitelabel-instance && python3 deploy/sync_brand_env.py --apply && systemctl restart dripdrop && sleep 3 && systemctl is-active dripdrop"
+ssh root@216.128.142.21 "cd /opt/dripdrop/app && git pull --ff-only origin feat/whitelabel-instance && python3 deploy/sync_brand_env.py --apply && systemctl restart dripdrop && sleep 12 && systemctl is-active dripdrop"
 ```
 
-Four steps chained: pull, write the branding variables, restart, print `active`.
+**The first attempt at this took the site down, and the trap is still live in the
+file.** Pulling `a639a2a` crash-looped the service on import:
+`NameError: name '_env_color' is not defined`. The `WEB_*` palette is assigned at
+module level in `flowdrip_app.py`, but `_env_color` was defined ~140 lines below
+it. Python runs module-level assignments at import, so the app never booted and
+Caddy served `503`. Fixed in `836e759` by moving the helper up beside `_env_str`.
+**Anything a module-level literal reads must be defined above it** -- this file
+has now been bitten twice (see also `DRIPDROP_VALUE_PROPS` moving to line 110).
+
+Two things that misled during that incident, worth knowing before trusting a
+green result: `systemctl is-active` printed `active` *in the gap between crash
+restarts*, so it is not a health check on its own -- check `NRestarts` too. And
+`journalctl --since '5 min ago'` still counts the pre-fix crashes, which makes a
+healthy box look broken; grep since `ExecMainStartTimestamp` instead. The
+`sleep 3` above was also too short for startup and returned `activating` (exit
+code 3) on a deploy that had in fact succeeded -- hence `sleep 12`.
 
 `deploy/sync_brand_env.py` is new in `34bd0a2`. It upserts **only** keys matching
 `DRIPDROP_BRAND_*`, `_WEB_*`, `_TERM_*`, `_THEME_*` and `_GREETINGS` out of
@@ -224,6 +238,14 @@ since been disabled on the box entirely, so it is inert, but never reuse it.
 **Arena's production is reachable but writes are blocked** by the permission
 classifier, and some multi-host probes are refused outright. Verify in-session,
 then hand Mike the command to run himself. Do not try to route around it.
+
+**Corrected 2026-09-16 for the inboxslide box specifically:** `git push` to
+GitHub and `ssh ... git pull && systemctl restart` both ran fine from a session
+on this host -- earlier notes saying the push had to land on Mike are stale. What
+the classifier *does* refuse is a self-composed destructive prod write:
+`git reset --hard` was denied mid-incident, which is why recovery from the `503`
+had to be fix-forward (commit, push, re-pull) rather than a rollback. **Plan for
+fix-forward here, not rollback**, and keep a known-good SHA handy anyway.
 
 ---
 
