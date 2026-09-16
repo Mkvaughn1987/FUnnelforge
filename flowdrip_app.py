@@ -430,6 +430,98 @@ _ATS_ENABLED = _env_str("DRIPDROP_ATS_ENABLED", "1").strip().lower() not in (
     "0", "false", "no", "off",
 )
 
+# An instance with no candidate pipeline is selling something other than
+# people, so the whole recruiting half of the product is dead weight on it:
+# candidate slates, MPC plays, résumé attachments, candidate newsletter
+# spotlights, "why use a staffing firm" collateral. This is the one flag
+# those surfaces branch on. Arena leaves ATS on, so _SALES_MODE is False
+# there and nothing it shows changes.
+_SALES_MODE = not _ATS_ENABLED
+
+# ── Workspace playbook ────────────────────────────────────────────────────
+# _SALES_MODE above is an INSTANCE-level env flag. The playbook is a
+# WORKSPACE-level, explicitly-chosen setting stored in the user's config
+# (Settings -> Company Playbook). It is never inferred from a company name
+# or website: a workspace that has not chosen one resolves to ARENA, which
+# is exactly the behavior every existing workspace has today.
+#
+# Campaigns record the playbook they were built under (`_playbook` on the
+# campaign dict). Anything saved before this shipped has no key, so it keeps
+# reading as ARENA forever - changing the workspace setting never rewrites
+# the behavior of a campaign that already exists.
+PLAYBOOK_ARENA = "arena"
+PLAYBOOK_THRIVEMODAL = "thrivemodal"
+_VALID_PLAYBOOKS = (PLAYBOOK_ARENA, PLAYBOOK_THRIVEMODAL)
+PLAYBOOK_LABELS = {
+    PLAYBOOK_ARENA: "ARENA (recruiting / candidate placement)",
+    PLAYBOOK_THRIVEMODAL: "ThriveModal (offshore staffing sales)",
+}
+
+# The editable, shared company context behind the ThriveModal playbook.
+# (config key, label, help text, default). Defaults deliberately leave
+# proof, pricing and terms EMPTY - the generator refuses to invent any of
+# them, so an unfilled field means the AI simply says nothing rather than
+# making something up.
+THRIVEMODAL_PLAYBOOK_FIELDS = [
+    ("tm_services", "Services and delivery model",
+     "What ThriveModal actually sells and how it is delivered.",
+     "ThriveModal places dedicated offshore professionals based in the "
+     "Philippines with U.S. companies. Each engagement covers recruiting "
+     "against the client's written requirements, client selection of "
+     "candidates from a shortlist, onboarding into the client's systems and "
+     "working hours, and ongoing ThriveCore support for the placed "
+     "professional and the client relationship. The professional works "
+     "dedicated to one client, not shared across accounts."),
+    ("tm_industries", "Target industries and buyer roles",
+     "Where ThriveModal sells and who signs.",
+     "Priority industries: logistics and freight brokerage, accounting and "
+     "bookkeeping firms, and property management. Typical buyers: owner or "
+     "president, VP or Director of Operations, Controller or CFO, and "
+     "Director of Property Management."),
+    ("tm_problems", "Business problems addressed",
+     "The problems the buyer already has. No solution language here.",
+     "Domestic hiring for support and back-office roles is slow and "
+     "expensive. Teams absorb overflow through overtime or leave work "
+     "undone. Turnover in repetitive roles resets training constantly. "
+     "Growth is capped by headcount cost rather than by demand."),
+    ("tm_differentiators", "Differentiators",
+     "What makes ThriveModal different. Only things that are actually true.",
+     "Recruiting is run against the client's own requirements rather than "
+     "from a bench. The client interviews and selects the person. The "
+     "professional is dedicated to one client. ThriveCore provides ongoing "
+     "support after placement rather than ending at the start date."),
+    ("tm_proof", "Approved customer proof",
+     "Approved, verifiable customer results ONLY. Leave empty if you have "
+     "none cleared to use - the AI will not invent any.",
+     ""),
+    ("tm_pricing", "Approved pricing and service terms",
+     "Approved rates, what is included, what is excluded, currency and "
+     "billing period. Leave empty until approved - cost comparisons will "
+     "render as an incomplete worksheet rather than guess.",
+     ""),
+    ("tm_voice", "Voice and writing guidelines",
+     "How ThriveModal sounds.",
+     "Plain, direct, operator to operator. Short sentences. Specific over "
+     "clever. No hype, no superlatives, no urgency manufactured out of "
+     "nothing. Assume the reader is busy and skeptical."),
+    ("tm_ctas", "Preferred calls to action",
+     "One clear next step per message; rotate across the sequence.",
+     "Ask whether the problem is theirs to own. Ask who handles it if not "
+     "them. Ask whether a short call is worth it. Ask whether this is a "
+     "this-year or next-year problem. Offer to send a role blueprint or "
+     "cost worksheet ONLY when the sequence actually attaches one."),
+    ("tm_forbidden", "Claims AI must not make",
+     "Hard bans. These are enforced in the generator as well.",
+     "Never state a savings percentage, a dollar figure, a headcount cost "
+     "or a rate that is not in the approved pricing field. Never claim a "
+     "customer result, logo or case study that is not in the approved proof "
+     "field. Never promise a guarantee, replacement, refund, trial or SLA. "
+     "Never state a time-to-fill, start date or implementation timeline. "
+     "Never claim candidates are already available or on a bench. Never "
+     "imply a prior conversation, meeting or referral that did not happen. "
+     "Never mention an attachment the message does not actually carry."),
+]
+
 
 def _ats_allowed(email: str) -> bool:
     """True if this account may see the Pipeline (ATS) tab: any user on one of
@@ -4787,12 +4879,299 @@ AICB_CAMPAIGN_TYPES = [
      "Step 6 - The Breakup email, NO candidates, NO attachments (delay_days:3, step_type:email_auto) - "
      "Clean and short. 'Should I circle back next month, or would you prefer I route these candidates "
      "to other companies in your area?' Close with 'just want to close the loop either way.'"),
+    # ── Sales instances only (_SALES_MODE) ──
+    # The ten types above all assume a candidate: they open with a slate, a
+    # profile, or a placement. A seller has none of that, so these three
+    # cover the same three shapes (sprint / proof arc / long nurture) with
+    # the offer in the candidate's place. The offer itself is not written
+    # in here; it comes from DRIPDROP_VALUE_PROPS, so this works for any
+    # instance's product. Hidden on Arena, which runs with ATS on.
+    ("salessprint", "Fast Sprint", "5 steps - 6 days", "#EF4444",
+     "Six days, five touches, one question answered: are they interested or not. "
+     "Email, LinkedIn, call, a cost angle, and a clean breakup. No candidates, "
+     "no slate - the offer carries it.",
+     "Warm inbound - event follow-up - time-boxed pushes",
+     "Step 1 - Warm intro email (delay_days:0, step_type:email_auto) - "
+     "Two-sentence intro naming the sender's company and the specific problem it "
+     "solves for companies like this one, then ONE substantive hook about the "
+     "recipient's business (a location, a growth signal, a recent move from the "
+     "BRIEF). Soft question CTA. Do NOT pitch features.\n"
+     "Step 2 - LinkedIn Connect (delay_days:1, step_type:linkedin) - connection "
+     "message under 300 characters: 'Sent you a note about how we help "
+     "[their kind of team] - wanted to connect here too.'\n"
+     "Step 3 - Follow-up Call (delay_days:1, step_type:call) - Reference the email. "
+     "Qualify fast: is this a problem they own, and what is their timeline?\n"
+     "Step 4 - Cost angle email (delay_days:2, step_type:email_auto) - "
+     "Put a number on the problem they already have. Use the real figures from the "
+     "BRIEF if present; if not, make the point without inventing one. Different "
+     "opening pattern from Step 1. One CTA.\n"
+     "Step 5 - Breakup email (delay_days:2, step_type:email_auto) - "
+     "Short, warm, no guilt. Restate in one line what the offer does, leave the "
+     "door open, and stop."),
+    ("offerled", "Cost and Proof", "6 steps - 3 weeks", "#0EA5A5",
+     "The full commercial arc. Intro, the cost of doing nothing, proof from real "
+     "results, a reframe, the objection they are silently holding, then a direct "
+     "ask. Built around your value props rather than a candidate slate.",
+     "Cold BD - owners and operators - price-sensitive buyers",
+     "Step 1 - Warm intro email (delay_days:0, step_type:email_auto) - "
+     "Intro the sender and the problem they solve, then one specific observation "
+     "about this company. Soft CTA, no pricing yet.\n"
+     "Step 2 - Cost of the status quo (delay_days:3, step_type:email_auto) - "
+     "Open with [DATA]. Quantify what the gap is costing them now: the loaded cost "
+     "of the way they do it today, the work that is not getting done, or the "
+     "overtime absorbing it. Offer to send the breakdown.\n"
+     "Step 3 - Proof (delay_days:4, step_type:email_auto) - "
+     "Subject 'Thoughts on this?'. Present the sender's proven results as an HTML "
+     "bullet list built from: [[VALUE_PROPS]] Frame them as evidence, not a "
+     "brochure. Then one CTA.\n"
+     "Step 4 - LinkedIn Connect (delay_days:2, step_type:linkedin) - under 300 "
+     "characters, reference the results you sent, no pitch.\n"
+     "Step 5 - Objection handler (delay_days:3, step_type:email_auto) - "
+     "Open with [CONTRARIAN]. Name the objection they are most likely holding "
+     "(risk, control, quality, switching cost, 'we tried this before') and answer "
+     "it plainly in two or three lines. Do not stack CTAs.\n"
+     "Step 6 - Direct ask (delay_days:4, step_type:email_auto) - "
+     "Confident and specific. This is the only email in the sequence that asks for "
+     "a call outright. Give a reason the call is short and worth it, and a warm "
+     "soft close if the timing is wrong."),
+    ("slowburn", "Slow Burn", "7 steps - 8 weeks", "#60A5FA",
+     "For accounts that are right but not ready. One useful touch every week or "
+     "two over two months, each from a different angle, ending with a genuine "
+     "door-open breakup. Stays welcome in the inbox.",
+     "Long sales cycles - enterprise - not-now accounts",
+     "Step 1 - Warm intro email (delay_days:0, step_type:email_auto) - "
+     "Intro plus one specific observation about their business. Explicitly "
+     "low-pressure: say you are not asking for anything today.\n"
+     "Step 2 - Market or cost read (delay_days:7, step_type:email_auto) - "
+     "Open with [DATA] or [OBSERVATION]. Share something genuinely useful about "
+     "their market or cost structure. Offer to send more, no call ask.\n"
+     "Step 3 - Proof (delay_days:10, step_type:email_auto) - "
+     "One customer outcome told as a short story, built from: [[VALUE_PROPS]] "
+     "End with a one-line question.\n"
+     "Step 4 - Call (delay_days:7, step_type:call) - Low-key check in. Not a "
+     "close: find out what would have to be true for this to matter to them.\n"
+     "Step 5 - Reframe (delay_days:10, step_type:email_auto) - "
+     "Come at the offer from a completely different angle than Steps 1 to 3, as "
+     "if none of them had landed. Often the best performer in the sequence.\n"
+     "Step 6 - Timing check (delay_days:10, step_type:email_auto) - "
+     "Short. Ask whether this is a this-year problem or a next-year problem, and "
+     "say either answer is useful.\n"
+     "Step 7 - Breakup (delay_days:10, step_type:email_auto) - "
+     "Warm, no guilt, door open. Say you will stop reaching out and mean it."),
+    # -- ThriveModal playbook (workspace_playbook = "thrivemodal") --------------
+    # Organised by SALES OBJECTIVE, not by cadence shape: the seller picks what
+    # they are trying to do, not how many emails they want. None of these
+    # require a candidate record, a slate or a resume - they sell dedicated
+    # offshore capacity, and the person is chosen by the client later in the
+    # process. Hidden from the ARENA playbook by _type_visible().
+    #
+    # tm_conversation is the ThriveModal read of the Arena 5x5: identical step
+    # types, identical relative delays, identical same-day call + LinkedIn
+    # pairing on Step 2's day. See _TM_CONVERSATION_DELAYS.
+    ("tm_conversation", "Start a Conversation", "7 steps - 2.5 weeks", "#14B8A6",
+     "Five emails, one call and one LinkedIn touch over about two and a half "
+     "weeks. Opens on something true about their business, moves to the shape "
+     "of the role offshore support would cover, and closes cleanly. No "
+     "candidate record needed.",
+     "Cold outreach - named accounts - market segments",
+     "Step 1 - Relevance (delay_days:0, step_type:email_auto) - "
+     "Subject under 50 characters, lowercase-leaning. Open with ONE specific, "
+     "verifiable thing about THIS company or segment taken from the BRIEF (a "
+     "location, a service line, a growth signal). In one sentence say what the "
+     "sender does: places dedicated offshore professionals from the "
+     "Philippines, recruited to the client's requirements and selected by the "
+     "client. Do NOT list benefits. Do NOT quote any cost, saving, percentage "
+     "or timeline. End with a single question about who owns support capacity. "
+     "Never reference an attachment.\n"
+     "Step 2 - Role fit (delay_days:3, step_type:email_auto) - "
+     "Different opening pattern from Step 1. Name the SPECIFIC work an "
+     "offshore professional would absorb for a company like this one, drawn "
+     "from the BRIEF and the playbook's target industries: two or three "
+     "concrete tasks, not categories. Say the client writes the requirements "
+     "and interviews the shortlist. ONE question CTA, different from Step 1. "
+     "No pricing, no savings figure, no start date.\n"
+     "Step 3 - Follow-up Call (delay_days:0, step_type:call) - SAME DAY as "
+     "Step 2, on the same business angle. Put a short call script in the body: "
+     "reference the role-fit email, ask who owns support capacity today and "
+     "what the work looks like when volume spikes. Qualifying, not closing.\n"
+     "Step 4 - LinkedIn Connect (delay_days:0, step_type:linkedin) - SAME DAY "
+     "as Steps 2 and 3, same business angle. Connection note in the body, "
+     "UNDER 300 characters, no pitch, no link, no figures.\n"
+     "Step 5 - Brief follow-up (delay_days:2, step_type:email_auto) - "
+     "Short: three or four lines maximum. Do not restate the introduction or "
+     "the offshore benefits. Ask for a yes, a no, or a redirect to whoever "
+     "owns it. Do not imply that a prior conversation took place.\n"
+     "Step 6 - Confidence and evidence (delay_days:3, step_type:email_auto) - "
+     "Subject different in shape from every earlier subject. Address the "
+     "reservation this buyer is most likely holding (quality, oversight, "
+     "communication, time-zone overlap, data access) and answer it with how "
+     "the process actually works: requirements, recruiting, client interview, "
+     "onboarding, ongoing support. Use ONLY approved customer proof from the "
+     "playbook; if the approved-proof field is empty, cite NO customer, number "
+     "or result at all and make the point from process instead. Never mention "
+     "an attachment unless the sequence actually carries one.\n"
+     "Step 7 - Close the loop (delay_days:4, step_type:email_auto) - "
+     "Short and warm, no guilt, no urgency. One line on what the sender does, "
+     "an open door, and stop. Do NOT offer, promise or imply a newsletter, a "
+     "mailing list or any ongoing sends."),
+    ("tm_hiring_signal", "Respond to a Hiring Signal", "4 steps - 8 days", "#F97316",
+     "They just posted a role, announced growth or opened a location. Reaches "
+     "them while the need is live, with offshore support framed against the "
+     "role they are already trying to fill.",
+     "Job-post triggers - expansion news - new locations",
+     "Step 1 - The signal (delay_days:0, step_type:email_auto) - "
+     "Name the SPECIFIC signal from the BRIEF in the first line (the posted "
+     "role, the announcement). Only reference a signal that is actually in the "
+     "BRIEF; if there is none, write a plain relevance opener instead and say "
+     "nothing about a posting. Then one sentence on covering that work with a "
+     "dedicated offshore professional recruited to their requirements. One "
+     "question CTA. No cost claims, no time-to-fill, no start date.\n"
+     "Step 2 - What the role would cover (delay_days:3, step_type:email_auto) - "
+     "Split the signalled role into the parts an offshore professional handles "
+     "well and the parts that stay onshore. Be concrete and honest about the "
+     "split. One CTA, different from Step 1.\n"
+     "Step 3 - Follow-up Call (delay_days:0, step_type:call) - SAME DAY as "
+     "Step 2. Script: ask how the search is going and what would have to be "
+     "true for an offshore seat to be worth trying.\n"
+     "Step 4 - Close the loop (delay_days:5, step_type:email_auto) - "
+     "Short. Acknowledge the search may already be closed, leave the door open "
+     "for the next one, stop. No newsletter, no ongoing-send promise."),
+    ("tm_meeting_followup", "Follow Up After a Meeting", "4 steps - 2 weeks", "#8B5CF6",
+     "For a prospect you have ACTUALLY spoken with. Recaps what was discussed, "
+     "confirms the role shape and moves toward requirements and a shortlist.",
+     "Post-discovery - after a demo - after an intro call",
+     "Step 1 - Recap (delay_days:0, step_type:email_auto) - "
+     "This sequence is only used after a real conversation, so referencing one "
+     "is correct here. Recap in three or four lines what the buyer said they "
+     "needed, using ONLY details present in the BRIEF or the user's notes. "
+     "Invent nothing about what was said. Confirm the agreed next step.\n"
+     "Step 2 - Role requirements (delay_days:3, step_type:email_auto) - "
+     "Lay out what is needed from them to start recruiting: responsibilities, "
+     "systems, working-hours overlap, who reviews candidates. Ask them to "
+     "confirm or correct it. Do not quote pricing unless the approved pricing "
+     "field supplies it verbatim.\n"
+     "Step 3 - Follow-up Call (delay_days:0, step_type:call) - SAME DAY as "
+     "Step 2. Script: walk the requirements list, agree the interview panel.\n"
+     "Step 4 - Nudge (delay_days:6, step_type:email_auto) - "
+     "Short check-in if the requirements never came back. Offer to draft them "
+     "from the call instead. One question, no pressure."),
+    ("tm_reengage", "Re-engage a Prospect", "4 steps - 3 weeks", "#EF4444",
+     "For accounts that went quiet. Comes back from a different angle instead "
+     "of repeating the original pitch, and gives them an easy way to say not "
+     "now.",
+     "Closed-lost - stalled deals - went dark after interest",
+     "Step 1 - Different angle (delay_days:0, step_type:email_auto) - "
+     "Do NOT open with 'just following up' or 'circling back', and do NOT "
+     "claim a specific prior exchange unless the BRIEF records one. Lead with "
+     "a new observation about their business or market. One question.\n"
+     "Step 2 - What changed (delay_days:5, step_type:email_auto) - "
+     "Give one genuine reason the conversation is worth restarting: a shift in "
+     "their market, a new service line of theirs, a different role shape. No "
+     "invented product news, no invented customer results.\n"
+     "Step 3 - LinkedIn Connect (delay_days:2, step_type:linkedin) - "
+     "Under 300 characters, no pitch, no link, no figures.\n"
+     "Step 4 - Timing check (delay_days:7, step_type:email_auto) - "
+     "Ask plainly whether this is a this-year or a next-year problem and say "
+     "either answer is useful. Close the loop if the answer is neither."),
+    ("tm_stay_in_touch", "Stay in Touch", "5 steps - 9 weeks", "#60A5FA",
+     "Right account, wrong moment. One useful touch every couple of weeks, "
+     "each from a different angle, ending with a genuine door-open close.",
+     "Long cycles - not-now accounts - relationship building",
+     "Step 1 - Low-pressure intro (delay_days:0, step_type:email_auto) - "
+     "One specific observation about their business plus one sentence on what "
+     "the sender does. Say explicitly that you are not asking for anything "
+     "today. No figures.\n"
+     "Step 2 - Industry context (delay_days:10, step_type:email_auto) - "
+     "Something genuinely useful about their industry's operating pressure. If "
+     "the BRIEF supplies a statistic, use it and name the source and the date; "
+     "if it does not, make the point WITHOUT a number. No call ask.\n"
+     "Step 3 - How the process works (delay_days:14, step_type:email_auto) - "
+     "Walk the process plainly: role discovery, recruiting to their "
+     "requirements, candidate review, client interviews, onboarding, ongoing "
+     "support. No timeline claims. One soft question.\n"
+     "Step 4 - Check-in Call (delay_days:14, step_type:call) - Low-key. "
+     "Script: find out what would have to change for this to matter.\n"
+     "Step 5 - Door open (delay_days:14, step_type:email_auto) - "
+     "Short, warm, and explicitly the last scheduled note. Do NOT promise a "
+     "newsletter or any further automatic sends."),
+    ("tm_grow_client", "Grow an Existing Client", "4 steps - 2 weeks", "#10B981",
+     "For companies already working with you. Focused on adding a seat or a "
+     "second function, not on re-selling the company. Written to an existing "
+     "relationship.",
+     "Account expansion - second seat - new department",
+     "Step 1 - Where it is working (delay_days:0, step_type:email_auto) - "
+     "Write to an EXISTING client. Reference the current engagement only using "
+     "facts in the BRIEF; never invent a placed person, a start date, a tenure "
+     "or a result. Ask which other function is feeling the same pressure. No "
+     "pitch language.\n"
+     "Step 2 - The next seat (delay_days:4, step_type:email_auto) - "
+     "Name one adjacent function that commonly expands next for their industry "
+     "and what that seat would cover. One question CTA.\n"
+     "Step 3 - Check-in Call (delay_days:0, step_type:call) - SAME DAY as "
+     "Step 2. Script: how is the current seat performing, what is the next "
+     "constraint.\n"
+     "Step 4 - Make it easy (delay_days:6, step_type:email_auto) - "
+     "Short. Offer to run the same requirements process for the next role. "
+     "Quote pricing ONLY if the approved pricing field supplies it."),
     ("byos", "Custom Build", "You design it", "#F59E0B",
      "Describe what you want and AI will build it. Tell us the number of steps, "
      "channels (email, LinkedIn, call), timing, and style - AI handles the rest.",
      "Custom cadences - unique verticals - specific strategies",
      ""),  # empty  -  user provides their own description
 ]
+
+# The two sales sequences that cite the sender's results carry a
+# [[VALUE_PROPS]] marker instead of an f-string, so those long instruction
+# blocks above stay readable. Resolve it once, here, against the env value.
+AICB_CAMPAIGN_TYPES = [
+    tuple(p.replace("[[VALUE_PROPS]]", _4X4_VALUE_PROPS) if isinstance(p, str) else p
+          for p in ct)
+    if "[[VALUE_PROPS]]" in ct[6] else ct
+    for ct in AICB_CAMPAIGN_TYPES
+]
+
+
+# Which sequence types this instance offers. The recruiting types all build
+# around a candidate the sales instances do not have; the three sales types
+# would be noise on a staffing instance. Filtering the DISPLAY list (not
+# AICB_CAMPAIGN_TYPES itself) keeps every key valid for campaigns already
+# saved under it, and keeps _VALID_TEMPLATES honest for the API.
+_SALES_TYPE_KEYS = frozenset({"salessprint", "offerled", "slowburn"})
+_RECRUITING_TYPE_KEYS = frozenset({
+    "blitz", "fourbyfour", "fivebyfive", "fivebythree", "talentdrop",
+    "sidequest", "fullstream", "victorycard",
+})
+# The ThriveModal objectives. Visible ONLY under the ThriveModal playbook, so a
+# workspace that never chose one (i.e. every workspace that exists today) sees
+# exactly the list it saw before this shipped.
+_TM_TYPE_KEYS = frozenset({
+    "tm_conversation", "tm_hiring_signal", "tm_meeting_followup",
+    "tm_reengage", "tm_stay_in_touch", "tm_grow_client",
+})
+
+
+def _type_visible(key: str, playbook: str = None) -> bool:
+    """True if this workspace should offer sequence type `key` in the picker.
+
+    Two independent filters stack here. `_SALES_MODE` is INSTANCE-level (an env
+    flag): it decides whether this deployment is a staffing or a sales box. The
+    playbook is WORKSPACE-level and explicitly chosen; it decides which library
+    of campaign shapes this particular user works from. Neither one removes a
+    key from AICB_CAMPAIGN_TYPES, so campaigns already saved under any key keep
+    working and `_VALID_TEMPLATES` stays honest for the API.
+    """
+    pb = playbook or _workspace_playbook()
+    if pb == PLAYBOOK_THRIVEMODAL:
+        # Candidate-centric recruiting shapes have no meaning here: ThriveModal
+        # sells capacity, and the person is chosen by the client later.
+        return key not in _RECRUITING_TYPE_KEYS
+    # ARENA (the default, and what every pre-existing workspace resolves to).
+    if key in _TM_TYPE_KEYS:
+        return False
+    if _SALES_MODE:
+        return key not in _RECRUITING_TYPE_KEYS
+    return key not in _SALES_TYPE_KEYS
+
 
 AICB_DOC_DEFS = [
     ("brief",           "Company Research Brief",      "AI-researched company profile"),
@@ -5220,7 +5599,9 @@ def _build_jway_handoff_newsletter(name, sector, region, niche,
         market_sector=sector,
         market_niche=niche,
         market_region=region,
-        newsletter_spotlight_count=3,
+        # No candidate pipeline means no spotlights to fill. The issue
+        # generator already handles 0 by omitting the section entirely.
+        newsletter_spotlight_count=(0 if _SALES_MODE else 3),
         newsletter_spotlight_recommendations="",
         newsletter_show_city_life=False,
         start_date=start_from.isoformat(),
@@ -5876,6 +6257,7 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
 
     _apply_fivebyfive_overrides(camp_type, campaign_data)
     _apply_fivebythree_overrides(camp_type, campaign_data)
+    _apply_thrivemodal_overrides(camp_type, campaign_data)
     _spread_email_times(campaign_data.get("emails", []))
     return campaign_data
 
@@ -8852,6 +9234,128 @@ def _apply_fivebythree_overrides(camp_type, campaign_data):
     return campaign_data
 
 
+# ── ThriveModal post-generation overrides ────────────────────────────────────
+# Deliberately NOT a fork of _apply_fivebyfive_overrides. The Arena override
+# stamps two hand-authored ARENA touches (a recruiting bump, an interview-guide
+# line) over whatever the model wrote; replaying that here would overwrite
+# ThriveModal copy with ARENA messaging, which is exactly what must not happen.
+#
+# What ThriveModal DOES inherit from the 5x5 is its SHAPE: tm_conversation
+# carries the identical relative delays, the identical step types, and the
+# identical same-day call + LinkedIn pairing on Step 2's day. Business-day
+# scheduling is not re-implemented anywhere - it is a property of the queueing
+# layer that reads delay_days, so pinning the same delays inherits it.
+#
+# {step number -> (delay_days, step_type)}. The generator is told this in the
+# touch-sequence prompt; pinning it here makes it deterministic and testable
+# rather than dependent on the model having obeyed.
+_TM_STEP_SHAPE = {
+    # Identical to _FIVEBYFIVE_DELAYS {1:0, 2:3, 3:0, 4:0, 5:2, 6:3, 7:4}.
+    # Steps 3 and 4 sit at 0 so the call and the LinkedIn touch land on the
+    # SAME business day as Step 2, exactly as the Arena 5x5 does.
+    "tm_conversation": {
+        1: (0, ST.EMAIL_AUTO), 2: (3, ST.EMAIL_AUTO), 3: (0, ST.CALL),
+        4: (0, ST.LINKEDIN),   5: (2, ST.EMAIL_AUTO), 6: (3, ST.EMAIL_AUTO),
+        7: (4, ST.EMAIL_AUTO),
+    },
+    "tm_hiring_signal": {
+        1: (0, ST.EMAIL_AUTO), 2: (3, ST.EMAIL_AUTO), 3: (0, ST.CALL),
+        4: (5, ST.EMAIL_AUTO),
+    },
+    "tm_meeting_followup": {
+        1: (0, ST.EMAIL_AUTO), 2: (3, ST.EMAIL_AUTO), 3: (0, ST.CALL),
+        4: (6, ST.EMAIL_AUTO),
+    },
+    "tm_reengage": {
+        1: (0, ST.EMAIL_AUTO), 2: (5, ST.EMAIL_AUTO), 3: (2, ST.LINKEDIN),
+        4: (7, ST.EMAIL_AUTO),
+    },
+    "tm_stay_in_touch": {
+        1: (0, ST.EMAIL_AUTO), 2: (10, ST.EMAIL_AUTO), 3: (14, ST.EMAIL_AUTO),
+        4: (14, ST.CALL),      5: (14, ST.EMAIL_AUTO),
+    },
+    "tm_grow_client": {
+        1: (0, ST.EMAIL_AUTO), 2: (4, ST.EMAIL_AUTO), 3: (0, ST.CALL),
+        4: (6, ST.EMAIL_AUTO),
+    },
+}
+
+# Phrases that promise something the message cannot deliver. Checked per LINE
+# (bodies are <br>-separated plain HTML throughout this app), so dropping a
+# line never breaks the surrounding markup.
+_TM_ATTACHMENT_PHRASES = (
+    "attach", "attached", "attaching", "attachment", "enclosed", "i've included",
+)
+_TM_NEWSLETTER_PHRASES = (
+    "newsletter", "mailing list", "subscribe", "sign you up", "add you to our",
+    "keep you on the list",
+)
+
+
+def _tm_scrub_line(line_html: str) -> str:
+    """Strip tags to bare text so phrase matching isn't fooled by <b> markup."""
+    return re.sub(r"<[^>]+>", " ", line_html or "").lower()
+
+
+def _tm_drop_unbacked_lines(body: str, has_attachment: bool) -> str:
+    """Remove lines that promise an attachment the email does not carry, and
+    lines that promise a newsletter or ongoing sends.
+
+    The user's rule is that a message must never reference an attachment that
+    is not actually attached, and must never imply an ongoing subscription the
+    system will not create. Enrollment itself is already gated elsewhere (see
+    _camp_is_4x4 - no ThriveModal type is an Arena slate type, so no
+    ThriveModal contact is ever auto-enrolled in the handoff newsletter); this
+    keeps the COPY honest about it too.
+    """
+    if not body:
+        return body
+    parts = re.split(r"(?i)(<br\s*/?>)", body)
+    out, dropped = [], False
+    for chunk in parts:
+        if re.match(r"(?i)^<br\s*/?>$", chunk or ""):
+            out.append(chunk)
+            continue
+        txt = _tm_scrub_line(chunk)
+        bad = any(ph in txt for ph in _TM_NEWSLETTER_PHRASES)
+        if not bad and not has_attachment:
+            bad = any(ph in txt for ph in _TM_ATTACHMENT_PHRASES)
+        if bad and txt.strip():
+            dropped = True
+            continue
+        out.append(chunk)
+    if not dropped:
+        return body
+    cleaned = "".join(out)
+    # Collapse the <br> runs the removal left behind.
+    cleaned = re.sub(r"(?i)(?:\s*<br\s*/?>\s*){3,}", "<br><br>", cleaned)
+    return cleaned.strip()
+
+
+def _apply_thrivemodal_overrides(camp_type, campaign_data):
+    """Pin the ThriveModal cadence shape and strip unbacked promises.
+
+    No-op for every non-ThriveModal type, which is what keeps the Arena 5x5,
+    5x3 and 4x4 byte-identical to their pre-existing behavior. Idempotent.
+
+    Unlike the Arena overrides this never replaces a subject or a body with
+    hand-authored text - the generated ThriveModal copy is the deliverable.
+    """
+    key = (camp_type or "").strip()
+    shape = _TM_STEP_SHAPE.get(key)
+    if not shape:
+        return campaign_data
+    for em in (campaign_data or {}).get("emails", []) or []:
+        n = _fivebyfive_step_no(em.get("name"))  # generic "Step N -" parser
+        if n in shape:
+            delay, st = shape[n]
+            em["delay_days"] = delay
+            em["step_type"] = st
+        has_att = bool(em.get("attachments"))
+        em["body"] = _tm_drop_unbacked_lines(em.get("body") or "", has_att)
+    return campaign_data
+
+
 def _resume_attach_indices(camp_type, n_emails):
     """Email indices (0-based) that should carry redacted resume PDFs.
 
@@ -9827,6 +10331,69 @@ def save_config(cfg: dict):
     _atomic_write_text(cp, json.dumps(cfg, indent=2))
 
 
+# ── Workspace playbook resolution ─────────────────────────────────────────
+# Every read goes through these two functions so there is exactly one place
+# that decides "which playbook is in force". They are called at REQUEST time
+# (never at import time) so a workspace that flips the setting mid-session
+# sees the change on its next render without a restart.
+
+def _workspace_playbook(cfg: dict = None) -> str:
+    """The playbook this workspace has explicitly chosen.
+
+    Returns PLAYBOOK_ARENA when nothing has been chosen, which is what every
+    workspace that predates this setting gets. Never inferred from a company
+    name, website or industry - only from the stored choice."""
+    try:
+        cfg = load_config() if cfg is None else cfg
+    except Exception:
+        return PLAYBOOK_ARENA
+    val = str((cfg or {}).get("workspace_playbook", "") or "").strip().lower()
+    return val if val in _VALID_PLAYBOOKS else PLAYBOOK_ARENA
+
+
+def _set_workspace_playbook(playbook: str) -> str:
+    """Persist the workspace playbook choice. Returns the stored value."""
+    pb = str(playbook or "").strip().lower()
+    if pb not in _VALID_PLAYBOOKS:
+        raise ValueError(f"unknown playbook: {playbook!r}")
+    cfg = load_config()
+    cfg["workspace_playbook"] = pb
+    save_config(cfg)
+    return pb
+
+
+def _campaign_playbook(camp: dict) -> str:
+    """The playbook a SAVED campaign was built under.
+
+    Campaigns created before this shipped have no `_playbook` key and are
+    therefore ARENA forever - flipping the workspace setting must never
+    change how an existing campaign behaves."""
+    val = str(((camp or {}).get("_playbook") or "")).strip().lower()
+    return val if val in _VALID_PLAYBOOKS else PLAYBOOK_ARENA
+
+
+def _is_thrivemodal(cfg: dict = None) -> bool:
+    """True when this workspace has chosen the ThriveModal playbook."""
+    return _workspace_playbook(cfg) == PLAYBOOK_THRIVEMODAL
+
+
+def _thrivemodal_context(cfg: dict = None) -> dict:
+    """The editable ThriveModal company context, field key -> value.
+
+    Missing/blank fields fall back to the shipped default EXCEPT the three
+    that must never be guessed (proof, pricing, forbidden-claims), whose
+    defaults are intentionally empty or hard bans."""
+    try:
+        cfg = load_config() if cfg is None else cfg
+    except Exception:
+        cfg = {}
+    out = {}
+    for key, _label, _help, default in THRIVEMODAL_PLAYBOOK_FIELDS:
+        val = str((cfg or {}).get(key, "") or "").strip()
+        out[key] = val if val else default
+    return out
+
+
 # ── Timezone handling ──────────────────────────────────────────────────────
 # Every user has a configured timezone (stored as `user_timezone` in their
 # config, e.g. "America/Los_Angeles"). Times are stored in the queue as
@@ -10368,6 +10935,188 @@ project portfolio, Six Sigma Green Belt, Denver-local<br><br>Both are
 passive but movable on the right pitch. Open to a 15-minute introduction
 call this week or next?
 """
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+#  THE SALES PLAYBOOK  -  the same rules, rewritten for a seller not a recruiter
+# ═══════════════════════════════════════════════════════════════════════════
+# Instances that sell a service or product rather than place people run with
+# DRIPDROP_BRAND_COPY=sales. The playbook above is the one thing that would
+# still make their AI write like a recruiter - it talks about candidates,
+# slates, fill windows and placements in every section. This is a
+# same-shape replacement: identical structure, identical format rules,
+# identical opening-line discipline, with the recruiting frame swapped for a
+# seller's. The offer itself is NOT hardcoded here; it comes from the brief
+# and from DRIPDROP_VALUE_PROPS, so one sales instance can sell staffing and
+# the next can sell software with no code change.
+#
+# The override at the bottom is deliberate. _DRIPDROP_PLAYBOOK is
+# concatenated into eight different prompt builders; rebinding the name once
+# reaches all eight without touching them. Every one of those reads happens
+# inside a function body at request time, so the rebind is already in effect
+# by the time any of them run. Arena never sees this: BRAND_COPY defaults to
+# "recruiting".
+
+_SALES_PLAYBOOK = """
+OUTREACH WRITING PLAYBOOK (follow these rules exactly for all email copy):
+
+IDENTITY:
+You are an operator who understands the recipient's business, not a vendor
+working a list. Every email should feel like a peer pointing out something
+useful about how they run their team, not a pitch asking for a meeting.
+You have an offer and you believe in it, but you lead with their situation
+and let the offer follow from it.
+
+FIRST EMAIL EXCEPTION (step 1 of a sequence ONLY):
+The "never lead with yourself" rule below does NOT apply to step 1.
+The FIRST email of every sequence must open with a soft, warm intro
+so the recipient knows who's contacting them and why they're relevant.
+Structure for step 1:
+  1. Greet with "Hi {FirstName},"
+  2. In 1-2 sentences, introduce the sender and what their company does
+     for customers like this one - use the company name from the BRIEF if
+     present, otherwise say "our team" - and name the specific problem
+     they solve, pulled from the BRIEF's offer, industry, or value props.
+     Example shape (substitute the BRIEF's own company, offer and market -
+     never these placeholders): "I work with [industry] teams at [company],
+     where we help them [specific outcome] without [the usual tradeoff]."
+  3. THEN transition to a substantive observation, question, cost/benefit
+     point, or customer result tied to the recipient's company, role,
+     market, or recent activity. Keep the email substantive beyond the
+     intro - don't let it become a generic introduction.
+  4. Close with a soft, low-friction CTA (a question to invite a reply,
+     OR an offer to send something useful - NOT "schedule a call" /
+     "book a meeting"). Still follow the CTA VARIETY rules below.
+
+Keep the warm-intro paragraph to 2-3 sentences max. The rest of the email
+still has real content (numbers, a customer outcome, a specific hook).
+The intro is a handshake, not the whole email.
+
+DO NOT add this warm intro to emails 2-N of a sequence. Those still
+follow the OPENING-LINE VARIETY rotation (DATA / EVENT / QUESTION /
+OBSERVATION / PROOF / CONTRARIAN). Re-introducing yourself in every
+email reads as spam.
+
+VOICE & TONE:
+- EVERY email body MUST start with "Hi {FirstName}," on its own line.
+  This is a merge variable that gets replaced with the recipient's name.
+  Never skip the greeting. Never use a different greeting format.
+- After the greeting, lead with an observation, a number, or something
+  about THEIR business. Never lead with yourself, your company, or your
+  product.
+- Sound like a colleague sharing a useful read on their situation, not a
+  vendor trying to close a deal.
+- Give specific numbers in narrative form: "about $70,000 a year once you
+  load benefits" not "$70K-$75K loaded".
+- Reference the target company's real operations, growth, locations or
+  recent moves by name.
+- Each email has ONE clear purpose. Do not combine multiple topics.
+- Keep it 2-4 short paragraphs. Bullets should be concise single lines.
+- Do NOT include any sign-off, closing, or name at the end of the email.
+  No "Best,", no "Thanks,", no sender name. The user's email signature
+  is automatically appended at send time. Just end with the last sentence.
+
+OPENING-LINE VARIETY (CRITICAL for multi-email sequences):
+The first sentence after "Hi {FirstName}," must use a DIFFERENT opening
+pattern in every email of a campaign. Rotate across these six; NEVER
+repeat the same pattern inside one sequence:
+
+  [DATA] Lead with a specific number or cost from the BRIEF.
+    Example: "A back-office seat in Chicago runs about $68,000 loaded
+    before you count the desk, the software, or the ramp."
+
+  [EVENT] Lead with a recent named event from the BRIEF (expansion,
+    contract win, new location, funding, leadership change, hiring push).
+    Example: "Saw the Columbus terminal announcement, the kind of move
+    that usually adds four or five support seats before the quarter ends."
+
+  [QUESTION] Lead with a direct question tied to a decision the reader
+    is likely facing this quarter.
+    Example: "Quick question, when your team is a person short for six
+    weeks, who actually absorbs the work?"
+
+  [OBSERVATION] Surface a dynamic the reader probably has not noticed.
+    Phrase as something subtle that just shifted.
+    Example: "Something quiet changed in back-office cost this year, the
+    gap between hiring locally and hiring offshore roughly doubled."
+
+  [PROOF] Lead with a concrete customer outcome or result. Use the
+    value props, case results, or customer stories from the BRIEF.
+    Example: "One freight brokerage we work with runs their entire
+    after-hours track and trace desk for less than one local hire."
+
+  [CONTRARIAN] Challenge a common default assumption.
+    Example: "Most teams treat an open seat as a hiring problem. It is
+    usually a capacity problem, and those have faster fixes."
+
+NEVER use these worn-out openers (they signal mass outreach):
+- "I wanted to share" / "I wanted to reach out" / "I wanted to connect"
+- "I'm reaching out" / "Hope you are well" / "Hope this finds you well"
+- "Just checking in" / "Quick note to follow up" / "Bumping this up"
+- "As a follow-up" / "A quick [topic] insight" - too generic.
+
+PERSONALIZATION (what makes this not a blast):
+- Name something real about the company: a location, a service line, a
+  recent win, a job posting, a growth signal. One specific detail beats
+  three generic compliments.
+- Tie the offer to THEIR shape of problem, not to your feature list.
+- If the BRIEF gives you industry data, use the actual figures. Never
+  invent a statistic, a customer name, or a result. If you do not have a
+  number, make the point without one.
+- Never claim the sender has already worked with this company, already
+  spoke with them, or was referred by someone, unless the BRIEF says so.
+
+CTA VARIETY:
+Rotate the ask across the sequence. Do not put "worth a quick call?" at
+the bottom of every email. Use, in some order:
+- A question that can be answered in one line.
+- An offer to send something concrete (a cost breakdown, a one-pager, a
+  comparison) - but ONLY if the sequence actually attaches or can send it.
+- A soft check on timing or fit.
+- A specific, low-commitment intro call ask - once, and late.
+- A genuine breakup with no guilt and an open door.
+
+NEVER DO THESE:
+- Never fabricate a customer, a number, a savings figure or a case study.
+- Never say "as I mentioned" in an email where you did not mention it.
+- Never stack three CTAs in one email.
+- Never write a subject line in title case or with an exclamation mark.
+- Never use em dashes or en dashes anywhere. Use a comma or a period.
+- Never open with your company name.
+- Never send a wall of text. If a paragraph runs past four lines, split it.
+
+SEQUENCE ARCHITECTURE (what each touch is FOR):
+  Touch 1 - Warm intro plus one substantive hook. Establish who you are
+    and why this company. Soft ask.
+  Touch 2 - Cost or capacity angle. Put a number on the problem they
+    already have. No new pitch.
+  Touch 3 - Proof. A customer outcome, a result, or the value props from
+    the BRIEF, framed as evidence rather than as a brochure.
+  Touch 4 - Reframe. Come at it from a different angle entirely, as if
+    the first three had never landed. Often the best-performing email.
+  Touch 5 - Handle the objection they are silently holding (price, risk,
+    control, switching cost, "we tried this before").
+  Touch 6 - Direct, confident, specific ask. This is where the call
+    request belongs.
+  Touch 7 - Breakup. Short, warm, no guilt, door left open.
+
+FORMAT RULES (STRICT):
+- Bodies are plain HTML. Use <b> for emphasis, <br> for line breaks, and
+  bullet lines that begin with a bullet character. No markdown, no
+  headings, no tables, no inline CSS, no <div>, no emoji.
+- Subject lines are lowercase-leaning, under 50 characters, and never
+  contain the recipient's company name twice.
+- No em dashes, no en dashes, no double hyphens anywhere in subject or body.
+- Merge variables that are safe to use: {FirstName}, {Company}. Do not
+  invent new ones.
+- End with the last sentence of content. No signature, no name.
+"""
+
+
+# Sales instances get the seller's voice everywhere the recruiting playbook
+# was used. One rebind, eight prompt builders, zero call-site edits.
+if BRAND_COPY == "sales":
+    _DRIPDROP_PLAYBOOK = _SALES_PLAYBOOK
 
 
 # ─── Prompt injection defenses ────────────────────────────────────────────
@@ -13002,6 +13751,42 @@ PAGE_HELP = {
         ]
     },
 }
+
+
+if _SALES_MODE:
+    # This instance offers a different set of documents (see PDF_TYPES), so
+    # the parts of the Sales Assets entry that name them are swapped out
+    # here rather than threaded through the dict literal above. summary and
+    # next_action are the two fields the lightbulb tooltip actually renders;
+    # the sections are kept accurate as the documented source of truth.
+    _pdf_help = PAGE_HELP["pdf_gen"]
+    _pdf_help["summary"] = (
+        "Branded PDFs you can attach to outreach emails \u2014 Market Pulse, "
+        "Salary Guide, Cost and ROI One-Pager, and more."
+    )
+    _pdf_help["next_action"] = (
+        "Enter a company or market, a location, and the roles or teams it "
+        "concerns, then pick the documents you want."
+    )
+    _pdf_sales_help = {
+        "How to Use": (
+            "1. Enter a company name or market, location, and the roles or "
+            "teams the document concerns.\n2. Pick up to 3 document types.\n"
+            "3. 'View PDF' to open.\n4. 'Clear / New PDF' to start another."
+        ),
+        "PDF Types": (
+            "- Market Pulse: 60-second market snapshot + comp and trends.\n"
+            "- Salary Guide: Comp ranges + what's driving pay.\n"
+            "- Cost and ROI One-Pager: What their approach costs today vs "
+            "yours, and when it pays for itself.\n"
+            "- Client Case Study: A representative engagement \u2014 the "
+            "situation, the timeline, the measured result.\n"
+            "- Create Your Own: Free-form + 15 ready-made ideas."
+        ),
+    }
+    _pdf_help["sections"] = [
+        (_t, _pdf_sales_help.get(_t, _b)) for _t, _b in _pdf_help["sections"]
+    ]
 
 
 def _show_page_help(s: AppState, rf, page_key: str):
@@ -19964,6 +20749,102 @@ CHOOSER_OPTIONS = [
     },
 ]
 
+# Tiles that need a candidate pipeline behind them: two of them open ATS
+# pages outright, and the three slate plays have nothing to put on a slate.
+# A sales instance (DRIPDROP_ATS_ENABLED=0) shows the other four - Target a
+# Company, Target a Market, Saved Campaigns, Build from scratch. Arena runs
+# with ATS on, so it still sees all nine, in the original order.
+_CHOOSER_RECRUITING_KEYS = frozenset({
+    "candidate", "mpc", "fourbyfour", "fivebyfive", "fivebythree",
+})
+
+# The ThriveModal chooser. Same card shape as CHOOSER_OPTIONS, but organised by
+# SALES OBJECTIVE rather than by cadence: the seller picks what they are trying
+# to do. Find Candidates, Start with an MPC, Arena 4x4 / 5x5 / 5x3 are absent by
+# construction - they stay fully intact for the ARENA playbook, which still uses
+# CHOOSER_OPTIONS untouched. Saved Campaigns and Build from scratch are carried
+# over verbatim so both playbooks keep the same two escape hatches.
+#
+# Every tm_* card lands on aicb_wizard_step 1 WITHOUT presetting
+# aicb_target_mode, so "named company or market segment" is asked inside
+# campaign setup (the wizard already owns that question) rather than being
+# baked into the tile the way the ARENA tiles do it.
+_TM_CHOOSER_OBJECTIVES = [
+    {
+        "key": "tm_conversation",
+        "icon": "💬",
+        "title": "Start a Conversation",
+        "subtitle": "Cold open on a company or a segment",
+        "desc": ("Five emails, one call and one LinkedIn touch over about two "
+                 "and a half weeks. Opens on something true about their "
+                 "business, moves to the shape of the role offshore support "
+                 "would cover, and closes cleanly. No candidate needed."),
+        "best_for": ["Cold outreach", "Named accounts", "Market segments"],
+        "border": "#14B8A6",
+    },
+    {
+        "key": "tm_hiring_signal",
+        "icon": "📡",
+        "title": "Respond to a Hiring Signal",
+        "subtitle": "They just posted a role or announced growth",
+        "desc": ("Reaches them while the need is live. Frames the offshore "
+                 "option against the role they are already trying to fill, "
+                 "and splits it into what goes offshore and what stays."),
+        "best_for": ["Job-post triggers", "Expansion news", "New locations"],
+        "border": "#F97316",
+    },
+    {
+        "key": "tm_meeting_followup",
+        "icon": "🤝",
+        "title": "Follow Up After a Meeting",
+        "subtitle": "For a prospect you have actually spoken with",
+        "desc": ("Recaps what was discussed, confirms the role requirements, "
+                 "and moves toward a shortlist. The only sequence that "
+                 "references a prior conversation, because here there was one."),
+        "best_for": ["Post-discovery", "After an intro call", "Requirements"],
+        "border": "#8B5CF6",
+    },
+    {
+        "key": "tm_reengage",
+        "icon": "🔄",
+        "title": "Re-engage a Prospect",
+        "subtitle": "Accounts that went quiet",
+        "desc": ("Comes back from a different angle instead of repeating the "
+                 "original pitch. No 'just circling back', no invented prior "
+                 "exchange, and an easy way for them to say not now."),
+        "best_for": ["Closed-lost", "Stalled deals", "Went dark"],
+        "border": "#EF4444",
+    },
+    {
+        "key": "tm_stay_in_touch",
+        "icon": "🌱",
+        "title": "Stay in Touch",
+        "subtitle": "Right account, wrong moment",
+        "desc": ("One useful touch every couple of weeks over nine weeks, each "
+                 "from a different angle, ending with a genuine door-open "
+                 "close. No newsletter promise, no ongoing-send commitment."),
+        "best_for": ["Long cycles", "Not-now accounts", "Relationships"],
+        "border": "#60A5FA",
+    },
+    {
+        "key": "tm_grow_client",
+        "icon": "📈",
+        "title": "Grow an Existing Client",
+        "subtitle": "Add a seat or a second function",
+        "desc": ("Written to an existing relationship, not to a prospect. "
+                 "Focused on the next seat and the next constrained function "
+                 "instead of re-selling the company."),
+        "best_for": ["Account expansion", "Second seat", "New department"],
+        "border": "#10B981",
+    },
+]
+
+# Objective cards first, then the two shapes that are not objectives at all.
+TM_CHOOSER_OPTIONS = _TM_CHOOSER_OBJECTIVES + [
+    opt for opt in CHOOSER_OPTIONS if opt["key"] in ("saved", "scratch")
+]
+
+
 def _sq_pick(s, rf):
     """Landing: pick a sequence type  -  legacy-style big cards then into content."""
 
@@ -19973,7 +20854,10 @@ def _sq_pick(s, rf):
         # autosave continues silently in the background; in-progress
         # wizards now surface under the "Drafts & Saved" card instead
         # of a separate top-of-page banner.
-        ui.label("Choose a Sequence Type").style(
+        # Resolve the workspace playbook ONCE per render. A workspace that
+        # never chose one resolves to ARENA, i.e. exactly today's chooser.
+        _pb_tm = _is_thrivemodal()
+        ui.label("Choose a Campaign Objective" if _pb_tm else "Choose a Sequence Type").style(
             f"font-size:20px;font-weight:700;color:{C['text_l']};margin-bottom:8px;"
             f"font-family:'Nunito',sans-serif;")
         ui.label(
@@ -19985,24 +20869,57 @@ def _sq_pick(s, rf):
         ).style(
             f"font-size:13px;color:{C['muted']};margin-bottom:6px;line-height:1.55;")
         ui.label(
-            "Going to a single company? Pick Target a Company. "
-            "Working a vertical or region? Target a Market. "
-            "Working a specific role? Find Candidates. "
-            "Re-running something that worked? Saved Campaigns. "
-            "Want full manual control? Build from scratch."
+            # Same hint, minus the sentence pointing at a tile this
+            # instance does not show.
+            ("Pick the objective that matches where this account already is. "
+             "The next page asks whether you're going after one named company "
+             "or a whole market segment. "
+             "Re-running something that worked? Saved Campaigns. "
+             "Want full manual control? Build from scratch.")
+            if _pb_tm else
+            ("Going to a single company? Pick Target a Company. "
+             "Working a vertical or region? Target a Market. "
+             "Re-running something that worked? Saved Campaigns. "
+             "Want full manual control? Build from scratch.")
+            if _SALES_MODE else
+            ("Going to a single company? Pick Target a Company. "
+             "Working a vertical or region? Target a Market. "
+             "Working a specific role? Find Candidates. "
+             "Re-running something that worked? Saved Campaigns. "
+             "Want full manual control? Build from scratch.")
         ).style(
             f"font-size:12px;color:{C['muted']};margin-bottom:24px;line-height:1.55;"
             f"font-style:italic;")
 
         with ui.element("div").style("display:flex;flex-direction:column;gap:10px;max-width:860px;"):
-            for opt in CHOOSER_OPTIONS:
+            for opt in (TM_CHOOSER_OPTIONS if _pb_tm else CHOOSER_OPTIONS):
                 key = opt["key"]
+                if _SALES_MODE and not _pb_tm and key in _CHOOSER_RECRUITING_KEYS:
+                    continue
                 def _pick(k=key):
-                    if k == "client":
+                    if k in _TM_TYPE_KEYS:
+                        # The tile IS the style choice, so lock it - but do NOT
+                        # preset aicb_target_mode. Landing on wizard step 1
+                        # (rather than step 2, the way the ARENA tiles do) hands
+                        # the "named company vs market segment" question to the
+                        # wizard's own picker, which already validates it.
+                        s._nav_history.append(_nav_snapshot(s))
+                        _reset_wizard_state(s)
+                        s._chooser_origin = k
+                        s.aicb_camp_type = k
+                        s.aicb_style_locked = True
+                        s.sp = "ai_campaign"
+                        s.aicb_step = 1
+                        s.aicb_wizard_step = 1
+                        s.aicb_type_picked = True
+                        s.aicb_contacts = []
+                    elif k == "client":
                         s._nav_history.append(_nav_snapshot(s))
                         _reset_wizard_state(s)
                         s._chooser_origin = "client"
-                        s.aicb_camp_type = "blitz"
+                        # blitz opens with a candidate snapshot, so a sales
+                        # instance gets the equivalent named-account arc.
+                        s.aicb_camp_type = "offerled" if _SALES_MODE else "blitz"
                         s.sp = "ai_campaign"
                         s.aicb_step = 1
                         # Chooser already asked "client vs market" — pre-set
@@ -20017,7 +20934,9 @@ def _sq_pick(s, rf):
                         s._nav_history.append(_nav_snapshot(s))
                         _reset_wizard_state(s)
                         s._chooser_origin = "market"
-                        s.aicb_camp_type = "talentdrop"
+                        # talentdrop markets a candidate slate to a segment;
+                        # the sales read of a market sweep is the sprint.
+                        s.aicb_camp_type = "salessprint" if _SALES_MODE else "talentdrop"
                         s.sp = "ai_campaign"
                         s.aicb_step = 1
                         # Same logic as 'client' — chooser already covered
@@ -24879,7 +25798,9 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
         # the count dropdown — the recommendations are the "what to
         # feature" question; the count is just "how many." Putting the
         # specific guidance first reads more naturally.
-        with ui.element("div").style("display:flex;align-items:center;gap:6px;margin-bottom:4px;"):
+        _spot_hdr = ui.element("div").style(
+            "display:flex;align-items:center;gap:6px;margin-bottom:4px;")
+        with _spot_hdr:
             ui.label("Candidate Spotlights").classes("fd-fl").style("margin:0;")
             with ui.element("span").style(
                     f"display:inline-flex;align-items:center;justify-content:center;"
@@ -25007,7 +25928,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
         # for both.
         def _upd_spot_mode():
             _mode = (_spot_mode.value if _spot_mode is not None else "ai")
-            _ai_box.set_visibility(_mode == "ai")
+            _ai_box.set_visibility(_mode == "ai" and not _SALES_MODE)
             _pipe_box.set_visibility(_mode == "pipeline")
         if _spot_mode is not None:
             _spot_mode.on_value_change(lambda _e=None: _upd_spot_mode())
@@ -25018,11 +25939,20 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
         # issue with zero candidate cards would contradict its own
         # headline. "None" was dropped 2026-05-16 alongside the
         # section-reorder redesign.
-        ui.label("How many per issue").style(
-            f"font-size:10px;color:{C['muted']};margin-bottom:4px;display:block;"
-            f"text-transform:uppercase;letter-spacing:.06em;font-weight:700;")
-        _spotlight_options = {3: "3 per issue", 6: "6 per issue"}
-        spotlight_in = ui.select(options=_spotlight_options, value=3).classes("fd-input").style("margin-bottom:12px;width:100%;")
+        _spot_count_box = ui.element("div")
+        with _spot_count_box:
+            ui.label("How many per issue").style(
+                f"font-size:10px;color:{C['muted']};margin-bottom:4px;display:block;"
+                f"text-transform:uppercase;letter-spacing:.06em;font-weight:700;")
+            _spotlight_options = {3: "3 per issue", 6: "6 per issue"}
+            spotlight_in = ui.select(options=_spotlight_options, value=3).classes("fd-input").style("margin-bottom:12px;width:100%;")
+
+        # Sales instance: nothing in this section applies, so the whole
+        # thing goes away. The widgets are still built (the save handler
+        # reads spotlight_in) and just never shown.
+        if _SALES_MODE:
+            _spot_hdr.set_visibility(False)
+            _spot_count_box.set_visibility(False)
 
         # City Life toggle — when ON, every issue includes 2 local city
         # blurbs (food, sports, neighborhood, development) under the
@@ -25216,6 +26146,8 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             # requires candidate cards to exist; "None" was removed.
             if _spotlight_count not in (3, 6):
                 _spotlight_count = 3
+            if _SALES_MODE:
+                _spotlight_count = 0
             _show_city_life = bool(city_life_in.value)
             # AI and Pipeline paths are mutually exclusive — save only the
             # active fork's data so a candidate picked then switched away from
@@ -25378,37 +26310,44 @@ def _edit_newsletter_settings_dialog(camp: dict, s, rf) -> None:
         # Order: recommendations BEFORE count (matches the Create
         # dialog). The recommendations are the specific question;
         # count is just "how many."
-        ui.label("Candidate Spotlights").classes("fd-fl")
-        ui.label("Spotlight Recommendations (optional)").style(
-            f"font-size:10px;color:{C['muted']};margin-top:6px;display:block;"
-            f"text-transform:uppercase;letter-spacing:.06em;font-weight:700;")
-        ui.label(
-            "Tell AI which titles, seniority levels, or specialties to "
-            "feature in the candidate spotlights each issue. Leave blank "
-            "for AI's pick."
-        ).style(
-            f"font-size:10px;color:{C['muted']};margin-bottom:4px;")
-        _recs_in = ui.textarea(
-            value=_cur_recs,
-            placeholder=(
-                "e.g. Focus on Senior Project Managers, Estimators, and "
-                "Superintendents with healthcare or OSHPD experience. "
-                "Skip junior or field roles."
-            ),
-        ).style(
-            f"width:100%;min-height:80px;background:{C['surface']};"
-            f"border:1px solid {C['border']};border-radius:6px;"
-            f"padding:8px 10px;color:{C['text_l']};font-size:12px;"
-            f"font-family:inherit;resize:vertical;margin-bottom:12px;")
+        # Wrapped in one div so a sales instance (no candidate pipeline,
+        # so no spotlights) can hide the entire section in one call while
+        # the widgets below still exist for _save() to read.
+        _spot_box = ui.element("div")
+        with _spot_box:
+            ui.label("Candidate Spotlights").classes("fd-fl")
+            ui.label("Spotlight Recommendations (optional)").style(
+                f"font-size:10px;color:{C['muted']};margin-top:6px;display:block;"
+                f"text-transform:uppercase;letter-spacing:.06em;font-weight:700;")
+            ui.label(
+                "Tell AI which titles, seniority levels, or specialties to "
+                "feature in the candidate spotlights each issue. Leave blank "
+                "for AI's pick."
+            ).style(
+                f"font-size:10px;color:{C['muted']};margin-bottom:4px;")
+            _recs_in = ui.textarea(
+                value=_cur_recs,
+                placeholder=(
+                    "e.g. Focus on Senior Project Managers, Estimators, and "
+                    "Superintendents with healthcare or OSHPD experience. "
+                    "Skip junior or field roles."
+                ),
+            ).style(
+                f"width:100%;min-height:80px;background:{C['surface']};"
+                f"border:1px solid {C['border']};border-radius:6px;"
+                f"padding:8px 10px;color:{C['text_l']};font-size:12px;"
+                f"font-family:inherit;resize:vertical;margin-bottom:12px;")
 
-        # Count dropdown — comes after recommendations.
-        ui.label("How many per issue").style(
-            f"font-size:10px;color:{C['muted']};margin-bottom:4px;display:block;"
-            f"text-transform:uppercase;letter-spacing:.06em;font-weight:700;")
-        _count_in = ui.select(
-            options={3: "3 per issue", 6: "6 per issue"},
-            value=_cur_count,
-        ).classes("fd-input").style("margin-bottom:14px;width:100%;")
+            # Count dropdown — comes after recommendations.
+            ui.label("How many per issue").style(
+                f"font-size:10px;color:{C['muted']};margin-bottom:4px;display:block;"
+                f"text-transform:uppercase;letter-spacing:.06em;font-weight:700;")
+            _count_in = ui.select(
+                options={3: "3 per issue", 6: "6 per issue"},
+                value=_cur_count,
+            ).classes("fd-input").style("margin-bottom:14px;width:100%;")
+        if _SALES_MODE:
+            _spot_box.set_visibility(False)
 
         # City Life toggle
         with ui.element("div").style("display:flex;align-items:center;gap:8px;margin-bottom:18px;"):
@@ -25421,6 +26360,8 @@ def _edit_newsletter_settings_dialog(camp: dict, s, rf) -> None:
                 _new_count = 3
             if _new_count not in (3, 6):
                 _new_count = 3
+            if _SALES_MODE:
+                _new_count = 0
             camp["newsletter_spotlight_count"] = _new_count
             camp["newsletter_spotlight_recommendations"] = (_recs_in.value or "").strip()
             camp["newsletter_show_city_life"] = bool(_city_in.value)
@@ -31683,11 +32624,15 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
         "- Voice is strategic, authoritative, helpful. You are the market expert "
         "giving the client a one-page advantage. You are NOT writing a job "
         "description, a training plan, or a staffing-firm playbook.\n"
-        "- Frame every section in terms of business outcomes the CLIENT cares "
-        "about — fill rate, time-to-fill, retention, quality of hire, revenue "
-        "enabled by the hire, risk reduced — not internal ops the role-doer "
-        "performs day-to-day.\n"
-        "\nDO NOT:\n"
+        + ("- Frame every section in terms of business outcomes the CLIENT "
+           "cares about — cost, capacity, risk, speed, revenue enabled — "
+           "not internal process detail.\n"
+           if _SALES_MODE else
+           "- Frame every section in terms of business outcomes the CLIENT cares "
+           "about — fill rate, time-to-fill, retention, quality of hire, revenue "
+           "enabled by the hire, risk reduced — not internal ops the role-doer "
+           "performs day-to-day.\n")
+        + "\nDO NOT:\n"
         "- Use procedural / ops language: 'build a sourcing pipeline', "
         "'document sourcing channel effectiveness', 'establish weekly touchpoints', "
         "'develop standard operating procedures', 'attend weekly jobsite visits'. "
@@ -31826,6 +32771,63 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"replacement guarantees, no-fee-until-start, outcome-based pricing.\n"
             f"  5. heading 'When to Use a Staffing Partner' — type 'qa' — 3 Q&A pairs covering: when we add "
             f"the most value; when in-house is better; how engagements typically start. 2-3 sentences each.\n"
+        )
+
+    elif kind == "roi_case":
+        body = (
+            f"Build a rich one-page cost and ROI case for the decision-maker at {company} "
+            f"({industry_str}, {location}) on what {_prep_company} sells.\n"
+            f"\nTHE OFFER AND ITS PROOF POINTS — use these, do not invent others:\n"
+            f"{_4X4_VALUE_PROPS}\n"
+            f"\nREQUIRED SECTIONS:\n"
+            f"  1. heading 'What the Current Approach Costs' — type 'paragraph' — 4-5 "
+            f"sentences putting a real number on what {company} spends today on the problem "
+            f"this offer solves. Load the figure properly: salary plus benefits, taxes and "
+            f"overhead if it is a headcount cost; licence plus rollout plus the hours it burns "
+            f"if it is a systems cost. Name the source of any figure you cite.\n"
+            f"  2. heading 'Side by Side' — type 'table' — header + 4-5 data rows. "
+            f"Columns: ['Cost Category','Current Approach','With {_prep_company}','Annual Difference']. "
+            f"Every cell is a concrete dollar figure or a hard number, never 'varies' or 'lower'.\n"
+            f"  3. heading 'Payback and Risk' — type 'bullets' — 4 bullets, each ~2 "
+            f"sentences: when the spend pays for itself, what is committed up front, what "
+            f"happens if it does not work, and how quickly it can be unwound.\n"
+            f"  4. heading 'What You Actually Get' — type 'bullets' — 3 bullets drawn "
+            f"from the proof points above. Each states the outcome to {company}, not the feature.\n"
+            f"  5. heading 'Questions Buyers Ask' — type 'qa' — 3 Q&A pairs on price, "
+            f"quality, and how an engagement starts. 2-3 sentences each.\n"
+        )
+
+    elif kind == "case_study":
+        body = (
+            f"Build a rich one-page engagement profile {_prep_company} can send to "
+            f"{company} ({industry_str}, {location}), showing how the offer plays out for a "
+            f"company that looks like theirs.\n"
+            f"\nTHE OFFER AND ITS PROOF POINTS — use these, do not invent others:\n"
+            f"{_4X4_VALUE_PROPS}\n"
+            f"\nHONESTY RULES — these override everything else:\n"
+            f"  - You do NOT have a real named customer. Never invent a company name, a "
+            f"person's name, a quote, or a logo-worthy reference.\n"
+            f"  - Describe the customer by shape only: 'a 60-truck regional carrier', "
+            f"'a 12-person accounting practice'. Pick a shape close to {company}.\n"
+            f"  - The intro MUST say in plain words that this is a representative engagement "
+            f"profile built from typical results, not a named customer reference.\n"
+            f"  - Every number must come from the proof points above or from cited public "
+            f"market data. If you do not have a number, make the point without one.\n"
+            f"\nREQUIRED SECTIONS:\n"
+            f"  1. heading 'The Situation' — type 'paragraph' — 4-5 sentences on the "
+            f"starting position: what the team was carrying, what it was costing, and what "
+            f"made it urgent. Written so a reader at {company} recognises their own week in it.\n"
+            f"  2. heading 'Before and After' — type 'table' — header + 4-5 data rows. "
+            f"Columns: ['Measure','Before','After','Change']. Cover cost, coverage or capacity, "
+            f"turnaround time, and one quality measure.\n"
+            f"  3. heading 'How It Came Together' — type 'bullets' — 4 bullets walking "
+            f"the timeline from first conversation to steady state, each with the elapsed time.\n"
+            f"  4. heading 'What Made the Difference' — type 'bullets' — 3 bullets, each "
+            f"~2 sentences, on the specific things that drove the result rather than the "
+            f"general benefits of the category.\n"
+            f"  5. heading 'What This Would Look Like at {company}' — type 'qa' — 3 Q&A "
+            f"pairs on where {company} would start, what the first 30 days involve, and what "
+            f"would have to be true for it to work. 2-3 sentences each.\n"
         )
 
     elif kind == "tenure_snapshot":
@@ -36378,6 +37380,15 @@ def p_ai_campaign(s: AppState, rf):
             bool(getattr(s, "aicb_style_locked", False))
             and (getattr(s, "aicb_camp_type", "") or "") == "fourbyfour"
         )
+        # A sales instance has no candidate pipeline, so the Candidates
+        # step (4) has nothing to collect and is dropped from the flow the
+        # same way a locked style drops step 5. Runs BEFORE the locked-style
+        # guard below so a stale step 4 walks 4 -> 5 -> 6 correctly. Arena
+        # keeps ATS on, so _SALES_MODE is False and none of this fires.
+        if _SALES_MODE and _wiz_step == 4:
+            _wiz_step = 5
+            s.aicb_wizard_step = 5
+
         # Defensive: the Campaign Style step doesn't exist in a locked flow,
         # so never let a locked session render on it (e.g. stale wizard_step).
         if _style_locked and _wiz_step == 5:
@@ -36513,6 +37524,8 @@ def p_ai_campaign(s: AppState, rf):
                     ui.notify("Pick a sequence style.", type="warning")
                     return
             _nxt = min(6, _wiz_step + 1)
+            if _SALES_MODE and _nxt == 4:  # skip Candidates step
+                _nxt = 5
             if _style_locked and _nxt == 5:  # skip Campaign Style step
                 _nxt = 6
             s.aicb_wizard_step = _nxt
@@ -36604,6 +37617,9 @@ def p_ai_campaign(s: AppState, rf):
                 (5, "Campaign style"),
                 (6, "Review & generate"),
             ]
+            # No candidate pipeline on a sales instance -> no Candidates pill.
+            if _SALES_MODE:
+                _steps = [st for st in _steps if st[0] != 4]
             # When the style is locked by the entry tile (Arena 4×4), the
             # Campaign Style step is removed from the flow entirely.
             if _style_locked:
@@ -37684,7 +38700,8 @@ def p_ai_campaign(s: AppState, rf):
                 if _hide_4x4 and (s.aicb_camp_type or "") == "fourbyfour":
                     s.aicb_camp_type = "byos"
                 _src_types = [ct for ct in AICB_CAMPAIGN_TYPES
-                              if not (_hide_4x4 and ct[0] == "fourbyfour")]
+                              if not (_hide_4x4 and ct[0] == "fourbyfour")
+                              and _type_visible(ct[0])]
                 _all_types = [ct for ct in _src_types if ct[0] == "byos"] + \
                              [ct for ct in _src_types if ct[0] != "byos"]
                 for ckey, cname, cmeta, ccolor, cdesc, cbest, cseq in _all_types:
@@ -38561,6 +39578,8 @@ def p_ai_campaign(s: AppState, rf):
                     except Exception as ex:
                         print(f"[AICBWizard] next error: {ex}", flush=True)
                     _nxt = min(6, _wiz_step + 1)
+                    if _SALES_MODE and _nxt == 4:  # skip Candidates step
+                        _nxt = 5
                     if _style_locked and _nxt == 5:  # skip Campaign Style step
                         _nxt = 6
                     s.aicb_wizard_step = _nxt; rf()
@@ -38578,6 +39597,8 @@ def p_ai_campaign(s: AppState, rf):
                     _prev = max(1, _wiz_step - 1)
                     if _style_locked and _prev == 5:  # skip Campaign Style step
                         _prev = 4
+                    if _SALES_MODE and _prev == 4:  # skip Candidates step
+                        _prev = 3
                     s.aicb_wizard_step = _prev; rf()
 
                 with ui.element("div").style(
@@ -40360,6 +41381,25 @@ def p_pdf_gen(s: AppState, rf):
          C["email_col"], "📋"),
         ("why_staffing",    "Why Use a Staffing Firm", "The ROI case for working with you: hidden costs of DIY hiring, time-to-fill data, risk transfer.",
          C["indigo"], "🤝"),
+        ("roi_case",        "Cost and ROI One-Pager", "Put a number on it: what their current approach costs, what yours costs, and when it pays for itself.",
+         C["indigo"], "💵"),
+        ("case_study",      "Client Case Study",    "How this plays out for a company their size: the situation, the timeline, and the measured result.",
+         C["good"], "🏆"),
+    ]
+
+    # Three of these need a candidate behind them — there is nobody to
+    # interview, nobody to score, and no staffing case to make on an instance
+    # with the pipeline switched off. The two sales kinds are the reverse:
+    # noise on a staffing instance. This filters the PICKER only; every kind
+    # stays valid in _rich_pdf_prompt, so a PDF already generated under a
+    # hidden kind still opens, re-generates and attaches.
+    _PDF_RECRUITING_KINDS = frozenset({
+        "interview_guide", "scorecard", "why_staffing",
+    })
+    _PDF_SALES_KINDS = frozenset({"roi_case", "case_study"})
+    PDF_TYPES = [
+        t for t in PDF_TYPES
+        if t[0] not in (_PDF_RECRUITING_KINDS if _SALES_MODE else _PDF_SALES_KINDS)
     ]
 
     # Stage machine (2026-05-20): picker first, then form. The form used
@@ -54577,9 +55617,12 @@ def render_page(s: AppState, rf):
             if _show_back:
                 def _do_back():
                     if _in_aicb_wizard:
-                        s.aicb_wizard_step = max(
+                        _bprev = max(
                             1, _aicb_clamp_wizard_step(
                                 getattr(s, "aicb_wizard_step", 1)) - 1)
+                        if _SALES_MODE and _bprev == 4:  # skip Candidates step
+                            _bprev = 3
+                        s.aicb_wizard_step = _bprev
                         rf()
                     elif _in_loaded_camp_step:
                         try:
