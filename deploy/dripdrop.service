@@ -1,0 +1,18 @@
+[Unit]
+Description=DripDrop Sales Hub
+After=network.target
+
+[Service]
+Type=simple
+User=dripdrop
+Group=dripdrop
+WorkingDirectory=/opt/dripdrop/app
+Environment=DRIPDROP_DATA_DIR=/opt/dripdrop/data
+Environment=DRIPDROP_PORT=8080
+EnvironmentFile=/opt/dripdrop/.env
+ExecStart=/opt/dripdrop/venv/bin/python flowdrip_app.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
