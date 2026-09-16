@@ -233,13 +233,44 @@ then `Ctrl+X`. Then:
 systemctl restart dripdrop
 ```
 
-**Seed the do-not-contact list.** This instance starts with no memory of anyone.
-It does not know who unsubscribed from Arena, and it does not know which
-addresses already bounced there. Running both instances without doing this means
-you can email the same prospect from two companies in one week, or email someone
-who explicitly opted out. Export Arena's DNC entries and load them here first.
-The list accepts whole domains as `@company.com`, so you can also exclude
-accounts Arena is actively working, in one line each.
+**Seed the do-not-contact list. Do this before your first send, not after.**
+This instance starts with no memory of anyone. It does not know who unsubscribed
+from Arena, and it does not know which addresses already bounced there. Running
+both instances without reconciling them means you can email the same prospect
+from two companies in one week, or email someone who explicitly opted out.
+
+`deploy/dnc_transfer.py` does the move. It runs in two halves on two servers.
+**On Arena's server:**
+
+```
+cd /opt/dripdrop/app
+python3 deploy/dnc_transfer.py export --out /tmp/dnc-export.json
+```
+
+That reads only -- it changes nothing on Arena. Copy the file across from your
+own machine:
+
+```
+scp root@ARENA_IP:/tmp/dnc-export.json .
+scp dnc-export.json root@216.128.142.21:/tmp/
+```
+
+**Then on this server**, once you have logged in at least once (the import needs
+your user directory to exist, which is created at first login):
+
+```
+cd /opt/dripdrop/app
+python3 deploy/dnc_transfer.py import --in /tmp/dnc-export.json     --user mkvaughn1987@gmail.com
+systemctl restart dripdrop
+```
+
+Add `--dry-run` first if you want to see the count before it writes. The import
+only ever adds -- it backs up the existing list, never deletes an entry, and a
+second run adds nothing.
+
+The list also accepts whole domains as `@company.com`, so you can exclude
+accounts Arena is actively working, one line each, in **Settings -> Do Not
+Contact**.
 
 ---
 
