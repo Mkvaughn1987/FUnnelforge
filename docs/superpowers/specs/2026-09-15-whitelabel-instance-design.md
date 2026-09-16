@@ -105,7 +105,11 @@ dropped. An unset variable yields today's Arena value.
    which carries every variable below with the firm's domain already filled in:
    - `DRIPDROP_SECRET` — freshly generated, never reused from Arena's instance
    - `ANTHROPIC_API_KEY` — the firm's own key
-   - `DRIPDROP_INVITE_CODES`, `DRIPDROP_SUPER_ADMINS` — the firm's values
+   - `DRIPDROP_INVITE_CODES` — a fresh code. **Unset does not mean closed**:
+     the loader falls back to a code hardcoded into every build, Arena's
+     included, so an unset value lets anyone holding Arena's code register on
+     the firm's instance.
+   - `DRIPDROP_SUPER_ADMINS` — the firm's admin, plus Mike while he provisions
    - `GOOGLE_REDIRECT_URI`, `MS_REDIRECT_URI` — on `171.dripdripdrop.ai`
    - `DRIPDROP_ATS_DOMAINS`, `DRIPDROP_INTERNAL_DOMAINS` — the firm's email
      domain, `thrivemodal.com`. **Both must be set**, or the résumé extractor
