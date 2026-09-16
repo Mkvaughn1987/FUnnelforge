@@ -5584,6 +5584,15 @@ _TM_TYPE_KEYS = frozenset({
     "tm_conversation", "tm_hiring_signal", "tm_meeting_followup",
     "tm_reengage", "tm_stay_in_touch", "tm_grow_client",
 })
+# Shapes that carry no playbook-specific content: their step instructions say
+# "the sender's company" and name no offer, so they read correctly under either
+# playbook. This set exists so the ThriveModal branch below can be a positive
+# allowlist. Everything outside it and _TM_TYPE_KEYS is Arena content: offerled
+# and slowburn hardcode a replacement guarantee, an 80-90% fill rate, a two to
+# three week fill time and a $25,000 per-role comparison into their step
+# prompts, all of which the ThriveModal playbook bans outright, and a step
+# instruction beats the playbook because it is the more specific instruction.
+_PLAYBOOK_NEUTRAL_TYPE_KEYS = frozenset({"byos", "salessprint"})
 
 
 def _type_visible(key: str, playbook: str = None) -> bool:
@@ -5598,9 +5607,15 @@ def _type_visible(key: str, playbook: str = None) -> bool:
     """
     pb = playbook or _workspace_playbook()
     if pb == PLAYBOOK_THRIVEMODAL:
-        # Candidate-centric recruiting shapes have no meaning here: ThriveModal
-        # sells capacity, and the person is chosen by the client later.
-        return key not in _RECRUITING_TYPE_KEYS
+        # An ALLOWLIST, deliberately, not an exclusion list. Candidate-centric
+        # recruiting shapes have no meaning here (ThriveModal sells capacity,
+        # and the person is chosen by the client later), but excluding only
+        # those left the Arena SALES shapes visible, and their step prompts
+        # carry recruiting claims this playbook forbids. Allowing only what is
+        # known-good also means a sequence type added to Arena later cannot
+        # appear on a ThriveModal instance just because nobody remembered to
+        # exclude it.
+        return key in _TM_TYPE_KEYS or key in _PLAYBOOK_NEUTRAL_TYPE_KEYS
     # ARENA (the default, and what every pre-existing workspace resolves to).
     if key in _TM_TYPE_KEYS:
         return False

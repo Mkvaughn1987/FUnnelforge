@@ -781,3 +781,81 @@ def test_the_lock_is_carried_onto_the_box_by_the_env_sync():
     example = (root / "deploy" / "env.inboxslide.example").read_text(
         encoding="utf-8")
     assert "DRIPDROP_PLAYBOOK=thrivemodal" in example
+
+
+# ── 15. no Arena sequence content reaches a ThriveModal picker ─────────────
+# Excluding only the recruiting keys was not enough: the Arena SALES shapes
+# stayed visible, and two of them hardcode recruiting claims into their step
+# prompts. A step instruction is more specific than the playbook, so the
+# playbook's own ban does not save us here. The filter must.
+
+_ARENA_CLAIMS_BANNED_BY_THE_PLAYBOOK = (
+    "fill rate", "fill time", "replacement guarantee",
+    "replace them at no cost", "contingency", "candidate slate",
+    "$25,000", "25,000",
+)
+
+
+def test_no_thrivemodal_sequence_type_carries_a_banned_arena_claim():
+    offered = [ct for ct in fa.AICB_CAMPAIGN_TYPES
+               if fa._type_visible(ct[0], fa.PLAYBOOK_THRIVEMODAL)]
+    assert offered, "the ThriveModal picker cannot be empty"
+    for ct in offered:
+        blob = " ".join(str(p) for p in ct).lower()
+        for claim in _ARENA_CLAIMS_BANNED_BY_THE_PLAYBOOK:
+            assert claim not in blob, (
+                f"sequence type {ct[0]!r} is offered under ThriveModal and "
+                f"its content contains {claim!r}, which the ThriveModal "
+                f"playbook forbids outright")
+
+
+def test_the_arena_sales_shapes_are_not_offered_under_thrivemodal():
+    for k in ("offerled", "slowburn", "flood"):
+        assert fa._type_visible(k, fa.PLAYBOOK_THRIVEMODAL) is False
+
+
+def test_thrivemodal_visibility_is_an_allowlist_not_an_exclusion():
+    # The point of the allowlist: a sequence type added to Arena tomorrow
+    # must not appear on a ThriveModal instance by default.
+    assert fa._type_visible("some_future_arena_type",
+                            fa.PLAYBOOK_THRIVEMODAL) is False
+    allowed = {ct[0] for ct in fa.AICB_CAMPAIGN_TYPES
+               if fa._type_visible(ct[0], fa.PLAYBOOK_THRIVEMODAL)}
+    assert allowed == set(fa._TM_TYPE_KEYS) | set(fa._PLAYBOOK_NEUTRAL_TYPE_KEYS)
+
+
+def test_the_neutral_shapes_name_no_offer_of_their_own():
+    # These are the only non-ThriveModal shapes allowed through, so the
+    # reason they are safe has to keep being true: their steps describe a
+    # shape and refer to "the sender's company", never to an offer. Bare
+    # words are not the test, because salessprint's own copy says "No
+    # candidates, no slate", which is a negation and is exactly why it
+    # qualifies. What must never appear is an instruction to present one.
+    by_key = {ct[0]: ct for ct in fa.AICB_CAMPAIGN_TYPES}
+    for k in fa._PLAYBOOK_NEUTRAL_TYPE_KEYS:
+        assert k in by_key, f"{k} is allowlisted but not a real type"
+        blob = " ".join(str(p) for p in by_key[k]).lower()
+        for phrase in ("present a candidate", "candidate slate", "the slate",
+                       "attach a resume", "the resume", "a placement",
+                       "guarantee", "fill rate"):
+            assert phrase not in blob, (
+                f"{k} is treated as playbook-neutral but its content says "
+                f"{phrase!r}, which is an offer the ThriveModal playbook "
+                f"does not permit")
+
+
+def test_arena_instances_still_see_every_arena_shape():
+    # The whole change is env-gated: Arena's live picker must not move.
+    if not fa._SALES_MODE:
+        for k in ("flood", "fourbyfour", "talentdrop", "victorycard"):
+            assert fa._type_visible(k, fa.PLAYBOOK_ARENA) is True
+        for k in fa._SALES_TYPE_KEYS:
+            assert fa._type_visible(k, fa.PLAYBOOK_ARENA) is False
+
+
+def test_locked_thrivemodal_instance_offers_only_the_allowlist():
+    with _locked(fa.PLAYBOOK_THRIVEMODAL):
+        offered = {ct[0] for ct in fa.AICB_CAMPAIGN_TYPES
+                   if fa._type_visible(ct[0])}
+    assert "offerled" not in offered and "slowburn" not in offered
+    assert offered == set(fa._TM_TYPE_KEYS) | set(fa._PLAYBOOK_NEUTRAL_TYPE_KEYS)
