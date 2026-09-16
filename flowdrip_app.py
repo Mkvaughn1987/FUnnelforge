@@ -5598,6 +5598,68 @@ async def api_candidates_count(request: Request):
     })
 
 
+@app.get("/api/v1/candidates/search")
+async def api_candidates_search(request: Request):
+    """Search the key owner's Top Candidates pool by keyword (matches name,
+    target role, location, highlights, and resume text) and/or status.
+    Read-only. Query params: q (optional), status (active/placed/on_hold,
+    optional), limit (default 20, max 50)."""
+    from starlette.responses import JSONResponse
+    auth = request.headers.get("authorization", "")
+    key = (auth[7:].strip() if auth.lower().startswith("bearer ")
+           else request.headers.get("x-api-key", "").strip())
+    owner = _resolve_api_key(key)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _CURRENT_USER_EMAIL.set(owner)
+    try:
+        _switch_to_user_paths(owner)
+    except Exception:
+        pass
+
+    q = (request.query_params.get("q") or "").strip().lower()
+    status = (request.query_params.get("status") or "").strip().lower()
+    try:
+        limit = int(request.query_params.get("limit") or 20)
+    except ValueError:
+        limit = 20
+    limit = max(1, min(limit, 50))
+
+    pool = load_candidate_pool()
+
+    def _matches(c):
+        if status and (c.get("status") or "active") != status:
+            return False
+        if not q:
+            return True
+        haystack = " ".join([
+            c.get("name", "") or "",
+            c.get("target_role", "") or "",
+            c.get("location", "") or "",
+            " ".join(c.get("highlights") or []),
+            c.get("resume_text", "") or "",
+        ]).lower()
+        return q in haystack
+
+    matched = [c for c in pool if _matches(c)]
+    results = [{
+        "id": c.get("id"),
+        "name": c.get("name"),
+        "target_role": c.get("target_role"),
+        "location": c.get("location"),
+        "salary": c.get("salary"),
+        "status": c.get("status") or "active",
+        "highlights": c.get("highlights") or [],
+        "added_date": c.get("added_date"),
+    } for c in matched[:limit]]
+
+    return JSONResponse({
+        "total_matches": len(matched),
+        "returned": len(results),
+        "candidates": results,
+    })
+
+
 @app.post("/api/v1/campaigns")
 async def api_create_campaign(request: Request):
     """Create + launch an AICB campaign from a posted spec. Auth via a per-user
@@ -11294,23 +11356,34 @@ window.ddMaybeStartTour = function() {
 # Section dividers use page_key=None  -  sidebar renders them as labels, not buttons
 SALES_NAV = [
     # ── Home ─────────────────────────────────────
-    (None, "HOME",              None),
-    ("⬡",  "Dashboard",        "dashboard"),
-    ("☼",  "Today",             "drip"),
+    # Section header is "MY DAY" not "HOME" so it doesn't stutter against
+    # the "Home" row directly beneath it (2026-09-09).
+    (None, "MY DAY",            None),
+    ("⬡",  "Home",              "dashboard"),
+    ("☼",  "Today's Tasks",     "drip"),
     ("◎",  "Replies",           "responses"),
-    # ── Sequences ────────────────────────────────
-    (None, "SEQUENCES",         None),
-    ("▷",  "Start a Sequence",  "start_seq"),
-    ("📁", "Campaign Library",  "drafts_saved"),
+    # ── Campaigns ───────────────────────────────
+    # Renamed from SEQUENCES 2026-09-09 — the app says "campaign"
+    # everywhere else (top bar, Saved Campaigns copy), so the sidebar
+    # now matches. Page keys are unchanged; only labels moved.
+    (None, "CAMPAIGNS",         None),
+    ("▷",  "New Campaign",      "start_seq"),
+    # Current Campaigns (seq_mgr) was top-bar-only until 2026-09-09, which
+    # left it unreachable once the top bar collapses on mobile.
+    ("▶",  "Current Campaigns", "seq_mgr"),
+    ("📁", "Saved Campaigns",   "drafts_saved"),
     ("≡",  "Contacts",          "contacts"),
-    ("🚫", "Opt-Out List",     "dnc"),
-    ("🛡", "Existing Customers", "active_clients"),
+    ("🚫", "Do Not Contact",   "dnc"),
+    ("🛡", "Current Clients",  "active_clients"),
     # ── Content & Tools ──────────────────────────
     # Slow Drip removed from sidebar 2026-05-20 — now lives as a section
     # at the bottom of the Newsletters page (merged so users see both
     # always-on touch points in one place). The "evergreen" page handler
     # is still callable as a subsection from p_newsletters.
     (None, "CONTENT & TOOLS",   None),
+    # Newsletters was top-bar-only until 2026-09-09 — added here so the
+    # sidebar is a complete map of the app and survives on mobile.
+    ("📰", "Newsletters",       "newsletters"),
     ("📊", "Sales Assets",      "pdf_gen"),
     # "Candidates" (Top Candidates roster) removed from sidebar 2026-06-09 —
     # candidates now live in the ATS. The page handler stays callable.
@@ -12134,7 +12207,7 @@ def _seq_wizard_footer(s: AppState, rf, current_page: str, can_advance: bool = T
 
 PAGE_HELP = {
     "dashboard": {
-        "title": "Dashboard",
+        "title": "Home",
         "summary": "Your daily command center — overdue tasks, emails sending today, active campaigns, and recent replies, all on one screen.",
         "next_action": "Click any colored stat at the top to jump into that filtered list, or pick a campaign card to drill in.",
         "sections": [
@@ -12146,7 +12219,7 @@ PAGE_HELP = {
         ]
     },
     "drip": {
-        "title": "Today",
+        "title": "Today's Tasks",
         "summary": "Today's to-do list — every cold call, LinkedIn touch, and email task across your active campaigns, grouped by campaign.",
         "next_action": "Work through the list; click ✓ Done on each card or ✓ Mark All Done to clear a campaign group.",
         "sections": [
@@ -12158,7 +12231,7 @@ PAGE_HELP = {
         ]
     },
     "start_seq": {
-        "title": "Start a Sequence",
+        "title": "New Campaign",
         "summary": "Build a multi-step outreach campaign — pick contacts, write the emails, set delays, and queue.",
         "next_action": "Pick a preset on the right (Quick Sprint, Steady BD Cadence, etc.) or click Custom Build to build from scratch.",
         "sections": [
@@ -12167,11 +12240,11 @@ PAGE_HELP = {
             ("The 4 Steps", "Follow the sidebar:\n1. Emails  -  Write or edit each step.\n2. Sequence  -  Set delay between steps.\n3. Contacts  -  Upload or pick a CSV list.\n4. Launch  -  Review and queue."),
             ("AI Campaign Builder", "Click 'AI Campaign Builder' for a Claude-written full campaign after researching the target company."),
             ("Merge Variables", "{FirstName}, {LastName}, {Company}, {JobTitle} get replaced with each contact's info at send time."),
-            ("Unsubscribe Footer", "Every email auto-appends a 'Reply UNSUBSCRIBE to opt out' line + your company address (CAN-SPAM compliance). Replies with opt-out keywords auto-land in your Opt-Out List."),
+            ("Unsubscribe Footer", "Every email auto-appends a 'Reply UNSUBSCRIBE to opt out' line + your company address (CAN-SPAM compliance). Replies with opt-out keywords auto-land in your Do Not Contact list."),
         ]
     },
     "seq_mgr": {
-        "title": "Sequences",
+        "title": "Current Campaigns",
         "summary": "Every campaign you've launched — progress, sent counts, pending emails, contact status.",
         "next_action": "Click any campaign card to expand its emails, contacts, and queue. Pause or delete from there.",
         "sections": [
@@ -12188,7 +12261,7 @@ PAGE_HELP = {
         "sections": [
             ("What is this?", "Long-running campaigns on a fixed schedule. Enroll anytime  -  contacts pick up at the next upcoming email."),
             ("How It Works", "Regular campaigns start from Day 1 per contact. Slow Drips use fixed dates or rolling schedules. Contacts enrolled mid-sequence skip past emails."),
-            ("Enrolling Contacts", "'+ Enroll' on any campaign adds contacts from a saved CSV. Already-enrolled and Opt-Out List contacts are auto-skipped."),
+            ("Enrolling Contacts", "'+ Enroll' on any campaign adds contacts from a saved CSV. Already-enrolled and Do Not Contact contacts are auto-skipped."),
             ("Reply → Enroll Popup", "When you click Send Reply on a Responses page reply, a popup asks whether to enroll that contact in a Slow Drip or Newsletter. Keeps you in touch long-term."),
             ("Reminder Banner", "Amber banner shows emails sending in the next 7/14/30 days  -  review content before it ships."),
             ("Creating New", "'+ Create New Slow Drip Campaign' builds from scratch. Relative delays (Day 7, 14...) or fixed dates (May 1, June 1...)."),
@@ -12263,7 +12336,7 @@ PAGE_HELP = {
         ]
     },
     "dnc": {
-        "title": "Opt-Out List",
+        "title": "Do Not Contact",
         "summary": "Anyone here is auto-excluded from every campaign. Replies with \"unsubscribe\" auto-add.",
         "next_action": "Add an email manually, or upload a CSV of opt-outs.",
         "sections": [
@@ -13099,6 +13172,55 @@ def _show_requeue_dialog(s, rf, camp: dict, cname: str, pending_count: int):
                     ).on("click", _do_requeue):
                 ui.label("↻ Re-queue Now").style("pointer-events:none;")
     dlg.open()
+
+
+def _render_step_preview_inline(s, step: dict):
+    """Read-only preview of a sequence step's actual content, rendered
+    inline in the campaign detail table (expands the row in place rather
+    than opening a dialog)  -  the subject + rendered HTML body for email
+    steps, or the script/notes text for Call/LinkedIn/SMS/Task steps.
+    There's no persisted per-recipient 'as-sent' copy in the queue, so
+    this renders the step's current template with merge tags resolved
+    against the user's own identity  -  the same sample-data approach the
+    step editor's Preview Email uses."""
+    _stype = step.get("step_type", ST.EMAIL_AUTO) or ST.EMAIL_AUTO
+    _is_email = _stype in (ST.EMAIL_AUTO, ST.EMAIL_MANUAL)
+
+    if _is_email:
+        _pc = _preview_self_contact(s)
+        _subj = step.get("subject") or "(no subject)"
+        _body = step.get("body") or ""
+        for _k, _v in [("{FirstName}", _pc.get("first_name","[FirstName]")), ("{LastName}", _pc.get("last_name","[LastName]")),
+                       ("{Company}", _pc.get("company","[Company]")), ("{CompanyName}", _pc.get("company","[Company]")), ("{JobTitle}", _pc.get("title","[JobTitle]"))]:
+            _subj = _subj.replace(_k, _v)
+            _body = _body.replace(_k, _v)
+        ui.label("Subject").style(
+            f"font-size:11px;font-weight:700;text-transform:uppercase;"
+            f"letter-spacing:.05em;color:{C['muted']};margin-bottom:4px;")
+        ui.label(_subj).style(
+            f"font-size:14px;font-weight:600;color:{C['text_l']};margin-bottom:16px;")
+        if _body.strip():
+            with ui.element("div").style(
+                    "background:#ffffff;border:1px solid #E2E8F0;border-radius:10px;"
+                    "padding:20px 24px;font-family:'Segoe UI',Arial,sans-serif;"
+                    "box-shadow:0 1px 3px rgba(15,23,42,.07);"):
+                ui.html(_body)
+        else:
+            ui.label("This email has no body content yet.").style(
+                f"font-size:12px;color:{C['muted']};font-style:italic;")
+    else:
+        _label = {ST.CALL: "Call Script", ST.LINKEDIN: "LinkedIn Message",
+                  ST.SMS: "SMS Text", ST.TASK: "Task Notes"}.get(_stype, "Notes")
+        _notes = (step.get("script_notes") or "").strip()
+        ui.label(_label).style(
+            f"font-size:11px;font-weight:700;text-transform:uppercase;"
+            f"letter-spacing:.05em;color:{C['muted']};margin-bottom:8px;")
+        if _notes:
+            ui.label(_notes).style(
+                f"font-size:13px;color:{C['text_l']};line-height:1.6;white-space:pre-wrap;")
+        else:
+            ui.label("No notes added for this step yet.").style(
+                f"font-size:12px;color:{C['muted']};font-style:italic;")
 
 
 def _show_setup_gate_dialog(s, rf, setup: dict):
@@ -18627,7 +18749,7 @@ def p_seq(s: AppState, rf):
     _page_decor(variant=1)  # Flowing Ribbon  -  the main Start a Campaign picker
 
     with ui.element("div").style("display:flex;align-items:center;"):
-        ui.label("Start a Sequence").classes("fd-h1")
+        ui.label("New Campaign").classes("fd-h1")
         _show_page_help(s, rf, "start_seq")
 
     # ── Wizard header ────────────────────────────────────────────────────
@@ -18760,7 +18882,7 @@ CHOOSER_OPTIONS = [
     {
         "key": "saved",
         "icon": "📁",
-        "title": "Campaign Library",
+        "title": "Saved Campaigns",
         "subtitle": "Resume a draft or re-use a finished sequence",
         "desc": ("Pick up a draft you started earlier, or load a sequence "
                  "from your library. Swap in a fresh contact list and send. "
@@ -18806,7 +18928,7 @@ def _sq_pick(s, rf):
             "Going to a single company? Pick Target a Company. "
             "Working a vertical or region? Target a Market. "
             "Working a specific role? Find Candidates. "
-            "Re-running something that worked? Campaign Library. "
+            "Re-running something that worked? Saved Campaigns. "
             "Want full manual control? Build from scratch."
         ).style(
             f"font-size:12px;color:{C['muted']};margin-bottom:24px;line-height:1.55;"
@@ -18969,7 +19091,7 @@ def _sq_pick(s, rf):
     # ── INSIDE A TAB  -  back button + tab label ──────────────────────────────
     label_map = {
         "custom":    "Build from scratch",
-        "saved":     "Campaign Library",
+        "saved":     "Saved Campaigns",
         "community": "Community",
         "templates": "Templates",
     }
@@ -27345,76 +27467,82 @@ def p_dashboard(s: AppState, rf):
                 f"font-size:15px;font-weight:700;color:{C['text_l']};"
                 f"font-family:'Nunito',sans-serif;margin-bottom:12px;")
 
-            # Emails sending today
-            _today_q = [q for q in queue if q.get("status") == "pending"
-                        and q.get("send_dt", "").startswith(today_str)]
+            # Responses  -  headline stat + this-week list (interactive,
+            # same "I Responded" pattern as the full Replies page)
+            # NOTE: live replies are logged by ReplyMonitor with a "date" key;
+            # "replied_at" is only set by the add_responded() helper path, so
+            # both must be checked or "this week" silently comes back empty.
+            def _resp_date(r):
+                return r.get("date") or r.get("replied_at") or ""
+            _week_start_str = (today - timedelta(days=today.weekday())).strftime("%Y-%m-%d")
+            _week_recs = sorted(
+                (r for r in recs if _resp_date(r)[:10] >= _week_start_str),
+                key=_resp_date, reverse=True)
             with ui.element("div").style(
-                    f"background:{C['card']};border:1px solid {C['border']};"
-                    f"border-radius:10px;padding:14px 16px;margin-bottom:8px;"):
-                with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;"):
-                    ui.label(f"{len(_today_q)} emails sending today").style(
-                        f"font-size:13px;font-weight:600;color:{C['text_l']};")
-                    def _go_queue():
-                        nav_go(s, rf, hub="sales", page="queue")
-                    with ui.element("button").style(
-                            f"font-size:10px;color:{C['teal']};background:transparent;border:none;"
-                            f"cursor:pointer;font-family:inherit;").on("click", _go_queue):
-                        ui.label("Queue")
-                if _today_q:
-                    for _eq in _today_q[:3]:
-                        try:
-                            _t = datetime.fromisoformat(_eq["send_dt"]).strftime("%I:%M %p").lstrip("0")
-                        except Exception:
-                            _t = ""
-                        ui.label(f"{_t}  {_eq.get('contact_name', _eq.get('to',''))}").style(
-                            f"font-size:11px;color:{C['muted']};padding:2px 0;")
-                    if len(_today_q) > 3:
-                        ui.label(f"+{len(_today_q)-3} more").style(f"font-size:10px;color:{C['muted']};margin-top:2px;")
-                else:
-                    ui.label("No emails scheduled for today.").style(f"font-size:11px;color:{C['muted']};")
-
-            # Recent responses
-            _recent = recs[:4]
-            with ui.element("div").style(
-                    f"background:{C['card']};border:1px solid {C['border']};"
-                    f"border-radius:10px;padding:14px 16px;margin-bottom:8px;"):
-                with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;"):
-                    ui.label(f"{len(recs)} total responses").style(
-                        f"font-size:13px;font-weight:600;color:{C['text_l']};")
+                    f"background:{C['card']};border:1px solid {C['teal']};"
+                    f"border-radius:10px;padding:16px 18px;margin-bottom:8px;"):
+                with ui.element("div").style("display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;"):
+                    with ui.element("div").style("display:flex;align-items:baseline;gap:8px;"):
+                        ui.label(str(len(_week_recs))).style(
+                            f"font-size:30px;font-weight:800;color:{C['teal']};line-height:1;"
+                            f"font-family:'Nunito',sans-serif;")
+                        ui.label("responses this week").style(
+                            f"font-size:13px;font-weight:600;color:{C['text_l']};")
                     def _go_resp():
                         nav_go(s, rf, hub="sales", page="responses")
                     with ui.element("button").style(
-                            f"font-size:10px;color:{C['teal']};background:transparent;border:none;"
+                            f"font-size:11px;color:{C['teal']};background:transparent;border:none;"
                             f"cursor:pointer;font-family:inherit;").on("click", _go_resp):
                         ui.label("View all")
-                if _recent:
-                    for _r in _recent:
-                        ui.label(f"{_r.get('name', _r.get('email',''))}  -  {_r.get('campaign','')}").style(
-                            f"font-size:11px;color:{C['muted']};padding:2px 0;")
+                if _week_recs:
+                    for _r in _week_recs[:6]:
+                        _email = _r.get("email", "")
+                        _name = _r.get("name", _email)
+                        _fu = _r.get("followed_up", False)
+                        _body = (_r.get("reply_body") or "").strip()
+                        _body_key = f"dash_resp_body_{_email}"
+                        _body_open = _body_key in s.expanded
+                        with ui.element("div").style(
+                                f"padding:8px 0;border-top:1px solid {C['border']}30;"):
+                            with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;gap:8px;"):
+                                with ui.element("div").style("min-width:0;flex:1;"):
+                                    ui.label(_name).style(
+                                        f"font-size:12px;font-weight:600;color:{C['text_l']};"
+                                        f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
+                                    ui.label(_r.get("campaign", "")).style(
+                                        f"font-size:11px;color:{C['muted']};"
+                                        f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
+                                if not _fu:
+                                    def _mark(e=_email):
+                                        all_r = load_responded()
+                                        for x in all_r:
+                                            if x.get("email", "").lower() == e.lower():
+                                                x["followed_up"] = True
+                                        save_responded(all_r); rf()
+                                    with ui.element("button").classes("fd-pb").style(
+                                            "padding:4px 10px;font-size:10px;flex-shrink:0;").on("click", _mark):
+                                        ui.label("✓ I Responded").style("pointer-events:none;")
+                                else:
+                                    ui.label("✓ Responded").style(
+                                        f"font-size:10px;color:{C['good']};flex-shrink:0;")
+                            if _body:
+                                def _tog_dash_body(k=_body_key):
+                                    s.expanded.symmetric_difference_update({k}); rf()
+                                with ui.element("button").style(
+                                        f"font-size:10px;color:{C['muted']};background:transparent;"
+                                        f"border:none;cursor:pointer;font-family:inherit;padding:0;margin-top:2px;"
+                                        ).on("click", _tog_dash_body):
+                                    ui.label("▾ Hide reply" if _body_open else "▸ Their reply").style("pointer-events:none;")
+                                if _body_open:
+                                    ui.label(_body[:400] + ("…" if len(_body) > 400 else "")).style(
+                                        f"font-size:11px;color:{C['text']};margin-top:4px;"
+                                        f"padding:8px 10px;background:{C['surface']};border-radius:6px;"
+                                        f"line-height:1.6;white-space:pre-wrap;")
+                    if len(_week_recs) > 6:
+                        ui.label(f"+{len(_week_recs)-6} more this week").style(
+                            f"font-size:10px;color:{C['muted']};margin-top:4px;")
                 else:
-                    ui.label("No responses yet.").style(f"font-size:11px;color:{C['muted']};")
-
-            # Tasks today
-            with ui.element("div").style(
-                    f"background:{C['card']};border:1px solid {C['border']};"
-                    f"border-radius:10px;padding:14px 16px;"):
-                with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;"):
-                    ui.label(f"{len(pending_today)} task{'s' if len(pending_today)!=1 else ''} today").style(
-                        f"font-size:13px;font-weight:600;color:{C['text_l']};")
-                    def _go_drip():
-                        nav_go(s, rf, hub="sales", page="drip")
-                    with ui.element("button").style(
-                            f"font-size:10px;color:{C['teal']};background:transparent;border:none;"
-                            f"cursor:pointer;font-family:inherit;").on("click", _go_drip):
-                        ui.label("Today")
-                if pending_today:
-                    for _t in pending_today[:4]:
-                        ui.label(f"{_t['name']}  -  {_t['sequence']}").style(
-                            f"font-size:11px;color:{C['muted']};padding:2px 0;")
-                    if len(pending_today) > 4:
-                        ui.label(f"+{len(pending_today)-4} more").style(f"font-size:10px;color:{C['muted']};margin-top:2px;")
-                else:
-                    ui.label("All caught up!").style(f"font-size:11px;color:{C['good']};")
+                    ui.label("No responses yet this week.").style(f"font-size:11px;color:{C['muted']};")
 
             # Pipeline (ATS) status
             with ui.element("div").style(
@@ -27430,12 +27558,12 @@ def p_dashboard(s: AppState, rf):
                             f"cursor:pointer;font-family:inherit;").on("click", _go_pipeline):
                         ui.label("View")
                 import ats as _ats
-                _pipe_email = _CURRENT_USER_EMAIL.get() or ""
-                _pipe_total = _ats.total_count()
-                _pipe_mine = _ats.total_count(owner=_pipe_email) if _pipe_email else 0
+                _pipe_stats = _ats.dashboard_stats()
+                _pipe_total = _pipe_stats["total"]
+                _pipe_week = _pipe_stats["added_week"]
                 ui.label(f"{_pipe_total:,} candidates in Pipeline").style(
                     f"font-size:11px;color:{C['muted']};padding:2px 0;")
-                ui.label(f"{_pipe_mine:,} added by you").style(
+                ui.label(f"{_pipe_week:,} added this week").style(
                     f"font-size:11px;color:{C['muted']};padding:2px 0;")
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -28578,7 +28706,7 @@ def p_seq_mgr(s, rf):
     completed.sort(key=_camp_recency_ts, reverse=True)
 
     with ui.element("div").style("display:flex;align-items:center;"):
-        ui.label("Sequences").classes("fd-h1")
+        ui.label("Current Campaigns").classes("fd-h1")
         _show_page_help(s, rf, "seq_mgr")
     ui.label(f"{len(active)} active · {len(completed)} completed").classes("fd-sub")
 
@@ -29129,7 +29257,7 @@ def p_seq_mgr(s, rf):
                             if cur is None or _sdt_q < cur:
                                 _queue_by_step_name[_sname] = _sdt_q
 
-                    _html_rows = ""
+                    _row_data = []
                     _cum_delay = 0
                     _today = date.today()
                     for _step in steps:
@@ -29198,26 +29326,56 @@ def p_seq_mgr(s, rf):
                             _st_td = "\u2014"; _f_td = "\u2014"
                         _sname_e = esc(_step.get("subject","") or _step.get("name","Step"))
                         _row_opacity = "opacity:0.4;" if (_is_past and _sc == 0) else ""
-                        _html_rows += (
-                            f'<tr style="{_row_opacity}">'
-                            f'<td style="color:{C["text_l"]};font-weight:500;padding:12px 10px;">{_sname_e}</td>'
-                            f'<td style="color:{C["muted"]};font-size:12px;padding:12px 10px;">{_scheduled}</td>'
-                            f'<td style="color:{C["text_l"]};text-align:center;padding:12px 10px;">{_st_td}</td>'
-                            f'<td style="text-align:center;padding:12px 10px;">{_f_td}</td>'
-                            f'<td style="padding:12px 10px;">{_st_html}</td>'
-                            f'</tr>'
-                        )
+                        _row_data.append((_step, _row_opacity, _sname_e, _scheduled, _st_td, _f_td, _st_html))
 
-                    ui.html(
-                        f'<div style="background:{C["surface"]};border:1px solid {C["border"]};'
-                        f'border-radius:10px;overflow:hidden;">'
-                        f'<table class="fd-tbl"><thead><tr>'
-                        f'<th style="padding:10px;">Email</th>'
-                        f'<th style="padding:10px;">Scheduled</th>'
-                        f'<th style="text-align:center;padding:10px;">Sent</th>'
-                        f'<th style="text-align:center;padding:10px;">Failed</th>'
-                        f'<th style="padding:10px;">Status</th>'
-                        f'</tr></thead><tbody>{_html_rows}</tbody></table></div>')
+                    # Rendered as NiceGUI elements (not a ui.html string) so the
+                    # Email cell can carry a Python click handler that expands
+                    # the step preview inline, right under its row (pushing the
+                    # rest of the table down), instead of a popup dialog.
+                    # Visuals match the old HTML table because we reuse the
+                    # .fd-tbl class  -  same approach as the queue table above.
+                    _expanded_step_key = getattr(s, "_step_preview_expanded", None)
+
+                    def _toggle_step_preview(key):
+                        cur = getattr(s, "_step_preview_expanded", None)
+                        s._step_preview_expanded = None if cur == key else key
+                        rf()
+
+                    with ui.element("div").style(
+                            f"background:{C['surface']};border:1px solid {C['border']};"
+                            f"border-radius:10px;overflow:hidden;"):
+                        with ui.element("table").classes("fd-tbl"):
+                            with ui.element("thead"):
+                                with ui.element("tr"):
+                                    with ui.element("th").style("padding:10px;"): ui.label("Email")
+                                    with ui.element("th").style("padding:10px;"): ui.label("Scheduled")
+                                    with ui.element("th").style("text-align:center;padding:10px;"): ui.label("Sent")
+                                    with ui.element("th").style("text-align:center;padding:10px;"): ui.label("Failed")
+                                    with ui.element("th").style("padding:10px;"): ui.label("Status")
+                            with ui.element("tbody"):
+                                for _idx, (_step, _row_opacity, _sname_e, _scheduled, _st_td, _f_td, _st_html) in enumerate(_row_data):
+                                    _row_key = (cname, _idx)
+                                    with ui.element("tr").style(_row_opacity):
+                                        with ui.element("td").style(
+                                                f"color:{C['teal']};font-weight:500;padding:12px 10px;"
+                                                f"cursor:pointer;text-decoration:underline;"
+                                                f"text-decoration-color:transparent;"
+                                                ).on("click", lambda key=_row_key: _toggle_step_preview(key)):
+                                            ui.label(_sname_e).style("pointer-events:none;")
+                                        with ui.element("td").style(f"color:{C['muted']};font-size:12px;padding:12px 10px;"):
+                                            ui.label(_scheduled)
+                                        with ui.element("td").style(f"color:{C['text_l']};text-align:center;padding:12px 10px;"):
+                                            ui.label(_st_td)
+                                        with ui.element("td").style("text-align:center;padding:12px 10px;"):
+                                            ui.html(_f_td)
+                                        with ui.element("td").style("padding:12px 10px;"):
+                                            ui.html(_st_html)
+                                    if _expanded_step_key == _row_key:
+                                        with ui.element("tr"):
+                                            with ui.element("td").props("colspan=5").style(
+                                                    f"padding:16px 24px 22px;background:{C['bg']};"
+                                                    f"border-bottom:1px solid {C['border']};"):
+                                                _render_step_preview_inline(s, _step)
 
                 # ════════════════════════════════════════════════════════════════
                 #  CONTACTS TAB
@@ -29582,7 +29740,7 @@ def p_dnc(s, rf):
     with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;"):
         with ui.element("div"):
             with ui.element("div").style("display:flex;align-items:center;"):
-                ui.label("Opt-Out List").classes("fd-h1")
+                ui.label("Do Not Contact").classes("fd-h1")
                 _show_page_help(s, rf, "dnc")
             ui.label(f"{len(dnc)} blocked email{'s' if len(dnc) != 1 else ''}  -  "
                      "these contacts will never receive emails from any campaign.").classes("fd-sub")
@@ -29750,7 +29908,7 @@ def p_active_clients(s, rf):
             "display:flex;align-items:flex-start;justify-content:space-between;"
             "gap:16px;margin-bottom:6px;"):
         with ui.element("div").style("flex:1;min-width:0;"):
-            ui.label("Existing Customers").classes("fd-h1")
+            ui.label("Current Clients").classes("fd-h1")
             ui.label(
                 "Contacts at these domains get flagged before sending — so we don't "
                 "accidentally recruit from our own clients. "
@@ -35129,7 +35287,7 @@ def p_ai_campaign(s: AppState, rf):
     # Cleared on successful campaign generation (see Generate handler).
     try:
         _save_wizard_draft(s)
-        _autosave_campaign_draft(s)  # also land it in the Campaign Library as a draft
+        _autosave_campaign_draft(s)  # also land it in Saved Campaigns as a draft
     except Exception:
         pass
 
@@ -40850,10 +41008,21 @@ def p_candidate_campaign(s: AppState, rf):
                         # 3rd, 5th) so recipients get the candidate's profile
                         # alongside the pitch.
                         _resume_pdfs = []
-                        for _sc in (s.cpc_candidates or [cand]):
+                        _slate_list = s.cpc_candidates or [cand]
+                        for _idx, _sc in enumerate(_slate_list):
                             _rt = (_sc.get("redacted_resume") or "").strip()
                             if _rt:
-                                _pf = _save_redacted_pdf(_sc.get("name", "Candidate"), _rt)
+                                # Never pass the real candidate name into the
+                                # redacted PDF's title — it's rendered
+                                # verbatim (see _save_redacted_pdf) and would
+                                # leak PII the body text already redacts.
+                                # Index suffix only when slating >1 candidate,
+                                # so same-role slate members don't collide on
+                                # filename and silently overwrite each other.
+                                _anon_label = ("Confidential Candidate"
+                                               if len(_slate_list) == 1 else
+                                               f"Confidential Candidate {_idx + 1}")
+                                _pf = _save_redacted_pdf(_anon_label, _rt)
                                 if _pf and _pf not in _resume_pdfs:
                                     _resume_pdfs.append(_pf)
                         if _resume_pdfs and emails:
