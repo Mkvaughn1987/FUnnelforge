@@ -125,15 +125,27 @@ BRAND_GREETINGS = [g.strip() for g in
 
 def _env_palette(var: str) -> dict:
     """Theme overrides as "key:#hex,key:#hex". Unknown keys are ignored rather
-    than raising, so a typo in a .env can never stop the app from booting."""
+    than raising, so a typo in a .env can never stop the app from booting.
+
+    The leading "#" is optional. /opt/dripdrop/.env is read BOTH by systemd
+    (EnvironmentFile=) and by python-dotenv, and the two disagree about when a
+    "#" starts a trailing comment -- so "bg:052F24" is accepted and the "#" put
+    back here, which is immune to either one's parsing."""
     out = {}
     for pair in (os.getenv(var) or "").split(","):
         if ":" not in pair:
             continue
         k, _, v = pair.partition(":")
         k, v = k.strip(), v.strip()
-        if k and v:
-            out[k] = v
+        if not k or not v:
+            continue
+        if not v.startswith("#") and len(v) in (3, 6, 8):
+            try:
+                int(v, 16)
+                v = "#" + v
+            except ValueError:
+                pass
+        out[k] = v
     return out
 
 

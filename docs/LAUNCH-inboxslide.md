@@ -183,37 +183,50 @@ infinite redirect loop and a site that will not load at all.
 Go to **https://app.inboxslide.ai** and register with your **email and a
 password**, using the invite code from Step 4.
 
-> **Do not use a "Sign in with Google" button if you see one.** In this app,
-> signing in with Google and connecting Gmail-for-sending are the same action —
-> the login also hands over permission to send mail as you. The app would then
-> start sending campaigns from your personal gmail address, which will get that
-> address flagged. Google sign-in is deliberately switched off on this instance,
-> so you should not see the button; if you do, something is misconfigured — stop
-> and check.
+There is no "Sign in with Google" button on the login page. Registration is
+email, password and invite code — that is the only way in.
+
+> **An earlier version of this runbook said something different here** — that
+> Google sign-in and Gmail-for-sending were the same grant, and that you should
+> never click such a button. That was wrong, and it is corrected in Step 8.
+> Connecting Gmail is a deliberate action inside Settings, not something that
+> happens by logging in.
 
 ---
 
-## Step 8 — Connect an email sender
+## Step 8 — Connect the sending mailbox
 
-Your gmail account is how you log in. It is **not** what sends your campaigns.
-Those are independent, and keeping them separate is what protects your personal
-address.
+Logging in and sending are two different things. The account you log in with
+identifies you; what sends your campaigns is whatever mailbox you connect in
+**Settings**. They are independent, and you choose deliberately.
 
-Sign up for **Brevo** (free, 300 emails/day, no card required). In Brevo:
+**This instance sends through Gmail OAuth, and it is already configured.**
+`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `GOOGLE_REDIRECT_URI` are set in
+`/opt/dripdrop/.env`. In the app, go to **Settings** and connect Gmail; Google
+shows you a consent screen listing send and read permission, and after you
+accept, the mailbox is connected.
 
-1. Add and verify a sender address, e.g. `mike@inboxslide.ai`.
-2. Add the SPF and DKIM DNS records Brevo gives you into your Cloudflare zone.
-   These prove you are allowed to send as that domain; without them your mail
-   goes to spam.
-3. Create an API key (it starts with `xkeysib-`).
+Two things to get right, or it breaks quietly weeks later:
 
-Then in DripDrop: **Settings → connect Brevo**, paste the key.
+1. **Publish the OAuth app.** In the Google Cloud console, an app left in
+   **Testing** has its refresh tokens expired by Google after about seven days.
+   Sending then stops with no error and no bounce — it simply does not send.
+   Move it to **In production**.
+2. **The redirect URI must match exactly.** It is set to
+   `https://app.inboxslide.ai/auth/google/callback` and the same string must be
+   registered in the Google Cloud console. It defaults to Arena's host in the
+   code, so this override is not optional.
 
-**To receive replies** you do not need a mailbox. In Cloudflare → **Email** →
-**Email Routing**, forward `mike@inboxslide.ai` to your gmail. Free, and takes
-about two minutes.
+**To receive replies** you do not need a separate mailbox. Replies come back to
+the Gmail account that is sending. If you would rather send from an address on
+your own domain, Cloudflare → **Email** → **Email Routing** forwards
+`you@inboxslide.ai` to your gmail, free, in about two minutes — and you would
+then add SPF and DKIM records for whatever service sends as that domain.
 
----
+**Microsoft 365 instead of Gmail** is supported but deferred; nothing needs it
+today. If you ever configure it, know that it **takes priority** — the app
+tries Microsoft, then Gmail, then plain SMTP, and uses the first one that has a
+connection. So configuring Microsoft silently takes sending away from Gmail.
 
 ## Step 9 — Before your first real campaign
 

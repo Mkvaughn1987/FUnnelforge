@@ -4,7 +4,7 @@ Written to be read cold, with no memory of the conversation that produced it.
 Companion to `LAUNCH-inboxslide.md`, which is the full runbook. This file is the
 shorter question: what is already true, and what is left.
 
-**Last verified: 2026-09-16.** Everything in the first section was checked by
+**Last verified: 2026-09-16 (second pass, after key + Cloudflare went in).** Everything in the first section was checked by
 running a command, not by remembering. Re-check before trusting any of it.
 
 ---
@@ -27,10 +27,11 @@ orgs, separate data.
 | # | Step | State |
 |---|---|---|
 | 1 | Server | Vultr, Dallas, `216.128.142.21`, Ubuntu 24.04.4 LTS, 1962 MB RAM, 52 GB disk |
-| 2 | DNS | `app.inboxslide.ai` → `216.128.142.21`, still **grey cloud** (DNS only) |
+| 2 | DNS | **Proxied (orange)**, SSL/TLS **Full (strict)** — resolves to Cloudflare IPs, origin hidden |
 | 3 | `setup-server.sh` | Complete |
 | 4 | `bootstrap-instance.sh` | Complete — all six phases |
-| 5 | HTTPS | **Verified: HTTP 200, certificate valid, HTTP→HTTPS 308** |
+| 5 | HTTPS | **Verified through the proxy: HTTP 200, certificate valid, `Server: cloudflare`** |
+| 6 | Anthropic key | **Set.** `.env` no longer holds the placeholder |
 
 Beyond the runbook: hostname set to `inboxslide`; SSH hardened to **key-only**
 via `/etc/ssh/sshd_config.d/00-inboxslide-hardening.conf` — named `00-` on
@@ -55,64 +56,56 @@ Two settings that are already correct and should not be "fixed":
 
 ## What is left, in order
 
-### 1. The Anthropic API key — Mike only
+### 1-2. API key and Cloudflare — DONE 2026-09-16
 
-`/opt/dripdrop/.env` currently holds the literal string
-`ANTHROPIC_API_KEY=sk-ant-PLACEHOLDER-REPLACE-ME`. The app starts fine with it
-because `bootstrap-instance.sh` never validates the key, it only writes it — but
-nothing that calls Claude will work.
+Both verified live. The key is set (a helper `/root/setkey.sh` remains on the box
+if it ever needs replacing; it takes the key invisibly and reprints the invite
+code). Cloudflare is **Full (strict)** with the `app` record **proxied**.
 
-A helper is already on the server. Mike runs:
-
-```
-ssh root@216.128.142.21
-bash /root/setkey.sh
-```
-
-It reads the key invisibly, rejects anything not starting with `sk-ant-`, writes
-it, restarts the service, and **prints the invite code**, which he needs for
-step 3 below and which is not recorded anywhere else.
-
-The key must come from the **new** Anthropic org, under the login
-`mkvaughn11@gmail.com` — not Arena's org (`6fa72573-ae2d-4da4-9c6c-9e2b18b2f087`).
-A key minted in Arena's org has two ways to die: Arena can revoke it, and
-Anthropic deactivates it automatically if Mike is ever removed from that org.
-
-### 2. Cloudflare — put the proxy back in front
-
-Order matters, and getting it wrong takes the site down.
-
-1. Cloudflare → **SSL/TLS** → **Full (strict)**
-2. Cloudflare → **DNS** → click the grey cloud on the `app` record → **orange**
-
-Not **Flexible**: it sends plaintext to a server that redirects everything to
-HTTPS, which is an infinite redirect loop.
-
-Confirm afterwards — if the resolved address is still `216.128.142.21`, the
-proxy is not on yet:
-
-```
-nslookup app.inboxslide.ai 1.1.1.1
-curl -sI https://app.inboxslide.ai/ | head -1
-```
+The invite code is in `/opt/dripdrop/.env` under `DRIPDROP_INVITE_CODES` and can
+be reprinted with `grep '^DRIPDROP_INVITE_CODES=' /opt/dripdrop/.env | cut -d= -f2`.
 
 ### 3. Register — Mike only
 
 `https://app.inboxslide.ai`, with **email and password** plus the invite code.
 
-**Never a "Sign in with Google" button.** In this app the Google login flow and
-Gmail-for-sending are the same grant, so signing in with Google hands over
-permission to send as him, and campaigns would start going out from his personal
-gmail. It is deliberately disabled on this instance; if the button appears,
-something is misconfigured — stop.
+There is no "Sign in with Google" button on the login page, and there never
+was — registration is email + password + invite code. An earlier version of
+this file and of the runbook warned against such a button, on the theory that
+Google login and Gmail-for-sending were the same grant. **That was wrong.**
+The only Google callback in the app is `/auth/google/callback`
+(`flowdrip_app.py:54391`), and every branch that starts it lives in the
+Settings / mailbox region (`:43797`, `:43998`, `:44346`). Connecting Gmail is
+a deliberate act in Settings, not a side effect of signing in.
 
-His gmail is the **login identity only**. It is never the sending mailbox.
+His gmail is still the **login identity**. Whether it is also the sending
+mailbox is a separate choice made in Settings.
 
-### 4. Brevo — the actual sender
+### 4. Gmail OAuth — the actual sender, and it is already live
 
-Runbook Step 8. Verify a sender, add the SPF and DKIM records to Cloudflare,
-create an `xkeysib-` key, paste it into Settings. Then Cloudflare → Email →
-Email Routing to forward replies to his gmail (no mailbox needed).
+`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `GOOGLE_REDIRECT_URI` are all
+set in `/opt/dripdrop/.env`, and mail sends through Gmail. The redirect URI
+*must* be overridden, because it defaults to Arena's host
+(`gmail_oauth.py:35`), and it must match the Google Cloud console entry exactly.
+
+Two things that bite later:
+
+- An OAuth app left in **Testing** has its refresh tokens expired by Google
+  after about 7 days, so the scheduled sender stops silently a week after the
+  mailbox connects. Publish it to **In production**.
+- Consent is per-user (`gmail_oauth.py:48`), so no Workspace admin and no
+  domain owner is involved.
+
+Microsoft Graph is deferred and optional. If it is ever configured it
+**outranks** Gmail — the send chain takes Graph, then Gmail, then SMTP,
+whichever holds a token first.
+
+**Outstanding:** the Google client secret currently in `.env` was pasted into a
+chat transcript and is considered burned. Rotate it — Google Cloud → the
+`inboxslide` client → Client secrets → **+ Add secret**, then disable and
+delete the old row → on the server, `bash /root/setgoogle.sh`. Rotating does
+**not** disconnect an already-connected mailbox; the stored refresh token keeps
+working.
 
 ### 5. DNC transfer — before the first send, not after
 
