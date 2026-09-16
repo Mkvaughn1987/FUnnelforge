@@ -11,7 +11,12 @@ from pathlib import Path
 MS_CLIENT_ID = os.getenv("MS_CLIENT_ID", "")
 MS_CLIENT_SECRET = os.getenv("MS_CLIENT_SECRET", "")
 MS_TENANT_ID = os.getenv("MS_TENANT_ID", "")
-MS_AUTHORITY = f"https://login.microsoftonline.com/common"
+# MS_TENANT_ID was read above but never used — the authority was hardcoded to
+# /common, which only accepts app registrations marked multi-tenant. Unset it
+# still resolves to /common, so this is a no-op on Arena; a white-label
+# instance whose firm registers a single-tenant app sets its tenant id here
+# instead of hitting AADSTS50194 at sign-in.
+MS_AUTHORITY = f"https://login.microsoftonline.com/{MS_TENANT_ID or 'common'}"
 MS_SCOPES = ["Mail.Send", "Mail.Read", "User.Read"]
 MS_REDIRECT_URI = os.getenv("MS_REDIRECT_URI", "https://dripdripdrop.ai/auth/microsoft/callback")
 GRAPH_API = "https://graph.microsoft.com/v1.0"
