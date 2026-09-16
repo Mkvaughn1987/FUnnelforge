@@ -127,6 +127,12 @@ DRIPDROP_INTERNAL_DOMAINS=
 DRIPDROP_VALUE_PROPS=Contingency-Based - you pay nothing to review our candidates. Replacement Guarantee - if a hire doesn't work out, we replace them at no cost. Cost-Effective - internal hiring can cost upwards of \$25,000 per role. Dedicated Attention - you work directly with the person running your search.
 
 DRIPDROP_JWAY_BANNER_URL=
+
+# Where NiceGUI keeps browser sessions (app.storage.user). Its default is
+# <working dir>/.nicegui, i.e. inside the root-owned git checkout, which the
+# dripdrop service user cannot create: every login then logs a PermissionError
+# and nothing persists across restarts. Keep it with the rest of the data.
+NICEGUI_STORAGE_PATH=/opt/dripdrop/data/.nicegui
 ENV
 chmod 600 "$ENVFILE"
 chown dripdrop:dripdrop "$ENVFILE"

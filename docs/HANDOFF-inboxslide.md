@@ -261,6 +261,13 @@ systemctl restart dripdrop
 
 Config: `/opt/dripdrop/.env` — Data: `/opt/dripdrop/data` — App: `/opt/dripdrop/app`
 
+**Sessions (2026-09-16).** `/opt/dripdrop/app` is a root-owned checkout and the
+app runs as `dripdrop`, so NiceGUI's default session store (`<app>/.nicegui`)
+was unwritable: every login logged a `PermissionError` and no session survived
+a restart. `.env` now needs `NICEGUI_STORAGE_PATH=/opt/dripdrop/data/.nicegui`;
+`deploy/bootstrap-instance.sh` writes it for new instances. Arena never hit
+this because `setup-server.sh` chowns its whole tree to the service user.
+
 **Sidebar layout (2026-09-16).** This instance runs `DRIPDROP_NAV_LAYOUT=sidebar`
 and `DRIPDROP_WORKSPACE_NAME=ThriveModal`: one full-height sidebar, no hub
 pills, a compact page header. Arena leaves both unset and keeps the classic

@@ -339,3 +339,14 @@ systemctl restart dripdrop         # restart the app
 
 Configuration lives in `/opt/dripdrop/.env`. Your data lives in
 `/opt/dripdrop/data`. Nothing in either touches Arena.
+
+**Logins do not stick / `PermissionError: ... /opt/dripdrop/app/.nicegui` in the
+log.** NiceGUI stores browser sessions next to the app by default, and the
+service user cannot write inside the root-owned checkout. `.env` must carry
+`NICEGUI_STORAGE_PATH=/opt/dripdrop/data/.nicegui` (the bootstrap script writes
+it since 2026-09-16). If it is missing:
+
+```bash
+echo 'NICEGUI_STORAGE_PATH=/opt/dripdrop/data/.nicegui' >> /opt/dripdrop/.env
+systemctl restart dripdrop
+```
