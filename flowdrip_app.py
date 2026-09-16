@@ -457,69 +457,505 @@ PLAYBOOK_LABELS = {
     PLAYBOOK_THRIVEMODAL: "ThriveModal (offshore staffing sales)",
 }
 
+# ── Instance playbook lock ────────────────────────────────────────────────
+# DRIPDROP_PLAYBOOK pins an ENTIRE INSTANCE to one playbook. inboxslide sets
+# it to thrivemodal: there is no Arena on that instance, the chooser is gone
+# from Settings, and every campaign on it, including ones saved before the
+# lock, is written as ThriveModal. Unset (the default, and what Arena's own
+# instance runs) changes nothing at all - the workspace setting decides, the
+# chooser is visible, and old campaigns keep the playbook they were built
+# under. This is an env flag rather than a code deletion on purpose: both
+# instances run from this same repo, so Arena's behavior has to survive here
+# untouched.
+_LOCKED_PLAYBOOK = _env_str("DRIPDROP_PLAYBOOK", "").strip().lower()
+if _LOCKED_PLAYBOOK not in _VALID_PLAYBOOKS:
+    _LOCKED_PLAYBOOK = ""
+
 # The editable, shared company context behind the ThriveModal playbook.
-# (config key, label, help text, default). Defaults deliberately leave
-# proof, pricing and terms EMPTY - the generator refuses to invent any of
-# them, so an unfilled field means the AI simply says nothing rather than
-# making something up.
+# (config key, label, help text, default). This is the ThriveModal sales
+# playbook as approved by the workspace owner. Every default here is real
+# approved language: the generator renders it verbatim into the writing
+# prompt, so editing a field below changes how every ThriveModal campaign
+# and sales asset is written, with no code change and no restart.
+#
+# Two rules hold for all of it. Nothing in APPROVED CUSTOMER PROOF may be
+# invented, and nothing in APPROVED PRICING may be turned into a guarantee
+# or an exact rate. Both defaults state those limits in their own words so
+# the model reads the constraint as part of the approved content rather
+# than only as an external ban.
+
+_TM_DEF_BUSINESS = """\
+ThriveModal, offshore staffing sales.
+
+ThriveModal helps U.S. companies build dedicated remote teams using skilled
+professionals based in the Philippines.
+
+The core value proposition is straightforward: access qualified full-time
+talent at approximately half the cost of a comparable U.S.-based hire, while
+keeping the employee integrated into the client's existing team, systems and
+workflow.
+
+ThriveModal is not positioned as a gig marketplace or a source of temporary
+freelancers. The objective is to build stable, dedicated offshore capacity
+for positions that can be successfully performed remotely."""
+
+_TM_DEF_SERVICES = """\
+ThriveModal helps U.S. companies recruit and build dedicated
+Philippines-based remote teams.
+
+The process begins by understanding the position, responsibilities,
+experience level, required software, working hours, communication
+requirements and performance expectations.
+
+ThriveModal then identifies, screens and evaluates Philippines-based
+professionals against those requirements.
+
+The client interviews and chooses the person they want to hire.
+
+Once selected, the offshore team member works directly within the client's
+business, using the client's systems, processes, communication tools and
+management structure.
+
+The client controls the employee's priorities, workflow, KPIs and day-to-day
+responsibilities.
+
+ThriveModal remains involved as the staffing partner to support the
+relationship and help the client expand the offshore team when appropriate.
+
+The preferred model is dedicated, long-term staffing rather than
+project-based freelancers or shared resources.
+
+Do not describe ThriveModal as the legal employer, Employer of Record,
+payroll provider, benefits administrator, equipment provider or compliance
+provider unless those services are specifically included in the applicable
+ThriveModal agreement."""
+
+_TM_DEF_INDUSTRIES = """\
+PRIMARY MARKET
+
+ThriveModal's strongest initial market is companies with approximately 25 to
+500 employees that have recurring professional, technical, administrative or
+operational work that can be performed remotely.
+
+Priority industries and the roles to sell into them:
+
+Construction, Engineering and Architecture. General contractors, specialty
+contractors, mechanical contractors, electrical contractors, civil
+contractors, engineering firms, architecture firms, developers and
+construction service companies. Roles: Construction Estimator, Electrical
+Estimator, Mechanical Estimator, HVAC Estimator, Takeoff Specialist,
+Preconstruction Coordinator, BIM Coordinator, BIM Modeler, Revit Designer,
+CAD Drafter, Civil Designer, Project Coordinator, Project Administrator,
+Document Controller, Contract Administrator, Scheduler, Procurement
+Coordinator, Project Accountant, Accounts Payable, Accounts Receivable,
+Administrative Support, Recruiting Coordinator.
+
+Staffing and Recruiting. Roles: Recruiters, Candidate Sourcers, Recruiting
+Coordinators, Research Associates, Lead Generation Specialists, CRM
+Administrators, Payroll Support, Sales Support, Administrative Support.
+
+Accounting and Finance. Roles: Bookkeepers, Accountants, Accounts Payable
+Specialists, Accounts Receivable Specialists, Payroll Support, Billing
+Specialists, Financial Analysts, Collections Specialists.
+
+Real Estate and Property Management. Roles: Property Management Assistants,
+Leasing Coordinators, Transaction Coordinators, Accounting Support,
+Maintenance Coordinators, Administrative Support.
+
+Professional Services. Roles: Executive Assistants, Operations Coordinators,
+Administrative Assistants, Customer Support, Data Specialists, Research
+Assistants, Marketing Support.
+
+Sales and Marketing. Roles: SDRs, BDRs, Lead Generation Specialists,
+Appointment Setters, Sales Coordinators, CRM Administrators, Marketing
+Assistants, Graphic Designers, Video Editors, Social Media Specialists.
+
+Technology and Operations. Roles: IT Support, Help Desk, Developers, QA
+Support, Data Analysts, Operations Coordinators, Customer Support.
+
+Secondary expansion markets include logistics, e-commerce, healthcare
+administration, insurance and other service businesses with significant
+recurring back-office workloads.
+
+PRIMARY BUYERS
+
+Prioritize: Owner, Founder, CEO, President, COO, CFO, Controller, VP of
+Operations, Director of Operations, VP of Preconstruction, Director of
+Preconstruction, Chief Estimator, Director of Estimating, VP of Finance,
+Director of Accounting, Head of Talent Acquisition, HR Director, Recruiting
+Director, Department Head.
+
+The ideal buyer owns a budget, a staffing problem, a capacity problem or a
+labor-cost problem.
+
+STRONG BUYING SIGNALS
+
+Prioritize organizations that have multiple open positions, have positions
+sitting open for extended periods, are paying significant employee overtime,
+have experienced rapid growth, have recently won new projects or contracts,
+have employees performing administrative work below their skill level, have
+recurring estimating, drafting, accounting or administrative backlogs,
+already use remote employees, already use contractors or outsourced
+services, need additional capacity but are hesitant to add expensive U.S.
+headcount, have difficulty recruiting locally, or are hiring multiple people
+into the same department."""
+
+_TM_DEF_PROBLEMS = """\
+ThriveModal prospects commonly experience:
+
+High U.S. salary and benefit costs.
+
+Difficulty finding qualified candidates locally.
+
+Positions remaining unfilled for weeks or months.
+
+Existing employees working excessive overtime.
+
+Highly compensated employees spending too much time on administrative or
+repetitive tasks.
+
+Estimating, drafting, accounting, recruiting, customer support or
+administrative backlogs.
+
+Growth being restricted because additional U.S. headcount is too expensive.
+
+Project teams lacking enough support staff.
+
+Owners and executives performing work that should be delegated.
+
+Difficulty scaling departments quickly when workload increases.
+
+Turnover caused by overloaded employees.
+
+Recruiters and managers spending excessive time sourcing and screening
+candidates.
+
+Inconsistent results from freelancers who work for multiple clients.
+
+Lack of dependable long-term remote staff.
+
+Departments being forced to choose between increasing payroll or leaving
+work unfinished.
+
+Pressure from ownership to reduce SG&A or operating costs without reducing
+output."""
+
+_TM_DEF_DIFFERENTIATORS = """\
+ThriveModal is a recruiting-first offshore staffing company, not a
+virtual-assistant marketplace. The emphasis is finding the right person for a
+specific job rather than selling a generic offshore worker.
+
+Dedicated talent. The individual is recruited for the client's position and
+becomes part of the client's operating team rather than being shared across
+multiple customers.
+
+Client choice. The client interviews the candidates and decides who joins
+the team.
+
+Role-specific recruiting. Searches are built around the actual job,
+responsibilities, software, industry experience and required skills.
+
+U.S.-side recruiting perspective. ThriveModal approaches offshore staffing
+using the same principles used in professional recruiting: understand the
+job, identify the talent market, evaluate candidates and match the person to
+the organization.
+
+Industry specialization. ThriveModal can build specialized offshore teams
+rather than limiting customers to traditional virtual-assistant positions.
+Construction and AEC are especially important areas of specialization.
+
+Cost efficiency without making cost the entire product. The economic
+advantage gets the buyer's attention. The ability to build dependable
+long-term capacity is what should close the sale.
+
+Scalable. A client can begin with one position and expand into a larger
+offshore department as the model proves itself.
+
+PRIMARY POSITIONING STATEMENT
+ThriveModal helps U.S. companies build dedicated teams in the Philippines
+for roughly half the cost of comparable U.S. headcount. You choose the
+people. They work inside your business. We help you find and build the team.
+
+CONSTRUCTION POSITIONING STATEMENT
+Your $100,000 employee should not be spending half the day doing $30,000
+work. ThriveModal helps construction companies move estimating support, BIM,
+drafting, project coordination, accounting and administrative workload to
+dedicated Philippines-based professionals, giving your U.S. team more
+capacity without adding the same level of payroll overhead."""
+
+_TM_DEF_PROOF = """\
+There is currently no approved ThriveModal customer proof.
+
+Never invent customer names, customer logos, testimonials, a number of
+customers, a number of employees placed, retention rates, time-to-hire
+statistics, placement success rates, customer savings, revenue improvements,
+productivity improvements or case studies.
+
+Until documented customer results are approved, sell the model, the
+economics and the business case rather than fabricated social proof."""
+
+_TM_DEF_PRICING = """\
+CORE PRICING POSITION
+
+ThriveModal is designed to provide Philippines-based talent at approximately
+50% lower labor cost than a comparable U.S.-based hire.
+
+Pricing varies based on position, experience, technical requirements,
+software expertise, schedule, working hours, management requirements and
+talent availability.
+
+There is no universal ThriveModal price for every employee. Use a customized
+monthly quote based on the position. When comparing ThriveModal with U.S.
+hiring costs, compare equivalent positions and clearly identify the
+assumptions being used.
+
+ACCEPTABLE SALES LANGUAGE
+
+"Many of the positions we build offshore come in around half the cost of
+adding comparable U.S. headcount."
+
+"We can price the position both ways so you can see the difference."
+
+"Let me model what this position would cost locally versus through
+ThriveModal."
+
+"For the right position, moving part of the workload offshore can materially
+reduce your labor cost."
+
+DO NOT SAY
+
+"Every employee is exactly 50% cheaper."
+"Guaranteed 50% savings."
+"Same employee for half price."
+"Same quality for half price."
+"Your savings are guaranteed."
+
+Do not quote a specific monthly rate until an actual ThriveModal price has
+been established for the position.
+
+Do not invent setup fees, contract length, cancellation terms, replacement
+guarantees, benefits, paid time off, holiday schedules, overtime policies,
+equipment costs, payroll fees, buyout fees, taxes or employment structure.
+These must come from the current ThriveModal commercial agreement or
+proposal."""
+
+_TM_DEF_VOICE = """\
+ThriveModal should sound like a knowledgeable staffing partner talking to
+another business leader. Direct, conversational, commercial, confident
+without being exaggerated, specific rather than generic, curious about the
+buyer's business, comfortable talking about money, focused on business
+outcomes.
+
+LANGUAGE TO FAVOR
+
+"dedicated team member", "Philippines-based professional", "offshore team",
+"additional capacity", "build the team", "your employee", "your team",
+"works directly with your team", "reports directly to you", "you interview
+and select", "labor cost", "payroll cost", "capacity", "workload",
+"headcount", "U.S. hiring cost", "offshore staffing", "dedicated offshore
+team".
+
+Avoid making every employee sound like a "virtual assistant". If the
+position is an estimator, call them an estimator. If the position is an
+accountant, call them an accountant. If the position is a BIM coordinator,
+call them a BIM coordinator.
+
+MESSAGE STRUCTURE
+
+Cold outreach should normally follow this structure:
+1. Show that ThriveModal understands the buyer or their industry.
+2. Identify a workload or labor-cost problem.
+3. Introduce offshore staffing as an alternative.
+4. Make the economics tangible.
+5. Explain that the person is dedicated to their company.
+6. Ask for one simple next step.
+
+Cost should usually open the conversation. Control, talent quality and
+operational capacity should carry the conversation after interest is
+established.
+
+EMAIL STYLE
+
+Keep most first-touch emails between approximately 70 and 140 words. Avoid
+corporate jargon. Avoid long descriptions of ThriveModal. Do not explain
+offshoring for three paragraphs before giving the buyer a reason to care.
+Talk about the buyer more than ThriveModal. Whenever possible, reference the
+actual role or department that could be moved offshore."""
+
+_TM_DEF_CTAS = """\
+Use one CTA per message. Rotate between CTAs so the sequence does not
+repeatedly ask for the same meeting.
+
+"Want me to show you what this position would cost offshore?"
+"If I priced the U.S. versus Philippines version of this role, would that be
+useful?"
+"Open to seeing what a few candidates in this market look like?"
+"Would you be opposed to a quick 15-minute conversation about the role?"
+"Which position on your team is currently the hardest to justify adding at
+U.S. payroll costs?"
+"If I put together a quick cost comparison for your team, would you take a
+look?"
+"Do you have one position you would be willing to test offshore before
+looking at anything larger?"
+"Would it be worth comparing this against what you're currently paying?"
+
+For construction:
+"Do your estimators have enough support right now?"
+"Would another estimator or takeoff specialist help you increase bid
+capacity?"
+"Are your PMs spending time on work that could be handled by a project
+coordinator?"
+"Would it help if I showed you what an offshore estimator or BIM resource
+would cost compared with adding another U.S. hire?\""""
+
+_TM_DEF_SALES_MOTION = """\
+STAGE 1: FIND THE COST OR CAPACITY PROBLEM
+
+Do not begin by asking whether the company is interested in outsourcing.
+Find a business problem first. For example: an estimator opening has been
+posted for 60 days, the company needs three additional project coordinators,
+the accounting department is buried in AP, the owner is still managing
+scheduling and administrative work, the recruiting team has six recruiters
+performing their own sourcing, the PMs are spending significant time
+processing documents, there are ten open customer service positions, or the
+company is growing but leadership does not want to add equivalent U.S.
+overhead.
+
+STAGE 2: ATTACH A ROLE TO THE PROBLEM
+
+Do not sell "offshore staffing". Sell an estimator, a BIM coordinator, an
+accountant, a recruiter, an executive assistant, a customer support
+representative, a project coordinator, a bookkeeper, a sales development
+representative. Specific positions make the offering tangible.
+
+STAGE 3: SHOW THE ECONOMICS
+
+Use the buyer's current or expected U.S. compensation whenever possible. For
+example: comparable U.S. employee cost $90,000 annually, ThriveModal
+estimated cost $45,000 annually, potential labor-cost difference
+approximately $45,000 annually. Then move immediately beyond cost and
+explain what the company could accomplish with the additional capacity. The
+objective is not simply "save $45,000". The stronger message is "get the
+additional capacity you need without adding another $90,000 of U.S.
+payroll".
+
+STAGE 4: REMOVE THE QUALITY FEAR
+
+After cost creates interest, the biggest objection will usually become
+quality and control. Reinforce that the employee is recruited for their
+specific job, the client interviews the candidates, the client chooses the
+person, the employee works inside the client's processes, the employee
+reports directly to the client's team, and the company defines expectations
+and KPIs. This changes the perception from outsourcing work to another
+company into adding a remote member to the client's own team.
+
+STAGE 5: START WITH ONE
+
+Do not force an executive to make a decision about building a ten-person
+offshore department. Sell the first position. The first employee is the
+proof of concept. Once the client sees the quality, communication and
+economics, use that employee to identify additional positions. The expansion
+question becomes "what else is your U.S. team doing today that this model
+could support?"
+
+CORE SALES PRINCIPLE
+
+Cost gets the meeting. Talent and control get the first hire. Performance
+gets the second, third and fourth hire. ThriveModal should therefore avoid
+becoming known simply as the company with cheap employees. The long-term
+position is that ThriveModal helps companies redesign the economics of their
+workforce by combining their U.S. team with dedicated Philippines-based
+talent."""
+
+_TM_DEF_FORBIDDEN = """\
+These are hard restrictions.
+
+Never claim ThriveModal has customers, placements, case studies or results
+that have not been approved. Never invent testimonials.
+
+Never claim guaranteed savings. Never state that every position will cost
+exactly 50% less than a U.S. employee.
+
+Never claim that offshore talent is automatically equal to or better than
+U.S. talent.
+
+Never call candidates "top 1%" unless ThriveModal has a documented
+methodology supporting the statement.
+
+Never claim a specific retention rate. Never claim a specific time to hire
+unless ThriveModal has approved data supporting it.
+
+Never say "fully compliant" without specifying what compliance standard is
+being referenced and verifying that ThriveModal meets it. Never claim SOC 2,
+ISO, HIPAA, PCI or other security or regulatory compliance unless that
+certification has been verified.
+
+Never claim background checks are performed unless ThriveModal actually
+performs them.
+
+Never promise that every worker will work U.S. business hours. Schedule
+requirements must be confirmed for the individual role.
+
+Never promise native English. You may describe communication requirements
+that ThriveModal screens for, but never make nationality-based assumptions
+about language ability.
+
+Never describe a ThriveModal team member as an employee of ThriveModal
+unless the contractual employment structure confirms that statement. Never
+describe ThriveModal as an Employer of Record unless ThriveModal is actually
+providing EOR services. Never state that payroll, benefits, taxes,
+Philippine employment compliance, equipment or insurance are included unless
+those services are included in the contract.
+
+Never provide legal or tax conclusions about using offshore talent. Never
+describe the service as "zero risk". Never invent guarantees, contract
+terms, cancellation rights or replacement policies.
+
+Never criticize Filipino wages or frame the model as exploiting lower-cost
+labor. Never use phrases such as "cheap Filipino labor", "third-world
+labor", "cheap VAs", "replace expensive Americans" or "same person for half
+the price". The correct framing is access to skilled global talent,
+additional business capacity and a materially more efficient labor-cost
+structure."""
+
 THRIVEMODAL_PLAYBOOK_FIELDS = [
+    ("tm_business", "Business overview and positioning",
+     "What ThriveModal is and the value proposition every message sits on.",
+     _TM_DEF_BUSINESS),
     ("tm_services", "Services and delivery model",
      "What ThriveModal actually sells and how it is delivered.",
-     "ThriveModal places dedicated offshore professionals based in the "
-     "Philippines with U.S. companies. Each engagement covers recruiting "
-     "against the client's written requirements, client selection of "
-     "candidates from a shortlist, onboarding into the client's systems and "
-     "working hours, and ongoing ThriveCore support for the placed "
-     "professional and the client relationship. The professional works "
-     "dedicated to one client, not shared across accounts."),
-    ("tm_industries", "Target industries and buyer roles",
-     "Where ThriveModal sells and who signs.",
-     "Priority industries: logistics and freight brokerage, accounting and "
-     "bookkeeping firms, and property management. Typical buyers: owner or "
-     "president, VP or Director of Operations, Controller or CFO, and "
-     "Director of Property Management."),
+     _TM_DEF_SERVICES),
+    ("tm_industries", "Target industries, roles and buyer titles",
+     "Where ThriveModal sells, which roles to name, who signs, and the "
+     "buying signals worth prioritizing.",
+     _TM_DEF_INDUSTRIES),
     ("tm_problems", "Business problems addressed",
      "The problems the buyer already has. No solution language here.",
-     "Domestic hiring for support and back-office roles is slow and "
-     "expensive. Teams absorb overflow through overtime or leave work "
-     "undone. Turnover in repetitive roles resets training constantly. "
-     "Growth is capped by headcount cost rather than by demand."),
-    ("tm_differentiators", "Differentiators",
+     _TM_DEF_PROBLEMS),
+    ("tm_differentiators", "Differentiators and positioning statements",
      "What makes ThriveModal different. Only things that are actually true.",
-     "Recruiting is run against the client's own requirements rather than "
-     "from a bench. The client interviews and selects the person. The "
-     "professional is dedicated to one client. ThriveCore provides ongoing "
-     "support after placement rather than ending at the start date."),
+     _TM_DEF_DIFFERENTIATORS),
     ("tm_proof", "Approved customer proof",
-     "Approved, verifiable customer results ONLY. Leave empty if you have "
-     "none cleared to use - the AI will not invent any.",
-     ""),
+     "Approved, verifiable customer results ONLY. While this says nothing is "
+     "approved, the AI cites no customer and invents nothing.",
+     _TM_DEF_PROOF),
     ("tm_pricing", "Approved pricing and service terms",
-     "Approved rates, what is included, what is excluded, currency and "
-     "billing period. Leave empty until approved - cost comparisons will "
-     "render as an incomplete worksheet rather than guess.",
-     ""),
+     "The approved cost position and the exact language allowed around it. "
+     "Anything not written here cannot be quoted.",
+     _TM_DEF_PRICING),
     ("tm_voice", "Voice and writing guidelines",
-     "How ThriveModal sounds.",
-     "Plain, direct, operator to operator. Short sentences. Specific over "
-     "clever. No hype, no superlatives, no urgency manufactured out of "
-     "nothing. Assume the reader is busy and skeptical."),
+     "How ThriveModal sounds, how a cold message is structured, and how long "
+     "it runs.",
+     _TM_DEF_VOICE),
     ("tm_ctas", "Preferred calls to action",
      "One clear next step per message; rotate across the sequence.",
-     "Ask whether the problem is theirs to own. Ask who handles it if not "
-     "them. Ask whether a short call is worth it. Ask whether this is a "
-     "this-year or next-year problem. Offer to send a role blueprint or "
-     "cost worksheet ONLY when the sequence actually attaches one."),
+     _TM_DEF_CTAS),
+    ("tm_sales_motion", "Sales motion",
+     "The five stages a ThriveModal sequence should move a buyer through.",
+     _TM_DEF_SALES_MOTION),
     ("tm_forbidden", "Claims AI must not make",
      "Hard bans. These are enforced in the generator as well.",
-     "Never state a savings percentage, a dollar figure, a headcount cost "
-     "or a rate that is not in the approved pricing field. Never claim a "
-     "customer result, logo or case study that is not in the approved proof "
-     "field. Never promise a guarantee, replacement, refund, trial or SLA. "
-     "Never state a time-to-fill, start date or implementation timeline. "
-     "Never claim candidates are already available or on a bench. Never "
-     "imply a prior conversation, meeting or referral that did not happen. "
-     "Never mention an attachment the message does not actually carry."),
+     _TM_DEF_FORBIDDEN),
 ]
 
 
@@ -10362,7 +10798,10 @@ def _workspace_playbook(cfg: dict = None) -> str:
 
     Returns PLAYBOOK_ARENA when nothing has been chosen, which is what every
     workspace that predates this setting gets. Never inferred from a company
-    name, website or industry - only from the stored choice."""
+    name, website or industry - only from the stored choice. On an instance
+    with DRIPDROP_PLAYBOOK set, that lock wins over the stored choice."""
+    if _LOCKED_PLAYBOOK:
+        return _LOCKED_PLAYBOOK
     try:
         cfg = load_config() if cfg is None else cfg
     except Exception:
@@ -10372,10 +10811,16 @@ def _workspace_playbook(cfg: dict = None) -> str:
 
 
 def _set_workspace_playbook(playbook: str) -> str:
-    """Persist the workspace playbook choice. Returns the stored value."""
+    """Persist the workspace playbook choice. Returns the stored value.
+
+    On a locked instance there is nothing to choose: the lock is returned and
+    nothing is written, so a stale caller cannot put this workspace onto a
+    playbook the instance does not have."""
     pb = str(playbook or "").strip().lower()
     if pb not in _VALID_PLAYBOOKS:
         raise ValueError(f"unknown playbook: {playbook!r}")
+    if _LOCKED_PLAYBOOK:
+        return _LOCKED_PLAYBOOK
     cfg = load_config()
     cfg["workspace_playbook"] = pb
     save_config(cfg)
@@ -10387,7 +10832,13 @@ def _campaign_playbook(camp: dict) -> str:
 
     Campaigns created before this shipped have no `_playbook` key and are
     therefore ARENA forever - flipping the workspace setting must never
-    change how an existing campaign behaves."""
+    change how an existing campaign behaves.
+
+    A locked instance is the exception. There, the lock applies to every
+    campaign including the ones stamped before it, because that instance has
+    no other playbook to fall back to."""
+    if _LOCKED_PLAYBOOK:
+        return _LOCKED_PLAYBOOK
     val = str(((camp or {}).get("_playbook") or "")).strip().lower()
     return val if val in _VALID_PLAYBOOKS else PLAYBOOK_ARENA
 
@@ -10400,17 +10851,24 @@ def _is_thrivemodal(cfg: dict = None) -> bool:
 def _thrivemodal_context(cfg: dict = None) -> dict:
     """The editable ThriveModal company context, field key -> value.
 
-    Missing/blank fields fall back to the shipped default EXCEPT the three
-    that must never be guessed (proof, pricing, forbidden-claims), whose
-    defaults are intentionally empty or hard bans."""
+    PRESENCE, not truthiness, decides. A key that is absent has never been
+    edited on this workspace, so it resolves to the shipped default. A key
+    that is present and empty was deliberately cleared by the owner, and it
+    stays empty: that is the escape hatch that makes the generator say
+    nothing about pricing or proof rather than falling back to text the
+    owner just removed. The Profile page loads the resolved value into each
+    box, so clearing one is always an explicit act."""
     try:
         cfg = load_config() if cfg is None else cfg
     except Exception:
         cfg = {}
+    cfg = cfg or {}
     out = {}
     for key, _label, _help, default in THRIVEMODAL_PLAYBOOK_FIELDS:
-        val = str((cfg or {}).get(key, "") or "").strip()
-        out[key] = val if val else default
+        if key in cfg:
+            out[key] = str(cfg.get(key) or "").strip()
+        else:
+            out[key] = default
     return out
 
 
@@ -11147,19 +11605,31 @@ if BRAND_COPY == "sales":
 # so it has to be rendered per request from the current config. A module-level
 # string would freeze whatever was in config at import time and silently ignore
 # every later edit.
+# Unlike the two above, this one is NOT a module constant. Most of its content
+# is the workspace's own editable company context (THRIVEMODAL_PLAYBOOK_FIELDS
+# plus any custom sections the workspace has added), so it has to be rendered
+# per request from the current config. A module-level string would freeze
+# whatever was in config at import time and silently ignore every later edit.
 #
-# The blank-field rule is the whole point of the design: when approved proof or
-# approved pricing is empty, this text does not fall back to something generic,
-# it tells the model there is nothing approved and that saying nothing is the
-# correct output. That is what keeps the generator from inventing savings
-# figures, customer results, guarantees and start dates.
+# The blank-field rule is the whole point of the design: when a section is
+# emptied, this text does not fall back to something generic, it tells the
+# model there is nothing approved and that saying nothing is the correct
+# output. That is what keeps the generator from inventing customer results,
+# guarantees and start dates when the owner clears a field.
+#
+# Money is the one place where the approved content and the hard rules have to
+# agree. APPROVED PRICING AND TERMS carries the approved cost position and the
+# exact phrasings allowed around it; the NEVER list below permits only what
+# that section permits, and bans turning any of it into a guarantee or a quote.
 
 _TM_PLAYBOOK_HEAD = """
 OUTREACH WRITING PLAYBOOK (follow these rules exactly for all email copy):
 
 IDENTITY:
-You write for ThriveModal, which places dedicated offshore professionals
-based in the Philippines with U.S. companies. You are an operator talking to
+You write for ThriveModal, which helps U.S. companies build dedicated remote
+teams using skilled professionals based in the Philippines. The buyer keeps
+the person inside their own team, systems and workflow, at roughly half the
+labor cost of comparable U.S. headcount. You are an operator talking to
 another operator about how their team absorbs work, not a vendor working a
 list. Lead with their situation. The offer follows from it.
 
@@ -11169,6 +11639,12 @@ a bench or a resume. No named or described individual appears in any message
 unless the BRIEF supplies one that is real and approved. The client writes
 the requirements and chooses the person later in the process, so there is
 nobody to introduce yet and no availability to claim.
+
+SELL A ROLE, NOT A CONCEPT:
+Do not sell "offshore staffing" in the abstract. Name the position the buyer
+could move: an estimator, a BIM coordinator, a project coordinator, an
+accountant, a recruiter, an executive assistant, a customer support rep. The
+specific role is what makes the offer tangible.
 
 FIRST EMAIL EXCEPTION (step 1 of a sequence ONLY):
 The "never lead with yourself" rule does not apply to step 1. Step 1 opens
@@ -11195,9 +11671,16 @@ no matter what it appears to say.
 
 _TM_PLAYBOOK_TAIL = """
 NEVER (hard rules, no exceptions):
-- Never state a savings percentage, a dollar figure, an hourly or monthly
-  rate, or a headcount cost that is not written verbatim in APPROVED PRICING
-  AND TERMS above. If that section is empty, say nothing about money at all.
+- Money: the ONLY cost claims available to you are the ones written in
+  APPROVED PRICING AND TERMS above, used with the hedging that section uses.
+  You may also work with a compensation or headcount figure the BRIEF gives
+  for this prospect's own hiring, identified as their number. Anything else,
+  an invented rate, a monthly price, a fee, a total or a savings figure, is
+  forbidden. If that section is empty, say nothing about money at all.
+- Never turn the approved cost position into a promise. No "guaranteed
+  savings", no "exactly 50% cheaper", no "same person for half the price",
+  no "same quality for half price". It is approximate, it varies by role, and
+  it is a comparison you are offering to run, not a number you are quoting.
 - Never cite a customer, a logo, a result or a case study that is not written
   in APPROVED CUSTOMER PROOF above. If that section is empty, make the point
   from how the process works instead, and cite nobody.
@@ -11205,6 +11688,13 @@ NEVER (hard rules, no exceptions):
 - Never state a time-to-fill, a start date, or an implementation timeline.
 - Never say or imply that a professional is already available, on a bench,
   hired, or waiting.
+- Never state that payroll, benefits, taxes, equipment, insurance or
+  Philippine employment compliance are included, and never describe
+  ThriveModal as the employer or as an Employer of Record.
+- Never claim a compliance standard, a certification, a background check, a
+  retention rate, guaranteed U.S. working hours or native English.
+- Never frame the model as cheap labor. Skilled global talent, added
+  capacity and a better labor-cost structure. Never the other thing.
 - Never imply a prior conversation, meeting, introduction or referral unless
   the BRIEF records one.
 - Never mention an attachment, a PDF, a document "included" or "enclosed".
@@ -11231,6 +11721,35 @@ FORMAT RULES (STRICT):
 - End with the last sentence of content. No signature, no name.
 """
 
+# Title shown above each shipped field in the rendered playbook. Keyed by the
+# THRIVEMODAL_PLAYBOOK_FIELDS config key so adding a field to that list and a
+# heading here is all it takes to put it in front of the model.
+_TM_SECTION_TITLES = {
+    "tm_business": "WHAT THRIVEMODAL IS",
+    "tm_services": "WHAT THRIVEMODAL SELLS AND HOW IT IS DELIVERED",
+    "tm_industries": "WHO WE SELL TO",
+    "tm_problems": "BUSINESS PROBLEMS THE BUYER ALREADY HAS",
+    "tm_differentiators": "WHAT MAKES THRIVEMODAL DIFFERENT",
+    "tm_proof": "APPROVED CUSTOMER PROOF",
+    "tm_pricing": "APPROVED PRICING AND TERMS",
+    "tm_voice": "VOICE",
+    "tm_ctas": "PREFERRED CALLS TO ACTION (rotate, never repeat one in a sequence)",
+    "tm_sales_motion": "HOW THE SEQUENCE SHOULD MOVE THE BUYER",
+}
+
+# The explicit notice an emptied field renders instead of nothing at all.
+_TM_SECTION_EMPTY_NOTES = {
+    "tm_proof": "(NOTHING APPROVED. Do not name a customer, quote a result, or refer "
+                "to a case study. Make the point from how the process works instead.)",
+    "tm_pricing": "(NOTHING APPROVED. Do not state or estimate any price, rate, cost, "
+                  "saving or percentage anywhere in this campaign. If the buyer needs "
+                  "numbers, offer to get them rather than quoting them.)",
+}
+
+# tm_forbidden renders last, under its own heading, after the workspace's own
+# custom sections, so nothing the owner adds can read as an exception to it.
+_TM_SECTION_SKIP = ("tm_forbidden",)
+
 
 def _tm_playbook_section(title: str, value: str, empty_note: str = "") -> str:
     """One labelled section of the rendered ThriveModal playbook.
@@ -11244,32 +11763,40 @@ def _tm_playbook_section(title: str, value: str, empty_note: str = "") -> str:
     return "\n" + title + ":\n" + body + "\n"
 
 
+def _tm_custom_sections(cfg: dict = None) -> list:
+    """The workspace's own added playbook sections, as [(title, body), ...].
+
+    Stored under `tm_custom_sections` as a list of {"title", "body"} dicts.
+    Anything malformed is skipped rather than raising: this runs inside every
+    generation, and a bad row in config must never stop a campaign."""
+    try:
+        cfg = load_config() if cfg is None else cfg
+    except Exception:
+        return []
+    out = []
+    for row in ((cfg or {}).get("tm_custom_sections") or []):
+        if not isinstance(row, dict):
+            continue
+        title = str(row.get("title") or "").strip()
+        body = str(row.get("body") or "").strip()
+        if title and body:
+            out.append((title, body))
+    return out
+
+
 def _thrivemodal_playbook_text(cfg: dict = None) -> str:
     """The full ThriveModal writing playbook, rendered from current config."""
     ctx = _thrivemodal_context(cfg)
     parts = [_TM_PLAYBOOK_HEAD]
-    parts.append(_tm_playbook_section(
-        "WHAT THRIVEMODAL SELLS AND HOW IT IS DELIVERED", ctx.get("tm_services")))
-    parts.append(_tm_playbook_section(
-        "WHO WE SELL TO", ctx.get("tm_industries")))
-    parts.append(_tm_playbook_section(
-        "BUSINESS PROBLEMS THE BUYER ALREADY HAS", ctx.get("tm_problems")))
-    parts.append(_tm_playbook_section(
-        "WHAT MAKES THRIVEMODAL DIFFERENT", ctx.get("tm_differentiators")))
-    parts.append(_tm_playbook_section(
-        "APPROVED CUSTOMER PROOF", ctx.get("tm_proof"),
-        "(NOTHING APPROVED. Do not name a customer, quote a result, or refer "
-        "to a case study. Make the point from how the process works instead.)"))
-    parts.append(_tm_playbook_section(
-        "APPROVED PRICING AND TERMS", ctx.get("tm_pricing"),
-        "(NOTHING APPROVED. Do not state or estimate any price, rate, cost, "
-        "saving or percentage anywhere in this campaign. If the buyer needs "
-        "numbers, offer to get them rather than quoting them.)"))
-    parts.append(_tm_playbook_section(
-        "VOICE", ctx.get("tm_voice")))
-    parts.append(_tm_playbook_section(
-        "PREFERRED CALLS TO ACTION (rotate, never repeat one in a sequence)",
-        ctx.get("tm_ctas")))
+    for key, _label, _help, _default in THRIVEMODAL_PLAYBOOK_FIELDS:
+        if key in _TM_SECTION_SKIP:
+            continue
+        parts.append(_tm_playbook_section(
+            _TM_SECTION_TITLES.get(key, key.replace("tm_", "").upper()),
+            ctx.get(key), _TM_SECTION_EMPTY_NOTES.get(key, "")))
+    for title, body in _tm_custom_sections(cfg):
+        parts.append("\n" + title.upper() + " (added by this workspace):\n"
+                     + body + "\n")
     forbidden = (ctx.get("tm_forbidden") or "").strip()
     if forbidden:
         parts.append("\nCLAIMS THIS WORKSPACE HAS BANNED (in addition to the "
@@ -11286,7 +11813,16 @@ def _active_playbook_text(camp_type: str = None, cfg: dict = None) -> str:
     generated from any workspace must still be written to the Arena playbook,
     byte-for-byte as it was before the ThriveModal work. Only when the type is
     playbook-neutral (byos, a saved style) does the workspace setting decide.
+
+    A locked instance skips all of that. DRIPDROP_PLAYBOOK means this box has
+    exactly one playbook, so even a campaign saved under the other one, and
+    even a sequence type that carries its own voice, is written to the locked
+    playbook. There is no second voice on that instance to fall back to.
     """
+    if _LOCKED_PLAYBOOK == PLAYBOOK_THRIVEMODAL:
+        return _thrivemodal_playbook_text(cfg)
+    if _LOCKED_PLAYBOOK == PLAYBOOK_ARENA:
+        return _DRIPDROP_PLAYBOOK
     key = (camp_type or "").strip()
     if key in _TM_TYPE_KEYS:
         return _thrivemodal_playbook_text(cfg)
@@ -53997,9 +54533,11 @@ def _p_profile_body(s, rf):
              "co_desc": None, "co_tag": None, "co_phone": None,
              "co_li": None, "co_addr": None, "co_color": None,
              "nl_note": None, "sig": None,
-             # Sales Playbook section. `pb_choice` is the radio; `pb_fields`
-             # maps a THRIVEMODAL_PLAYBOOK_FIELDS key to its textarea.
-             "pb_choice": None, "pb_fields": {}}
+             # Sales Playbook section. `pb_choice` is the radio, absent on a
+             # locked instance; `pb_fields` maps a THRIVEMODAL_PLAYBOOK_FIELDS
+             # key to its textarea; `pb_custom` holds the workspace's own
+             # added sections as {"title", "body", "deleted"} rows.
+             "pb_choice": None, "pb_fields": {}, "pb_custom": []}
 
     def _display_row(lbl: str, val: str, big: bool = False):
         """Read-only label + value row for the display view."""
@@ -54077,26 +54615,44 @@ def _p_profile_body(s, rf):
         # ── Sales Playbook: workspace choice + company context ─────
         # Written in ONE load/save pass so a playbook flip and a context
         # edit made in the same visit can't clobber each other.
-        if _refs.get("pb_choice") is not None:
-            _pb_val = str(_refs["pb_choice"].value or "").strip().lower()
-            if _pb_val in _VALID_PLAYBOOKS:
-                _pcfg = load_config()
-                _pb_was = _workspace_playbook(_pcfg)
-                _pcfg["workspace_playbook"] = _pb_val
-                for _fk, _fw in (_refs.get("pb_fields") or {}).items():
-                    # Stored verbatim. An empty field is a REAL choice here:
-                    # blank pricing/proof is what makes the generator refuse
-                    # to quote a number rather than invent one, so it is
-                    # saved as blank rather than being back-filled.
-                    _pcfg[_fk] = _strip_cite_tags((_fw.value or "").strip())
-                save_config(_pcfg)
-                _saved_parts.append("playbook")
-                if _pb_val != _pb_was:
-                    ui.notify(
-                        f"Playbook switched to {PLAYBOOK_LABELS.get(_pb_val, _pb_val)}. "
-                        "Campaigns you already saved keep the playbook they "
-                        "were built under.",
-                        type="info", timeout=6000)
+        # Keyed off the context fields, not the radio: a locked instance has
+        # no radio, and keying off it would silently drop every edit made to
+        # the playbook content on that instance.
+        if _refs.get("pb_fields"):
+            _pcfg = load_config()
+            _pb_was = _workspace_playbook(_pcfg)
+            _pb_val = _pb_was
+            if _refs.get("pb_choice") is not None:
+                _pb_pick = str(_refs["pb_choice"].value or "").strip().lower()
+                if _pb_pick in _VALID_PLAYBOOKS:
+                    _pb_val = _pb_pick
+                    _pcfg["workspace_playbook"] = _pb_val
+            for _fk, _fw in (_refs.get("pb_fields") or {}).items():
+                # Every field is written, including an empty one. The boxes
+                # were loaded with the text actually in force, so an empty
+                # box is a deliberate clearing, and it is stored as such:
+                # that section then tells the AI to say nothing.
+                _pcfg[_fk] = _strip_cite_tags((_fw.value or "").strip())
+            # Custom sections are rewritten wholesale from what is on screen,
+            # which is what makes Remove actually remove. A row missing a
+            # name or a body is dropped rather than written half-formed.
+            _pb_custom = []
+            for _crow in (_refs.get("pb_custom") or []):
+                if _crow.get("deleted"):
+                    continue
+                _ct = _strip_cite_tags((_crow["title"].value or "").strip())
+                _cb = _strip_cite_tags((_crow["body"].value or "").strip())
+                if _ct and _cb:
+                    _pb_custom.append({"title": _ct, "body": _cb})
+            _pcfg["tm_custom_sections"] = _pb_custom
+            save_config(_pcfg)
+            _saved_parts.append("playbook")
+            if _pb_val != _pb_was:
+                ui.notify(
+                    f"Playbook switched to {PLAYBOOK_LABELS.get(_pb_val, _pb_val)}. "
+                    "Campaigns you already saved keep the playbook they "
+                    "were built under.",
+                    type="info", timeout=6000)
 
         # ── Newsletter Sig: personal note ───────────────────────────
         if _refs.get("nl_note") is not None:
@@ -55039,69 +55595,81 @@ def _p_profile_body(s, rf):
     # Wrapped in a single div so the sidebar's "email_sig" toggle can hide
     # the whole thing at once.
     # ═══════════════ SALES PLAYBOOK ════════════════════════════
-    # The playbook is an EXPLICIT choice, never inferred from the company
-    # name, website or industry. A workspace that has never visited this
-    # section resolves to ARENA, i.e. exactly the behavior it had before
-    # this section existed.
+    # On a normal instance the playbook is an EXPLICIT choice, never inferred
+    # from the company name, website or industry, and a workspace that has
+    # never visited this section resolves to ARENA.
+    #
+    # On an instance pinned with DRIPDROP_PLAYBOOK there is nothing to choose,
+    # so the chooser and every mention of the other playbook are gone and this
+    # section is purely the editable content of the one playbook that exists.
     with ui.element("div").style(_hide_if("playbook") + "margin-top:24px;"):
         ui.element("div").style(f"height:1px;background:{C['border']};margin:0 0 20px;")
         ui.label("SALES PLAYBOOK").style(
             f"font-size:10px;font-weight:800;color:{C['teal']};"
             f"text-transform:uppercase;letter-spacing:2px;")
-        ui.label(
-            "Which business this workspace sells for. It decides the campaign "
-            "objectives you're offered, the sales assets you can build, and "
-            "the rules the AI writes under."
-        ).style(f"font-size:11px;color:{C['muted']};margin-bottom:14px;")
 
-        _pb_current = _workspace_playbook()
-        with ui.element("div").style("max-width:700px;"):
-            _pb_radio = ui.radio(
-                {k: PLAYBOOK_LABELS.get(k, k) for k in
-                 (PLAYBOOK_ARENA, PLAYBOOK_THRIVEMODAL)},
-                value=_pb_current,
-            ).props("dense").style(
-                f"color:{C['text_l']};margin-bottom:6px;")
-            _refs["pb_choice"] = _pb_radio
-
+        if _LOCKED_PLAYBOOK:
             ui.label(
-                "Arena keeps candidate-led recruiting: Find Candidates, MPC, "
-                "and the 4x4 / 5x5 / 5x3 slate sequences. ThriveModal swaps "
-                "those for sales objectives that need no candidate records. "
-                "Saved campaigns are never restamped, so anything you already "
-                "built keeps behaving the way it does today."
-            ).style(f"font-size:11px;color:{C['muted']};line-height:1.6;"
-                    f"margin-bottom:18px;")
+                "The rules every campaign and sales asset on this workspace "
+                "is written under. Everything below is yours to edit: change "
+                "any section, and add your own."
+            ).style(f"font-size:11px;color:{C['muted']};margin-bottom:14px;")
+        else:
+            ui.label(
+                "Which business this workspace sells for. It decides the "
+                "campaign objectives you're offered, the sales assets you can "
+                "build, and the rules the AI writes under."
+            ).style(f"font-size:11px;color:{C['muted']};margin-bottom:14px;")
+
+        with ui.element("div").style("max-width:700px;"):
+            if not _LOCKED_PLAYBOOK:
+                _pb_radio = ui.radio(
+                    {k: PLAYBOOK_LABELS.get(k, k) for k in
+                     (PLAYBOOK_ARENA, PLAYBOOK_THRIVEMODAL)},
+                    value=_workspace_playbook(),
+                ).props("dense").style(
+                    f"color:{C['text_l']};margin-bottom:6px;")
+                _refs["pb_choice"] = _pb_radio
+
+                ui.label(
+                    "Arena keeps candidate-led recruiting: Find Candidates, "
+                    "MPC, and the 4x4 / 5x5 / 5x3 slate sequences. "
+                    "ThriveModal swaps those for sales objectives that need "
+                    "no candidate records. Saved campaigns are never "
+                    "restamped, so anything you already built keeps behaving "
+                    "the way it does today."
+                ).style(f"font-size:11px;color:{C['muted']};line-height:1.6;"
+                        f"margin-bottom:18px;")
 
             ui.label("THRIVEMODAL COMPANY CONTEXT").style(
                 f"font-size:10px;font-weight:800;color:{C['teal']};"
                 f"text-transform:uppercase;letter-spacing:2px;margin-bottom:4px;")
             ui.label(
-                "Shared by every ThriveModal campaign and sales asset. Two "
-                "fields are deliberately empty until you fill them: with no "
-                "approved proof the AI cites no customer, and with no approved "
-                "pricing it quotes no number and a cost comparison renders as "
-                "an incomplete worksheet instead of a guess."
+                "Shared by every ThriveModal campaign and sales asset. Edit "
+                "any section to change how the AI writes, with no restart. "
+                "Approved proof and approved pricing are the two that bind "
+                "hardest: the AI can only cite a customer or state a cost the "
+                "way those two sections allow."
             ).style(f"font-size:11px;color:{C['muted']};line-height:1.6;"
                     f"margin-bottom:14px;")
 
             _tm_saved = load_config()
             for _fk, _flabel, _fhelp, _fdefault in THRIVEMODAL_PLAYBOOK_FIELDS:
-                # Show what is STORED, not the resolved value. Rendering the
-                # shipped default into an empty pricing box would make the
-                # user think something is approved when nothing is.
-                _fval = str(_tm_saved.get(_fk, "") or "")
-                _blank_ok = _fk in ("tm_proof", "tm_pricing")
+                # The box shows what is ACTUALLY IN FORCE: the shipped text
+                # until this workspace edits it, the edit afterwards. That
+                # makes saving harmless and clearing a box a real, visible
+                # decision rather than an accident of an empty form.
+                _fval = (str(_tm_saved[_fk] or "") if _fk in _tm_saved
+                         else _fdefault)
                 ui.label(_flabel).classes("fd-fl")
                 ui.label(_fhelp).style(
                     f"font-size:10px;color:{C['muted']};margin-bottom:6px;"
                     f"line-height:1.5;")
                 _fa = ui.textarea(
                     value=_fval,
-                    placeholder=("Leave empty until approved."
-                                 if _blank_ok else _fdefault[:120]),
+                    placeholder=_fdefault[:160],
                 ).style(
-                    f"width:100%;min-height:{'70' if _blank_ok else '90'}px;"
+                    f"width:100%;min-height:90px;"
                     f"background:{C['surface']};border:1px solid {C['border']};"
                     f"border-radius:8px;padding:12px;font-size:13px;"
                     f"color:{C['text_l']};font-family:inherit;resize:vertical;"
@@ -55109,14 +55677,77 @@ def _p_profile_body(s, rf):
                 _refs["pb_fields"][_fk] = _fa
                 if not _fval.strip():
                     ui.label(
-                        ("Nothing approved. The AI will say nothing on this "
-                         "topic.") if _blank_ok else
-                        "Empty - the shipped default text is used."
-                    ).style(f"font-size:10px;color:"
-                            f"{C['warn'] if _blank_ok else C['muted']};"
+                        "Empty. The AI says nothing on this topic."
+                    ).style(f"font-size:10px;color:{C['warn']};"
                             f"margin-bottom:14px;")
                 else:
                     ui.element("div").style("height:14px;")
+
+            # ── Your own sections ──────────────────────────────────
+            # Anything added here is rendered into the writing prompt the
+            # same way the shipped sections are, under its own heading. A
+            # row is kept in _refs so the save pass can read it; deleting
+            # only marks it, so a mis-click is recoverable by leaving the
+            # page without saving.
+            ui.element("div").style(
+                f"height:1px;background:{C['border']};margin:8px 0 18px;")
+            ui.label("YOUR OWN SECTIONS").style(
+                f"font-size:10px;font-weight:800;color:{C['teal']};"
+                f"text-transform:uppercase;letter-spacing:2px;margin-bottom:4px;")
+            ui.label(
+                "Anything the sections above don't cover: a vertical you're "
+                "pushing, an objection you keep hearing, a rule of your own. "
+                "Each one goes into the writing prompt under its own heading. "
+                "A section needs both a name and text to be saved."
+            ).style(f"font-size:11px;color:{C['muted']};line-height:1.6;"
+                    f"margin-bottom:12px;")
+
+            _pb_custom_box = ui.element("div").style("width:100%;")
+
+            def _pb_add_custom(title: str = "", body: str = "") -> None:
+                _row = {"deleted": False}
+                with _pb_custom_box:
+                    _wrap = ui.element("div").style(
+                        f"border:1px solid {C['border']};border-radius:8px;"
+                        f"padding:12px;margin-bottom:10px;")
+                    with _wrap:
+                        with ui.element("div").style(
+                                "display:flex;gap:8px;align-items:center;"
+                                "margin-bottom:8px;"):
+                            _ti = ui.input(
+                                value=title,
+                                placeholder="Section name, e.g. Objections we hear",
+                            ).props("dense outlined").style(
+                                f"flex:1;color:{C['text_l']};")
+
+                            def _drop(_e=None, _w=_wrap, _r=_row) -> None:
+                                _r["deleted"] = True
+                                _w.style("display:none;")
+                                ui.notify("Section removed. Save to confirm.",
+                                          type="info")
+
+                            ui.button("Remove", on_click=_drop).props(
+                                "flat dense").style(f"font-size:10px;color:{C['muted']};")
+                        _bi = ui.textarea(
+                            value=body,
+                            placeholder="What the AI should know or do about it.",
+                        ).style(
+                            f"width:100%;min-height:80px;"
+                            f"background:{C['surface']};border:1px solid {C['border']};"
+                            f"border-radius:8px;padding:12px;font-size:13px;"
+                            f"color:{C['text_l']};font-family:inherit;resize:vertical;")
+                _row["title"] = _ti
+                _row["body"] = _bi
+                _refs.setdefault("pb_custom", []).append(_row)
+
+            for _crow in (_tm_saved.get("tm_custom_sections") or []):
+                if isinstance(_crow, dict):
+                    _pb_add_custom(str(_crow.get("title") or ""),
+                                   str(_crow.get("body") or ""))
+
+            ui.button("+ Add section",
+                      on_click=lambda _e=None: _pb_add_custom()).props(
+                "flat dense").style(f"font-size:11px;color:{C['teal']};")
 
     with ui.element("div").style(_hide_if("email_sig") + "margin-top:24px;"):
         ui.element("div").style(f"height:1px;background:{C['border']};margin:0 0 20px;")
