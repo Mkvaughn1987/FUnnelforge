@@ -86,8 +86,154 @@ def _env_str(var: str, default: str) -> str:
 BRAND = _env_str("DRIPDROP_BRAND_NAME", "DripDrop")
 BRAND_WORDMARK = _env_str("DRIPDROP_BRAND_WORDMARK", "DripDripDrop")
 BRAND_LOGO = _env_str("DRIPDROP_BRAND_LOGO", "/static/dripdrop_logo.png?v=3")
+# Reversed logo, for the places that sit on a dark ground: the signed-out
+# auth pages, the landing hero, and the topbar in dark theme. Defaults to
+# BRAND_LOGO, so an instance that has only one artwork -- Arena -- behaves
+# exactly as before and never has to know this variable exists.
+BRAND_LOGO_DARK = _env_str("DRIPDROP_BRAND_LOGO_DARK", BRAND_LOGO)
+# Topbar logo slot. DripDrop's mark is portrait (118x146); a horizontal
+# lockup needs a wide, short box or `object-fit:contain` shrinks it to a
+# sliver to make it fit. CSS units, not bare numbers.
+BRAND_LOGO_W = _env_str("DRIPDROP_BRAND_LOGO_W", "118px")
+BRAND_LOGO_H = _env_str("DRIPDROP_BRAND_LOGO_H", "146px")
+# Same slot under the narrow-screen breakpoint, where DripDrop's square mark
+# collapses to 40x40.
+BRAND_LOGO_W_SM = _env_str("DRIPDROP_BRAND_LOGO_W_SM", "40px")
+BRAND_LOGO_H_SM = _env_str("DRIPDROP_BRAND_LOGO_H_SM", "40px")
+# Browser tab icon. A filesystem path relative to the app directory.
+BRAND_FAVICON = _env_str("DRIPDROP_BRAND_FAVICON", "assets/dripdrop_icon.png")
 BRAND_SUPPORT_EMAIL = _env_str(
     "DRIPDROP_BRAND_SUPPORT_EMAIL", "support@dripdripdrop.ai")
+
+# ---------------------------------------------------------------------------
+# Signed-out palette.
+#
+# The logged-in app is themed by the --dd-* CSS variables, but the signed-out
+# experience -- login, register, forgot/reset, /setup and the marketing landing
+# page -- predates that and hardcoded DripDrop's navy-and-teal. These nine
+# names are the whole of it. Every default below is the literal that was
+# previously inline, so an instance that sets none of them (Arena) renders the
+# same pixels it always has.
+#
+# Roles, so a white-label instance can pick sensible values:
+#   BG        page background, the dominant colour
+#   BG_DEEP   a darker shade of BG, for insets and mockups
+#   CARD      panel/card fill, sits on BG
+#   BORDER    hairlines and card edges
+#   ACCENT    primary buttons, headings, links, checkmarks. Text placed ON
+#             this colour is BG, so the two must contrast strongly.
+#   ACCENT2   second accent, used only in gradients alongside ACCENT
+#   INK       primary text on BG
+#   INK_DIM   body copy, one step down from INK
+#   MUTED     captions and secondary labels
+WEB_BG = _env_color("DRIPDROP_WEB_BG", "#1E2B5E")
+WEB_BG_DEEP = _env_color("DRIPDROP_WEB_BG_DEEP", "#151F47")
+WEB_CARD = _env_color("DRIPDROP_WEB_CARD", "#243264")
+WEB_BORDER = _env_color("DRIPDROP_WEB_BORDER", "#2E3D7A")
+WEB_ACCENT = _env_color("DRIPDROP_WEB_ACCENT", "#1AE3D9")
+WEB_ACCENT2 = _env_color("DRIPDROP_WEB_ACCENT2", "#6366F1")
+WEB_INK = _env_color("DRIPDROP_WEB_INK", "#F0F8FF")
+WEB_INK_DIM = _env_color("DRIPDROP_WEB_INK_DIM", "#D8E4F5")
+WEB_MUTED = _env_color("DRIPDROP_WEB_MUTED", "#8FA3C8")
+
+# ---------------------------------------------------------------------------
+# Landing-page editorial.
+#
+# The marketing copy was written for a staffing firm and names candidates,
+# salary guides and job postings throughout. A sales-only instance needs the
+# same page saying sales things. Rather than ~12 more env vars, this is one
+# switch that selects a whole voice, so a .env carries a single line and the
+# prose stays editable here as prose.
+#
+# "recruiting" is Arena's existing text, word for word. It is the default, so
+# an instance that sets nothing renders the page exactly as it does today.
+LANDING_COPY = {
+    "recruiting": {
+        "hero_h1": 'Turn cold outreach into <span class="dd-grad">warm conversations.</span>',
+        "hero_lead": (
+            "AI-powered sales outreach that sends from your "
+            "<strong>real Outlook or Gmail inbox</strong> — same deliverability, "
+            "same Sent folder, same reputation. Build multi-channel campaigns in "
+            "minutes, let AI write the hard parts, and never lose a lead to a "
+            "forgotten follow-up again."),
+        "hero_kicker": "Built by recruiters, for recruiters.",
+        "sec_sub": (
+            "{BRAND} runs your whole day, emails on autopilot, branded PDFs, and "
+            "multi-channel touches. Here's what no other outreach tool does the same way."),
+        "feat_builder": (
+            "Drop in a company name. {BRAND} researches them on the live web, "
+            "identifies their hiring patterns and decision makers, then writes a "
+            "full 7-touch sequence, emails, LinkedIn messages, call scripts, tuned "
+            "to that company's industry."),
+        "feat_pdf": (
+            "Attach Market Pulse one-pagers, AI Salary Guides, Role Scorecards, and "
+            "Tenure Snapshots, all generated from real comp and hiring data, branded "
+            "with your logo, refreshed before every send so they're never stale. "
+            "Recipients open PDFs at 3-4× the rate of plain-text follow-ups."),
+        "feat_intel": (
+            "Define your target markets by location, role, and industry, {BRAND} "
+            "scans the live web for new job postings, staffing activity, and hiring "
+            "signals that match. Every morning you see who's hiring, who's expanding, "
+            "and which companies just became warm leads."),
+        "feat_news": (
+            "Publish a branded monthly market intelligence newsletter to your entire "
+            "pipeline in one click. AI researches your region and sector on the live "
+            "web, drafts the top stories, comp snapshots, and a 3×3 grid of anonymized "
+            "candidate spotlights, then sends from your real inbox. Stay top-of-mind "
+            "without writing a word."),
+        "cmp_collateral": (
+            "Branded PDFs (Market Pulse, Salary Guide, Scorecard) attached automatically"),
+        "cmp_news": (
+            "AI-written monthly market newsletters with candidate spotlights, branded "
+            "and sent from your inbox"),
+        "cta_h2": "Your leads aren't going to warm themselves.",
+    },
+    "sales": {
+        "hero_h1": 'Cold outreach that <span class="dd-grad">slides right in.</span>',
+        "hero_lead": (
+            "AI-powered sales outreach that sends from your "
+            "<strong>real Outlook or Gmail inbox</strong> - same deliverability, "
+            "same Sent folder, same reputation. Build multi-channel campaigns in "
+            "minutes, let AI write the hard parts, and never lose a deal to a "
+            "forgotten follow-up again."),
+        "hero_kicker": "Built for sellers, not spreadsheets.",
+        "sec_sub": (
+            "{BRAND} runs your whole day, emails on autopilot, branded one-pagers, "
+            "and multi-channel touches. Here's what no other outreach tool does the "
+            "same way."),
+        "feat_builder": (
+            "Drop in a company name. {BRAND} researches them on the live web, reads "
+            "their growth signals and finds the people who sign, then writes a full "
+            "7-touch sequence, emails, LinkedIn messages, call scripts, tuned to that "
+            "company's industry."),
+        "feat_pdf": (
+            "Attach Market Pulse one-pagers, industry benchmark reports, and ROI "
+            "snapshots, all generated from live market data, branded with your logo, "
+            "refreshed before every send so they're never stale. Recipients open PDFs "
+            "at 3-4x the rate of plain-text follow-ups."),
+        "feat_intel": (
+            "Define your target markets by location, size, and industry, {BRAND} "
+            "scans the live web for funding rounds, expansion news, leadership changes, "
+            "and buying signals that match. Every morning you see who's growing, who's "
+            "spending, and which accounts just became warm."),
+        "feat_news": (
+            "Publish a branded monthly market intelligence newsletter to your entire "
+            "pipeline in one click. AI researches your region and sector on the live "
+            "web, drafts the top stories, market movements, and the trends your buyers "
+            "are already talking about, then sends from your real inbox. Stay "
+            "top-of-mind without writing a word."),
+        "cmp_collateral": (
+            "Branded PDFs (Market Pulse, Benchmark Report, ROI Snapshot) attached "
+            "automatically"),
+        "cmp_news": (
+            "AI-written monthly market newsletters your buyers actually read, branded "
+            "and sent from your inbox"),
+        "cta_h2": "Your pipeline isn't going to fill itself.",
+    },
+}
+BRAND_COPY = _env_str("DRIPDROP_BRAND_COPY", "recruiting")
+if BRAND_COPY not in LANDING_COPY:
+    BRAND_COPY = "recruiting"
 
 # The long-cadence, low-touch sequence type. "Slow Drip" on Arena.
 TERM_NURTURE = _env_str("DRIPDROP_TERM_NURTURE", "Slow Drip")
@@ -121,6 +267,23 @@ TERM_DRIP_TITLE = TERM_DRIP[:1].upper() + TERM_DRIP[1:]
 # time -- an instance replaces the whole set or keeps Arena's.
 BRAND_GREETINGS = [g.strip() for g in
                    (os.getenv("DRIPDROP_GREETINGS") or "").split("|") if g.strip()]
+
+
+def _env_color(var: str, default: str) -> str:
+    """A single colour from the environment. The leading "#" is optional, for
+    the same reason as in _env_palette: /opt/dripdrop/.env is read both by
+    systemd (EnvironmentFile=) and by python-dotenv, which disagree about when
+    a "#" begins a trailing comment. Anything that is not a bare 3/6/8-digit
+    hex value is passed through untouched, so "rgb(...)" or a CSS keyword
+    still works."""
+    v = _env_str(var, default)
+    if not v.startswith("#") and len(v) in (3, 6, 8):
+        try:
+            int(v, 16)
+            return "#" + v
+        except ValueError:
+            pass
+    return v
 
 
 def _env_palette(var: str) -> dict:
@@ -265,6 +428,16 @@ _STATIC_ALLOWLIST = {
     "dripdrop_logo.png",
     "jway_banner.png",
 }
+
+# A white-label instance points DRIPDROP_BRAND_LOGO at its own artwork, so its
+# filename has to be servable too -- otherwise /static/<its logo> 404s and the
+# whole app shows a broken image. Only the bare filename is added, and the
+# route below still requires the file to exist in the app directory, so this
+# widens nothing for an instance that sets no logo (Arena).
+for _brand_asset in (BRAND_LOGO, BRAND_LOGO_DARK):
+    _name = _brand_asset.split("?", 1)[0].rsplit("/", 1)[-1]
+    if _name and "/" not in _name and "\\" not in _name and ".." not in _name:
+        _STATIC_ALLOWLIST.add(_name)
 
 # ── Server mode detection ──────────────────────────────────────────────────
 _SERVER_MODE = bool(os.getenv("DRIPDROP_DATA_DIR")) or sys.platform != "win32"
@@ -742,26 +915,26 @@ def _admin_usage(request: Request):
     html = f"""<!DOCTYPE html><html><head>
 <meta charset="utf-8"><title>{BRAND} — AI Usage</title>
 <style>
-  body {{ font-family: 'DM Sans','Segoe UI',sans-serif; background:#1E2B5E; color:#D8E4F5;
+  body {{ font-family: 'DM Sans','Segoe UI',sans-serif; background:{WEB_BG}; color:{WEB_INK_DIM};
          margin:0; padding:24px; }}
-  h1 {{ font-family:'Nunito',sans-serif; font-size:24px; color:#F0F8FF; margin:0 0 4px; }}
-  h2 {{ font-family:'Nunito',sans-serif; font-size:16px; color:#1AE3D9;
+  h1 {{ font-family:'Nunito',sans-serif; font-size:24px; color:{WEB_INK}; margin:0 0 4px; }}
+  h2 {{ font-family:'Nunito',sans-serif; font-size:16px; color:{WEB_ACCENT};
         margin:28px 0 8px; }}
-  .sub {{ font-size:12px; color:#8FA3C8; margin-bottom:20px; }}
-  .tot {{ display:inline-block; background:#2A3B73; border:1px solid #3C508D;
+  .sub {{ font-size:12px; color:{WEB_MUTED}; margin-bottom:20px; }}
+  .tot {{ display:inline-block; background:{WEB_CARD}; border:1px solid {WEB_BORDER};
           border-radius:8px; padding:10px 16px; margin-right:10px;
           font-size:13px; }}
-  .tot b {{ color:#1AE3D9; font-size:18px; display:block; font-family:'Nunito'; }}
-  table {{ width:100%; border-collapse:collapse; background:#253567;
-           border:1px solid #3C508D; border-radius:8px; overflow:hidden;
+  .tot b {{ color:{WEB_ACCENT}; font-size:18px; display:block; font-family:'Nunito'; }}
+  table {{ width:100%; border-collapse:collapse; background:{WEB_CARD};
+           border:1px solid {WEB_BORDER}; border-radius:8px; overflow:hidden;
            font-size:12px; margin-bottom:14px; }}
-  th {{ background:#2F4282; color:#A5BEE7; text-align:left; padding:8px 12px;
+  th {{ background:{WEB_BORDER}; color:{WEB_MUTED}; text-align:left; padding:8px 12px;
         font-size:11px; text-transform:uppercase; letter-spacing:.05em; }}
-  td {{ padding:7px 12px; border-top:1px solid #3C508D; }}
+  td {{ padding:7px 12px; border-top:1px solid {WEB_BORDER}; }}
   td.n {{ text-align:right; font-variant-numeric:tabular-nums; }}
   td.cost {{ color:#F4C466; font-weight:600; }}
-  td.empty {{ text-align:center; color:#8FA3C8; font-style:italic; padding:20px; }}
-  a {{ color:#1AE3D9; }}
+  td.empty {{ text-align:center; color:{WEB_MUTED}; font-style:italic; padding:20px; }}
+  a {{ color:{WEB_ACCENT}; }}
 </style></head><body>
 <a href="/">← Back to {BRAND}</a>
 <h1>AI Usage (last 30 days)</h1>
@@ -797,16 +970,16 @@ def _admin_usage(request: Request):
 # Served as raw HTML via @app.get + HTMLResponse so they work regardless of
 # NiceGUI's page system. Required for Google OAuth app verification.
 
-_LEGAL_STYLE = """
+_LEGAL_STYLE = f"""
 <style>
-  body { font-family: 'DM Sans', 'Segoe UI', sans-serif; background: #1E2B5E; color: #D8E4F5; margin: 0; padding: 0; }
-  .legal { max-width: 800px; margin: 0 auto; padding: 40px 24px 60px; }
-  h1 { font-family: 'Nunito', sans-serif; font-size: 28px; color: #F0F8FF; margin-bottom: 8px; }
-  h2 { font-family: 'Nunito', sans-serif; font-size: 18px; color: #1AE3D9; margin-top: 28px; margin-bottom: 8px; }
-  p, li { font-size: 14px; line-height: 1.7; color: #D8E4F5; }
-  a { color: #1AE3D9; }
-  .date { font-size: 12px; color: #8FA3C8; margin-bottom: 24px; }
-  .back { display: inline-block; margin-bottom: 20px; color: #1AE3D9; text-decoration: none; font-size: 13px; }
+  body {{ font-family: 'DM Sans', 'Segoe UI', sans-serif; background: {WEB_BG}; color: {WEB_INK_DIM}; margin: 0; padding: 0; }}
+  .legal {{ max-width: 800px; margin: 0 auto; padding: 40px 24px 60px; }}
+  h1 {{ font-family: 'Nunito', sans-serif; font-size: 28px; color: {WEB_INK}; margin-bottom: 8px; }}
+  h2 {{ font-family: 'Nunito', sans-serif; font-size: 18px; color: {WEB_ACCENT}; margin-top: 28px; margin-bottom: 8px; }}
+  p, li {{ font-size: 14px; line-height: 1.7; color: {WEB_INK_DIM}; }}
+  a {{ color: {WEB_ACCENT}; }}
+  .date {{ font-size: 12px; color: {WEB_MUTED}; margin-bottom: 24px; }}
+  .back {{ display: inline-block; margin-bottom: 20px; color: {WEB_ACCENT}; text-decoration: none; font-size: 13px; }}
 </style>
 """
 
@@ -820,7 +993,7 @@ def _privacy_page():
 <h1>Privacy Policy</h1>
 <p class="date">Effective Date: April 12, 2026 &nbsp;|&nbsp; Last Updated: April 12, 2026</p>
 
-<p>{BRAND} ("we", "us", "our") operates the website dripdripdrop.ai and the {BRAND} desktop application. This Privacy Policy explains how we collect, use, and protect your information.</p>
+<p>{BRAND} ("we", "us", "our") operates the website {_PUBLIC_ORIGIN.split("//")[-1]} and the {BRAND} desktop application. This Privacy Policy explains how we collect, use, and protect your information.</p>
 
 <h2>1. Information We Collect</h2>
 <p><b>Account Information:</b> When you register, we collect your name, email address, phone number (optional), and password (stored as a salted hash, never in plain text).</p>
@@ -2659,7 +2832,7 @@ def _send_password_reset_email(to_email: str, token: str, base_url: str) -> bool
         f"<p>Click the link below to choose a new password. The link "
         f"expires in {_ttl_min} minutes and can only be used once.</p>"
         f'<p><a href="{_link}" style="display:inline-block;padding:10px 18px;'
-        f'background:#1AE3D9;color:#0D1520;text-decoration:none;'
+        f'background:{WEB_ACCENT};color:#0D1520;text-decoration:none;'
         f'border-radius:6px;font-weight:700;">Reset password</a></p>'
         f"<p>If the button doesn't work, copy and paste this URL into "
         f"your browser:<br>"
@@ -10696,8 +10869,16 @@ body,.nicegui-content{{background:{C['bg']} !important;font-family:'Segoe UI',sy
 .fd-shell{{display:flex;flex-direction:column;min-height:100vh;width:100vw;overflow-x:hidden}}
 .fd-row{{display:flex;flex:1;overflow:hidden;width:100%}}
 .fd-topbar{{background:{C['bg']};border-bottom:1px solid {C['border']};padding:0 200px 0 0;height:162px;display:flex;align-items:center;gap:26px;flex-shrink:0;position:relative}}
-.fd-logo{{display:flex;align-items:center;justify-content:center;width:118px;height:146px;margin-left:24px;margin-right:16px;flex-shrink:0}}
+.fd-logo{{display:flex;align-items:center;justify-content:center;width:{BRAND_LOGO_W};height:{BRAND_LOGO_H};margin-left:24px;margin-right:16px;flex-shrink:0}}
 .fd-logo img{{width:100%;height:100%;object-fit:contain;display:block}}
+/* Theme-paired brand logo. Bare :root is the dark theme; light theme sets
+   data-theme="light". Both <img> tags are always in the DOM and CSS shows
+   one, so the swap costs no round trip on theme toggle. When an instance
+   sets no DRIPDROP_BRAND_LOGO_DARK the two srcs are the same file and this
+   is a no-op. */
+.fd-logo img.dd-logo-dark{{display:none}}
+:root:not([data-theme="light"]) .fd-logo img.dd-logo-light{{display:none}}
+:root:not([data-theme="light"]) .fd-logo img.dd-logo-dark{{display:block}}
 .fd-logo .dd-card{{display:inline-flex;flex-direction:column;align-items:center;gap:0}}
 .fd-logo .dd-row{{display:flex;align-items:center;font-family:'Nunito',sans-serif;font-weight:900;font-size:42px;line-height:0.85;letter-spacing:-0.5px;color:{C['text_l']};white-space:nowrap}}
 .fd-logo .dd-slot{{display:inline-flex;align-items:center;justify-content:center;width:22px;height:30px;flex-shrink:0}}
@@ -11040,12 +11221,12 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
     overflow-x:auto !important;
   }}
   .fd-logo{{
-    width:40px !important;
-    height:40px !important;
+    width:{BRAND_LOGO_W_SM} !important;
+    height:{BRAND_LOGO_H_SM} !important;
     margin-left:0 !important;
     margin-right:4px !important;
   }}
-  .fd-logo img{{width:40px !important;height:40px !important}}
+  .fd-logo img{{width:100% !important;height:100% !important;object-fit:contain}}
   .fd-logo .dd-row{{font-size:16px !important;line-height:0.9 !important}}
   .fd-logo .dd-slot{{width:12px !important;height:16px !important}}
   .fd-lf,.fd-ld{{font-size:8px !important;letter-spacing:0 !important}}
@@ -11304,13 +11485,13 @@ function ddToggleTheme() {
         d.innerHTML = ''
             + '<div class="dd-rc-card">'
             + '  <div class="dd-rc-spinner"></div>'
-            + '  <div class="dd-rc-title">Reconnecting to DripDrop…</div>'
+            + f'  <div class="dd-rc-title">Reconnecting to {BRAND}…</div>'
             + '  <div class="dd-rc-sub" id="dd-rc-sub">'
             +    'Trying to restore your session. Your work is preserved.'
             + '  </div>'
             + '  <button id="dd-rc-reload" class="dd-rc-reload-btn" '
             +    'style="display:none;margin-top:14px;padding:8px 18px;'
-            +    'background:#1AE3D9;color:#0D1520;border:none;'
+            +    f'background:{WEB_ACCENT};color:#0D1520;border:none;'
             +    'border-radius:6px;font-weight:700;cursor:pointer;'
             +    'font-family:inherit;font-size:13px;">'
             +    '↻ Reload page'
@@ -11962,8 +12143,8 @@ def _page_decor(variant: int = 1):
     no grids, hatches, or dot rasters. Variants 1 - 5 give each page a distinct
     look; the variant parameter is moduloed into range so callers can't error.
     """
-    teal = "#1AE3D9"
-    indigo = "#6366F1"
+    teal = C_DARK["teal"]
+    indigo = C_DARK["indigo"]
     v = ((int(variant) - 1) % 5) + 1  # 1..5 regardless of input
 
     # Shared gradient def, unique id per variant so multiple pages rendered in
@@ -13083,7 +13264,10 @@ def topbar(s: AppState, rf):
         with ui.element("div").classes("fd-logo").style("cursor:pointer;").on(
                 "click", _topbar_home):
             ui.html(
-                f'<img src="{BRAND_LOGO}" alt="{BRAND_WORDMARK}  -  click for Home" title="Home" />'
+                f'<img class="dd-logo-light" src="{BRAND_LOGO}" '
+                f'alt="{BRAND_WORDMARK}  -  click for Home" title="Home" />'
+                f'<img class="dd-logo-dark" src="{BRAND_LOGO_DARK}" '
+                f'alt="{BRAND_WORDMARK}  -  click for Home" title="Home" />'
             )
         def _sales():
             # Land on Dashboard  -  top-level tab, clear history
@@ -27400,7 +27584,7 @@ def p_dashboard(s: AppState, rf):
             _pct = int(100 * _done / _total)
 
             with ui.element("div").style(
-                    f"background:linear-gradient(135deg,#1AE3D910,#6366F110);"
+                    f"background:linear-gradient(135deg,{C_DARK['teal']}10,{C_DARK['indigo']}10);"
                     f"border:1px solid {C['teal']}40;border-radius:14px;"
                     f"padding:22px 26px;margin-bottom:20px;"
                     f"box-shadow:0 2px 12px rgba(26,227,217,.08);"):
@@ -27425,7 +27609,7 @@ def p_dashboard(s: AppState, rf):
                         f"height:6px;background:{C['surface']};border-radius:3px;"
                         f"overflow:hidden;margin-bottom:18px;"):
                     ui.element("div").style(
-                        f"height:100%;width:{_pct}%;background:linear-gradient(90deg,{C['teal']},#6366F1);"
+                        f"height:100%;width:{_pct}%;background:linear-gradient(90deg,{C['teal']},{C['indigo']});"
                         f"border-radius:3px;transition:width .4s ease;")
 
                 # Steps
@@ -44367,7 +44551,7 @@ def p_ai_settings(s, rf):
             s._ai_panel_open = not bool(getattr(s, '_ai_panel_open', False))
             rf()
 
-        _ai_accent = C['good'] if _ai_connected else "#6366F1"
+        _ai_accent = C['good'] if _ai_connected else C['indigo']
         _ai_border = C['good'] if _ai_connected else C['border']
         with ui.element("button").style(
                 f"display:flex;align-items:center;gap:16px;width:100%;"
@@ -44378,7 +44562,7 @@ def p_ai_settings(s, rf):
                 f"transition:all .15s;"
                 ).on("click", _toggle_ai_panel):
             ui.label("✦").style(
-                f"font-size:28px;color:#6366F1;flex-shrink:0;width:40px;text-align:center;")
+                f"font-size:28px;color:{C['indigo']};flex-shrink:0;width:40px;text-align:center;")
             with ui.element("div").style("flex:1;min-width:0;"):
                 with ui.element("div").style("display:flex;align-items:center;gap:10px;margin-bottom:3px;"):
                     ui.label("AI Settings").style(
@@ -53832,24 +54016,25 @@ def login_page(next: str = "/"):
 
     with ui.element("div").style(
             "min-height:100vh;width:100%;display:flex;align-items:center;justify-content:center;"
-            "background:#1E2B5E;font-family:'DM Sans','Segoe UI',sans-serif;"):
+            f"background:{WEB_BG};font-family:'DM Sans','Segoe UI',sans-serif;"):
         with ui.element("div").classes("fd-auth-form").style(
-                "width:400px;max-width:90vw;background:#1E2B5E;"
+                f"width:400px;max-width:90vw;background:{WEB_BG};"
                 "border-radius:16px;padding:40px;margin:0 auto;"):
             # Logo / Title
             ui.html(
-                f'<img src="{BRAND_LOGO}" alt="{BRAND_WORDMARK}" '
-                'style="height:220px;width:auto;display:block;margin:0 auto 8px;" />'
+                f'<img src="{BRAND_LOGO_DARK}" alt="{BRAND_WORDMARK}" '
+                'style="max-height:220px;max-width:100%;width:auto;height:auto;'
+                'display:block;margin:0 auto 8px;" />'
             )
             ui.label("Sign in to your account").style(
-                "font-size:13px;color:#8FA3C8;text-align:center;display:block;margin-bottom:28px;")
+                f"font-size:13px;color:{WEB_MUTED};text-align:center;display:block;margin-bottom:28px;")
 
             # Email
-            ui.label("Email").style("font-size:12px;font-weight:600;color:#F0F8FF;margin-bottom:4px;")
+            ui.label("Email").style(f"font-size:12px;font-weight:600;color:{WEB_INK};margin-bottom:4px;")
             email_in = ui.input(placeholder="email@something.com").style("width:100%;").props("outlined dense")
 
             # Password
-            ui.label("Password").style("font-size:12px;font-weight:600;color:#F0F8FF;margin-bottom:4px;margin-top:14px;")
+            ui.label("Password").style(f"font-size:12px;font-weight:600;color:{WEB_INK};margin-bottom:4px;margin-top:14px;")
             pw_in = ui.input(placeholder="Enter your password", password=True,
                              password_toggle_button=True).style("width:100%;").props("outlined dense")
             pw_in.on("keydown.enter", _do_login)
@@ -53859,22 +54044,22 @@ def login_page(next: str = "/"):
                 ui.navigate.to("/forgot")
             with ui.element("div").style("text-align:right;margin-top:6px;"):
                 with ui.element("span").style(
-                        "font-size:11px;color:#8FA3C8;cursor:pointer;"
+                        f"font-size:11px;color:{WEB_MUTED};cursor:pointer;"
                         "font-weight:600;").on("click", _go_forgot):
                     ui.label("Forgot password?")
 
             # Login button
             with ui.element("button").style(
-                    "width:100%;padding:12px;margin-top:14px;background:#1AE3D9;color:#1E2B5E;"
+                    f"width:100%;padding:12px;margin-top:14px;background:{WEB_ACCENT};color:{WEB_BG};"
                     "border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;"
                     "font-family:inherit;").on("click", _do_login):
                 ui.label("Sign In")
 
             # Register link
             with ui.element("div").style("text-align:center;margin-top:16px;"):
-                ui.label("Don't have an account?").style("font-size:12px;color:#8FA3C8;display:inline;")
+                ui.label("Don't have an account?").style(f"font-size:12px;color:{WEB_MUTED};display:inline;")
                 with ui.element("span").style(
-                        "font-size:12px;color:#1AE3D9;cursor:pointer;margin-left:4px;"
+                        f"font-size:12px;color:{WEB_ACCENT};cursor:pointer;margin-left:4px;"
                         "font-weight:600;").on("click", _go_register):
                     ui.label("Sign up")
 
@@ -53897,27 +54082,28 @@ def forgot_password_page():
             with ui.element("div").style(
                     "min-height:100vh;width:100%;display:flex;"
                     "align-items:center;justify-content:center;"
-                    "background:#1E2B5E;font-family:'DM Sans','Segoe UI',sans-serif;"):
+                    f"background:{WEB_BG};font-family:'DM Sans','Segoe UI',sans-serif;"):
                 with ui.element("div").classes("fd-auth-form").style(
-                        "width:400px;max-width:90vw;background:#1E2B5E;"
+                        f"width:400px;max-width:90vw;background:{WEB_BG};"
                         "border-radius:16px;padding:40px;margin:0 auto;"):
                     ui.html(
-                        f'<img src="{BRAND_LOGO}" alt="{BRAND_WORDMARK}" '
-                        'style="height:160px;width:auto;display:block;margin:0 auto 8px;" />'
+                        f'<img src="{BRAND_LOGO_DARK}" alt="{BRAND_WORDMARK}" '
+                        'style="max-height:160px;max-width:100%;width:auto;height:auto;'
+                        'display:block;margin:0 auto 8px;" />'
                     )
                     if submitted:
                         ui.label("Check your inbox").style(
-                            "font-size:18px;font-weight:700;color:#F0F8FF;"
+                            f"font-size:18px;font-weight:700;color:{WEB_INK};"
                             "text-align:center;display:block;margin-bottom:12px;")
                         ui.label(
                             "If an account exists for that email, we just "
                             "sent a reset link. The link expires in 1 hour. "
                             "Don't see it? Check your spam folder."
                         ).style(
-                            "font-size:13px;color:#8FA3C8;text-align:center;"
+                            f"font-size:13px;color:{WEB_MUTED};text-align:center;"
                             "display:block;line-height:1.55;margin-bottom:24px;")
                         with ui.element("button").style(
-                                "width:100%;padding:12px;background:#1AE3D9;color:#1E2B5E;"
+                                f"width:100%;padding:12px;background:{WEB_ACCENT};color:{WEB_BG};"
                                 "border:none;border-radius:8px;font-size:14px;font-weight:700;"
                                 "cursor:pointer;font-family:inherit;"
                                 ).on("click", lambda: ui.navigate.to("/login")):
@@ -53925,17 +54111,17 @@ def forgot_password_page():
                         return
 
                     ui.label("Reset your password").style(
-                        "font-size:18px;font-weight:700;color:#F0F8FF;"
+                        f"font-size:18px;font-weight:700;color:{WEB_INK};"
                         "text-align:center;display:block;margin-bottom:6px;")
                     ui.label(
                         f"Enter the email on your {BRAND} account and we'll "
                         "send you a link to set a new password."
                     ).style(
-                        "font-size:12px;color:#8FA3C8;text-align:center;"
+                        f"font-size:12px;color:{WEB_MUTED};text-align:center;"
                         "display:block;margin-bottom:24px;line-height:1.5;")
 
                     ui.label("Email").style(
-                        "font-size:12px;font-weight:600;color:#F0F8FF;margin-bottom:4px;")
+                        f"font-size:12px;font-weight:600;color:{WEB_INK};margin-bottom:4px;")
                     _email_in = ui.input(
                         value=email_value,
                         placeholder="email@something.com",
@@ -53977,17 +54163,17 @@ def forgot_password_page():
                     _email_in.on("keydown.enter", _do_request)
 
                     with ui.element("button").style(
-                            "width:100%;padding:12px;margin-top:20px;background:#1AE3D9;"
-                            "color:#1E2B5E;border:none;border-radius:8px;font-size:14px;"
+                            f"width:100%;padding:12px;margin-top:20px;background:{WEB_ACCENT};"
+                            f"color:{WEB_BG};border:none;border-radius:8px;font-size:14px;"
                             "font-weight:700;cursor:pointer;font-family:inherit;"
                             ).on("click", _do_request):
                         ui.label("Send reset link")
 
                     with ui.element("div").style("text-align:center;margin-top:16px;"):
                         ui.label("Remembered it?").style(
-                            "font-size:12px;color:#8FA3C8;display:inline;")
+                            f"font-size:12px;color:{WEB_MUTED};display:inline;")
                         with ui.element("span").style(
-                                "font-size:12px;color:#1AE3D9;cursor:pointer;"
+                                f"font-size:12px;color:{WEB_ACCENT};cursor:pointer;"
                                 "margin-left:4px;font-weight:600;"
                                 ).on("click", lambda: ui.navigate.to("/login")):
                             ui.label("Back to sign in")
@@ -54036,27 +54222,28 @@ def reset_password_page(token: str = ""):
     with ui.element("div").style(
             "min-height:100vh;width:100%;display:flex;"
             "align-items:center;justify-content:center;"
-            "background:#1E2B5E;font-family:'DM Sans','Segoe UI',sans-serif;"):
+            f"background:{WEB_BG};font-family:'DM Sans','Segoe UI',sans-serif;"):
         with ui.element("div").classes("fd-auth-form").style(
-                "width:400px;max-width:90vw;background:#1E2B5E;"
+                f"width:400px;max-width:90vw;background:{WEB_BG};"
                 "border-radius:16px;padding:40px;margin:0 auto;"):
             ui.html(
-                f'<img src="{BRAND_LOGO}" alt="{BRAND_WORDMARK}" '
-                'style="height:160px;width:auto;display:block;margin:0 auto 8px;" />'
+                f'<img src="{BRAND_LOGO_DARK}" alt="{BRAND_WORDMARK}" '
+                'style="max-height:160px;max-width:100%;width:auto;height:auto;'
+                'display:block;margin:0 auto 8px;" />'
             )
             if not _email:
                 ui.label("Reset link expired").style(
-                    "font-size:18px;font-weight:700;color:#F0F8FF;"
+                    f"font-size:18px;font-weight:700;color:{WEB_INK};"
                     "text-align:center;display:block;margin-bottom:12px;")
                 ui.label(
                     "This reset link is no longer valid. Reset links "
                     "expire after 1 hour and can only be used once. "
                     "Request a fresh one to continue."
                 ).style(
-                    "font-size:13px;color:#8FA3C8;text-align:center;"
+                    f"font-size:13px;color:{WEB_MUTED};text-align:center;"
                     "display:block;line-height:1.55;margin-bottom:24px;")
                 with ui.element("button").style(
-                        "width:100%;padding:12px;background:#1AE3D9;color:#1E2B5E;"
+                        f"width:100%;padding:12px;background:{WEB_ACCENT};color:{WEB_BG};"
                         "border:none;border-radius:8px;font-size:14px;font-weight:700;"
                         "cursor:pointer;font-family:inherit;"
                         ).on("click", lambda: ui.navigate.to("/forgot")):
@@ -54064,21 +54251,21 @@ def reset_password_page(token: str = ""):
                 return
 
             ui.label("Set a new password").style(
-                "font-size:18px;font-weight:700;color:#F0F8FF;"
+                f"font-size:18px;font-weight:700;color:{WEB_INK};"
                 "text-align:center;display:block;margin-bottom:6px;")
             ui.label(f"For account: {_email}").style(
-                "font-size:12px;color:#8FA3C8;text-align:center;"
+                f"font-size:12px;color:{WEB_MUTED};text-align:center;"
                 "display:block;margin-bottom:24px;")
 
             ui.label("New password").style(
-                "font-size:12px;font-weight:600;color:#F0F8FF;margin-bottom:4px;")
+                f"font-size:12px;font-weight:600;color:{WEB_INK};margin-bottom:4px;")
             pw_new = ui.input(
                 placeholder="At least 8 characters",
                 password=True, password_toggle_button=True,
             ).style("width:100%;").props("outlined dense")
 
             ui.label("Confirm new password").style(
-                "font-size:12px;font-weight:600;color:#F0F8FF;"
+                f"font-size:12px;font-weight:600;color:{WEB_INK};"
                 "margin-bottom:4px;margin-top:14px;")
             pw_confirm = ui.input(
                 placeholder="Re-type the password",
@@ -54087,8 +54274,8 @@ def reset_password_page(token: str = ""):
             pw_confirm.on("keydown.enter", _do_reset)
 
             with ui.element("button").style(
-                    "width:100%;padding:12px;margin-top:20px;background:#1AE3D9;"
-                    "color:#1E2B5E;border:none;border-radius:8px;font-size:14px;"
+                    f"width:100%;padding:12px;margin-top:20px;background:{WEB_ACCENT};"
+                    f"color:{WEB_BG};border:none;border-radius:8px;font-size:14px;"
                     "font-weight:700;cursor:pointer;font-family:inherit;"
                     ).on("click", _do_reset):
                 ui.label("Update password")
@@ -54203,16 +54390,17 @@ def register_page(next: str = "/setup"):
 
     with ui.element("div").style(
             "min-height:100vh;width:100%;display:flex;align-items:center;justify-content:center;"
-            "background:#1E2B5E;font-family:'DM Sans','Segoe UI',sans-serif;padding:20px 0;"):
+            f"background:{WEB_BG};font-family:'DM Sans','Segoe UI',sans-serif;padding:20px 0;"):
         with ui.element("div").classes("fd-auth-form").style(
-                "width:440px;max-width:92vw;background:#1E2B5E;"
+                f"width:440px;max-width:92vw;background:{WEB_BG};"
                 "border-radius:16px;padding:36px 40px;margin:0 auto;"):
             ui.html(
-                f'<img src="{BRAND_LOGO}" alt="{BRAND_WORDMARK}" '
-                'style="height:180px;width:auto;display:block;margin:0 auto 4px;" />'
+                f'<img src="{BRAND_LOGO_DARK}" alt="{BRAND_WORDMARK}" '
+                'style="max-height:180px;max-width:100%;width:auto;height:auto;'
+                'display:block;margin:0 auto 4px;" />'
             )
             ui.label("Create your account").style(
-                "font-size:13px;color:#8FA3C8;text-align:center;display:block;margin-bottom:20px;")
+                f"font-size:13px;color:{WEB_MUTED};text-align:center;display:block;margin-bottom:20px;")
 
             # Profile photo upload removed from signup for now  -  users can
             # still add one after signup via the profile modal in the topbar.
@@ -54221,48 +54409,48 @@ def register_page(next: str = "/setup"):
             # intact above so this is a one-block reactivation).
 
             # Name
-            ui.label("Full Name").style("font-size:12px;font-weight:600;color:#F0F8FF;margin-bottom:4px;")
+            ui.label("Full Name").style(f"font-size:12px;font-weight:600;color:{WEB_INK};margin-bottom:4px;")
             name_in = ui.input(placeholder="Name").style("width:100%;").props("outlined dense")
 
             # Email
-            ui.label("Email").style("font-size:12px;font-weight:600;color:#F0F8FF;margin-bottom:4px;margin-top:12px;")
+            ui.label("Email").style(f"font-size:12px;font-weight:600;color:{WEB_INK};margin-bottom:4px;margin-top:12px;")
             email_in = ui.input(placeholder="email@something.com").style("width:100%;").props("outlined dense")
 
             # Invite code (required  -  beta gate)
             with ui.element("div").style("display:flex;align-items:center;gap:6px;margin-top:12px;margin-bottom:4px;"):
-                ui.label("Invite Code").style("font-size:12px;font-weight:600;color:#F0F8FF;")
-                ui.label("(required)").style("font-size:11px;color:#1AE3D9;font-weight:600;")
+                ui.label("Invite Code").style(f"font-size:12px;font-weight:600;color:{WEB_INK};")
+                ui.label("(required)").style(f"font-size:11px;color:{WEB_ACCENT};font-weight:600;")
             invite_in = ui.input(placeholder="Enter your invite code").style("width:100%;").props("outlined dense")
             ui.label(f"{BRAND} is in invite-only beta. Don't have a code? Email {BRAND_SUPPORT_EMAIL} for access.").style(
-                "font-size:10px;color:#8FA3C8;line-height:1.4;margin-top:3px;display:block;")
+                f"font-size:10px;color:{WEB_MUTED};line-height:1.4;margin-top:3px;display:block;")
 
             # Phone
-            ui.label("Phone Number (optional)").style("font-size:12px;font-weight:600;color:#F0F8FF;margin-bottom:4px;margin-top:12px;")
+            ui.label("Phone Number (optional)").style(f"font-size:12px;font-weight:600;color:{WEB_INK};margin-bottom:4px;margin-top:12px;")
             phone_in = ui.input(placeholder="(555) 123-4567").style("width:100%;").props("outlined dense")
 
             # Password
-            ui.label("Password").style("font-size:12px;font-weight:600;color:#F0F8FF;margin-bottom:4px;margin-top:12px;")
+            ui.label("Password").style(f"font-size:12px;font-weight:600;color:{WEB_INK};margin-bottom:4px;margin-top:12px;")
             pw_in = ui.input(placeholder="At least 6 characters", password=True,
                              password_toggle_button=True).style("width:100%;").props("outlined dense")
 
             # Confirm Password
-            ui.label("Confirm Password").style("font-size:12px;font-weight:600;color:#F0F8FF;margin-bottom:4px;margin-top:12px;")
+            ui.label("Confirm Password").style(f"font-size:12px;font-weight:600;color:{WEB_INK};margin-bottom:4px;margin-top:12px;")
             pw2_in = ui.input(placeholder="Re-enter your password", password=True,
                               password_toggle_button=True).style("width:100%;").props("outlined dense")
             pw2_in.on("keydown.enter", _do_register)
 
             # Register button
             with ui.element("button").style(
-                    "width:100%;padding:12px;margin-top:20px;background:#1AE3D9;color:#1E2B5E;"
+                    f"width:100%;padding:12px;margin-top:20px;background:{WEB_ACCENT};color:{WEB_BG};"
                     "border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;"
                     "font-family:inherit;").on("click", _do_register):
                 ui.label("Create Account")
 
             # Login link
             with ui.element("div").style("text-align:center;margin-top:16px;"):
-                ui.label("Already have an account?").style("font-size:12px;color:#8FA3C8;display:inline;")
+                ui.label("Already have an account?").style(f"font-size:12px;color:{WEB_MUTED};display:inline;")
                 with ui.element("span").style(
-                        "font-size:12px;color:#1AE3D9;cursor:pointer;margin-left:4px;"
+                        f"font-size:12px;color:{WEB_ACCENT};cursor:pointer;margin-left:4px;"
                         "font-weight:600;").on("click", _go_login):
                     ui.label("Sign in")
 
@@ -54282,7 +54470,7 @@ def ms_auth_callback(code: str = None, error: str = None, error_description: str
         inject_styles()
         with ui.element("div").style(
                 "min-height:100vh;display:flex;align-items:center;justify-content:center;"
-                "background:#1E2B5E;color:#F0F8FF;text-align:center;padding:40px;"):
+                f"background:{WEB_BG};color:{WEB_INK};text-align:center;padding:40px;"):
             ui.label("Microsoft integration isn't configured on this server.").style(
                 "font-size:16px;color:#EF4444;")
         return
@@ -54343,22 +54531,22 @@ def ms_auth_callback(code: str = None, error: str = None, error_description: str
     # Render the final result page
     with ui.element("div").style(
             "min-height:100vh;width:100%;display:flex;align-items:center;justify-content:center;"
-            "background:#1E2B5E;font-family:'DM Sans','Segoe UI',sans-serif;"):
+            f"background:{WEB_BG};font-family:'DM Sans','Segoe UI',sans-serif;"):
         with ui.element("div").style(
-                "width:460px;max-width:90vw;background:#243264;border:1px solid #2E3D7A;"
+                f"width:460px;max-width:90vw;background:{WEB_CARD};border:1px solid {WEB_BORDER};"
                 "border-radius:14px;padding:36px 32px;text-align:center;"):
             if _status_ok:
                 ui.label("✓").style(
                     "font-size:48px;color:#10B981;font-weight:800;display:block;margin-bottom:8px;")
                 ui.label(_status_title).style(
-                    "font-size:20px;font-weight:800;color:#1AE3D9;"
+                    f"font-size:20px;font-weight:800;color:{WEB_ACCENT};"
                     "font-family:'Nunito',sans-serif;display:block;margin-bottom:10px;")
                 ui.label(_status_msg).style(
-                    "font-size:13px;color:#D8E4F5;line-height:1.6;display:block;margin-bottom:20px;")
+                    f"font-size:13px;color:{WEB_INK_DIM};line-height:1.6;display:block;margin-bottom:20px;")
                 # Auto-redirect after 1.5s
                 ui.timer(1.5, lambda: ui.navigate.to("/"), once=True)
                 with ui.element("button").style(
-                        "padding:10px 24px;background:#1AE3D9;color:#1E2B5E;border:none;"
+                        f"padding:10px 24px;background:{WEB_ACCENT};color:{WEB_BG};border:none;"
                         "border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;"
                         "font-family:inherit;").on("click", lambda: ui.navigate.to("/")):
                     ui.label("Go to Dashboard")
@@ -54366,22 +54554,22 @@ def ms_auth_callback(code: str = None, error: str = None, error_description: str
                 ui.label("⚠").style(
                     "font-size:44px;color:#EF4444;font-weight:800;display:block;margin-bottom:8px;")
                 ui.label(_status_title).style(
-                    "font-size:20px;font-weight:800;color:#F0F8FF;"
+                    f"font-size:20px;font-weight:800;color:{WEB_INK};"
                     "font-family:'Nunito',sans-serif;display:block;margin-bottom:10px;")
                 ui.label(_status_msg).style(
-                    "font-size:13px;color:#D8E4F5;line-height:1.6;display:block;margin-bottom:20px;")
+                    f"font-size:13px;color:{WEB_INK_DIM};line-height:1.6;display:block;margin-bottom:20px;")
                 with ui.element("div").style("display:flex;gap:10px;justify-content:center;"):
                     def _retry():
                         if _HAS_MS_EMAIL and _ms_email:
                             ui.run_javascript(f'window.location.href = "{_ms_email.get_auth_url()}"')
                     with ui.element("button").style(
-                            "padding:10px 20px;background:#1AE3D9;color:#1E2B5E;border:none;"
+                            f"padding:10px 20px;background:{WEB_ACCENT};color:{WEB_BG};border:none;"
                             "border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;"
                             "font-family:inherit;").on("click", _retry):
                         ui.label("Try Again")
                     with ui.element("button").style(
-                            "padding:10px 20px;background:transparent;color:#8FA3C8;"
-                            "border:1px solid #2E3D7A;border-radius:8px;font-size:13px;"
+                            f"padding:10px 20px;background:transparent;color:{WEB_MUTED};"
+                            f"border:1px solid {WEB_BORDER};border-radius:8px;font-size:13px;"
                             "font-weight:600;cursor:pointer;font-family:inherit;"
                             ).on("click", lambda: ui.navigate.to("/")):
                         ui.label("Back to App")
@@ -54400,7 +54588,7 @@ def google_auth_callback(code: str = None, error: str = None,
         inject_styles()
         with ui.element("div").style(
                 "min-height:100vh;display:flex;align-items:center;justify-content:center;"
-                "background:#1E2B5E;color:#F0F8FF;text-align:center;padding:40px;"):
+                f"background:{WEB_BG};color:{WEB_INK};text-align:center;padding:40px;"):
             ui.label("Google integration isn't configured on this server.").style(
                 "font-size:16px;color:#EF4444;")
         return
@@ -54459,21 +54647,21 @@ def google_auth_callback(code: str = None, error: str = None,
     # Render the result page
     with ui.element("div").style(
             "min-height:100vh;width:100%;display:flex;align-items:center;justify-content:center;"
-            "background:#1E2B5E;font-family:'DM Sans','Segoe UI',sans-serif;"):
+            f"background:{WEB_BG};font-family:'DM Sans','Segoe UI',sans-serif;"):
         with ui.element("div").style(
-                "width:460px;max-width:90vw;background:#243264;border:1px solid #2E3D7A;"
+                f"width:460px;max-width:90vw;background:{WEB_CARD};border:1px solid {WEB_BORDER};"
                 "border-radius:14px;padding:36px 32px;text-align:center;"):
             if _status_ok:
                 ui.label("✓").style(
                     "font-size:48px;color:#10B981;font-weight:800;display:block;margin-bottom:8px;")
                 ui.label(_status_title).style(
-                    "font-size:20px;font-weight:800;color:#1AE3D9;"
+                    f"font-size:20px;font-weight:800;color:{WEB_ACCENT};"
                     "font-family:'Nunito',sans-serif;display:block;margin-bottom:10px;")
                 ui.label(_status_msg).style(
-                    "font-size:13px;color:#D8E4F5;line-height:1.6;display:block;margin-bottom:20px;")
+                    f"font-size:13px;color:{WEB_INK_DIM};line-height:1.6;display:block;margin-bottom:20px;")
                 ui.timer(1.5, lambda: ui.navigate.to("/"), once=True)
                 with ui.element("button").style(
-                        "padding:10px 24px;background:#1AE3D9;color:#1E2B5E;border:none;"
+                        f"padding:10px 24px;background:{WEB_ACCENT};color:{WEB_BG};border:none;"
                         "border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;"
                         "font-family:inherit;").on("click", lambda: ui.navigate.to("/")):
                     ui.label("Go to Dashboard")
@@ -54481,22 +54669,22 @@ def google_auth_callback(code: str = None, error: str = None,
                 ui.label("⚠").style(
                     "font-size:44px;color:#EF4444;font-weight:800;display:block;margin-bottom:8px;")
                 ui.label(_status_title).style(
-                    "font-size:20px;font-weight:800;color:#F0F8FF;"
+                    f"font-size:20px;font-weight:800;color:{WEB_INK};"
                     "font-family:'Nunito',sans-serif;display:block;margin-bottom:10px;")
                 ui.label(_status_msg).style(
-                    "font-size:13px;color:#D8E4F5;line-height:1.6;display:block;margin-bottom:20px;")
+                    f"font-size:13px;color:{WEB_INK_DIM};line-height:1.6;display:block;margin-bottom:20px;")
                 with ui.element("div").style("display:flex;gap:10px;justify-content:center;"):
                     def _retry():
                         if _HAS_GMAIL_OAUTH and _gmail_oauth:
                             ui.run_javascript(f'window.location.href = "{_gmail_oauth.get_auth_url()}"')
                     with ui.element("button").style(
-                            "padding:10px 20px;background:#1AE3D9;color:#1E2B5E;border:none;"
+                            f"padding:10px 20px;background:{WEB_ACCENT};color:{WEB_BG};border:none;"
                             "border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;"
                             "font-family:inherit;").on("click", _retry):
                         ui.label("Try Again")
                     with ui.element("button").style(
-                            "padding:10px 20px;background:transparent;color:#8FA3C8;"
-                            "border:1px solid #2E3D7A;border-radius:8px;font-size:13px;"
+                            f"padding:10px 20px;background:transparent;color:{WEB_MUTED};"
+                            f"border:1px solid {WEB_BORDER};border-radius:8px;font-size:13px;"
                             "font-weight:600;cursor:pointer;font-family:inherit;"
                             ).on("click", lambda: ui.navigate.to("/")):
                         ui.label("Back to App")
@@ -54513,70 +54701,70 @@ def setup_page():
 
     with ui.element("div").style(
             "min-height:100vh;width:100%;display:flex;align-items:flex-start;justify-content:center;"
-            "background:#1E2B5E;font-family:'DM Sans','Segoe UI',sans-serif;padding:40px 20px;"):
+            f"background:{WEB_BG};font-family:'DM Sans','Segoe UI',sans-serif;padding:40px 20px;"):
         with ui.element("div").style(
                 "width:640px;max-width:90vw;margin:0 auto;"):
 
             # Welcome header
             ui.label(f"Welcome to {BRAND}, {_name}!").style(
-                "font-size:28px;font-weight:800;color:#1AE3D9;text-align:center;"
+                f"font-size:28px;font-weight:800;color:{WEB_ACCENT};text-align:center;"
                 "display:block;font-family:'Nunito',sans-serif;margin-bottom:8px;")
             ui.label("Your account is ready. Two quick things to finish setup.").style(
-                "font-size:14px;color:#8FA3C8;text-align:center;display:block;margin-bottom:32px;")
+                f"font-size:14px;color:{WEB_MUTED};text-align:center;display:block;margin-bottom:32px;")
 
             # Step 1  -  Account created
             with ui.element("div").style(
-                    "background:#243264;border:1px solid #2E3D7A;border-left:4px solid #10B981;"
+                    f"background:{WEB_CARD};border:1px solid {WEB_BORDER};border-left:4px solid #10B981;"
                     "border-radius:0 12px 12px 0;padding:20px 24px;margin-bottom:16px;"):
                 with ui.element("div").style("display:flex;align-items:center;gap:12px;margin-bottom:8px;"):
                     ui.label("✓").style("font-size:18px;color:#10B981;font-weight:800;")
                     ui.label("Account Created").style(
-                        "font-size:16px;font-weight:700;color:#F0F8FF;font-family:'Nunito',sans-serif;")
+                        f"font-size:16px;font-weight:700;color:{WEB_INK};font-family:'Nunito',sans-serif;")
                 ui.label("You can start browsing campaigns and uploading contacts right now.").style(
-                    "font-size:13px;color:#D8E4F5;line-height:1.6;")
+                    f"font-size:13px;color:{WEB_INK_DIM};line-height:1.6;")
 
             # Step 2  -  Connect email (required to send)
             with ui.element("div").style(
-                    "background:#243264;border:1px solid #2E3D7A;border-left:4px solid #1AE3D9;"
+                    f"background:{WEB_CARD};border:1px solid {WEB_BORDER};border-left:4px solid {WEB_ACCENT};"
                     "border-radius:0 12px 12px 0;padding:20px 24px;margin-bottom:16px;"):
                 with ui.element("div").style("display:flex;align-items:center;gap:12px;margin-bottom:10px;"):
-                    ui.label("✉").style("font-size:20px;color:#1AE3D9;")
+                    ui.label("✉").style(f"font-size:20px;color:{WEB_ACCENT};")
                     ui.label("Connect Your Email").style(
-                        "font-size:16px;font-weight:700;color:#F0F8FF;font-family:'Nunito',sans-serif;")
+                        f"font-size:16px;font-weight:700;color:{WEB_INK};font-family:'Nunito',sans-serif;")
                 ui.label(
                     f"{BRAND} sends campaigns from your own email address. Pick from three options: "
                     "Microsoft (one-click for Outlook users), Gmail, or Twilio SendGrid. "
                     "You can change this anytime from Email & AI Setup in the sidebar."
-                ).style("font-size:13px;color:#D8E4F5;line-height:1.6;margin-bottom:14px;")
+                ).style(f"font-size:13px;color:{WEB_INK_DIM};line-height:1.6;margin-bottom:14px;")
                 def _go_email():
                     app.storage.user["_pending_page"] = "ai_settings"
                     ui.navigate.to("/")
                 with ui.element("button").style(
-                        "padding:12px 28px;background:#1AE3D9;color:#1E2B5E;border:none;"
+                        f"padding:12px 28px;background:{WEB_ACCENT};color:{WEB_BG};border:none;"
                         "border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;"
                         "font-family:inherit;").on("click", _go_email):
                     ui.label("Open Email & AI Setup →")
 
             # Step 3  -  Add AI key
             with ui.element("div").style(
-                    "background:#243264;border:1px solid #2E3D7A;border-left:4px solid #6366F1;"
+                    f"background:{WEB_CARD};border:1px solid {WEB_BORDER};border-left:4px solid {WEB_ACCENT2};"
                     "border-radius:0 12px 12px 0;padding:20px 24px;margin-bottom:16px;"):
                 with ui.element("div").style("display:flex;align-items:center;gap:12px;margin-bottom:10px;"):
-                    ui.label("✦").style("font-size:20px;color:#6366F1;")
+                    ui.label("✦").style(f"font-size:20px;color:{WEB_ACCENT2};")
                     ui.label("Add Your AI Key").style(
-                        "font-size:16px;font-weight:700;color:#F0F8FF;font-family:'Nunito',sans-serif;")
+                        f"font-size:16px;font-weight:700;color:{WEB_INK};font-family:'Nunito',sans-serif;")
                 ui.label(
                     f"{BRAND} uses Anthropic's Claude to generate emails, market analysis, and PDFs. "
                     "Get a free API key from Anthropic, then paste it in Email & AI Setup. "
                     "Anthropic gives every new account $5 in free credits  -  enough for hundreds of emails."
-                ).style("font-size:13px;color:#D8E4F5;line-height:1.6;margin-bottom:14px;")
+                ).style(f"font-size:13px;color:{WEB_INK_DIM};line-height:1.6;margin-bottom:14px;")
                 with ui.element("div").style("display:flex;gap:10px;flex-wrap:wrap;"):
                     # Primary: open Anthropic console in a new tab
                     ui.html(
                         '<a href="https://console.anthropic.com/settings/keys" target="_blank" '
                         'rel="noopener noreferrer" '
                         'style="display:inline-flex;align-items:center;gap:8px;padding:11px 22px;'
-                        'background:#6366F1;color:#FFFFFF;text-decoration:none;'
+                        f'background:{WEB_ACCENT2};color:#FFFFFF;text-decoration:none;'
                         'border-radius:8px;font-size:13px;font-weight:700;font-family:inherit;">'
                         '<span>Create Free API Key →</span>'
                         '</a>'
@@ -54586,8 +54774,8 @@ def setup_page():
                         app.storage.user["_pending_page"] = "ai_settings"
                         ui.navigate.to("/")
                     with ui.element("button").style(
-                            "padding:11px 22px;background:transparent;color:#F0F8FF;"
-                            "border:1px solid #6366F1;border-radius:8px;font-size:13px;"
+                            f"padding:11px 22px;background:transparent;color:{WEB_INK};"
+                            f"border:1px solid {WEB_ACCENT2};border-radius:8px;font-size:13px;"
                             "font-weight:700;cursor:pointer;font-family:inherit;"
                             ).on("click", _go_ai):
                         ui.label(f"Paste Key in {BRAND} →")
@@ -54595,12 +54783,12 @@ def setup_page():
             # Skip to dashboard
             with ui.element("div").style("text-align:center;margin-top:24px;"):
                 with ui.element("button").style(
-                        "padding:10px 28px;background:transparent;color:#8FA3C8;border:1px solid #2E3D7A;"
+                        f"padding:10px 28px;background:transparent;color:{WEB_MUTED};border:1px solid {WEB_BORDER};"
                         "border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;"
                         "font-family:inherit;").on("click", lambda: ui.navigate.to("/")):
                     ui.label("Skip for now  -  go to Dashboard")
                 ui.label("You can finish setup later from the sidebar.").style(
-                    "font-size:11px;color:#8FA3C8;margin-top:10px;display:block;")
+                    f"font-size:11px;color:{WEB_MUTED};margin-top:10px;display:block;")
 
 
 # ── Public Landing Page (marketing front-door) ────────────────────────────
@@ -54620,15 +54808,19 @@ def _render_landing_page():
     """
     ui.page_title(f"{BRAND}, AI-powered sales outreach")
 
-    teal = "#1AE3D9"
-    navy = "#1E2B5E"
-    navy_deep = "#151F47"
-    indigo = "#6366F1"
-    card = "#243264"
-    text_l = "#F0F8FF"
-    text = "#D8E4F5"
-    muted = "#8FA3C8"
-    border = "#2E3D7A"
+    # The editorial voice for this instance. Values are pre-formatted here so
+    # the markup below stays readable and {BRAND} works inside the copy too.
+    _c = {k: v.replace("{BRAND}", BRAND) for k, v in LANDING_COPY[BRAND_COPY].items()}
+
+    teal = WEB_ACCENT
+    navy = WEB_BG
+    navy_deep = WEB_BG_DEEP
+    indigo = WEB_ACCENT2
+    card = WEB_CARD
+    text_l = WEB_INK
+    text = WEB_INK_DIM
+    muted = WEB_MUTED
+    border = WEB_BORDER
 
     ui.add_head_html(f"""
 <style>
@@ -54860,34 +55052,27 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
 
   <section class="dd-hero">
     <div class="dd-hero-left">
-      <h1>Turn cold outreach into <span class="dd-grad">warm conversations.</span></h1>
-      <p class="lead">
-        AI-powered sales outreach that sends from your
-        <strong>real Outlook or Gmail inbox</strong> — same deliverability,
-        same Sent folder, same reputation. Build multi-channel campaigns in
-        minutes, let AI write the hard parts, and never lose a lead to a
-        forgotten follow-up again.
-      </p>
+      <h1>{_c['hero_h1']}</h1>
+      <p class="lead">{_c['hero_lead']}</p>
       <div class="dd-hero-cta">
         <a href="/register" class="dd-btn dd-btn-primary">Have an invite? Get started →</a>
       </div>
-      <div style="margin-top:10px;font-size:12px;color:#8FA3C8;">
-        No invite yet? <a href="mailto:{BRAND_SUPPORT_EMAIL}?subject=Beta%20access%20for%20{BRAND}" style="color:#1AE3D9;text-decoration:underline;">Tell us about your team →</a>
+      <div style="margin-top:10px;font-size:12px;color:{muted};">
+        No invite yet? <a href="mailto:{BRAND_SUPPORT_EMAIL}?subject=Beta%20access%20for%20{BRAND}" style="color:{teal};text-decoration:underline;">Tell us about your team →</a>
       </div>
-      <div style="font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8FA3C8;margin-top:14px;">
-        Built by recruiters, for recruiters.
+      <div style="font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:{muted};margin-top:14px;">
+        {_c['hero_kicker']}
       </div>
     </div>
     <div class="dd-hero-right">
-      <img src="{BRAND_LOGO}" alt="{BRAND} logo" />
+      <img src="{BRAND_LOGO_DARK}" alt="{BRAND} logo" />
     </div>
   </section>
 
   <section class="dd-section">
     <h2>More than an email sequencer.</h2>
     <p class="sub">
-      {BRAND} runs your whole day, emails on autopilot, branded PDFs, and
-      multi-channel touches. Here's what no other outreach tool does the same way.
+      {_c['sec_sub']}
     </p>
     <div class="dd-features">
       <div class="dd-feat dd-feat-primary">
@@ -54904,7 +55089,7 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
       <div class="dd-feat">
         <div class="dd-feat-icon">✦</div>
         <h3>AI Campaign Builder</h3>
-        <p>Drop in a company name. {BRAND} researches them on the live web, identifies their hiring patterns and decision makers, then writes a full 7-touch sequence, emails, LinkedIn messages, call scripts, tuned to that company's industry.</p>
+        <p>{_c['feat_builder']}</p>
       </div>
       <div class="dd-feat">
         <div class="dd-feat-icon">🧩</div>
@@ -54914,7 +55099,7 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
       <div class="dd-feat">
         <div class="dd-feat-icon">📑</div>
         <h3>AI-Generated Branded PDFs</h3>
-        <p>Attach Market Pulse one-pagers, AI Salary Guides, Role Scorecards, and Tenure Snapshots, all generated from real comp and hiring data, branded with your logo, refreshed before every send so they're never stale. Recipients open PDFs at 3-4× the rate of plain-text follow-ups.</p>
+        <p>{_c['feat_pdf']}</p>
       </div>
       <div class="dd-feat">
         <div class="dd-feat-icon">∿</div>
@@ -54924,12 +55109,12 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
       <div class="dd-feat">
         <div class="dd-feat-icon">⌖</div>
         <h3>Market Intel</h3>
-        <p>Define your target markets by location, role, and industry, {BRAND} scans the live web for new job postings, staffing activity, and hiring signals that match. Every morning you see who's hiring, who's expanding, and which companies just became warm leads.</p>
+        <p>{_c['feat_intel']}</p>
       </div>
       <div class="dd-feat dd-feat-primary">
         <div class="dd-feat-icon">📰</div>
         <h3>AI Market Newsletters</h3>
-        <p>Publish a branded monthly market intelligence newsletter to your entire pipeline in one click. AI researches your region and sector on the live web, drafts the top stories, comp snapshots, and a 3×3 grid of anonymized candidate spotlights, then sends from your real inbox. Stay top-of-mind without writing a word.</p>
+        <p>{_c['feat_news']}</p>
         <div class="dd-feat-tag">STAY TOP-OF-MIND</div>
       </div>
     </div>
@@ -54966,7 +55151,7 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
           </tr>
           <tr>
             <td class="dim">Collateral</td>
-            <td class="us-cell">Branded PDFs (Market Pulse, Salary Guide, Scorecard) attached automatically</td>
+            <td class="us-cell">{_c['cmp_collateral']}</td>
             <td class="them-cell">No branded collateral, just plain-text follow-ups</td>
           </tr>
           <tr>
@@ -54976,7 +55161,7 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
           </tr>
           <tr>
             <td class="dim">Newsletters</td>
-            <td class="us-cell">AI-written monthly market newsletters with candidate spotlights, branded and sent from your inbox</td>
+            <td class="us-cell">{_c['cmp_news']}</td>
             <td class="them-cell">No newsletter engine, you'd bolt on Mailchimp and lose inbox-native deliverability</td>
           </tr>
           <tr>
@@ -55017,7 +55202,7 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
   </section>
 
   <section class="dd-cta">
-    <h2>Your leads aren't going to warm themselves.</h2>
+    <h2>{_c['cta_h2']}</h2>
     <p>{BRAND} is in invite-only beta. Got a code? Create your account in under a minute and start sending from your real inbox today. No code yet? Tell us about your team and we'll get back to you.</p>
     <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
       <a href="/register" class="dd-btn dd-btn-primary">Create Your Account →</a>
@@ -56608,7 +56793,7 @@ if __name__ in {"__main__", "__mp_main__"}:
         reload=False,
         show=not _SERVER_MODE,
         host="0.0.0.0" if _SERVER_MODE else "127.0.0.1",
-        favicon=str(_APP_DIR / "assets" / "dripdrop_icon.png"),
+        favicon=str(_APP_DIR / BRAND_FAVICON),
         storage_secret=_STORAGE_SECRET,
         # Short cache for NiceGUI's internal JS/CSS. Default is 1-year
         # immutable, which prevents browsers from ever re-fetching patched
