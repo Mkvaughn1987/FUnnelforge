@@ -77,6 +77,66 @@ def _env_str(var: str, default: str) -> str:
     return raw.strip() if raw and raw.strip() else default
 
 
+# ── Brand + vocabulary ──────────────────────────────────────────────────────
+# Every value below defaults to the wording this app has always used, so an
+# instance that sets none of these is byte-for-byte unchanged. A white-label
+# instance overrides them in its own .env. Do NOT find-and-replace these words
+# in the source: Arena runs this same file, and a rename here renames Arena's
+# product inside Arena's app.
+BRAND = _env_str("DRIPDROP_BRAND_NAME", "DripDrop")
+BRAND_WORDMARK = _env_str("DRIPDROP_BRAND_WORDMARK", "DripDripDrop")
+BRAND_LOGO = _env_str("DRIPDROP_BRAND_LOGO", "/static/dripdrop_logo.png?v=3")
+BRAND_SUPPORT_EMAIL = _env_str(
+    "DRIPDROP_BRAND_SUPPORT_EMAIL", "support@dripdripdrop.ai")
+
+# The long-cadence, low-touch sequence type. "Slow Drip" on Arena.
+TERM_NURTURE = _env_str("DRIPDROP_TERM_NURTURE", "Slow Drip")
+# The daily work queue. "Today's Drip" on Arena.
+TERM_TODAY = _env_str("DRIPDROP_TERM_TODAY", "Today's Drip")
+# Plural form. Derived from TERM_NURTURE so an instance normally sets one var,
+# but overridable for a term whose plural is not just "+s".
+TERM_NURTURE_PLURAL = _env_str("DRIPDROP_TERM_NURTURE_PLURAL", TERM_NURTURE + "s")
+# Case variants, derived so one env var drives them all. Each reduces to the
+# exact wording Arena ships today when DRIPDROP_TERM_NURTURE is unset.
+_nl, _nlp = TERM_NURTURE.lower(), TERM_NURTURE_PLURAL.lower()
+TERM_NURTURE_LOWER = _nl                                  # "slow drip"
+TERM_NURTURE_LOWER_PLURAL = _nlp                          # "slow drips"
+TERM_NURTURE_SENT = _nl[:1].upper() + _nl[1:]             # "Slow drip"
+TERM_NURTURE_SENT_PLURAL = _nlp[:1].upper() + _nlp[1:]    # "Slow drips"
+TERM_NURTURE_UPPER = TERM_NURTURE.upper()                 # "SLOW DRIP"
+# Spaceless form used in a few headers. Overridable because dropping the space
+# is not always the right contraction for another instance's term.
+TERM_NURTURE_COMPACT = _env_str(
+    "DRIPDROP_TERM_NURTURE_COMPACT", TERM_NURTURE.replace(" ", ""))
+
+# The generic noun for one outreach sequence, distinct from the named
+# TERM_NURTURE type above. "drip" on Arena, as in "keep the drip going".
+TERM_DRIP = _env_str("DRIPDROP_TERM_DRIP", "drip")
+TERM_DRIP_PLURAL = _env_str("DRIPDROP_TERM_DRIP_PLURAL", TERM_DRIP + "s")
+TERM_DRIP_TITLE = TERM_DRIP[:1].upper() + TERM_DRIP[1:]
+
+# Optional replacement for the dashboard greeting rotation: "|"-separated
+# lines, {name} where the user's first name goes. The built-in list is one
+# sustained water metaphor, so it cannot be half-translated a phrase at a
+# time -- an instance replaces the whole set or keeps Arena's.
+BRAND_GREETINGS = [g.strip() for g in
+                   (os.getenv("DRIPDROP_GREETINGS") or "").split("|") if g.strip()]
+
+
+def _env_palette(var: str) -> dict:
+    """Theme overrides as "key:#hex,key:#hex". Unknown keys are ignored rather
+    than raising, so a typo in a .env can never stop the app from booting."""
+    out = {}
+    for pair in (os.getenv(var) or "").split(","):
+        if ":" not in pair:
+            continue
+        k, _, v = pair.partition(":")
+        k, v = k.strip(), v.strip()
+        if k and v:
+            out[k] = v
+    return out
+
+
 # This instance's own public origin, no trailing slash. Used for every absolute
 # URL that leaves the box: hosted email images, password-reset links, deep links
 # in notification mail. Hardcoding Arena's host here meant a white-label
@@ -557,7 +617,7 @@ def _download_desktop():
         pass
     if not _DESKTOP_DOWNLOAD_URL:
         return PlainTextResponse(
-            "DripDrop Desktop is coming soon. Email support@dripdripdrop.ai "
+            f"{BRAND} Desktop is coming soon. Email {BRAND_SUPPORT_EMAIL} "
             "to be notified when it's ready.",
             status_code=503,
         )
@@ -668,7 +728,7 @@ def _admin_usage(request: Request):
     ) or "<tr><td colspan='6' class='empty'>No usage recorded yet.</td></tr>"
 
     html = f"""<!DOCTYPE html><html><head>
-<meta charset="utf-8"><title>DripDrop — AI Usage</title>
+<meta charset="utf-8"><title>{BRAND} — AI Usage</title>
 <style>
   body {{ font-family: 'DM Sans','Segoe UI',sans-serif; background:#1E2B5E; color:#D8E4F5;
          margin:0; padding:24px; }}
@@ -691,7 +751,7 @@ def _admin_usage(request: Request):
   td.empty {{ text-align:center; color:#8FA3C8; font-style:italic; padding:20px; }}
   a {{ color:#1AE3D9; }}
 </style></head><body>
-<a href="/">← Back to DripDrop</a>
+<a href="/">← Back to {BRAND}</a>
 <h1>AI Usage (last 30 days)</h1>
 <p class="sub">Aggregated from <code>/opt/dripdrop/data/ai_usage.jsonl</code>. Cost is an estimate based on published list prices; your actual Anthropic invoice may vary slightly.</p>
 
@@ -742,13 +802,13 @@ _LEGAL_STYLE = """
 def _privacy_page():
     return HTMLResponse(f"""<!DOCTYPE html><html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Privacy Policy  -  DripDrop</title>{_LEGAL_STYLE}</head><body>
+<title>Privacy Policy  -  {BRAND}</title>{_LEGAL_STYLE}</head><body>
 <div class="legal">
-<a href="/" class="back">← Back to DripDrop</a>
+<a href="/" class="back">← Back to {BRAND}</a>
 <h1>Privacy Policy</h1>
 <p class="date">Effective Date: April 12, 2026 &nbsp;|&nbsp; Last Updated: April 12, 2026</p>
 
-<p>DripDrop ("we", "us", "our") operates the website dripdripdrop.ai and the DripDrop desktop application. This Privacy Policy explains how we collect, use, and protect your information.</p>
+<p>{BRAND} ("we", "us", "our") operates the website dripdripdrop.ai and the {BRAND} desktop application. This Privacy Policy explains how we collect, use, and protect your information.</p>
 
 <h2>1. Information We Collect</h2>
 <p><b>Account Information:</b> When you register, we collect your name, email address, phone number (optional), and password (stored as a salted hash, never in plain text).</p>
@@ -760,7 +820,7 @@ def _privacy_page():
 <h2>2. How We Use Your Information</h2>
 <p>We use your information to:</p>
 <ul>
-<li>Provide and operate the DripDrop service</li>
+<li>Provide and operate the {BRAND} service</li>
 <li>Send emails from your connected email account on your behalf</li>
 <li>Generate AI-powered email campaigns, PDFs, and market intelligence</li>
 <li>Personalize content with your company branding</li>
@@ -768,11 +828,11 @@ def _privacy_page():
 </ul>
 
 <h2>3. AI and Third-Party Services</h2>
-<p>DripDrop uses Anthropic's Claude AI to generate email copy, market research, and PDF content. When you use AI features, relevant context (company name, target roles, location, industry) is sent to Anthropic's API. Anthropic does not use this data to train their models. See <a href="https://www.anthropic.com/privacy">Anthropic's Privacy Policy</a> for details.</p>
+<p>{BRAND} uses Anthropic's Claude AI to generate email copy, market research, and PDF content. When you use AI features, relevant context (company name, target roles, location, industry) is sent to Anthropic's API. Anthropic does not use this data to train their models. See <a href="https://www.anthropic.com/privacy">Anthropic's Privacy Policy</a> for details.</p>
 <p>Web search functionality is used by the AI to find publicly available market data, job postings, and company information. Search queries are processed through Anthropic's web search tool.</p>
 
 <h2>4. Email Sending</h2>
-<p>DripDrop sends emails through your connected email provider (Microsoft Graph API or Gmail API) using OAuth tokens you grant. Emails are sent from your actual mailbox  -  we do not use relay servers, SMTP relays, or third-party sending services. Your sending reputation is your own.</p>
+<p>{BRAND} sends emails through your connected email provider (Microsoft Graph API or Gmail API) using OAuth tokens you grant. Emails are sent from your actual mailbox  -  we do not use relay servers, SMTP relays, or third-party sending services. Your sending reputation is your own.</p>
 <p>We store queued email metadata (recipient, subject, scheduled time, status) to manage your campaign schedule. Email bodies are stored temporarily and removed after sending or archival.</p>
 
 <h2>5. Data Storage and Security</h2>
@@ -785,7 +845,7 @@ def _privacy_page():
 <li>Content Security Policy headers to prevent XSS attacks</li>
 <li>Rate limiting on login and registration endpoints</li>
 </ul>
-<p>DripDrop Desktop stores all data locally on your computer. No data leaves your machine unless you connect an email provider or use AI features.</p>
+<p>{BRAND} Desktop stores all data locally on your computer. No data leaves your machine unless you connect an email provider or use AI features.</p>
 
 <h2>6. Data Sharing</h2>
 <p>We do not sell, rent, or share your personal information with third parties, except:</p>
@@ -796,10 +856,10 @@ def _privacy_page():
 </ul>
 
 <h2>7. Data Retention and Deletion</h2>
-<p>You can delete your campaigns, contacts, and account data at any time. Campaign queue entries older than 30 days are automatically archived. To request complete account deletion, email <a href="mailto:support@dripdripdrop.ai">support@dripdripdrop.ai</a>.</p>
+<p>You can delete your campaigns, contacts, and account data at any time. Campaign queue entries older than 30 days are automatically archived. To request complete account deletion, email <a href="mailto:{BRAND_SUPPORT_EMAIL}">{BRAND_SUPPORT_EMAIL}</a>.</p>
 
 <h2>8. Cookies</h2>
-<p>DripDrop uses a single session cookie to maintain your login state. We do not use tracking cookies, advertising cookies, or analytics pixels.</p>
+<p>{BRAND} uses a single session cookie to maintain your login state. We do not use tracking cookies, advertising cookies, or analytics pixels.</p>
 
 <h2>9. Your Rights</h2>
 <p>You have the right to:</p>
@@ -815,7 +875,7 @@ def _privacy_page():
 <p>We may update this Privacy Policy from time to time. We will notify you of significant changes via email or in-app notification.</p>
 
 <h2>11. Contact</h2>
-<p>For questions about this Privacy Policy, contact us at <a href="mailto:support@dripdripdrop.ai">support@dripdripdrop.ai</a>.</p>
+<p>For questions about this Privacy Policy, contact us at <a href="mailto:{BRAND_SUPPORT_EMAIL}">{BRAND_SUPPORT_EMAIL}</a>.</p>
 </div></body></html>""")
 
 
@@ -823,16 +883,16 @@ def _privacy_page():
 def _terms_page():
     return HTMLResponse(f"""<!DOCTYPE html><html><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Terms of Service  -  DripDrop</title>{_LEGAL_STYLE}</head><body>
+<title>Terms of Service  -  {BRAND}</title>{_LEGAL_STYLE}</head><body>
 <div class="legal">
-<a href="/" class="back">← Back to DripDrop</a>
+<a href="/" class="back">← Back to {BRAND}</a>
 <h1>Terms of Service</h1>
 <p class="date">Effective Date: April 12, 2026 &nbsp;|&nbsp; Last Updated: April 12, 2026</p>
 
-<p>These Terms of Service ("Terms") govern your use of DripDrop, operated by DripDrop ("we", "us", "our"). By creating an account or using the service, you agree to these Terms.</p>
+<p>These Terms of Service ("Terms") govern your use of {BRAND}, operated by {BRAND} ("we", "us", "our"). By creating an account or using the service, you agree to these Terms.</p>
 
 <h2>1. Service Description</h2>
-<p>DripDrop is an AI-powered sales outreach platform that helps you build and send multi-channel email campaigns. The service includes campaign creation, AI content generation, email scheduling, contact management, PDF generation, and market intelligence tools.</p>
+<p>{BRAND} is an AI-powered sales outreach platform that helps you build and send multi-channel email campaigns. The service includes campaign creation, AI content generation, email scheduling, contact management, PDF generation, and market intelligence tools.</p>
 
 <h2>2. Account Registration</h2>
 <p>You must provide accurate information when creating an account. You are responsible for maintaining the security of your password and account. You must be at least 18 years old to use the service. During beta, registration requires an invite code.</p>
@@ -850,7 +910,7 @@ def _terms_page():
 </ul>
 
 <h2>4. Email Sending</h2>
-<p>DripDrop sends emails through your connected email provider (Microsoft Outlook or Gmail) using OAuth authorization. You are responsible for:</p>
+<p>{BRAND} sends emails through your connected email provider (Microsoft Outlook or Gmail) using OAuth authorization. You are responsible for:</p>
 <ul>
 <li>The content of all emails sent through the service</li>
 <li>Maintaining compliance with your email provider's terms of service</li>
@@ -859,7 +919,7 @@ def _terms_page():
 </ul>
 
 <h2>5. AI-Generated Content</h2>
-<p>DripDrop uses AI (Anthropic's Claude) to generate email copy, market research, PDFs, and other content. You acknowledge that:</p>
+<p>{BRAND} uses AI (Anthropic's Claude) to generate email copy, market research, PDFs, and other content. You acknowledge that:</p>
 <ul>
 <li>AI-generated content may contain inaccuracies and should be reviewed before sending</li>
 <li>You are responsible for reviewing and approving all content before it is sent</li>
@@ -868,20 +928,20 @@ def _terms_page():
 </ul>
 
 <h2>6. Your Data</h2>
-<p>You retain ownership of all data you upload or create in DripDrop, including contact lists, email templates, campaign configurations, and company branding. We do not claim any ownership rights over your content.</p>
+<p>You retain ownership of all data you upload or create in {BRAND}, including contact lists, email templates, campaign configurations, and company branding. We do not claim any ownership rights over your content.</p>
 <p>You grant us a limited license to process your data as necessary to provide the service (e.g., sending your emails, generating AI content with your company context).</p>
 
 <h2>7. Subscription and Payment</h2>
-<p>DripDrop is currently in invite-only beta. Pricing and payment terms will be communicated before any charges are applied. We will provide at least 14 days notice before transitioning from free beta to paid service. You will not be charged without explicit consent.</p>
+<p>{BRAND} is currently in invite-only beta. Pricing and payment terms will be communicated before any charges are applied. We will provide at least 14 days notice before transitioning from free beta to paid service. You will not be charged without explicit consent.</p>
 
 <h2>8. Service Availability</h2>
 <p>We strive to maintain high availability but do not guarantee uninterrupted service. We may perform maintenance, updates, or modifications that temporarily affect availability. We will attempt to provide advance notice of planned downtime.</p>
 
 <h2>9. Termination</h2>
-<p>You may close your account at any time by contacting <a href="mailto:support@dripdripdrop.ai">support@dripdripdrop.ai</a>. We may suspend or terminate accounts that violate these Terms, engage in spam or abuse, or are inactive for an extended period. Upon termination, your data will be retained for 30 days to allow for export, then permanently deleted.</p>
+<p>You may close your account at any time by contacting <a href="mailto:{BRAND_SUPPORT_EMAIL}">{BRAND_SUPPORT_EMAIL}</a>. We may suspend or terminate accounts that violate these Terms, engage in spam or abuse, or are inactive for an extended period. Upon termination, your data will be retained for 30 days to allow for export, then permanently deleted.</p>
 
 <h2>10. Limitation of Liability</h2>
-<p>To the maximum extent permitted by law, DripDrop shall not be liable for any indirect, incidental, special, consequential, or punitive damages, including but not limited to loss of revenue, data, or business opportunities, arising from your use of the service.</p>
+<p>To the maximum extent permitted by law, {BRAND} shall not be liable for any indirect, incidental, special, consequential, or punitive damages, including but not limited to loss of revenue, data, or business opportunities, arising from your use of the service.</p>
 <p>Our total liability for any claim arising from the service shall not exceed the amount you paid us in the 12 months preceding the claim.</p>
 
 <h2>11. Disclaimer of Warranties</h2>
@@ -894,7 +954,7 @@ def _terms_page():
 <p>These Terms shall be governed by and construed in accordance with the laws of the State of Maryland, United States, without regard to conflict of law principles.</p>
 
 <h2>14. Contact</h2>
-<p>For questions about these Terms, contact us at <a href="mailto:support@dripdripdrop.ai">support@dripdripdrop.ai</a>.</p>
+<p>For questions about these Terms, contact us at <a href="mailto:{BRAND_SUPPORT_EMAIL}">{BRAND_SUPPORT_EMAIL}</a>.</p>
 </div></body></html>""")
 
 @app.get("/downloads/{filename}")
@@ -2579,11 +2639,11 @@ def _send_password_reset_email(to_email: str, token: str, base_url: str) -> bool
         return False
     _link = f"{base_url.rstrip('/')}/reset?token={token}"
     _ttl_min = max(1, _PASSWORD_RESET_TTL_SECONDS // 60)
-    _subject = "Reset your DripDrop password"
+    _subject = f"Reset your {BRAND} password"
     _html = (
         f"<p>Hi,</p>"
         f"<p>Someone (hopefully you) asked to reset the password on the "
-        f"DripDrop account for <b>{esc(to_email)}</b>.</p>"
+        f"{BRAND} account for <b>{esc(to_email)}</b>.</p>"
         f"<p>Click the link below to choose a new password. The link "
         f"expires in {_ttl_min} minutes and can only be used once.</p>"
         f'<p><a href="{_link}" style="display:inline-block;padding:10px 18px;'
@@ -2594,7 +2654,7 @@ def _send_password_reset_email(to_email: str, token: str, base_url: str) -> bool
         f'<a href="{_link}">{_link}</a></p>'
         f"<p>If you didn't request this reset, you can ignore this email "
         f"— your password stays the same.</p>"
-        f"<p>— DripDrop</p>"
+        f"<p>— {BRAND}</p>"
     )
     # Pick the first super-admin with a connected mailbox as the system
     # sender. The reset email goes out from their address; recipients
@@ -3236,6 +3296,17 @@ C_LIGHT = dict(
     email_col="#3EBFD9", call="#0FB8B5", li="#6366F1",
     call_col="#D97706", sms_col="#BE185D", task_col="#15803D",
 )
+# Per-instance brand palette. Both dicts feed the --dd-* CSS custom properties
+# in inject_styles(), so overriding a key here recolours every surface that
+# uses it. Only keys that already exist are honoured -- a white-label cannot
+# invent a colour the stylesheet never reads.
+for _k, _v in _env_palette("DRIPDROP_THEME_DARK").items():
+    if _k in C_DARK:
+        C_DARK[_k] = _v
+for _k, _v in _env_palette("DRIPDROP_THEME_LIGHT").items():
+    if _k in C_LIGHT:
+        C_LIGHT[_k] = _v
+
 # C outputs CSS var() references  -  actual values come from CSS custom properties
 C = {k: f"var(--dd-{k})" for k in C_DARK}
 
@@ -4899,7 +4970,7 @@ def _build_jway_handoff_newsletter(name, sector, region, niche,
         schema=2,
         name=name,
         template_key="evergreen",
-        template_name="Slow Drip",
+        template_name=f"{TERM_NURTURE}",
         evergreen_only=True,
         market_analysis=True,
         newsletter_name=name,
@@ -10986,7 +11057,7 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
   .fd-avatar-wrap{{display:none !important}}
   .fd-theme-toggle{{right:10px !important;transform:scale(.8)}}
 
-  /* ── Today's Drip: compact pills + stats on mobile ── */
+  /* ── {TERM_TODAY}: compact pills + stats on mobile ── */
   .fd-drip-pills .fd-hub{{
     padding:6px 12px !important;
     font-size:11px !important;
@@ -11456,7 +11527,7 @@ window.ddMaybeStartTour = function() {
         }
     }, 350);
 };
-</script>""")
+</script>""".replace("Reconnecting to DripDrop", f"Reconnecting to {BRAND}"))
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  NAVIGATION
@@ -12159,9 +12230,9 @@ def nav_back_label(s: AppState) -> str:
     lv  = snap.get("loaded_view", "emails")
 
     PAGE_NAMES = {
-        "dashboard": "Dashboard", "drip": "Today's Drip", "tasks": "Tasks", "responses": "Campaign Radar",
+        "dashboard": "Dashboard", "drip": f"{TERM_TODAY}", "tasks": "Tasks", "responses": "Campaign Radar",
         "start_seq": "Start a Campaign", "contacts": "Contact Lists",
-        "active_camps": "Active Campaigns", "evergreen": "Slow Drip", "evergreen_create": "Slow Drip",
+        "active_camps": "Active Campaigns", "evergreen": f"{TERM_NURTURE}", "evergreen_create": f"{TERM_NURTURE}",
         "queue": "Email Queue",
         "seq_mgr": "Current Campaigns", "signature": "Email Signature",
         "camp_gen": "Campaign Builder",
@@ -12323,7 +12394,7 @@ PAGE_HELP = {
         "sections": [
             ("What is this?", "Your daily command center. Overdue tasks, emails sending today, active campaigns, and recent responses  -  all on one screen."),
             ("Stat Bar", "Clickable colored numbers at the top:\n- Overdue (red): Tasks past their due date.\n- Tasks Today (amber): Calls, LinkedIn touches, and tasks due today.\n- Active (teal): Campaigns currently running.\n- Replies (green): Contacts who replied to your campaigns."),
-            ("Today's Drip / Tomorrow / Overdue", "Pills that jump you into Today's Drip with that filter active."),
+            (f"{TERM_TODAY} / Tomorrow / Overdue", f"Pills that jump you into {TERM_TODAY} with that filter active."),
             ("Recent Campaigns", "Most recent campaigns with progress bars. 'View all' jumps to Manage Campaigns."),
             ("Today's Activity", "Right column: emails sending today, recent responses, tasks due, and your pool status."),
         ]
@@ -12334,7 +12405,7 @@ PAGE_HELP = {
         "next_action": "Work through the list; click ✓ Done on each card or ✓ Mark All Done to clear a campaign group.",
         "sections": [
             ("What is this?", "Your daily to-do list for sales outreach  -  every call, LinkedIn touch, and task that needs to happen today, grouped by campaign."),
-            ("Task Types", "Each task has a colored badge:\n- Call (amber): Phone call with script + talking points.\n- LinkedIn (indigo): Connection request or DM.\n- Task (gray): General action item.\n- Slow Drip (purple): Task from an evergreen campaign."),
+            ("Task Types", f"Each task has a colored badge:\n- Call (amber): Phone call with script + talking points.\n- LinkedIn (indigo): Connection request or DM.\n- Task (gray): General action item.\n- {TERM_NURTURE} (purple): Task from an evergreen campaign."),
             ("Completing Tasks", "Click a task to expand. Use the action buttons to mark it done, skip, or log an outcome."),
             ("Overdue Tab", "Tasks from past days that weren't completed show with a red indicator."),
             ("Tomorrow", "Preview what's coming tomorrow so you can plan ahead."),
@@ -12361,20 +12432,20 @@ PAGE_HELP = {
             ("What is this?", "Manage running campaigns. Progress, emails, contacts, sent/pending status."),
             ("Campaign Cards", "Progress bar + contact count + sent/pending. Click to expand."),
             ("Tabs Inside a Campaign", "- Sequence: Edit every email step.\n- Contacts: Enrollees + status (responded, removed).\n- Queue: Pending emails and their send times."),
-            ("Actions", "Pause, duplicate, or delete campaigns. 'Graduate Responded' moves replied contacts into a Slow Drip."),
+            ("Actions", f"Pause, duplicate, or delete campaigns. 'Graduate Responded' moves replied contacts into a {TERM_NURTURE}."),
         ]
     },
     "evergreen": {
-        "title": "SlowDrip Sequence",
+        "title": f"{TERM_NURTURE_COMPACT} Sequence",
         "summary": "Always-on campaigns contacts join anytime, perfect for long-term nurture (months, not weeks).",
         "next_action": "Click + Enroll on any campaign to add contacts from a saved list.",
         "sections": [
             ("What is this?", "Long-running campaigns on a fixed schedule. Enroll anytime  -  contacts pick up at the next upcoming email."),
-            ("How It Works", "Regular campaigns start from Day 1 per contact. Slow Drips use fixed dates or rolling schedules. Contacts enrolled mid-sequence skip past emails."),
+            ("How It Works", f"Regular campaigns start from Day 1 per contact. {TERM_NURTURE_PLURAL} use fixed dates or rolling schedules. Contacts enrolled mid-sequence skip past emails."),
             ("Enrolling Contacts", "'+ Enroll' on any campaign adds contacts from a saved CSV. Already-enrolled and Do Not Contact contacts are auto-skipped."),
-            ("Reply → Enroll Popup", "When you click Send Reply on a Responses page reply, a popup asks whether to enroll that contact in a Slow Drip or Newsletter. Keeps you in touch long-term."),
+            ("Reply → Enroll Popup", f"When you click Send Reply on a Responses page reply, a popup asks whether to enroll that contact in a {TERM_NURTURE} or Newsletter. Keeps you in touch long-term."),
             ("Reminder Banner", "Amber banner shows emails sending in the next 7/14/30 days  -  review content before it ships."),
-            ("Creating New", "'+ Create New Slow Drip Campaign' builds from scratch. Relative delays (Day 7, 14...) or fixed dates (May 1, June 1...)."),
+            ("Creating New", f"'+ Create New {TERM_NURTURE} Campaign' builds from scratch. Relative delays (Day 7, 14...) or fixed dates (May 1, June 1...)."),
         ]
     },
     "newsletters": {
@@ -12457,10 +12528,10 @@ PAGE_HELP = {
     },
     "ai_settings": {
         "title": "Settings",
-        "summary": "Connect your email (Outlook / Gmail / SMTP) and your Claude API key — both required for DripDrop to send and generate.",
+        "summary": f"Connect your email (Outlook / Gmail / SMTP) and your Claude API key — both required for {BRAND} to send and generate.",
         "next_action": "Pick an email connection method, then paste your Claude API key from console.anthropic.com.",
         "sections": [
-            ("What is this?", "Connect your email (so DripDrop can send) and add your AI key (so DripDrop can generate content). Both are required end-to-end."),
+            ("What is this?", f"Connect your email (so {BRAND} can send) and add your AI key (so {BRAND} can generate content). Both are required end-to-end."),
             ("Email Sending", "Three options:\n- Microsoft: one-click OAuth for Outlook / Office 365.\n- Gmail: OAuth via Google.\n- SMTP / SendGrid / Brevo: any provider via SMTP or HTTP API  -  works from the server when SMTP is blocked."),
             ("AI Key", "Get yours at console.anthropic.com. Paste + Save. Powers campaign generation, market analysis, candidate matching, highlights, and PDF content."),
             ("Writing Style Guide", "Custom rules for how AI writes your emails. Examples: 'Never use exclamation marks', 'Sign off with my first name only', 'No em dashes anywhere'. Applied to all AI-generated content."),
@@ -12636,9 +12707,9 @@ EMPTY_STATES = {
     },
     "evergreen": {
         "icon": "🐢",
-        "headline": "No slow drips yet",
-        "body": "Slow drips are always-on campaigns contacts can join anytime. Perfect for nurturing leads over months instead of weeks.",
-        "cta_label": "+ Create a slow drip",
+        "headline": f"No {TERM_NURTURE_LOWER_PLURAL} yet",
+        "body": f"{TERM_NURTURE_SENT_PLURAL} are always-on campaigns contacts can join anytime. Perfect for nurturing leads over months instead of weeks.",
+        "cta_label": f"+ Create a {TERM_NURTURE_LOWER}",
         "cta_target": "evergreen_create",
     },
     "newsletters": {
@@ -12664,7 +12735,7 @@ EMPTY_STATES = {
             "Once a candidate is included in a launched sequence they "
             "stick around in the pool for 3 more days so you can re-pitch "
             "them to a different campaign without re-uploading. After that "
-            "they age out — DripDrop is not an ATS, the pool stays small "
+            f"they age out — {BRAND} is not an ATS, the pool stays small "
             "so you focus on people you haven't reached yet."
         ),
         "cta_label": "+ Add a Candidate",
@@ -12689,7 +12760,7 @@ EMPTY_STATES = {
     "responses": {
         "icon": "💬",
         "headline": "No replies yet",
-        "body": "DripDrop scans your inbox every 5 minutes. When prospects reply, drafts appear here ready to send.",
+        "body": f"{BRAND} scans your inbox every 5 minutes. When prospects reply, drafts appear here ready to send.",
         "cta_label": "Check campaign progress",
         "cta_target": "seq_mgr",
     },
@@ -12704,7 +12775,7 @@ EMPTY_STATES = {
         "icon": "✅",
         "headline": "All done for today",
         "body": "No outstanding tasks. Tomorrow's tasks preview is below if you want to get a head start.",
-        "cta_label": "View tomorrow's drip",
+        "cta_label": f"View tomorrow's {TERM_DRIP}",
         "cta_target": "@drip_tomorrow_tab",
     },
 }
@@ -13000,7 +13071,7 @@ def topbar(s: AppState, rf):
         with ui.element("div").classes("fd-logo").style("cursor:pointer;").on(
                 "click", _topbar_home):
             ui.html(
-                '<img src="/static/dripdrop_logo.png?v=3" alt="DripDripDrop  -  click for Home" title="Home" />'
+                f'<img src="{BRAND_LOGO}" alt="{BRAND_WORDMARK}  -  click for Home" title="Home" />'
             )
         def _sales():
             # Land on Dashboard  -  top-level tab, clear history
@@ -14591,7 +14662,7 @@ def p_today_combined(s: AppState, rf):
                             ui.label(camp_name).style(
                                 f"font-size:14px;font-weight:600;color:{C['text_l']};font-family:'Nunito',sans-serif;")
                             if _any_eg:
-                                ui.label("SlowDrip Sequence").style(
+                                ui.label(f"{TERM_NURTURE_COMPACT} Sequence").style(
                                     f"font-size:9px;padding:2px 8px;border-radius:99px;font-weight:700;"
                                     f"background:{C['indigo']}15;color:{C['indigo']};"
                                     f"text-transform:uppercase;letter-spacing:.05em;")
@@ -15034,7 +15105,7 @@ def _connected_dialog(t, s: AppState, rf):
                 f"transition:background .15s;").on("click", _keep):
             ui.label("Keep in campaign").style(
                 f"font-size:14px;font-weight:600;color:{C['text_l']};")
-            ui.label("Good call but keep the drip going.").style(
+            ui.label(f"Good call but keep the {TERM_DRIP} going.").style(
                 f"font-size:11px;color:{C['muted']};margin-top:2px;")
 
         # Option 3: Move to Slow Drip
@@ -15049,9 +15120,9 @@ def _connected_dialog(t, s: AppState, rf):
                     f"border-left:3px solid {C['indigo']};border-radius:0 10px 10px 0;"
                     f"padding:12px 16px;margin-bottom:8px;cursor:pointer;"
                     f"transition:background .15s;"):
-                ui.label("Move to Slow Drip").style(
+                ui.label(f"Move to {TERM_NURTURE}").style(
                     f"font-size:14px;font-weight:600;color:{C['text_l']};")
-                ui.label("Done with this campaign - add to a Slow Drip for long-term nurture.").style(
+                ui.label(f"Done with this campaign - add to a {TERM_NURTURE} for long-term nurture.").style(
                     f"font-size:11px;color:{C['muted']};margin-top:2px;margin-bottom:8px;")
                 # Slow Drip picker
                 eg_options = {c.get("name", ""): c.get("name", "") for c in eg_camps}
@@ -15062,7 +15133,7 @@ def _connected_dialog(t, s: AppState, rf):
                     sel_name = eg_select.value
                     target = next((c for c in eg_camps if c.get("name") == sel_name), None)
                     if not target:
-                        ui.notify("Select a Slow Drip sequence.", type="warning"); return
+                        ui.notify(f"Select a {TERM_NURTURE} sequence.", type="warning"); return
                     # Remove from current campaign
                     _remove_contact_from_campaign_by_name(email, campaign_name)
                     _cancel_pending_for_email_in_campaign(email, campaign_name)
@@ -18127,10 +18198,10 @@ def _sq_loaded_campaign(s: AppState, rf):
                 with ui.element("div").style("display:flex;align-items:center;gap:10px;margin-bottom:10px;"):
                     ui.label("🌱").style("font-size:16px;flex-shrink:0;")
                     with ui.element("div"):
-                        ui.label("Enroll in Slow Drip After Launch").style(
+                        ui.label(f"Enroll in {TERM_NURTURE} After Launch").style(
                             f"font-size:13px;font-weight:600;color:{C['text_l']};"
                             f"font-family:'Nunito',sans-serif;")
-                        ui.label("Contacts will be added to selected drips when you launch.").style(
+                        ui.label(f"Contacts will be added to selected {TERM_DRIP_PLURAL} when you launch.").style(
                             f"font-size:11px;color:{C['muted']};")
                 for eg_name in _eg_options:
                     def _toggle_eg(e, n=eg_name):
@@ -19500,7 +19571,7 @@ def _sq_custom_builder(s, rf):
                            "If a need comes up, I'm a phone call away.",
                       channel="email"),
              ]),
-            ("sniper", "The Drip", "4 touches · 7 days", "#06B6D4",
+            ("sniper", f"The {TERM_DRIP_TITLE}", "4 touches · 7 days", "#06B6D4",
              "Fewer touches, higher impact. Every message is hyper-personalized. "
              "Designed for hard-to-reach decision makers who ignore volume.",
              "C-suite · VPs · hard-to-reach decision makers",
@@ -20635,7 +20706,7 @@ def _sq_custom_editor(s, rf):
                         with ui.element("div").style(f"background:{C['indigo_dim']};border:1px solid {C['indigo']}30;"
                                                      f"border-radius:8px;padding:14px 18px;margin-bottom:12px;"):
                             ui.label("LinkedIn Task").style(f"font-size:13px;font-weight:600;color:{C['indigo']};margin-bottom:4px;font-family:'Nunito',sans-serif;")
-                            ui.label("When this step is due, each contact's LinkedIn profile will be shown as a clickable link in Today's Drip. "
+                            ui.label(f"When this step is due, each contact's LinkedIn profile will be shown as a clickable link in {TERM_TODAY}. "
                                      "Use the notes below for your connection message or talking points.").style(
                                 f"font-size:12px;color:{C['text']};line-height:1.5;")
                     elif st == ST.CALL:
@@ -22859,7 +22930,7 @@ def p_launch(s, rf):
                     with ui.element("div").style(f"margin-top:20px;padding:12px;background:{C['surface']};"
                                                  f"border:1px solid {C['border']};border-radius:8px;"):
                         ui.label("After Launch").classes("fd-fl")
-                        ui.label("Enroll contacts in Slow Drip campaign after sequence completes.").style(
+                        ui.label(f"Enroll contacts in {TERM_NURTURE} campaign after sequence completes.").style(
                             f"font-size:12px;color:{C['muted']};margin-top:4px;")
 
                     # Delete campaign
@@ -22908,7 +22979,7 @@ def _seed_evergreen_campaigns():
         # Stale - overwrite email content but keep contacts, notes, responders
         existing["emails"]         = camp_def["emails"]
         existing["template_key"]   = camp_def.get("template_key", "evergreen")
-        existing["template_name"]  = camp_def.get("template_name", "Slow Drip")
+        existing["template_name"]  = camp_def.get("template_name", f"{TERM_NURTURE}")
         existing["evergreen_only"] = True
         existing["_seed_version"]  = SEED_VERSION
         save_campaign(existing)
@@ -23367,7 +23438,7 @@ def _offer_slow_drip_enroll(to_email: str, name: str, rf):
         ui.label("Stay connected with this contact?").style(
             f"font-size:16px;font-weight:800;color:{C['text_l']};"
             f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
-        ui.label(f"Add {name or to_email} to one of your Slow Drip / Newsletter "
+        ui.label(f"Add {name or to_email} to one of your {TERM_NURTURE} / Newsletter "
                  "campaigns so they keep hearing from you over time.").style(
             f"font-size:12px;color:{C['muted']};line-height:1.5;margin-bottom:14px;")
 
@@ -23871,7 +23942,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
         # Drip list). Previously these were two separate inputs; users
         # asked for a single combined field to cut the clutter.
         ui.label("Newsletter Name").classes("fd-fl")
-        ui.label("Shows as the branded header on every issue — also used as the campaign name in your Slow Drip list.").style(
+        ui.label(f"Shows as the branded header on every issue — also used as the campaign name in your {TERM_NURTURE} list.").style(
             f"font-size:10px;color:{C['muted']};margin-bottom:4px;")
         nl_name_in = ui.input(
             value=_pre_name,
@@ -24271,7 +24342,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                 schema=2,
                 name=nl_name,
                 template_key="evergreen",
-                template_name="Slow Drip",
+                template_name=f"{TERM_NURTURE}",
                 evergreen_only=True,
                 market_analysis=True,
                 newsletter_name=nl_name,
@@ -26494,7 +26565,7 @@ def p_evergreen(s, rf, *, as_section: bool = False):
         ui.element("div").style(
             f"border-top:1px solid {C['border']};margin:32px 0 20px;")
         with ui.element("div").style("display:flex;align-items:center;"):
-            ui.label("Slow Drip Sequences").classes("fd-h1").style("margin:0;")
+            ui.label(f"{TERM_NURTURE} Sequences").classes("fd-h1").style("margin:0;")
             _show_page_help(s, rf, "evergreen")
         ui.label(
             "Always-on sequences your contacts get enrolled into — "
@@ -26511,7 +26582,7 @@ def p_evergreen(s, rf, *, as_section: bool = False):
                     f"{C['border']};border-radius:10px;padding:18px 22px;"
                     f"color:{C['muted']};font-size:13px;line-height:1.5;"):
                 ui.label(
-                    "No Slow Drips yet. Use \"＋ Create Slow Drip\" below "
+                    f"No {TERM_NURTURE_PLURAL} yet. Use \"＋ Create {TERM_NURTURE}\" below "
                     "to spin up an always-on sequence — quarterly check-ins, "
                     "anniversary touches, market updates."
                 )
@@ -26525,7 +26596,7 @@ def p_evergreen(s, rf, *, as_section: bool = False):
 
     if not as_section:
         with ui.element("div").style("display:flex;align-items:center;"):
-            ui.label("Slow Drip Campaigns").classes("fd-h1")
+            ui.label(f"{TERM_NURTURE} Campaigns").classes("fd-h1")
             _show_page_help(s, rf, "evergreen")
         ui.label(
             "Enroll contacts into always-on sequences. They pick up at "
@@ -26560,7 +26631,7 @@ def p_evergreen(s, rf, *, as_section: bool = False):
             with ui.element("div").style(
                     "display:flex;align-items:center;gap:8px;margin-bottom:10px;"):
                 ui.label("⏰").style("font-size:16px;")
-                ui.label("Slow Drip emails sending soon - review and update before they go out").style(
+                ui.label(f"{TERM_NURTURE} emails sending soon - review and update before they go out").style(
                     f"font-size:13px;font-weight:600;color:{C['warn']};")
 
             for camp_name, camp_reminders in by_camp.items():
@@ -26642,13 +26713,13 @@ def p_evergreen(s, rf, *, as_section: bool = False):
 
     # ── SLOW DRIP SECTION ────────────────────────────────────────────────
     with ui.element("div").style("display:flex;align-items:center;gap:10px;margin-bottom:10px;"):
-        ui.label("SLOW DRIP").style(
+        ui.label(TERM_NURTURE_UPPER).style(
             f"font-size:10px;font-weight:800;color:{C['teal']};"
             f"text-transform:uppercase;letter-spacing:2px;")
         with ui.element("button").classes("fd-pb").style("padding:5px 14px;font-size:11px;").on("click", _create_evergreen):
-            ui.label("+ New Slow Drip")
+            ui.label(f"+ New {TERM_NURTURE}")
     if not _slow_drips:
-        ui.label("No slow drip campaigns yet.").style(
+        ui.label(f"No {TERM_NURTURE_LOWER} campaigns yet.").style(
             f"font-size:12px;color:{C['muted']};padding:8px 0 16px;")
 
     # Render slow drips only in this loop (newsletters filtered out)
@@ -26916,7 +26987,7 @@ def p_evergreen(s, rf, *, as_section: bool = False):
 
 def p_evergreen_create(s, rf):
     """Dedicated page for creating a new evergreen campaign."""
-    ui.label("Create Slow Drip Campaign").classes("fd-h1")
+    ui.label(f"Create {TERM_NURTURE} Campaign").classes("fd-h1")
     ui.label("Build an evergreen sequence - contacts you enroll will receive each email on a rolling schedule.").classes("fd-sub")
 
     # ── Instructions panel ─────────────────────────────────────────────────
@@ -26927,12 +26998,12 @@ def p_evergreen_create(s, rf):
         with ui.element("div").style(
                 "display:flex;align-items:center;gap:8px;margin-bottom:10px;"):
             ui.label("💡").style("font-size:15px;")
-            ui.label("How Slow Drip campaigns work").style(
+            ui.label(f"How {TERM_NURTURE} campaigns work").style(
                 f"font-size:13px;font-weight:700;color:{C['teal']};"
                 f"font-family:'Nunito',sans-serif;")
         ui.label(
-            "Slow Drip campaigns run continuously in the background. Unlike a "
-            "one-shot campaign where every contact starts on day 1, a Slow Drip "
+            f"{TERM_NURTURE} campaigns run continuously in the background. Unlike a "
+            f"one-shot campaign where every contact starts on day 1, a {TERM_NURTURE} "
             "keeps pulling in new contacts on an ongoing basis  -  each enrollee "
             "gets the full sequence from whichever step is next upcoming. "
             "Perfect for always-on nurture, monthly check-ins, or calendar-based "
@@ -26961,7 +27032,7 @@ def p_evergreen_create(s, rf):
             with ui.element("div"):
                 ui.label("④ Save and enroll").style(
                     f"font-weight:700;color:{C['teal']};margin-bottom:2px;")
-                ui.label("Click Save Slow Drip Campaign, then head back to the Slow Drip page "
+                ui.label(f"Click Save {TERM_NURTURE} Campaign, then head back to the {TERM_NURTURE} page "
                          "and click + Enroll on your new campaign to start adding contacts.")
             with ui.element("div"):
                 ui.label("⑤ Contacts enrolled late catch up").style(
@@ -26972,7 +27043,7 @@ def p_evergreen_create(s, rf):
                 ui.label("⑥ Holidays & monthly updates").style(
                     f"font-weight:700;color:{C['teal']};margin-bottom:2px;")
                 ui.label("For fixed calendar events use Fixed Date per step. For monthly "
-                         "market updates use the ✦ Newsletter button on the Slow Drip page  -  "
+                         f"market updates use the ✦ Newsletter button on the {TERM_NURTURE} page  -  "
                          "it auto-schedules first-Thursday-of-the-month sends.")
 
     # Campaign name
@@ -27084,12 +27155,12 @@ def p_evergreen_create(s, rf):
 
     # ── Save campaign button ──────────────────────────────────────────
     def _save_campaign():
-        camp_name = name_inp.value.strip() or "Untitled Slow Drip Campaign"
+        camp_name = name_inp.value.strip() or f"Untitled {TERM_NURTURE} Campaign"
         if not s.eg_steps:
             ui.notify("Add at least one email step.", type="warning"); return
         camp = dict(
             schema=2, name=camp_name,
-            template_key="evergreen", template_name="Slow Drip",
+            template_key="evergreen", template_name=f"{TERM_NURTURE}",
             evergreen_only=True, start_date=date.today().isoformat(),
             contacts=[], contact_count=0,
             emails=s.eg_steps,
@@ -27098,12 +27169,12 @@ def p_evergreen_create(s, rf):
         )
         save_campaign(camp)
         _cache_campaigns.invalidate()
-        ui.notify(f"Slow Drip sequence '{camp_name}' saved!", type="positive", timeout=3000)
+        ui.notify(f"{TERM_NURTURE} sequence '{camp_name}' saved!", type="positive", timeout=3000)
         nav_back(s, rf)
 
     with ui.element("div").style("display:flex;gap:10px;"):
         with ui.element("button").classes("fd-pb").style("padding:10px 28px;font-size:14px;").on("click", _save_campaign):
-            ui.label("Save Slow Drip Campaign")
+            ui.label(f"Save {TERM_NURTURE} Campaign")
         def _cancel():
             nav_back(s, rf)
         with ui.element("button").classes("fd-gb").style("padding:10px 20px;font-size:14px;").on("click", _cancel):
@@ -27301,6 +27372,8 @@ def p_dashboard(s: AppState, rf):
         f"Keep it flowing, {_sig_name}. Consistency wins.",
         f"Stay wet, {_sig_name}.",
     ]
+    if BRAND_GREETINGS:
+        _greetings = [g.replace("{name}", _sig_name) for g in BRAND_GREETINGS]
     _greeting = _rng.choice(_greetings)
 
     # ── Setup Hero Card ─────────────────────────────────────────────────
@@ -27324,7 +27397,7 @@ def p_dashboard(s: AppState, rf):
                         "display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;"):
                     with ui.element("div").style("display:flex;align-items:center;gap:10px;"):
                         ui.label("👋").style("font-size:22px;")
-                        ui.label(f"Welcome, {_sig_name}  -  finish setting up DripDrop").style(
+                        ui.label(f"Welcome, {_sig_name}  -  finish setting up {BRAND}").style(
                             f"font-size:17px;font-weight:800;color:{C['text_l']};"
                             f"font-family:'Nunito',sans-serif;")
                     ui.label(f"{_done} of {_total}").style(
@@ -27359,7 +27432,7 @@ def p_dashboard(s: AppState, rf):
                         "icon": "✉" if not _setup["email"] else "✓",
                         "color": C["good"] if _setup["email"] else "#F59E0B",
                         "title": "Connect Your Email",
-                        "desc": "Required  -  DripDrop sends from your own Microsoft or Gmail inbox." if not _setup["email"] else "Connected and ready.",
+                        "desc": f"Required  -  {BRAND} sends from your own Microsoft or Gmail inbox." if not _setup["email"] else "Connected and ready.",
                         "cta": "Connect now →" if not _setup["email"] else None,
                         "page": "ai_settings",
                     },
@@ -27559,7 +27632,7 @@ def p_dashboard(s: AppState, rf):
                     for camp in _regular:
                         _render_camp_card(camp, C["teal"])
                 if _slow_drip:
-                    _group_header("SlowDrip Sequence", len(_slow_drip), C["indigo"])
+                    _group_header(f"{TERM_NURTURE_COMPACT} Sequence", len(_slow_drip), C["indigo"])
                     for camp in _slow_drip:
                         _render_camp_card(camp, C["indigo"])
 
@@ -28908,7 +28981,7 @@ def p_seq_mgr(s, rf):
                         f"border-top:1px solid {C['border']};margin-top:4px;"):
                     ui.element("div").style(
                         f"width:8px;height:8px;border-radius:50%;background:{C['indigo']};")
-                    ui.label(f"Slow Drip ({len(_active_drips)})").style(
+                    ui.label(f"{TERM_NURTURE} ({len(_active_drips)})").style(
                         f"font-size:12px;font-weight:700;color:{C['indigo']};")
                 for camp in _active_drips:
                     _render_camp_item(camp)
@@ -29497,13 +29570,13 @@ def p_seq_mgr(s, rf):
                             with ui.dialog() as _gdlg, ui.card().style(
                                     f"background:{C['surface']};border:1px solid {C['border']};"
                                     f"border-radius:14px;padding:24px 28px;max-width:460px;"):
-                                ui.label("Graduate to Slow Drip").style(
+                                ui.label(f"Graduate to {TERM_NURTURE}").style(
                                     f"font-size:17px;font-weight:700;color:{C['text_l']};"
                                     f"font-family:'Nunito',sans-serif;margin-bottom:6px;")
                                 ui.label(
                                     f"Enroll {len(_finished)} contact"
                                     f"{'s' if len(_finished)!=1 else ''} who responded or were "
-                                    f"removed from this campaign into a monthly drip."
+                                    f"removed from this campaign into a monthly {TERM_DRIP}."
                                 ).style(f"font-size:13px;color:{C['muted']};margin-bottom:16px;")
                                 ui.label("Choose an evergreen campaign:").style(
                                     f"font-size:12px;font-weight:600;color:{C['text']};"
@@ -29543,7 +29616,7 @@ def p_seq_mgr(s, rf):
                                         ui.notify(
                                             f"✓ {enrolled} contact"
                                             f"{'s' if enrolled!=1 else ''} enrolled in "
-                                            f"'{ec.get('name','')}' - monthly drip starts today.",
+                                            f"'{ec.get('name','')}' - monthly {TERM_DRIP} starts today.",
                                             type="positive", timeout=5000)
                                         rf()
                                     with ui.element("button").style(
@@ -29567,7 +29640,7 @@ def p_seq_mgr(s, rf):
                                     f"color:{C['teal']};font-size:12px;font-weight:600;"
                                     f"font-family:inherit;flex-shrink:0;").on(
                                     "click", _graduate_all_responded):
-                                ui.label(f"🌱 Graduate {len(_finished)} to Slow Drip").style(
+                                ui.label(f"🌱 Graduate {len(_finished)} to {TERM_NURTURE}").style(
                                     "pointer-events:none;")
                     else:
                         ui.label(
@@ -29749,12 +29822,12 @@ def p_seq_mgr(s, rf):
                                                     f"border:1px solid {C['border']};"
                                                     f"border-radius:12px;padding:22px 26px;"
                                                     f"max-width:420px;"):
-                                                ui.label("Send to Slow Drip").style(
+                                                ui.label(f"Send to {TERM_NURTURE}").style(
                                                     f"font-size:16px;font-weight:700;"
                                                     f"color:{C['text_l']};"
                                                     f"font-family:'Nunito',sans-serif;"
                                                     f"margin-bottom:10px;")
-                                                ui.label("Choose a monthly drip campaign:").style(
+                                                ui.label(f"Choose a monthly {TERM_DRIP} campaign:").style(
                                                     f"font-size:12px;color:{C['muted']};"
                                                     f"margin-bottom:8px;")
                                                 _gsel2 = {"camp": _eg_camps[0]}
@@ -29795,7 +29868,7 @@ def p_seq_mgr(s, rf):
                                                             ui.notify(
                                                                 f"✓ Enrolled in "
                                                                 f"'{_gsel2['camp'].get('name','')}'"
-                                                                f" - monthly drip starts today.",
+                                                                f" - monthly {TERM_DRIP} starts today.",
                                                                 type="positive", timeout=4000)
                                                         else:
                                                             ui.notify(
@@ -29819,10 +29892,10 @@ def p_seq_mgr(s, rf):
                                                 f"border:1px solid {C['teal']}50;"
                                                 f"color:{C['teal']};font-size:11px;"
                                                 f"font-weight:600;").on("click", _grad_one):
-                                            ui.label("🌱 Slow Drip").style(
+                                            ui.label(f"🌱 {TERM_NURTURE}").style(
                                                 "pointer-events:none;")
                                     elif _already_in_eg:
-                                        ui.label("✓ In drip").style(
+                                        ui.label(f"✓ In {TERM_DRIP}").style(
                                             f"font-size:10px;color:{C['good']};")
                                     else:
                                         ui.element("div")
@@ -37884,7 +37957,7 @@ def p_ai_campaign(s: AppState, rf):
                                          "it for future campaigns.").style(
                                     f"font-size:11px;color:{C['muted']};line-height:1.5;margin-bottom:12px;")
                                 _name_in = ui.input(
-                                    placeholder="e.g. Candidate Drip, 10-email blitz, etc.",
+                                    placeholder=f"e.g. Candidate {TERM_DRIP_TITLE}, 10-email blitz, etc.",
                                 ).props("outlined").style("width:100%;font-size:13px;margin-bottom:6px;")
                                 ui.label("Description (used verbatim next time):").style(
                                     f"font-size:10px;font-weight:700;color:{C['muted']};"
@@ -37946,7 +38019,7 @@ def p_ai_campaign(s: AppState, rf):
                                 "</span>"
                             )
                         else:
-                            ui.label("Import to DripDrop")
+                            ui.label(f"Import to {BRAND}")
 
         # Generated PDFs — surface the AICB-built PDFs alongside the
         # emails so the user can preview each one and tweak it via the
@@ -42138,7 +42211,7 @@ def _render_pool_explainer(s, rf, compact: bool = False):
             "Add candidates as you work them, then spin up an MPC outreach campaign that pitches "
             "them to hiring managers at fitting companies. Once a candidate is included in a "
             "launched sequence they stick around for 3 more days so you can re-pitch them to a "
-            "different campaign without re-uploading. After that they age out — DripDrop is not "
+            f"different campaign without re-uploading. After that they age out — {BRAND} is not "
             "an ATS, the roster stays small so you focus on people you haven't reached yet."
         ).style(
             f"font-size:12.5px;color:{C['muted']};line-height:1.55;margin-bottom:{'0' if compact and not _expanded else '14px'};")
@@ -42192,8 +42265,8 @@ def _render_pool_explainer(s, rf, compact: bool = False):
                     f'<span style="{_col_p}">Where pool data shows up:</span>'
                     f'<ul style="{_col_list}">'
                     f'<li><b>Recruiting campaigns</b> — the bench-snapshot email template pulls 2–3 matching pool candidates by target role and anonymizes them into "Candidate A / B" profiles.</li>'
-                    f'<li><b>Newsletter spotlights</b> — the "Candidate Spotlights" section on newsletters can auto-pull real pool candidates (set spotlight count to 3 or 6 in the Slow Drip).</li>'
-                    f'<li><b>Drip wizard</b> — when you build a custom campaign, the Candidate Teaser step lets you pick up to 6 pool candidates to feature.</li>'
+                    f'<li><b>Newsletter spotlights</b> — the "Candidate Spotlights" section on newsletters can auto-pull real pool candidates (set spotlight count to 3 or 6 in the {TERM_NURTURE}).</li>'
+                    f'<li><b>{TERM_DRIP_TITLE} wizard</b> — when you build a custom campaign, the Candidate Teaser step lets you pick up to 6 pool candidates to feature.</li>'
                     f'<li><b>Start Campaign</b> — click <i>Start Campaign</i> on any candidate card to kick off a single-candidate outreach sequence to hiring managers in your target market.</li>'
                     f'</ul>'
                 )
@@ -43673,7 +43746,7 @@ def p_timezone(s, rf):
             f"font-size:13px;font-weight:700;color:{C['text_l']};"
             f"font-family:'Nunito',sans-serif;margin-bottom:8px;")
         ui.label(
-            "When you schedule a campaign email for \"9:00 AM\", DripDrop sends it at "
+            f"When you schedule a campaign email for \"9:00 AM\", {BRAND} sends it at "
             "9:00 AM in YOUR timezone. If you're in Chicago and haven't set this, "
             "your emails will go out at 11:00 AM your time instead of 9:00 AM."
         ).style(f"font-size:12px;color:{C['text']};line-height:1.6;display:block;margin-bottom:8px;")
@@ -43868,7 +43941,7 @@ def p_ai_settings(s, rf):
                     ui.label("Close")
 
     _ms_info = [
-        "One-click sign-in. No passwords. Your Microsoft account authorizes DripDrop to send mail on your behalf.",
+        f"One-click sign-in. No passwords. Your Microsoft account authorizes {BRAND} to send mail on your behalf.",
         "## Who this is for",
         "* Work emails ending in Microsoft-hosted domains (Outlook, Office 365)",
         "* Personal Outlook.com or Hotmail accounts",
@@ -43938,7 +44011,7 @@ def p_ai_settings(s, rf):
                     ui.label("Close")
 
     _google_info = [
-        "One-click sign-in. No App Password, no SMTP setup. Your Google account authorizes DripDrop to send mail on your behalf via the official Gmail API.",
+        f"One-click sign-in. No App Password, no SMTP setup. Your Google account authorizes {BRAND} to send mail on your behalf via the official Gmail API.",
         "## Who this is for",
         "* Anyone with a personal @gmail.com address",
         "* Google Workspace users (custom domain hosted on Google)",
@@ -43950,7 +44023,7 @@ def p_ai_settings(s, rf):
         "* Subject to your Google account's normal sending limits",
         "* Same deliverability as clicking Send in Gmail itself",
         "## Privacy",
-        "* DripDrop only requests permission to SEND mail, not read it",
+        f"* {BRAND} only requests permission to SEND mail, not read it",
         "* You can revoke access anytime at <a href=\"https://myaccount.google.com/permissions\" target=\"_blank\" rel=\"noopener noreferrer\">myaccount.google.com/permissions</a>",
     ]
     _google_status = f"Currently connected as {_google_acct}" if _google_connected else ""
@@ -44021,7 +44094,7 @@ def p_ai_settings(s, rf):
         "## Setup steps",
         '* 1. Turn on 2-Step Verification at <a href="https://myaccount.google.com/security" target="_blank" rel="noopener noreferrer">myaccount.google.com/security</a> (required by Google)',
         '* 2. Go to <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer">myaccount.google.com/apppasswords</a>',
-        "* 3. Under 'App name' type 'DripDrop' and click Create",
+        f"* 3. Under 'App name' type '{BRAND}' and click Create",
         "* 4. Google shows a 16-character password  -  copy it",
         "* 5. Paste it in the form below along with your Gmail address",
         "## What to expect",
@@ -44224,7 +44297,7 @@ def p_ai_settings(s, rf):
     # ── Three big buttons  -  the visible UI ──────────────────────────
     with ui.element("div").classes("fd-gc"):
         ui.label("Email Sending").classes("fd-fl")
-        ui.label("Click a provider below to set it up. DripDrop will send all campaigns through your chosen provider.").style(
+        ui.label(f"Click a provider below to set it up. {BRAND} will send all campaigns through your chosen provider.").style(
             f"font-size:12px;color:{C['muted']};margin-bottom:16px;line-height:1.5;")
 
         def _btn(emoji, name, tagline, brand_color, connected, handler):
@@ -44611,7 +44684,7 @@ def p_ai_settings(s, rf):
                 f"font-size:13px;font-weight:700;color:{C['text_l']};"
                 f"font-family:'Nunito',sans-serif;")
         ui.label("Generate a key to create and launch campaigns via "
-                 "the DripDrop API.").style(
+                 f"the {BRAND} API.").style(
             f"font-size:11px;color:{C['muted']};margin-bottom:4px;"
             f"line-height:1.5;")
         with ui.element("span").style(
@@ -48602,7 +48675,7 @@ def _auto_refresh_newsletter_tick():
                         f'<strong>Preview only</strong> — this is what will go out '
                         f'on {send_aware.strftime("%b %d")}. '
                         f'<a href="{_edit_link}" style="color:#0066CC;font-weight:700;">'
-                        f'Open in DripDrop to edit →</a>'
+                        f'Open in {BRAND} to edit →</a>'
                         f'</div>'
                     )
                     ok, err = _send_email_universal(
@@ -49894,7 +49967,7 @@ def p_market_intel(s: AppState, rf):
             ui.label("Create a Market Watch").style(
                 f"font-size:16px;font-weight:700;color:{C['teal']};"
                 f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
-            ui.label("Define your target market and DripDrop will scan for opportunities.").style(
+            ui.label(f"Define your target market and {BRAND} will scan for opportunities.").style(
                 f"font-size:12px;color:{C['muted']};margin-bottom:16px;")
 
             with ui.element("div").style("display:grid;grid-template-columns:1fr 1fr;gap:12px;"):
@@ -52026,7 +52099,7 @@ def _p_profile_body(s, rf):
                     ui.label("Your company profile is used by:")
                     ui.label("- AI Campaign Builder: writes emails referencing your company, not a hardcoded default").style("margin-left:8px;")
                     ui.label("- PDF Generator: your logo and brand color in the header").style("margin-left:8px;")
-                    ui.label("- DripDrop Playbook: tailors the writing voice to your industry").style("margin-left:8px;")
+                    ui.label(f"- {BRAND} Playbook: tailors the writing voice to your industry").style("margin-left:8px;")
 
     # ── Email Signature section ──────────────────────────────────────────
     # Wrapped in a single div so the sidebar's "email_sig" toggle can hide
@@ -52037,7 +52110,7 @@ def _p_profile_body(s, rf):
             ui.label("EMAIL SIGNATURE").style(
                 f"font-size:10px;font-weight:800;color:{C['teal']};"
                 f"text-transform:uppercase;letter-spacing:2px;")
-        ui.label("Appended to every email sent through DripDrop.").style(
+        ui.label(f"Appended to every email sent through {BRAND}.").style(
             f"font-size:11px;color:{C['muted']};margin-bottom:12px;")
 
         _sig_path = _user_sig_path()
@@ -52634,7 +52707,7 @@ def p_signature(s, rf):
     with ui.element("div").style("display:flex;align-items:center;"):
         ui.label("Email Signature").classes("fd-h1")
         _show_page_help(s, rf, "signature")
-    ui.label("Your signature is appended to every email sent through DripDrop.").classes("fd-sub")
+    ui.label(f"Your signature is appended to every email sent through {BRAND}.").classes("fd-sub")
 
     # CRITICAL: resolve the signature path explicitly from this session's
     # user email. The module-level _user_sig_path() global is mutated by
@@ -53753,7 +53826,7 @@ def login_page(next: str = "/"):
                 "border-radius:16px;padding:40px;margin:0 auto;"):
             # Logo / Title
             ui.html(
-                '<img src="/static/dripdrop_logo.png?v=3" alt="DripDripDrop" '
+                f'<img src="{BRAND_LOGO}" alt="{BRAND_WORDMARK}" '
                 'style="height:220px;width:auto;display:block;margin:0 auto 8px;" />'
             )
             ui.label("Sign in to your account").style(
@@ -53817,7 +53890,7 @@ def forgot_password_page():
                         "width:400px;max-width:90vw;background:#1E2B5E;"
                         "border-radius:16px;padding:40px;margin:0 auto;"):
                     ui.html(
-                        '<img src="/static/dripdrop_logo.png?v=3" alt="DripDripDrop" '
+                        f'<img src="{BRAND_LOGO}" alt="{BRAND_WORDMARK}" '
                         'style="height:160px;width:auto;display:block;margin:0 auto 8px;" />'
                     )
                     if submitted:
@@ -53843,7 +53916,7 @@ def forgot_password_page():
                         "font-size:18px;font-weight:700;color:#F0F8FF;"
                         "text-align:center;display:block;margin-bottom:6px;")
                     ui.label(
-                        "Enter the email on your DripDrop account and we'll "
+                        f"Enter the email on your {BRAND} account and we'll "
                         "send you a link to set a new password."
                     ).style(
                         "font-size:12px;color:#8FA3C8;text-align:center;"
@@ -53956,7 +54029,7 @@ def reset_password_page(token: str = ""):
                 "width:400px;max-width:90vw;background:#1E2B5E;"
                 "border-radius:16px;padding:40px;margin:0 auto;"):
             ui.html(
-                '<img src="/static/dripdrop_logo.png?v=3" alt="DripDripDrop" '
+                f'<img src="{BRAND_LOGO}" alt="{BRAND_WORDMARK}" '
                 'style="height:160px;width:auto;display:block;margin:0 auto 8px;" />'
             )
             if not _email:
@@ -54041,7 +54114,7 @@ def register_page(next: str = "/setup"):
             ui.notify("Please fill in name, email, and password", type="warning")
             return
         if not invite:
-            ui.notify("Invite code required  -  DripDrop is invite-only", type="warning")
+            ui.notify(f"Invite code required  -  {BRAND} is invite-only", type="warning")
             return
         if not _is_valid_invite_code(invite):
             ui.notify("That invite code isn't valid. Check with the person who invited you.", type="negative")
@@ -54123,7 +54196,7 @@ def register_page(next: str = "/setup"):
                 "width:440px;max-width:92vw;background:#1E2B5E;"
                 "border-radius:16px;padding:36px 40px;margin:0 auto;"):
             ui.html(
-                '<img src="/static/dripdrop_logo.png?v=3" alt="DripDripDrop" '
+                f'<img src="{BRAND_LOGO}" alt="{BRAND_WORDMARK}" '
                 'style="height:180px;width:auto;display:block;margin:0 auto 4px;" />'
             )
             ui.label("Create your account").style(
@@ -54148,7 +54221,7 @@ def register_page(next: str = "/setup"):
                 ui.label("Invite Code").style("font-size:12px;font-weight:600;color:#F0F8FF;")
                 ui.label("(required)").style("font-size:11px;color:#1AE3D9;font-weight:600;")
             invite_in = ui.input(placeholder="Enter your invite code").style("width:100%;").props("outlined dense")
-            ui.label("DripDrop is in invite-only beta. Don't have a code? Email support@dripdripdrop.ai for access.").style(
+            ui.label(f"{BRAND} is in invite-only beta. Don't have a code? Email {BRAND_SUPPORT_EMAIL} for access.").style(
                 "font-size:10px;color:#8FA3C8;line-height:1.4;margin-top:3px;display:block;")
 
             # Phone
@@ -54433,7 +54506,7 @@ def setup_page():
                 "width:640px;max-width:90vw;margin:0 auto;"):
 
             # Welcome header
-            ui.label(f"Welcome to DripDrop, {_name}!").style(
+            ui.label(f"Welcome to {BRAND}, {_name}!").style(
                 "font-size:28px;font-weight:800;color:#1AE3D9;text-align:center;"
                 "display:block;font-family:'Nunito',sans-serif;margin-bottom:8px;")
             ui.label("Your account is ready. Two quick things to finish setup.").style(
@@ -54459,7 +54532,7 @@ def setup_page():
                     ui.label("Connect Your Email").style(
                         "font-size:16px;font-weight:700;color:#F0F8FF;font-family:'Nunito',sans-serif;")
                 ui.label(
-                    "DripDrop sends campaigns from your own email address. Pick from three options: "
+                    f"{BRAND} sends campaigns from your own email address. Pick from three options: "
                     "Microsoft (one-click for Outlook users), Gmail, or Twilio SendGrid. "
                     "You can change this anytime from Email & AI Setup in the sidebar."
                 ).style("font-size:13px;color:#D8E4F5;line-height:1.6;margin-bottom:14px;")
@@ -54481,7 +54554,7 @@ def setup_page():
                     ui.label("Add Your AI Key").style(
                         "font-size:16px;font-weight:700;color:#F0F8FF;font-family:'Nunito',sans-serif;")
                 ui.label(
-                    "DripDrop uses Anthropic's Claude to generate emails, market analysis, and PDFs. "
+                    f"{BRAND} uses Anthropic's Claude to generate emails, market analysis, and PDFs. "
                     "Get a free API key from Anthropic, then paste it in Email & AI Setup. "
                     "Anthropic gives every new account $5 in free credits  -  enough for hundreds of emails."
                 ).style("font-size:13px;color:#D8E4F5;line-height:1.6;margin-bottom:14px;")
@@ -54505,7 +54578,7 @@ def setup_page():
                             "border:1px solid #6366F1;border-radius:8px;font-size:13px;"
                             "font-weight:700;cursor:pointer;font-family:inherit;"
                             ).on("click", _go_ai):
-                        ui.label("Paste Key in DripDrop →")
+                        ui.label(f"Paste Key in {BRAND} →")
 
             # Skip to dashboard
             with ui.element("div").style("text-align:center;margin-top:24px;"):
@@ -54533,7 +54606,7 @@ def _render_landing_page():
         comfortably on a laptop screen without scrolling to see the headline.
       - NO position:fixed, normal flow works once the reset is in place.
     """
-    ui.page_title("DripDrop, AI-powered sales outreach")
+    ui.page_title(f"{BRAND}, AI-powered sales outreach")
 
     teal = "#1AE3D9"
     navy = "#1E2B5E"
@@ -54591,7 +54664,7 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
 .dd-hero-right{{position:relative;display:flex;align-items:center;justify-content:center;min-height:300px}}
 .dd-hero-right img{{max-width:300px;max-height:300px;width:auto;height:auto;display:block;position:relative;z-index:1}}
 .dd-hero-right::before{{content:"";position:absolute;width:320px;height:320px;border-radius:50%;background:radial-gradient(circle,{teal}22 0%,{teal}00 60%);pointer-events:none;filter:blur(18px);top:50%;left:50%;transform:translate(-50%,-50%)}}
-/* Today's Drip mockup, CSS-built product preview for the hero right side */
+/* {TERM_TODAY} mockup, CSS-built product preview for the hero right side */
 .dd-mockup{{position:relative;width:100%;max-width:420px;background:{navy_deep};border:1px solid {border};border-radius:14px;box-shadow:0 30px 60px -18px rgba(0,0,0,.6),0 0 0 1px {teal}25;overflow:hidden;z-index:1;transform:rotate(-.5deg)}}
 .dd-mockup-bar{{display:flex;align-items:center;gap:6px;padding:10px 14px;background:{navy};border-bottom:1px solid {border}}}
 .dd-mockup-dot{{width:9px;height:9px;border-radius:50%;background:{border}}}
@@ -54787,21 +54860,21 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
         <a href="/register" class="dd-btn dd-btn-primary">Have an invite? Get started →</a>
       </div>
       <div style="margin-top:10px;font-size:12px;color:#8FA3C8;">
-        No invite yet? <a href="mailto:support@dripdripdrop.ai?subject=Beta%20access%20for%20DripDrop" style="color:#1AE3D9;text-decoration:underline;">Tell us about your team →</a>
+        No invite yet? <a href="mailto:{BRAND_SUPPORT_EMAIL}?subject=Beta%20access%20for%20{BRAND}" style="color:#1AE3D9;text-decoration:underline;">Tell us about your team →</a>
       </div>
       <div style="font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:#8FA3C8;margin-top:14px;">
         Built by recruiters, for recruiters.
       </div>
     </div>
     <div class="dd-hero-right">
-      <img src="/static/dripdrop_logo.png?v=3" alt="DripDrop logo" />
+      <img src="{BRAND_LOGO}" alt="{BRAND} logo" />
     </div>
   </section>
 
   <section class="dd-section">
     <h2>More than an email sequencer.</h2>
     <p class="sub">
-      DripDrop runs your whole day, emails on autopilot, branded PDFs, and
+      {BRAND} runs your whole day, emails on autopilot, branded PDFs, and
       multi-channel touches. Here's what no other outreach tool does the same way.
     </p>
     <div class="dd-features">
@@ -54813,18 +54886,18 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
       </div>
       <div class="dd-feat">
         <div class="dd-feat-icon">⬢</div>
-        <h3>Today's Drip, Your Daily Plan</h3>
-        <p>Open DripDrop in the morning and see today's plan: emails sending automatically, phone calls to make, LinkedIn touches to send, follow-up tasks. One screen, every channel, in priority order. Close the loop with one click per item.</p>
+        <h3>{TERM_TODAY}, Your Daily Plan</h3>
+        <p>Open {BRAND} in the morning and see today's plan: emails sending automatically, phone calls to make, LinkedIn touches to send, follow-up tasks. One screen, every channel, in priority order. Close the loop with one click per item.</p>
       </div>
       <div class="dd-feat">
         <div class="dd-feat-icon">✦</div>
         <h3>AI Campaign Builder</h3>
-        <p>Drop in a company name. DripDrop researches them on the live web, identifies their hiring patterns and decision makers, then writes a full 7-touch sequence, emails, LinkedIn messages, call scripts, tuned to that company's industry.</p>
+        <p>Drop in a company name. {BRAND} researches them on the live web, identifies their hiring patterns and decision makers, then writes a full 7-touch sequence, emails, LinkedIn messages, call scripts, tuned to that company's industry.</p>
       </div>
       <div class="dd-feat">
         <div class="dd-feat-icon">🧩</div>
         <h3>AI Guided Sequence Builder</h3>
-        <p>Tell DripDrop your goal, audience, tone, and how many of each touch you want — emails, LinkedIn, calls, SMS, tasks. Add per-email direction if you have it. AI writes the whole cadence in seconds and drops you straight into the editor to tweak any message before launch.</p>
+        <p>Tell {BRAND} your goal, audience, tone, and how many of each touch you want — emails, LinkedIn, calls, SMS, tasks. Add per-email direction if you have it. AI writes the whole cadence in seconds and drops you straight into the editor to tweak any message before launch.</p>
       </div>
       <div class="dd-feat">
         <div class="dd-feat-icon">📑</div>
@@ -54833,13 +54906,13 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
       </div>
       <div class="dd-feat">
         <div class="dd-feat-icon">∿</div>
-        <h3>Slow Drip</h3>
-        <p>Set up an always-on campaign once and let it run forever. DripDrop keeps pulling fresh contacts into the sequence on a schedule you control, so your pipeline is always filling in the background while you work on bigger deals.</p>
+        <h3>{TERM_NURTURE}</h3>
+        <p>Set up an always-on campaign once and let it run forever. {BRAND} keeps pulling fresh contacts into the sequence on a schedule you control, so your pipeline is always filling in the background while you work on bigger deals.</p>
       </div>
       <div class="dd-feat">
         <div class="dd-feat-icon">⌖</div>
         <h3>Market Intel</h3>
-        <p>Define your target markets by location, role, and industry, DripDrop scans the live web for new job postings, staffing activity, and hiring signals that match. Every morning you see who's hiring, who's expanding, and which companies just became warm leads.</p>
+        <p>Define your target markets by location, role, and industry, {BRAND} scans the live web for new job postings, staffing activity, and hiring signals that match. Every morning you see who's hiring, who's expanding, and which companies just became warm leads.</p>
       </div>
       <div class="dd-feat dd-feat-primary">
         <div class="dd-feat-icon">📰</div>
@@ -54853,13 +54926,13 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
 
   <section class="dd-compare">
     <div class="dd-compare-inner">
-      <h2>Why DripDrop is different.</h2>
+      <h2>Why {BRAND} is different.</h2>
       <p class="sub">Every other outreach tool does the same thing. We don't.</p>
       <table class="dd-compare-table">
         <thead>
           <tr>
             <th></th>
-            <th class="us-head">⬡ DripDrop</th>
+            <th class="us-head">⬡ {BRAND}</th>
             <th class="them-head">Other outreach tools</th>
           </tr>
         </thead>
@@ -54871,7 +54944,7 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
           </tr>
           <tr>
             <td class="dim">Channels</td>
-            <td class="us-cell">Email, calls, and LinkedIn in one daily plan (Today's Drip)</td>
+            <td class="us-cell">Email, calls, and LinkedIn in one daily plan ({TERM_TODAY})</td>
             <td class="them-cell">Email-only sequencing, calls and LinkedIn live in separate tools</td>
           </tr>
           <tr>
@@ -54916,7 +54989,7 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
       <div class="dd-step">
         <div class="dd-step-num">2</div>
         <h3>Upload contacts</h3>
-        <p>Drop in a CSV, DripDrop auto-maps columns, dedupes against your opt-out list, and surfaces missing data.</p>
+        <p>Drop in a CSV, {BRAND} auto-maps columns, dedupes against your opt-out list, and surfaces missing data.</p>
       </div>
       <div class="dd-step">
         <div class="dd-step-num">3</div>
@@ -54926,28 +54999,28 @@ html,body{{margin:0 !important;padding:0 !important;background:{navy} !important
       <div class="dd-step">
         <div class="dd-step-num">4</div>
         <h3>Run your day</h3>
-        <p>Emails send from your real inbox on schedule. Calls and LinkedIn touches show up in Today's Drip. You work the plan.</p>
+        <p>Emails send from your real inbox on schedule. Calls and LinkedIn touches show up in {TERM_TODAY}. You work the plan.</p>
       </div>
     </div>
   </section>
 
   <section class="dd-cta">
     <h2>Your leads aren't going to warm themselves.</h2>
-    <p>DripDrop is in invite-only beta. Got a code? Create your account in under a minute and start sending from your real inbox today. No code yet? Tell us about your team and we'll get back to you.</p>
+    <p>{BRAND} is in invite-only beta. Got a code? Create your account in under a minute and start sending from your real inbox today. No code yet? Tell us about your team and we'll get back to you.</p>
     <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;">
       <a href="/register" class="dd-btn dd-btn-primary">Create Your Account →</a>
-      <a href="mailto:support@dripdripdrop.ai?subject=Beta%20access%20for%20DripDrop" class="dd-btn dd-btn-ghost">Request an Invite →</a>
+      <a href="mailto:{BRAND_SUPPORT_EMAIL}?subject=Beta%20access%20for%20{BRAND}" class="dd-btn dd-btn-ghost">Request an Invite →</a>
     </div>
   </section>
 
   <footer class="dd-footer">
-    <div>© 2026 DripDrop. All rights reserved.</div>
+    <div>© 2026 {BRAND}. All rights reserved.</div>
     <div>
       <a href="/login">Sign In</a>
       <a href="/register">Sign Up</a>
       <a href="/privacy">Privacy</a>
       <a href="/terms">Terms</a>
-      <a href="mailto:support@dripdripdrop.ai">Contact</a>
+      <a href="mailto:{BRAND_SUPPORT_EMAIL}">Contact</a>
     </div>
   </footer>
 </div>
@@ -54997,7 +55070,7 @@ def diagnostics_page():
         ui.label(f"Failed to read errors.log: {ex}").style("padding:24px;")
         return
 
-    ui.label("DripDrop Diagnostics").style(
+    ui.label(f"{BRAND} Diagnostics").style(
         "font-size:18px;font-weight:700;padding:16px 24px 4px;")
     ui.label(f"Last error: {last_ts or '(none in tail)'}").style(
         "padding:0 24px 12px;color:#666;font-size:12px;")
@@ -55200,7 +55273,7 @@ def index():
     _tour_steps = [
         {
             "selector": '[data-tour="avatar"]',
-            "title": "Welcome to DripDrop!",
+            "title": f"Welcome to {BRAND}!",
             "body": (
                 "This is your profile menu. Click here anytime to edit your "
                 "name, phone, or photo, connect your email, or sign out."
@@ -55210,7 +55283,7 @@ def index():
             "selector": '[data-tour="nav-ai_settings"]',
             "title": "Start here: connect your email",
             "body": (
-                "Before you can send campaigns, DripDrop needs to connect to "
+                f"Before you can send campaigns, {BRAND} needs to connect to "
                 "your email. You have three options: Microsoft, Gmail, or "
                 "Twilio SendGrid. You'll also add a free AI key on this page."
             ),
@@ -55222,7 +55295,7 @@ def index():
             "body": (
                 "This is where you create outreach sequences. Pick an AI "
                 "Campaign Builder template, a Recruiting Campaign, or build "
-                "a custom one from scratch  -  DripDrop will walk you through "
+                f"a custom one from scratch  -  {BRAND} will walk you through "
                 "each step."
             ),
         },
@@ -55231,7 +55304,7 @@ def index():
             "title": "Upload your contacts",
             "body": (
                 "Upload a CSV of the people you want to reach. Each row should "
-                "have at least a name and email. DripDrop will merge their "
+                f"have at least a name and email. {BRAND} will merge their "
                 "details into every campaign email automatically."
             ),
         },
@@ -56486,7 +56559,7 @@ if __name__ in {"__main__", "__mp_main__"}:
     if not _SERVER_MODE:
         _archived = archive_old_queue_entries(days=30)
         if _archived:
-            print(f"[DripDrop] Archived {_archived} old queue entries -> scheduled_queue_archive.json")
+            print(f"[{BRAND}] Archived {_archived} old queue entries -> scheduled_queue_archive.json")
     # One-shot tenant admin migration: promote the oldest user from each
     # email domain to tenant_admin if the domain has no admin yet. Fills
     # the gap for users (like Michael at arenastaffing.net) who signed up
@@ -56495,15 +56568,15 @@ if __name__ in {"__main__", "__mp_main__"}:
     try:
         _promoted = _bootstrap_tenant_admins()
         if _promoted:
-            print(f"[DripDrop] Bootstrap promoted {_promoted} user(s) to tenant_admin")
+            print(f"[{BRAND}] Bootstrap promoted {_promoted} user(s) to tenant_admin")
     except Exception as _ex:
-        print(f"[DripDrop] tenant admin bootstrap error: {_ex}")
+        print(f"[{BRAND}] tenant admin bootstrap error: {_ex}")
     # Background services
     if _IS_WINDOWS:
         outlook_monitor.start()
         pool_scanner.start()  # Weekly auto-scan for new job postings
     else:
-        print("[DripDrop] Server mode  -  Outlook monitor and pool scanner disabled")
+        print(f"[{BRAND}] Server mode  -  Outlook monitor and pool scanner disabled")
     # Start the email scheduler
     if _SERVER_MODE:
         # Server: use the Graph/Gmail API scheduler (HTTPS, port 443)
@@ -56517,7 +56590,7 @@ if __name__ in {"__main__", "__mp_main__"}:
         _ffc.start_scheduler(_user_queue_path())
     _port = int(os.getenv("DRIPDROP_PORT", "8080"))
     ui.run(
-        title="DripDrop",
+        title=f"{BRAND}",
         port=_port,
         dark=True,
         reload=False,
