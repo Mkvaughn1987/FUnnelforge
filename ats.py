@@ -896,14 +896,21 @@ _PHONE_RE = re.compile(
 # gets enrolled into candidate outreach.
 _EMAIL_SKIP_DOMAINS = tuple(_env_list(
     "DRIPDROP_INTERNAL_DOMAINS", "arenastaffing.net"))
+# Domain-level skipping only works when the operator's mail is on a domain no
+# candidate would use. An operator running out of a consumer mailbox has no
+# such domain: putting "gmail.com" in DRIPDROP_INTERNAL_DOMAINS would discard
+# the real address of most candidates, silently and irreversibly. So skip those
+# operators by full address instead. Empty by default, which is inert.
+_EMAIL_SKIP_ADDRESSES = frozenset(_env_list("DRIPDROP_INTERNAL_EMAILS", ""))
 
 
 def _extract_contacts(text: str) -> tuple:
     """Best-effort (email, phone) pulled straight from raw résumé text.
 
-    Picks the candidate's own address (skips the recruiter's own address, on
-    any domain in DRIPDROP_INTERNAL_DOMAINS, that some docs carry in a header)
-    and the first plausible phone.
+    Picks the candidate's own address (skips the recruiter's own address --
+    any domain in DRIPDROP_INTERNAL_DOMAINS, or any exact address in
+    DRIPDROP_INTERNAL_EMAILS -- that some docs carry in a header) and the
+    first plausible phone.
     Never guesses — returns '' for anything it can't find."""
     text = text or ""
     email = ""
@@ -911,6 +918,8 @@ def _extract_contacts(text: str) -> tuple:
         cand = m.group().strip().rstrip(".,;:")
         low = cand.lower()
         if any(low.endswith("@" + d) for d in _EMAIL_SKIP_DOMAINS):
+            continue
+        if low in _EMAIL_SKIP_ADDRESSES:
             continue
         if low.endswith((".png", ".jpg", ".jpeg", ".gif")):
             continue

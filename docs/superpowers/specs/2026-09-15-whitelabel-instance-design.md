@@ -298,12 +298,31 @@ needs a decision about what terms the venture actually offers, not a code change
    identity the send worker runs as. Set it to the address Mike intends to keep
    permanently — not a provisioning placeholder. Moving it later means copying issues
    across user folders, so the cost of getting it wrong rises with every issue sent.
-5. Register the two callback URLs in Google Cloud and Azure app registrations for
-   the venture's own domain. **`thrivemodal.com` is held by a partner, not Mike**, so
-   this step needs that partner to either perform the registrations or grant admin on
-   the Workspace/tenant — OAuth consent is granted only by the domain owner. Same
-   blocker applies to creating a mailbox on the domain, which the admin account needs. The redirect URIs are already environment-driven
-   (`deploy/gmail_oauth.py:33`, `deploy/ms_email.py:16`); no code change needed.
+5. Register the Google callback URL. **This was previously recorded as blocked on
+   the partner. It is not** — corrected 2026-09-16. Every scope the app requests
+   (`gmail_oauth.py:48`: `gmail.send`, `gmail.readonly`, `openid`/`email`/`profile`)
+   is consented per user for that user's own mailbox. There is no domain-wide
+   delegation anywhere in the flow, so no Workspace admin is involved and the Cloud
+   project can live under a personal Google account with the consent screen set to
+   External. Mike will **not** have a `thrivemodal.com` mailbox, and does not need one.
+
+   The real constraint is publishing status. An app left in **Testing** has its
+   refresh tokens expired by Google after ~7 days, which for a scheduled sender means
+   every connected mailbox stops sending about a week after it is connected, silently.
+   Move the app to **In production** before relying on it; `gmail.*` are restricted
+   scopes, so that is where verification review applies.
+
+   Microsoft is optional and can be skipped entirely — `ms_email.is_configured()`
+   is False unless both `MS_CLIENT_ID` and `MS_CLIENT_SECRET` are set. The redirect
+   URIs are already environment-driven (`deploy/gmail_oauth.py:33`,
+   `deploy/ms_email.py:16`); no code change needed.
+
+   **Deliverability is the part that the gmail decision actually costs.** Outbound
+   carries the connected mailbox's domain, and cold B2B outreach from a consumer
+   `@gmail.com` address has no SPF/DKIM/DMARC under the venture's control and is
+   filtered hard. Mike already owns `dripdripdrop.ai`, so a mailbox on that domain is
+   available today, needs nobody's permission, and is strictly better than gmail for
+   sending. Recorded as a recommendation, not a blocker.
 6. Deploy, create the first admin account, and send one test campaign to a
    controlled mailbox before any real recipient.
 7. Install the queue-pruning cron immediately. Arena's instance reached a 133MB
