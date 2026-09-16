@@ -13,58 +13,60 @@ def test_appstate_has_sequence_builder_fields():
     """AppState must initialize all sb_* fields so a fresh session
     can render p_seq_builder without AttributeError.
 
-    2026-05-25 — sb_goal and sb_audience removed; the per-email
-    direction box (sb_special) carries the equivalent intent."""
+    2026-08-27 — restored step-based design with sb_goal, sb_audience,
+    sb_steps (list of dicts with id/type/delay_days/input), and related
+    state fields for UI rendering."""
     s = fa.AppState()
-    assert not hasattr(s, "sb_goal")
-    assert not hasattr(s, "sb_audience")
+    assert s.sb_goal == ""
+    assert s.sb_audience == ""
     assert s.sb_tone == "consultative"
-    assert s.sb_counts == {
-        "email": 5, "linkedin": 2, "call": 1, "sms": 0, "task": 0,
-    }
-    assert s.sb_span == "3 weeks"
-    assert s.sb_special == ""
+    assert s.sb_steps == []
+    assert not hasattr(s, "sb_counts")
+    assert not hasattr(s, "sb_span")
+    assert not hasattr(s, "sb_special")
     assert s.sb_generating is False
     assert s.sb_error == ""
+    assert s.sb_pending_camp == {}
+    assert s.sb_pending_name == ""
+    assert s.sb_save_as_style is False
 
 
-def test_sb_build_prompt_includes_tone_counts_and_span():
-    """Prompt must surface tone, per-type counts, span, and special
-    instructions so Claude can build the right cadence end-to-end."""
+def test_sb_build_prompt_includes_tone_goal_audience_and_steps():
+    """Prompt must surface tone, goal, audience, step types, delays,
+    and step-specific input so Claude can build the right sequence."""
     prompt = fa._sb_build_prompt(
         tone="consultative",
-        counts={"email": 5, "linkedin": 2, "call": 1, "sms": 0, "task": 0},
-        span="3 weeks",
-        special="Warm intro on email 1, candidate teaser on email 3, breakup on the last email",
+        goal="Fill a Senior DevOps role at a Denver fintech",
+        audience="Passive DevOps engineers with AWS + Terraform",
+        steps=[
+            {"id": "s1", "type": "email", "delay_days": 0, "input": "Warm intro on my client's DevOps opening"},
+            {"id": "s2", "type": "linkedin", "delay_days": 2, "input": "Connection request referencing the email"},
+            {"id": "s3", "type": "call", "delay_days": 2, "input": ""},
+        ],
     )
-    # Tone surfaces
     assert "consultative" in prompt.lower()
-    # Per-type counts surface
-    assert "5" in prompt and "email" in prompt.lower()
-    assert "2" in prompt and "linkedin" in prompt.lower()
-    assert "1" in prompt and "call" in prompt.lower()
-    # Span surfaces
-    assert "3 weeks" in prompt
-    # Special instructions pass through verbatim
-    assert "Warm intro on email 1" in prompt
-    assert "breakup on the last email" in prompt
+    assert "Fill a Senior DevOps role at a Denver fintech" in prompt
+    assert "Passive DevOps engineers with AWS + Terraform" in prompt
+    assert "email" in prompt.lower()
+    assert "linkedin" in prompt.lower()
+    assert "call" in prompt.lower()
+    assert "Warm intro on my client's DevOps opening" in prompt
+    assert "Connection request referencing the email" in prompt
 
 
-def test_sb_build_prompt_skips_zero_count_types():
-    """Types with 0 touches should not be enumerated as required
-    touches — they'd just confuse the AI."""
+def test_sb_build_prompt_handles_blank_goal_audience_and_empty_step_input():
+    """Prompt must handle empty goal/audience and step input without
+    crashing or leaking sentinel values like 'None'."""
     prompt = fa._sb_build_prompt(
-        tone="direct",
-        counts={"email": 3, "linkedin": 0, "call": 0, "sms": 0, "task": 0},
-        span="1 week",
-        special="",
+        tone="consultative",
+        goal="",
+        audience="",
+        steps=[
+            {"id": "s1", "type": "email", "delay_days": 0, "input": ""},
+        ],
     )
-    assert "3" in prompt and "email" in prompt.lower()
-    _lower = prompt.lower()
-    assert "0 linkedin" not in _lower
-    assert "0 call" not in _lower
-    assert "0 sms" not in _lower
-    assert "0 task" not in _lower
+    assert isinstance(prompt, str)
+    assert "None" not in prompt
 
 
 def test_sb_parse_campaign_normalizes_email_keys():
