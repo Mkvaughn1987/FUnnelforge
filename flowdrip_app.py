@@ -9037,6 +9037,167 @@ def _recheck_enrolment_duplicates(camp):
     return res
 
 
+# ---------------------------------------------------------------------------
+#  Saved audiences  -  named, reusable firmographic filter sets
+# ---------------------------------------------------------------------------
+
+# The two shapes an audience is allowed to have. Anything else a caller hands
+# us is dropped on the way in, so a saved audience can never grow into a
+# second, stale copy of a contact list.
+_AUDIENCE_LIST_KEYS = ("industries", "size_buckets", "job_functions",
+                       "seniorities", "signal_types")
+_AUDIENCE_FLAG_KEYS = ("include_unknown", "require_complete_signal")
+
+
+def _user_audiences_path():
+    return _resolve_user_root() / "saved_audiences.json"
+
+
+def _audience_key(name):
+    """Identity for a saved audience: case-folded, whitespace-collapsed.
+
+    "Denver Ops" and "  denver   ops  " are the same audience. The DISPLAY
+    name keeps whatever the user last typed, trimmed; only the key is
+    flattened, so re-saving updates in place instead of quietly growing a
+    second entry that behaves differently."""
+    return re.sub(r"\s+", " ", str(name or "").strip()).lower()
+
+
+def _normalise_audience(name, criteria):
+    """{name, five list criteria, two flags} and nothing else.
+
+    An audience is CRITERIA, never contacts. Storing contacts here would
+    create a second copy of a list that ages badly and then disagrees with
+    the CSV it came from, so unrecognised keys are dropped rather than kept
+    "just in case"."""
+    disp = str(name or "").strip()
+    if not disp:
+        raise ValueError("A saved audience needs a name.")
+    criteria = criteria or {}
+    out = {"name": disp}
+    for key in _AUDIENCE_LIST_KEYS:
+        vals = criteria.get(key) or []
+        if isinstance(vals, str):
+            vals = [vals]
+        seen, clean = set(), []
+        for v in vals:
+            sv = str(v or "").strip()
+            if sv and sv.lower() not in seen:
+                seen.add(sv.lower())
+                clean.append(sv)
+        out[key] = clean
+    for key in _AUDIENCE_FLAG_KEYS:
+        out[key] = bool(criteria.get(key, False))
+    return out
+
+
+def load_saved_audiences():
+    """Every saved audience for this user, normalised and name-sorted.
+
+    A missing, unreadable or wrong-shaped file reads as "none saved yet".
+    This runs on a UI render path, so it cannot raise: an audience store is
+    a convenience, and losing it must never block picking contacts."""
+    p = _user_audiences_path()
+    try:
+        if not p.exists():
+            return []
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(data, list):
+        return []
+    out = []
+    for row in data:
+        if not isinstance(row, dict):
+            continue
+        try:
+            out.append(_normalise_audience(row.get("name"), row))
+        except ValueError:
+            continue
+    out.sort(key=lambda a: _audience_key(a["name"]))
+    return out
+
+
+def _write_saved_audiences(auds):
+    p = _user_audiences_path()
+    p.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_text(p, json.dumps(auds, indent=2))
+
+
+def save_saved_audience(name, criteria=None):
+    """Upsert one audience by name and return the stored form."""
+    aud = _normalise_audience(name, criteria)
+    key = _audience_key(aud["name"])
+    auds = [a for a in load_saved_audiences() if _audience_key(a["name"]) != key]
+    auds.append(aud)
+    auds.sort(key=lambda a: _audience_key(a["name"]))
+    _write_saved_audiences(auds)
+    return aud
+
+
+def delete_saved_audience(name):
+    """True if an audience was removed, False if there was nothing to remove."""
+    key = _audience_key(name)
+    if not key:
+        return False
+    auds = load_saved_audiences()
+    kept = [a for a in auds if _audience_key(a["name"]) != key]
+    if len(kept) == len(auds):
+        return False
+    _write_saved_audiences(kept)
+    return True
+
+
+def _audience_filter_kwargs(aud):
+    """A saved audience as keyword arguments for _tm_audience_filter.
+
+    Exactly the filter parameters and nothing else, so it is safe to splat.
+    This is the single translation point between the two: if a saved audience
+    ever meant something different from the same filters typed inline, the
+    feature would be lying, and the seam is here."""
+    aud = aud or {}
+    kw = {key: list(aud.get(key) or []) for key in _AUDIENCE_LIST_KEYS}
+    for key in _AUDIENCE_FLAG_KEYS:
+        kw[key] = bool(aud.get(key, False))
+    return kw
+
+
+def _tm_dedupe_split(contacts, exclude_campaign=None):
+    """Split a contact list into who may be enrolled and who is already being
+    worked elsewhere in this workspace.
+
+    Phase 1 reported duplicates; this is the half that acts on them. Three
+    rules make it safe enough to apply by default:
+
+      * A contact with no email is KEPT. We cannot check them, and a contact
+        who silently disappears from a list is one nobody notices is gone.
+      * `kept` + `skipped` accounts for every input contact, in input order,
+        so the number shown beside the button is the number that ships.
+      * It reads. It writes nothing, and it never touches the send path -
+        dropping happens at enrolment, and sender behaviour is unchanged.
+
+    SCOPE is this workspace only; see _active_enrolments for why, and say so
+    wherever the result is shown."""
+    contacts = list(contacts or [])
+    res = _already_targeted(
+        [(c.get("email", "") or c.get("Email", "")) for c in contacts],
+        exclude_campaign=exclude_campaign)
+    dupes = res.get("duplicates", {}) or {}
+    kept, skipped = [], []
+    for c in contacts:
+        em = str(c.get("email", "") or c.get("Email", "") or "").strip().lower()
+        (skipped if (em and em in dupes) else kept).append(c)
+    return {
+        "kept": kept,
+        "skipped": skipped,
+        "duplicates": dupes,
+        "count": res.get("count", 0),
+        "checked": res.get("checked", 0),
+        "campaigns": res.get("campaigns", []),
+        "scope": res.get("scope", "workspace"),
+    }
+
+
 def _atomic_write_csv_text(path, text):
     r"""Atomic CSV replace that does NOT translate line endings.
 
@@ -24334,6 +24495,382 @@ def _open_active_clients_gate(s: AppState, rf, flagged_pairs: list,
     _gate.open()
 
 
+def _tm_list_hash(contacts):
+    """Fingerprint of a contact list, used to notice that the list changed
+    underneath an applied audience filter.
+
+    Step 3 has several ways to replace s.scon  -  upload, saved list, clear  -
+    and none of them know about the filter. Rather than teach each of them,
+    the panel checks whether the list it filtered is still the list on screen
+    and forgets the filter when it is not."""
+    emails = sorted({str(c.get("email", "") or c.get("Email", "") or "").strip().lower()
+                     for c in (contacts or [])})
+    return hashlib.md5("|".join(emails).encode("utf-8")).hexdigest()[:16]
+
+
+def _tm_audience_panel(s: AppState, rf):
+    """The ThriveModal audience filter, rendered inside wizard Step 3.
+
+    Renders nothing at all unless the workspace playbook is ThriveModal, so
+    Arena's contacts step is untouched  -  that gate is the whole reason this
+    lives in its own function instead of inline.
+
+    Applying a filter REPLACES s.scon with the matched subset and stashes the
+    original on s._tm_scon_all. Nothing downstream  -  the count chips, the
+    preview table, Step 4, the launch handler  -  has to know a filter exists,
+    and "Clear" puts the full list back. The Total chip makes the drop
+    visible, and the summary line names how many were set aside for missing
+    data rather than leaving that to be discovered later."""
+    if not _is_thrivemodal():
+        return
+
+    # Forget a filter whose list is gone (uploaded over, swapped, cleared).
+    _applied = getattr(s, "_tm_scon_all", None)
+    if _applied and getattr(s, "_tm_applied_hash", "") != _tm_list_hash(s.scon):
+        _applied = None
+        s._tm_scon_all = None
+        s._tm_applied_hash = ""
+        s._tm_filter = {}
+    base = list(_applied or s.scon or [])
+    if not base:
+        return
+
+    crit = getattr(s, "_tm_filter", None)
+    if not isinstance(crit, dict):
+        crit = {}
+        s._tm_filter = crit
+
+    _fields = (
+        ("industries",    "industry",     "Industry"),
+        ("size_buckets",  "company_size", "Company size"),
+        ("job_functions", "job_function", "Job function"),
+        ("seniorities",   "seniority",    "Seniority"),
+        ("signal_types",  "signal_type",  "Hiring signal"),
+    )
+
+    def _present(ckey, contact_key):
+        """The values actually in this list, so the dropdowns only ever offer
+        choices that can match something."""
+        seen, vals = set(), []
+        for c in base:
+            v = _contact_field(c, contact_key)
+            if ckey == "size_buckets":
+                v = _size_bucket(v)
+            if v and v.lower() not in seen:
+                seen.add(v.lower())
+                vals.append(v)
+        if ckey == "size_buckets":
+            order = {n: i for i, n in enumerate(_SIZE_BUCKET_NAMES)}
+            return sorted(vals, key=lambda x: order.get(x, 999))
+        return sorted(vals, key=lambda x: x.lower())
+
+    _opts = {ckey: _present(ckey, contact_key) for ckey, contact_key, _ in _fields}
+    _has_any = any(_opts.values())
+
+    with ui.element("div").style(
+            f"background:{C['surface']};border:1px solid {C['indigo']}45;"
+            f"border-left:4px solid {C['indigo']};border-radius:0 12px 12px 0;"
+            f"padding:16px 20px;margin-bottom:14px;"):
+        with ui.element("div").style(
+                "display:flex;align-items:center;gap:10px;margin-bottom:4px;"):
+            ui.label("Audience").style(
+                f"font-size:15px;font-weight:700;color:{C['text_l']};"
+                f"font-family:'Nunito',sans-serif;")
+            ui.label("ThriveModal").style(
+                f"font-size:9px;font-weight:700;color:{C['indigo']};"
+                f"background:{C['indigo']}18;border:1px solid {C['indigo']}50;"
+                f"border-radius:99px;padding:2px 8px;text-transform:uppercase;"
+                f"letter-spacing:.06em;")
+
+        if not _has_any:
+            ui.label(
+                "This list has no firmographic columns yet. Add Industry, "
+                "Employees, Job Function, Seniority or Hiring Signal columns "
+                "to the CSV to filter by them."
+            ).style(f"font-size:12px;color:{C['muted']};line-height:1.5;")
+            return
+
+        ui.label("Narrow this list by firmographics before you launch.").style(
+            f"font-size:12px;color:{C['muted']};margin-bottom:12px;display:block;")
+
+        def _set_crit(key, vals):
+            if isinstance(vals, str):
+                vals = [vals]
+            crit[key] = [str(v) for v in (vals or []) if str(v or "").strip()]
+            s._tm_filter = crit
+            rf()
+
+        # ── Criteria ───────────────────────────────────────────────────────
+        with ui.element("div").style(
+                "display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));"
+                "gap:10px;margin-bottom:10px;"):
+            for ckey, _contact_key, label in _fields:
+                opts = _opts[ckey]
+                if not opts:
+                    continue
+                with ui.element("div"):
+                    ui.label(label).style(
+                        f"font-size:10px;color:{C['muted']};text-transform:uppercase;"
+                        f"letter-spacing:.06em;margin-bottom:3px;display:block;")
+                    ui.select(
+                        options=opts,
+                        value=[v for v in (crit.get(ckey) or []) if v in opts],
+                        multiple=True,
+                        on_change=lambda e, k=ckey: _set_crit(k, e.value),
+                    ).props("use-chips dense outlined").classes("fd-input").style("width:100%;")
+
+        def _set_flag(key, val):
+            crit[key] = bool(val)
+            s._tm_filter = crit
+            rf()
+
+        with ui.element("div").style(
+                "display:flex;flex-wrap:wrap;gap:18px;align-items:center;margin-bottom:10px;"):
+            ui.checkbox(
+                "Keep contacts with missing data",
+                value=bool(crit.get("include_unknown", True)),
+                on_change=lambda e: _set_flag("include_unknown", e.value),
+            ).style(f"font-size:12px;color:{C['text']};")
+            ui.checkbox(
+                "Require a complete hiring signal",
+                value=bool(crit.get("require_complete_signal", False)),
+                on_change=lambda e: _set_flag("require_complete_signal", e.value),
+            ).style(f"font-size:12px;color:{C['text']};")
+
+        # ── Live preview ───────────────────────────────────────────────────
+        # Computed against `base`, the unfiltered list, so the number shown
+        # is what Apply would actually produce  -  not a count of a count.
+        if "include_unknown" not in crit:
+            crit["include_unknown"] = True
+        _res = _tm_audience_filter(base, **_audience_filter_kwargs(crit))
+        _match_n = _res.get("kept", 0)
+        _active = list(_res.get("filters_active") or [])
+
+        with ui.element("div").style(
+                f"background:{C['card']};border:1px solid {C['border']};"
+                f"border-radius:8px;padding:10px 14px;margin-bottom:12px;"):
+            ui.label(_audience_summary_line(_res) or "No filters applied.").style(
+                f"font-size:12px;color:{C['text_l']};line-height:1.5;")
+
+        # ── Apply / Clear ──────────────────────────────────────────────────
+        def _apply():
+            if not _active:
+                ui.notify("Pick at least one value above to narrow the list.",
+                          type="info", timeout=3000)
+                return
+            if not _match_n:
+                ui.notify("No contacts match those filters yet  -  loosen one "
+                          "and try again.", type="warning", timeout=3500)
+                return
+            s._tm_scon_all = base
+            s.scon = list(_res.get("matched") or [])
+            s._tm_applied_hash = _tm_list_hash(s.scon)
+            # A new audience invalidates any duplicate decision made about
+            # the old one.
+            s._tm_dupe_choice = ""
+            s._tm_dupe_hash = ""
+            ui.notify(f"Filtered to {len(s.scon)} of {len(base)} contacts.",
+                      type="positive", timeout=3000)
+            rf()
+
+        def _clear_filter():
+            s.scon = list(base)
+            s._tm_scon_all = None
+            s._tm_applied_hash = ""
+            s._tm_filter = {}
+            s._tm_dupe_choice = ""
+            s._tm_dupe_hash = ""
+            rf()
+
+        with ui.element("div").style(
+                "display:flex;flex-wrap:wrap;gap:8px;align-items:center;"):
+            with ui.element("button").classes("fd-pb").style(
+                    "padding:7px 16px;font-size:12px;").on("click", _apply):
+                ui.label(f"Apply  -  {_match_n} contact"
+                         f"{'s' if _match_n != 1 else ''}")
+            if _applied:
+                with ui.element("button").classes("fd-gb").style(
+                        "padding:7px 14px;font-size:12px;").on("click", _clear_filter):
+                    ui.label(f"✕ Clear filter ({len(base)} back)")
+
+        if _applied:
+            ui.label(
+                f"Filtered: {len(s.scon)} of {len(base)} contacts are selected. "
+                "Clearing the filter restores the full list."
+            ).style(f"font-size:11px;color:{C['indigo']};margin-top:8px;display:block;")
+
+        # ── Saved audiences ────────────────────────────────────────────────
+        # An audience is criteria, never a contact list, so loading one is
+        # exactly the same as re-typing the filters above.
+        _auds = load_saved_audiences()
+        _names = [a.get("name", "") for a in _auds if a.get("name")]
+        _NONE = "— none —"
+
+        def _pick_aud(nm):
+            nm = str(nm or "").strip()
+            if not nm or nm == _NONE:
+                return
+            for a in _auds:
+                if a.get("name") == nm:
+                    s._tm_filter = _audience_filter_kwargs(a)
+                    s._tm_aud_name = nm
+                    rf()
+                    return
+
+        _name_in = {"w": None}
+
+        def _save_aud():
+            nm = str((_name_in["w"].value if _name_in["w"] else "") or "").strip()
+            if not nm:
+                ui.notify("Name this audience to save it.", type="info", timeout=3000)
+                return
+            try:
+                save_saved_audience(nm, crit)
+            except ValueError as ex:
+                ui.notify(str(ex), type="warning", timeout=3000)
+                return
+            s._tm_aud_name = nm
+            ui.notify(f"Saved audience “{nm}”.", type="positive", timeout=3000)
+            rf()
+
+        def _delete_aud():
+            nm = str(getattr(s, "_tm_aud_name", "") or "").strip()
+            if not nm:
+                ui.notify("Pick a saved audience to delete.", type="info", timeout=3000)
+                return
+            if delete_saved_audience(nm):
+                s._tm_aud_name = ""
+                ui.notify(f"Deleted “{nm}”.", type="positive", timeout=3000)
+            else:
+                ui.notify(f"No saved audience named “{nm}”.", type="info", timeout=3000)
+            rf()
+
+        with ui.element("div").style(
+                f"border-top:1px solid {C['border']};margin-top:14px;padding-top:12px;"):
+            ui.label("Saved audiences").style(
+                f"font-size:10px;color:{C['muted']};text-transform:uppercase;"
+                f"letter-spacing:.06em;margin-bottom:6px;display:block;")
+            with ui.element("div").style(
+                    "display:flex;flex-wrap:wrap;gap:8px;align-items:center;"):
+                if _names:
+                    ui.select(
+                        options=[_NONE] + _names,
+                        value=(getattr(s, "_tm_aud_name", "") or _NONE)
+                              if (getattr(s, "_tm_aud_name", "") or _NONE) in ([_NONE] + _names)
+                              else _NONE,
+                        on_change=lambda e: _pick_aud(e.value),
+                    ).props("dense outlined").classes("fd-input").style("min-width:180px;")
+                _name_in["w"] = ui.input(
+                    placeholder="Name this audience",
+                    value=str(getattr(s, "_tm_aud_name", "") or ""),
+                ).props("dense outlined").classes("fd-input").style("min-width:180px;")
+                with ui.element("button").classes("fd-gb").style(
+                        "padding:6px 14px;font-size:11px;").on("click", _save_aud):
+                    ui.label("Save audience")
+                if _names:
+                    with ui.element("button").classes("fd-gb").style(
+                            "padding:6px 12px;font-size:11px;").on("click", _delete_aud):
+                        ui.label("Delete")
+
+
+def _open_tm_dedupe_gate(s: AppState, rf, split, contacts_hash, on_proceed):
+    """Modal at the Step 3 -> 4 transition when contacts in this list already
+    have mail pending in another campaign.
+
+    Skipping is the primary choice and the default: enrolling the same person
+    twice sends them two sequences at once, which reads as a mistake to them
+    and costs a reply. The override is here because a legitimate second touch
+    exists  -  a different offer, a re-open  -  and the user is the one who
+    knows which this is.
+
+    SCOPE is this workspace. The copy says so, because "no duplicates" and
+    "none of yours" are different claims and only one of them is true here."""
+    n = int(split.get("count") or 0)
+    kept_n = len(split.get("kept") or [])
+    dupes = split.get("duplicates") or {}
+
+    # Group by the campaign they're already in  -  the actionable unit.
+    by_camp = {}
+    for _em, _names in dupes.items():
+        for _cn in (_names or []):
+            by_camp[_cn] = by_camp.get(_cn, 0) + 1
+    camp_lines = sorted(by_camp.items(), key=lambda kv: (-kv[1], kv[0]))
+
+    with ui.dialog() as _gate, ui.card().style(
+            f"background:{C['card']};border:1px solid {C['indigo']}70;"
+            f"min-width:480px;max-width:580px;padding:24px 28px;"):
+        ui.label(f"{n} contact{'s' if n != 1 else ''} already in a campaign").style(
+            f"font-size:18px;font-weight:800;color:{C['indigo']};"
+            f"font-family:'Nunito',sans-serif;margin-bottom:6px;")
+        ui.label(
+            "These contacts still have mail pending in another of your "
+            "campaigns, so enrolling them here would run two sequences at "
+            "them at once. This checks your own campaigns only."
+        ).style(f"font-size:12px;color:{C['muted']};line-height:1.5;margin-bottom:14px;")
+
+        with ui.element("div").style(
+                f"background:{C['surface']};border:1px solid {C['border']};"
+                f"border-radius:8px;padding:10px 14px;margin-bottom:18px;"
+                f"max-height:160px;overflow-y:auto;"):
+            for _cn, _count in camp_lines[:10]:
+                with ui.element("div").style(
+                        "display:flex;align-items:center;justify-content:space-between;"
+                        "padding:3px 0;gap:12px;"):
+                    ui.label(_cn).style(
+                        f"font-size:12px;color:{C['text_l']};font-weight:600;")
+                    ui.label(f"{_count} contact{'s' if _count != 1 else ''}").style(
+                        f"font-size:11px;color:{C['muted']};font-family:monospace;"
+                        f"flex-shrink:0;")
+            if len(camp_lines) > 10:
+                ui.label(f"… and {len(camp_lines) - 10} more").style(
+                    f"font-size:11px;color:{C['muted']};font-style:italic;padding-top:4px;")
+
+        ui.label("How do you want to handle them?").style(
+            f"font-size:12px;font-weight:700;color:{C['text_l']};margin-bottom:10px;display:block;")
+
+        with ui.element("div").style(
+                "display:flex;flex-wrap:wrap;justify-content:flex-end;"
+                "gap:8px;align-items:center;"):
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:8px 16px;font-size:12px;").on("click", _gate.close):
+                ui.label("← Stay on contacts")
+
+            def _choose_skip():
+                s._tm_dupe_choice = "skip"
+                s._tm_dupe_hash = contacts_hash
+                _gate.close()
+                ui.notify(
+                    f"✓ {n} already-enrolled contact{'s' if n != 1 else ''} "
+                    f"will be skipped.",
+                    type="positive", timeout=3500,
+                )
+                on_proceed()
+            with ui.element("button").classes("fd-pb").style(
+                    "padding:8px 18px;font-size:12px;font-weight:700;"
+                    ).on("click", _choose_skip):
+                ui.label(f"Skip {n} — Launch with {kept_n} →")
+
+            def _choose_send_all():
+                s._tm_dupe_choice = "send_all"
+                s._tm_dupe_hash = contacts_hash
+                _gate.close()
+                ui.notify(
+                    f"⚠ Enrolling all {kept_n + n} contacts, including the "
+                    f"{n} already in another campaign.",
+                    type="warning", timeout=4500,
+                )
+                on_proceed()
+            with ui.element("button").style(
+                    f"padding:8px 16px;background:transparent;color:{C['warn']};"
+                    f"border:1px solid {C['warn']}80;border-radius:7px;"
+                    f"font-size:12px;font-weight:600;cursor:pointer;"
+                    f"font-family:inherit;"
+                    ).on("click", _choose_send_all):
+                ui.label("Enroll them anyway").style("pointer-events:none;")
+
+    _gate.open()
+
+
 def _sq_contacts(s: AppState, rf):
     """Step 3 of wizard  -  upload or select a saved contact list."""
     tpl = _get_active_tpl(s)
@@ -24479,6 +25016,10 @@ def _sq_contacts(s: AppState, rf):
         )
         skipped_active_client = len(_ac_flagged_emails)
 
+        # ThriveModal audience filter. No-op under any other playbook, and it
+        # sits above the chips so the counts below reflect what it applied.
+        _tm_audience_panel(s, rf)
+
         _stats = [
             (len(s.scon),          "Total",                 C["text"]),
             (len(active_contacts), "Will Receive",          C["teal"]),
@@ -24487,6 +25028,13 @@ def _sq_contacts(s: AppState, rf):
             _stats.append((skipped_responded, "Skipped (responded)", C["warn"]))
         if skipped_active_client:
             _stats.append((skipped_active_client, "Active Client (flag)", C["danger"]))
+
+        # ThriveModal: how many of this list are already being worked in
+        # another of this user's campaigns. Counted here, decided at the gate.
+        if _is_thrivemodal():
+            _tm_dupe_n = _tm_dedupe_split(s.scon).get("count", 0)
+            if _tm_dupe_n:
+                _stats.append((_tm_dupe_n, "Already enrolled", C["indigo"]))
 
         with ui.element("div").style("display:flex;gap:12px;margin-bottom:12px;flex-wrap:wrap;"):
             for val, lbl, col in _stats:
@@ -24566,11 +25114,35 @@ def _sq_contacts(s: AppState, rf):
                              for c in (contacts or []) if c.get("email")})
             return hashlib.md5("|".join(emails).encode("utf-8")).hexdigest()[:16]
 
-        def _proceed_to_review():
+        def _enter_review():
             """Final hop into Step 4. Pulled out so both the no-blocklist
             path and the modal-confirm path can share it."""
             s.sq_review = True
             rf()
+
+        def _proceed_to_review():
+            """Everything that still has to be decided before Step 4.
+
+            The active-client gate has already run by the time we get here,
+            so the duplicate gate runs last and is scoped to whatever list
+            survived that decision. Under any playbook but ThriveModal this
+            is the bare hop it always was."""
+            if not _is_thrivemodal():
+                _enter_review()
+                return
+            _dupe_split = _tm_dedupe_split(s.scon)
+            if not _dupe_split.get("count"):
+                s._tm_dupe_choice = ""
+                s._tm_dupe_hash = ""
+                _enter_review()
+                return
+            _dupe_hash = _contacts_hash(s.scon)
+            if (getattr(s, "_tm_dupe_hash", "") == _dupe_hash
+                    and getattr(s, "_tm_dupe_choice", "") in ("skip", "send_all")):
+                # Already decided for this exact list — honor it.
+                _enter_review()
+                return
+            _open_tm_dedupe_gate(s, rf, _dupe_split, _dupe_hash, _enter_review)
 
         def _nx():
             if not s.scon:
@@ -24686,6 +25258,48 @@ def _sq_review_split(s: AppState, rf):
                         f"font-family:inherit;text-decoration:underline;"
                         f"flex-shrink:0;"
                         ).on("click", _change_ac_choice):
+                    ui.label("Change")
+
+    # Duplicate decision banner (ThriveModal). Auto-skip is a decision made
+    # on the user's behalf, so it has to stay visible right up to Launch
+    # rather than living only in a modal they have already dismissed.
+    _tm_choice_now = getattr(s, "_tm_dupe_choice", "")
+    if _is_thrivemodal() and _tm_choice_now in ("skip", "send_all") and s.scon:
+        _tm_split_now = _tm_dedupe_split(s.scon)
+        _tm_n = _tm_split_now.get("count", 0)
+        if _tm_n:
+            _tm_skip = (_tm_choice_now == "skip")
+            _tm_bg = f"{C['teal']}15" if _tm_skip else f"{C['warn']}15"
+            _tm_bd = f"{C['teal']}50" if _tm_skip else f"{C['warn']}60"
+            _tm_ic = "✓" if _tm_skip else "⚠"
+            _tm_col = C['teal'] if _tm_skip else C['warn']
+            _tm_msg = (
+                f"{_tm_n} contact{'s' if _tm_n != 1 else ''} already in another "
+                "of your campaigns will be skipped (your choice on the "
+                "contacts step)."
+                if _tm_skip else
+                f"Enrolling all {len(s.scon)} contacts including {_tm_n} "
+                "already in another of your campaigns. (Override from the "
+                "contacts step.)"
+            )
+            with ui.element("div").style(
+                    f"display:flex;align-items:center;gap:12px;"
+                    f"background:{_tm_bg};border:1px solid {_tm_bd};"
+                    f"border-radius:10px;padding:10px 14px;margin-bottom:14px;"):
+                ui.label(_tm_ic).style(f"font-size:18px;color:{_tm_col};flex-shrink:0;")
+                ui.label(_tm_msg).style(
+                    f"font-size:12px;color:{C['text_l']};flex:1;line-height:1.4;")
+                def _change_tm_choice():
+                    s._tm_dupe_choice = ""
+                    s._tm_dupe_hash = ""
+                    s.sq_review = False
+                    rf()
+                with ui.element("button").style(
+                        f"background:transparent;border:none;color:{_tm_col};"
+                        f"font-size:11px;font-weight:700;cursor:pointer;"
+                        f"font-family:inherit;text-decoration:underline;"
+                        f"flex-shrink:0;"
+                        ).on("click", _change_tm_choice):
                     ui.label("Change")
 
     with ui.element("div").classes("fd-split"):
@@ -24899,6 +25513,29 @@ def _sq_review_split(s: AppState, rf):
                             print(f"[ActiveClients] Skipped {_skipped} contact(s) "
                                   f"on blocklisted domains at launch.", flush=True)
 
+                # ── Cross-campaign duplicate enforcement (ThriveModal) ──
+                # Step 3 counted duplicates; this re-checks at the moment
+                # contacts are actually committed, which is the only moment
+                # that is not already stale  -  another campaign may have
+                # launched since. Default is to skip; "send_all" enrolls
+                # everyone only because the user said so at the gate.
+                _tm_dupe_decision = ""
+                if _is_thrivemodal():
+                    _tm_choice = getattr(s, "_tm_dupe_choice", "") or "skip"
+                    _tm_split = _tm_dedupe_split(contact_list)
+                    _tm_dupe_n = _tm_split.get("count", 0)
+                    if _tm_dupe_n:
+                        _tm_dupe_decision = _tm_choice
+                        if _tm_choice != "send_all":
+                            contact_list = list(_tm_split.get("kept") or [])
+                            print("[Targeting] Skipped {} already-enrolled "
+                                  "contact(s) at launch (workspace scope; also "
+                                  "in {}).".format(
+                                      _tm_dupe_n,
+                                      ", ".join(_tm_split.get("campaigns") or [])
+                                      or "another campaign"),
+                                  flush=True)
+
                 camp = dict(
                     schema=2,
                     name=f"{cv.get('CompanyName', 'Campaign')}  -  {tpl.get('name', '')}",
@@ -24917,6 +25554,10 @@ def _sq_review_split(s: AppState, rf):
                     # answer "did Mike override the blocklist" questions later.
                     _ac_decision=_ac_choice,
                 )
+                # Only stamped when there was something to decide, so an
+                # Arena campaign's saved shape does not change at all.
+                if _tm_dupe_decision:
+                    camp["_tm_dupe_decision"] = _tm_dupe_decision
                 save_campaign(camp)
                 s.sq = 1; s.stpl = None; s.svars = {}; s.scon = []
                 s.step_expanded.clear(); s.ai_generated = {}; s.sq_review = False
@@ -24924,6 +25565,13 @@ def _sq_review_split(s: AppState, rf):
                 # campaign should start with a fresh state.
                 s._ac_choice = ""
                 s._ac_choice_hash = ""
+                # Same for the audience filter and duplicate decision — the
+                # next campaign starts from the full list.
+                s._tm_dupe_choice = ""
+                s._tm_dupe_hash = ""
+                s._tm_scon_all = None
+                s._tm_applied_hash = ""
+                s._tm_filter = {}
                 ui.notify("Sequence launched!", type="positive"); rf()
 
             def _launch():
