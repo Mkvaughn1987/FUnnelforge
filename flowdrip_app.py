@@ -9153,6 +9153,403 @@ def delete_saved_audience(name):
     return True
 
 
+# ── ThriveModal: multi-mailbox registry, warmup and rotation ──────────────
+# One mailbox per user was the hard ceiling on cold outreach here: the config
+# cap is 250/day, but Microsoft and Google throttle a single cold inbox well
+# below that, so the cap the user sees was never the cap that actually bound.
+#
+# This layer adds mailboxes WITHOUT adding a sending path. Tokens already live
+# as flat keys in a config file that both OAuth modules take as an argument,
+# and `_server_send_one` already takes that path as a parameter — so a second
+# mailbox is a second config file, and choosing one is choosing which path to
+# pass. Everything below is pure except the two that touch the registry file.
+_TM_PRIMARY_MAILBOX_ID = "primary"
+_TM_MAILBOX_DIRNAME = "tm_mailboxes"
+_TM_MAILBOX_DEFAULT_CAP = 250
+_TM_MAILBOX_MAX_CAP = 500
+_TM_WARMUP_DEFAULT_DAYS = 21
+# Day one of a new mailbox. Low enough that a cold domain is not flagged,
+# high enough that a warmup is not indistinguishable from being switched off.
+_TM_WARMUP_FLOOR = 10
+_TM_CONNECT_STATE_PREFIX = "tm_mbox:"
+
+
+def _tm_mailbox_id(raw) -> str:
+    """A filesystem-safe id for a mailbox, derived from its address.
+
+    This value becomes a path component, and it comes from an address the
+    user typed, so sanitising it is a security property rather than a
+    tidiness one. Anything outside [a-z0-9_-] becomes an underscore, and an
+    input that survives as nothing at all gets a name instead of an empty
+    string, because an empty id would silently resolve to the parent
+    directory."""
+    text = str(raw or "").strip().lower()
+    out = "".join(
+        ch if (ch.isascii() and (ch.isalnum() or ch in "-_")) else "_"
+        for ch in text
+    ).strip("_")
+    return (out[:64] or "mailbox")
+
+
+def _tm_normalise_mailbox(row):
+    """One registry row, holding only the keys the registry owns.
+
+    Tokens are deliberately NOT among them. They stay in the mailbox's own
+    config file, the same shape `dripdrop_config.json` already has. Keeping
+    the two apart is what lets the registry be read on the send path without
+    widening what a corrupted or copied registry file could leak."""
+    row = row if isinstance(row, dict) else {}
+    email = str(row.get("email") or "").strip()
+    if not email:
+        raise ValueError("A mailbox needs an email address.")
+    try:
+        cap = int(row.get("daily_cap", _TM_MAILBOX_DEFAULT_CAP))
+    except (TypeError, ValueError):
+        cap = _TM_MAILBOX_DEFAULT_CAP
+    try:
+        days = int(row.get("warmup_days", _TM_WARMUP_DEFAULT_DAYS))
+    except (TypeError, ValueError):
+        days = _TM_WARMUP_DEFAULT_DAYS
+    start = row.get("warmup_start")
+    return {
+        "id": _tm_mailbox_id(row.get("id") or email),
+        "email": email,
+        "label": str(row.get("label") or "").strip() or email,
+        "provider": str(row.get("provider") or "").strip().lower(),
+        "daily_cap": max(0, min(_TM_MAILBOX_MAX_CAP, cap)),
+        "warmup_start": start.strip() if isinstance(start, str) else "",
+        "warmup_days": max(0, min(365, days)),
+        "paused": bool(row.get("paused", False)),
+    }
+
+
+def _tm_mailboxes_path(user_dir=None):
+    root = Path(user_dir) if user_dir else _resolve_user_root()
+    return root / "tm_mailboxes.json"
+
+
+def _tm_load_mailboxes(user_dir=None):
+    """The mailbox registry, or [] — never an exception.
+
+    This is read inside the send loop, where an unhandled exception does not
+    show up as an error message; it silently stops that user's mail. So a
+    registry that is missing, unreadable, or the wrong shape reads as "this
+    user has no extra mailboxes", which is the pre-Phase-5 behaviour and
+    therefore always safe to fall back to. Order is preserved rather than
+    sorted, because registry order is the rotation's tiebreak."""
+    try:
+        raw = json.loads(_tm_mailboxes_path(user_dir).read_text(encoding="utf-8"))
+    except Exception:
+        return []
+    if not isinstance(raw, list):
+        return []
+    out, seen = [], set()
+    for row in raw:
+        try:
+            box = _tm_normalise_mailbox(row)
+        except (ValueError, TypeError, AttributeError):
+            continue
+        if box["id"] in seen:
+            continue
+        seen.add(box["id"])
+        out.append(box)
+    return out
+
+
+def _tm_write_mailboxes(boxes, user_dir=None):
+    """Replace the registry. Returns what was actually written."""
+    rows = []
+    for row in boxes or []:
+        try:
+            rows.append(_tm_normalise_mailbox(row))
+        except (ValueError, TypeError, AttributeError):
+            continue
+    path = _tm_mailboxes_path(user_dir)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_text(path, json.dumps(rows, indent=2))
+    return rows
+
+
+def _tm_warmup_cap(mb, today) -> int:
+    """How many emails this mailbox may send on `today`.
+
+    A brand-new mailbox opening at its full cap is how a domain gets burned,
+    so one with a `warmup_start` ramps linearly from `_TM_WARMUP_FLOOR` on
+    its first day to its full cap on the last warmup day. Two rules keep the
+    ramp honest rather than merely cautious: a cap the user deliberately set
+    BELOW the floor is never ramped up to meet it, and a start date in the
+    future is treated as day one rather than as a negative day. Unparseable
+    dates fall back to the flat cap, because the alternative — raising here —
+    would stop the send loop over a typo in a settings field."""
+    mb = mb if isinstance(mb, dict) else {}
+    if mb.get("paused"):
+        return 0
+    try:
+        cap = int(mb.get("daily_cap", _TM_MAILBOX_DEFAULT_CAP))
+    except (TypeError, ValueError):
+        cap = _TM_MAILBOX_DEFAULT_CAP
+    cap = max(0, min(_TM_MAILBOX_MAX_CAP, cap))
+    try:
+        days = int(mb.get("warmup_days", 0))
+    except (TypeError, ValueError):
+        days = 0
+    start_raw = mb.get("warmup_start")
+    if days <= 0 or not isinstance(start_raw, str) or not start_raw.strip():
+        return cap
+    if cap <= _TM_WARMUP_FLOOR:
+        return cap
+    try:
+        start = date.fromisoformat(start_raw.strip()[:10])
+        current = date.fromisoformat(str(today or "").strip()[:10])
+    except (TypeError, ValueError):
+        return cap
+    day_index = max(0, (current - start).days)
+    if day_index >= days:
+        return cap
+    return int(_TM_WARMUP_FLOOR + round((cap - _TM_WARMUP_FLOOR) * day_index / days))
+
+
+def _tm_mailbox_budgets(mailboxes, queue, today) -> dict:
+    """Remaining allowance per mailbox id for `today`.
+
+    Sent items carry a `tm_mailbox` stamp from the moment this ships. Items
+    sent BEFORE it shipped carry none — and they all went out through the one
+    mailbox the user had, which is the primary. Attributing them to nobody
+    would hand the user a free extra day's allowance on the exact day they
+    upgrade, which is the day a cold domain can least afford it, so unstamped
+    sends are charged to the primary. Sends stamped to a mailbox that has
+    since been removed are dropped rather than redistributed: they are not
+    evidence about any mailbox that still exists."""
+    if not isinstance(mailboxes, list):
+        mailboxes = []
+    boxes = [b for b in mailboxes if isinstance(b, dict) and b.get("id")]
+    if not boxes:
+        return {}
+    caps = {b["id"]: _tm_warmup_cap(b, today) for b in boxes}
+    fallback = (_TM_PRIMARY_MAILBOX_ID if _TM_PRIMARY_MAILBOX_ID in caps
+                else boxes[0]["id"])
+    used = {mb_id: 0 for mb_id in caps}
+    day = str(today or "")[:10]
+    for entry in (queue if isinstance(queue, list) else []):
+        if not isinstance(entry, dict) or entry.get("status") != "sent":
+            continue
+        if str(entry.get("sent_at") or "")[:10] != day:
+            continue
+        mb_id = str(entry.get("tm_mailbox") or "") or fallback
+        if mb_id in used:
+            used[mb_id] += 1
+    return {mb_id: max(0, caps[mb_id] - used[mb_id]) for mb_id in caps}
+
+
+def _tm_pick_mailbox(budgets, order) -> str:
+    """The mailbox with the most headroom left, or "" if all are spent.
+
+    Deterministic on purpose: ties break on registry order, so the same queue
+    and the same registry always produce the same assignment. Least-loaded
+    rather than round-robin because the mailboxes do not share a cap — a
+    mailbox on day three of a warmup should not be handed the same share as
+    one that finished warming up a month ago."""
+    if not isinstance(budgets, dict):
+        budgets = {}
+    if not isinstance(order, list):
+        order = []
+    best, best_n = "", 0
+    for mb_id in order:
+        try:
+            n = int(budgets.get(mb_id, 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if n > best_n:
+            best, best_n = mb_id, n
+    return best
+
+
+def _tm_mailbox_config_path(user_dir, mailbox_id):
+    """The config file a given mailbox's tokens live in.
+
+    The primary mailbox IS the user's existing `dripdrop_config.json`, so a
+    workspace that never adds a second mailbox keeps sending through exactly
+    the file it always did. Extra mailboxes get their own file of the same
+    shape, which is what makes this a routing change and not a new sending
+    path. The id is re-sanitised here rather than trusted from the registry,
+    because this is the point where it becomes a path."""
+    root = Path(user_dir) if user_dir else _resolve_user_root()
+    mb_id = _tm_mailbox_id(mailbox_id)
+    if not mailbox_id or mb_id == _TM_PRIMARY_MAILBOX_ID:
+        return root / "dripdrop_config.json"
+    return root / _TM_MAILBOX_DIRNAME / f"{mb_id}.json"
+
+
+def _tm_connect_state(mailbox_id) -> str:
+    """The OAuth `state` that says "these tokens are for mailbox X"."""
+    return _TM_CONNECT_STATE_PREFIX + _tm_mailbox_id(mailbox_id)
+
+
+def _tm_state_mailbox_id(state) -> str:
+    """The mailbox a returning OAuth flow is for, or "" for an ordinary one.
+
+    Every connect Arena has ever done carries no marker, so this returns ""
+    for all of them and the callbacks take the path they always took."""
+    text = str(state or "")
+    if not text.startswith(_TM_CONNECT_STATE_PREFIX):
+        return ""
+    return _tm_mailbox_id(text[len(_TM_CONNECT_STATE_PREFIX):])
+
+
+def _tm_connect_target_path(state, cfg=None):
+    """Where a completed connect should write its tokens, or None for "the
+    ordinary place".
+
+    Arena gets None twice over: the workspace gate is false, and an ordinary
+    connect carries no marker anyway. Because the id is re-sanitised on the
+    way through, a forged state can at worst create an unused config file
+    inside the user's own directory."""
+    if not _is_thrivemodal(cfg):
+        return None
+    mb_id = _tm_state_mailbox_id(state)
+    if not mb_id or mb_id == _TM_PRIMARY_MAILBOX_ID:
+        return None
+    return _tm_mailbox_config_path(_resolve_user_root(), mb_id)
+
+
+def _tm_mailbox_panel(C, rf):
+    """The sending-mailboxes panel, under Deliverability Settings.
+
+    Gated first thing: outside a ThriveModal workspace this returns before
+    building anything, so Arena's settings page is unchanged. The panel is
+    only the way to REGISTER a mailbox — the send loop reads the same
+    registry file whether it was written here or by hand."""
+    if not _is_thrivemodal():
+        return
+    boxes = _tm_load_mailboxes()
+    today = date.today().isoformat()
+
+    ui.element("div").style(
+        f"height:1px;background:{C['border']};margin:20px 0 16px;")
+    ui.label("Sending Mailboxes").classes("fd-fl")
+    ui.label(
+        "Outreach is spread across every mailbox here, least-loaded first. A new "
+        "mailbox starts low and works up to its full limit over its warmup period, "
+        "which is what keeps a cold domain out of spam folders."
+    ).style(f"font-size:11px;color:{C['muted']};margin-bottom:10px;line-height:1.5;")
+
+    if not boxes:
+        ui.label(
+            "No extra mailboxes yet, so everything sends from your connected inbox."
+        ).style(f"font-size:11px;color:{C['muted']};margin-bottom:10px;")
+
+    for box in boxes:
+        cap_today = _tm_warmup_cap(box, today)
+        full = box["daily_cap"]
+        warming = box["warmup_start"] and cap_today < full and not box["paused"]
+        if box["paused"]:
+            state_txt, state_col = "Paused", C["muted"]
+        elif warming:
+            state_txt, state_col = f"Warming up  -  {cap_today}/day today", C["warn"]
+        else:
+            state_txt, state_col = f"{cap_today}/day", C["good"]
+        with ui.element("div").style(
+                f"padding:10px 12px;background:{C['surface']};border:1px solid {C['border']};"
+                f"border-radius:8px;margin-bottom:8px;display:flex;align-items:center;gap:12px;"):
+            with ui.element("div").style("flex:1;min-width:0;"):
+                ui.label(box["email"]).style(
+                    f"font-size:12px;font-weight:600;color:{C['text_l']};")
+                ui.label(f"{state_txt}  ·  full limit {full}/day").style(
+                    f"font-size:11px;color:{state_col};")
+
+            def _connect(mb=box):
+                url = ""
+                state = _tm_connect_state(mb["id"])
+                if mb["provider"] == "google" and _HAS_GMAIL_OAUTH and _gmail_oauth:
+                    url = _gmail_oauth.get_auth_url(state=state)
+                elif _HAS_MS_EMAIL and _ms_email:
+                    url = _ms_email.get_auth_url(state=state)
+                if not url:
+                    ui.notify("That provider isn't configured on this server.",
+                              type="warning")
+                    return
+                ui.run_javascript(f'window.location.href = "{url}"')
+
+            def _toggle(mb=box):
+                rows = _tm_load_mailboxes()
+                for row in rows:
+                    if row["id"] == mb["id"]:
+                        row["paused"] = not row["paused"]
+                _tm_write_mailboxes(rows)
+                rf()
+
+            def _remove(mb=box):
+                _tm_write_mailboxes(
+                    [r for r in _tm_load_mailboxes() if r["id"] != mb["id"]])
+                ui.notify(f"{mb['email']} removed from the rotation.", type="positive")
+                rf()
+
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:5px 12px;font-size:11px;").on("click", _connect):
+                ui.label("Connect")
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:5px 12px;font-size:11px;").on("click", _toggle):
+                ui.label("Resume" if box["paused"] else "Pause")
+            with ui.element("button").classes("fd-db").style(
+                    "padding:5px 12px;font-size:11px;").on("click", _remove):
+                ui.label("Remove")
+
+    with ui.element("div").style(
+            "display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;margin-top:4px;"):
+        _mb_email = ui.input(placeholder="name@yourdomain.com").props("dense").style(
+            f"width:230px;background:{C['surface']};border:1px solid {C['border']};"
+            f"border-radius:6px;color:{C['text_l']};padding:0 8px;")
+        _mb_provider = ui.select(
+            {"microsoft": "Microsoft", "google": "Google"}, value="microsoft",
+        ).props("dense").style(
+            f"width:130px;background:{C['surface']};border:1px solid {C['border']};"
+            f"border-radius:6px;color:{C['text_l']};padding:0 8px;")
+        _mb_cap = ui.number(value=_TM_MAILBOX_DEFAULT_CAP, min=5,
+                            max=_TM_MAILBOX_MAX_CAP, step=5).props("dense").style(
+            f"width:95px;background:{C['surface']};border:1px solid {C['border']};"
+            f"border-radius:6px;color:{C['text_l']};padding:0 8px;")
+        _mb_days = ui.number(value=_TM_WARMUP_DEFAULT_DAYS, min=0, max=90,
+                             step=1).props("dense").style(
+            f"width:95px;background:{C['surface']};border:1px solid {C['border']};"
+            f"border-radius:6px;color:{C['text_l']};padding:0 8px;")
+
+        def _add():
+            email = (_mb_email.value or "").strip()
+            if not email:
+                ui.notify("Which address should this mailbox send from?",
+                          type="warning")
+                return
+            rows = _tm_load_mailboxes()
+            if not rows:
+                # The user's existing inbox has been sending all along, so it
+                # joins the rotation as the primary rather than being replaced
+                # by it — and it is already warmed up, so it gets no ramp.
+                rows.append({"id": _TM_PRIMARY_MAILBOX_ID,
+                             "email": (load_config().get("gmail_email")
+                                       or load_config().get("ms_email")
+                                       or "Your connected inbox"),
+                             "daily_cap": load_config().get("daily_send_limit", 250),
+                             "warmup_start": "", "warmup_days": 0})
+            new_id = _tm_mailbox_id(email)
+            if any(r["id"] == new_id for r in rows):
+                ui.notify("That mailbox is already in the rotation.", type="warning")
+                return
+            rows.append({"id": new_id, "email": email,
+                         "provider": _mb_provider.value or "microsoft",
+                         "daily_cap": int(_mb_cap.value or _TM_MAILBOX_DEFAULT_CAP),
+                         "warmup_start": date.today().isoformat(),
+                         "warmup_days": int(_mb_days.value or 0)})
+            _tm_write_mailboxes(rows)
+            ui.notify(f"{email} added. Use Connect to sign it in.", type="positive")
+            rf()
+
+        with ui.element("button").classes("fd-pb").style(
+                "padding:7px 18px;font-size:12px;").on("click", _add):
+            ui.label("Add Mailbox")
+    ui.label("Address  ·  provider  ·  full daily limit  ·  warmup days").style(
+        f"font-size:10px;color:{C['muted']};margin-top:4px;")
+
+
 def _audience_filter_kwargs(aud):
     """A saved audience as keyword arguments for _tm_audience_filter.
 
@@ -48750,6 +49147,8 @@ def p_ai_settings(s, rf):
                         f"padding:8px 20px;font-size:13px;").on("click", _save_limit):
                     ui.label("Save Limit")
 
+                _tm_mailbox_panel(C, rf)
+
     # ── API Access ──────────────────────────────────────────────────────
     # Self-serve key for the campaign create + launch API. (Moved here from
     # the Profile page.) The record stores the plaintext key too, for
@@ -58929,7 +59328,8 @@ def register_page(next: str = "/setup"):
 
 # ── Microsoft OAuth Callback ──────────────────────────────────────────────
 @ui.page("/auth/microsoft/callback")
-def ms_auth_callback(code: str = None, error: str = None, error_description: str = None):
+def ms_auth_callback(code: str = None, error: str = None,
+                     error_description: str = None, state: str = None):
     """Handle Microsoft OAuth redirect after user signs in.
 
     NiceGUI passes query-string parameters to the page function directly, so
@@ -58992,7 +59392,14 @@ def ms_auth_callback(code: str = None, error: str = None, error_description: str
                 "expires_at": int(_time.time()) + int(result.get("expires_in", 3600)),
             }
             try:
-                _ms_email.save_ms_tokens(_user_config_path(), tokens)
+                # A connect that carries no mailbox marker - which is every
+                # connect outside a ThriveModal workspace - writes exactly
+                # where it always did.
+                _tm_target = (_tm_connect_target_path(state)
+                              if _is_thrivemodal() else None)
+                if _tm_target is not None:
+                    _tm_target.parent.mkdir(parents=True, exist_ok=True)
+                _ms_email.save_ms_tokens(_tm_target or _user_config_path(), tokens)
                 _status_ok = True
                 _status_title = "Microsoft Connected!"
                 _status_msg = f"Campaigns will send from {ms_email_addr}. Redirecting…"
@@ -59108,7 +59515,13 @@ def google_auth_callback(code: str = None, error: str = None,
                 "expires_at": int(_time.time()) + int(result.get("expires_in", 3600)),
             }
             try:
-                _gmail_oauth.save_tokens(_user_config_path(), tokens)
+                # Same divergence as the Microsoft callback, and inert for
+                # the same two reasons: no marker, and no gate.
+                _tm_target = (_tm_connect_target_path(state)
+                              if _is_thrivemodal() else None)
+                if _tm_target is not None:
+                    _tm_target.parent.mkdir(parents=True, exist_ok=True)
+                _gmail_oauth.save_tokens(_tm_target or _user_config_path(), tokens)
                 _status_ok = True
                 _status_title = "Gmail Connected!"
                 _status_msg = f"Campaigns will send from {g_email}. Redirecting…"
@@ -60631,6 +61044,21 @@ def _server_scheduler_tick():
                          if q.get("status") == "sent"
                          and (q.get("sent_at") or "")[:10] == _user_today)
         _remaining_budget = max(0, _daily_limit - _sent_today)
+
+        # ── ThriveModal: per-mailbox warmup budgets ───────────────────
+        # The registry is the switch. An Arena user has no registry; so does
+        # a ThriveModal user who never added a second mailbox. In both cases
+        # _tm_boxes is empty and every line below behaves exactly as it did
+        # before this phase. Only a non-empty registry replaces the single
+        # account-wide budget with per-mailbox ones — and only ever downward,
+        # because the account cap the user set stays a ceiling over the sum.
+        _tm_boxes = (_tm_load_mailboxes(user_dir)
+                     if _is_thrivemodal(_user_cfg) else [])
+        _tm_order = [b["id"] for b in _tm_boxes]
+        _tm_budgets = _tm_mailbox_budgets(_tm_boxes, queue, _user_today)
+        if _tm_boxes:
+            _remaining_budget = min(_remaining_budget, sum(_tm_budgets.values()))
+
         if _remaining_budget == 0:
             print(f"[ServerSend] {user_dir.name}: daily limit reached ({_daily_limit}/day, {_sent_today} sent today)  -  holding {len(due)} email(s)", flush=True)
             continue
@@ -60660,10 +61088,27 @@ def _server_scheduler_tick():
         # Send each due item
         changed = False
         for item in due:
-            ok, err = _server_send_one(item, config_path, user_dir=user_dir)
+            # Which mailbox this one goes out of. With no registry this is
+            # `config_path` — the same object that was passed here before —
+            # and no stamp is written, so nothing about the queue changes
+            # either. With a registry it is the mailbox with the most warmup
+            # headroom left, and the stamp is what tomorrow's budgets read.
+            _item_mailbox = (_tm_pick_mailbox(_tm_budgets, _tm_order)
+                             if _tm_boxes else "")
+            if _tm_boxes and not _item_mailbox:
+                print(f"[ServerSend] {user_dir.name}: every mailbox is at its "
+                      f"warmup cap  -  holding the rest", flush=True)
+                break
+            _item_cfg_path = (_tm_mailbox_config_path(user_dir, _item_mailbox)
+                              if _item_mailbox else config_path)
+            ok, err = _server_send_one(item, _item_cfg_path, user_dir=user_dir)
             if ok:
                 item["status"] = "sent"
                 item["sent_at"] = datetime.now().isoformat()
+                if _item_mailbox:
+                    item["tm_mailbox"] = _item_mailbox
+                    _tm_budgets[_item_mailbox] = max(
+                        0, _tm_budgets.get(_item_mailbox, 0) - 1)
                 total_sent += 1
                 print(f"[ServerSend] ✓ {item.get('to')}  -  {item.get('subject','')[:50]}", flush=True)
                 # 4x4 -> J's Way: auto-enroll a non-responder who just finished
