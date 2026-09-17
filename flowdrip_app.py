@@ -9198,6 +9198,323 @@ def _tm_dedupe_split(contacts, exclude_campaign=None):
     }
 
 
+# ---------------------------------------------------------------------------
+#  Outreach analytics  -  reporting over what the send path already recorded
+# ---------------------------------------------------------------------------
+#
+# Three stores, no fourth: the send queue, the responded log and the DNC list.
+# Phase 3 adds NO storage, because a reporting page that keeps its own copy of
+# the truth is a page that eventually disagrees with the app it reports on.
+#
+# What is deliberately absent: opens and clicks. Nothing in this product sets
+# a tracking pixel or rewrites a link, so there is no honest number to show
+# and the page says so rather than showing a plausible one.
+
+# Words that tell us WHY an address reached the DNC list. Bounces and opt-outs
+# both land there and mean opposite things - a dead address versus a live
+# person who said no - so a single "suppressed" count would hide the one
+# number that tells the user whether the problem is the list or the copy.
+_TM_DNC_BOUNCE_HINTS = ("bounce", "undeliverable", "no such user",
+                        "recipient not found", "address rejected")
+_TM_DNC_OPTOUT_HINTS = ("opt-out", "opt out", "optout", "unsubscrib",
+                        "remove me", "take me off")
+
+
+def _tm_rate(num, den):
+    """num/den as a 4dp float, or 0.0 when nothing was measured.
+
+    A rate with an empty denominator is not 100% and not an error; it is
+    "we have not sent enough to say". Zero is the only answer that does not
+    invite a decision."""
+    try:
+        num = float(num)
+        den = float(den)
+    except (TypeError, ValueError):
+        return 0.0
+    if den <= 0:
+        return 0.0
+    return round(num / den, 4)
+
+
+def _tm_queue_ts(item):
+    """When a queue row actually happened, best available.
+
+    Sent-at beats failed-at beats scheduled-for. A re-queued campaign carries
+    an old send_dt, so dating a send by its schedule would file real activity
+    under the wrong week."""
+    item = item or {}
+    for key in ("sent_at", "failed_at", "send_dt"):
+        val = str(item.get(key) or "").strip()
+        if val:
+            return val
+    return ""
+
+
+def _tm_dnc_ts(entry):
+    """DNC rows are written by two code paths with two different key names:
+    add_to_dnc() writes `added_at`, the bounce handler writes `added`."""
+    entry = entry or {}
+    for key in ("added_at", "added"):
+        val = str(entry.get(key) or "").strip()
+        if val:
+            return val
+    return ""
+
+
+def _tm_window_cutoff(days):
+    """The ISO timestamp `days` back, or "" for no cutoff at all."""
+    try:
+        days = int(days or 0)
+    except (TypeError, ValueError):
+        return ""
+    if days <= 0:
+        return ""
+    return (datetime.now() - timedelta(days=days)).isoformat()
+
+
+def _tm_in_window(ts, cutoff):
+    """Is this record inside the reporting window?
+
+    An UNDATED record is inside every window. We cannot place it, and a row
+    that silently vanishes from a report is one nobody notices is missing -
+    counting it is the error the user can see and correct.
+
+    Comparison is lexicographic on the ISO strings, which is safe here
+    because every writer in this app stamps local naive isoformat(): the
+    fields are fixed-width through seconds, so string order is time order."""
+    if not cutoff:
+        return True
+    ts = str(ts or "").strip()
+    if not ts:
+        return True
+    return ts >= cutoff
+
+
+def _tm_dnc_kind(entry):
+    """Why this address is suppressed: "bounce", "optout" or "manual".
+
+    Reason text is checked for bounce wording first, because the send path
+    writes `Bounced: <smtp error>` straight into `reason` with no source
+    field at all, and an SMTP rejection can easily contain the word
+    "unsubscribe" in a footer echo."""
+    entry = entry or {}
+    reason = str(entry.get("reason") or "").lower()
+    source = str(entry.get("source") or "").lower()
+    if any(h in reason for h in _TM_DNC_BOUNCE_HINTS):
+        return "bounce"
+    if any(h in source for h in _TM_DNC_OPTOUT_HINTS):
+        return "optout"
+    if any(h in reason for h in _TM_DNC_OPTOUT_HINTS):
+        return "optout"
+    return "manual"
+
+
+def _tm_outreach_stats(queue, responded=None, dnc=None, days=None, campaign=None):
+    """Workspace outreach totals for one window, optionally one campaign.
+
+    Pure: the caller hands in the three lists, so this is testable without a
+    filesystem and reusable from the API surface. It never mutates them - the
+    page passes the live cached queue straight in.
+
+    Two rules earn their keep:
+
+      * `contacts` counts PEOPLE with at least one delivered email, not rows.
+        A five-step sequence sends five emails to one person; a reply rate
+        with rows in the denominator would read five times too low.
+
+      * A campaign-scoped call REFUSES to attribute opt-outs and bounces.
+        DNC entries record no campaign, so splitting them per campaign would
+        be invention. The result says so in `dnc_counted` and the page shows
+        those numbers only at workspace level."""
+    cutoff = _tm_window_cutoff(days)
+    want = str(campaign or "").strip().lower()
+    sent = failed = pending = cancelled = 0
+    contacts = set()
+    camps = set()
+    for item in (queue or []):
+        name = str(item.get("campaign") or "").strip()
+        if want and name.lower() != want:
+            continue
+        if not _tm_in_window(_tm_queue_ts(item), cutoff):
+            continue
+        if name:
+            camps.add(name.lower())
+        status = str(item.get("status") or "").strip().lower()
+        if status == "sent":
+            sent += 1
+            addr = str(item.get("to") or "").strip().lower()
+            if addr:
+                contacts.add(addr)
+        elif status == "failed":
+            failed += 1
+        elif status == "pending":
+            pending += 1
+        elif status == "cancelled":
+            cancelled += 1
+
+    replies = 0
+    for rec in (responded or []):
+        name = str(rec.get("campaign") or "").strip()
+        if want and name.lower() != want:
+            continue
+        if not _tm_in_window(str(rec.get("replied_at") or ""), cutoff):
+            continue
+        replies += 1
+
+    dnc_counted = not want
+    optouts = bounces = 0
+    if dnc_counted:
+        for entry in (dnc or []):
+            if not _tm_in_window(_tm_dnc_ts(entry), cutoff):
+                continue
+            kind = _tm_dnc_kind(entry)
+            if kind == "optout":
+                optouts += 1
+            elif kind == "bounce":
+                bounces += 1
+
+    reached = len(contacts)
+    return {
+        "sent": sent, "failed": failed, "pending": pending, "cancelled": cancelled,
+        "contacts": reached, "campaigns": len(camps),
+        "replies": replies, "reply_rate": _tm_rate(replies, reached),
+        "optouts": optouts, "optout_rate": _tm_rate(optouts, reached),
+        "bounces": bounces, "bounce_rate": _tm_rate(bounces, reached),
+        "dnc_counted": dnc_counted,
+        "window_days": (int(days) if days else None),
+        "campaign": str(campaign or "").strip(),
+        "scope": "workspace",
+    }
+
+
+def _tm_campaign_analytics(queue, responded=None, days=None):
+    """One row per campaign with activity in the window, busiest first.
+
+    A campaign appears as soon as it has ANY queue row, including a purely
+    pending one: it launched, and hiding it until the first morning's send
+    makes a working page look broken. Replies are joined by campaign name
+    even when no queue row survives, because queue entries are archived
+    after 30 days while the responded log is kept - a reply can outlive the
+    send that earned it."""
+    cutoff = _tm_window_cutoff(days)
+    rows = {}
+
+    def _row(name):
+        key = name.lower()
+        if key not in rows:
+            rows[key] = {"name": name, "sent": 0, "pending": 0, "failed": 0,
+                         "cancelled": 0, "contacts": 0, "replies": 0,
+                         "reply_rate": 0.0, "_reached": set()}
+        return rows[key]
+
+    for item in (queue or []):
+        name = str(item.get("campaign") or "").strip()
+        if not name:
+            continue
+        if not _tm_in_window(_tm_queue_ts(item), cutoff):
+            continue
+        row = _row(name)
+        status = str(item.get("status") or "").strip().lower()
+        if status == "sent":
+            row["sent"] += 1
+            addr = str(item.get("to") or "").strip().lower()
+            if addr:
+                row["_reached"].add(addr)
+        elif status in ("pending", "failed", "cancelled"):
+            row[status] += 1
+
+    for rec in (responded or []):
+        name = str(rec.get("campaign") or "").strip()
+        if not name:
+            continue
+        if not _tm_in_window(str(rec.get("replied_at") or ""), cutoff):
+            continue
+        _row(name)["replies"] += 1
+
+    out = []
+    for row in rows.values():
+        row["contacts"] = len(row.pop("_reached"))
+        row["reply_rate"] = _tm_rate(row["replies"], row["contacts"])
+        out.append(row)
+    out.sort(key=lambda r: (-r["sent"], -r["replies"], r["name"].lower()))
+    return out
+
+
+def _tm_step_analytics(queue, days=None):
+    """Sequence shape by touch: what went out at each step, and what stopped.
+
+    `cancelled` is the point of this table. The app cancels a contact's
+    remaining steps when they reply, opt out or bounce, so the step where
+    cancellations spike is the step that is working - or the step that is
+    burning the list. It is the only per-step signal this data supports:
+    reply records carry a `touch` field, but the Outlook scan path writes
+    " - " into it, so replies cannot be attributed to a step at all."""
+    cutoff = _tm_window_cutoff(days)
+    rows = {}
+    for item in (queue or []):
+        if not _tm_in_window(_tm_queue_ts(item), cutoff):
+            continue
+        try:
+            touch = int(item.get("touch_number") or 0)
+        except (TypeError, ValueError):
+            touch = 0
+        if touch <= 0:
+            # Queue rows written before touch_number existed. They are still
+            # sends; dropping them would under-report step one.
+            try:
+                touch = int(item.get("_step_idx") or 0) + 1
+            except (TypeError, ValueError):
+                touch = 1
+        if touch <= 0:
+            touch = 1
+        row = rows.get(touch)
+        if row is None:
+            row = rows[touch] = {"touch": touch, "label": "", "sent": 0,
+                                 "pending": 0, "failed": 0, "cancelled": 0}
+        if not row["label"]:
+            row["label"] = str(item.get("step_name") or "").strip() or f"Email {touch}"
+        status = str(item.get("status") or "").strip().lower()
+        if status in ("sent", "pending", "failed", "cancelled"):
+            row[status] += 1
+    return [rows[k] for k in sorted(rows)]
+
+
+def _tm_analytics_sources():
+    """The three existing stores, loaded once for a page render.
+
+    The only impure function in this block, and the whole reason the rest can
+    be tested without touching disk. Each load is guarded: a corrupt queue
+    file should cost the user one empty table, not the page."""
+    def _safe(loader):
+        try:
+            got = loader()
+        except Exception:
+            return []
+        return list(got or [])
+    return {"queue": _safe(_load_queue),
+            "responded": _safe(load_responded),
+            "dnc": _safe(load_dnc)}
+
+
+# Sidebar destinations that exist only under a playbook. The row itself ships
+# to everyone with page_key None, so Arena keeps rendering exactly what it
+# rendered before this file changed.
+_TM_NAV_PAGES = {"analytics": "tm_analytics"}
+
+
+def _tm_nav_page_key(row_key, page_key):
+    """Resolve one sidebar row's destination for this workspace.
+
+    ADDITIVE ONLY. A row that already has a page keeps it, unconditionally -
+    if this could rewrite an existing destination, one typo in the table
+    above would silently send an Arena user to somebody else's page."""
+    if page_key:
+        return page_key
+    if not _is_thrivemodal():
+        return page_key
+    return _TM_NAV_PAGES.get(str(row_key or ""), page_key)
+
+
 def _atomic_write_csv_text(path, text):
     r"""Atomic CSV replace that does NOT translate line endings.
 
@@ -14177,7 +14494,8 @@ SIDEBAR_NAV = [
     ]),
     ("PERFORMANCE", [
         ("sales_dash", "Sales Dashboard",    None),   # no sales reporting page yet
-        ("analytics",  "Outreach Analytics", None),   # no analytics page yet
+        ("analytics",  "Outreach Analytics", None),   # ThriveModal only:
+                                                      # _tm_nav_page_key
     ]),
 ]
 # Everything that used to be its own sidebar row (Team, My Profile, Settings)
@@ -14204,6 +14522,7 @@ SIDEBAR_PAGE_ROW = {
     "newsletters": "library", "pdf_gen": "library",
     "ai_settings": "settings", "company_profile": "settings", "team_settings": "settings",
     "signature": "settings", "e_signature": "settings", "timezone": "settings", "dnc": "settings",
+    "tm_analytics": "analytics",
     "admin": "admin",
 }
 # Compact page header titles. Fallback: the page key, humanised.
@@ -14221,6 +14540,7 @@ SIDEBAR_TITLES = {
     "camp_gen": "New Campaign", "preview": "Preview", "launch": "Launch",
     "create_camp": "New Campaign", "emails_build": "New Campaign", "sequence": "Sequence",
     "prev_launch": "Preview & Launch",
+    "tm_analytics": "Outreach Analytics",
 }
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -15936,6 +16256,10 @@ def _sidebar_v2(s: AppState, rf):
         # ── Grouped navigation ──
         with ui.element("nav").classes("fd-side-nav"):
             for sec, rows in SIDEBAR_NAV:
+                # Playbook-only destinations resolve here, before the
+                # filter below drops rows that still have no page.
+                rows = [(ik, lbl, _tm_nav_page_key(ik, key))
+                        for ik, lbl, key in rows]
                 rows = [r for r in rows if r[2]]   # skip destinations with no page
                 if not rows:
                     continue
@@ -34629,6 +34953,169 @@ def p_dnc(s, rf):
 # ═══════════════════════════════════════════════════════════════════════════
 #  ACTIVE CLIENTS (team-shared blocklist)
 # ═══════════════════════════════════════════════════════════════════════════
+
+def p_tm_analytics(s, rf):
+    """Outreach analytics for a ThriveModal workspace.
+
+    Every number here was recorded by the send path: the queue, the responded
+    log, the do-not-contact list. Nothing is estimated and nothing is stored -
+    reload the page and it recomputes from the same three files.
+
+    There is no open or click tracking anywhere in this product. Rather than
+    show a plausible open rate, the page says which numbers it does not have:
+    a reporting page that invents its most-quoted figure is worse than one
+    with a gap, because the gap is the only version the user can correct for.
+    """
+    if not _is_thrivemodal():
+        return
+
+    _windows = [(7, "7 days"), (30, "30 days"), (None, "All time")]
+    days = getattr(s, "_tm_an_days", 30)
+    if days not in (7, 30, None):
+        days = 30
+
+    src = _tm_analytics_sources()
+    queue, responded, dnc = src["queue"], src["responded"], src["dnc"]
+    stats = _tm_outreach_stats(queue, responded, dnc, days=days)
+    camp_rows = _tm_campaign_analytics(queue, responded, days=days)
+    step_rows = _tm_step_analytics(queue, days=days)
+
+    def _pct(val):
+        return f"{val * 100:.1f}%"
+
+    # ── Header + window selector ────────────────────────────────────────
+    with ui.element("div").style(
+            "display:flex;align-items:flex-start;justify-content:space-between;"
+            "gap:16px;margin-bottom:6px;"):
+        with ui.element("div").style("flex:1;min-width:0;"):
+            with ui.element("div").style("display:flex;align-items:center;"):
+                ui.label("Outreach Analytics").classes("fd-h1")
+                _show_page_help(s, rf, "analytics")
+            ui.label("What your campaigns have actually done, counted from the "
+                     "send queue, your replies and your do-not-contact list."
+                     ).classes("fd-sub")
+        with ui.element("div").style("display:flex;gap:8px;flex-shrink:0;"):
+            for _win, _wlbl in _windows:
+                def _pick(win=_win):
+                    s._tm_an_days = win
+                    rf()
+                _on = (_win == days)
+                with ui.element("button").classes("fd-pb" if _on else "fd-gb").style(
+                        "padding:9px 14px;font-size:12px;").on("click", _pick):
+                    ui.label(_wlbl)
+
+    # ── Headline numbers ────────────────────────────────────────────────
+    with ui.element("div").classes("fd-stat-strip").style("margin:14px 0 10px;"):
+        for val, lbl, col in [
+            (str(stats["sent"]),           "Emails sent",    C["text_l"]),
+            (str(stats["contacts"]),       "People reached", C["text_l"]),
+            (str(stats["replies"]),        "Replies",
+             C["good"] if stats["replies"] else C["muted"]),
+            (_pct(stats["reply_rate"]),    "Reply rate",
+             C["good"] if stats["reply_rate"] else C["muted"]),
+            (str(stats["pending"]),        "Scheduled",
+             C["teal"] if stats["pending"] else C["muted"]),
+            (str(stats["optouts"]),        "Opt-outs",
+             C["warn"] if stats["optouts"] else C["muted"]),
+            (str(stats["bounces"]),        "Bounces",
+             C["warn"] if stats["bounces"] else C["muted"]),
+        ]:
+            with ui.element("div").classes("fd-stat-cell"):
+                ui.label(val).classes("fd-sn").style(f"color:{col};")
+                ui.label(lbl).classes("fd-sl")
+
+    _window_label = ("all time" if days is None else f"the last {days} days")
+    ui.label(
+        f"Counted over {_window_label}. Reply rate is replies divided by people "
+        f"reached, not emails sent. Opens and clicks aren't tracked, so they "
+        f"aren't shown."
+    ).style(f"font-size:11px;color:{C['muted']};margin-bottom:18px;")
+
+    # ── Nothing to report yet ───────────────────────────────────────────
+    if not (stats["sent"] or stats["pending"] or stats["replies"]):
+        with ui.element("div").style(
+                f"background:{C['card']};border:1px solid {C['border']};"
+                f"border-radius:10px;padding:28px 24px;text-align:center;"):
+            ui.label("Nothing to report for this window yet.").style(
+                f"font-size:14px;font-weight:600;color:{C['text_l']};"
+                f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
+            ui.label("Numbers appear here once a campaign has emails queued "
+                     "or sent. Try a wider window above.").style(
+                f"font-size:12px;color:{C['muted']};")
+        return
+
+    # ── By campaign ─────────────────────────────────────────────────────
+    _cols = "1fr 70px 70px 80px 70px 80px"
+    ui.label("By campaign").style(
+        f"font-size:14px;font-weight:700;color:{C['text_l']};"
+        f"font-family:'Nunito',sans-serif;margin-bottom:8px;")
+    with ui.element("div").style(
+            f"background:{C['card']};border:1px solid {C['border']};"
+            f"border-radius:10px;overflow:hidden;margin-bottom:8px;"):
+        with ui.element("div").style(
+                f"display:grid;grid-template-columns:{_cols};gap:0;"
+                f"padding:8px 14px;background:{C['surface']};"
+                f"border-bottom:1px solid {C['border']};"):
+            for h in ["Campaign", "Sent", "People", "Scheduled", "Replies", "Reply rate"]:
+                ui.label(h).style(
+                    f"font-size:9px;font-weight:700;color:{C['muted']};"
+                    f"text-transform:uppercase;letter-spacing:.06em;")
+        for row in camp_rows[:40]:
+            with ui.element("div").style(
+                    f"display:grid;grid-template-columns:{_cols};gap:0;"
+                    f"padding:8px 14px;align-items:center;"
+                    f"border-bottom:1px solid {C['border']}20;"):
+                ui.label(row["name"]).style(
+                    f"font-size:12px;font-weight:500;color:{C['text_l']};"
+                    f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
+                ui.label(str(row["sent"])).style(f"font-size:12px;color:{C['muted']};")
+                ui.label(str(row["contacts"])).style(f"font-size:12px;color:{C['muted']};")
+                ui.label(str(row["pending"])).style(
+                    f"font-size:12px;color:{C['teal'] if row['pending'] else C['muted']};")
+                ui.label(str(row["replies"])).style(
+                    f"font-size:12px;color:{C['good'] if row['replies'] else C['muted']};")
+                ui.label(_pct(row["reply_rate"])).style(
+                    f"font-size:12px;color:{C['good'] if row['reply_rate'] else C['muted']};")
+
+    ui.label("Opt-outs and bounces stay workspace-wide: the do-not-contact "
+             "list doesn't record which campaign an address came from, so "
+             "splitting them per campaign would be a guess.").style(
+        f"font-size:11px;color:{C['muted']};margin-bottom:20px;")
+
+    # ── By step ─────────────────────────────────────────────────────────
+    if step_rows:
+        _scols = "1fr 70px 80px 90px"
+        ui.label("By step").style(
+            f"font-size:14px;font-weight:700;color:{C['text_l']};"
+            f"font-family:'Nunito',sans-serif;margin-bottom:8px;")
+        with ui.element("div").style(
+                f"background:{C['card']};border:1px solid {C['border']};"
+                f"border-radius:10px;overflow:hidden;margin-bottom:8px;"):
+            with ui.element("div").style(
+                    f"display:grid;grid-template-columns:{_scols};gap:0;"
+                    f"padding:8px 14px;background:{C['surface']};"
+                    f"border-bottom:1px solid {C['border']};"):
+                for h in ["Step", "Sent", "Scheduled", "Stopped"]:
+                    ui.label(h).style(
+                        f"font-size:9px;font-weight:700;color:{C['muted']};"
+                        f"text-transform:uppercase;letter-spacing:.06em;")
+            for row in step_rows:
+                with ui.element("div").style(
+                        f"display:grid;grid-template-columns:{_scols};gap:0;"
+                        f"padding:8px 14px;align-items:center;"
+                        f"border-bottom:1px solid {C['border']}20;"):
+                    ui.label(f"{row['touch']}. {row['label']}").style(
+                        f"font-size:12px;font-weight:500;color:{C['text_l']};"
+                        f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
+                    ui.label(str(row["sent"])).style(f"font-size:12px;color:{C['muted']};")
+                    ui.label(str(row["pending"])).style(
+                        f"font-size:12px;color:{C['teal'] if row['pending'] else C['muted']};")
+                    ui.label(str(row["cancelled"])).style(
+                        f"font-size:12px;color:{C['muted']};")
+        ui.label("Stopped = remaining steps cancelled for that contact, which "
+                 "is what happens when someone replies, opts out or bounces.").style(
+            f"font-size:11px;color:{C['muted']};margin-bottom:8px;")
+
 
 def p_active_clients(s, rf):
     """Team-shared list of active client domains. Contacts at these
@@ -57679,6 +58166,10 @@ def render_page(s: AppState, rf):
             elif page == "evergreen_create": p_evergreen_create(s, rf)
             elif page == "queue":        p_queue(s, rf)
             elif page == "dnc":          p_dnc(s, rf)
+            # Gated at the ROUTE, not just inside the page: an Arena
+            # session with a stale page key never reaches the function.
+            elif page == "tm_analytics" and _is_thrivemodal():
+                p_tm_analytics(s, rf)
             elif page == "active_clients": p_active_clients(s, rf)
             elif page == "company_profile": p_company_profile(s, rf)
             elif page == "team_settings": p_team_settings(s, rf)
