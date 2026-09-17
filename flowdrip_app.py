@@ -6640,11 +6640,16 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
                                            niche_str or roles_str or "")
         _stats_block = _format_cited_stats_block(_cited)
 
+    # What the buyer's world is, not who they are. Industry label first, then
+    # the niche, then the company name, which often carries the vertical on
+    # its own. Only the ThriveModal playbook consumes this; Arena ignores it.
+    _vertical_hint = " ".join(x for x in (ind_label, niche_str, company) if x)
+
     campaign_prompt = (
         f'You are writing a consultative BD email campaign.\n\n'
         # Playbook is resolved from the campaign TYPE first, so an Arena
         # sequence keeps the Arena voice even in a ThriveModal workspace.
-        + _active_playbook_text(camp_type) + '\n'
+        + _active_playbook_text(camp_type, industry=_vertical_hint) + '\n'
         + _style_guide_prompt() + '\n'
         f'CAMPAIGN-SPECIFIC:\n'
         f'- {style_note}\n'
@@ -12808,7 +12813,198 @@ def _thrivemodal_playbook_text(cfg: dict = None) -> str:
     return "".join(parts)
 
 
-def _active_playbook_text(camp_type: str = None, cfg: dict = None) -> str:
+# ── ThriveModal vertical knowledge pack ───────────────────────────────────
+# The six ThriveModal campaign types are objective-shaped (start a
+# conversation, follow up a meeting, re-engage) and deliberately
+# vertical-blind: each one tells the model to work from the brief and the
+# playbook's target industries. That is why they invent the vertical detail
+# they need. This layer is orthogonal: one knowledge block per vertical,
+# resolved from the industry the wizard already collects and appended to the
+# ThriveModal playbook. Two verticals times six objectives, no new types.
+#
+# The blocks are prompt text, so anything in them can be paraphrased into a
+# real prospect's inbox. They carry no price, no percentage, no statistic and
+# no named customer, and they never contradict the standing model:
+# ThriveModal recruits and places a dedicated person the client selects.
+
+_TM_VERTICAL_GENERAL = "general_offshore"
+
+# Ordered (key, label, blurb). The fallback sorts LAST, so a new vertical is
+# added above it rather than after it.
+_TM_VERTICALS = (
+    ("construction_aec", "Construction, Architecture and Engineering",
+     "Contractors, design firms and engineering practices, sold on the "
+     "support roles around the jobsite rather than the jobsite itself."),
+    ("general_offshore", "General offshore support",
+     "The fallback for every other industry: the back office, finance and "
+     "coordination work that senior people are doing for themselves."),
+)
+
+# Stripped from the text BEFORE keyword matching, so "software engineering"
+# never reads as an AEC signal. This is the one false positive that matters:
+# "engineering" is an industry label here and half of every technology niche
+# string, and sending a software CTO a takeoff-and-submittals email is worse
+# than sending them a generic one.
+_TM_VERTICAL_BLOCKERS = (
+    "software engineer", "sales engineer", "data engineer",
+    "platform engineer", "devops engineer", "cloud engineer",
+    "network engineer", "systems engineer", "system engineer",
+    "security engineer", "qa engineer", "test engineer",
+    "support engineer", "solutions engineer", "solution engineer",
+    "hardware engineer", "machine learning engineer", "ml engineer",
+    "site reliability engineer", "engineering manager", "engineering lead",
+    "engineering team", "reverse engineer", "social engineer",
+    "prompt engineer", "customer engineer",
+)
+
+_TM_VERTICAL_KEYWORDS = {
+    "construction_aec": (
+        "construction", "architect", "aec", "general contractor",
+        "contracting", "design build", "design-build", "subcontractor",
+        "homebuilder", "home builder", "civil engineer", "structural engineer",
+        "mechanical engineer", "electrical engineer", "engineer",
+    ),
+}
+
+_TM_VERTICAL_BLOCKS = {
+    "construction_aec": """
+VERTICAL KNOWLEDGE: Construction, Architecture and Engineering
+This is context so you sound like someone who has staffed these teams before.
+It is not copy to paste. Never quote it back at the reader, and never write a
+sentence that is only a list of the words below.
+
+ROLES ROUTINELY PLACED OFFSHORE:
+- Project coordinators and project administrators who chase submittals and
+  RFIs, handle transmittals, and keep document control current.
+- Estimating support: quantity takeoffs from the drawings, bid solicitation
+  and levelling, historical cost lookups, plan room and bid board screening.
+- CAD, BIM and Revit drafters producing shop drawings, redlines and as builts.
+- Construction accounting: AIA style pay application packages, lien waiver
+  tracking, job cost coding, subcontractor compliance, chasing certificates
+  of insurance.
+- Scheduling support: updating progress in the schedule and building the
+  look ahead the superintendent actually uses.
+- Proposal and marketing support for qualifications packages and RFQ
+  responses.
+
+WHAT STAYS ONSHORE, ALWAYS:
+Anything that needs to be on the jobsite, anything that gets signed or sealed,
+anything carrying professional liability, anything licensed in the state of
+the work, and any negotiation with an owner or a subcontractor.
+Superintendents, field crews, the engineer of record and the architect of
+record are not what this replaces, and the offer is weaker when it pretends
+otherwise. The offshore seat feeds the onshore person; it does not stand in
+for them. If the reader raises this, concede it in one plain sentence and
+move on.
+
+WHO ACTUALLY BUYS:
+Owner, President, Vice President of Operations, VP of Preconstruction,
+Director of Project Management, Director of Estimating, Controller or CFO,
+Principal or Managing Partner at a design firm, Practice Leader, and at
+larger firms the Director of Human Resources.
+
+WHAT THIS BUYER IS ACTUALLY DEALING WITH:
+- Backlog they already won and now have to staff, with the award signed.
+- Project managers doing coordinator work at night because there is no
+  coordinator, which is how the good ones end up leaving.
+- Estimators passing on bids nobody can turn around in time.
+- Support roles that stay open because the local pool is thin and the field
+  roles eat the budget first.
+- Billing that slips because the pay application package went out late.
+- Project cycles that make a permanent onshore hire feel like a risk.
+
+HOW TO TALK TO THEM:
+Use the vocabulary they use: submittal, RFI, takeoff, buyout, pay app, punch
+list, look ahead, as built, backlog, closeout. Reference the work, not the
+sector; never open by telling them about their own industry. Never imply the
+work leaves their team. A person joins the team and reports to their project
+manager, and the client interviews and picks that person.
+""",
+    "general_offshore": """
+VERTICAL KNOWLEDGE: General offshore support
+This is context so you sound like someone who has staffed a back office
+before. It is not copy to paste. Never quote it back at the reader, and never
+write a sentence that is only a list of the words below.
+
+ROLES ROUTINELY PLACED OFFSHORE:
+- Accounting and bookkeeping: payables, receivables, collections follow up,
+  reconciliations, month end close support.
+- Back office and administration: order entry, data entry, CRM hygiene,
+  document handling, scheduling and calendar work.
+- Customer support and sales support: first line tickets, quoting, order
+  status, proposal assembly, follow up on open items.
+- Recruiting coordination and sourcing support.
+- Marketing production: email builds, listings, asset resizing, reporting.
+- Reporting and analyst work inside the tools the team already runs.
+
+WHAT STAYS ONSHORE, ALWAYS:
+Licensed work, signing authority, final pricing decisions, the client
+relationship itself, anything that has to happen in a physical place, and
+anything the reader's regulator or their own customer contract says must be
+performed locally. Say this plainly rather than waiting to be asked.
+
+WHO ACTUALLY BUYS:
+Owner, President, Chief Operating Officer, Vice President of Operations,
+CFO, Controller, Director of Finance, Director of Shared Services, Head of
+Customer Experience, Vice President of Human Resources.
+
+WHAT THIS BUYER IS ACTUALLY DEALING WITH:
+- Senior people doing work that sits two levels below them.
+- A role open long enough that the team quietly stopped asking for it.
+- Turnover in the jobs nobody wants to do twice.
+- Headcount approval moving slower than the work arriving.
+- Process work that never reaches the top of anyone's list, so it compounds.
+
+HOW TO TALK TO THEM:
+Name the task, not the category. One specific job that is not getting done
+beats any description of the service. Never open with a statistic about their
+industry. Never imply the function is handed off. A named person joins the
+team and reports to their manager, and the client interviews and picks that
+person.
+""",
+}
+
+
+def _tm_vertical_for(text) -> str:
+    """Which vertical knowledge block governs a campaign, from free text.
+
+    TOTAL: every input resolves to a key that `_TM_VERTICAL_BLOCKS` has copy
+    for, because a campaign that silently got no vertical layer is exactly the
+    vertical-blind campaign this feature exists to remove. Callers pass the
+    industry label, the niche and the company name joined together, since a
+    firm whose industry was never picked often carries the vertical in its
+    own name.
+    """
+    try:
+        low = " ".join(str(text or "").lower().split())
+    except Exception:
+        return _TM_VERTICAL_GENERAL
+    if not low:
+        return _TM_VERTICAL_GENERAL
+    for blocker in _TM_VERTICAL_BLOCKERS:
+        if blocker in low:
+            low = low.replace(blocker, " ")
+    for key, terms in _TM_VERTICAL_KEYWORDS.items():
+        for term in terms:
+            if term in low:
+                return key
+    return _TM_VERTICAL_GENERAL
+
+
+def _tm_vertical_block(key) -> str:
+    """The knowledge block for a vertical key, or "" for anything unknown.
+
+    Resolution picks the fallback; lookup deliberately does not. A mistyped
+    key quietly serving the general block would hide the mistake forever.
+    """
+    try:
+        return _TM_VERTICAL_BLOCKS.get(key, "") or ""
+    except TypeError:
+        return ""
+
+
+def _active_playbook_text(camp_type: str = None, cfg: dict = None,
+                          industry: str = "") -> str:
     """The writing playbook that governs THIS campaign.
 
     Resolution order matters. The campaign TYPE wins over the workspace
@@ -12822,18 +13018,22 @@ def _active_playbook_text(camp_type: str = None, cfg: dict = None) -> str:
     even a sequence type that carries its own voice, is written to the locked
     playbook. There is no second voice on that instance to fall back to.
     """
+    # Additive only: the vertical pack APPENDS to the approved playbook and
+    # rides on the playbook, not on the workspace, so an Arena sequence is
+    # byte-identical to what it was before Phase 4 in any workspace.
+    vertical = _tm_vertical_block(_tm_vertical_for(industry))
     if _LOCKED_PLAYBOOK == PLAYBOOK_THRIVEMODAL:
-        return _thrivemodal_playbook_text(cfg)
+        return _thrivemodal_playbook_text(cfg) + vertical
     if _LOCKED_PLAYBOOK == PLAYBOOK_ARENA:
         return _DRIPDROP_PLAYBOOK
     key = (camp_type or "").strip()
     if key in _TM_TYPE_KEYS:
-        return _thrivemodal_playbook_text(cfg)
+        return _thrivemodal_playbook_text(cfg) + vertical
     if key and (key in _RECRUITING_TYPE_KEYS or key in _SALES_TYPE_KEYS):
         return _DRIPDROP_PLAYBOOK
     try:
         if _is_thrivemodal(cfg):
-            return _thrivemodal_playbook_text(cfg)
+            return _thrivemodal_playbook_text(cfg) + vertical
     except Exception:
         pass
     return _DRIPDROP_PLAYBOOK
