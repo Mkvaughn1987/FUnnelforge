@@ -5873,9 +5873,14 @@ def load_contacts():
         return []
     rows = []
     with open(_contacts_csv, newline="", encoding="utf-8-sig") as f:
-        for row in csv.DictReader(f):
+        reader = csv.DictReader(f)
+        # Headers are mapped once, not per row, and stripped to match the
+        # stripped keys of r below.
+        tgt_map = _targeting_header_map(
+            [str(h).strip() for h in (reader.fieldnames or []) if h])
+        for row in reader:
             r = {k.strip(): v.strip() for k, v in row.items()}
-            rows.append(dict(
+            rec = dict(
                 email=r.get("Email", r.get("email", "")),
                 first_name=r.get("FirstName", r.get("first_name", "")),
                 last_name=r.get("LastName", r.get("last_name", "")),
@@ -5886,7 +5891,9 @@ def load_contacts():
                 linkedin=r.get("LinkedInPage", r.get("linkedin", "")),
                 city=r.get("City", r.get("city", "")),
                 state=r.get("State", r.get("state", "")),
-            ))
+            )
+            rec.update(_extract_targeting(r, tgt_map, snake=True))
+            rows.append(rec)
     return [r for r in rows if r.get("email") or r.get("first_name")]
 
 def load_campaigns():
@@ -6332,6 +6339,9 @@ def _parse_contacts_csv(csv_text: str) -> list:
     import io as _io
     out = []
     reader = _csv.DictReader(_io.StringIO(text))
+    # reader.fieldnames as-is: a row's keys are the raw headers, so the map
+    # has to be keyed off the same strings.
+    _tgt_map = _targeting_header_map(reader.fieldnames or [])
     for row in reader:
         def g(*keys):
             return next((row[k] for k in keys if row.get(k)), "")
@@ -6353,6 +6363,9 @@ def _parse_contacts_csv(csv_text: str) -> list:
             _c["phone_mobile"] = _mobile
         if _li:
             _c["linkedin"] = _li
+        for _k, _v in _extract_targeting(row, _tgt_map, snake=True).items():
+            if _v:
+                _c[_k] = _v
         out.append(_c)
     return [c for c in out if c["email"]]
 
@@ -8312,6 +8325,7 @@ def normalize_csv(src_path: str, dest_path: str):
         return 0, ["No rows found in the CSV."]
 
     norm_map = {_norm_header(h): h for h in headers}
+    tgt_map = _targeting_header_map(headers)
 
     def _find(candidates):
         for c in candidates:
@@ -8348,27 +8362,30 @@ def normalize_csv(src_path: str, dest_path: str):
     Path(dest_path).parent.mkdir(parents=True, exist_ok=True)
     written = 0
     skipped_invalid: list = []  # H13: track rows dropped for invalid email
-    with open(dest_path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=CONTACT_FIELDS)
-        writer.writeheader()
-        for r in rows:
-            email_val = (r.get(h_email, "") or "").strip() if h_email else ""
-            if email_val and not EMAIL_RE.match(email_val):
-                skipped_invalid.append(email_val)
-                continue
-            writer.writerow({
-                "Email": email_val,
-                "FirstName": (r.get(h_first, "") if h_first else "").strip(),
-                "LastName":  (r.get(h_last, "")  if h_last  else "").strip(),
-                "Company":   (r.get(h_co, "")    if h_co    else "").strip(),
-                "JobTitle":  (r.get(h_title, "") if h_title else "").strip(),
-                "MobilePhone": (r.get(h_mob, "")  if h_mob  else "").strip(),
-                "WorkPhone": (r.get(h_work, "") if h_work else "").strip(),
-                "LinkedInPage": (r.get(h_li, "")  if h_li   else "").strip(),
-                "City":     (r.get(h_city, "")  if h_city  else "").strip(),
-                "State":    (r.get(h_state, "") if h_state else "").strip(),
-            })
-            written += 1
+    out_rows = []
+    for r in rows:
+        email_val = (r.get(h_email, "") or "").strip() if h_email else ""
+        if email_val and not EMAIL_RE.match(email_val):
+            skipped_invalid.append(email_val)
+            continue
+        rec = {
+            "Email": email_val,
+            "FirstName": (r.get(h_first, "") if h_first else "").strip(),
+            "LastName":  (r.get(h_last, "")  if h_last  else "").strip(),
+            "Company":   (r.get(h_co, "")    if h_co    else "").strip(),
+            "JobTitle":  (r.get(h_title, "") if h_title else "").strip(),
+            "MobilePhone": (r.get(h_mob, "")  if h_mob  else "").strip(),
+            "WorkPhone": (r.get(h_work, "") if h_work else "").strip(),
+            "LinkedInPage": (r.get(h_li, "")  if h_li   else "").strip(),
+            "City":     (r.get(h_city, "")  if h_city  else "").strip(),
+            "State":    (r.get(h_state, "") if h_state else "").strip(),
+        }
+        rec.update(_extract_targeting(r, tgt_map, snake=False))
+        out_rows.append(rec)
+        written += 1
+
+    _atomic_write_csv_text(
+        dest_path, _contacts_csv_text(out_rows, {c: c for c in CONTACT_FIELDS}))
 
     # H13: surface dropped rows so the user knows their import didn't
     # silently lose contacts.
@@ -8419,9 +8436,11 @@ def _normalize_rows(rows, headers=None):
             if "email" in _norm_header(h):
                 h_email = h; break
 
+    tgt_map = _targeting_header_map(raw_headers)
+
     result = []
     for r in rows:
-        result.append({
+        rec = {
             "Email": (r.get(h_email, "") if h_email else "").strip(),
             "FirstName": (r.get(h_first, "") if h_first else "").strip(),
             "LastName": (r.get(h_last, "") if h_last else "").strip(),
@@ -8432,8 +8451,670 @@ def _normalize_rows(rows, headers=None):
             "MobilePhone": (r.get(h_mob, "") if h_mob else "").strip(),
             "WorkPhone": (r.get(h_work, "") if h_work else "").strip(),
             "LinkedInPage": (r.get(h_li, "") if h_li else "").strip(),
-        })
+        }
+        rec.update(_extract_targeting(r, tgt_map, snake=False))
+        result.append(rec)
     return result
+
+
+# ---------------------------------------------------------------------------
+#  TARGETING DATA  -  firmographics, company identity, audience filtering,
+#  cross-campaign duplicate detection.
+#
+#  SCOPE BOUNDARY (deliberate, and the resolution of the scope contradiction
+#  between "modify _norm_contact" and "queue/sender out of scope"):
+#  these fields describe WHO to approach. They are read at import time, stored
+#  on the contact, and consulted at selection time. They never enter the queue
+#  path - _norm_contact() in the queue builder still emits exactly the eight
+#  keys it always did, so scheduled_queue.json items stay byte-identical and
+#  the sender is untouched. Targeting stops at the campaign.
+# ---------------------------------------------------------------------------
+
+# Appended to CONTACT_FIELDS. APPEND ONLY - never reorder, never remove. The
+# first ten columns of any file we write stay byte-identical to the ten this
+# app has always written, which is what makes an old contacts.csv and a new
+# one the same format rather than two formats.
+TARGETING_FIELDS = [
+    "Industry", "CompanySize", "JobFunction", "Seniority",
+    "CompanyDomain", "CompanyId",
+    "HiringSignalType", "HiringSignalDescription",
+    "HiringSignalSourceUrl", "HiringSignalDate",
+]
+
+CONTACT_FIELDS_ALL = CONTACT_FIELDS + TARGETING_FIELDS
+
+# CSV column -> the snake_case key used on an in-memory contact dict.
+# JobTitle / JobFunction / Seniority are three different things and are kept
+# apart on purpose: "Director of Logistics" is a title, "Supply Chain" is a
+# function, "Director" is a seniority. Collapsing them makes a seniority
+# filter silently match on job wording.
+_TARGETING_KEYS = {
+    "Industry":                "industry",
+    "CompanySize":             "company_size",
+    "JobFunction":             "job_function",
+    "Seniority":               "seniority",
+    "CompanyDomain":           "company_domain",
+    "CompanyId":               "company_id",
+    "HiringSignalType":        "signal_type",
+    "HiringSignalDescription": "signal_description",
+    "HiringSignalSourceUrl":   "signal_source_url",
+    "HiringSignalDate":        "signal_date",
+}
+
+# A hiring signal is only usable if it says what kind of signal it is, what it
+# said, where it came from and when. A bare "they are hiring" with no source
+# or date cannot be repeated to a prospect, so the four parts travel together.
+_SIGNAL_KEYS = ("signal_type", "signal_description", "signal_source_url", "signal_date")
+
+# Exact header aliases only. The existing contact columns fall back to
+# substring matching, which is fine for "email" but would map a targeting
+# column named "Date" onto "Last Updated Date". A wrong firmographic is worse
+# than a missing one, so these must match a header exactly (after the
+# case/space/underscore folding _norm_header does).
+_TARGETING_HEADER_ALIASES = {
+    "Industry": ["industry", "primary industry", "company industry",
+                 "sub industry", "zoominfo industry", "industry sector",
+                 "sector"],
+    "CompanySize": ["company size", "employees", "employee count",
+                    "number of employees", "headcount", "head count",
+                    "employee range", "company employee count",
+                    "employees range"],
+    "JobFunction": ["job function", "function", "department", "job department",
+                    "management function", "contact function",
+                    "primary function", "business function"],
+    "Seniority": ["seniority", "management level", "job level",
+                  "seniority level", "contact seniority"],
+    "CompanyDomain": ["company domain", "domain", "website", "company website",
+                      "company url", "web address", "web site", "company web"],
+    "CompanyId": ["company id", "companyid", "zoominfo company id",
+                  "company zoominfo id", "account id", "external id",
+                  "company external id"],
+    "HiringSignalType": ["hiring signal type", "signal type", "scoop type",
+                         "intent topic", "trigger type", "news type"],
+    "HiringSignalDescription": ["hiring signal", "hiring signal description",
+                                "signal", "signal description", "scoop",
+                                "scoop description", "intent", "news"],
+    "HiringSignalSourceUrl": ["hiring signal source url", "signal source url",
+                              "source url", "scoop url", "signal url",
+                              "news url", "source link"],
+    "HiringSignalDate": ["hiring signal date", "signal date", "scoop date",
+                         "signal published date", "scoop published date",
+                         "news date"],
+}
+
+
+def _find_targeting_header(norm_map, field):
+    """The raw header in norm_map that supplies `field`, or None.
+
+    Exact (normalised) match only - see _TARGETING_HEADER_ALIASES."""
+    hit = norm_map.get(_norm_header(field))
+    if hit is not None:
+        return hit          # our own column name, so a file we wrote round-trips
+    for cand in _TARGETING_HEADER_ALIASES.get(field, ()):
+        hit = norm_map.get(_norm_header(cand))
+        if hit is not None:
+            return hit
+    return None
+
+
+def _targeting_header_map(raw_headers):
+    """{CSV column -> raw header} for whichever targeting columns a file
+    actually carries. Columns the file lacks are simply absent."""
+    norm_map = {_norm_header(h): h for h in (raw_headers or [])}
+    out = {}
+    for field in TARGETING_FIELDS:
+        hit = _find_targeting_header(norm_map, field)
+        if hit is not None:
+            out[field] = hit
+    return out
+
+
+def _extract_targeting(row, hdr_map, snake=True):
+    """Pull the targeting values out of one raw CSV row.
+
+    snake=True returns in-memory contact keys (industry, company_size, ...);
+    snake=False returns CSV column names. Absent columns yield ""."""
+    out = {}
+    for field in TARGETING_FIELDS:
+        key = _TARGETING_KEYS[field] if snake else field
+        raw = row.get(hdr_map[field], "") if field in hdr_map else ""
+        out[key] = ("" if raw is None else str(raw)).strip()
+    return out
+
+
+def _contact_targeting_row(contact):
+    """{CSV column -> value} for one in-memory contact, tolerating either key
+    style (industry / Industry)."""
+    c = contact or {}
+    out = {}
+    for field in TARGETING_FIELDS:
+        val = c.get(_TARGETING_KEYS[field], "") or c.get(field, "") or ""
+        out[field] = str(val).strip()
+    return out
+
+
+def _has_targeting_data(contacts):
+    """True when at least one contact carries at least one targeting value."""
+    for c in contacts or []:
+        if any(_contact_targeting_row(c).values()):
+            return True
+    return False
+
+
+def _contact_csv_fieldnames(contacts):
+    """The header to write for this contact list.
+
+    A list with no firmographics writes the same ten columns it always has, so
+    an Arena contacts.csv is byte-identical after a round trip. The moment any
+    contact carries targeting data the file widens to twenty columns. The
+    choice is driven by the DATA, never by a workspace setting, so two
+    workspaces holding the same contacts always produce the same file and
+    there is only ever one format to read."""
+    return list(CONTACT_FIELDS_ALL) if _has_targeting_data(contacts) else list(CONTACT_FIELDS)
+
+
+# ---------------------------------------------------------------------------
+#  Company identity
+# ---------------------------------------------------------------------------
+
+# Mailbox providers. A "company domain" that resolves to one of these is not a
+# company - see _clean_company_domain.
+_PUBLIC_EMAIL_DOMAINS = frozenset({
+    "gmail.com", "googlemail.com", "yahoo.com", "ymail.com", "rocketmail.com",
+    "hotmail.com", "hotmail.co.uk", "hotmail.fr", "outlook.com", "live.com",
+    "live.co.uk", "msn.com", "aol.com", "aim.com", "icloud.com", "me.com",
+    "mac.com", "protonmail.com", "proton.me", "gmx.com", "gmx.net",
+    "mail.com", "zoho.com", "yandex.com", "yandex.ru", "comcast.net",
+    "verizon.net", "att.net", "sbcglobal.net", "bellsouth.net", "cox.net",
+    "charter.net", "earthlink.net", "juno.com", "qq.com", "163.com",
+    "126.com", "naver.com", "hanmail.net", "daum.net", "btinternet.com",
+    "web.de", "t-online.de", "free.fr", "orange.fr", "wanadoo.fr",
+    "libero.it", "yahoo.co.uk", "yahoo.ca", "yahoo.com.au", "shaw.ca",
+    "rogers.com", "telus.net", "sympatico.ca", "optonline.net",
+    "windstream.net", "frontier.com", "roadrunner.com", "rr.com",
+})
+
+_COMPANY_SUFFIX_RE = re.compile(
+    r"\b(inc|incorporated|llc|l l c|ltd|limited|corp|corporation|co|company|"
+    r"plc|gmbh|ag|sa|sas|sarl|bv|nv|ab|oy|as|pty|pte|llp|lp|pc|pllc)\b")
+_DOMAIN_OK_RE = re.compile(r"^[a-z0-9\-]+(\.[a-z0-9\-]+)+$")
+
+
+def _clean_company_domain(raw):
+    """A pasted website/domain reduced to a bare host, or "" if unusable.
+
+    Returns "" for mailbox providers: a contact reachable at gmail.com tells
+    us nothing about which company they work for."""
+    s = ("" if raw is None else str(raw)).strip().lower()
+    if not s:
+        return ""
+    s = re.sub(r"^[a-z][a-z0-9+.\-]*://", "", s)
+    s = s.split("/")[0].split("?")[0].split("#")[0]
+    s = s.split("@")[-1]
+    s = s.strip().strip(".")
+    if s.startswith("www."):
+        s = s[4:]
+    if not _DOMAIN_OK_RE.match(s):
+        return ""
+    if s in _PUBLIC_EMAIL_DOMAINS:
+        return ""
+    return s
+
+
+def _norm_company_name(raw):
+    """A company name folded for comparison: case, punctuation and the usual
+    legal suffixes removed. "Acme Logistics, Inc." and "acme logistics llc"
+    fold together; "Acme Logistics" and "Acme Freight" do not."""
+    s = ("" if raw is None else str(raw)).strip().lower()
+    if not s:
+        return ""
+    s = re.sub(r"[‘’“”'\"]", "", s)
+    s = re.sub(r"[,.]", " ", s)
+    s = _COMPANY_SUFFIX_RE.sub(" ", s)
+    s = re.sub(r"[^a-z0-9]+", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _company_identity(contact):
+    """(key, basis) identifying a contact's employer.
+
+    basis is "company_id", "domain", "name" or "" (unknown), in descending
+    order of confidence.
+
+    The contact's EMAIL ADDRESS is never consulted. Deriving an employer from
+    an email domain merges every freemail contact into one fictional company
+    and splits subsidiaries that share a parent's mail domain - both errors
+    are invisible once they have happened, so the domain has to be one
+    somebody actually verified and put in the CompanyDomain column."""
+    c = contact or {}
+    ext = str(c.get("company_id", "") or c.get("CompanyId", "") or "").strip()
+    if ext:
+        return ("id:" + ext.lower(), "company_id")
+    dom = _clean_company_domain(c.get("company_domain", "") or c.get("CompanyDomain", ""))
+    if dom:
+        return ("dom:" + dom, "domain")
+    name = _norm_company_name(c.get("company", "") or c.get("Company", ""))
+    if name:
+        return ("name:" + name, "name")
+    return ("", "")
+
+
+def _pick_consensus(values):
+    """The most common non-blank value, ties broken by sort order so the same
+    input always produces the same answer."""
+    counts = {}
+    for v in values:
+        v = (v or "").strip()
+        if v:
+            counts[v] = counts.get(v, 0) + 1
+    if not counts:
+        return ""
+    return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+
+
+def _company_index(contacts):
+    """A company-keyed view over a contact list, computed at read time.
+
+    Returns {"companies": {key: {...}}, "unindexed": [contact, ...]}. There is
+    no company file and no new storage - this is derived every time it is
+    asked for, so it can never drift from the contacts it describes.
+
+    A contact with no company at all is RETAINED in "unindexed" rather than
+    dropped: they are still a person worth emailing, they just cannot be
+    grouped."""
+    companies = {}
+    unindexed = []
+    for c in contacts or []:
+        key, basis = _company_identity(c)
+        if not key:
+            unindexed.append(c)
+            continue
+        ent = companies.get(key)
+        if ent is None:
+            ent = companies[key] = {
+                "key": key, "basis": basis, "name": "", "domain": "",
+                "company_id": "", "industry": "", "company_size": "",
+                "size_bucket": "", "contacts": [], "signals": [],
+                "verified": basis in ("company_id", "domain"),
+            }
+        ent["contacts"].append(c)
+    for ent in companies.values():
+        cs = ent["contacts"]
+        ent["name"] = _pick_consensus(
+            [x.get("company", "") or x.get("Company", "") for x in cs])
+        ent["domain"] = _pick_consensus(
+            [_clean_company_domain(x.get("company_domain", "") or x.get("CompanyDomain", ""))
+             for x in cs])
+        ent["company_id"] = _pick_consensus(
+            [x.get("company_id", "") or x.get("CompanyId", "") for x in cs])
+        ent["industry"] = _pick_consensus(
+            [x.get("industry", "") or x.get("Industry", "") for x in cs])
+        ent["company_size"] = _pick_consensus(
+            [x.get("company_size", "") or x.get("CompanySize", "") for x in cs])
+        ent["size_bucket"] = _size_bucket(ent["company_size"])
+        seen = set()
+        for x in cs:
+            sig = {k: str(x.get(k, "") or "").strip() for k in _SIGNAL_KEYS}
+            if not any(sig.values()):
+                continue
+            fp = tuple(sig[k] for k in _SIGNAL_KEYS)
+            if fp in seen:
+                continue
+            seen.add(fp)
+            sig["complete"] = all(sig[k] for k in _SIGNAL_KEYS)
+            ent["signals"].append(sig)
+        ent["signals"].sort(key=lambda s: (s.get("signal_date", ""), s.get("signal_type", "")))
+    return {"companies": companies, "unindexed": unindexed}
+
+
+# ---------------------------------------------------------------------------
+#  Firmographic normalisation
+# ---------------------------------------------------------------------------
+
+# Canonical headcount buckets. Boundaries are inclusive at both ends and the
+# ranges do not overlap, so a given headcount lands in exactly one bucket.
+_SIZE_BUCKETS = (
+    ("1-10", 1, 10),
+    ("11-50", 11, 50),
+    ("51-200", 51, 200),
+    ("201-500", 201, 500),
+    ("501-1000", 501, 1000),
+    ("1001-5000", 1001, 5000),
+    ("5001-10000", 5001, 10000),
+    ("10001+", 10001, None),
+)
+_SIZE_BUCKET_NAMES = tuple(b[0] for b in _SIZE_BUCKETS)
+
+
+def _size_bucket(raw):
+    """The canonical bucket for a headcount value, or "" if unreadable.
+
+    Accepts a plain count ("250"), a formatted count ("1,250"), a range
+    ("201-500", "201 to 500") or an open range ("10,000+"). A range is
+    bucketed by its LOW end, which is the only end always present."""
+    s = ("" if raw is None else str(raw)).strip().lower()
+    if not s:
+        return ""
+    if s in _SIZE_BUCKET_NAMES:
+        return s
+    s = s.replace(",", "").replace(" to ", "-").replace("–", "-").replace("—", "-")
+    m = re.search(r"\d+", s)
+    if not m:
+        return ""
+    try:
+        n = int(m.group(0))
+    except ValueError:
+        return ""
+    if n < 1:
+        return ""
+    for name, lo, hi in _SIZE_BUCKETS:
+        if n >= lo and (hi is None or n <= hi):
+            return name
+    return ""
+
+
+def _token_match(value, wanted):
+    """True when `wanted` occurs in `value` as a whole token.
+
+    Plain substring matching would make a filter for "VP" also match "SVP" and
+    "AVP", silently widening an audience with people the user did not ask
+    for."""
+    w = re.sub(r"[^a-z0-9]+", " ", ("" if wanted is None else str(wanted)).lower()).strip()
+    if not w:
+        return False
+    v = re.sub(r"[^a-z0-9]+", " ", ("" if value is None else str(value)).lower()).strip()
+    if not v:
+        return False
+    return (" " + w + " ") in (" " + v + " ")
+
+
+def _contact_field(contact, key):
+    """One targeting value off a contact, tolerating either key style."""
+    c = contact or {}
+    col = _TARGETING_COLS_BY_KEY.get(key, key)
+    return str(c.get(key, "") or c.get(col, "") or "").strip()
+
+
+_TARGETING_COLS_BY_KEY = {v: k for k, v in _TARGETING_KEYS.items()}
+
+
+# ---------------------------------------------------------------------------
+#  Audience filter
+# ---------------------------------------------------------------------------
+
+def _tm_audience_filter(contacts, industries=None, size_buckets=None,
+                        job_functions=None, seniorities=None,
+                        signal_types=None, include_unknown=False,
+                        require_complete_signal=False):
+    """Filter a contact list on firmographics. Pure - no I/O, no globals.
+
+    A criterion with no values is not applied. With no criteria at all every
+    contact comes back, which is what makes this safe to run over a legacy
+    ten-column list that has no firmographics in it: the answer is "all of
+    them", never "none of them".
+
+    UNKNOWNS ARE THE POINT. A contact whose Industry is blank is not an
+    industry mismatch, they are a contact we do not know about.
+    `include_unknown` decides which way those fall, and the result always
+    reports how many were dropped for being unknown and on which field - so a
+    filter that quietly removes 400 contacts for missing data says so, instead
+    of just looking like a small audience."""
+    contacts = list(contacts or [])
+
+    def _wanted(v):
+        return [str(x).strip() for x in (v or []) if str(x or "").strip()]
+
+    crit = {
+        "Industry":         ("industry", _wanted(industries)),
+        "CompanySize":      ("company_size", _wanted(size_buckets)),
+        "JobFunction":      ("job_function", _wanted(job_functions)),
+        "Seniority":        ("seniority", _wanted(seniorities)),
+        "HiringSignalType": ("signal_type", _wanted(signal_types)),
+    }
+    active = [f for f in TARGETING_FIELDS if f in crit and crit[f][1]]
+
+    matched = []
+    unknown_by_field = {f: 0 for f in crit}
+    excluded_unknown = excluded_mismatch = excluded_incomplete_signal = 0
+
+    for c in contacts:
+        was_unknown = False
+        mismatch = False
+        for field, (key, vals) in crit.items():
+            if not vals:
+                continue
+            got = _contact_field(c, key)
+            if field == "CompanySize":
+                got = _size_bucket(got)
+            if not got:
+                unknown_by_field[field] += 1
+                was_unknown = True
+                continue
+            if field == "CompanySize":
+                ok = any(_size_bucket(w) == got or str(w).strip() == got for w in vals)
+            else:
+                ok = any(_token_match(got, w) or got.lower() == str(w).strip().lower()
+                         for w in vals)
+            if not ok:
+                mismatch = True
+                break
+        if mismatch:
+            excluded_mismatch += 1
+            continue
+        if was_unknown and not include_unknown:
+            excluded_unknown += 1
+            continue
+        if require_complete_signal:
+            if not all(_contact_field(c, k) for k in _SIGNAL_KEYS):
+                excluded_incomplete_signal += 1
+                continue
+        matched.append(c)
+
+    return {
+        "matched": matched,
+        "total": len(contacts),
+        "kept": len(matched),
+        "excluded_unknown": excluded_unknown,
+        "excluded_mismatch": excluded_mismatch,
+        "excluded_incomplete_signal": excluded_incomplete_signal,
+        "unknown_by_field": {f: n for f, n in unknown_by_field.items() if n},
+        "include_unknown": bool(include_unknown),
+        "filters_active": active,
+    }
+
+
+def _audience_summary_line(res):
+    """One sentence a UI can show under a filtered count, naming the excluded
+    unknowns instead of leaving them to be discovered later."""
+    if not res:
+        return ""
+    parts = ["{} of {} contacts match".format(res.get("kept", 0), res.get("total", 0))]
+    unk = res.get("excluded_unknown", 0)
+    if unk:
+        fields = ", ".join(sorted(res.get("unknown_by_field", {})))
+        parts.append("{} excluded for missing {}".format(unk, fields or "data"))
+    elif res.get("include_unknown") and res.get("unknown_by_field"):
+        fields = ", ".join(sorted(res.get("unknown_by_field", {})))
+        parts.append("unknown {} included".format(fields))
+    inc = res.get("excluded_incomplete_signal", 0)
+    if inc:
+        parts.append("{} excluded for an incomplete hiring signal".format(inc))
+    return "; ".join(parts) + "."
+
+
+# ---------------------------------------------------------------------------
+#  Cross-campaign duplicate detection
+# ---------------------------------------------------------------------------
+
+# Campaign states that cannot enrol anyone. Everything else is judged by
+# whether the queue still holds pending mail for the contact, which is the
+# same definition the Active-campaigns view uses.
+_ENROLMENT_DEAD_STATUSES = frozenset({"cancelled", "draft"})
+
+
+def _active_enrolments(exclude_campaign=None):
+    """{lowercased email -> sorted [campaign name]} for every contact who
+    still has mail pending in this workspace.
+
+    SCOPE: this workspace only. The filestore is per user and there is no
+    in-app cross-tenant read, so a contact another rep is working is NOT
+    visible from here - team-wide detection is the separate server-side
+    sweep. Callers report the scope they actually checked rather than saying
+    "no duplicates" when they only mean "none of yours"."""
+    skip = (exclude_campaign or "").strip().lower()
+    live_camps = set()
+    try:
+        all_camps = load_campaigns()
+    except Exception:
+        return {}
+    for camp in all_camps or []:
+        name = (camp.get("name") or "").strip()
+        if not name or name.lower() == skip:
+            continue
+        if str(camp.get("status", "active")).strip().lower() in _ENROLMENT_DEAD_STATUSES:
+            continue
+        live_camps.add(name)
+    if not live_camps:
+        return {}
+    try:
+        queue = _load_queue()
+    except Exception:
+        return {}
+    acc = {}
+    for item in queue or []:
+        if str(item.get("status", "pending")).strip().lower() != "pending":
+            continue
+        cn = (item.get("campaign") or "").strip()
+        if cn not in live_camps:
+            continue
+        em = str(item.get("to") or item.get("email") or "").strip().lower()
+        if not em:
+            continue
+        acc.setdefault(em, set()).add(cn)
+    return {em: sorted(names) for em, names in acc.items()}
+
+
+def _already_targeted(emails, exclude_campaign=None):
+    """Which of `emails` are already actively enrolled somewhere else.
+
+    "Actively enrolled" means mail is still PENDING for them in a campaign
+    that is not cancelled or draft. Someone whose campaign has finished
+    sending, or who replied (which cancels their pending mail), is not a
+    duplicate - they are a person we may legitimately approach again."""
+    wanted = []
+    seen = set()
+    for e in emails or []:
+        em = str(e or "").strip().lower()
+        if em and em not in seen:
+            seen.add(em)
+            wanted.append(em)
+    enrolled = _active_enrolments(exclude_campaign=exclude_campaign)
+    dupes = {em: enrolled[em] for em in wanted if em in enrolled}
+    return {
+        "duplicates": dupes,
+        "count": len(dupes),
+        "checked": len(wanted),
+        "campaigns": sorted({c for names in dupes.values() for c in names}),
+        "scope": "workspace",
+    }
+
+
+def _recheck_enrolment_duplicates(camp):
+    """Re-run the duplicate scan at the moment contacts are committed to a
+    campaign, not only when the list was picked.
+
+    The check at selection time can be minutes or days stale - another
+    campaign may have launched in between. This runs against the queue as it
+    stands right now. It REPORTS; it does not drop anyone."""
+    camp = camp or {}
+    name = camp.get("name") or ""
+    emails = [(c.get("email", "") or c.get("Email", "")) for c in camp.get("contacts", []) or []]
+    res = _already_targeted(emails, exclude_campaign=name)
+    if res["count"]:
+        print("[Targeting] '{}': {} of {} contacts are already actively enrolled in {} "
+              "(workspace scope)".format(name, res["count"], res["checked"],
+                                         ", ".join(res["campaigns"])), flush=True)
+    return res
+
+
+def _atomic_write_csv_text(path, text):
+    r"""Atomic CSV replace that does NOT translate line endings.
+
+    _atomic_write_text() goes through Path.write_text(), which rewrites "\n"
+    to os.linesep - on Windows that turns the "\r\n" the csv module already
+    emits into "\r\r\n", and the file no longer round-trips. CSV rows carry
+    their own terminator, so they are written through byte for byte."""
+    p = Path(path)
+    tmp = p.with_suffix(p.suffix + ".tmp")
+    try:
+        with open(tmp, "w", newline="", encoding="utf-8") as f:
+            f.write(text)
+        os.replace(str(tmp), str(p))
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
+# CSV column -> the snake_case key an in-memory contact stores it under, for
+# the ten original columns. The targeting columns are not here; they come from
+# _contact_targeting_row, which already tolerates either key style.
+_CONTACT_COLMAP_SNAKE = {
+    "Email":        "email",
+    "FirstName":    "first_name",
+    "LastName":     "last_name",
+    "Company":      "company",
+    "JobTitle":     "title",
+    "MobilePhone":  "phone_mobile",
+    "WorkPhone":    "phone_office",
+    "LinkedInPage": "linkedin",
+    "City":         "city",
+    "State":        "state",
+}
+
+
+def _contacts_csv_text(contacts, colmap):
+    """Serialise contacts to CSV text with a data-driven header.
+
+    `colmap` maps a CSV column to the in-memory key holding it, for the ten
+    original columns; the targeting columns come from _contact_targeting_row.
+    Returns the text, not a file, so the caller decides how it lands."""
+    import io as _io
+    fieldnames = _contact_csv_fieldnames(contacts)
+    buf = _io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
+    w.writeheader()
+    for c in contacts or []:
+        rec = {col: str(c.get(key, "") or "").strip() for col, key in colmap.items()}
+        if len(fieldnames) > len(CONTACT_FIELDS):
+            rec.update(_contact_targeting_row(c))
+        w.writerow(rec)
+    return buf.getvalue()
+
+
+# ---------------------------------------------------------------------------
+#  Playbook provenance
+# ---------------------------------------------------------------------------
+
+def _campaign_regen_block(camp, cfg=None):
+    """Why this saved campaign must not be regenerated, or "" if it may be.
+
+    A campaign carries the playbook it was written under. Regenerating it
+    after the workspace switched playbooks would rewrite Arena recruiting copy
+    in ThriveModal's voice, or the reverse, under the same campaign name and
+    with nothing in the file to record that the voice changed. Blocking is the
+    conservative choice - the owner can copy the campaign into a new one under
+    the current playbook, which keeps both versions and both provenances."""
+    camp_pb = _campaign_playbook(camp)
+    ws_pb = _workspace_playbook(cfg)
+    if camp_pb == ws_pb:
+        return ""
+    return ("This campaign was written under the “{}” playbook and this workspace "
+            "now uses “{}”. Regenerating it would rewrite it in a different voice "
+            "under the same name. Copy it into a new campaign instead."
+            .format(camp_pb, ws_pb))
 
 
 def list_saved_contact_lists():
@@ -24627,18 +25308,9 @@ def p_contacts(s, rf):
 
     def _save_contacts_to_csv(contact_list):
         """Write contacts back to the active CSV atomically (write tmp, replace)."""
-        import csv as csv_mod
-        import io as _io
-        buf = _io.StringIO()
-        w = csv_mod.DictWriter(buf, fieldnames=CONTACT_FIELDS)
-        w.writeheader()
-        for c in contact_list:
-            w.writerow({"Email": c.get("email", ""), "FirstName": c.get("first_name", ""),
-                        "LastName": c.get("last_name", ""), "Company": c.get("company", ""),
-                        "JobTitle": c.get("title", ""), "MobilePhone": c.get("phone_mobile", ""),
-                        "WorkPhone": c.get("phone_office", ""), "LinkedInPage": c.get("linkedin", ""),
-                        "City": c.get("city", ""), "State": c.get("state", "")})
-        _atomic_write_text(_user_contacts_csv_path(), buf.getvalue())
+        _atomic_write_csv_text(
+            _user_contacts_csv_path(),
+            _contacts_csv_text(contact_list, _CONTACT_COLMAP_SNAKE))
 
     with ui.element("div").style("display:grid;grid-template-columns:260px 1fr;gap:20px;"):
         # ── LEFT: Import + Saved Lists ──────────────────────────────────────
