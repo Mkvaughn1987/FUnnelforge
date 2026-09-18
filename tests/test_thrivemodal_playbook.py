@@ -25,6 +25,14 @@ _SEVEN = ["Step 1 - Relevance", "Step 2 - Role fit", "Step 3 - Follow-up Call",
           "Step 4 - LinkedIn Connect", "Step 5 - Brief follow-up",
           "Step 6 - Confidence and evidence", "Step 7 - Close the loop"]
 
+# tm_conversation runs two emails longer than the Arena 5x5 it grew out of:
+# seven emails, one call and one LinkedIn touch.
+_NINE = ["Step 1 - Capacity", "Step 2 - What the role would cost",
+         "Step 3 - Follow-up Call", "Step 4 - LinkedIn Connect",
+         "Step 5 - What actually transfers", "Step 6 - After the hire starts",
+         "Step 7 - Quality and control", "Step 8 - How the commitment works",
+         "Step 9 - Close the loop"]
+
 
 # ── 1. workspace playbook selection ────────────────────────────────────────
 
@@ -121,18 +129,57 @@ def test_thrivemodal_is_not_an_arena_slate_type():
 
 # ── 4. the 5x5 shape, preserved exactly ────────────────────────────────────
 
-def test_tm_conversation_matches_the_arena_5x5_delays_exactly():
+def test_tm_conversation_steps_1_to_7_match_the_arena_5x5_delays_exactly():
+    """Steps 8 and 9 are ThriveModal's two extra emails; everything before
+    them must still be the 5x5 cadence, unchanged."""
     shape = fa._TM_STEP_SHAPE["tm_conversation"]
-    assert {n: d for n, (d, _st) in shape.items()} == fa._FIVEBYFIVE_DELAYS
+    assert {n: d for n, (d, _st) in shape.items() if n <= 7} == fa._FIVEBYFIVE_DELAYS
+    assert sorted(shape) == list(range(1, 10))
+    assert shape[8][0] > 0 and shape[9][0] > 0
 
 
-def test_tm_conversation_step_types_are_five_emails_one_call_one_linkedin():
+def test_tm_conversation_step_types_are_seven_emails_one_call_one_linkedin():
     shape = fa._TM_STEP_SHAPE["tm_conversation"]
     kinds = [st for _d, st in (shape[n] for n in sorted(shape))]
-    assert kinds.count(fa.ST.EMAIL_AUTO) == 5
+    assert kinds.count(fa.ST.EMAIL_AUTO) == 7
     assert kinds.count(fa.ST.CALL) == 1
     assert kinds.count(fa.ST.LINKEDIN) == 1
     assert shape[3][1] == fa.ST.CALL and shape[4][1] == fa.ST.LINKEDIN
+
+
+def test_every_tm_type_agrees_with_itself_on_count_delay_and_step_type():
+    """Three places describe each sequence: the "N steps - D weeks" label, the
+    "Step N - ... (delay_days:D, step_type:T)" lines in the generation prompt,
+    and _TM_STEP_SHAPE, which is what actually pins the campaign. They drift
+    silently - the label is cosmetic and the prompt is advice to a model - so
+    this is the only thing keeping them honest. delay_days are BUSINESS days
+    (see _add_business_days), hence total / 5 for the week count."""
+    step_re = re.compile(
+        r"Step (\d+) - [^(]*\(delay_days:(\d+), step_type:(\w+)\)")
+    label_re = re.compile(r"^(\d+) steps - (\d+) weeks?$")
+    seen = set()
+    for t in fa.AICB_CAMPAIGN_TYPES:
+        key = t[0]
+        if key not in fa._TM_TYPE_KEYS:
+            continue
+        seen.add(key)
+        m = label_re.match(t[2])
+        assert m, (key, t[2])
+        n_label, weeks_label = int(m.group(1)), int(m.group(2))
+
+        shape = fa._TM_STEP_SHAPE[key]
+        assert sorted(shape) == list(range(1, n_label + 1)), key
+
+        prompt_steps = step_re.findall(t[6])
+        assert len(prompt_steps) == n_label, (key, len(prompt_steps))
+        for n, delay, kind in prompt_steps:
+            want_delay, want_kind = shape[int(n)]
+            assert int(delay) == want_delay, (key, n, delay, want_delay)
+            assert kind == want_kind, (key, n, kind, want_kind)
+
+        total = sum(d for d, _st in shape.values())
+        assert round(total / 5) == weeks_label, (key, total, weeks_label)
+    assert seen == set(fa._TM_TYPE_KEYS)
 
 
 def test_call_and_linkedin_land_on_the_same_day_as_step_2():
@@ -142,17 +189,18 @@ def test_call_and_linkedin_land_on_the_same_day_as_step_2():
 
 
 def test_overrides_pin_the_shape_even_if_the_model_ignored_it():
-    data = _steps(*_SEVEN)
+    data = _steps(*_NINE)
     fa._apply_thrivemodal_overrides("tm_conversation", data)
     got = [(e["delay_days"], e["step_type"]) for e in data["emails"]]
     assert got == [(0, fa.ST.EMAIL_AUTO), (3, fa.ST.EMAIL_AUTO),
                    (0, fa.ST.CALL), (0, fa.ST.LINKEDIN),
                    (2, fa.ST.EMAIL_AUTO), (3, fa.ST.EMAIL_AUTO),
-                   (4, fa.ST.EMAIL_AUTO)]
+                   (4, fa.ST.EMAIL_AUTO), (4, fa.ST.EMAIL_AUTO),
+                   (5, fa.ST.EMAIL_AUTO)]
 
 
 def test_thrivemodal_overrides_are_idempotent():
-    data = _steps(*_SEVEN)
+    data = _steps(*_NINE)
     fa._apply_thrivemodal_overrides("tm_conversation", data)
     once = [dict(e) for e in data["emails"]]
     fa._apply_thrivemodal_overrides("tm_conversation", data)
