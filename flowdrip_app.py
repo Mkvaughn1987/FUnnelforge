@@ -33137,42 +33137,6 @@ def p_dashboard(s: AppState, rf):
                 (r for r in recs if _resp_date(r)[:10] >= _week_start_str),
                 key=_resp_date, reverse=True)
             with ui.element("div").style(
-                    f"background:{C['card']};border:1px solid {C['border']};"
-                    f"border-radius:10px;padding:14px 16px;margin-bottom:8px;"):
-                with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;"):
-                    ui.label(f"{len(_today_q)} emails sending today").style(
-                        f"font-size:13px;font-weight:600;color:{C['text_l']};")
-                    def _go_queue():
-                        nav_go(s, rf, hub="sales", page="queue")
-                    with ui.element("button").style(
-                            f"font-size:10px;color:{C['teal']};background:transparent;border:none;"
-                            f"cursor:pointer;font-family:inherit;").on("click", _go_queue):
-                        ui.label("Queue")
-                if _today_q:
-                    for _eq in _today_q[:3]:
-                        try:
-                            _t = datetime.fromisoformat(_eq["send_dt"]).strftime("%I:%M %p").lstrip("0")
-                        except Exception:
-                            _t = ""
-                        ui.label(f"{_t}  {_eq.get('contact_name', _eq.get('to',''))}").style(
-                            f"font-size:11px;color:{C['muted']};padding:2px 0;")
-                    if len(_today_q) > 3:
-                        ui.label(f"+{len(_today_q)-3} more").style(f"font-size:10px;color:{C['muted']};margin-top:2px;")
-                else:
-                    ui.label("No emails scheduled for today.").style(f"font-size:11px;color:{C['muted']};")
-
-            # Responses  -  headline stat + this-week list (interactive,
-            # same "I Responded" pattern as the full Replies page)
-            # NOTE: live replies are logged by ReplyMonitor with a "date" key;
-            # "replied_at" is only set by the add_responded() helper path, so
-            # both must be checked or "this week" silently comes back empty.
-            def _resp_date(r):
-                return r.get("date") or r.get("replied_at") or ""
-            _week_start_str = (today - timedelta(days=today.weekday())).strftime("%Y-%m-%d")
-            _week_recs = sorted(
-                (r for r in recs if _resp_date(r)[:10] >= _week_start_str),
-                key=_resp_date, reverse=True)
-            with ui.element("div").style(
                     f"background:{C['card']};border:1px solid {C['teal']};"
                     f"border-radius:10px;padding:16px 18px;margin-bottom:8px;"):
                 with ui.element("div").style("display:flex;align-items:baseline;justify-content:space-between;margin-bottom:2px;"):

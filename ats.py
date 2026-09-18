@@ -3767,7 +3767,10 @@ def _view_upload(ff, st, refresh):
     # handler (a safe context that survives refresh(), unlike a ui.timer whose
     # slot root.clear() deletes mid-callback): every uploaded file bumps a token
     # and waits ~0.8s; only the last one still holding the latest token fires the
-    # import, so a multi-file burst triggers exactly one sync def _maybe_autoimport():
+    # import, so a multi-file burst triggers exactly one run.
+    _imp = {"token": 0}
+
+    async def _maybe_autoimport():
         import asyncio
         _imp["token"] += 1
         mine = _imp["token"]
