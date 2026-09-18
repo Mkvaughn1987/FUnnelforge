@@ -30035,7 +30035,8 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
         _spot_hdr = ui.element("div").style(
             "display:flex;align-items:center;gap:6px;margin-bottom:4px;")
         with _spot_hdr:
-            ui.label("Candidate Spotlights").classes("fd-fl").style("margin:0;")
+            ui.label(_TM_PROFILES_HEADING if _SALES_MODE
+                     else "Candidate Spotlights").classes("fd-fl").style("margin:0;")
             with ui.element("span").style(
                     f"display:inline-flex;align-items:center;justify-content:center;"
                     f"width:16px;height:16px;border-radius:50%;"
@@ -30044,6 +30045,11 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                     f"font-family:'Nunito',sans-serif;"):
                 ui.label("?").style("line-height:1;")
                 ui.tooltip(
+                    "AI writes 3 illustrative profiles per issue of the kind "
+                    "of dedicated offshore professional a business in this "
+                    "niche could add (role, years, tools). Labelled as "
+                    "samples in the email; no pay figures."
+                    if _SALES_MODE else
                     "AI auto-populates anonymized candidate profiles based on "
                     "what's hot in your sector + region right now (titles, "
                     "experience, salary asks). You can swap in real candidates "
@@ -30057,6 +30063,12 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
         # both. The Pipeline path is only meaningful for ATS users (the
         # candidate pool); non-ATS users see no toggle and just get the AI
         # path. Default = AI.
+        # Sales instance only: the on/off for the sample talent profiles.
+        _tm_profiles_in = ui.checkbox(
+            "Include 3 AI sample talent profiles in each issue",
+            value=True).style("font-size:12px;margin-bottom:6px;")
+        _tm_profiles_in.set_visibility(_SALES_MODE)
+
         _sel_cands = {}
         _ats_ok = _ats_allowed(getattr(s, "_user_email", ""))
         if _ats_ok:
@@ -30082,6 +30094,9 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             spotlight_recs_in = ui.textarea(
                 value="",
                 placeholder=(
+                    "e.g. Track and trace, carrier sales support and freight "
+                    "billing roles."
+                    if _SALES_MODE else
                     "e.g. Focus on Senior Project Managers, Estimators, and "
                     "Superintendents with healthcare or OSHPD experience. Skip "
                     "junior or field roles."
@@ -30162,7 +30177,8 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
         # for both.
         def _upd_spot_mode():
             _mode = (_spot_mode.value if _spot_mode is not None else "ai")
-            _ai_box.set_visibility(_mode == "ai" and not _SALES_MODE)
+            _ai_box.set_visibility(
+                _mode == "ai" and (not _SALES_MODE or bool(_tm_profiles_in.value)))
             _pipe_box.set_visibility(_mode == "pipeline")
         if _spot_mode is not None:
             _spot_mode.on_value_change(lambda _e=None: _upd_spot_mode())
@@ -30181,12 +30197,12 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             _spotlight_options = {3: "3 per issue", 6: "6 per issue"}
             spotlight_in = ui.select(options=_spotlight_options, value=3).classes("fd-input").style("margin-bottom:12px;width:100%;")
 
-        # Sales instance: nothing in this section applies, so the whole
-        # thing goes away. The widgets are still built (the save handler
-        # reads spotlight_in) and just never shown.
+        # Sales instance: the section becomes "Sample Talent Profiles", an
+        # on/off choice at a fixed 3 per issue. The count select is still
+        # built (the save handler reads it) and just never shown.
         if _SALES_MODE:
-            _spot_hdr.set_visibility(False)
             _spot_count_box.set_visibility(False)
+            _tm_profiles_in.on_value_change(lambda _e=None: _upd_spot_mode())
 
         # City Life toggle — when ON, every issue includes 2 local city
         # blurbs (food, sports, neighborhood, development) under the
@@ -30385,7 +30401,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             if _spotlight_count not in (3, 6):
                 _spotlight_count = 3
             if _SALES_MODE:
-                _spotlight_count = 0
+                _spotlight_count = 3 if _tm_profiles_in.value else 0
             _show_city_life = bool(city_life_in.value)
             # AI and Pipeline paths are mutually exclusive — save only the
             # active fork's data so a candidate picked then switched away from
@@ -30553,7 +30569,15 @@ def _edit_newsletter_settings_dialog(camp: dict, s, rf) -> None:
         # the widgets below still exist for _save() to read.
         _spot_box = ui.element("div")
         with _spot_box:
-            ui.label("Candidate Spotlights").classes("fd-fl")
+            ui.label(_TM_PROFILES_HEADING if _SALES_MODE
+                     else "Candidate Spotlights").classes("fd-fl")
+            # Sales instance: on/off at a fixed 3 per issue.
+            _tm_prof_in = ui.checkbox(
+                "Include 3 AI sample talent profiles in each issue",
+                value=str(camp.get("newsletter_spotlight_count") or "0").strip()
+                not in ("", "0"),
+            ).style("font-size:12px;")
+            _tm_prof_in.set_visibility(_SALES_MODE)
             ui.label("Spotlight Recommendations (optional)").style(
                 f"font-size:10px;color:{C['muted']};margin-top:6px;display:block;"
                 f"text-transform:uppercase;letter-spacing:.06em;font-weight:700;")
@@ -30566,6 +30590,9 @@ def _edit_newsletter_settings_dialog(camp: dict, s, rf) -> None:
             _recs_in = ui.textarea(
                 value=_cur_recs,
                 placeholder=(
+                    "e.g. Track and trace, carrier sales support and freight "
+                    "billing roles."
+                    if _SALES_MODE else
                     "e.g. Focus on Senior Project Managers, Estimators, and "
                     "Superintendents with healthcare or OSHPD experience. "
                     "Skip junior or field roles."
@@ -30577,15 +30604,17 @@ def _edit_newsletter_settings_dialog(camp: dict, s, rf) -> None:
                 f"font-family:inherit;resize:vertical;margin-bottom:12px;")
 
             # Count dropdown — comes after recommendations.
-            ui.label("How many per issue").style(
-                f"font-size:10px;color:{C['muted']};margin-bottom:4px;display:block;"
-                f"text-transform:uppercase;letter-spacing:.06em;font-weight:700;")
-            _count_in = ui.select(
-                options={3: "3 per issue", 6: "6 per issue"},
-                value=_cur_count,
-            ).classes("fd-input").style("margin-bottom:14px;width:100%;")
+            _count_box = ui.element("div")
+            with _count_box:
+                ui.label("How many per issue").style(
+                    f"font-size:10px;color:{C['muted']};margin-bottom:4px;display:block;"
+                    f"text-transform:uppercase;letter-spacing:.06em;font-weight:700;")
+                _count_in = ui.select(
+                    options={3: "3 per issue", 6: "6 per issue"},
+                    value=_cur_count,
+                ).classes("fd-input").style("margin-bottom:14px;width:100%;")
         if _SALES_MODE:
-            _spot_box.set_visibility(False)
+            _count_box.set_visibility(False)
 
         # City Life toggle
         with ui.element("div").style("display:flex;align-items:center;gap:8px;margin-bottom:18px;"):
@@ -30599,7 +30628,7 @@ def _edit_newsletter_settings_dialog(camp: dict, s, rf) -> None:
             if _new_count not in (3, 6):
                 _new_count = 3
             if _SALES_MODE:
-                _new_count = 0
+                _new_count = 3 if _tm_prof_in.value else 0
             camp["newsletter_spotlight_count"] = _new_count
             camp["newsletter_spotlight_recommendations"] = (_recs_in.value or "").strip()
             camp["newsletter_show_city_life"] = bool(_city_in.value)
@@ -52449,7 +52478,15 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
                 _rows_html += '<tr><td colspan="99" style="height:10px;line-height:0;font-size:0;">&nbsp;</td></tr>'
             _offset += _row_size
 
-        _label_text = "Candidate Spotlight" if _n == 1 else "Candidate Spotlights"
+        if _SALES_MODE:
+            _label_text = _TM_PROFILES_HEADING
+            _spot_note = (
+                f'<div style="font-size:11px;color:{nc["muted"]};'
+                f'font-style:italic;margin-top:8px;">{_TM_PROFILES_NOTE}</div>')
+        else:
+            _label_text = ("Candidate Spotlight" if _n == 1
+                           else "Candidate Spotlights")
+            _spot_note = ""
         _bg = _tint("spotlights")
         sections_html += f'''
         <tr><td style="padding:18px 40px;background:{_bg};">
@@ -52457,7 +52494,7 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
           <table cellpadding="0" cellspacing="0" width="100%"
                  style="border-collapse:separate;border-spacing:0;table-layout:fixed;">
             {_rows_html}
-          </table>
+          </table>{_spot_note}
         </td></tr>'''
 
     # Deferred append: Around Town renders HERE (after Spotlights) so the
@@ -53429,7 +53466,11 @@ def _jway_render(d: dict, contact_name: str) -> str:
             out.append(f"<p style='{H}'>{_lbl}:</p>{_ul(d[_key])}")
     cands = d.get("candidates") or []
     if cands:
-        out.append(f"<p style='{H}'>Top Talent Currently Available:</p>")
+        if _SALES_MODE:
+            out.append(f"<p style='{H}'>{_TM_PROFILES_HEADING}:</p>"
+                       f"<p style='{P}font-style:italic;'>{_TM_PROFILES_NOTE}</p>")
+        else:
+            out.append(f"<p style='{H}'>Top Talent Currently Available:</p>")
         for c in cands:
             _hdr = c.get("label") or "Candidate"
             if c.get("role"):
@@ -53453,16 +53494,22 @@ def _jway_render(d: dict, contact_name: str) -> str:
     return _strip_dashes("".join(out))
 
 
-def _nl_sales_audience(sector: str, region: str, company: str) -> str:
+def _nl_sales_audience(sector: str, region: str, company: str,
+                       with_profiles: bool = False) -> str:
     """Audience brief for a sales instance's newsletter prompts. Its readers
-    buy services; they are not hiring managers shopping for candidates."""
+    buy services; they are not hiring managers shopping for candidates.
+    `with_profiles` is set when the issue carries the sample talent
+    profiles section, which the prompt then describes separately."""
     txt = (f"AUDIENCE: owners, operations leaders and finance leaders at "
            f"{sector or 'small and mid-sized'} companies in {region or 'the US'}. "
-           f"They BUY services; they are not job seekers and not looking at "
-           f"candidates. Write about the business side of the labor market: what "
+           f"They BUY services; they are not job seekers. Write about the "
+           f"business side of the labor market: what "
            f"wage growth, labor costs, turnover and hiring difficulty mean for "
            f"their margins and team capacity. Never frame this as a recruiting "
-           f"newsletter and never include candidate profiles.")
+           f"newsletter"
+           + (" (the sample talent profiles show the kind of professional the "
+              "reader could add to their own team, nothing more)."
+              if with_profiles else " and never include candidate profiles."))
     if _is_thrivemodal():
         txt += (f" The sender's company ({company}) provides dedicated, full-time "
                 f"offshore professionals from the Philippines (admin, finance, "
@@ -53473,17 +53520,96 @@ def _nl_sales_audience(sector: str, region: str, company: str) -> str:
     return txt
 
 
+# ── Sample talent profiles (sales instance) ───────────────────────────────
+# Arena's spotlights are recruiter inventory: "Candidate A, wants $95k".
+# A ThriveModal reader is a BUYER, so the same slot shows the kind of
+# dedicated offshore professional they could add for a role in their own
+# niche. They are AI-written composites, so the section is headed "Sample
+# Talent Profiles" and carries a one-line note saying so, and no profile
+# carries a pay figure (the playbook bans quoting rates in outreach).
+_TM_PROFILES_HEADING = "Sample Talent Profiles"
+_TM_PROFILES_NOTE = ("Illustrative profiles of the professionals we recruit "
+                     "for these roles. Reply to see real candidates for "
+                     "yours.")
+
+
+def _tm_profiles_who() -> str:
+    try:
+        if _is_thrivemodal():
+            return ("dedicated, full-time professionals based in the "
+                    "Philippines who work the client's U.S. hours inside the "
+                    "client's own systems")
+    except Exception:
+        pass
+    return "dedicated, full-time remote professionals"
+
+
+def _tm_profiles_rules(niche: str, n: int, recommendations: str = "") -> str:
+    recs = (recommendations or "").strip()[:600]
+    return (
+        f"SAMPLE TALENT PROFILES: write {n} composite profiles of "
+        f"{_tm_profiles_who()}, each for a DIFFERENT role that a "
+        f"{niche or 'small and mid-sized'} business commonly moves offshore "
+        f"(back-office, finance, operations, customer service, coordination, "
+        f"billing, documentation, or a role specific to this niche; name the "
+        f"real job title, never 'virtual assistant'). "
+        + (f"The sender asked to feature: {recs}. Follow that first. " if recs else "")
+        + "Each profile is realistic and specific: years of experience, the "
+        "real U.S. tools and software they use, and the U.S. work they have "
+        "done. These are illustrative composites, NOT real people: no names, "
+        "no photos, no employers named as current clients, no pay, salary, "
+        "rate or cost figure of any kind, and no claims about nationality, "
+        "English fluency or work ethic.")
+
+
+def _tm_spotlight_prompt_block(niche: str, n: int,
+                               recommendations: str = "") -> tuple:
+    """(instruction, schema) for the Full Send newsletter on a sales
+    instance. Same `spotlights` JSON shape the renderer already reads."""
+    if not n or n <= 0:
+        return ("", "")
+    instruction = "\n\n" + _tm_profiles_rules(niche, n, recommendations)
+    schema = (
+        '  "spotlights": [\n    '
+        + ",\n    ".join(
+            f'{{"name": "Profile {chr(65 + i)}", '
+            f'"title": "specific job title + years of experience", '
+            f'"location": "Philippines · works U.S. hours", '
+            f'"salary_ask": "", '
+            f'"bullets": [3 short single-sentence bullets: tools/software, '
+            f'the U.S. work they handle, one concrete strength]}}'
+            for i in range(n))
+        + '\n  ],\n')
+    return (instruction, schema)
+
+
 def _jway_sales_prompt(sector: str, niche: str, region: str, month_year: str,
-                       contact_name: str, company: str) -> str:
+                       contact_name: str, company: str,
+                       n_profiles: int = 0, recommendations: str = "") -> str:
     """The Organic (plain-text) newsletter prompt for a sales instance: same
-    JSON shape _jway_render reads, with no candidate section."""
+    JSON shape _jway_render reads. `n_profiles` > 0 adds the sample talent
+    profiles section; 0 leaves it out."""
     _s = niche or sector or "the market"
+    if n_profiles > 0:
+        _cands = (
+            '"candidates":['
+            + ",".join(
+                f'{{"label":"Profile {chr(65 + i)}","role":"specific job title",'
+                f'"bullets":["Experience: N+ years ...","Tools: (real U.S. software) ...",'
+                f'"Handles: ...","Schedule: U.S. business hours"],"salary":""}}'
+                for i in range(n_profiles))
+            + '],')
+        _cand_rule = "\n" + _tm_profiles_rules(_s, n_profiles, recommendations) + "\n"
+    else:
+        _cands = '"candidates":[],'
+        _cand_rule = ""
     return (
         f"Write a PLAIN, PERSONAL monthly market newsletter — a warm, low-key note "
         f"from {contact_name or 'a business advisor'} at {company}. NO marketing "
         f"fluff, NO emoji, NO markdown. Sector: {sector or 'the market'}. Niche: "
         f"{niche}. Region: {region}. Month: {month_year}.\n"
-        + _nl_sales_audience(_s, region, company) + "\n"
+        + _nl_sales_audience(_s, region, company, n_profiles > 0) + "\n"
+        + _cand_rule +
         f"Use web search to pull the most recent REAL U.S. BLS jobs-report figures "
         f"(total jobs added, unemployment rate, year-over-year wage growth, average "
         f"workweek). Never fabricate stats — if a number isn't found, drop that "
@@ -53499,7 +53625,7 @@ def _jway_sales_prompt(sector: str, niche: str, region: str, month_year: str,
         f'"sector_strength":["EXACTLY 4 substantive bullets specific to {_s} - demand, margins, pricing and operating dynamics right now; **bold** the key phrase in each"],'
         f'"labor_context":["EXACTLY 4 substantive bullets on staffing costs, wage pressure, turnover and hard-to-fill back-office and operations roles in {_s}; **bold** the key phrase in each"],'
         f'"takeaway":["EXACTLY 4 substantive bullets on what this means for {_s} owners and operators: cost control, capacity, and how peers are staffing; **bold** the key phrase in each"],'
-        f'"candidates":[],'
+        + _cands +
         f'"signoff":"Thank you, and I hope this was helpful!"}}\n'
         f"No HTML, no emoji. Plain text EXCEPT you may wrap a few key phrases "
         f"in **double asterisks** for bold emphasis (no other markdown).")
@@ -53557,7 +53683,8 @@ def _generate_jway_newsletter(client, camp: dict, nl_name: str, company: str,
         f"in **double asterisks** for bold emphasis (no other markdown).")
     if _SALES_MODE:
         prompt = _jway_sales_prompt(sector, niche, region, month_year,
-                                    contact_name, company)
+                                    contact_name, company,
+                                    3 if spot_n > 0 else 0, spot_recs)
     try:
         msg = _claude_create_with_retry(
             client, model="claude-haiku-4-5-20251001", max_tokens=4000,
@@ -53668,9 +53795,14 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         _spot_n = 0
     _target_roles = camp.get("aicb_sel_roles") or []
     _spot_recs = (camp.get("newsletter_spotlight_recommendations") or "").strip()
-    _spot_instruction, _spot_schema_block = _spotlight_prompt_block(
-        sector=sector, n=_spot_n, target_roles=_target_roles,
-        recommendations=_spot_recs)
+    if _SALES_MODE:
+        _spot_n = 3 if _spot_n > 0 else 0
+        _spot_instruction, _spot_schema_block = _tm_spotlight_prompt_block(
+            (niche or sector).strip(), _spot_n, _spot_recs)
+    else:
+        _spot_instruction, _spot_schema_block = _spotlight_prompt_block(
+            sector=sector, n=_spot_n, target_roles=_target_roles,
+            recommendations=_spot_recs)
 
     # "The J's Way" — plain-text personal newsletter (vs the rich "Full Send").
     if (camp.get("newsletter_style") or "").strip() == "j_way":
@@ -53679,7 +53811,8 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
             month_year, contact_name, _spot_n, _spot_recs)
 
     if _SALES_MODE:
-        _nl_aud = _nl_sales_audience((niche or sector).strip(), region, company) + '\n\n'
+        _nl_aud = _nl_sales_audience((niche or sector).strip(), region, company,
+                                     _spot_n > 0) + '\n\n'
         _mu_focus = ('labor costs, wage pressure, hiring difficulty, and how firms are '
                      'staffing back-office and operations work')
     else:
