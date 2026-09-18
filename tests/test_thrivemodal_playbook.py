@@ -907,3 +907,42 @@ def test_locked_thrivemodal_instance_offers_only_the_allowlist():
                    if fa._type_visible(ct[0])}
     assert "offerled" not in offered and "slowburn" not in offered
     assert offered == set(fa._TM_TYPE_KEYS) | set(fa._PLAYBOOK_NEUTRAL_TYPE_KEYS)
+
+
+# ── Improve with AI: the rewrite may sharpen, never add a figure ───────────
+
+def test_improve_guard_accepts_figures_the_defaults_publish():
+    fb = fa._tm_fact_base("")
+    ok = ("Up to sixty to seventy percent lower fully burdened cost, a start "
+          "in about ten days and three or more vetted candidates.")
+    assert fa._tm_unsupported_numbers(ok, fb) == []
+
+
+def test_improve_guard_rejects_invented_figures():
+    fb = fa._tm_fact_base("")
+    bad = "Clients save 82% and we have placed 1,200 people in eighteen months."
+    found = fa._tm_unsupported_numbers(bad, fb)
+    assert "82" in found and "1,200" in found
+
+
+def test_improve_guard_allows_figures_the_owner_wrote():
+    mine = "We cover 14 U.S. states."
+    fb = fa._tm_fact_base(mine)
+    assert fa._tm_unsupported_numbers("Coverage across 14 states.", fb) == []
+
+
+def test_improve_is_not_offered_for_proof_or_bans():
+    import asyncio
+    for key in ("tm_proof", "tm_forbidden"):
+        try:
+            asyncio.run(fa._tm_improve_section(key, "x"))
+        except ValueError as e:
+            assert "locked" in str(e)
+        else:
+            raise AssertionError(key + " should be locked")
+
+
+def test_profile_placeholder_no_longer_mimics_saved_text():
+    src = open(fa.__file__, encoding="utf-8").read()
+    assert "placeholder=_fdefault[:160]" not in src
+    assert "Restore default" in src and "Improve with AI" in src

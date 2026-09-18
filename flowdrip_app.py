@@ -14036,6 +14036,93 @@ def _thrivemodal_playbook_text(cfg: dict = None) -> str:
     return "".join(parts)
 
 
+# ── "Improve with AI" for one playbook section ────────────────────────────
+# Rewrites a Profile-page section so it sells harder: confident, specific,
+# every published ThriveModal claim stated at full strength. What it may NOT
+# do is add a fact. The fact base is the shipped defaults (aligned to
+# thrivemodal.com) plus whatever the owner already wrote, and a rewrite that
+# introduces a number the fact base does not contain is rejected outright,
+# because these sections feed live cold email. Proof and the bans list are
+# excluded: "improving" either means inventing customers or loosening rules.
+_TM_IMPROVE_EXCLUDED = {"tm_proof", "tm_forbidden"}
+_TM_IMPROVE_MODEL = "claude-sonnet-5"
+_TM_NUMBER_WORDS = (
+    "two three four five six seven eight nine ten eleven twelve fifteen "
+    "twenty thirty forty fifty sixty seventy eighty ninety hundred thousand "
+    "million half third quarter").split()
+
+
+def _tm_fact_base(current: str = "") -> str:
+    return "\n\n".join([d for _k, _l, _h, d in THRIVEMODAL_PLAYBOOK_FIELDS]
+                       + [current or ""])
+
+
+def _tm_unsupported_numbers(text: str, fact_base: str) -> list:
+    """Numbers (digits or spelled out) in `text` that `fact_base` never
+    states. Empty list means the rewrite added no figure of its own."""
+    fb = fact_base.lower()
+    fb_digits = set(re.findall(r"\d+(?:[.,]\d+)?", fb))
+    fb_words = set(re.findall(r"[a-z]+", fb))
+    bad = []
+    for n in re.findall(r"\d+(?:[.,]\d+)?", text):
+        if n not in fb_digits and n not in bad:
+            bad.append(n)
+    for w in re.findall(r"[a-z]+", text.lower()):
+        if w in _TM_NUMBER_WORDS and w not in fb_words and w not in bad:
+            bad.append(w)
+    return bad
+
+
+async def _tm_improve_section(key: str, current: str) -> str:
+    """Return an improved version of one playbook section. Raises
+    ValueError with a user-facing reason when it can't or won't."""
+    if key in _TM_IMPROVE_EXCLUDED:
+        raise ValueError("This section is locked to approved wording.")
+    if not ANTHROPIC_API_KEY:
+        raise ValueError("No AI key is configured on this server.")
+    meta = {k: (lbl, hlp, d) for k, lbl, hlp, d in THRIVEMODAL_PLAYBOOK_FIELDS}
+    if key not in meta:
+        raise ValueError("Unknown section.")
+    label, helptext, default = meta[key]
+    source = (current or "").strip() or default
+    fact_base = _tm_fact_base(current)
+    system = _injection_guarded_system(
+        "You are a senior B2B copy chief sharpening one section of the "
+        "ThriveModal sales playbook. That playbook is the brief an AI writer "
+        "follows when it writes cold email for ThriveModal, a Philippines "
+        "offshore staffing company. Make the section stronger: lead with the "
+        "sharpest claims, cut filler and hedging that the facts do not "
+        "require, use concrete buyer-facing language, and state every "
+        "approved claim at full strength and with confidence. Keep every "
+        "fact accurate: you may only use facts that appear in the APPROVED "
+        "FACTS block. Never add a number, percentage, timeframe, customer, "
+        "testimonial, certification, guarantee or contract term that is not "
+        "written there. Keep required qualifiers attached to their claims "
+        "(for example 'up to' on the cost range and 'about' on start "
+        "timing). Keep any instructions to the writer that the section "
+        "already contains. Plain text only, no markdown symbols; UPPERCASE "
+        "sub-headings are fine. Output only the rewritten section.")
+    user = (
+        f"SECTION: {label}\nWHAT THIS SECTION IS FOR: {helptext}\n\n"
+        + _wrap_untrusted("approved_facts", fact_base, 40000) + "\n\n"
+        + _wrap_untrusted("section_to_improve", source, 12000))
+    import anthropic as _anth
+    client = _anth.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+    msg = await _claude_create_with_retry_async(
+        client, model=_TM_IMPROVE_MODEL, max_tokens=3000, system=system,
+        messages=[{"role": "user", "content": user}])
+    out = _strip_cite_tags("".join(
+        getattr(b, "text", "") for b in msg.content).strip())
+    if not out:
+        raise ValueError("The AI returned nothing. Try again.")
+    bad = _tm_unsupported_numbers(out, fact_base)
+    if bad:
+        raise ValueError(
+            "The rewrite added figures ThriveModal hasn't published ("
+            + ", ".join(bad[:5]) + "), so it was not used. Try again.")
+    return out
+
+
 # ── ThriveModal vertical knowledge pack ───────────────────────────────────
 # The six ThriveModal campaign types are objective-shaped (start a
 # conversation, follow up a meeting, re-engage) and deliberately
@@ -58322,6 +58409,41 @@ def _p_profile_body(s, rf):
                     f"margin-bottom:14px;")
 
             _tm_saved = load_config()
+            _pb_defaults = {k: d for k, _l, _h, d in THRIVEMODAL_PLAYBOOK_FIELDS}
+
+            def _pb_empty_keys() -> list:
+                return [k for k, w in _refs["pb_fields"].items()
+                        if not (w.value or "").strip()]
+
+            # Shown only while at least one section is empty, so a workspace
+            # that was saved blank gets one obvious way back.
+            _pb_empty_banner = ui.element("div").style(
+                f"border:1px solid {C['warn']};border-radius:8px;"
+                f"padding:10px 12px;margin-bottom:14px;display:none;"
+                f"align-items:center;gap:10px;flex-wrap:wrap;")
+            with _pb_empty_banner:
+                _pb_empty_lbl = ui.label("").style(
+                    f"font-size:12px;color:{C['warn']};flex:1;min-width:200px;")
+
+                def _pb_restore_all(_e=None) -> None:
+                    for _k in _pb_empty_keys():
+                        _refs["pb_fields"][_k].value = _pb_defaults[_k]
+                    ui.notify("Defaults loaded. Save to put them in use.",
+                              type="info")
+
+                ui.button("Load defaults into empty sections",
+                          on_click=_pb_restore_all).props(
+                    "dense no-caps unelevated").style(
+                    f"background:{C['teal']};color:#fff;font-size:12px;")
+
+            def _pb_refresh_empty() -> None:
+                _n = len(_pb_empty_keys())
+                _pb_empty_lbl.text = (
+                    f"{_n} section{'s are' if _n != 1 else ' is'} empty, so "
+                    "the AI has nothing to go on there.")
+                _pb_empty_banner.style(
+                    "display:flex;" if _n else "display:none;")
+
             for _fk, _flabel, _fhelp, _fdefault in THRIVEMODAL_PLAYBOOK_FIELDS:
                 # The box shows what is ACTUALLY IN FORCE: the shipped text
                 # until this workspace edits it, the edit afterwards. That
@@ -58333,9 +58455,13 @@ def _p_profile_body(s, rf):
                 ui.label(_fhelp).style(
                     f"font-size:10px;color:{C['muted']};margin-bottom:6px;"
                     f"line-height:1.5;")
+                # The placeholder used to be the first 160 characters of the
+                # default, which looked exactly like saved text in an empty
+                # box. It now says what it is.
                 _fa = ui.textarea(
                     value=_fval,
-                    placeholder=_fdefault[:160],
+                    placeholder="Empty. Use Restore default to load "
+                                "ThriveModal's approved text.",
                 ).style(
                     f"width:100%;min-height:90px;"
                     f"background:{C['surface']};border:1px solid {C['border']};"
@@ -58343,13 +58469,60 @@ def _p_profile_body(s, rf):
                     f"color:{C['text_l']};font-family:inherit;resize:vertical;"
                     f"margin-bottom:4px;")
                 _refs["pb_fields"][_fk] = _fa
-                if not _fval.strip():
-                    ui.label(
+
+                with ui.element("div").style(
+                        "display:flex;gap:8px;align-items:center;"
+                        "flex-wrap:wrap;margin-bottom:14px;"):
+                    _fwarn = ui.label(
                         "Empty. The AI says nothing on this topic."
-                    ).style(f"font-size:10px;color:{C['warn']};"
-                            f"margin-bottom:14px;")
-                else:
-                    ui.element("div").style("height:14px;")
+                    ).style(f"font-size:10px;color:{C['warn']};")
+                    _fwarn.set_visibility(not _fval.strip())
+                    ui.element("div").style("flex:1;")
+
+                    def _restore(_e=None, _w=_fa, _d=_fdefault) -> None:
+                        _w.value = _d
+                        ui.notify("Default loaded. Save to put it in use.",
+                                  type="info")
+
+                    ui.button("Restore default", on_click=_restore).props(
+                        "flat dense no-caps").style(
+                        f"font-size:11px;color:{C['muted']};")
+
+                    if _fk not in _TM_IMPROVE_EXCLUDED:
+                        async def _improve(_e=None, _w=_fa, _k=_fk) -> None:
+                            _btn = _e.sender if _e is not None else None
+                            if _btn is not None:
+                                _btn.props("loading")
+                            try:
+                                _w.value = await _tm_improve_section(
+                                    _k, _w.value or "")
+                                ui.notify(
+                                    "Rewritten. Read it over, then Save to "
+                                    "use it. Leave without saving to undo.",
+                                    type="positive", timeout=6000)
+                            except ValueError as _ve:
+                                ui.notify(str(_ve), type="warning",
+                                          timeout=7000)
+                            except Exception as _ex:
+                                print(f"[TM improve] {_k}: {_ex}", flush=True)
+                                ui.notify("The AI rewrite failed. Try again "
+                                          "in a moment.", type="negative")
+                            finally:
+                                if _btn is not None:
+                                    _btn.props(remove="loading")
+
+                        ui.button("Improve with AI", icon="auto_awesome",
+                                  on_click=_improve).props(
+                            "flat dense no-caps").style(
+                            f"font-size:11px;color:{C['teal']};")
+
+                def _on_change(_e=None, _w=_fa, _lbl=_fwarn) -> None:
+                    _lbl.set_visibility(not (_w.value or "").strip())
+                    _pb_refresh_empty()
+
+                _fa.on_value_change(_on_change)
+
+            _pb_refresh_empty()
 
             # ── Your own sections ──────────────────────────────────
             # Anything added here is rendered into the writing prompt the
