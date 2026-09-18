@@ -12390,7 +12390,7 @@ def _sidebar_layout_css() -> str:
 .fd-side-row:hover{{background:{C['card_h']}}}
 .fd-side-row.on{{background:{C['teal_dim']};color:{C['teal']};font-weight:600}}
 .fd-side-row.on .fd-ico{{opacity:1}}
-.fd-side-lbl{{font-size:14px;line-height:1;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.fd-side-lbl{{font-size:14px;line-height:1.4;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .fd-side-sub{{height:36px;padding-left:22px}}
 .fd-side-sub .fd-side-lbl{{font-size:13px}}
 .fd-side-badge{{font-size:11px;font-weight:700;line-height:1;padding:4px 7px;border-radius:999px;
