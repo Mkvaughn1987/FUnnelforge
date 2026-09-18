@@ -37952,6 +37952,420 @@ def _tm_match_benchmark(role_text: str) -> str:
     return best
 
 
+# Automatic worksheet (the Sales Assets default since 2026-09-18). The seller
+# supplies only Target Role and Location. The local salary is looked up on
+# the web with a cited source; burden, workspace and recruiting come from the
+# national benchmarks above; ThriveModal is shown at a flat 75% saving, the
+# typical figure across the 17 benchmark roles (64-83%, most 74-83%).
+_TM_AUTO_SAVINGS = 0.75
+_TM_SALARY_CACHE: dict = {}
+
+
+def _tm_salary_prompt(role: str, location: str) -> str:
+    return (
+        "Find the typical annual base salary for this job in this US area.\n"
+        f"Job: {role}\nArea: {location}\n\n"
+        "Search the web. Prefer, in order: (1) BLS Occupational Employment "
+        "and Wage Statistics (bls.gov/oes) for the metropolitan area that "
+        "contains this location, using the closest occupation; (2) BLS "
+        "state-level data; (3) Indeed, Glassdoor, PayScale or ZipRecruiter "
+        "pages for this job in this city. Use the median if given, else the "
+        "average. Annual figure in USD; if only hourly is given, multiply by "
+        "2080.\n\n"
+        "Reply with ONLY one JSON object, no other text:\n"
+        '{"annual_salary": 52000, "basis": "median", '
+        '"area": "Houston metro, TX", "occupation": "the title the source uses", '
+        '"source": "BLS OEWS May 2025", "url": "the exact page URL you read"}\n'
+        'If you cannot find a figure on a real page, reply {"annual_salary": null}. '
+        "Never estimate or combine figures yourself."
+    )
+
+
+def _tm_parse_salary_reply(text: str, seen_urls) -> dict | None:
+    """Validate the model's reply. The number must be plausible AND the URL
+    must be a page the search actually returned, so a figure with an
+    invented source never reaches the page."""
+    m = re.search(r"\{.*\}", str(text or ""), re.S)
+    if not m:
+        return None
+    try:
+        data = json.loads(m.group(0))
+    except Exception:
+        return None
+    salary = _tm_parse_money(data.get("annual_salary"))
+    if salary is None or not (15000 <= salary <= 600000):
+        return None
+    url = str(data.get("url") or "").strip()
+    norm = lambda u: re.sub(r"^https?://(www\.)?", "", u).rstrip("/").lower()
+    seen = {norm(u) for u in (seen_urls or []) if u}
+    if not url or norm(url) not in seen:
+        return None
+    return {
+        "salary": float(int(round(salary / 500.0)) * 500),
+        "basis": str(data.get("basis") or "median").strip()[:20],
+        "area": str(data.get("area") or "").strip()[:80],
+        "occupation": str(data.get("occupation") or "").strip()[:120],
+        "source": str(data.get("source") or "").strip()[:120],
+        "url": url[:300],
+    }
+
+
+# BLS OEWS lookup: the number comes straight from the government API, never
+# from a model. The model (when used at all) only picks WHICH occupation
+# code or metro area a free-text title/location means, from BLS's own list.
+_TM_STATE_FIPS = {
+    "AL": "01", "AK": "02", "AZ": "04", "AR": "05", "CA": "06", "CO": "08",
+    "CT": "09", "DE": "10", "DC": "11", "FL": "12", "GA": "13", "HI": "15",
+    "ID": "16", "IL": "17", "IN": "18", "IA": "19", "KS": "20", "KY": "21",
+    "LA": "22", "ME": "23", "MD": "24", "MA": "25", "MI": "26", "MN": "27",
+    "MS": "28", "MO": "29", "MT": "30", "NE": "31", "NV": "32", "NH": "33",
+    "NJ": "34", "NM": "35", "NY": "36", "NC": "37", "ND": "38", "OH": "39",
+    "OK": "40", "OR": "41", "PA": "42", "RI": "44", "SC": "45", "SD": "46",
+    "TN": "47", "TX": "48", "UT": "49", "VT": "50", "VA": "51", "WA": "53",
+    "WV": "54", "WI": "55", "WY": "56", "PR": "72",
+}
+_TM_BLS_UA = "inboxslide/1.0 (staffing cost comparison)"
+_TM_BLS_FILES: dict = {}
+_TM_BLS_VALUES: dict = {}
+
+
+def _tm_bls_file(name: str) -> list:
+    """Rows of a BLS OEWS reference file (oe.area / oe.occupation), cached
+    for the life of the process. [] on any failure."""
+    if name in _TM_BLS_FILES:
+        return _TM_BLS_FILES[name]
+    # Bundled copy first (download.bls.gov refuses requests that carry
+    # no contact address); the live file is only a fallback.
+    try:
+        _ref = json.loads((Path(__file__).resolve().parent / "bls_oews_ref.json")
+                          .read_text(encoding="utf-8"))
+        if _ref.get(name):
+            _TM_BLS_FILES[name] = _ref[name]
+            return _ref[name]
+    except Exception as ex:
+        print(f"[TMCost] bundled BLS list unreadable: {ex}", flush=True)
+    rows = []
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            f"https://download.bls.gov/pub/time.series/oe/{name}",
+            headers={"User-Agent": _TM_BLS_UA})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            txt = r.read().decode("utf-8", "replace")
+        rows = [ln.split("\t") for ln in txt.splitlines()[1:] if "\t" in ln]
+    except Exception as ex:
+        print(f"[TMCost] BLS {name} download failed: {ex}", flush=True)
+    if rows:
+        _TM_BLS_FILES[name] = rows
+    return rows
+
+
+def _tm_split_location(location: str):
+    """'Houston, TX' / 'Houston TX' / 'Houston, Texas' -> ('houston', 'TX')."""
+    txt = str(location or "").strip()
+    if not txt:
+        return "", ""
+    names = {
+        "alabama": "AL", "alaska": "AK", "arizona": "AZ", "arkansas": "AR",
+        "california": "CA", "colorado": "CO", "connecticut": "CT",
+        "delaware": "DE", "district of columbia": "DC", "florida": "FL",
+        "georgia": "GA", "hawaii": "HI", "idaho": "ID", "illinois": "IL",
+        "indiana": "IN", "iowa": "IA", "kansas": "KS", "kentucky": "KY",
+        "louisiana": "LA", "maine": "ME", "maryland": "MD",
+        "massachusetts": "MA", "michigan": "MI", "minnesota": "MN",
+        "mississippi": "MS", "missouri": "MO", "montana": "MT",
+        "nebraska": "NE", "nevada": "NV", "new hampshire": "NH",
+        "new jersey": "NJ", "new mexico": "NM", "new york": "NY",
+        "north carolina": "NC", "north dakota": "ND", "ohio": "OH",
+        "oklahoma": "OK", "oregon": "OR", "pennsylvania": "PA",
+        "rhode island": "RI", "south carolina": "SC", "south dakota": "SD",
+        "tennessee": "TN", "texas": "TX", "utah": "UT", "vermont": "VT",
+        "virginia": "VA", "washington": "WA", "west virginia": "WV",
+        "wisconsin": "WI", "wyoming": "WY", "puerto rico": "PR",
+    }
+    low = re.sub(r"\s+", " ", txt.lower().replace(",", " , ")).strip(" ,")
+    low = re.sub(r"\b(usa|us|united states)\b", "", low).strip(" ,")
+    st = ""
+    for full, ab in sorted(names.items(), key=lambda kv: -len(kv[0])):
+        if low.endswith(" " + full) or low == full:
+            st, low = ab, low[: len(low) - len(full)]
+            break
+    if not st:
+        m = re.search(r"\b([a-z]{2})$", low)
+        if m and m.group(1).upper() in _TM_STATE_FIPS:
+            st, low = m.group(1).upper(), low[: m.start()]
+    city = re.sub(r"\s+", " ", low.replace(",", " ")).strip()
+    return city, st
+
+
+def _tm_find_metro(client, city: str, st: str):
+    """(area_code, area_name) of the BLS metro for city/state, or None.
+    Direct name match first; for a suburb, the model picks from that
+    state's BLS metro list, and its answer must be on the list."""
+    if not city or not st:
+        return None
+    metros = [(r[1], r[3]) for r in _tm_bls_file("oe.area")
+              if len(r) >= 4 and r[2] == "M" and "nonmetropolitan" not in r[3]
+              and st in re.split(r"[-\s]", r[3].rsplit(",", 1)[-1].strip())]
+    if not metros:
+        return None
+    for code, name in metros:
+        cities = [c.strip().lower() for c in name.rsplit(",", 1)[0].split("-")]
+        if city in cities:
+            return code, name
+    if client is None:
+        return None
+    try:
+        msg = _claude_create_with_retry(client,
+            model="claude-haiku-4-5-20251001", max_tokens=60,
+            messages=[{"role": "user", "content": (
+                f"Which of these US metropolitan areas contains {city.title()}, "
+                f"{st}? Reply with the exact name from the list, or NONE.\n\n"
+                + "\n".join(n for _c, n in metros))}])
+        ans = "".join(getattr(b, "text", "") for b in msg.content).strip()
+        ans = (ans.splitlines() or [""])[0].strip(" .*\"'")
+    except Exception as ex:
+        print(f"[TMCost] metro pick failed: {ex}", flush=True)
+        return None
+    return next(((c, n) for c, n in metros if n.lower() == ans.lower()), None)
+
+
+def _tm_soc_for_role(client, role: str):
+    """(six-digit SOC code, BLS occupation title) for a job title, or None.
+    Benchmark roles map by keyword; anything else the model picks from
+    BLS's occupation list, and the code must exist on that list."""
+    occs = {r[0]: r[1] for r in _tm_bls_file("oe.occupation")
+            if len(r) >= 2 and re.fullmatch(r"\d{6}", r[0])}
+    bench = _tm_benchmark(_tm_match_benchmark(role))
+    if bench:
+        m = re.search(r"SOC (\d{2})-(\d{4})", bench["occupation"])
+        if m:
+            code = m.group(1) + m.group(2)
+            return code, occs.get(code) or re.sub(r"\s*\(SOC.*", "", bench["occupation"])
+    if client is None or not occs:
+        return None
+    try:
+        msg = _claude_create_with_retry(client,
+            model="claude-haiku-4-5-20251001", max_tokens=40,
+            messages=[{"role": "user", "content": (
+                f"Give the 2018 SOC detailed occupation code that best fits "
+                f"the job title \"{role}\". Reply with ONLY the code, like "
+                f"43-3031.")}])
+        ans = "".join(getattr(b, "text", "") for b in msg.content)
+    except Exception as ex:
+        print(f"[TMCost] SOC pick failed: {ex}", flush=True)
+        return None
+    m = re.search(r"(\d{2})-?(\d{4})", ans)
+    code = (m.group(1) + m.group(2)) if m else ""
+    if code in occs and not code.endswith("0000"):
+        return code, occs[code]
+    return None
+
+
+def _tm_bls_annual_medians(series_ids: list) -> dict:
+    """{series_id: latest annual median} from the BLS API (one request).
+    BLS_API_KEY in the environment lifts the daily limit from 25 to 500."""
+    want = [s for s in series_ids if s not in _TM_BLS_VALUES]
+    if want:
+        try:
+            import urllib.request
+            body = {"seriesid": want}
+            key = os.environ.get("BLS_API_KEY", "").strip()
+            if key:
+                body["registrationkey"] = key
+            req = urllib.request.Request(
+                "https://api.bls.gov/publicAPI/v2/timeseries/data/",
+                data=json.dumps(body).encode(), method="POST",
+                headers={"Content-Type": "application/json",
+                         "User-Agent": _TM_BLS_UA})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                resp = json.loads(r.read().decode("utf-8", "replace"))
+            for ser in (resp.get("Results") or {}).get("series") or []:
+                pts = [p for p in ser.get("data") or []
+                       if p.get("period") == "A01"]
+                pts.sort(key=lambda p: p.get("year", ""), reverse=True)
+                val = _tm_parse_money(pts[0].get("value")) if pts else None
+                # BLS prints "-" or "*" when a figure is suppressed.
+                _TM_BLS_VALUES[ser.get("seriesID")] = (
+                    (val, pts[0].get("year")) if val else None)
+        except Exception as ex:
+            print(f"[TMCost] BLS API failed: {ex}", flush=True)
+            return {s: _TM_BLS_VALUES[s] for s in series_ids
+                    if _TM_BLS_VALUES.get(s)}
+    return {s: _TM_BLS_VALUES[s] for s in series_ids if _TM_BLS_VALUES.get(s)}
+
+
+def _tm_bls_local_salary(client, role: str, location: str) -> dict | None:
+    """Median annual wage for role in location from BLS OEWS: metro if
+    published, else state, else national. None if the role can't be
+    mapped to an occupation or the API is unreachable."""
+    soc = _tm_soc_for_role(client, role)
+    if not soc:
+        return None
+    code, title = soc
+    city, st = _tm_split_location(location)
+    areas = []
+    metro = _tm_find_metro(client, city, st)
+    if metro:
+        areas.append(("M", metro[0], metro[1] + " metro area"))
+    if st in _TM_STATE_FIPS:
+        areas.append(("S", _TM_STATE_FIPS[st] + "00000",
+                      next((r[3] for r in _tm_bls_file("oe.area")
+                            if len(r) >= 4 and r[2] == "S"
+                            and r[1] == _TM_STATE_FIPS[st] + "00000"), st)))
+    areas.append(("N", "0000000", "United States"))
+    ids = [f"OEU{t}{a}000000{code}13" for t, a, _n in areas]
+    vals = _tm_bls_annual_medians(ids)
+    for (t, a, name), sid in zip(areas, ids):
+        if sid in vals:
+            val, year = vals[sid]
+            return {
+                "salary": float(int(round(val / 500.0)) * 500),
+                "basis": "median", "area": name,
+                "occupation": f"{title} (SOC {code[:2]}-{code[2:]})",
+                "source": f"BLS Occupational Employment and Wage Statistics, "
+                          f"May {year}",
+                "url": ("https://www.bls.gov/oes/current/"
+                        + (f"oes_{a[2:]}.htm" if t == "M"
+                           else f"oes_{st.lower()}.htm" if t == "S"
+                           else f"oes{code}.htm")),
+                "national": t == "N",
+            }
+    return None
+
+
+def _tm_lookup_local_salary(client, role: str, location: str) -> dict | None:
+    """Local salary for role in location, with its source, or None.
+    BLS first (exact government figure); web search only if BLS has
+    nothing. Never raises: a failed lookup falls back to the national
+    benchmark in _tm_auto_cost_pdf_data."""
+    role, location = str(role or "").strip(), str(location or "").strip()
+    if not role:
+        return None
+    key = (role.lower(), location.lower())
+    if key in _TM_SALARY_CACHE:
+        return _TM_SALARY_CACHE[key]
+    found = _tm_bls_local_salary(client, role, location)
+    if found:
+        _TM_SALARY_CACHE[key] = found
+        return found
+    if client is None:
+        return None
+    try:
+        msg = _claude_create_with_retry(client,
+            model="claude-haiku-4-5-20251001", max_tokens=700,
+            tools=[_safe_web_search_tool(max_uses=4)],
+            messages=[{"role": "user",
+                       "content": _tm_salary_prompt(role, location or "United States")}])
+    except Exception as ex:
+        print(f"[TMCost] salary lookup failed: {ex}", flush=True)
+        return None
+    text, urls = "", []
+    for b in getattr(msg, "content", []) or []:
+        if getattr(b, "type", "") == "text":
+            text += b.text
+            for c in getattr(b, "citations", None) or []:
+                urls.append(getattr(c, "url", "") or "")
+        elif getattr(b, "type", "") == "web_search_tool_result":
+            for r in getattr(b, "content", None) or []:
+                urls.append(getattr(r, "url", "") or "")
+    found = _tm_parse_salary_reply(text, urls)
+    if found:
+        _TM_SALARY_CACHE[key] = found
+    return found
+
+
+def _tm_auto_cost_pdf_data(company: str, role: str, location: str,
+                           lookup: dict | None) -> dict:
+    """Staffing Cost Comparison from role + location alone. The salary is
+    the looked-up local figure, or the national BLS median for a matching
+    benchmark role; every other line is a published benchmark, and the
+    ThriveModal column is the in-house total less _TM_AUTO_SAVINGS."""
+    company = (str(company or "").strip() or "your team")
+    role = str(role or "").strip() or "this role"
+    location = str(location or "").strip()
+    bench = _tm_benchmark(_tm_match_benchmark(role))
+    if lookup:
+        base = lookup["salary"]
+        salary_note = (
+            f"Base salary is the {lookup['basis']} for "
+            f"{lookup.get('occupation') or role}"
+            + (f" in {lookup['area']}" if lookup.get("area") else "")
+            + f", from {lookup.get('source') or 'the source listed below'}.")
+    elif bench:
+        base = float(bench["base"])
+        salary_note = (
+            f"No local salary figure was found for {location or 'this area'}, "
+            f"so base salary is the US national median for "
+            f"{bench['occupation']} (BLS, {_TM_BENCH_AS_OF}).")
+    else:
+        base = None
+
+    if base is None:
+        return {
+            "title": f"Staffing Cost Comparison - {company}",
+            "badge": "INCOMPLETE WORKSHEET",
+            "intro": (f"No published salary could be found for {role}"
+                      + (f" in {location}" if location else "") +
+                      ", so this comparison was not calculated. Try a more "
+                      "common job title and generate it again."),
+            "sections": [],
+            "cta": "Try a common title such as Bookkeeper, Dispatcher or "
+                   "Customer Service Representative.",
+            "_worksheet": None,
+        }
+
+    burden = round(base * _TM_BENCH_BURDEN_PCT / 10000.0) * 100
+    domestic = base + burden + _TM_BENCH_OVERHEAD + _TM_BENCH_HIRING
+    tm_annual = round(domestic * (1 - _TM_AUTO_SAVINGS) / 100.0) * 100
+    ws = _tm_cost_worksheet({
+        "domestic_base": base, "domestic_burden": burden,
+        "domestic_overhead": _TM_BENCH_OVERHEAD,
+        "domestic_hiring": _TM_BENCH_HIRING,
+        "tm_monthly_rate": tm_annual / 12.0,
+    })
+    pct = f"{_TM_AUTO_SAVINGS:.0%}"
+    for row in ws["rows"]:
+        if row[0] == "ThriveModal monthly rate":
+            row[0] = f"ThriveModal (estimated {pct} saving)"
+
+    sources = []
+    if lookup:
+        sources.append(f"Local salary: {lookup.get('source') or 'source'}: "
+                       f"{lookup['url']}")
+    sources += [f"{lbl}: {url}" for lbl, url in _TM_BENCH_SOURCES]
+
+    where = f" in {location}" if location else ""
+    howto = [
+        f"Figures cover one {role}{where} over 12 months, in USD.",
+        salary_note,
+        f"Payroll taxes and benefits are {_TM_BENCH_BURDEN_PCT:.0f}% of wages "
+        f"(BLS). Workspace and recruiting are US averages. None of these are "
+        f"{company}'s own payroll figures.",
+        f"The ThriveModal column is an estimate: {pct} below the in-house "
+        f"total, the typical saving in published Philippine offshore staffing "
+        f"rates. Your ThriveModal quote is confirmed separately.",
+        "Replace any line with your own figure for an exact comparison.",
+    ]
+    return {
+        "title": f"Staffing Cost Comparison - {company}",
+        "badge": "STAFFING COST COMPARISON",
+        "intro": (f"What one {role}{where} costs {company} in-house for a "
+                  f"year, next to the estimated cost of the same role through "
+                  f"ThriveModal: about {_tm_money(ws['difference'])} "
+                  f"({pct}) less."),
+        "sections": [
+            {"heading": "Cost Comparison", "type": "table", "items": ws["rows"]},
+            {"heading": "How This Was Calculated", "type": "bullets",
+             "items": howto},
+            {"heading": "Sources", "type": "bullets", "items": sources},
+        ],
+        "cta": ("Send us your actual salary and benefits figures and we will "
+                "rerun this with your numbers."),
+        "_worksheet": ws,
+    }
+
+
 def _tm_benchmark_keys(inputs: dict, role_id: str) -> set:
     """Which inputs still hold the benchmark value for role_id. A figure the
     seller changed is theirs, and the page must not call it a benchmark."""
@@ -39279,6 +39693,17 @@ def _generate_rich_pdf_data(client, kind: str, ctx: dict, research_context: str 
         # the Sales Assets call site so every entry point — the assets page,
         # the campaign-detail generator, a re-render from a sidecar — gets
         # arithmetic instead of a model's best guess at a salary.
+        if not any(str(v or "").strip()
+                   for v in (ctx.get("tm_cost_inputs") or {}).values()):
+            # Nothing typed: role + location only. The one model call looks
+            # up a cited local salary; all arithmetic stays in Python.
+            _role = ctx.get("positions", "")
+            if isinstance(_role, (list, tuple)):
+                _role = ", ".join(str(r) for r in _role)
+            _loc = ctx.get("location", "")
+            return _tm_auto_cost_pdf_data(
+                ctx.get("company", ""), _role, _loc,
+                _tm_lookup_local_salary(client, _role, _loc))
         return _tm_cost_pdf_data(
             ctx.get("company", ""),
             ctx.get("tm_cost_inputs") or {},
@@ -47394,114 +47819,18 @@ def p_pdf_gen(s: AppState, rf):
         _tm_cost_widgets = {}
         _tm_cost_meta = {}
         if "tm_cost_compare" in (s._pdf_selected or []):
-            _tmc = s._pdf_tm_cost or {}
             ui.element("div").style(
                 f"height:1px;background:{C['border']};margin:6px 0 16px;")
-            ui.label("Staffing Cost Comparison figures").style(
+            ui.label("Staffing Cost Comparison").style(
                 f"font-size:10px;font-weight:700;color:{C['warn']};"
                 f"text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;")
             ui.label(
-                "Pick a position to fill these from published US wage data and "
-                "Philippine offshore rates. The PDF marks those lines as "
-                "benchmarks and lists the sources. Change any figure to use "
-                "your own; the app adds them up, not AI."
+                "Nothing else to fill in. We look up the salary for the Target "
+                "Role in this Location, add standard benefits, workspace and "
+                "recruiting costs, and show ThriveModal at a "
+                f"{_TM_AUTO_SAVINGS:.0%} saving. Sources print on the PDF."
             ).style(f"font-size:11px;color:{C['muted']};line-height:1.6;"
-                    f"margin-bottom:12px;")
-
-            _tm_bench_opts = {"": "My own figures"}
-            _tm_bench_opts.update({b["id"]: b["label"] for b in _TM_ROLE_BENCHMARKS})
-            _tm_bench_init = str(_tmc.get("benchmark_role", "") or "")
-            if (not _tm_bench_init
-                    and not any(str(_tmc.get(k, "") or "").strip()
-                                for k, _l, _b in _TM_COST_INPUTS)):
-                # Fresh form: offer the position the Target Role already names.
-                _tm_bench_init = _tm_match_benchmark(s._pdf_role)
-                if _tm_bench_init:
-                    _tmc = dict(_tmc)
-                    _tmc.update(_tm_benchmark_inputs(_tm_bench_init))
-            if _tm_bench_init not in _tm_bench_opts:
-                _tm_bench_init = ""
-
-            def _tm_apply_benchmark(e):
-                vals = _tm_benchmark_inputs(e.value)
-                for _k, _v in vals.items():
-                    if _k in _tm_cost_widgets:
-                        _tm_cost_widgets[_k].value = _v
-
-            with ui.element("div").style("margin-bottom:14px;max-width:360px;"):
-                ui.label("Position").classes("fd-fl")
-                _tm_cost_meta["benchmark_role"] = ui.select(
-                    options=_tm_bench_opts, value=_tm_bench_init,
-                    on_change=_tm_apply_benchmark,
-                ).classes("fd-input").style("min-width:240px;")
-
-            def _tm_role_blur(_e=None):
-                # Only ever fills an untouched worksheet; never overwrites
-                # figures the seller has typed or a position they picked.
-                sel = _tm_cost_meta.get("benchmark_role")
-                if sel is None or sel.value:
-                    return
-                if any(str(w.value or "").strip() for w in _tm_cost_widgets.values()):
-                    return
-                match = _tm_match_benchmark(pdf_role.value)
-                if match:
-                    sel.value = match     # on_change fills the figures
-            pdf_role.on("blur", _tm_role_blur)
-
-            _tm_cost_form = [
-                ("domestic_base", "In-house base salary (per year)", "85000"),
-                ("domestic_burden", "Payroll taxes and benefits (per year)", "21000"),
-                ("domestic_overhead", "Workspace, equipment, software (per year)", "6000"),
-                ("domestic_hiring", "Recruiting and onboarding (per year)", "9000"),
-                ("tm_monthly_rate", "ThriveModal rate (per month)", "Monthly rate"),
-            ]
-            with ui.element("div").style(
-                    "display:grid;grid-template-columns:1fr 1fr;gap:14px;"
-                    "margin-bottom:14px;"):
-                for _ck, _clabel, _cph in _tm_cost_form:
-                    with ui.element("div"):
-                        ui.label(_clabel).classes("fd-fl")
-                        _tm_cost_widgets[_ck] = ui.input(
-                            value=str(_tmc.get(_ck, "") or ""),
-                            placeholder=_cph).classes("fd-input")
-
-            with ui.element("div").style(
-                    "display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;"
-                    "margin-bottom:14px;"):
-                with ui.element("div"):
-                    ui.label("Number of roles").classes("fd-fl")
-                    _tm_cost_meta["seats"] = ui.input(
-                        value=str(_tmc.get("seats", "1") or "1"),
-                        placeholder="1").classes("fd-input")
-                with ui.element("div"):
-                    ui.label("Period (months)").classes("fd-fl")
-                    _tm_cost_meta["period_months"] = ui.input(
-                        value=str(_tmc.get("period_months", "12") or "12"),
-                        placeholder="12").classes("fd-input")
-                with ui.element("div"):
-                    ui.label("Currency").classes("fd-fl")
-                    _tm_cost_meta["currency"] = ui.input(
-                        value=str(_tmc.get("currency", "USD") or "USD"),
-                        placeholder="USD").classes("fd-input")
-
-            ui.label("What the ThriveModal rate covers").classes("fd-fl")
-            ui.label("One per line. Leave blank and the page says it is "
-                     "unconfirmed rather than guessing.").style(
-                f"font-size:10px;color:{C['muted']};margin-bottom:6px;")
-            _tm_cost_meta["included"] = ui.textarea(
-                value=str(_tmc.get("included", "") or "")).style(
-                f"width:100%;min-height:70px;background:{C['surface']};"
-                f"border:1px solid {C['border']};border-radius:8px;padding:12px;"
-                f"font-size:13px;color:{C['text_l']};font-family:inherit;"
-                f"resize:vertical;margin-bottom:12px;")
-
-            ui.label("Not included in the rate").classes("fd-fl")
-            _tm_cost_meta["excluded"] = ui.textarea(
-                value=str(_tmc.get("excluded", "") or "")).style(
-                f"width:100%;min-height:70px;background:{C['surface']};"
-                f"border:1px solid {C['border']};border-radius:8px;padding:12px;"
-                f"font-size:13px;color:{C['text_l']};font-family:inherit;"
-                f"resize:vertical;margin-bottom:6px;")
+                    f"margin-bottom:6px;")
 
     # Batch PDF builder: takes a list of (pid, label) pairs and generates
     # them sequentially in ONE background thread. Deep research runs once
@@ -47539,7 +47868,9 @@ def p_pdf_gen(s: AppState, rf):
             s._pdf_exp_level = ""
         # Captured verbatim. Validation happens in _tm_cost_worksheet, which
         # treats anything it cannot read as missing rather than coercing it.
-        _tmc_vals = dict(s._pdf_tm_cost or {})
+        # Starts empty: a figure left over from an older form must not
+        # silently switch the worksheet back to typed-figures mode.
+        _tmc_vals = {}
         for _ck, _cw in (_tm_cost_widgets or {}).items():
             try:
                 _tmc_vals[_ck] = str(_cw.value or "").strip()

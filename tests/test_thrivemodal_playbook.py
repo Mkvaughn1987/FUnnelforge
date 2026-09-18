@@ -1017,3 +1017,92 @@ def test_benchmarks_do_not_apply_in_another_currency():
                                 benchmark_role="bookkeeper",
                                 cfg={"workspace_playbook": fa.PLAYBOOK_THRIVEMODAL})
     assert "Benchmark Sources" not in [s["heading"] for s in data["sections"]]
+
+
+# ── Automatic worksheet: role + location only, flat 75% saving ───────────
+
+_LOOKUP = {"salary": 60000.0, "basis": "median", "area": "Houston metro, TX",
+           "occupation": "Bookkeeping, Accounting, and Auditing Clerks",
+           "source": "BLS OEWS May 2025",
+           "url": "https://www.bls.gov/oes/current/oes_26420.htm"}
+
+
+def test_salary_reply_needs_a_url_the_search_returned():
+    reply = ('{"annual_salary": 61200, "basis": "median", "area": "Houston", '
+             '"source": "BLS", "url": "https://www.bls.gov/oes/x.htm"}')
+    ok = fa._tm_parse_salary_reply(reply, ["https://bls.gov/oes/x.htm/"])
+    assert ok and ok["salary"] == 61000.0
+    # Invented source: the URL never came back from the search.
+    assert fa._tm_parse_salary_reply(reply, ["https://www.indeed.com/a"]) is None
+    assert fa._tm_parse_salary_reply('{"annual_salary": null}', []) is None
+    assert fa._tm_parse_salary_reply(
+        '{"annual_salary": 900, "url": "https://bls.gov/x"}', ["https://bls.gov/x"]) is None
+    assert fa._tm_parse_salary_reply("no json here", []) is None
+
+
+def test_auto_worksheet_is_a_flat_75_percent_saving():
+    d = fa._tm_auto_cost_pdf_data("Acme", "Bookkeeper", "Houston, TX", _LOOKUP)
+    ws = d["_worksheet"]
+    assert ws["complete"] is True
+    assert ws["domestic_total"] == 60000 + 25700 + 6000 + 5475
+    assert abs(ws["tm_total"] - round(ws["domestic_total"] * 0.25, -2)) < 1
+    assert abs(ws["difference"] / ws["domestic_total"] - 0.75) < 0.01
+    assert d["badge"] == "STAFFING COST COMPARISON"
+    src = next(s for s in d["sections"] if s["heading"] == "Sources")
+    assert any(_LOOKUP["url"] in i for i in src["items"])
+    how = " ".join(next(s for s in d["sections"]
+                        if s["heading"] == "How This Was Calculated")["items"])
+    assert "Houston metro, TX" in how and "estimate" in how
+
+
+def test_auto_worksheet_falls_back_to_national_median():
+    d = fa._tm_auto_cost_pdf_data("Acme", "Bookkeeper", "Nowhere, ZZ", None)
+    assert d["_worksheet"]["domestic_total"] == 50500 + 21700 + 6000 + 5475
+    how = " ".join(d["sections"][1]["items"])
+    assert "national median" in how
+
+
+def test_auto_worksheet_unknown_role_and_no_lookup_is_not_calculated():
+    d = fa._tm_auto_cost_pdf_data("Acme", "Superintendent", "Denver", None)
+    assert d["badge"] == "INCOMPLETE WORKSHEET"
+    assert d["_worksheet"] is None
+
+
+def test_blank_figures_route_to_the_automatic_worksheet():
+    src = _inspect.getsource(fa._generate_rich_pdf_data)
+    assert "_tm_auto_cost_pdf_data(" in src
+    assert src.index("_tm_auto_cost_pdf_data(") < src.index("_rich_pdf_prompt(kind")
+    assert "anthropic" not in _inspect.getsource(fa._tm_auto_cost_pdf_data)
+
+
+# ── BLS lookup (offline: the API call is stubbed) ───────────────────────
+
+def test_location_parsing():
+    assert fa._tm_split_location("Houston, TX") == ("houston", "TX")
+    assert fa._tm_split_location("Boise, Idaho") == ("boise", "ID")
+    assert fa._tm_split_location("katy tx") == ("katy", "TX")
+    assert fa._tm_split_location("Kansas City, KS, USA") == ("kansas city", "KS")
+    assert fa._tm_split_location("") == ("", "")
+
+
+def test_metro_and_occupation_come_from_the_bundled_bls_lists():
+    assert fa._tm_find_metro(None, "houston", "TX")[0] == "0026420"
+    assert fa._tm_find_metro(None, "kansas city", "KS")[0] == "0028140"
+    assert fa._tm_find_metro(None, "katy", "TX") is None     # needs the model
+    assert fa._tm_soc_for_role(None, "Bookkeeper")[0] == "433031"
+    assert fa._tm_soc_for_role(None, "Superintendent") is None
+
+
+def test_bls_salary_falls_back_metro_to_state(monkeypatch):
+    seen = {}
+    def fake(ids):
+        seen["ids"] = ids
+        return {ids[1]: (48910.0, "2025")}     # metro suppressed, state present
+    monkeypatch.setattr(fa, "_tm_bls_annual_medians", fake)
+    r = fa._tm_bls_local_salary(None, "Bookkeeper", "Houston, TX")
+    assert seen["ids"][0] == "OEUM002642000000043303113"
+    assert seen["ids"][1] == "OEUS480000000000043303113"
+    assert r["salary"] == 49000.0 and r["area"] == "Texas"
+    assert r["url"].endswith("oes_tx.htm")
+    d = fa._tm_auto_cost_pdf_data("Acme", "Bookkeeper", "Houston, TX", r)
+    assert "Texas" in " ".join(d["sections"][1]["items"])
