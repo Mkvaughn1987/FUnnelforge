@@ -117,6 +117,12 @@ BRAND_LOGO = _env_str("DRIPDROP_BRAND_LOGO", "/static/dripdrop_logo.png?v=3")
 # BRAND_LOGO, so an instance that has only one artwork -- Arena -- behaves
 # exactly as before and never has to know this variable exists.
 BRAND_LOGO_DARK = _env_str("DRIPDROP_BRAND_LOGO_DARK", BRAND_LOGO)
+# Theme a first-time visitor sees, and the localStorage key that remembers
+# a toggle. Arena leaves both unset (light, 'dd-theme'). An instance whose
+# brand is a dark ground sets THEME_DEFAULT=dark, and a fresh key so earlier
+# saved choices from the old palette don't pin people to light.
+THEME_DEFAULT = "dark" if _env_str("DRIPDROP_THEME_DEFAULT", "light").lower() == "dark" else "light"
+THEME_KEY = "".join(ch for ch in _env_str("DRIPDROP_THEME_KEY", "dd-theme") if ch.isalnum() or ch in "-_") or "dd-theme"
 # Topbar logo slot. DripDrop's mark is portrait (118x146); a horizontal
 # lockup needs a wide, short box or `object-fit:contain` shrinks it to a
 # sliver to make it fit. CSS units, not bare numbers.
@@ -14667,6 +14673,10 @@ def _sidebar_layout_css() -> str:
 .fd-side-top{{padding:16px 12px 8px;display:flex;flex-direction:column;gap:10px}}
 .fd-side-logo{{display:flex;align-items:center;height:28px;padding:0 6px;cursor:pointer}}
 .fd-side-logo img{{height:26px;width:auto;max-width:190px;object-fit:contain;object-position:left}}
+/* Same light/dark logo pairing as .fd-logo: show one of the two <img>s. */
+.fd-side-logo img.dd-logo-dark{{display:none}}
+:root:not([data-theme="light"]) .fd-side-logo img.dd-logo-light{{display:none}}
+:root:not([data-theme="light"]) .fd-side-logo img.dd-logo-dark{{display:block}}
 .fd-ws{{display:flex;align-items:center;gap:10px;width:100%;padding:8px 8px;border-radius:10px;
   border:1px solid {C['border']};background:{C['card']};color:{C['text']};cursor:pointer;
   text-align:left;font-family:inherit;transition:background .12s,border-color .12s}}
@@ -14822,7 +14832,7 @@ def inject_styles():
     # ── Apply saved theme on load (before paint) ──
     ui.add_head_html("""<script>
 (function(){
-  var t = localStorage.getItem('dd-theme') || 'light';
+  var t = localStorage.getItem('__DD_THEME_KEY__') || '__DD_THEME_DEFAULT__';
   document.addEventListener('DOMContentLoaded', function(){
     if (t === 'light') {
       document.documentElement.setAttribute('data-theme','light');
@@ -14834,7 +14844,7 @@ def inject_styles():
     }
   });
 })();
-</script>""")
+</script>""".replace("__DD_THEME_KEY__", THEME_KEY).replace("__DD_THEME_DEFAULT__", THEME_DEFAULT))
     ui.add_head_html(f"""<style>
 *,body{{box-sizing:border-box;margin:0;padding:0}}
 body,.nicegui-content{{background:{C['bg']} !important;font-family:'Segoe UI',system-ui,sans-serif !important;color:{C['text']}}}
@@ -15455,7 +15465,7 @@ function ddToggleTheme() {
         document.body.classList.remove('body--light');
         document.body.classList.add('body--dark');
     }
-    localStorage.setItem('dd-theme', next);
+    localStorage.setItem('__DD_THEME_KEY__', next);
 }
 
 // ═══ Auto-reconnect overlay ══════════════════════════════════════════════
@@ -15724,7 +15734,7 @@ window.ddMaybeStartTour = function() {
         }
     }, 350);
 };
-</script>""".replace("Reconnecting to DripDrop", f"Reconnecting to {BRAND}"))
+</script>""".replace("Reconnecting to DripDrop", f"Reconnecting to {BRAND}").replace("__DD_THEME_KEY__", THEME_KEY))
 
 # ═══════════════════════════════════════════════════════════════════════════
 #  NAVIGATION
