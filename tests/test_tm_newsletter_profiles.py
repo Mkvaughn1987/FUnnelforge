@@ -47,3 +47,24 @@ def test_dialogs_offer_the_toggle_and_save_three_or_zero():
     assert "_spotlight_count = 3 if _tm_profiles_in.value else 0" in create
     settings = inspect.getsource(fa._edit_newsletter_settings_dialog)
     assert "_new_count = 3 if _tm_prof_in.value else 0" in settings
+
+
+# ── AI candidate profiles inside ThriveModal campaigns ─────────────────────
+
+def test_campaign_profiles_block_is_honest_and_unlabelled():
+    b = fa._tm_recruit_profiles_block(2, "Track and Trace Specialist", "Freight Brokerage")
+    assert "weave 2 short candidate profiles" in b
+    assert "would recruit" in b and "Never say the person already exists" in b
+    assert "never state pay" in b and "Do not call them samples" in b
+    assert fa._tm_recruit_profiles_block(0, "", "") == ""
+
+
+def test_ai_profiles_clamped_0_to_3():
+    assert [fa._clamp_ai_profiles(v) for v in (None, "2", 9, -1, "x")] == [0, 2, 3, 0, 0]
+
+
+def test_builder_uses_profiles_only_for_tm_without_real_candidates():
+    src = inspect.getsource(fa._aicb_build_campaign_from_brief)
+    assert "if not cand_block and (camp_type or \"\").strip() in _TM_TYPE_KEYS:" in src
+    assert "ai_profiles=ai_profiles" in inspect.getsource(fa.generate_aicb_campaign)
+    assert 'spec.get("ai_profiles")' in inspect.getsource(fa._api_create_campaign_blocking)

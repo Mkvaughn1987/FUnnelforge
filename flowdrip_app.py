@@ -2421,7 +2421,7 @@ _WIZARD_DRAFT_FIELDS = (
     "aicb_sel_locations", "aicb_sel_roles",
     "aicb_camp_type", "aicb_byos_desc",
     "aicb_cand_count", "aicb_cand_source", "aicb_cand_cards",
-    "_aicb_cand_text",
+    "_aicb_cand_text", "aicb_tm_profiles",
     # Chooser context
     "_chooser_origin",
     # In-progress Library draft (so a refresh keeps updating the same one)
@@ -6872,10 +6872,15 @@ def _aicb_research_brief(client, *, camp_type="", company="", website="",
 def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
                                     niche="", industry="", roles=None,
                                     location="", cand_block="",
-                                    candidate_cards=None, byos_desc=""):
+                                    candidate_cards=None, byos_desc="",
+                                    ai_profiles=0):
     """Build + post-process the campaign from an already-fetched brief. Shared
     by the wizard (passes its own brief + pre-built cand_block) and the API.
-    Raises RuntimeError if the model returns no parseable JSON."""
+    Raises RuntimeError if the model returns no parseable JSON.
+
+    `ai_profiles` (0-3, ThriveModal types only): weave that many AI-written
+    profiles of the professional ThriveModal would recruit into the emails.
+    Ignored when real candidates were supplied."""
     roles = list(roles or [])
     roles_str = ", ".join(roles)
     _first_role = roles[0] if roles else ""
@@ -6889,6 +6894,9 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
 
     if not cand_block and candidate_cards:
         cand_block = _format_candidate_block(candidate_cards, camp_type)
+    if not cand_block and (camp_type or "").strip() in _TM_TYPE_KEYS:
+        cand_block = _tm_recruit_profiles_block(
+            ai_profiles, roles_str, niche_str or ind_label or company)
 
     # ── Step 2: Campaign build ──
     camp_type_def = next((ct for ct in AICB_CAMPAIGN_TYPES if ct[0] == camp_type),
@@ -7016,7 +7024,8 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
 
 def generate_aicb_campaign(client, *, camp_type, company="", website="",
                            niche="", industry="", roles=None, location="",
-                           cand_block="", candidate_cards=None, byos_desc=""):
+                           cand_block="", candidate_cards=None, byos_desc="",
+                           ai_profiles=0):
     """Headless AICB campaign generation — research then build — used by the
     API (and exercised in tests). Returns campaign_data with the brief stashed
     under "_brief". Raises RuntimeError on empty research / unparseable JSON.
@@ -7032,7 +7041,7 @@ def generate_aicb_campaign(client, *, camp_type, company="", website="",
     campaign_data = _aicb_build_campaign_from_brief(
         client, brief=brief, camp_type=camp_type, company=company,
         niche=niche, industry=industry, roles=roles, location=location,
-        cand_block=cand_block, byos_desc=byos_desc)
+        cand_block=cand_block, byos_desc=byos_desc, ai_profiles=ai_profiles)
     campaign_data["_brief"] = brief
     return campaign_data
 
@@ -7333,6 +7342,7 @@ def _api_create_campaign_blocking(client, spec, owner):
             roles=list(spec.get("roles") or []),
             location=(spec.get("location") or "").strip(),
             candidate_cards=cards,
+            ai_profiles=_clamp_ai_profiles(spec.get("ai_profiles")),
             byos_desc=byos_desc,
         )
     except RuntimeError as ge:
@@ -16550,6 +16560,7 @@ class AppState:
 
         # ── Step 3 Candidates (2026-04-26 wizard restructure) ──
         self.aicb_cand_count: int = 3             # stepper value 1-6
+        self.aicb_tm_profiles: int = 0            # ThriveModal AI profiles 0-3
         self.aicb_cand_source: str = ""           # "pool" | "autogen" | "skip" | ""
         self.aicb_cand_cards: list = []           # list of {label, role, bullets:[str]}
         self.aicb_redact_companies: bool = True   # 5x3 only: hide real employer names (default ON)
@@ -16918,6 +16929,7 @@ _AICB_PERSISTED_FIELDS = (
     "aicb_sel_locations", "aicb_sel_roles",
     "aicb_camp_type", "aicb_byos_desc",
     "aicb_cand_count", "aicb_cand_source", "aicb_cand_cards",
+    "aicb_tm_profiles",
     "aicb_tone",
     # Target-a-Candidate wizard (Phase 2, 2026-05-10). Skip tc_jd_generating
     # and tc_generating — transient spinner flags. Skip tc_error — should
@@ -44668,6 +44680,8 @@ def p_ai_campaign(s: AppState, rf):
                                       if s.aicb_sel_locations else ""),
                             cand_block=_cand_block,
                             byos_desc=getattr(s, "aicb_byos_desc", ""),
+                            ai_profiles=_clamp_ai_profiles(
+                                getattr(s, "aicb_tm_profiles", 0)),
                         )
 
                         if campaign_data:
@@ -44876,6 +44890,26 @@ def p_ai_campaign(s: AppState, rf):
                                 ui.label(_v).style(
                                     f"font-size:13px;color:{C['text_l']};"
                                     f"word-break:break-word;")
+                        if s.aicb_camp_type in _TM_TYPE_KEYS:
+                            with ui.element("div").style(
+                                    "display:grid;grid-template-columns:130px 1fr;"
+                                    "gap:10px;padding:6px 0;align-items:center;"
+                                    f"border-bottom:1px solid {C['border']}60;"):
+                                ui.label("AI Candidates").style(
+                                    f"font-size:11px;font-weight:700;color:{C['muted']};"
+                                    f"text-transform:uppercase;letter-spacing:.05em;")
+
+                                def _set_tm_prof(e):
+                                    s.aicb_tm_profiles = _clamp_ai_profiles(e.value)
+
+                                ui.select(
+                                    {0: "None", 1: "1 candidate profile",
+                                     2: "2 candidate profiles",
+                                     3: "3 candidate profiles"},
+                                    value=_clamp_ai_profiles(
+                                        getattr(s, "aicb_tm_profiles", 0)),
+                                    on_change=_set_tm_prof,
+                                ).props("dense outlined").style("max-width:240px;")
                         ui.label("Need to change something? Use the back button on the progress bar above.").style(
                             f"font-size:11px;color:{C['muted']};margin-top:10px;"
                             f"font-style:italic;")
@@ -53560,6 +53594,45 @@ def _tm_profiles_rules(niche: str, n: int, recommendations: str = "") -> str:
         "no photos, no employers named as current clients, no pay, salary, "
         "rate or cost figure of any kind, and no claims about nationality, "
         "English fluency or work ethic.")
+
+
+def _clamp_ai_profiles(v) -> int:
+    try:
+        return max(0, min(3, int(v or 0)))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _tm_recruit_profiles_block(n: int, roles: str, niche: str) -> str:
+    """Prompt block for AI candidate profiles inside a ThriveModal campaign.
+
+    Each profile describes the professional ThriveModal WOULD recruit for the
+    reader, written concretely enough to picture. It never says the person
+    already exists, is available or is on a bench: ThriveModal recruits per
+    role, so the honest version of a candidate before the search is the
+    profile of the hire. That also keeps a reply of "send me that person"
+    answerable with a real shortlist."""
+    n = _clamp_ai_profiles(n)
+    if not n:
+        return ""
+    return (
+        f"AI CANDIDATE PROFILES: weave {n} short candidate profile"
+        f"{'s' if n > 1 else ''} into the EMAIL steps (never the call or "
+        f"LinkedIn steps), one per email, in the emails where the role or the "
+        f"economics come up. Each is the professional ThriveModal would recruit "
+        f"for this reader: {_tm_profiles_who()}, in a real job title from the "
+        f"TARGET ROLES or one a {niche or 'business like theirs'} commonly "
+        f"moves offshore{(' (' + roles + ')') if roles else ''}. Make each "
+        f"concrete and easy to picture: years of relevant experience with U.S. "
+        f"companies, the specific U.S. tools and software they would run, and "
+        f"the exact work they would take off the team's plate. Example: "
+        f"\"Here's who we'd recruit for your track and trace desk: four-plus "
+        f"years at U.S. brokerages, lives in McLeod and DAT, and would own "
+        f"your after-hours check calls.\" Frame each as who we would recruit "
+        f"or put in front of them. Never say the person already exists, is "
+        f"available now, is on our bench or has already been screened; never "
+        f"give a name; never state pay, salary or a rate; never say "
+        f"\"attached\". Do not call them samples or examples.\n\n")
 
 
 def _tm_spotlight_prompt_block(niche: str, n: int,
