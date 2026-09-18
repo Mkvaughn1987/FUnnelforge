@@ -25,13 +25,14 @@ _SEVEN = ["Step 1 - Relevance", "Step 2 - Role fit", "Step 3 - Follow-up Call",
           "Step 4 - LinkedIn Connect", "Step 5 - Brief follow-up",
           "Step 6 - Confidence and evidence", "Step 7 - Close the loop"]
 
-# tm_conversation runs two emails longer than the Arena 5x5 it grew out of:
-# seven emails, one call and one LinkedIn touch.
+# tm_conversation grew out of the Arena 5x5: seven emails, three calls and
+# one LinkedIn touch.
 _NINE = ["Step 1 - Capacity", "Step 2 - What the role would cost",
          "Step 3 - Follow-up Call", "Step 4 - LinkedIn Connect",
          "Step 5 - What actually transfers", "Step 6 - After the hire starts",
-         "Step 7 - Quality and control", "Step 8 - How the commitment works",
-         "Step 9 - Close the loop"]
+         "Step 7 - Follow-up Call 2", "Step 8 - Quality and control",
+         "Step 9 - How the commitment works", "Step 10 - Follow-up Call 3",
+         "Step 11 - Close the loop"]
 
 
 # ── 1. workspace playbook selection ────────────────────────────────────────
@@ -132,20 +133,21 @@ def test_thrivemodal_is_not_an_arena_slate_type():
 
 # ── 4. the 5x5 shape, preserved exactly ────────────────────────────────────
 
-def test_tm_conversation_steps_1_to_7_match_the_arena_5x5_delays_exactly():
-    """Steps 8 and 9 are ThriveModal's two extra emails; everything before
-    them must still be the 5x5 cadence, unchanged."""
+def test_tm_conversation_steps_1_to_6_match_the_arena_5x5_delays_exactly():
+    """Steps 1-6 are still the 5x5 cadence; the two added calls sit on the
+    same day as the email before them (delay 0)."""
     shape = fa._TM_STEP_SHAPE["tm_conversation"]
-    assert {n: d for n, (d, _st) in shape.items() if n <= 7} == fa._FIVEBYFIVE_DELAYS
-    assert sorted(shape) == list(range(1, 10))
-    assert shape[8][0] > 0 and shape[9][0] > 0
+    five = {n: d for n, d in fa._FIVEBYFIVE_DELAYS.items() if n <= 6}
+    assert {n: d for n, (d, _st) in shape.items() if n <= 6} == five
+    assert sorted(shape) == list(range(1, 12))
+    assert shape[7] == (0, fa.ST.CALL) and shape[10] == (0, fa.ST.CALL)
 
 
-def test_tm_conversation_step_types_are_seven_emails_one_call_one_linkedin():
+def test_tm_conversation_step_types_are_seven_emails_three_calls_one_linkedin():
     shape = fa._TM_STEP_SHAPE["tm_conversation"]
     kinds = [st for _d, st in (shape[n] for n in sorted(shape))]
     assert kinds.count(fa.ST.EMAIL_AUTO) == 7
-    assert kinds.count(fa.ST.CALL) == 1
+    assert kinds.count(fa.ST.CALL) == 3
     assert kinds.count(fa.ST.LINKEDIN) == 1
     assert shape[3][1] == fa.ST.CALL and shape[4][1] == fa.ST.LINKEDIN
 
@@ -198,7 +200,8 @@ def test_overrides_pin_the_shape_even_if_the_model_ignored_it():
     assert got == [(0, fa.ST.EMAIL_AUTO), (3, fa.ST.EMAIL_AUTO),
                    (0, fa.ST.CALL), (0, fa.ST.LINKEDIN),
                    (2, fa.ST.EMAIL_AUTO), (3, fa.ST.EMAIL_AUTO),
-                   (4, fa.ST.EMAIL_AUTO), (4, fa.ST.EMAIL_AUTO),
+                   (0, fa.ST.CALL), (4, fa.ST.EMAIL_AUTO),
+                   (4, fa.ST.EMAIL_AUTO), (0, fa.ST.CALL),
                    (5, fa.ST.EMAIL_AUTO)]
 
 

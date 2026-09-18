@@ -5541,8 +5541,8 @@ AICB_CAMPAIGN_TYPES = [
     # the same-day call + LinkedIn pairing on Step 2's day; Steps 8 and 9
     # extend that cadence for the two added emails. See _TM_STEP_SHAPE, which
     # is what actually pins it.
-    ("tm_conversation", "7 Emails, 1 Call + LinkedIn", "9 steps - 4 weeks", "#14B8A6",
-     "Seven emails, one call and one LinkedIn touch over about four weeks. "
+    ("tm_conversation", "7 Emails, 3 Calls + LinkedIn", "11 steps - 4 weeks", "#14B8A6",
+     "Seven emails, three calls and one LinkedIn touch over about four weeks. "
      "Opens on a capacity question, prices the role, shows which work "
      "actually transfers, covers what happens after the hire starts, answers "
      "the control question, states the commitment plainly and closes with a "
@@ -5606,7 +5606,12 @@ AICB_CAMPAIGN_TYPES = [
      "field approves nothing, cite NO customer at all and make the point from "
      "process instead. CTA: ask whether 15 minutes would be useful to map how "
      "a relevant role could fit their team. Never reference an attachment.\n"
-     "Step 7 - Quality and control (delay_days:4, step_type:email_auto) - "
+     "Step 7 - Follow-up Call 2 (delay_days:0, step_type:call) - SAME DAY as "
+     "Step 6. Short call script in the body: reference the note about what "
+     "happens after the hire starts, ask which role they would add first and "
+     "who would bring that person up to speed. Add a voicemail line under 20 "
+     "seconds.\n"
+     "Step 8 - Quality and control (delay_days:4, step_type:email_auto) - "
      "Subject different in shape from every earlier subject. Address the "
      "reservation this buyer is most likely holding - quality, oversight, "
      "communication, time-zone overlap or data access - and answer it with "
@@ -5617,7 +5622,7 @@ AICB_CAMPAIGN_TYPES = [
      "adding a remote member of their own team rather than handing work to "
      "another company. No statistics, no guarantees, and no customer beyond "
      "what the approved-proof field allows. One question CTA.\n"
-     "Step 8 - How the commitment works (delay_days:4, step_type:email_auto) - "
+     "Step 9 - How the commitment works (delay_days:4, step_type:email_auto) - "
      "Subject in the shape 'How the hiring commitment works'. Name the "
      "hesitation directly: interested in offshore staffing, unsure about the "
      "commitment. Then state the commercial terms as three short bullet "
@@ -5629,7 +5634,11 @@ AICB_CAMPAIGN_TYPES = [
      "joins. Then the practical first step: look at one role - the experience "
      "needed, the hours to cover, the monthly cost. CTA: ask whether they "
      "have a job description you could use as a starting point.\n"
-     "Step 9 - Close the loop (delay_days:5, step_type:email_auto) - "
+     "Step 10 - Follow-up Call 3 (delay_days:0, step_type:call) - SAME DAY as "
+     "Step 9. Direct script: is there one role worth pricing out, yes or no. "
+     "Voicemail line under 20 seconds saying one more email is coming and then "
+     "you will stop.\n"
+     "Step 11 - Close the loop (delay_days:5, step_type:email_auto) - "
      "Subject in the shape 'Should I close the loop?'. Short and warm, no "
      "guilt, no urgency. Say plainly that this is the last note. One line on "
      "what the sender can help with if adding capacity becomes a priority. "
@@ -12339,7 +12348,8 @@ _TM_STEP_SHAPE = {
     "tm_conversation": {
         1: (0, ST.EMAIL_AUTO), 2: (3, ST.EMAIL_AUTO), 3: (0, ST.CALL),
         4: (0, ST.LINKEDIN),   5: (2, ST.EMAIL_AUTO), 6: (3, ST.EMAIL_AUTO),
-        7: (4, ST.EMAIL_AUTO), 8: (4, ST.EMAIL_AUTO), 9: (5, ST.EMAIL_AUTO),
+        7: (0, ST.CALL),       8: (4, ST.EMAIL_AUTO), 9: (4, ST.EMAIL_AUTO),
+        10: (0, ST.CALL),      11: (5, ST.EMAIL_AUTO),
     },
     "tm_hiring_signal": {
         1: (0, ST.EMAIL_AUTO), 2: (3, ST.EMAIL_AUTO), 3: (0, ST.CALL),
@@ -24813,9 +24823,9 @@ _TM_CHOOSER_OBJECTIVES = [
     {
         "key": "tm_conversation",
         "icon": "💬",
-        "title": "7 Emails, 1 Call + LinkedIn",
+        "title": "7 Emails, 3 Calls + LinkedIn",
         "subtitle": "Four weeks of cold outreach to one company or segment",
-        "desc": ("Seven emails, one call and one LinkedIn touch over about "
+        "desc": ("Seven emails, three calls and one LinkedIn touch over about "
                  "four weeks. Opens on a capacity question, prices the role, "
                  "shows what actually transfers, covers support after the "
                  "hire and the commitment, then closes cleanly on three "
@@ -40871,7 +40881,7 @@ TM_CAMPAIGN_PDF_MAX = 2
 _TM_PDF_PREFERRED_STEP = {
     "tm_conversation": {
         "tm_role_cost": 2, "tm_understaffed": 2, "tm_logistics": 5,
-        "tm_accounting": 5, "tm_how_it_works": 8, "tm_twelve_questions": 7,
+        "tm_accounting": 5, "tm_how_it_works": 9, "tm_twelve_questions": 8,
     },
     "tm_fivebyseven": {
         "tm_role_cost": 2, "tm_understaffed": 2, "tm_logistics": 5,

@@ -59,7 +59,7 @@ def test_conversation_uses_the_step_each_pdf_backs():
     placed = fa._tm_pdf_placement("tm_conversation", camp["emails"],
                                   ["tm_how_it_works", "tm_role_cost"])
     names = {k: camp["emails"][i]["name"] for k, i in placed.items()}
-    assert names == {"tm_how_it_works": "Step 8 - x",
+    assert names == {"tm_how_it_works": "Step 9 - x",
                      "tm_role_cost": "Step 2 - x"}
 
 
@@ -81,7 +81,7 @@ def test_attach_adds_file_and_line_only_where_placed():
         "tm_conversation", camp, {"tm_how_it_works": "ThriveModal_How_It_Works.pdf"})
     assert n == 1
     carrying = [e for e in camp["emails"] if e.get("attachments")]
-    assert [e["name"] for e in carrying] == ["Step 8 - x"]
+    assert [e["name"] for e in carrying] == ["Step 9 - x"]
     assert carrying[0]["body"].startswith("Hi {FirstName},<br><br>I've attached")
     # The unbacked-promise scrub keeps the line because the file is attached.
     assert "attached" in fa._tm_drop_unbacked_lines(carrying[0]["body"], True)
