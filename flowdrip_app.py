@@ -53609,33 +53609,33 @@ def _clamp_ai_profiles(v) -> int:
 def _tm_recruit_profiles_block(n: int, roles: str, niche: str) -> str:
     """Prompt block for AI candidate profiles inside a ThriveModal campaign.
 
-    Each profile describes the professional ThriveModal WOULD recruit for the
-    reader, written concretely enough to picture. It never says the person
-    already exists, is available or is on a bench: ThriveModal recruits per
-    role, so the honest version of a candidate before the search is the
-    profile of the hire. That also keeps a reply of "send me that person"
-    answerable with a real shortlist."""
+    Introduced as profiles from ThriveModal's candidate pipeline (the owner
+    confirmed 2026-09-18 that a real pipeline exists and that real candidates
+    are presented on the follow-up call). The profiles are written to be
+    typical of that pipeline rather than standout, with no name, pay or start
+    date, so any one of them can be matched by a real candidate when a
+    prospect asks."""
     n = _clamp_ai_profiles(n)
     if not n:
         return ""
     return (
-        f"AI CANDIDATE PROFILES: weave {n} short candidate profile"
+        f"CANDIDATE PROFILES: weave {n} short candidate profile"
         f"{'s' if n > 1 else ''} into the EMAIL steps (never the call or "
         f"LinkedIn steps), one per email, in the emails where the role or the "
-        f"economics come up. Each is the professional ThriveModal would recruit "
-        f"for this reader: {_tm_profiles_who()}, in a real job title from the "
-        f"TARGET ROLES or one a {niche or 'business like theirs'} commonly "
-        f"moves offshore{(' (' + roles + ')') if roles else ''}. Make each "
-        f"concrete and easy to picture: years of relevant experience with U.S. "
-        f"companies, the specific U.S. tools and software they would run, and "
-        f"the exact work they would take off the team's plate. Example: "
-        f"\"Here's who we'd recruit for your track and trace desk: four-plus "
-        f"years at U.S. brokerages, lives in McLeod and DAT, and would own "
-        f"your after-hours check calls.\" Frame each as who we would recruit "
-        f"or put in front of them. Never say the person already exists, is "
-        f"available now, is on our bench or has already been screened; never "
-        f"give a name; never state pay, salary or a rate; never say "
-        f"\"attached\". Do not call them samples or examples.\n\n")
+        f"economics come up. Introduce them as profiles from our candidate "
+        f"pipeline, for example: \"Here are some of the candidate profiles in "
+        f"our pipeline:\" (or, for one, \"Here's one of the candidate profiles "
+        f"in our pipeline:\"). Each is {_tm_profiles_who()}, in a real job "
+        f"title from the TARGET ROLES or one a {niche or 'business like theirs'} "
+        f"commonly moves offshore{(' (' + roles + ')') if roles else ''}. Make "
+        f"each concrete and typical rather than exceptional: years of relevant "
+        f"experience with U.S. companies, the specific U.S. tools and software "
+        f"they use, and the work they would take off the team's plate. Example: "
+        f"\"Track and Trace Specialist: four-plus years at U.S. brokerages, "
+        f"works in McLeod and DAT daily, handles after-hours check calls.\" "
+        f"Never give a name, a current or past employer name, pay, salary, a "
+        f"rate, a start date or an availability date; never say \"attached\"; "
+        f"do not call them samples or examples.\n\n")
 
 
 def _tm_spotlight_prompt_block(niche: str, n: int,

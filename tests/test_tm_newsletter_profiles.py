@@ -54,8 +54,9 @@ def test_dialogs_offer_the_toggle_and_save_three_or_zero():
 def test_campaign_profiles_block_is_honest_and_unlabelled():
     b = fa._tm_recruit_profiles_block(2, "Track and Trace Specialist", "Freight Brokerage")
     assert "weave 2 short candidate profiles" in b
-    assert "would recruit" in b and "Never say the person already exists" in b
-    assert "never state pay" in b and "Do not call them samples" in b
+    assert "Here are some of the candidate profiles in our pipeline:" in b
+    assert "Never give a name" in b and "pay, salary" in b
+    assert "do not call them samples" in b
     assert fa._tm_recruit_profiles_block(0, "", "") == ""
 
 
