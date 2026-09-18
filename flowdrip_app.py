@@ -14690,6 +14690,8 @@ def _sidebar_layout_css() -> str:
 .fd-side-row:hover{{background:{C['card_h']}}}
 .fd-side-row.on{{background:{C['teal_dim']};color:{C['teal']};font-weight:600}}
 .fd-side-row.on .fd-ico{{opacity:1}}
+.fd-side-row.open{{color:{C['teal']};font-weight:600}}
+.fd-side-row.open .fd-ico{{opacity:1}}
 .fd-side-lbl{{font-size:14px;line-height:1.4;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .fd-side-sub{{height:36px;padding-left:22px}}
 .fd-side-sub .fd-side-lbl{{font-size:13px}}
@@ -17526,8 +17528,11 @@ def _sidebar_v2(s: AppState, rf):
     def _go(k, tab=""):
         _sidebar_nav(s, rf, k, _setup, tab)
 
-    def _row(ik, lbl, key, on=False, badge=None, badge_cls="", tour="", sub=False):
-        cls = "fd-side-row" + (" on" if on else "") + (" fd-side-sub" if sub else "")
+    def _row(ik, lbl, key, on=False, badge=None, badge_cls="", tour="", sub=False, open_=False):
+        # open_: a parent whose sub-rows are showing. Only the sub-row gets the
+        # highlight pill; the parent keeps the accent text without the fill.
+        cls = ("fd-side-row" + (" on" if on else "") + (" open" if open_ else "")
+               + (" fd-side-sub" if sub else ""))
         el = ui.element("div").classes(cls)
         if tour:
             el.props(f'data-tour="{tour}"')
@@ -17596,8 +17601,10 @@ def _sidebar_v2(s: AppState, rf):
                         badge = _due if _due < 100 else "99+"
                         badge_cls = "hot" if _overdue else ""
                     tour = {"overview": "nav-dashboard", "contacts": "nav-contacts"}.get(ik, "")
-                    _row(ik, lbl, key, on=(active == ik), badge=badge, badge_cls=badge_cls, tour=tour)
-                    if ik == "library" and active == "library":
+                    _lib_open = ik == "library" and active == "library"
+                    _row(ik, lbl, key, on=(active == ik and not _lib_open), open_=_lib_open,
+                         badge=badge, badge_cls=badge_cls, tour=tour)
+                    if _lib_open:
                         for sik, slbl, skey in SIDEBAR_LIBRARY:
                             _row(sik, slbl, skey, on=(page == skey), sub=True)
 
@@ -17605,7 +17612,7 @@ def _sidebar_v2(s: AppState, rf):
         with ui.element("div").classes("fd-side-bottom"):
             if _is_admin(_uemail):
                 _row("admin", "Admin", "admin", on=(active == "admin"))
-            _row("settings", "Settings", "ai_settings", on=(active == "settings"),
+            _row("settings", "Settings", "ai_settings", open_=(active == "settings"),
                  badge="Setup" if _setup_missing else None, badge_cls="setup",
                  tour="nav-ai_settings")
             if active == "settings":
