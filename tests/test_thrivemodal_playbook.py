@@ -1019,7 +1019,7 @@ def test_benchmarks_do_not_apply_in_another_currency():
     assert "Benchmark Sources" not in [s["heading"] for s in data["sections"]]
 
 
-# ── Automatic worksheet: role + location only, flat 75% saving ───────────
+# ── Automatic worksheet: role + location only, flat 65% saving ───────────
 
 _LOOKUP = {"salary": 60000.0, "basis": "median", "area": "Houston metro, TX",
            "occupation": "Bookkeeping, Accounting, and Auditing Clerks",
@@ -1040,19 +1040,20 @@ def test_salary_reply_needs_a_url_the_search_returned():
     assert fa._tm_parse_salary_reply("no json here", []) is None
 
 
-def test_auto_worksheet_is_a_flat_75_percent_saving():
+def test_auto_worksheet_is_a_flat_65_percent_saving():
     d = fa._tm_auto_cost_pdf_data("Acme", "Bookkeeper", "Houston, TX", _LOOKUP)
     ws = d["_worksheet"]
     assert ws["complete"] is True
     assert ws["domestic_total"] == 60000 + 25700 + 6000 + 5475
-    assert abs(ws["tm_total"] - round(ws["domestic_total"] * 0.25, -2)) < 1
-    assert abs(ws["difference"] / ws["domestic_total"] - 0.75) < 0.01
+    assert abs(ws["tm_total"] - round(ws["domestic_total"] * 0.35, -2)) < 1
+    assert abs(ws["difference"] / ws["domestic_total"] - 0.65) < 0.01
     assert d["badge"] == "STAFFING COST COMPARISON"
     src = next(s for s in d["sections"] if s["heading"] == "Sources")
     assert any(_LOOKUP["url"] in i for i in src["items"])
     how = " ".join(next(s for s in d["sections"]
                         if s["heading"] == "How This Was Calculated")["items"])
     assert "Houston metro, TX" in how and "estimate" in how
+    assert "60-70%" in how
 
 
 def test_auto_worksheet_falls_back_to_national_median():

@@ -37955,9 +37955,11 @@ def _tm_match_benchmark(role_text: str) -> str:
 # Automatic worksheet (the Sales Assets default since 2026-09-18). The seller
 # supplies only Target Role and Location. The local salary is looked up on
 # the web with a cited source; burden, workspace and recruiting come from the
-# national benchmarks above; ThriveModal is shown at a flat 75% saving, the
-# typical figure across the 17 benchmark roles (64-83%, most 74-83%).
-_TM_AUTO_SAVINGS = 0.75
+# national benchmarks above; ThriveModal is shown at a flat 65% saving: the
+# middle of ThriveModal's own public "up to 60-70%, fully burdened" claim
+# (published rate cards run higher, 64-83%, but the page must never promise
+# more than ThriveModal does).
+_TM_AUTO_SAVINGS = 0.65
 _TM_SALARY_CACHE: dict = {}
 
 
@@ -38343,8 +38345,9 @@ def _tm_auto_cost_pdf_data(company: str, role: str, location: str,
         f"(BLS). Workspace and recruiting are US averages. None of these are "
         f"{company}'s own payroll figures.",
         f"The ThriveModal column is an estimate: {pct} below the in-house "
-        f"total, the typical saving in published Philippine offshore staffing "
-        f"rates. Your ThriveModal quote is confirmed separately.",
+        f"total, the middle of ThriveModal's published range of up to 60-70% "
+        f"savings, fully burdened. The actual saving depends on the role; your "
+        f"ThriveModal quote is confirmed separately.",
         "Replace any line with your own figure for an exact comparison.",
     ]
     return {
