@@ -15462,20 +15462,20 @@ def _sidebar_layout_css() -> str:
   background:{C['surface']};border-right:1px solid {C['border']};
   font-family:inherit;color:{C['text']};overflow:hidden}}
 .fd-side .fd-ico{{flex:0 0 auto;opacity:.85}}
-.fd-side-top{{padding:16px 12px 8px;display:flex;flex-direction:column;gap:10px}}
+.fd-side-top{{padding:22px 12px 18px;display:flex;flex-direction:column;gap:16px}}
 .fd-side-logo{{display:flex;align-items:center;height:28px;padding:0 6px;cursor:pointer}}
 .fd-side-logo img{{height:26px;width:auto;max-width:190px;object-fit:contain;object-position:left}}
 /* Same light/dark logo pairing as .fd-logo: show one of the two <img>s. */
 .fd-side-logo img.dd-logo-dark{{display:none}}
 :root:not([data-theme="light"]) .fd-side-logo img.dd-logo-light{{display:none}}
 :root:not([data-theme="light"]) .fd-side-logo img.dd-logo-dark{{display:block}}
-.fd-ws{{display:flex;align-items:center;gap:8px;flex:0 1 auto;max-width:240px;height:36px;padding:0 10px 0 6px;border-radius:10px;
+.fd-ws{{display:flex;align-items:center;gap:10px;width:100%;padding:8px 8px;border-radius:10px;
   border:1px solid {C['border']};background:{C['card']};color:{C['text']};cursor:pointer;
   text-align:left;font-family:inherit;transition:background .12s,border-color .12s}}
 .fd-ws:hover{{background:{C['card_h']};border-color:{C['teal_dim']}}}
-.fd-ws-mark{{width:24px;height:24px;border-radius:6px;background:{C['teal']};color:#0D1520;
+.fd-ws-mark{{width:28px;height:28px;border-radius:8px;background:{C['teal']};color:#0D1520;
   font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}}
-.fd-ws-name{{font-size:13px;font-weight:600;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.fd-ws-name{{font-size:14px;font-weight:600;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .fd-ws-sub{{font-size:11px;color:{C['muted']};line-height:1.2}}
 .fd-ws-chev{{display:flex;color:{C['muted']}}}
 .fd-side-cta{{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:42px;
@@ -15577,7 +15577,8 @@ def _sidebar_layout_css() -> str:
   .fd-side{{width:100%;flex:0 0 auto;height:auto;border-right:none;border-bottom:1px solid {C['border']}}}
   .fd-side-top{{flex-direction:row;align-items:center;padding:10px 12px}}
   .fd-side-logo{{flex:0 0 auto}}
-  .fd-ws{{flex:1;min-width:0;max-width:none}}
+  .fd-ws{{width:auto;flex:1;min-width:0}}
+  .fd-ws-sub{{display:none}}
   .fd-side-cta{{width:auto;padding:0 14px;height:38px}}
   .fd-side-nav{{flex-direction:row;flex-wrap:wrap;gap:2px;padding:0 10px 8px;overflow:visible}}
   .fd-side-sec{{display:none}}
@@ -18386,7 +18387,36 @@ def _sidebar_v2(s: AppState, rf):
                 ui.html(
                     f'<img class="dd-logo-light" src="{BRAND_LOGO}" alt="{BRAND}" />'
                     f'<img class="dd-logo-dark" src="{BRAND_LOGO_DARK}" alt="{BRAND}" />')
-            # The workspace switcher lives in the page header (_page_header_v2).
+            _ws = _sidebar_workspace_name(s)
+            _ws_menu = {"m": None}
+            def _open_ws():
+                if _ws_menu["m"]:
+                    _ws_menu["m"].open()
+            with ui.element("button").classes("fd-ws").props('type="button" aria-label="Workspace"').on("click", _open_ws):
+                if WORKSPACE_LOGO_URI:
+                    ui.html(f'<img src="{WORKSPACE_LOGO_URI}" alt="{_ws.replace(chr(34), "")}" '
+                            'style="width:28px;height:28px;border-radius:8px;'
+                            'flex:0 0 auto;display:block;" />')
+                else:
+                    ui.label((_ws[:1] or "W").upper()).classes("fd-ws-mark")
+                with ui.element("div").style("flex:1;min-width:0;"):
+                    ui.label(_ws).classes("fd-ws-name")
+                    ui.label("Workspace").classes("fd-ws-sub")
+                ui.html(f'<span class="fd-ws-chev">{_svg_icon("chevrons", 15)}</span>')
+                with ui.menu().props(
+                        "no-parent-event anchor='bottom left' self='top left' "
+                        "transition-show='jump-down' transition-hide='jump-up'"
+                        ).classes("fd-side-menu") as _wm:
+                    _ws_menu["m"] = _wm
+                    with ui.element("div").classes("fd-side-menu-head"):
+                        ui.label(_ws).classes("fd-side-menu-title")
+                        ui.label("Current workspace").classes("fd-side-menu-sub")
+                    for ik, lbl, key in (("building", "Company Profile", "company_profile"),
+                                         ("users",    "Team",            "team_settings"),
+                                         ("ban",      "Do Not Contact",  "dnc")):
+                        with ui.element("div").classes("fd-menu-item fd-side-mi").on("click", lambda k=key: _go(k)):
+                            ui.html(_svg_icon(ik, 16))
+                            ui.label(lbl)
             with ui.element("button").classes("fd-side-cta" + (" on" if active == "new" else "")).props(
                     'type="button" data-tour="nav-start_seq"').on("click", lambda: _go("start_seq")):
                 ui.html(_svg_icon("plus", 18))
@@ -18596,36 +18626,6 @@ def _page_header_v2(s: AppState, rf):
 
             _inp.on_value_change(_search)
             _inp.on("keydown.escape", lambda: (_inp.set_value(""), _close()))
-
-        # ── Workspace switcher (moved up from the sidebar, which was crowded) ──
-        _ws = _sidebar_workspace_name(s)
-        _ws_menu = {"m": None}
-        def _open_ws():
-            if _ws_menu["m"]:
-                _ws_menu["m"].open()
-        with ui.element("button").classes("fd-ws").props('type="button" aria-label="Workspace"').on("click", _open_ws):
-            if WORKSPACE_LOGO_URI:
-                ui.html(f'<img src="{WORKSPACE_LOGO_URI}" alt="{_ws.replace(chr(34), "")}" '
-                        'style="width:24px;height:24px;border-radius:6px;'
-                        'flex:0 0 auto;display:block;" />')
-            else:
-                ui.label((_ws[:1] or "W").upper()).classes("fd-ws-mark")
-            ui.label(_ws).classes("fd-ws-name")
-            ui.html(f'<span class="fd-ws-chev">{_svg_icon("chevrons", 14)}</span>')
-            with ui.menu().props(
-                    "no-parent-event anchor='bottom right' self='top right' "
-                    "transition-show='jump-down' transition-hide='jump-up'"
-                    ).classes("fd-side-menu") as _wm:
-                _ws_menu["m"] = _wm
-                with ui.element("div").classes("fd-side-menu-head"):
-                    ui.label(_ws).classes("fd-side-menu-title")
-                    ui.label("Current workspace").classes("fd-side-menu-sub")
-                for ik, lbl, key in (("building", "Company Profile", "company_profile"),
-                                     ("users",    "Team",            "team_settings"),
-                                     ("ban",      "Do Not Contact",  "dnc")):
-                    with ui.element("div").classes("fd-menu-item fd-side-mi").on("click", lambda k=key: _go(k)):
-                        ui.html(_svg_icon(ik, 16))
-                        ui.label(lbl)
 
         # ── Theme toggle (same control as the classic top bar) ──
         with ui.element("button").classes("fd-theme-toggle").props('type="button" aria-label="Toggle theme"').on(
