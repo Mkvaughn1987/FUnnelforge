@@ -26,12 +26,25 @@ from reportlab.platypus import (
 )
 
 # ── Brand ──────────────────────────────────────────────────────────────────
-NAVY     = colors.HexColor("#122742")
-BLUE     = colors.HexColor("#2C65AC")
-ORANGE   = colors.HexColor("#F77331")
+# Each colour can be overridden per instance with DRIPDROP_BRAND_DOC_<NAME>
+# (bare hex, "#" optional, same as the app's palettes). Unset on Arena, so
+# Arena's PDFs keep these exact defaults.
+def _doc_color(name: str, default: str):
+    raw = (os.environ.get(f"DRIPDROP_BRAND_DOC_{name}") or "").strip().lstrip("#")
+    if len(raw) == 6:
+        try:
+            int(raw, 16)
+            return colors.HexColor("#" + raw)
+        except ValueError:
+            pass
+    return colors.HexColor(default)
+
+NAVY     = _doc_color("NAVY",   "#122742")
+BLUE     = _doc_color("BLUE",   "#2C65AC")
+ORANGE   = _doc_color("ORANGE", "#F77331")
 GRAY     = colors.HexColor("#686861")
 SILVER   = colors.HexColor("#B5B5B2")
-LIGHT    = colors.HexColor("#EDF3FA")
+LIGHT    = _doc_color("LIGHT",  "#EDF3FA")
 WHITE    = colors.white
 GREEN    = colors.HexColor("#22c55e")
 RED      = colors.HexColor("#ef4444")
