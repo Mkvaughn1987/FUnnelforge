@@ -10,6 +10,9 @@ All use text-based ARENA wordmark — no image dependency.
 Colors: #122742 navy · #2C65AC blue · #F77331 orange
 """
 import os, json
+# Firm name used when none is configured. White-label instances set
+# DRIPDROP_BRAND_DOC_FIRM (inboxslide: ThriveModal); unset on Arena.
+_DEFAULT_FIRM = (os.environ.get("DRIPDROP_BRAND_DOC_FIRM") or "").strip() or "Arena Direct Hire"
 from pathlib import Path
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
@@ -54,8 +57,8 @@ def get_sender(cfg: dict | None = None) -> tuple[str, str]:
     """Return (sender_name, sender_firm) from config."""
     c = cfg or _load_config()
     name = c.get("ai_sender_name") or c.get("username", "").split(".")[0].capitalize()
-    firm = c.get("ai_sender_firm") or c.get("company", "Arena Direct Hire")
-    return name or "Arena Direct Hire", firm or "Arena Direct Hire"
+    firm = c.get("ai_sender_firm") or c.get("company", _DEFAULT_FIRM)
+    return name or _DEFAULT_FIRM, firm or _DEFAULT_FIRM
 
 # ── Base document ──────────────────────────────────────────────────────────
 def _text_logo_fallback(canv, H, BAR_H, NAVY, ORANGE, WHITE, SILVER):
@@ -149,9 +152,9 @@ class ArenaDoc(BaseDocTemplate):
         # does not footer its buyer-facing assets with someone else's brand.
         # Falls back to "Arena Direct Hire" exactly as before when unset.
         try:
-            _firm = get_sender()[1] or "Arena Direct Hire"
+            _firm = get_sender()[1] or _DEFAULT_FIRM
         except Exception:
-            _firm = "Arena Direct Hire"
+            _firm = _DEFAULT_FIRM
         _parts = [_firm]
         if getattr(self, "prepared_by", ""):
             _parts.append(self.prepared_by)
@@ -310,7 +313,7 @@ def build_market_pulse(output_path, d, cfg=None):
         title = f"{_loc} Market"
     else:
         title = "Market Pulse"
-    _prep = d.get("prepared_by", "Arena Direct Hire")
+    _prep = d.get("prepared_by", _DEFAULT_FIRM)
     _email = d.get("prepared_email", "")
     subtitle = f"Prepared by {_prep}" + (f" | {_email}" if _email else "") + f" | {d.get('date', '')}"
     _title_block(story, title, subtitle, "Market pulse")
@@ -458,7 +461,7 @@ def build_scorecard(output_path, d, cfg=None):
     _loc = d.get('location', ''); _role = d.get('role', '')
     _label = _niche or _role
     title = f"{_loc} {_label}" if _loc and _label else (_label or "Role Scorecard")
-    _prep = d.get("prepared_by", "Arena Direct Hire")
+    _prep = d.get("prepared_by", _DEFAULT_FIRM)
     _email = d.get("prepared_email", "")
     subtitle = f"Prepared by {_prep}" + (f" | {_email}" if _email else "") + f" | {d.get('date', '')}"
     _title_block(story, title, subtitle, "Role scorecard")
@@ -523,7 +526,7 @@ def build_salary_guide(output_path, d, cfg=None):
     _loc = d.get('location', ''); _role = d.get('role', '')
     _label = _niche or _role
     title = f"{_loc} {_label} Compensation" if _loc and _label else f"Salary Guide - {_label}"
-    _prep = d.get("prepared_by", "Arena Direct Hire")
+    _prep = d.get("prepared_by", _DEFAULT_FIRM)
     _email = d.get("prepared_email", "")
     subtitle = f"Prepared by {_prep}" + (f" | {_email}" if _email else "") + f" | {d.get('date', '')}"
     _title_block(story, title, subtitle, "Salary guide")
@@ -606,7 +609,7 @@ def build_interview_guide(output_path, d, cfg=None):
     _loc = d.get('location', ''); _role = d.get('role', '')
     _label = _niche or _role
     title = f"{_loc} {_label} Interview Guide" if _loc and _label else f"Interview Guide - {_label}"
-    _prep = d.get("prepared_by", "Arena Direct Hire")
+    _prep = d.get("prepared_by", _DEFAULT_FIRM)
     _email = d.get("prepared_email", "")
     subtitle = f"Prepared by {_prep}" + (f" | {_email}" if _email else "") + f" | {d.get('date', '')}"
     _title_block(story, title, subtitle, "Interview guide")
@@ -822,7 +825,7 @@ def build_tenure_snapshot(output_path, d, cfg=None):
     _loc = d.get('location', ''); _role = d.get('role', '')
     _label = _niche or _role
     title = f"{_loc} {_label} Tenure + Stability" if _loc and _label else (f"{_loc} Tenure + Stability" if _loc else "Tenure + Stability Snapshot")
-    _prep = d.get("prepared_by", "Arena Direct Hire")
+    _prep = d.get("prepared_by", _DEFAULT_FIRM)
     _email = d.get("prepared_email", "")
     subtitle = f"Prepared by {_prep}" + (f" | {_email}" if _email else "") + f" | {d.get('date', '')}"
     _title_block(story, title, subtitle, "Tenure snapshot")
@@ -906,7 +909,7 @@ def build_why_staffing(output_path, d, cfg=None):
     story = []
 
     # Title uses the user's company name, not generic "staffing firm"
-    _prep_company = d.get("prepared_by", "Arena Direct Hire")
+    _prep_company = d.get("prepared_by", _DEFAULT_FIRM)
     _role = d.get('role', '')
     _loc = d.get('location', '')
     title = f"Why Use {_prep_company}"
