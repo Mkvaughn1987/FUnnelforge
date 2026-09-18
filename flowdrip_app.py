@@ -15103,10 +15103,10 @@ def _sidebar_layout_css() -> str:
 .fd-side-cta:hover{{filter:brightness(1.06)}}
 .fd-side-cta:active{{transform:translateY(1px)}}
 .fd-side-cta.on{{box-shadow:0 0 0 3px {C['teal_dim']}}}
-.fd-side-nav{{flex:1;min-height:0;overflow-y:auto;padding:4px 12px 8px;display:flex;flex-direction:column}}
+.fd-side-nav{{flex:1 1 auto;min-height:140px;overflow-y:auto;padding:4px 12px 8px;display:flex;flex-direction:column}}
 .fd-side-sec{{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
   color:{C['muted']};padding:14px 10px 4px;opacity:.85}}
-.fd-side-row{{display:flex;align-items:center;gap:10px;height:40px;padding:0 10px;border-radius:9px;
+.fd-side-row{{display:flex;flex:0 0 auto;align-items:center;gap:10px;height:40px;padding:0 10px;border-radius:9px;
   color:{C['text']};cursor:pointer;user-select:none;transition:background .12s,color .12s}}
 .fd-side-row:hover{{background:{C['card_h']}}}
 .fd-side-row.on{{background:{C['teal_dim']};color:{C['teal']};font-weight:600}}
@@ -15114,13 +15114,22 @@ def _sidebar_layout_css() -> str:
 .fd-side-row.open{{color:{C['teal']};font-weight:600}}
 .fd-side-row.open .fd-ico{{opacity:1}}
 .fd-side-lbl{{font-size:14px;line-height:1.4;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.fd-side-sub{{height:36px;padding-left:22px}}
+/* Expanded sub-rows hang off a thin guide line under their parent. */
+.fd-side-subgroup{{display:flex;flex:0 0 auto;flex-direction:column;gap:1px;margin:2px 0 6px 19px;padding-left:9px;
+  border-left:1px solid {C['border']}}}
+.fd-side-sub{{height:32px;padding:0 10px;gap:9px;border-radius:8px;color:{C['muted']}}}
 .fd-side-sub .fd-side-lbl{{font-size:13px}}
+.fd-side-sub .fd-ico{{opacity:.7}}
+.fd-side-sub:hover{{color:{C['text']}}}
+.fd-side-sub.on{{color:{C['teal']}}}
 .fd-side-badge{{font-size:11px;font-weight:700;line-height:1;padding:4px 7px;border-radius:999px;
   background:{C['teal_dim']};color:{C['teal']};min-width:20px;text-align:center}}
 .fd-side-badge.hot{{background:{C['danger']};color:#fff}}
 .fd-side-badge.setup{{background:{C['warn']};color:#0D1520}}
-.fd-side-bottom{{padding:8px 12px 12px;border-top:1px solid {C['border']};display:flex;flex-direction:column;gap:2px}}
+/* Bottom block may shrink (its links scroll) so the profile card is never clipped. */
+.fd-side-bottom{{flex:0 1 auto;min-height:0;padding:8px 12px 12px;border-top:1px solid {C['border']};display:flex;flex-direction:column;gap:2px}}
+.fd-side-blinks{{flex:0 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:2px}}
+.fd-side-user{{flex:0 0 auto}}
 .fd-side-user{{display:flex;align-items:center;gap:10px;width:100%;margin-top:6px;padding:8px;border-radius:10px;
   border:1px solid transparent;background:transparent;color:{C['text']};cursor:pointer;text-align:left;font-family:inherit;
   transition:background .12s,border-color .12s}}
@@ -15195,6 +15204,7 @@ def _sidebar_layout_css() -> str:
   .fd-side-row{{height:36px;padding:0 10px}}
   .fd-side-bottom{{flex-direction:row;flex-wrap:wrap;align-items:center;padding:6px 10px}}
   .fd-side-sub{{padding-left:10px}}
+  .fd-side-subgroup,.fd-side-blinks{{display:contents}}
   .fd-side-user{{width:auto;margin:0 0 0 auto;padding:4px}}
   .fd-side-uname,.fd-side-umail{{display:none}}
   .fd-ph{{height:auto;flex-wrap:wrap;padding:10px 14px;gap:10px}}
@@ -18049,27 +18059,30 @@ def _sidebar_v2(s: AppState, rf):
                     _row(ik, lbl, key, on=(active == ik and not _lib_open), open_=_lib_open,
                          badge=badge, badge_cls=badge_cls, tour=tour)
                     if _lib_open:
-                        for sik, slbl, skey in SIDEBAR_LIBRARY:
-                            if skey == "tm_prompts" and not _is_thrivemodal():
-                                continue
-                            _row(sik, slbl, skey, on=(page == skey), sub=True)
+                        with ui.element("div").classes("fd-side-subgroup"):
+                            for sik, slbl, skey in SIDEBAR_LIBRARY:
+                                if skey == "tm_prompts" and not _is_thrivemodal():
+                                    continue
+                                _row(sik, slbl, skey, on=(page == skey), sub=True)
 
         # ── Bottom: Admin, Settings (+ sub-rows), profile ──
         with ui.element("div").classes("fd-side-bottom"):
-            if _is_admin(_uemail):
-                _row("admin", "Admin", "admin", on=(active == "admin"))
-            _row("settings", "Settings", "ai_settings", open_=(active == "settings"),
-                 badge="Setup" if _setup_missing else None, badge_cls="setup",
-                 tour="nav-ai_settings")
-            if active == "settings":
-                _needs = {"ai_settings": not _setup.get("email", True),
-                          "company_profile": not _setup.get("company", True),
-                          "timezone": not _setup.get("timezone", True)}
-                for ik, lbl, key in SIDEBAR_SETTINGS:
-                    on = page == key or (key == "signature" and page == "e_signature")
-                    _row(ik, lbl, key, on=on, sub=True,
-                         badge="Setup" if (_SERVER_MODE and _needs.get(key)) else None,
-                         badge_cls="setup")
+            with ui.element("div").classes("fd-side-blinks"):
+                if _is_admin(_uemail):
+                    _row("admin", "Admin", "admin", on=(active == "admin"))
+                _row("settings", "Settings", "ai_settings", open_=(active == "settings"),
+                     badge="Setup" if _setup_missing else None, badge_cls="setup",
+                     tour="nav-ai_settings")
+                if active == "settings":
+                    _needs = {"ai_settings": not _setup.get("email", True),
+                              "company_profile": not _setup.get("company", True),
+                              "timezone": not _setup.get("timezone", True)}
+                    with ui.element("div").classes("fd-side-subgroup"):
+                        for ik, lbl, key in SIDEBAR_SETTINGS:
+                            on = page == key or (key == "signature" and page == "e_signature")
+                            _row(ik, lbl, key, on=on, sub=True,
+                                 badge="Setup" if (_SERVER_MODE and _needs.get(key)) else None,
+                                 badge_cls="setup")
 
             if _uname_full and _SERVER_MODE:
                 _user_rec = _get_user_record(_uemail) or {}
