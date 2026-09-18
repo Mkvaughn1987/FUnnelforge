@@ -24,9 +24,10 @@ from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions, RevocationOptions
 from mcp.server.mcpserver.server import MCPServer
 from mcp.server.transport_security import TransportSecuritySettings
+from mcp.types import Icon
 from pydantic import AnyHttpUrl
 from starlette.requests import Request
-from starlette.responses import HTMLResponse, RedirectResponse
+from starlette.responses import FileResponse, HTMLResponse, RedirectResponse
 
 from mcp_server import app_bridge, dripdrop_login
 from mcp_server.auth_provider import DripDropAuthProvider
@@ -52,9 +53,18 @@ BRAND = (os.environ.get("DRIPDROP_BRAND_NAME") or "DripDrop").strip() or "DripDr
 
 auth_provider = DripDropAuthProvider(data_dir=DATA_DIR, public_url=PUBLIC_URL)
 
+# Connector icon. Repo-relative PNG, unset on Arena (no icon, /favicon.ico
+# stays a 404 as before). Claude shows it next to the connector name.
+_ICON_REL = (os.environ.get("DRIPDROP_BRAND_ICON_LARGE") or "").strip()
+ICON_PATH = (Path(__file__).resolve().parent.parent / _ICON_REL) if _ICON_REL else None
+if ICON_PATH is not None and not ICON_PATH.is_file():
+    ICON_PATH = None
+_ICONS = [Icon(src=f"{PUBLIC_URL}/icon.png", mime_type="image/png", sizes=["512x512"])] if ICON_PATH else None
+
 mcp = MCPServer(
     name="dripdrop",
     title=BRAND,
+    icons=_ICONS,
     description=f"Launch {BRAND} outbound campaigns and search the shared candidate Pipeline.",
     auth_server_provider=auth_provider,
     auth=AuthSettings(
@@ -125,6 +135,15 @@ async def login_form(request: Request) -> HTMLResponse:
         })
         return RedirectResponse(f"{app_bridge.app_authorize_url()}?{query}", status_code=302)
     return HTMLResponse(_login_page(login_token))
+
+
+if ICON_PATH is not None:
+    async def _icon(request: Request) -> FileResponse:
+        return FileResponse(str(ICON_PATH), media_type="image/png",
+                            headers={"Cache-Control": "public, max-age=86400"})
+
+    mcp.custom_route("/icon.png", methods=["GET"])(_icon)
+    mcp.custom_route("/favicon.ico", methods=["GET"])(_icon)
 
 
 _EXPIRED_HTML = "<p>This login link has expired. Please restart the authorization from Claude.</p>"
