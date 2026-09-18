@@ -85,6 +85,27 @@ class ArenaDoc(BaseDocTemplate):
         # Logo — white background, top-left (no navy bar, no orange)
         import os as _os
         _here = _os.path.dirname(_os.path.abspath(__file__))
+        # White-label instances (inboxslide/ThriveModal) set
+        # DRIPDROP_BRAND_DOC_LOGO to a repo-relative image; unset on Arena, so
+        # the arena_logo / "ARENA" text path below is unchanged there.
+        _doc_logo = (_os.environ.get("DRIPDROP_BRAND_DOC_LOGO") or "").strip()
+        if _doc_logo:
+            _p = _doc_logo if _os.path.isabs(_doc_logo) else _os.path.join(_here, "..", _doc_logo)
+            if _os.path.isfile(_p):
+                try:
+                    from reportlab.lib.utils import ImageReader
+                    _iw, _ih = ImageReader(_p).getSize()
+                    lh = 0.5*inch
+                    lw = min(lh * _iw / float(_ih or 1), W - 1.1*inch)
+                    canv.drawImage(_p, 0.55*inch, H - 0.45*inch - lh,
+                                   width=lw, height=lh,
+                                   preserveAspectRatio=True, anchor='sw',
+                                   mask='auto')
+                    self._chrome_footer(canv)
+                    canv.restoreState()
+                    return
+                except Exception:
+                    pass
         _candidates = [
             _os.path.join(_here, "..", "assets", "arena_logo.png"),
             _os.path.join(_here, "..", "arena_logo.png"),
@@ -117,6 +138,10 @@ class ArenaDoc(BaseDocTemplate):
             canv.setFont("Helvetica-Bold", 8)
             canv.drawString(0.55*inch, H - 0.92*inch, "DIRECT HIRE")
 
+        self._chrome_footer(canv)
+        canv.restoreState()
+
+    def _chrome_footer(self, canv):
         # Footer — Arena Direct Hire | {recruiter name} | {recruiter email}
         canv.setFillColor(SILVER)
         canv.setFont("Helvetica", 7)
@@ -133,8 +158,6 @@ class ArenaDoc(BaseDocTemplate):
         if getattr(self, "prepared_email", ""):
             _parts.append(self.prepared_email)
         canv.drawCentredString(W/2, 0.30*inch, " | ".join(_parts))
-
-        canv.restoreState()
 
 
 # ── Style helpers ──────────────────────────────────────────────────────────
