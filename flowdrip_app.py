@@ -5541,7 +5541,7 @@ AICB_CAMPAIGN_TYPES = [
     # the same-day call + LinkedIn pairing on Step 2's day; Steps 8 and 9
     # extend that cadence for the two added emails. See _TM_STEP_SHAPE, which
     # is what actually pins it.
-    ("tm_conversation", "Offshore Deep Dive", "9 steps - 4 weeks", "#14B8A6",
+    ("tm_conversation", "7 Emails, 1 Call + LinkedIn", "9 steps - 4 weeks", "#14B8A6",
      "Seven emails, one call and one LinkedIn touch over about four weeks. "
      "Opens on a capacity question, prices the role, shows which work "
      "actually transfers, covers what happens after the hire starts, answers "
@@ -24717,8 +24717,8 @@ _TM_CHOOSER_OBJECTIVES = [
     {
         "key": "tm_conversation",
         "icon": "💬",
-        "title": "Offshore Deep Dive",
-        "subtitle": "The full cold case for offshore staffing",
+        "title": "7 Emails, 1 Call + LinkedIn",
+        "subtitle": "Four weeks of cold outreach to one company or segment",
         "desc": ("Seven emails, one call and one LinkedIn touch over about "
                  "four weeks. Opens on a capacity question, prices the role, "
                  "shows what actually transfers, covers support after the "
