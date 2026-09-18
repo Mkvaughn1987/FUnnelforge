@@ -37782,6 +37782,187 @@ _TM_COST_INPUTS = [
 
 _TM_DOMESTIC_KEYS = tuple(k for k, _l, _b in _TM_COST_INPUTS if k != "tm_monthly_rate")
 
+# Published market benchmarks, so a seller can pick a position instead of
+# typing five figures. These are still not a model's guess: every number
+# below is copied from a named public source (listed in _TM_BENCH_SOURCES
+# and printed on the PDF), and the page labels each line that came from
+# here as a benchmark rather than the buyer's own payroll. Anything the
+# seller edits is treated as supplied, exactly as before.
+#
+# base   = US median annual wage (BLS OEWS) for the occupation named.
+# ph_*   = monthly fee a US client pays a managed Philippine staffing
+#          provider for one full-time dedicated person (provider margin
+#          included), low / high of published rate cards; ph_mid is used.
+# Refresh these once a year when BLS publishes the new OEWS release.
+_TM_BENCH_AS_OF = "OEWS May 2025"
+# BLS ECEC June 2026 (released 2026-09-09), private industry: benefits
+# $14.07 on wages $32.82 an hour = 42.9% of wages (30.0% of compensation).
+_TM_BENCH_BURDEN_PCT = 42.9
+# CBRE Q2 2026 US average office asking rent $37.58/sq ft/yr x ~160 sq ft
+# a seat. Space only; equipment and software (~$2,700, Global Workplace
+# Analytics) are left out to keep the in-house column conservative.
+_TM_BENCH_OVERHEAD = 6000
+# SHRM 2025 Benchmarking Report: average cost per hire, non-executive.
+# One hire inside the comparison period.
+_TM_BENCH_HIRING = 5475
+_TM_BENCH_SOURCES = [
+    ("US median wages: BLS Occupational Employment and Wage Statistics, "
+     "May 2025", "https://www.bls.gov/oes/"),
+    ("Payroll taxes and benefits (42.9% of wages): BLS Employer Costs for "
+     "Employee Compensation, June 2026",
+     "https://www.bls.gov/news.release/ecec.nr0.htm"),
+    ("Workspace (about 160 sq ft at USD 37.58/sq ft a year): CBRE US Office "
+     "Market Report Q2 2026",
+     "https://www.cbre.com/insights/figures/q2-2026-us-office-market-report"),
+    ("Recruiting and onboarding (USD 5,475 average cost per non-executive "
+     "hire): SHRM 2025 Benchmarking Report",
+     "https://www.shrm.org/about/press-room/shrm-releases-2025-benchmarking-reports--how-does-your-organizat"),
+    ("Philippine offshore rates: VA Masters rate guide",
+     "https://vamasters.com/how-much-does-it-cost-to-outsource-to-the-philippines/"),
+    ("Philippine offshore rates: MultiplyMii published pricing",
+     "https://www.multiplymii.com/clients/pricing"),
+    ("Philippine offshore rates: iSuporta Philippines BPO pricing guide 2026",
+     "https://isuporta.com/blog/philippines-bpo-pricing-guide-2026"),
+    ("Philippine offshore rates: Kore BPO offshore staffing pricing",
+     "https://korebpo.com/offshore-staffing-agency-pricing/"),
+    ("Philippine medical billing rates: RCM Staff 2026 guide",
+     "https://rcmstaff.com/blog/cost-outsource-medical-billing-philippines-2026"),
+]
+
+
+def _tm_bench(id_, label, occupation, base, lo, hi, keywords):
+    return {"id": id_, "label": label, "occupation": occupation,
+            "base": base, "ph_low": lo, "ph_high": hi,
+            "ph_mid": int(round((lo + hi) / 2.0)), "keywords": keywords}
+
+
+# base = BLS OEWS May 2025 national annual median, rounded to $500.
+_TM_ROLE_BENCHMARKS = [
+    _tm_bench("logistics_coord", "Logistics / track-and-trace coordinator",
+              "Cargo and Freight Agents (SOC 43-5011)", 52500, 1040, 1600,
+              ("logistics", "track and trace", "tracking", "freight agent",
+               "logistics coordinator", "shipment", "pod", "freight forwarding")),
+    _tm_bench("dispatcher", "Dispatcher / freight operations support",
+              "Dispatchers, Except Police, Fire, and Ambulance (SOC 43-5032)",
+              50500, 1040, 1560,
+              ("dispatch", "dispatcher", "freight", "operations support",
+               "carrier sales", "load planner")),
+    _tm_bench("bookkeeper", "Bookkeeper",
+              "Bookkeeping, Accounting, and Auditing Clerks (SOC 43-3031)",
+              50500, 1399, 2250, ("bookkeeper", "bookkeeping")),
+    _tm_bench("staff_accountant", "Staff accountant",
+              "Accountants and Auditors (SOC 13-2011)", 83500, 1200, 2500,
+              ("accountant", "staff accountant", "accounting", "cpa")),
+    _tm_bench("ap_ar", "Accounts payable / receivable specialist",
+              "Bookkeeping, Accounting, and Auditing Clerks (SOC 43-3031)",
+              50500, 1200, 2240,
+              ("accounts payable", "accounts receivable", "ap", "ar",
+               "ap ar", "ap specialist", "ar specialist", "collections")),
+    _tm_bench("property_admin", "Property management coordinator",
+              "Secretaries and Administrative Assistants (SOC 43-6014)",
+              47500, 1040, 1920,
+              ("property", "property management", "leasing",
+               "maintenance coordinator", "resident")),
+    _tm_bench("care_scheduler", "Home care scheduling / intake coordinator",
+              "Medical Secretaries and Administrative Assistants (SOC 43-6013)",
+              46000, 1040, 1600,
+              ("scheduler", "scheduling", "intake", "home care",
+               "care coordinator", "staffing coordinator")),
+    _tm_bench("medical_billing", "Medical billing / claims specialist",
+              "Billing and Posting Clerks (SOC 43-3021)", 48500, 1400, 3500,
+              ("medical billing", "medical biller", "claims", "rcm",
+               "revenue cycle", "coder", "medical coding")),
+    _tm_bench("patient_access", "Medical receptionist / patient access",
+              "Receptionists and Information Clerks (SOC 43-4171)",
+              38000, 1040, 1600,
+              ("receptionist", "front desk", "patient access",
+               "patient coordinator", "medical receptionist")),
+    _tm_bench("marketing_coord", "Marketing coordinator",
+              "Market Research Analysts and Marketing Specialists (SOC 13-1161)",
+              79000, 1360, 2400,
+              ("marketing", "marketing coordinator", "social media",
+               "campaign coordinator", "digital marketing", "seo")),
+    _tm_bench("graphic_designer", "Graphic designer",
+              "Graphic Designers (SOC 27-1024)", 63000, 1449, 2800,
+              ("graphic designer", "designer", "graphic design", "creative")),
+    _tm_bench("customer_service", "Customer service representative",
+              "Customer Service Representatives (SOC 43-4051)",
+              45000, 900, 1800,
+              ("customer service", "customer support", "support",
+               "csr", "call center", "customer success", "service desk")),
+    _tm_bench("order_entry", "Order entry / sales support",
+              "Order Clerks (SOC 43-4151)", 46000, 1040, 1600,
+              ("order entry", "order processing", "sales support",
+               "inside sales support", "order clerk", "sales coordinator")),
+    _tm_bench("admin_assistant", "Administrative assistant",
+              "Secretaries and Administrative Assistants (SOC 43-6014)",
+              47500, 1040, 1600,
+              ("admin", "administrative", "administrative assistant",
+               "office assistant", "office administrator", "virtual assistant",
+               "office manager")),
+    _tm_bench("executive_assistant", "Executive assistant",
+              "Executive Secretaries and Executive Administrative Assistants "
+              "(SOC 43-6011)", 76500, 1200, 2200,
+              ("executive assistant", "ea", "executive administrative assistant")),
+    _tm_bench("data_entry", "Data entry specialist",
+              "Data Entry Keyers (SOC 43-9021)", 41500, 700, 1500,
+              ("data entry", "data entry specialist", "data processing")),
+    _tm_bench("software_dev", "Software developer",
+              "Software Developers (SOC 15-1252)", 136000, 1920, 4000,
+              ("software", "developer", "software developer",
+               "software engineer", "programmer", "web developer",
+               "full stack")),
+]
+
+
+def _tm_benchmark(role_id: str):
+    """The benchmark row for a position id, or None."""
+    role_id = str(role_id or "").strip()
+    return next((b for b in _TM_ROLE_BENCHMARKS if b["id"] == role_id), None)
+
+
+def _tm_benchmark_inputs(role_id: str) -> dict:
+    """The five cost inputs for a position, as the strings the form holds.
+    Empty dict for an unknown position, so nothing is filled in by accident."""
+    b = _tm_benchmark(role_id)
+    if not b:
+        return {}
+    base = int(b["base"])
+    return {
+        "domestic_base": str(base),
+        "domestic_burden": str(int(round(base * _TM_BENCH_BURDEN_PCT / 10000.0) * 100)),
+        "domestic_overhead": str(int(_TM_BENCH_OVERHEAD)),
+        "domestic_hiring": str(int(_TM_BENCH_HIRING)),
+        "tm_monthly_rate": str(int(b["ph_mid"])),
+    }
+
+
+def _tm_match_benchmark(role_text: str) -> str:
+    """Best position id for a free-text Target Role, or "" when nothing
+    matches. Keyword match only: a wrong guess here would put the wrong
+    salary on the page, so an unfamiliar title gets no suggestion."""
+    txt = " " + re.sub(r"[^a-z0-9]+", " ", str(role_text or "").lower()) + " "
+    if not txt.strip():
+        return ""
+    best, best_len = "", 0
+    for b in _TM_ROLE_BENCHMARKS:
+        for kw in b.get("keywords", ()):
+            if f" {kw} " in txt and len(kw) > best_len:
+                best, best_len = b["id"], len(kw)
+    return best
+
+
+def _tm_benchmark_keys(inputs: dict, role_id: str) -> set:
+    """Which inputs still hold the benchmark value for role_id. A figure the
+    seller changed is theirs, and the page must not call it a benchmark."""
+    bench = _tm_benchmark_inputs(role_id)
+    out = set()
+    for key, val in bench.items():
+        typed = _tm_parse_money((inputs or {}).get(key))
+        if typed is not None and typed == _tm_parse_money(val):
+            out.add(key)
+    return out
+
 
 def _tm_parse_money(val):
     """Parse a user-typed money figure. '$4,250.00' -> 4250.0.
@@ -37925,7 +38106,7 @@ def _tm_cost_worksheet(inputs: dict, seats: int = 1, period_months: int = 12,
 def _tm_cost_pdf_data(company: str, inputs: dict, seats: int = 1,
                       period_months: int = 12, currency: str = "USD",
                       included: str = "", excluded: str = "",
-                      cfg: dict = None) -> dict:
+                      cfg: dict = None, benchmark_role: str = "") -> dict:
     """Compose the full {title, badge, intro, sections, cta} payload for
     the Staffing Cost Comparison. No model call anywhere in this path."""
     company = (str(company or "").strip() or "your team")
@@ -37933,6 +38114,26 @@ def _tm_cost_pdf_data(company: str, inputs: dict, seats: int = 1,
                             currency=currency)
     ctxp = _thrivemodal_context(cfg)
     terms = (ctxp.get("tm_pricing") or "").strip()
+    bench = _tm_benchmark(benchmark_role)
+    bkeys = _tm_benchmark_keys(inputs, benchmark_role) if bench else set()
+    # Benchmarks are USD figures; in any other currency they are not
+    # benchmarks of anything, so the page falls back to "supplied".
+    if ws["currency"] != "USD":
+        bkeys = set()
+    dom_bench = [k for k in _TM_DOMESTIC_KEYS if k in bkeys]
+    _role = ""
+    if bench:
+        _role = bench["label"][0].lower() + bench["label"][1:]
+        _role = ("an " if _role[0] in "aeiou" else "a ") + _role
+    rate_bench = "tm_monthly_rate" in bkeys
+
+    # Mark each benchmark line on the table itself, so the label travels
+    # with the number when someone screenshots one row.
+    if bkeys:
+        _bl = {label: key for key, label, _b in _TM_COST_INPUTS}
+        for row in ws["rows"][1:-1]:
+            if _bl.get(row[0]) in bkeys:
+                row[0] = row[0] + " (benchmark)"
 
     def _lines(blob, fallback):
         out = [ln.strip(" -•	") for ln in str(blob or "").splitlines()
@@ -37943,15 +38144,41 @@ def _tm_cost_pdf_data(company: str, inputs: dict, seats: int = 1,
         f"Figures cover {ws['seats']} " +
         ("role" if ws["seats"] == 1 else "roles") +
         f" over {ws['period_label']}, in {ws['currency']}.",
-        "In-house costs were supplied by the buyer or by the person "
-        "preparing this worksheet. They have not been estimated, "
-        "benchmarked or adjusted.",
-        "Totals are plain addition of the lines above. Nothing on this "
-        "page is a projection, a saving estimate or a forecast.",
     ]
+    if not dom_bench:
+        assumptions.append(
+            "In-house costs were supplied by the buyer or by the person "
+            "preparing this worksheet. They have not been estimated, "
+            "benchmarked or adjusted.")
+    else:
+        _names = [lbl.lower() for k, lbl, _b in _TM_COST_INPUTS if k in dom_bench]
+        _which = ("All in-house lines are" if len(dom_bench) == len(_TM_DOMESTIC_KEYS)
+                  else "These in-house lines are")
+        assumptions.append(
+            f"{_which} published US market benchmarks for {_role}, "
+            f"not {company}'s own payroll"
+            + ("" if len(dom_bench) == len(_TM_DOMESTIC_KEYS)
+               else " (" + ", ".join(_names) + "; the rest were supplied)")
+            + f". Base salary is the US median wage for {bench['occupation']}"
+            f" (BLS, {_TM_BENCH_AS_OF}); payroll taxes and benefits are "
+            f"{_TM_BENCH_BURDEN_PCT:.0f}% of wages (BLS Employer Costs for "
+            f"Employee Compensation). Sources are listed at the end.")
+        assumptions.append(
+            "Replace any benchmark line with your own figure for an exact "
+            "comparison.")
+    if rate_bench:
+        assumptions.append(
+            f"The ThriveModal column uses the midpoint of published rates for "
+            f"a full-time, dedicated Philippine offshore "
+            f"{_role[_role.index(' ') + 1:]} "
+            f"(USD {bench['ph_low']:,}–{bench['ph_high']:,} a month). It is a "
+            f"market benchmark, not a ThriveModal quote.")
+    assumptions.append(
+        "Totals are plain addition of the lines above. Nothing on this "
+        "page is a projection or a forecast.")
     if terms:
         assumptions.append("ThriveModal pricing and terms as approved: " + terms)
-    else:
+    elif not rate_bench:
         assumptions.append(
             "No ThriveModal pricing has been approved in this workspace, so "
             "no rate is quoted here.")
@@ -37970,13 +38197,22 @@ def _tm_cost_pdf_data(company: str, inputs: dict, seats: int = 1,
                          "outside the monthly rate before sending this page on.")},
     ]
 
+    if bkeys:
+        sections.append({
+            "heading": "Benchmark Sources", "type": "bullets",
+            "items": [f"{lbl}: {url}" for lbl, url in _TM_BENCH_SOURCES]})
+
     if ws["complete"]:
+        _dom_src = ("uses published US market benchmarks" if dom_bench
+                    else f"is what {company} supplied")
+        _tm_src = ("a market benchmark for Philippine offshore staffing"
+                   if rate_bench else "the approved rate")
         intro = (
             f"A like-for-like cost comparison for {company}, covering "
             f"{ws['seats']} " + ("role" if ws["seats"] == 1 else "roles") +
-            f" over {ws['period_label']}. The in-house column is what "
-            f"{company} supplied; the ThriveModal column is the approved "
-            f"rate. Every total is straight addition of the lines shown.")
+            f" over {ws['period_label']}. The in-house column {_dom_src}; "
+            f"the ThriveModal column is {_tm_src}. Every total is straight "
+            f"addition of the lines shown.")
         cta = ("Check these figures against your own payroll records, then "
                "tell us which line you want to look at more closely.")
     else:
@@ -39051,6 +39287,7 @@ def _generate_rich_pdf_data(client, kind: str, ctx: dict, research_context: str 
             currency=ctx.get("tm_currency", "USD"),
             included=ctx.get("tm_included", ""),
             excluded=ctx.get("tm_excluded", ""),
+            benchmark_role=ctx.get("tm_benchmark_role", ""),
         )
 
     prompt = _rich_pdf_prompt(kind, ctx)
@@ -47164,19 +47401,59 @@ def p_pdf_gen(s: AppState, rf):
                 f"font-size:10px;font-weight:700;color:{C['warn']};"
                 f"text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;")
             ui.label(
-                "These go on the page exactly as typed and are totalled by the "
-                "app, not written by AI. Anything you leave blank is printed as "
-                "missing and the worksheet will not total — no figure is ever "
-                "filled in for you."
+                "Pick a position to fill these from published US wage data and "
+                "Philippine offshore rates. The PDF marks those lines as "
+                "benchmarks and lists the sources. Change any figure to use "
+                "your own; the app adds them up, not AI."
             ).style(f"font-size:11px;color:{C['muted']};line-height:1.6;"
                     f"margin-bottom:12px;")
+
+            _tm_bench_opts = {"": "My own figures"}
+            _tm_bench_opts.update({b["id"]: b["label"] for b in _TM_ROLE_BENCHMARKS})
+            _tm_bench_init = str(_tmc.get("benchmark_role", "") or "")
+            if (not _tm_bench_init
+                    and not any(str(_tmc.get(k, "") or "").strip()
+                                for k, _l, _b in _TM_COST_INPUTS)):
+                # Fresh form: offer the position the Target Role already names.
+                _tm_bench_init = _tm_match_benchmark(s._pdf_role)
+                if _tm_bench_init:
+                    _tmc = dict(_tmc)
+                    _tmc.update(_tm_benchmark_inputs(_tm_bench_init))
+            if _tm_bench_init not in _tm_bench_opts:
+                _tm_bench_init = ""
+
+            def _tm_apply_benchmark(e):
+                vals = _tm_benchmark_inputs(e.value)
+                for _k, _v in vals.items():
+                    if _k in _tm_cost_widgets:
+                        _tm_cost_widgets[_k].value = _v
+
+            with ui.element("div").style("margin-bottom:14px;max-width:360px;"):
+                ui.label("Position").classes("fd-fl")
+                _tm_cost_meta["benchmark_role"] = ui.select(
+                    options=_tm_bench_opts, value=_tm_bench_init,
+                    on_change=_tm_apply_benchmark,
+                ).classes("fd-input").style("min-width:240px;")
+
+            def _tm_role_blur(_e=None):
+                # Only ever fills an untouched worksheet; never overwrites
+                # figures the seller has typed or a position they picked.
+                sel = _tm_cost_meta.get("benchmark_role")
+                if sel is None or sel.value:
+                    return
+                if any(str(w.value or "").strip() for w in _tm_cost_widgets.values()):
+                    return
+                match = _tm_match_benchmark(pdf_role.value)
+                if match:
+                    sel.value = match     # on_change fills the figures
+            pdf_role.on("blur", _tm_role_blur)
 
             _tm_cost_form = [
                 ("domestic_base", "In-house base salary (per year)", "85000"),
                 ("domestic_burden", "Payroll taxes and benefits (per year)", "21000"),
                 ("domestic_overhead", "Workspace, equipment, software (per year)", "6000"),
                 ("domestic_hiring", "Recruiting and onboarding (per year)", "9000"),
-                ("tm_monthly_rate", "ThriveModal rate (per month)", "Approved rate only"),
+                ("tm_monthly_rate", "ThriveModal rate (per month)", "Monthly rate"),
             ]
             with ui.element("div").style(
                     "display:grid;grid-template-columns:1fr 1fr;gap:14px;"
@@ -47388,6 +47665,7 @@ def p_pdf_gen(s: AppState, rf):
                 "tm_currency": _tm_cost_raw.get("currency", "USD"),
                 "tm_included": _tm_cost_raw.get("included", ""),
                 "tm_excluded": _tm_cost_raw.get("excluded", ""),
+                "tm_benchmark_role": _tm_cost_raw.get("benchmark_role", ""),
             }
 
             # Build each PDF in the batch. A failure on one PDF doesn't

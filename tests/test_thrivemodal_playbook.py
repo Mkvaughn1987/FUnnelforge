@@ -946,3 +946,74 @@ def test_profile_placeholder_no_longer_mimics_saved_text():
     src = open(fa.__file__, encoding="utf-8").read()
     assert "placeholder=_fdefault[:160]" not in src
     assert "Restore default" in src and "Improve with AI" in src
+# ── Market benchmarks for the cost comparison ────────────────────────────
+
+def test_every_benchmark_fills_a_complete_worksheet():
+    ids = [b["id"] for b in fa._TM_ROLE_BENCHMARKS]
+    assert len(ids) == len(set(ids))
+    for b in fa._TM_ROLE_BENCHMARKS:
+        vals = fa._tm_benchmark_inputs(b["id"])
+        ws = fa._tm_cost_worksheet(vals)
+        assert ws["complete"] is True, b["id"]
+        assert b["ph_low"] <= b["ph_mid"] <= b["ph_high"], b["id"]
+        # Offshore must actually cost less than the US wage alone, or the
+        # benchmark row is wrong.
+        assert ws["tm_total"] < b["base"], b["id"]
+
+
+def test_benchmark_burden_is_the_published_share_of_wages():
+    vals = fa._tm_benchmark_inputs("bookkeeper")
+    assert vals["domestic_base"] == "50500"
+    assert int(vals["domestic_burden"]) == round(50500 * 0.429 / 100) * 100
+    assert fa._tm_benchmark_inputs("no_such_role") == {}
+
+
+def test_role_text_matches_only_known_positions():
+    assert fa._tm_match_benchmark("Bookkeeper") == "bookkeeper"
+    assert fa._tm_match_benchmark("Senior Staff Accountant") == "staff_accountant"
+    assert fa._tm_match_benchmark("Medical Billing Specialist") == "medical_billing"
+    assert fa._tm_match_benchmark("Sales Support Rep") == "order_entry"
+    assert fa._tm_match_benchmark("Superintendent") == ""
+    assert fa._tm_match_benchmark("") == ""
+
+
+def test_benchmark_pdf_labels_lines_and_lists_sources():
+    vals = fa._tm_benchmark_inputs("bookkeeper")
+    data = fa._tm_cost_pdf_data("Acme", vals, benchmark_role="bookkeeper",
+                                cfg={"workspace_playbook": fa.PLAYBOOK_THRIVEMODAL})
+    assert data["badge"] == "STAFFING COST COMPARISON"
+    table = next(s for s in data["sections"] if s["type"] == "table")
+    labelled = [r[0] for r in table["items"][1:-1]]
+    assert all(l.endswith("(benchmark)") for l in labelled), labelled
+    headings = [s["heading"] for s in data["sections"]]
+    assert "Benchmark Sources" in headings
+    howto = " ".join(next(s for s in data["sections"]
+                          if s["heading"] == "How to Read This Worksheet")["items"])
+    assert "not a ThriveModal quote" in howto
+    assert "not Acme's own payroll" in howto
+    assert "benchmark" in data["intro"]
+
+
+def test_edited_benchmark_line_is_no_longer_called_a_benchmark():
+    vals = fa._tm_benchmark_inputs("bookkeeper")
+    vals["domestic_base"] = "61000"
+    vals["tm_monthly_rate"] = "2100"
+    data = fa._tm_cost_pdf_data("Acme", vals, benchmark_role="bookkeeper",
+                                cfg={"workspace_playbook": fa.PLAYBOOK_THRIVEMODAL})
+    table = next(s for s in data["sections"] if s["type"] == "table")
+    rows = {r[0]: r for r in table["items"]}
+    assert "Base salary" in rows
+    assert "ThriveModal monthly rate" in rows
+    assert "Payroll taxes and benefits (benchmark)" in rows
+    howto = " ".join(next(s for s in data["sections"]
+                          if s["heading"] == "How to Read This Worksheet")["items"])
+    assert "not a ThriveModal quote" not in howto
+    assert "the rest were supplied" in howto
+
+
+def test_benchmarks_do_not_apply_in_another_currency():
+    vals = fa._tm_benchmark_inputs("bookkeeper")
+    data = fa._tm_cost_pdf_data("Acme", vals, currency="PHP",
+                                benchmark_role="bookkeeper",
+                                cfg={"workspace_playbook": fa.PLAYBOOK_THRIVEMODAL})
+    assert "Benchmark Sources" not in [s["heading"] for s in data["sections"]]
