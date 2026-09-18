@@ -14833,6 +14833,24 @@ def inject_styles():
     ui.add_head_html("""<script>
 (function(){
   var t = localStorage.getItem('__DD_THEME_KEY__') || '__DD_THEME_DEFAULT__';
+  // ddToggleTheme lives here, in this small script, and not only in the big
+  // head script below: that one has a SyntaxError on every instance (leaked
+  // f-strings), so nothing defined in it ever runs and the theme button did
+  // nothing. The copy below, if that block is ever fixed, just redefines it.
+  window.ddToggleTheme = function(){
+    var root = document.documentElement;
+    var next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+    if (next === 'light') {
+      root.setAttribute('data-theme', 'light');
+      document.body.classList.remove('body--dark');
+      document.body.classList.add('body--light');
+    } else {
+      root.removeAttribute('data-theme');
+      document.body.classList.remove('body--light');
+      document.body.classList.add('body--dark');
+    }
+    try { localStorage.setItem('__DD_THEME_KEY__', next); } catch (e) {}
+  };
   document.addEventListener('DOMContentLoaded', function(){
     if (t === 'light') {
       document.documentElement.setAttribute('data-theme','light');
