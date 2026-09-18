@@ -42832,9 +42832,12 @@ def p_ai_campaign(s: AppState, rf):
         # step (5) is dropped from the flow so the user isn't asked to
         # re-pick a style they already chose at the chooser. Only honored
         # while the locked style is actually selected (belt-and-suspenders).
+        # The ThriveModal objective tiles are style choices too, so they
+        # skip it the same way.
         _style_locked = (
             bool(getattr(s, "aicb_style_locked", False))
-            and (getattr(s, "aicb_camp_type", "") or "") == "fourbyfour"
+            and ((getattr(s, "aicb_camp_type", "") or "") == "fourbyfour"
+                 or (getattr(s, "aicb_camp_type", "") or "") in _TM_TYPE_KEYS)
         )
         # A sales instance has no candidate pipeline, so the Candidates
         # step (4) has nothing to collect and is dropped from the flow the
