@@ -6,3 +6,8 @@ aiofiles
 reportlab
 pymupdf
 mcp[cli]>=2.0.0
+# sales_campaign.py: AES-256-GCM credential vault + ZoomInfo REST calls.
+# Both were already present on prod as transitive deps; pinned here so a
+# clean venv build cannot come up without them.
+cryptography
+requests

@@ -141,6 +141,16 @@ class DripDropClient:
         await self._raise_for_error(resp)
         return resp.json()
 
+    async def import_candidate_records(self, records: list[dict]) -> dict:
+        async with httpx.AsyncClient(timeout=180.0) as client:
+            resp = await client.post(
+                f"{self.base_url}/api/v1/candidates/records",
+                json={"records": records},
+                headers={**self._headers(), "Content-Type": "application/json"},
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
     async def candidates_count(self) -> dict:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(
@@ -162,6 +172,123 @@ class DripDropClient:
             resp = await client.get(
                 f"{self.base_url}/api/v1/candidates/search",
                 params=params,
+                headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def campaign_types(self) -> dict:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/campaign_types",
+                headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def my_campaign_styles(self) -> dict:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/campaign_styles",
+                headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def campaigns_list(self) -> dict:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/campaigns",
+                headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def campaign_get(self, campaign_id: str) -> dict:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/campaigns/{campaign_id}",
+                headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def sales_runs_pending(self) -> dict:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/sales_runs/pending",
+                headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def sales_run_update(self, run_id: str, patch: dict) -> dict:
+        # Generous timeout: posting 'sourced' is what kicks the server-side
+        # build off, and it normalises every company and contact first.
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                f"{self.base_url}/api/v1/sales_runs/{run_id}",
+                json=patch,
+                headers={**self._headers(), "Content-Type": "application/json"},
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    # -- ThriveModal -------------------------------------------------------
+    # One method per route. A tool without one of these is a tool that 404s at
+    # call time with nothing in the code to show it would (see candidates_search,
+    # 2026-08-27), which is why the test suite pairs them structurally.
+
+    async def tm_import_contacts(self, records: list, list_name: str = "") -> dict:
+        # Generous timeout: a pull can carry a few hundred records and the
+        # server merges them into the saved list before answering.
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                f"{self.base_url}/api/v1/tm/contacts",
+                json={"records": records, "list": list_name},
+                headers={**self._headers(), "Content-Type": "application/json"},
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def tm_audiences(self) -> dict:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/tm/audiences",
+                headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def tm_audience_preview(self, body: dict) -> dict:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                f"{self.base_url}/api/v1/tm/audience_preview",
+                json=body or {},
+                headers={**self._headers(), "Content-Type": "application/json"},
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def tm_analytics(self, days: int = 0, campaign: str = "") -> dict:
+        params = {}
+        if days:
+            params["days"] = str(days)
+        if campaign:
+            params["campaign"] = campaign
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/tm/analytics",
+                params=params,
+                headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def tm_mailboxes(self) -> dict:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/tm/mailboxes",
                 headers=self._headers(),
             )
         await self._raise_for_error(resp)
