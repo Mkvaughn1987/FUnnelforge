@@ -7900,6 +7900,102 @@ async def api_tm_mailboxes(request: Request):
     })
 
 
+@app.get("/api/v1/campaigns")
+async def api_campaigns_list(request: Request):
+    """List the calling account's own campaigns (tenant-scoped, same as
+    /api/v1/campaign_styles) with lightweight queue stats per campaign -
+    read-only visibility into what's already been launched, so a caller
+    doesn't have to guess before creating a new one."""
+    from starlette.responses import JSONResponse
+    auth = request.headers.get("authorization", "")
+    key = (auth[7:].strip() if auth.lower().startswith("bearer ")
+           else request.headers.get("x-api-key", "").strip())
+    owner = _resolve_api_key(key)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+
+    _CURRENT_USER_EMAIL.set(owner)
+    try:
+        _switch_to_user_paths(owner)
+    except Exception:
+        pass
+
+    camps = load_campaigns()
+    queue = _load_queue()
+    _cq: dict = {}
+    for q in queue:
+        cn = q.get("campaign", "")
+        if not cn:
+            continue
+        stats = _cq.setdefault(cn, {"pending": 0, "sent": 0, "failed": 0, "cancelled": 0})
+        st = q.get("status")
+        if st in stats:
+            stats[st] += 1
+
+    out = []
+    for c in camps:
+        cn = c.get("name", "")
+        stats = _cq.get(cn, {"pending": 0, "sent": 0, "failed": 0, "cancelled": 0})
+        out.append({
+            "campaign_id": Path(c.get("_path", "")).stem or cn,
+            "name": cn,
+            "template": c.get("template_key") or c.get("aicb_camp_type") or "",
+            "start_date": c.get("start_date", ""),
+            "steps": len(c.get("emails", [])),
+            "contacts": len(c.get("contacts", [])),
+            "queue": stats,
+        })
+    return JSONResponse(out)
+
+
+@app.get("/api/v1/campaigns/{campaign_id}")
+async def api_campaign_get(campaign_id: str, request: Request):
+    """Detail view for a single one of the calling account's own campaigns -
+    the full email steps plus queue stats, keyed by the same campaign_id
+    returned from POST /api/v1/campaigns and GET /api/v1/campaigns."""
+    from starlette.responses import JSONResponse
+    auth = request.headers.get("authorization", "")
+    key = (auth[7:].strip() if auth.lower().startswith("bearer ")
+           else request.headers.get("x-api-key", "").strip())
+    owner = _resolve_api_key(key)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+
+    _CURRENT_USER_EMAIL.set(owner)
+    try:
+        _switch_to_user_paths(owner)
+    except Exception:
+        pass
+
+    camp = next(
+        (c for c in load_campaigns()
+         if Path(c.get("_path", "")).stem == campaign_id or c.get("name") == campaign_id),
+        None,
+    )
+    if not camp:
+        return JSONResponse({"error": f"no campaign found for id '{campaign_id}'"}, status_code=404)
+
+    cn = camp.get("name", "")
+    stats = {"pending": 0, "sent": 0, "failed": 0, "cancelled": 0}
+    for q in _load_queue():
+        if q.get("campaign", "") != cn:
+            continue
+        st = q.get("status")
+        if st in stats:
+            stats[st] += 1
+
+    return JSONResponse({
+        "campaign_id": Path(camp.get("_path", "")).stem or cn,
+        "name": cn,
+        "template": camp.get("template_key") or camp.get("aicb_camp_type") or "",
+        "start_date": camp.get("start_date", ""),
+        "synopsis": camp.get("synopsis", ""),
+        "contacts": camp.get("contacts", []),
+        "emails": camp.get("emails", []),
+        "queue": stats,
+    })
+
+
 @app.post("/api/v1/campaigns")
 async def api_create_campaign(request: Request):
     """Create + launch an AICB campaign from a posted spec. Auth via a per-user
