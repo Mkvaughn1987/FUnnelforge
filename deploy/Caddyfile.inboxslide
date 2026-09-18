@@ -28,8 +28,22 @@ app.inboxslide.ai {
     }
 }
 
-# No mcp.* block and no internal :8082 block here: the MCP connector is
-# deliberately out of scope for this instance (separate service, own subdomain
-# and OAuth registration). If it is ever added, copy both blocks from
-# deploy/Caddyfile — the :8082 loopback endpoint is what keeps the connector
-# working across blue/green swaps, and it must not be dropped.
+mcp.inboxslide.ai {
+    # Claude connector (dripdrop-mcp.service). Independent process from the
+    # blue/green app, single local port, no failover needed. Its env lives in
+    # /opt/dripdrop/.env (DRIPDROP_MCP_PUBLIC_URL, bridge secret).
+    reverse_proxy localhost:8090
+}
+
+:8082 {
+    # Internal-only blue/green failover endpoint for the connector's
+    # DRIPDROP_API_BASE_URL, so it keeps working across blue/green swaps.
+    # Loopback only, never exposed externally. Do not drop it.
+    bind 127.0.0.1
+    reverse_proxy localhost:8080 localhost:8081 {
+        lb_policy first
+        health_uri /healthz
+        health_interval 3s
+        health_timeout 2s
+    }
+}

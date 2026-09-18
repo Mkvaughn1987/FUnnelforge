@@ -60284,6 +60284,64 @@ def ms_auth_callback(code: str = None, error: str = None,
                         ui.label("Back to App")
 
 
+# ── Claude connector approval ─────────────────────────────────────────────
+@ui.page("/connector/authorize")
+def connector_authorize(login_token: str = "", client: str = ""):
+    """Claude connector: passwordless approval. The MCP connector sends the
+    browser here instead of showing a password form (mcp_server/app_bridge.py).
+    Off unless DRIPDROP_MCP_BRIDGE_SECRET and DRIPDROP_MCP_APP_AUTHORIZE_URL
+    are set, so Arena's instance is unaffected."""
+    from urllib.parse import quote as _q, urlencode as _ue
+    try:
+        from mcp_server import app_bridge as _bridge
+    except Exception:
+        _bridge = None
+    if not app.storage.user.get("authenticated"):
+        _back = f"/connector/authorize?{_ue({'login_token': login_token, 'client': client})}"
+        return ui.navigate.to(f"/login?next={_q(_back, safe='')}")
+    inject_styles()
+    _email = (app.storage.user.get("email") or "").lower().strip()
+    _mcp_url = (os.environ.get("DRIPDROP_MCP_PUBLIC_URL") or "").rstrip("/")
+    _ready = bool(_bridge and _bridge.enabled() and _mcp_url and login_token and _email)
+
+    def _allow():
+        params = _bridge.sign(login_token, _email)
+        ui.navigate.to(f"{_mcp_url}/login/complete?{_ue(params)}")
+
+    with ui.element("div").style(
+            "min-height:100vh;width:100%;display:flex;align-items:center;justify-content:center;"
+            f"background:{WEB_BG};font-family:'DM Sans','Segoe UI',sans-serif;"):
+        with ui.element("div").style(
+                f"width:460px;max-width:90vw;background:{WEB_CARD};border:1px solid {WEB_BORDER};"
+                "border-radius:14px;padding:36px 32px;text-align:center;"):
+            if not _ready:
+                ui.label("This connection link isn't valid here.").style(
+                    f"font-size:16px;font-weight:700;color:{WEB_INK};display:block;margin-bottom:8px;")
+                ui.label("Start the connection again from Claude.").style(
+                    f"font-size:13px;color:{WEB_INK_DIM};display:block;")
+                return
+            ui.label(f"Connect {client or 'Claude'} to {BRAND}").style(
+                f"font-size:20px;font-weight:800;color:{WEB_ACCENT};"
+                "font-family:'Nunito',sans-serif;display:block;margin-bottom:10px;")
+            ui.label(f"It will act as {_email}: launching campaigns and reading your "
+                     "contacts, campaigns and analytics.").style(
+                f"font-size:13px;color:{WEB_INK_DIM};line-height:1.6;display:block;margin-bottom:6px;")
+            ui.label("Only allow this if you just clicked Connect in Claude.").style(
+                f"font-size:12px;color:{WEB_INK_DIM};display:block;margin-bottom:20px;")
+            with ui.element("div").style("display:flex;gap:10px;justify-content:center;"):
+                with ui.element("button").style(
+                        f"padding:10px 24px;background:{WEB_ACCENT};color:{WEB_BG};border:none;"
+                        "border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;"
+                        "font-family:inherit;").on("click", _allow):
+                    ui.label("Allow")
+                with ui.element("button").style(
+                        f"padding:10px 24px;background:transparent;color:{WEB_INK};"
+                        f"border:1px solid {WEB_BORDER};border-radius:8px;font-size:13px;"
+                        "font-weight:600;cursor:pointer;font-family:inherit;"
+                        ).on("click", lambda: ui.navigate.to("/")):
+                    ui.label("Cancel")
+
+
 # ── Google OAuth Callback ─────────────────────────────────────────────────
 @ui.page("/auth/google/callback")
 def google_auth_callback(code: str = None, error: str = None,

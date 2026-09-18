@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 import anyio
 from mcp.server.auth.middleware.auth_context import get_access_token
@@ -28,7 +28,7 @@ from pydantic import AnyHttpUrl
 from starlette.requests import Request
 from starlette.responses import HTMLResponse, RedirectResponse
 
-from mcp_server import dripdrop_login
+from mcp_server import app_bridge, dripdrop_login
 from mcp_server.auth_provider import DripDropAuthProvider
 from mcp_server.dripdrop_client import DripDropApiError, DripDropClient, NoApiKeyError
 
@@ -46,13 +46,16 @@ def _base_data_dir() -> Path:
 
 DATA_DIR = _base_data_dir()
 PUBLIC_URL = os.environ.get("DRIPDROP_MCP_PUBLIC_URL", "http://127.0.0.1:8090").rstrip("/")
+# Same variable the app's brand layer reads, so a white-label instance's
+# connector shows its own name in Claude and on the sign-in page.
+BRAND = (os.environ.get("DRIPDROP_BRAND_NAME") or "DripDrop").strip() or "DripDrop"
 
 auth_provider = DripDropAuthProvider(data_dir=DATA_DIR, public_url=PUBLIC_URL)
 
 mcp = MCPServer(
     name="dripdrop",
-    title="DripDrop",
-    description="Launch DripDrop outbound campaigns and search the shared candidate Pipeline.",
+    title=BRAND,
+    description=f"Launch {BRAND} outbound campaigns and search the shared candidate Pipeline.",
     auth_server_provider=auth_provider,
     auth=AuthSettings(
         issuer_url=AnyHttpUrl(PUBLIC_URL),
@@ -82,7 +85,7 @@ def _login_page(login_token: str, error: str | None = None) -> str:
     return f"""
     <!doctype html>
     <html>
-    <head><title>Sign in to DripDrop</title>
+    <head><title>Sign in to {BRAND}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
       body {{ font-family: system-ui, sans-serif; max-width: 360px; margin: 80px auto; }}
@@ -91,8 +94,8 @@ def _login_page(login_token: str, error: str | None = None) -> str:
     </style>
     </head>
     <body>
-      <h2>Sign in to DripDrop</h2>
-      <p>Authorize this connector with your DripDrop account.</p>
+      <h2>Sign in to {BRAND}</h2>
+      <p>Authorize this connector with your {BRAND} account.</p>
       {error_html}
       <form method="post" action="/login">
         <input type="hidden" name="login_token" value="{login_token}">
@@ -110,13 +113,47 @@ def _login_page(login_token: str, error: str | None = None) -> str:
 @mcp.custom_route("/login", methods=["GET"])
 async def login_form(request: Request) -> HTMLResponse:
     login_token = request.query_params.get("login_token", "")
-    if not auth_provider.resolve_pending(login_token):
-        return HTMLResponse("<p>This login link has expired. Please restart the authorization from Claude.</p>", status_code=400)
+    pending = auth_provider.resolve_pending(login_token)
+    if not pending:
+        return HTMLResponse(_EXPIRED_HTML, status_code=400)
+    if app_bridge.enabled():
+        # Passwordless: the app confirms who is signed in (see app_bridge.py).
+        client = await auth_provider.get_client(pending["client_id"])
+        query = urlencode({
+            "login_token": login_token,
+            "client": (client.client_name if client else "") or "",
+        })
+        return RedirectResponse(f"{app_bridge.app_authorize_url()}?{query}", status_code=302)
     return HTMLResponse(_login_page(login_token))
+
+
+_EXPIRED_HTML = "<p>This login link has expired. Please restart the authorization from Claude.</p>"
+
+
+@mcp.custom_route("/login/complete", methods=["GET"])
+async def login_complete(request: Request):
+    """Where the app sends the browser back after the user clicks Allow."""
+    q = request.query_params
+    login_token = q.get("login_token", "")
+    email = q.get("email", "").lower().strip()
+    if not app_bridge.enabled():
+        return HTMLResponse("<p>Not found.</p>", status_code=404)
+    if not app_bridge.verify(login_token, email, q.get("exp", ""), q.get("sig", "")):
+        return HTMLResponse("<p>This sign-in could not be verified. Please restart the authorization from Claude.</p>", status_code=400)
+    if email not in dripdrop_login._load_users(DATA_DIR):
+        return HTMLResponse(f"<p>No {BRAND} account found for this sign-in.</p>", status_code=403)
+    redirect_url = auth_provider.complete_login(login_token, email)
+    if not redirect_url:
+        return HTMLResponse(_EXPIRED_HTML, status_code=400)
+    return RedirectResponse(redirect_url, status_code=302)
 
 
 @mcp.custom_route("/login", methods=["POST"])
 async def login_submit(request: Request):
+    if app_bridge.enabled():
+        # The password form is not offered when the bridge is on; don't
+        # accept a hand-built POST either.
+        return HTMLResponse("<p>Password sign-in is disabled for this connector.</p>", status_code=403)
     form = await request.form()
     login_token = str(form.get("login_token", ""))
     email = str(form.get("email", ""))
