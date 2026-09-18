@@ -120,11 +120,13 @@ def test_active_row_mapping_for_consolidated_pages():
     assert '"saved"' in src and '"campaigns"' in src
 
 
-def test_page_header_has_campaign_and_library_tabs_and_search():
+def test_page_header_has_campaign_tabs_and_search():
     import flowdrip_app as fa
     src = inspect.getsource(fa._page_header_v2)
-    for tab in ("Active", "Completed", "Saved", "Templates", "Newsletters", "Sales Assets"):
+    for tab in ("Active", "Completed", "Saved", "Templates"):
         assert f'"{tab}"' in src, f"missing header tab {tab}"
+    # Newsletters / Sales Assets moved to sidebar sub-rows under Content Library.
+    assert '"Sales Assets"' not in src
     assert "_mgr_show_completed" in src
     assert "Do Not Contact" in src, "suppression management must stay one click away"
     assert "fd-ph-search" in src
@@ -165,3 +167,40 @@ def test_inboxslide_env_example_enables_sidebar():
     text = p.read_text(encoding="utf-8")
     assert "DRIPDROP_NAV_LAYOUT=sidebar" in text
     assert "DRIPDROP_WORKSPACE_NAME=ThriveModal" in text
+
+
+def test_content_library_pages_are_sidebar_subrows():
+    import flowdrip_app as fa
+    assert [r[2] for r in fa.SIDEBAR_LIBRARY] == ["newsletters", "pdf_gen"]
+    for ik, _lbl, key in fa.SIDEBAR_LIBRARY:
+        assert ik in fa._SIDEBAR_ICONS, f"missing icon {ik}"
+        assert fa.SIDEBAR_PAGE_ROW.get(key) == "library"
+    src = inspect.getsource(fa._sidebar_v2)
+    assert 'if ik == "library" and active == "library":' in src
+    assert "SIDEBAR_LIBRARY" in src
+
+
+def test_roundup_hidden_on_sales_instances():
+    import flowdrip_app as fa
+    src = inspect.getsource(fa.p_newsletters)
+    assert "and not _SALES_MODE)" in src
+
+
+def test_newsletter_sectors_are_thrivemodal_on_sales_instances():
+    import flowdrip_app as fa
+    src = inspect.getsource(fa._create_newsletter_dialog)
+    assert "_TM_NEWSLETTER_SECTORS if _SALES_MODE else AICB_INDUSTRIES" in src
+    assert "AICB_INDUSTRIES.items()" not in src
+    labels = {v["label"] for v in fa._TM_NEWSLETTER_SECTORS.values()}
+    assert "Logistics & Freight" in labels and "Architecture" not in labels
+    for v in fa._TM_NEWSLETTER_SECTORS.values():
+        assert v["niches"]
+
+
+def test_sales_newsletter_prompts_have_no_candidates():
+    import flowdrip_app as fa
+    p = fa._jway_sales_prompt("Freight", "Freight Brokerage", "Dallas, TX",
+                              "October 2026", "Pat", "Acme")
+    assert '"candidates":[]' in p
+    assert "Top Talent" not in p and "recruiting market newsletter" not in p
+    assert "{FirstName}" in p

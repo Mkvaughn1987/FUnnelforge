@@ -15813,6 +15813,12 @@ SIDEBAR_NAV = [
 # Everything that used to be its own sidebar row (Team, My Profile, Settings)
 # or top-bar-only (Do Not Contact, Signature, Timezone), consolidated under one
 # Settings entry. Rendered as sub-rows while a settings page is open.
+# Content Library's pages, rendered as sub-rows under the Content Library row
+# while either is open (same pattern as the Settings sub-rows below).
+SIDEBAR_LIBRARY = [
+    ("newspaper", "Newsletters",  "newsletters"),
+    ("present",   "Sales Assets", "pdf_gen"),
+]
 SIDEBAR_SETTINGS = [
     ("mail",     "Email & AI Setup", "ai_settings"),
     ("building", "Company Profile",  "company_profile"),
@@ -17362,6 +17368,9 @@ _SIDEBAR_ICONS = {
     "clients":    '<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
     "campaigns":  '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
     "library":    '<path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/>',
+    "newspaper":  '<path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/>'
+                  '<path d="M18 14h-8"/><path d="M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/>',
+    "present":    '<path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/>',
     "sales_dash": '<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
     "analytics":  '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
     "settings":   '<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/>'
@@ -17588,6 +17597,9 @@ def _sidebar_v2(s: AppState, rf):
                         badge_cls = "hot" if _overdue else ""
                     tour = {"overview": "nav-dashboard", "contacts": "nav-contacts"}.get(ik, "")
                     _row(ik, lbl, key, on=(active == ik), badge=badge, badge_cls=badge_cls, tour=tour)
+                    if ik == "library" and active == "library":
+                        for sik, slbl, skey in SIDEBAR_LIBRARY:
+                            _row(sik, slbl, skey, on=(page == skey), sub=True)
 
         # ── Bottom: Admin, Settings (+ sub-rows), profile ──
         with ui.element("div").classes("fd-side-bottom"):
@@ -17689,10 +17701,6 @@ def _page_header_v2(s: AppState, rf):
                 # Templates = the campaign-type chooser (4x4, 5x3, AI builder,
                 # from scratch...). It is the app's template gallery today.
                 _tab("Templates", False, lambda: _go("start_seq"))
-        elif page in ("newsletters", "pdf_gen"):
-            with ui.element("div").classes("fd-ph-tabs"):
-                _tab("Newsletters",  page == "newsletters", lambda: _go("newsletters"))
-                _tab("Sales Assets", page == "pdf_gen",     lambda: _go("pdf_gen"))
         elif page in ("contacts", "e_contacts"):
             with ui.element("button").classes("fd-ph-act").props('type="button"').on("click", lambda: _go("dnc")):
                 ui.html(_svg_icon("ban", 15))
@@ -29290,6 +29298,44 @@ def _render_nl_first_gen_status(s, rf) -> None:
                 ui.label("✎ Open in Editor").style("pointer-events:none;")
 
 
+# Newsletter sectors on a sales instance (ThriveModal). Its prospects are the
+# businesses that buy offshore staff, not staffing-firm clients, so the list is
+# the verticals ThriveModal sells into. Keys reuse AICB_INDUSTRIES keys where
+# one exists so anything that looks a key up still resolves.
+_TM_NEWSLETTER_SECTORS = {
+    "logistics": {"label": "Logistics & Freight", "niches": [
+        "Freight Brokerage", "3PL", "Trucking & Carriers", "Freight Forwarding",
+        "Warehousing & Distribution"]},
+    "accounting": {"label": "Accounting & CPA Firms", "niches": [
+        "CPA Firms", "Bookkeeping", "Tax Preparation", "Fractional CFO",
+        "Payroll Services"]},
+    "real_estate": {"label": "Property Management & Real Estate", "niches": [
+        "Residential Property Management", "Commercial Property Management",
+        "HOA Management", "Real Estate Brokerages", "Short-Term Rentals"]},
+    "healthcare": {"label": "Healthcare Practices", "niches": [
+        "Medical Groups", "Dental Practices & DSOs", "Medical Billing & RCM",
+        "Home Health", "Behavioral Health"]},
+    "insurance": {"label": "Insurance Agencies", "niches": [
+        "P&C Agencies", "Benefits Brokers", "MGAs", "Claims Services"]},
+    "finance_services": {"label": "Financial Services", "niches": [
+        "Wealth Management & RIAs", "Mortgage", "Lending", "Collections"]},
+    "legal": {"label": "Law Firms", "niches": [
+        "Personal Injury", "Immigration", "Estate Planning", "Litigation Support"]},
+    "construction": {"label": "Construction & Trades", "niches": [
+        "General Contractors", "HVAC", "Plumbing & Electrical", "Roofing",
+        "Estimating & Preconstruction"]},
+    "technology": {"label": "SaaS & Technology", "niches": [
+        "Customer Support", "SDR & Lead Generation", "Technical Support",
+        "Data & Operations"]},
+    "retail": {"label": "E-commerce & Retail", "niches": [
+        "E-commerce Brands", "Customer Service", "Order Operations"]},
+    "marketing": {"label": "Marketing Agencies", "niches": [
+        "Digital Agencies", "Creative Services", "Paid Media"]},
+    "professional_services": {"label": "Professional Services", "niches": [
+        "Consulting", "Executive Assistance", "Back-Office Operations"]},
+}
+
+
 def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
     """Dialog for creating a new Newsletter evergreen campaign.
     User picks name, sector, region, start date, and number of months.
@@ -29321,7 +29367,8 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
     prefill = prefill or {}
     _pre_name = (prefill.get("name") or "").strip()
     _pre_sector_key = (prefill.get("sector_key") or "").strip()
-    if _pre_sector_key and _pre_sector_key not in AICB_INDUSTRIES:
+    _nl_sectors = _TM_NEWSLETTER_SECTORS if _SALES_MODE else AICB_INDUSTRIES
+    if _pre_sector_key and _pre_sector_key not in _nl_sectors:
         _pre_sector_key = ""
     _pre_niche = (prefill.get("niche") or "").strip()
     _pre_region = (prefill.get("region") or "").strip()
@@ -29351,6 +29398,16 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             f"font-size:11px;color:{C['muted']};margin-bottom:16px;line-height:1.5;")
 
         def _upd_style_desc():
+            if _SALES_MODE:
+                _style_desc.set_text(
+                    "Organic, text only — plain-text and personal. A short note with live "
+                    "BLS highlights and what labor costs in their sector mean for their "
+                    "team. No graphics — the low-key style that gets replies."
+                    if (_style_toggle.value or "") == "j_way" else
+                    "Full with pictures — the full branded newsletter: header, styled "
+                    "sections, your logo and colors, market-data cards and local "
+                    "highlights. Maximum polish.")
+                return
             if (_style_toggle.value or "") == "j_way":
                 _style_desc.set_text(
                     "Organic, text only — plain-text and personal. A simple market snapshot written "
@@ -29372,7 +29429,8 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             f"font-size:10px;color:{C['muted']};margin-bottom:4px;")
         nl_name_in = ui.input(
             value=_pre_name,
-            placeholder="e.g. The Denver Construction Report"
+            placeholder=("e.g. The Logistics Cost Report" if _SALES_MODE
+                         else "e.g. The Denver Construction Report")
         ).classes("fd-input").style("margin-bottom:12px;")
 
         # Market Sector — dropdown from AICB_INDUSTRIES (same source
@@ -29380,7 +29438,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
         # the app and map cleanly to niche lists below.
         ui.label("Market Sector").classes("fd-fl")
         _sector_options = {"": "Select a sector..."}
-        _sector_options.update({k: v["label"] for k, v in AICB_INDUSTRIES.items()})
+        _sector_options.update({k: v["label"] for k, v in _nl_sectors.items()})
         sector_in = ui.select(options=_sector_options, value=_pre_sector_key or "").classes("fd-input").style("margin-bottom:12px;width:100%;")
 
         # Optional Niche — refines the sector. Comes with a ? help
@@ -29396,12 +29454,17 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                 ui.label("?").style("line-height:1;")
                 ui.tooltip(
                     "Use this to dial in on a specific niche within your sector "
+                    "(e.g. 'Freight Brokerage', 'CPA Firms', 'Residential "
+                    "Property Management'). Leave blank to cover the whole sector."
+                    if _SALES_MODE else
+                    "Use this to dial in on a specific niche within your sector "
                     "(e.g. 'Healthcare Construction', 'Data Centers', 'Aerospace "
                     "Manufacturing'). Leave blank to cover the whole sector."
                 )
         niche_in = ui.input(
             value=_pre_niche,
-            placeholder="e.g. Healthcare Construction, Data Centers"
+            placeholder=("e.g. Freight Brokerage, CPA Firms" if _SALES_MODE
+                         else "e.g. Healthcare Construction, Data Centers")
         ).classes("fd-input").style("margin-bottom:12px;")
 
         # Region
@@ -29588,6 +29651,10 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                 ui.label("?").style("line-height:1;")
                 ui.tooltip(
                     "Adds 2 local city blurbs (events, food, neighborhood, "
+                    "development) to each issue. Turn off for a market-only "
+                    "newsletter."
+                    if _SALES_MODE else
+                    "Adds 2 local city blurbs (events, food, neighborhood, "
                     "development) under the candidate spotlights. Turn off "
                     "for a market-only newsletter."
                 )
@@ -29694,7 +29761,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             # "Newsletter Name" split.
             nl_name = (nl_name_in.value or "").strip()
             _sector_key = (sector_in.value or "").strip()
-            _sector_label = (AICB_INDUSTRIES.get(_sector_key, {}) or {}).get("label", "") or ""
+            _sector_label = (_nl_sectors.get(_sector_key, {}) or {}).get("label", "") or ""
             niche = (niche_in.value or "").strip()
             # Sector stored on the campaign combines industry + niche so
             # downstream AI + PDF generation has the fuller context.
@@ -31652,7 +31719,9 @@ def p_newsletters(s, rf):
         # ── The Roundup tab (gated) ───────────────────────────────────────
         # Owner (Rothany) + Michael see a two-tab switch. Everyone else falls
         # straight through to the standard AI-newsletter page (no trace).
-        _roundup_ok = _roundup_allowed(getattr(s, "_user_email", "") or "")
+        # Sales instances never show it: The Roundup is recruiting content.
+        _roundup_ok = (_roundup_allowed(getattr(s, "_user_email", "") or "")
+                       and not _SALES_MODE)
         if _roundup_ok:
             _active_tab = getattr(s, "_nl_active_tab", "market")
             with ui.element("div").style(
@@ -52831,6 +52900,58 @@ def _jway_render(d: dict, contact_name: str) -> str:
     return _strip_dashes("".join(out))
 
 
+def _nl_sales_audience(sector: str, region: str, company: str) -> str:
+    """Audience brief for a sales instance's newsletter prompts. Its readers
+    buy services; they are not hiring managers shopping for candidates."""
+    txt = (f"AUDIENCE: owners, operations leaders and finance leaders at "
+           f"{sector or 'small and mid-sized'} companies in {region or 'the US'}. "
+           f"They BUY services; they are not job seekers and not looking at "
+           f"candidates. Write about the business side of the labor market: what "
+           f"wage growth, labor costs, turnover and hiring difficulty mean for "
+           f"their margins and team capacity. Never frame this as a recruiting "
+           f"newsletter and never include candidate profiles.")
+    if _is_thrivemodal():
+        txt += (f" The sender's company ({company}) provides dedicated, full-time "
+                f"offshore professionals from the Philippines (admin, finance, "
+                f"customer service and operations roles) at a fraction of US "
+                f"loaded cost. Where it fits naturally, one point may note how "
+                f"peers are using offshore or remote teams to control costs. "
+                f"Keep it informative, never a sales pitch.")
+    return txt
+
+
+def _jway_sales_prompt(sector: str, niche: str, region: str, month_year: str,
+                       contact_name: str, company: str) -> str:
+    """The Organic (plain-text) newsletter prompt for a sales instance: same
+    JSON shape _jway_render reads, with no candidate section."""
+    _s = niche or sector or "the market"
+    return (
+        f"Write a PLAIN, PERSONAL monthly market newsletter — a warm, low-key note "
+        f"from {contact_name or 'a business advisor'} at {company}. NO marketing "
+        f"fluff, NO emoji, NO markdown. Sector: {sector or 'the market'}. Niche: "
+        f"{niche}. Region: {region}. Month: {month_year}.\n"
+        + _nl_sales_audience(_s, region, company) + "\n"
+        f"Use web search to pull the most recent REAL U.S. BLS jobs-report figures "
+        f"(total jobs added, unemployment rate, year-over-year wage growth, average "
+        f"workweek). Never fabricate stats — if a number isn't found, drop that "
+        f"bullet.\n\n"
+        f"Return ONLY valid JSON:\n"
+        f'{{"subject":"plain, specific subject for this issue",'
+        f'"intro":"1-2 SHORT, personable sentences: open with a warm seasonal touch tied to {month_year} (the month, the season, or a nearby holiday), then a brief nod to the {_s} market snapshot below. Warm and human, not corporate. Do NOT greet by name; a Hi {{FirstName}}, line is added automatically",'
+        f'"highlights_label":"Highlights ({month_year})",'
+        f'"highlights":["4 short bullets of REAL BLS data: jobs added, unemployment, wage growth YoY, average workweek"],'
+        f'"snapshot_title":"{(sector or "Labor").title()} Labor Market Snapshot - {month_year}",'
+        f'"source_url":"the real BLS jobs-report URL, or empty string",'
+        f'"key_highlights":["EXACTLY 4 substantive bullets, each a full sentence with a real number AND why it matters to a business owner; wrap the single key stat or phrase in **double asterisks**"],'
+        f'"sector_strength":["EXACTLY 4 substantive bullets specific to {_s} - demand, margins, pricing and operating dynamics right now; **bold** the key phrase in each"],'
+        f'"labor_context":["EXACTLY 4 substantive bullets on staffing costs, wage pressure, turnover and hard-to-fill back-office and operations roles in {_s}; **bold** the key phrase in each"],'
+        f'"takeaway":["EXACTLY 4 substantive bullets on what this means for {_s} owners and operators: cost control, capacity, and how peers are staffing; **bold** the key phrase in each"],'
+        f'"candidates":[],'
+        f'"signoff":"Thank you, and I hope this was helpful!"}}\n'
+        f"No HTML, no emoji. Plain text EXCEPT you may wrap a few key phrases "
+        f"in **double asterisks** for bold emphasis (no other markdown).")
+
+
 def _generate_jway_newsletter(client, camp: dict, nl_name: str, company: str,
                               sector: str, niche: str, region: str,
                               month_year: str, contact_name: str,
@@ -52881,6 +53002,9 @@ def _generate_jway_newsletter(client, camp: dict, nl_name: str, company: str,
         f'"signoff":"Thank you, and I hope this was helpful!"}}\n'
         f"No HTML, no emoji. Plain text EXCEPT you may wrap a few key phrases "
         f"in **double asterisks** for bold emphasis (no other markdown).")
+    if _SALES_MODE:
+        prompt = _jway_sales_prompt(sector, niche, region, month_year,
+                                    contact_name, company)
     try:
         msg = _claude_create_with_retry(
             client, model="claude-haiku-4-5-20251001", max_tokens=4000,
@@ -53001,6 +53125,15 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
             client, camp, nl_name, company, sector, niche, region,
             month_year, contact_name, _spot_n, _spot_recs)
 
+    if _SALES_MODE:
+        _nl_aud = _nl_sales_audience((niche or sector).strip(), region, company) + '\n\n'
+        _mu_focus = ('labor costs, wage pressure, hiring difficulty, and how firms are '
+                     'staffing back-office and operations work')
+    else:
+        _nl_aud = ''
+        _mu_focus = 'comp moves, talent supply, what offers are winning'
+    _mu_schema = ('labor costs, wage pressure and staffing'
+                  if _SALES_MODE else 'comp, talent supply, what offers are winning')
     prompt = (
         f'You are writing content for a branded monthly newsletter.\n\n'
         f'NEWSLETTER: {nl_name}\n'
@@ -53008,6 +53141,7 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         f'SECTOR: {sector.title()}\n'
         f'REGION: {region}\n'
         f'MONTH: {month_year}\n\n'
+        + _nl_aud +
         f'Generate CONCISE newsletter content as structured JSON. Keep everything SHORT:\n'
         f'- intro_text: 2 sentences max\n'
         f'- around_town: exactly 3 blurbs about the CITY (not the industry). '
@@ -53015,7 +53149,7 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         f'  cultural item (new restaurant, park, sports story, event). 2 short sentences each.\n'
         f'- market_update: EXACTLY 3 bullets, each one sentence, '
         f'specifically about the {(niche or sector).strip()} market in {region} '
-        f'(comp moves, talent supply, what offers are winning  -  no generic news).\n'
+        f'({_mu_focus}  -  no generic news).\n'
         f'Be specific  -  name real companies, projects, places, salary ranges. '
         f'Use web search for current data.'
         + _spot_instruction +
@@ -53038,7 +53172,7 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         f'    {{"category":"...","headline":"...","blurb":"...","link":"..."}},\n'
         f'    {{"category":"...","headline":"...","blurb":"...","link":"..."}}\n'
         f'  ],\n'
-        f'  "market_update": "EXACTLY 3 bullet points on comp, talent supply, what offers are winning  -  niche-specific, NOT paragraphs.",\n'
+        f'  "market_update": "EXACTLY 3 bullet points on {_mu_schema}  -  niche-specific, NOT paragraphs.",\n'
         f'  "personal_corner_note": "2-3 first-person sentences (~25-50 words) reflecting on the month in the sender\'s voice. NO greeting, NO sign-off, NO link, NO CTA. Just a short reflection.",\n'
         + _spot_schema_block +
         f'  "top_news": ["2-3 ONE-SENTENCE headlines"]\n'
@@ -53088,7 +53222,9 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
     nl_data = {
         "company": company,
         "newsletter_name": nl_name,
-        "tagline": (f"Market Pulse & Top {_industry_lbl.title()} Candidates"
+        "tagline": ((f"Market Pulse & Labor Cost Insights for {_industry_lbl.title()}"
+                     if _SALES_MODE else
+                     f"Market Pulse & Top {_industry_lbl.title()} Candidates")
                     if _industry_lbl else ""),
         "location": region,
         "website": website,
