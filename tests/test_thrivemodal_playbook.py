@@ -580,17 +580,17 @@ def test_complete_pdf_carries_the_computed_table():
     table = next(s for s in data["sections"] if s["type"] == "table")
     assert table["items"][-1] == ["Total", "USD 121,000", "USD 38,400", "USD 82,600"]
     inc = next(s for s in data["sections"]
-               if s["heading"] == "What the ThriveModal Rate Covers")
+               if s["heading"] == "What Our Rate Covers")
     assert inc["items"] == ["Recruiting", "Payroll and benefits"]
 
 
 def test_unstated_inclusions_say_unconfirmed_rather_than_listing_extras():
     data = fa._tm_cost_pdf_data("Acme", _FULL_COST,
                                 cfg={"workspace_playbook": fa.PLAYBOOK_THRIVEMODAL})
-    for heading in ("What the ThriveModal Rate Covers", "Not Included"):
+    for heading in ("What Our Rate Covers", "Not Included"):
         sec = next(s for s in data["sections"] if s["heading"] == heading)
         assert len(sec["items"]) == 1
-        assert "Not confirmed" in sec["items"][0]
+        assert "on our next call" in sec["items"][0]
 
 
 def test_no_approved_pricing_means_the_page_says_so():
@@ -599,7 +599,7 @@ def test_no_approved_pricing_means_the_page_says_so():
                                      "tm_pricing": ""})
     howto = next(s for s in data["sections"]
                  if s["heading"] == "How to Read This Worksheet")
-    assert any("No ThriveModal pricing has been approved" in i for i in howto["items"])
+    assert any("haven't quoted a rate" in i for i in howto["items"])
 
 
 def test_cost_comparison_never_reaches_a_model():
@@ -998,7 +998,7 @@ def test_benchmark_pdf_labels_lines_and_lists_sources():
     assert "Benchmark Sources" in headings
     howto = " ".join(next(s for s in data["sections"]
                           if s["heading"] == "How to Read This Worksheet")["items"])
-    assert "not a ThriveModal quote" in howto
+    assert "not our quote" in howto
     assert "not Acme's own payroll" in howto
     assert "benchmark" in data["intro"]
 

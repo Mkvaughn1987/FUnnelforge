@@ -21786,7 +21786,7 @@ def _generate_squeeze_pdfs(v):
     if not _primary:
         _primary = ((v.get("Vertical") or "").strip()
                     or _cfg.get("company_industry", "") or "")
-    prep     = _cfg.get("sig_name", _get_company_name()) or _get_company_name()
+    prep     = _pdf_prepared_by(_cfg)
     prep_email = _cfg.get("sig_email", "")
     dt       = date.today().strftime("%B %d, %Y")
 
@@ -22840,7 +22840,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                             _exp_level = v.get("ExpLevel", "") or ""
                             dt = date.today().strftime("%B %d, %Y")
                             _cfg = load_config()
-                            prep = _cfg.get("sig_name", _get_company_name()) or _get_company_name()
+                            prep = _pdf_prepared_by(_cfg)
                             prep_email = _cfg.get("sig_email", "")
                             slug = re.sub(r'[^\w\s-]', '', company).strip().replace(' ', '_')[:40] or "Campaign"
 
@@ -38900,7 +38900,7 @@ def _tm_cost_worksheet(inputs: dict, seats: int = 1, period_months: int = 12,
     period_label = ("12 months" if period_months == 12
                     else f"{period_months} month" + ("s" if period_months != 1 else ""))
     header = ["Cost Line", f"In-House ({period_label})",
-              f"ThriveModal ({period_label})", "Difference"]
+              f"With Us ({period_label})", "Difference"]
     rows = [header]
 
     domestic_total = 0.0
@@ -39021,33 +39021,35 @@ def _tm_cost_pdf_data(company: str, inputs: dict, seats: int = 1,
             "comparison.")
     if rate_bench:
         assumptions.append(
-            f"The ThriveModal column uses the midpoint of published rates for "
+            f"Our column uses the midpoint of published rates for "
             f"a full-time, dedicated Philippine offshore "
             f"{_role[_role.index(' ') + 1:]} "
             f"(USD {bench['ph_low']:,}–{bench['ph_high']:,} a month). It is a "
-            f"market benchmark, not a ThriveModal quote.")
+            f"market benchmark, not our quote. We'll give you a firm number "
+            f"once we understand the role together.")
     assumptions.append(
         "Totals are plain addition of the lines above. Nothing on this "
         "page is a projection or a forecast.")
     if terms:
-        assumptions.append("ThriveModal pricing and terms as approved: " + terms)
+        assumptions.append("Our pricing and terms: " + terms)
     elif not rate_bench:
         assumptions.append(
-            "No ThriveModal pricing has been approved in this workspace, so "
-            "no rate is quoted here.")
+            "We haven't quoted a rate here yet. We'll put a firm number "
+            "in front of you once we understand the role together.")
 
     sections = [
         {"heading": "How to Read This Worksheet", "type": "bullets",
          "items": assumptions},
         {"heading": "Cost Comparison", "type": "table", "items": ws["rows"]},
-        {"heading": "What the ThriveModal Rate Covers", "type": "bullets",
+        {"heading": "What Our Rate Covers", "type": "bullets",
          "items": _lines(included,
-                         "Not confirmed. Ask ThriveModal to confirm what the "
-                         "monthly rate includes before sending this page on.")},
+                         "We'll walk you through exactly what the monthly "
+                         "rate includes on our next call.")},
         {"heading": "Not Included", "type": "bullets",
          "items": _lines(excluded,
-                         "Not confirmed. Ask ThriveModal to confirm what sits "
-                         "outside the monthly rate before sending this page on.")},
+                         "We'll confirm anything that sits outside the "
+                         "monthly rate on our next call, so there are no "
+                         "surprises.")},
     ]
 
     if bkeys:
@@ -39064,10 +39066,11 @@ def _tm_cost_pdf_data(company: str, inputs: dict, seats: int = 1,
             f"A like-for-like cost comparison for {company}, covering "
             f"{ws['seats']} " + ("role" if ws["seats"] == 1 else "roles") +
             f" over {ws['period_label']}. The in-house column {_dom_src}; "
-            f"the ThriveModal column is {_tm_src}. Every total is straight "
+            f"our column is {_tm_src}. Every total is straight "
             f"addition of the lines shown.")
-        cta = ("Check these figures against your own payroll records, then "
-               "tell us which line you want to look at more closely.")
+        cta = ("Check these figures against your own payroll, then let's "
+               "talk through whichever line matters most to you. We'd be "
+               "glad to help.")
     else:
         intro = (
             f"This worksheet for {company} is INCOMPLETE. The inputs listed "
@@ -39076,8 +39079,8 @@ def _tm_cost_pdf_data(company: str, inputs: dict, seats: int = 1,
         sections.insert(1, {
             "heading": "Missing Inputs", "type": "bullets",
             "items": [m + " — not provided" for m in ws["missing"]]})
-        cta = ("Send the missing figures above and this worksheet totals "
-               "itself. Until then it is a blank form, not a comparison.")
+        cta = ("Send us the missing figures above and we'll finish the "
+               "comparison for you. Happy to fill it in together on a call.")
 
     return {
         "title": f"Staffing Cost Comparison - {company}",
@@ -39157,6 +39160,26 @@ def _tm_rich_rules(cfg: dict = None) -> str:
         "placeholders does NOT apply: for this document, 'confirmed with you "
         "before we quote' is the correct answer where no approved figure "
         "exists, and inventing one is a serious error.\n"
+        "\nVOICE FOR THIS DOCUMENT (overrides the voice rules above):\n"
+        "- Write as the team, in first person plural: 'we recruit', 'our "
+        "team handles', 'we'll work with you'. Never write the company name "
+        "as the subject of a sentence ('ThriveModal recruits', 'ThriveModal "
+        "handles'). The name may appear in the title, and once in the "
+        "intro, and nowhere else in the body.\n"
+        "- Address the reader as 'you' and 'your team'. In tables, the "
+        "'who' column says 'You', 'Us' or 'Together', never the brand name.\n"
+        "- Warm and partnership-minded: this is a long-term working "
+        "relationship, not a transaction. Say what we take off their "
+        "plate, how we stay with them after the hire, and that we want "
+        "them to succeed. Confident and plainly glad to help, never "
+        "salesy, never corporate.\n"
+        "- Sell our services and the partnership actively: every section "
+        "should leave the reader clearer on what we'd do for them and why "
+        "working with us is easier than going it alone. The honesty rules "
+        "above still apply: warmth never becomes an invented claim.\n"
+        "- The cta is a friendly personal invitation to talk, in the 'we' "
+        "voice, e.g. 'We'd love to hear what your team is carrying right "
+        "now. Let's find 20 minutes.'\n"
     )
 
 
@@ -39459,7 +39482,7 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
 
     elif kind == "tm_how_it_works":
         body = (
-            f"Build a 'How ThriveModal Works' one-pager for {company}"
+            f"Build a 'How We Work Together' one-pager for {company}"
             + (f" in {industry_str}" if industry_str else "") + ".\n"
             f"\nThis explains the engagement itself — what happens, in what "
             f"order, and who does what. The reader's real question is 'how much "
@@ -40745,7 +40768,7 @@ def _aicb_attach_pdfs(pdf_data: dict, campaign_data: dict, company: str,
 
     _cfg = load_config()
     dt = date.today().strftime("%B %d, %Y")
-    prep = _cfg.get("sig_name", _get_company_name()) or _get_company_name()
+    prep = _pdf_prepared_by(_cfg)
     prep_email = _cfg.get("sig_email", "")
 
     # ── Phase 2a: build every PDF whose AI data came back. Track the
@@ -47251,7 +47274,7 @@ def _render_custom_pdf_modal(s: AppState, rf):
                                     client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
                                     dt = date.today().strftime("%B %d, %Y")
                                     _cfg = json.loads(_config_path.read_text(encoding="utf-8")) if _config_path.exists() else {}
-                                    prep = _cfg.get("sig_name", _get_company_name()) or _get_company_name()
+                                    prep = _pdf_prepared_by(_cfg)
                                     prep_email = _cfg.get("sig_email", "")
 
                                     # Build the content from the approved outline
@@ -48261,7 +48284,7 @@ def p_pdf_gen(s: AppState, rf):
              "Your in-house costs beside our approved rate. Totals are calculated, "
              "not estimated, and missing figures stay visibly missing.",
              C["warn"], "💰"),
-            ("tm_how_it_works", "How ThriveModal Works",
+            ("tm_how_it_works", "How We Work Together",
              "The engagement end to end: role discovery, recruiting, your interviews, "
              "onboarding, and ongoing ThriveCore support.",
              C["indigo"], "🤝"),
@@ -48589,7 +48612,7 @@ def p_pdf_gen(s: AppState, rf):
 
             dt = date.today().strftime("%B %d, %Y")
             _cfg = json.loads(_config_path.read_text(encoding="utf-8")) if _config_path.exists() else {}
-            prep = _cfg.get("sig_name", _get_company_name()) or _get_company_name()
+            prep = _pdf_prepared_by(_cfg)
             prep_email = _cfg.get("sig_email", "")
 
             try:
@@ -58419,6 +58442,27 @@ def _fill_recruiter_placeholders(emails, name):
             if v:
                 e[k] = _RECRUITER_PLACEHOLDER_RE.sub(name, v)
     return emails
+
+
+def _pdf_prepared_by(cfg: dict = None) -> str:
+    """'Prepared by' line for generated PDFs: the signed-in user's profile
+    name plus the company, e.g. 'Mike Vaughn, Thrivemodal'. Falls back to
+    the signature name, then the company alone, when no profile name is
+    available (background jobs have no session)."""
+    cfg = cfg if cfg is not None else load_config()
+    company = _get_company_name()
+    name = ""
+    try:
+        email = (app.storage.user.get("email") or "").strip()
+        if email:
+            name = (_get_user_record(email).get("name") or
+                    app.storage.user.get("name") or "").strip()
+    except Exception:
+        name = ""
+    name = name or (cfg.get("sig_name") or "").strip()
+    if name and company and name.lower() != company.lower():
+        return f"{name}, {company}"
+    return name or company
 
 
 def _get_company_name() -> str:
