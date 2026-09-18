@@ -307,6 +307,20 @@ _LEAN_LANDING = LANDING_LAYOUT == "lean"
 # Name shown in the sidebar workspace selector. Empty → the tenant's saved
 # company name, then the team domain, then the brand name.
 WORKSPACE_NAME = _env_str("DRIPDROP_WORKSPACE_NAME", "")
+# Image shown in place of the workspace initial ("T" tile) in the sidebar.
+# Repo-relative path, inlined as a data URL so it needs no /static entry.
+# Unset (Arena) → the letter tile, unchanged.
+def _load_ws_logo_uri(rel):
+    if not rel:
+        return ""
+    try:
+        import base64 as _b64
+        _p = rel if os.path.isabs(rel) else os.path.join(os.path.dirname(os.path.abspath(__file__)), rel)
+        with open(_p, "rb") as _f:
+            return "data:image/png;base64," + _b64.b64encode(_f.read()).decode("ascii")
+    except Exception:
+        return ""
+WORKSPACE_LOGO_URI = _load_ws_logo_uri(_env_str("DRIPDROP_BRAND_WORKSPACE_LOGO", ""))
 
 # The long-cadence, low-touch sequence type. "Slow Drip" on Arena.
 TERM_NURTURE = _env_str("DRIPDROP_TERM_NURTURE", "Slow Drip")
@@ -14676,7 +14690,7 @@ def _sidebar_layout_css() -> str:
 .fd-side-row:hover{{background:{C['card_h']}}}
 .fd-side-row.on{{background:{C['teal_dim']};color:{C['teal']};font-weight:600}}
 .fd-side-row.on .fd-ico{{opacity:1}}
-.fd-side-lbl{{font-size:14px;line-height:1;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.fd-side-lbl{{font-size:14px;line-height:1.4;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .fd-side-sub{{height:36px;padding-left:22px}}
 .fd-side-sub .fd-side-lbl{{font-size:13px}}
 .fd-side-badge{{font-size:11px;font-weight:700;line-height:1;padding:4px 7px;border-radius:999px;
@@ -17527,7 +17541,12 @@ def _sidebar_v2(s: AppState, rf):
                 if _ws_menu["m"]:
                     _ws_menu["m"].open()
             with ui.element("button").classes("fd-ws").props('type="button" aria-label="Workspace"').on("click", _open_ws):
-                ui.label((_ws[:1] or "W").upper()).classes("fd-ws-mark")
+                if WORKSPACE_LOGO_URI:
+                    ui.html(f'<img src="{WORKSPACE_LOGO_URI}" alt="{_ws.replace(chr(34), "")}" '
+                            'style="width:28px;height:28px;border-radius:8px;'
+                            'flex:0 0 auto;display:block;" />')
+                else:
+                    ui.label((_ws[:1] or "W").upper()).classes("fd-ws-mark")
                 with ui.element("div").style("flex:1;min-width:0;"):
                     ui.label(_ws).classes("fd-ws-name")
                     ui.label("Workspace").classes("fd-ws-sub")
