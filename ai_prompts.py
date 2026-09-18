@@ -39,12 +39,19 @@ Scheduling is deliberately NOT stored on this side. The user answers the
 cadence here; the generated prompt tells Claude to create the recurring task
 itself with the whole brief baked in. That keeps one schedule in one place —
 Claude's — instead of two that can disagree.
+
+THE CATALOGUE IS SWAPPABLE. Everything product-specific — the routines,
+the starters, the standing rules, the connector's name, the page copy —
+lives in a Catalogue. ARENA is DripDrop's and is what p_ai_prompts binds.
+tm_prompts.py builds inboxslide's and binds it through render_page().
+The engine below reads the active one through _CAT and nothing else.
 """
 import asyncio
 import json
 import re
 import sys
 import uuid
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 from nicegui import ui
@@ -91,6 +98,52 @@ def F(key, label, section="details", type="text", default="", ask=False,
     return {"key": key, "label": label, "section": section, "type": type,
             "default": default, "ask": ask, "hint": hint,
             "placeholder": placeholder, "options": options or []}
+
+
+def finalize_routines(routines):
+    """Give every routine the schedule and autonomy questions and its
+    field_by_key index, and return the by-key lookup. Idempotent: a routine
+    that already carries field_by_key is left alone, so finalising a
+    catalogue twice cannot double its common fields."""
+    for r in routines:
+        if "field_by_key" in r:
+            continue
+        r["fields"] = list(r["fields"]) + list(COMMON_FIELDS)
+        r["field_by_key"] = {f["key"]: f for f in r["fields"]}
+    return {r["key"]: r for r in routines}
+
+
+@dataclass
+class Catalogue:
+    """Everything about this page that belongs to one product rather than
+    to the engine. ARENA (further down) is DripDrop's; tm_prompts.py builds
+    inboxslide's. The engine reads the active one through _CAT and never
+    names a product itself."""
+    routines: list
+    routine_by_key: dict
+    default_routine: str
+    standing_rules: list
+    unattended_rule: str
+    starters: list
+    starter_by_id: dict
+    sequences: list
+    template_key: dict
+    default_sequence: str
+    default_template: str
+    setups_file: str
+    product: str
+    connector: str
+    assistant: str
+    page_title: str
+    page_sub: str
+    result_copy: str
+    # Optional hook: result_extra(s, rf, C, routine) renders anything the
+    # result screen should add for a particular routine.
+    result_extra: object = None
+    # Optional hook: derive_extra(routine, vals, d) runs at the end of
+    # _derived and may add placeholders or fill blanks with recommended
+    # values before the steps are formatted. None leaves the output alone.
+    derive_extra: object = None
 
 
 SEQUENCES = ["Arena 5x5", "Arena 5x3", "Arena 4x4", "One of my saved styles",
@@ -722,14 +775,11 @@ ROUTINES = [
     },
 ]
 
-ROUTINE_BY_KEY = {r["key"]: r for r in ROUTINES}
+# Every job also gets the schedule and autonomy questions.
+# finalize_routines does it here rather than in each literal, so the
+# wording is identical everywhere - and a second catalogue gets the same.
+ROUTINE_BY_KEY = finalize_routines(ROUTINES)
 DEFAULT_ROUTINE = "other"
-
-# Every job also gets the schedule and autonomy questions. Doing it here
-# rather than in each literal keeps the wording identical everywhere.
-for _r in ROUTINES:
-    _r["fields"] = list(_r["fields"]) + list(COMMON_FIELDS)
-    _r["field_by_key"] = {f["key"]: f for f in _r["fields"]}
 
 FIELD_KEYS = sorted({f["key"] for r in ROUTINES for f in r["fields"]})
 
@@ -827,20 +877,22 @@ def _start_date(r, vals):
     return '"auto", which the server resolves to the upcoming Monday'
 
 
-def _template_clause(r, vals):
-    seq = _txt(r, vals, "sequence") or "Arena 5x5"
+def _template_clause(r, vals, cat=None):
+    cat = cat or _CAT
+    seq = _txt(r, vals, "sequence") or cat.default_sequence
     if seq.startswith("Let Claude"):
         return ("whichever template campaign_types shows is the best fit for "
                 "this, and tell me which one you picked and why")
     if seq.startswith("One of my saved"):
         style = _txt(r, vals, "saved_style")
-        base = TEMPLATE_KEY.get(
-            r["field_by_key"]["sequence"]["default"], "fivebyfive")
+        base = cat.template_key.get(
+            r["field_by_key"].get("sequence", {}).get("default", ""),
+            cat.default_template)
         named = ' called "%s"' % style if style else " I point you at"
         return ('template "%s" with style_id set to my saved style%s — call '
                 'my_campaign_styles to get its id, do not guess it'
                 % (base, named))
-    return 'template "%s"' % TEMPLATE_KEY.get(seq, "fivebyfive")
+    return 'template "%s"' % cat.template_key.get(seq, cat.default_template)
 
 
 def _skip_clause(r, vals):
@@ -872,7 +924,7 @@ CADENCE_KEY = {
 }
 
 
-def _derived(r, vals):
+def _derived(r, vals, cat=None):
     """Everything a step template can ask for: the raw answers by key, plus
     the sentences that only make sense once several answers are read
     together."""
@@ -889,7 +941,7 @@ def _derived(r, vals):
                         if solo else "stop and wait for me to say go")
     d["go_prefix"] = "Then" if solo else "Once I say go,"
 
-    d["template_clause"] = _template_clause(r, vals)
+    d["template_clause"] = _template_clause(r, vals, cat)
     d["start_date"] = _start_date(r, vals)
     d["skip_clause"] = _skip_clause(r, vals)
     d["posting_age_lc"] = (d.get("posting_age") or "").lower()
@@ -1096,6 +1148,9 @@ def _derived(r, vals):
     d["done_clause"] = ("I will know it worked when %s." % done if done
                         else "Tell me plainly whether it worked, and how you "
                              "know.")
+    cat = cat or _CAT
+    if cat.derive_extra:
+        cat.derive_extra(r, vals, d)
     return d
 
 
@@ -1128,7 +1183,7 @@ def _catalogue_for_prompt():
     the key names is the whole point: the screen's questions are fixed, so
     the model's only job is to put values against keys that already exist."""
     out = []
-    for r in ROUTINES:
+    for r in _CAT.routines:
         keys = [f for f in r["fields"]
                 if f["section"] in ("details", "emails", "size")
                 and f["key"] not in ("saved_style",)]
@@ -1220,9 +1275,9 @@ def normalise(data, raw):
     screen renders the routine's schema, so a stray key would be written
     into the prompt without ever being shown."""
     key = str(data.get("routine") or "").strip()
-    if key not in ROUTINE_BY_KEY:
-        key = DEFAULT_ROUTINE
-    r = ROUTINE_BY_KEY[key]
+    if key not in _CAT.routine_by_key:
+        key = _CAT.default_routine
+    r = _CAT.routine_by_key[key]
 
     vals = defaults_for(r)
     given = data.get("values")
@@ -1300,13 +1355,17 @@ def _bullet(text):
     return lines
 
 
-def build_prompt(req):
+def build_prompt(req, cat=None):
     """The prompt the user copies. The ONLY place this text is assembled — the
-    page renders exactly what comes back from here."""
-    r = ROUTINE_BY_KEY.get(req.get("routine") or "",
-                           ROUTINE_BY_KEY[DEFAULT_ROUTINE])
+    page renders exactly what comes back from here.
+
+    `cat` is the catalogue to build against; it defaults to the one the
+    page is rendering, and tests pass one explicitly."""
+    cat = cat or _CAT
+    r = cat.routine_by_key.get(req.get("routine") or "",
+                           cat.routine_by_key[cat.default_routine])
     vals = dict(req.get("vals") or {})
-    d = _derived(r, vals)
+    d = _derived(r, vals, cat)
     solo = (_txt(r, vals, "unattended") or "").startswith("Run it all")
     # A routine can declare no tools and still be sent to the connector by
     # the newsletter answer - "Something else" is exactly that. Name the
@@ -1321,7 +1380,7 @@ def build_prompt(req):
     # Only claim the connector when the routine actually reaches for it —
     # a research prompt that opens by naming a tool it never calls reads
     # like it was written for someone else.
-    L = ["I need you to do this for me, using my DripDrop connector."
+    L = ["I need you to do this for me, using my %s." % cat.connector
          if tools else "I need you to do this for me.",
          "",
          "WHAT I WANT"]
@@ -1365,14 +1424,14 @@ def build_prompt(req):
 
     if tools:
         L += ["", "TOOLS"]
-        L += _wrap("Use my DripDrop connector: %s. If a tool is missing or "
+        L += _wrap("Use my %s: %s. If a tool is missing or "
                    "returns an auth error then the connector is not "
                    "connected — stop and tell me, do not work around it."
-                   % ", ".join(tools))
+                   % (cat.connector, ", ".join(tools)))
 
     L += ["", "HOW I WANT YOU TO WORK"]
-    for i, rule in enumerate(STANDING_RULES):
-        L += _bullet(UNATTENDED_RULE if (i == 0 and solo) else rule)
+    for i, rule in enumerate(cat.standing_rules):
+        L += _bullet(cat.unattended_rule if (i == 0 and solo) else rule)
 
     if _flag(r, vals, "repeat_on"):
         every = (_txt(r, vals, "repeat_every") or "every week").lower()
@@ -1413,7 +1472,7 @@ def build_prompt(req):
 # freezing a prompt written months ago.
 
 def _setups_path():
-    return _ff()._resolve_user_root() / "ai_prompt_setups.json"
+    return _ff()._resolve_user_root() / _CAT.setups_file
 
 
 def _load_setups():
@@ -1534,10 +1593,72 @@ STARTERS = [
 STARTER_BY_ID = {x["id"]: x for x in STARTERS}
 
 
+def _arena_result_extra(s, rf, C, r):
+    """The one routine DripDrop can also run itself. Said on the result
+    screen because the page that does it no longer has its own nav row."""
+    if r["key"] != "sales_campaign":
+        return
+    with _card(C):
+        _text("DripDrop can also run this one for you", C, 13, 700,
+              C["text_l"], 4)
+        _text("The Sales Campaign page queues the same run, writes the "
+              "campaigns here and stops at a review screen. Claude still "
+              "does the sourcing — it just hands the result back to "
+              "DripDrop instead of back to you.",
+              C, 12, colour=C["muted"], mb=12)
+
+        def _open_sc():
+            # Same move the sidebar makes: push history, then set the
+            # sales-hub page key.
+            try:
+                s._nav_history.append(_ff()._nav_snapshot(s))
+            except Exception:
+                pass
+            s.hub = "sales"
+            s.sp = "sales_campaign"
+            rf()
+
+        with ui.element("button").classes("fd-gb").style(
+                "padding:9px 18px;font-size:12px;").on("click", _open_sc):
+            ui.label("Open Sales Campaign")
+
+
+# DripDrop's catalogue: the module globals above, unchanged, in one object.
+ARENA = Catalogue(
+    routines=ROUTINES,
+    routine_by_key=ROUTINE_BY_KEY,
+    default_routine=DEFAULT_ROUTINE,
+    standing_rules=STANDING_RULES,
+    unattended_rule=UNATTENDED_RULE,
+    starters=STARTERS,
+    starter_by_id=STARTER_BY_ID,
+    sequences=SEQUENCES,
+    template_key=TEMPLATE_KEY,
+    default_sequence="Arena 5x5",
+    default_template="fivebyfive",
+    setups_file="ai_prompt_setups.json",
+    product="DripDrop",
+    connector="DripDrop connector",
+    assistant="Claude",
+    page_title="AI Prompts",
+    page_sub=("Pick what you want done. DripDrop asks you the questions "
+              "worth asking and writes the message to paste into Claude "
+              "— with everything Claude needs to do it properly already "
+              "in it."),
+    result_copy=("Copy it, open Claude with your DripDrop connector switched "
+                 "on, and paste it as your first message."),
+    result_extra=_arena_result_extra,
+)
+
+# The catalogue the page is currently rendering. render_page() binds it; an
+# instance is pinned to one playbook, so only one is ever bound per process.
+_CAT = ARENA
+
+
 def _req_from_starter(st):
     """A starter becomes the same shape the AI parse used to return, so view 2
     and build_prompt() cannot tell the difference."""
-    r = ROUTINE_BY_KEY.get(st["routine"], ROUTINE_BY_KEY[DEFAULT_ROUTINE])
+    r = _CAT.routine_by_key.get(st["routine"], _CAT.routine_by_key[_CAT.default_routine])
     vals = defaults_for(r)
     preset = {k: v for k, v in (st.get("vals") or {}).items()
               if k in r["field_by_key"]}
@@ -1609,20 +1730,25 @@ def _sec(title, C):
 
 
 def p_ai_prompts(s, rf):
-    """AI Prompts — type what you want, get the prompt to hand Claude."""
+    """AI Prompts — DripDrop's page: pick a job, get the prompt to hand
+    Claude."""
+    render_page(s, rf, ARENA)
+
+
+def render_page(s, rf, cat):
+    """The whole page for one catalogue. Binds it as the active catalogue
+    first, so every helper below reads that product's routines, starters
+    and copy. tm_prompts.p_tm_prompts is the other caller."""
+    global _CAT
+    _CAT = cat
     C = _ff().C
     _aip_owner(s)
 
     with ui.element("div").classes("aip-wrap"):
         _aip_css()
         with ui.element("div").style("margin-bottom:14px;"):
-            ui.label("AI Prompts").classes("fd-h1")
-            ui.label(
-                "Pick what you want done. DripDrop asks you the questions "
-                "worth asking and writes the message to paste into Claude "
-                "— with everything Claude needs to do it properly already "
-                "in it."
-            ).classes("fd-sub")
+            ui.label(cat.page_title).classes("fd-h1")
+            ui.label(cat.page_sub).classes("fd-sub")
 
         if getattr(s, "_aip_prompt", None):
             _aip_result(s, rf, C)
@@ -1642,11 +1768,11 @@ def _aip_ask(s, rf, C):
             _text("That didn't work", C, 14, 700, C["text_l"], 4)
             _text(err, C, 12, colour=C["muted"])
 
-    pick = getattr(s, "_aip_pick", "") or STARTERS[0]["id"]
-    if pick not in STARTER_BY_ID:
-        pick = STARTERS[0]["id"]
-    st = STARTER_BY_ID[pick]
-    r = ROUTINE_BY_KEY.get(st["routine"], ROUTINE_BY_KEY[DEFAULT_ROUTINE])
+    pick = getattr(s, "_aip_pick", "") or _CAT.starters[0]["id"]
+    if pick not in _CAT.starter_by_id:
+        pick = _CAT.starters[0]["id"]
+    st = _CAT.starter_by_id[pick]
+    r = _CAT.routine_by_key.get(st["routine"], _CAT.routine_by_key[_CAT.default_routine])
 
     with _card(C):
         _sec("What do you want to do?", C)
@@ -1656,11 +1782,11 @@ def _aip_ask(s, rf, C):
               C, 12, colour=C["muted"], mb=12)
 
         def _pick(e):
-            s._aip_pick = e.value or STARTERS[0]["id"]
+            s._aip_pick = e.value or _CAT.starters[0]["id"]
             s._aip_err = ""
             rf()
 
-        ui.select(options={x["id"]: x["label"] for x in STARTERS},
+        ui.select(options={x["id"]: x["label"] for x in _CAT.starters},
                   value=pick, on_change=_pick).props("dense").classes(
             "fd-input").style("width:100%;max-width:560px;")
 
@@ -1677,8 +1803,8 @@ def _aip_ask(s, rf, C):
                   C, 11, colour=C["muted"])
 
         def _go():
-            key = getattr(s, "_aip_pick", "") or STARTERS[0]["id"]
-            starter = STARTER_BY_ID.get(key) or STARTERS[0]
+            key = getattr(s, "_aip_pick", "") or _CAT.starters[0]["id"]
+            starter = _CAT.starter_by_id.get(key) or _CAT.starters[0]
             # Answers left behind by Back are picked up again only for the
             # same job. A different job is a different set of questions, so
             # carrying answers across would be carrying the wrong ones.
@@ -1701,7 +1827,7 @@ def _aip_ask(s, rf, C):
                     ).on("click", _go):
                 ui.label("Set this up")
             _text("Nothing runs and nothing sends here. All you are doing is "
-                  "writing the message you'll paste into Claude.",
+                  "writing the message you'll paste into %s." % _CAT.assistant,
                   C, 11, colour=C["muted"])
 
     setups = _load_setups()
@@ -1719,8 +1845,8 @@ def _aip_ask(s, rf, C):
 
 def _aip_setup_row(s, rf, C, row, setups):
     def _load():
-        key = row.get("routine") or DEFAULT_ROUTINE
-        r = ROUTINE_BY_KEY.get(key, ROUTINE_BY_KEY[DEFAULT_ROUTINE])
+        key = row.get("routine") or _CAT.default_routine
+        r = _CAT.routine_by_key.get(key, _CAT.routine_by_key[_CAT.default_routine])
         vals = defaults_for(r)
         # Only keys the routine still has. A setup saved before a field was
         # renamed loads with that one answer missing rather than failing.
@@ -1756,7 +1882,7 @@ def _aip_setup_row(s, rf, C, row, setups):
             ui.label(row.get("name") or "Untitled").style(
                 f"font-size:12px;font-weight:700;color:{C['text_l']};"
                 f"display:block;")
-            ui.label(ROUTINE_BY_KEY.get(
+            ui.label(_CAT.routine_by_key.get(
                 row.get("routine") or "", {}).get("name", "")).style(
                 f"font-size:11px;color:{C['muted']};display:block;")
         with ui.element("button").classes("fd-gb").style(
@@ -1911,7 +2037,7 @@ def _aip_save_setup(s, rf, C, req):
         rows.insert(0, {
             "id": uuid.uuid4().hex[:12],
             "name": name,
-            "routine": req.get("routine") or DEFAULT_ROUTINE,
+            "routine": req.get("routine") or _CAT.default_routine,
             "raw": req.get("raw") or "",
             "summary": req.get("summary") or "",
             "vals": dict(req.get("vals") or {}),
@@ -1940,8 +2066,8 @@ def _aip_save_setup(s, rf, C, req):
 
 def _aip_confirm(s, rf, C):
     req = s._aip_req
-    r = ROUTINE_BY_KEY.get(req.get("routine") or "",
-                           ROUTINE_BY_KEY[DEFAULT_ROUTINE])
+    r = _CAT.routine_by_key.get(req.get("routine") or "",
+                           _CAT.routine_by_key[_CAT.default_routine])
     vals = req.setdefault("vals", defaults_for(r))
     for f in r["fields"]:
         vals.setdefault(f["key"], f["default"])
@@ -1991,7 +2117,7 @@ def _aip_confirm(s, rf, C):
         if unanswered:
             # Stated as what Claude still needs, not as what the user failed to
             # provide. Leaving these blank is a valid way to use the page.
-            _text("Claude will ask for: " + ", ".join(unanswered) + ".",
+            _text(_CAT.assistant + " will ask for: " + ", ".join(unanswered) + ".",
                   C, 11, colour=C["warn"], mb=16)
         else:
             _text("Ready to go.", C, 11, colour=C["muted"], mb=16)
@@ -2072,18 +2198,16 @@ def _aip_confirm(s, rf, C):
 def _aip_result(s, rf, C):
     prompt = s._aip_prompt
     req = s._aip_req or {}
-    r = ROUTINE_BY_KEY.get(req.get("routine") or "",
-                           ROUTINE_BY_KEY[DEFAULT_ROUTINE])
+    r = _CAT.routine_by_key.get(req.get("routine") or "",
+                           _CAT.routine_by_key[_CAT.default_routine])
 
     with _card(C, C["good"]):
         with ui.element("div").style(
                 "display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;"
                 "justify-content:space-between;margin-bottom:4px;"):
-            _text("Paste this into Claude", C, 15, 700, C["text_l"])
+            _text("Paste this into " + _CAT.assistant, C, 15, 700, C["text_l"])
             _text(r["name"], C, 11, 700, C["teal"])
-        _text("Copy it, open Claude with your DripDrop connector switched on, "
-              "and paste it as your first message.",
-              C, 12, colour=C["muted"], mb=14)
+        _text(_CAT.result_copy, C, 12, colour=C["muted"], mb=14)
 
         ui.textarea(value=prompt).props("dense readonly autogrow").classes(
             "fd-input").style(
@@ -2123,29 +2247,5 @@ def _aip_result(s, rf, C):
                     "padding:9px 18px;font-size:12px;").on("click", _restart):
                 ui.label("Ask for something else")
 
-    # The one routine DripDrop can also run itself. Said here because the page
-    # that does it no longer has its own nav row.
-    if r["key"] == "sales_campaign":
-        with _card(C):
-            _text("DripDrop can also run this one for you", C, 13, 700,
-                  C["text_l"], 4)
-            _text("The Sales Campaign page queues the same run, writes the "
-                  "campaigns here and stops at a review screen. Claude still "
-                  "does the sourcing — it just hands the result back to "
-                  "DripDrop instead of back to you.",
-                  C, 12, colour=C["muted"], mb=12)
-
-            def _open_sc():
-                # Same move the sidebar makes: push history, then set the
-                # sales-hub page key.
-                try:
-                    s._nav_history.append(_ff()._nav_snapshot(s))
-                except Exception:
-                    pass
-                s.hub = "sales"
-                s.sp = "sales_campaign"
-                rf()
-
-            with ui.element("button").classes("fd-gb").style(
-                    "padding:9px 18px;font-size:12px;").on("click", _open_sc):
-                ui.label("Open Sales Campaign")
+    if _CAT.result_extra:
+        _CAT.result_extra(s, rf, C, r)

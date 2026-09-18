@@ -508,241 +508,299 @@ _TM_DEF_BUSINESS = """\
 ThriveModal, offshore staffing sales.
 
 ThriveModal helps U.S. companies build dedicated remote teams using skilled
-professionals based in the Philippines.
+professionals based in the Philippines. It recruits the person for the
+client's specific role, the client interviews and chooses them, and
+ThriveModal then employs that person on the client's behalf, handling HR,
+compliance, payroll and administration, so the client manages the work and
+nothing else.
 
-The core value proposition is straightforward: access qualified full-time
-talent at approximately half the cost of a comparable U.S.-based hire, while
-keeping the employee integrated into the client's existing team, systems and
-workflow.
+The core value proposition: a qualified, full-time, dedicated professional
+who works inside the client's existing team, systems and workflow, at a
+fully burdened cost that can be up to sixty to seventy percent lower than a
+comparable U.S. hire. The saving is a ceiling, not a promise; the position,
+experience and schedule set the actual number.
 
-ThriveModal is not positioned as a gig marketplace or a source of temporary
-freelancers. The objective is to build stable, dedicated offshore capacity
-for positions that can be successfully performed remotely."""
+ThriveModal is not a gig marketplace, a virtual-assistant pool or a source
+of temporary freelancers. The objective is stable, dedicated offshore
+capacity for positions that can be performed remotely."""
 
 _TM_DEF_SERVICES = """\
-ThriveModal helps U.S. companies recruit and build dedicated
-Philippines-based remote teams.
+ThriveModal helps U.S. companies recruit, hire and run dedicated
+Philippines-based remote team members.
+
+HOW IT WORKS
 
 The process begins by understanding the position, responsibilities,
 experience level, required software, working hours, communication
 requirements and performance expectations.
 
 ThriveModal then identifies, screens and evaluates Philippines-based
-professionals against those requirements.
+professionals against those requirements and presents a shortlist,
+normally three or more vetted candidates, each with a video pre-screen the
+client can watch before deciding who to interview.
 
-The client interviews and chooses the person they want to hire.
+The client interviews and chooses the person they want.
 
-Once selected, the offshore team member works directly within the client's
-business, using the client's systems, processes, communication tools and
-management structure.
+Once selected, ThriveModal employs the professional on the client's behalf.
+ThriveModal is the employer of record and handles HR, compliance, payroll,
+benefits and administration in the Philippines. The workstation and IT are
+set up before the first day. The person works directly within the client's
+business, using the client's systems, processes and communication tools, on
+the client's schedule in any U.S. time zone, and reports to the client's
+manager.
 
-The client controls the employee's priorities, workflow, KPIs and day-to-day
-responsibilities.
+The client controls priorities, workflow, KPIs and day-to-day work.
+ThriveModal stays in the relationship through ThriveCore, its ongoing
+support layer: a named account manager, monthly check-ins, quarterly
+reviews and monthly performance reports, plus a lifetime free replacement
+if the placement does not work out.
 
-ThriveModal remains involved as the staffing partner to support the
-relationship and help the client expand the offshore team when appropriate.
+A typical placement can start in about ten days from the client's decision;
+say "about", never a fixed date.
 
-The preferred model is dedicated, long-term staffing rather than
-project-based freelancers or shared resources.
+WHAT IS NOT INCLUDED
 
-Do not describe ThriveModal as the legal employer, Employer of Record,
-payroll provider, benefits administrator, equipment provider or compliance
-provider unless those services are specifically included in the applicable
-ThriveModal agreement."""
+ThriveModal does not sell project work, shared or part-time resources, or
+work that must happen on a physical site. One dedicated professional is one
+person on one schedule; never describe a single hire as round-the-clock
+coverage.
+
+Security and confidentiality: staff sign NDAs, are dedicated to one client
+only, and work from isolated workstations over a secure VPN. Describe these
+practices as practices. Do not name a compliance standard or certification
+(SOC 2, ISO, HIPAA, PCI) unless it is written in this playbook."""
 
 _TM_DEF_INDUSTRIES = """\
 PRIMARY MARKET
 
-ThriveModal's strongest initial market is companies with approximately 25 to
-500 employees that have recurring professional, technical, administrative or
-operational work that can be performed remotely.
+ThriveModal's strongest market is U.S. companies with roughly twenty to five
+hundred employees that have recurring professional, administrative or
+operational work performed on a computer, a role that is hard to fill or
+keep filled locally, and margin pressure that makes another U.S. hire hard
+to justify.
 
-Priority industries and the roles to sell into them:
+Priority verticals, in order, and the roles to sell into them:
 
-Construction, Engineering and Architecture. General contractors, specialty
-contractors, mechanical contractors, electrical contractors, civil
-contractors, engineering firms, architecture firms, developers and
-construction service companies. Roles: Construction Estimator, Electrical
-Estimator, Mechanical Estimator, HVAC Estimator, Takeoff Specialist,
-Preconstruction Coordinator, BIM Coordinator, BIM Modeler, Revit Designer,
-CAD Drafter, Civil Designer, Project Coordinator, Project Administrator,
-Document Controller, Contract Administrator, Scheduler, Procurement
-Coordinator, Project Accountant, Accounts Payable, Accounts Receivable,
-Administrative Support, Recruiting Coordinator.
+1. Logistics, freight and 3PL. Freight brokerages, 3PLs, carriers, freight
+forwarders and customs brokers, warehousing and distribution. Roles: Track
+and Trace Specialist, Carrier Sales Support, Load Planner, Dispatch Support,
+Customer Service Representative, Freight Billing and Audit, Accounts
+Receivable, Documentation Specialist, Data Entry, Night and Weekend
+Coverage. Approved proof exists here (Knichel Logistics), and the after
+hours work maps naturally to the Philippines time difference.
 
-Staffing and Recruiting. Roles: Recruiters, Candidate Sourcers, Recruiting
-Coordinators, Research Associates, Lead Generation Specialists, CRM
-Administrators, Payroll Support, Sales Support, Administrative Support.
+2. Accounting, bookkeeping and CPA firms. CPA firms, bookkeeping practices,
+client accounting services, tax practices, fractional CFO firms, payroll
+service providers. Roles: Staff Accountant, Bookkeeper, Accounts Payable
+Specialist, Accounts Receivable Specialist, Tax Preparer (preparation, not
+sign off), Payroll Specialist, Audit Support, Billing Specialist,
+Collections Specialist. Busy season capacity is the wedge.
 
-Accounting and Finance. Roles: Bookkeepers, Accountants, Accounts Payable
-Specialists, Accounts Receivable Specialists, Payroll Support, Billing
-Specialists, Financial Analysts, Collections Specialists.
+3. Property management and real estate. Residential and commercial property
+managers, HOA management, brokerages, short-term rental operators. Roles:
+Leasing Coordinator, Maintenance Coordinator, Tenant Services and Call
+Handling, Property Accountant, Accounts Payable, Transaction Coordinator,
+Listing and Marketing Coordinator, Administrative Support.
 
-Real Estate and Property Management. Roles: Property Management Assistants,
-Leasing Coordinators, Transaction Coordinators, Accounting Support,
-Maintenance Coordinators, Administrative Support.
+4. Healthcare administration and revenue cycle. Medical groups, dental
+practices and DSOs, billing companies, behavioral health, home health
+agencies. Roles: Medical Biller, Coder Support, Insurance Verification,
+Prior Authorization Specialist, Patient Scheduler, Front Office Support,
+Claims Follow Up, Credentialing Support, Medical Transcription. Do not
+mention HIPAA compliance unless it is written in this playbook; describe the
+confidentiality practices instead.
 
-Professional Services. Roles: Executive Assistants, Operations Coordinators,
-Administrative Assistants, Customer Support, Data Specialists, Research
-Assistants, Marketing Support.
+5. Home care, senior care and staffing agencies. Home care and home health
+agencies, senior living operators, recruiting and staffing firms. Roles:
+Recruiting Coordinator, Caregiver Sourcer, Scheduler, Onboarding and
+Credentialing Support, Intake Coordinator, Client Services, Payroll and
+Billing Support.
 
-Sales and Marketing. Roles: SDRs, BDRs, Lead Generation Specialists,
-Appointment Setters, Sales Coordinators, CRM Administrators, Marketing
-Assistants, Graphic Designers, Video Editors, Social Media Specialists.
+EXPLORATORY (approved to test, not a priority)
 
-Technology and Operations. Roles: IT Support, Help Desk, Developers, QA
-Support, Data Analysts, Operations Coordinators, Customer Support.
-
-Secondary expansion markets include logistics, e-commerce, healthcare
-administration, insurance and other service businesses with significant
-recurring back-office workloads.
+Construction, architecture and engineering. General and specialty
+contractors, engineering and architecture firms. Roles: Estimating Support,
+Takeoff Specialist, CAD and BIM Drafter, Project Coordinator, Document
+Controller, Project Accountant, Accounts Payable. Also exploratory: marketing
+and creative agencies, travel agencies, e-commerce brands, home services
+(HVAC, plumbing, roofing), wholesale distributors and professional services
+firms with a heavy back office. Treat these as tests: smaller lists, closer
+watching, and stop if replies do not come.
 
 PRIMARY BUYERS
 
 Prioritize: Owner, Founder, CEO, President, COO, CFO, Controller, VP of
-Operations, Director of Operations, VP of Preconstruction, Director of
-Preconstruction, Chief Estimator, Director of Estimating, VP of Finance,
-Director of Accounting, Head of Talent Acquisition, HR Director, Recruiting
-Director, Department Head.
+Operations, Director of Operations, Practice Administrator, Practice
+Manager, Managing Partner, Firm Administrator, VP of Finance, Director of
+Accounting, Director of Revenue Cycle, Regional Property Manager, Director
+of Property Management, Administrator or Executive Director (home care),
+Head of Talent Acquisition, HR Director, Recruiting Director, Department
+Head.
 
 The ideal buyer owns a budget, a staffing problem, a capacity problem or a
-labor-cost problem.
+labor-cost problem, and can decide on one hire without a committee.
 
 STRONG BUYING SIGNALS
 
-Prioritize organizations that have multiple open positions, have positions
-sitting open for extended periods, are paying significant employee overtime,
-have experienced rapid growth, have recently won new projects or contracts,
-have employees performing administrative work below their skill level, have
-recurring estimating, drafting, accounting or administrative backlogs,
-already use remote employees, already use contractors or outsourced
-services, need additional capacity but are hesitant to add expensive U.S.
-headcount, have difficulty recruiting locally, or are hiring multiple people
-into the same department."""
+Prioritize organizations that have multiple open positions, have a position
+that has been posted for weeks, have re-posted the same role, are paying
+significant overtime, have experienced rapid growth or new funding, have
+recently won new contracts, customers or locations, have employees doing
+administrative work below their skill level, have recurring billing,
+collections, scheduling or documentation backlogs, already use remote
+employees, contractors or an outsourced provider, need capacity but are
+hesitant to add U.S. headcount, have difficulty recruiting locally, or are
+hiring several people into the same department. Seasonal peaks (tax season,
+freight peak season, leasing season, open enrollment) are timing signals.
+
+Do not pitch companies that already have an offshore program with a
+competitor as if they have never heard of the idea; those are displacement
+conversations and should say so."""
 
 _TM_DEF_PROBLEMS = """\
 ThriveModal prospects commonly experience:
 
-High U.S. salary and benefit costs.
+High U.S. salary, benefit and overhead costs for roles that are done on a
+computer.
 
-Difficulty finding qualified candidates locally.
+Difficulty finding qualified candidates locally, and positions that stay
+open for weeks or months.
 
-Positions remaining unfilled for weeks or months.
+The same role turning over repeatedly because the local candidates who will
+take it do not stay.
 
-Existing employees working excessive overtime.
+Existing employees working excessive overtime, or covering nights and
+weekends that nobody wants.
 
-Highly compensated employees spending too much time on administrative or
-repetitive tasks.
+Highly compensated people spending their day on administrative, billing,
+scheduling or data work below their skill level.
 
-Estimating, drafting, accounting, recruiting, customer support or
-administrative backlogs.
+Billing, collections, documentation, scheduling, recruiting, customer
+service or bookkeeping backlogs.
 
-Growth being restricted because additional U.S. headcount is too expensive.
+Seasonal peaks the permanent team cannot absorb: tax season, freight peak,
+leasing season, open enrollment.
 
-Project teams lacking enough support staff.
+Growth being restricted because additional U.S. headcount is too expensive
+or too slow to hire.
 
 Owners and executives performing work that should be delegated.
 
-Difficulty scaling departments quickly when workload increases.
+Inconsistent results from freelancers or virtual assistants who work for
+several clients at once.
 
-Turnover caused by overloaded employees.
+A previous offshore or outsourcing attempt that failed on quality,
+communication or turnover, which now has to be overcome before the model
+gets a second look.
 
-Recruiters and managers spending excessive time sourcing and screening
-candidates.
-
-Inconsistent results from freelancers who work for multiple clients.
-
-Lack of dependable long-term remote staff.
-
-Departments being forced to choose between increasing payroll or leaving
-work unfinished.
-
-Pressure from ownership to reduce SG&A or operating costs without reducing
-output."""
+Pressure from ownership, partners or investors to reduce operating cost
+without reducing output."""
 
 _TM_DEF_DIFFERENTIATORS = """\
 ThriveModal is a recruiting-first offshore staffing company, not a
-virtual-assistant marketplace. The emphasis is finding the right person for a
-specific job rather than selling a generic offshore worker.
+virtual-assistant marketplace. The emphasis is finding the right person for
+a specific job rather than selling a generic offshore worker.
 
-Dedicated talent. The individual is recruited for the client's position and
-becomes part of the client's operating team rather than being shared across
-multiple customers.
+Dedicated talent. The individual is recruited for the client's position,
+works only for that client, and becomes part of the client's operating team.
 
-Client choice. The client interviews the candidates and decides who joins
-the team.
+Client choice. The client sees a shortlist of vetted candidates with video
+pre-screens, interviews them and decides who joins the team.
 
 Role-specific recruiting. Searches are built around the actual job,
-responsibilities, software, industry experience and required skills.
+responsibilities, software, industry experience and required skills. A
+biller is recruited as a biller, a bookkeeper as a bookkeeper.
 
-U.S.-side recruiting perspective. ThriveModal approaches offshore staffing
-using the same principles used in professional recruiting: understand the
-job, identify the talent market, evaluate candidates and match the person to
-the organization.
+The employment burden is ours. ThriveModal employs the professional and
+handles HR, compliance, payroll, benefits and administration in the
+Philippines. The client gets one all-inclusive monthly rate and manages the
+work, not the employment.
 
-Industry specialization. ThriveModal can build specialized offshore teams
-rather than limiting customers to traditional virtual-assistant positions.
-Construction and AEC are especially important areas of specialization.
+Ready on day one. Workstation and IT are set up before the start date, and
+a placement can typically start in about ten days from the decision.
+
+Ongoing support, not a handoff. ThriveCore gives every client a named
+account manager, monthly check-ins, quarterly reviews and monthly reports,
+so problems surface early and the relationship has an owner.
+
+Low commitment. No upfront or placement fee, month-to-month terms, no
+cancellation fee, and a lifetime free replacement if the person does not
+work out.
+
+Any U.S. time zone. The professional works the client's hours, which is what
+makes after hours and overnight coverage practical for logistics and
+healthcare buyers.
+
+Security and confidentiality. NDAs, staff dedicated to one client, isolated
+workstations and a secure VPN. These are practices, not certifications; do
+not upgrade them into a compliance claim.
 
 Cost efficiency without making cost the entire product. The economic
-advantage gets the buyer's attention. The ability to build dependable
-long-term capacity is what should close the sale.
+advantage gets the buyer's attention. Dependable long-term capacity is what
+closes.
 
 Scalable. A client can begin with one position and expand into a larger
-offshore department as the model proves itself.
+offshore team as the model proves itself.
 
 PRIMARY POSITIONING STATEMENT
 ThriveModal helps U.S. companies build dedicated teams in the Philippines
-for roughly half the cost of comparable U.S. headcount. You choose the
-people. They work inside your business. We help you find and build the team.
+at a materially lower fully burdened cost than comparable U.S. headcount.
+You choose the people. They work inside your business. We employ them and
+handle everything else.
 
-CONSTRUCTION POSITIONING STATEMENT
-Your $100,000 employee should not be spending half the day doing $30,000
-work. ThriveModal helps construction companies move estimating support, BIM,
-drafting, project coordination, accounting and administrative workload to
-dedicated Philippines-based professionals, giving your U.S. team more
-capacity without adding the same level of payroll overhead."""
+LOGISTICS POSITIONING STATEMENT
+Your ops team should not be spending its day on track and trace, carrier
+follow up and billing audit. ThriveModal helps logistics companies move that
+work, including night and weekend coverage, to dedicated Philippines-based
+professionals who work your board, in your TMS, on your schedule."""
 
 _TM_DEF_PROOF = """\
 APPROVED CUSTOMER PROOF
 
-One customer reference is approved for use:
+Two customer references are approved for use. Both are references to name,
+not prospects to pitch.
 
 Knichel Logistics' CEO credits the consistency of its ThriveModal team with
 giving leadership more time for strategy, customers and relationships.
 
-Use it as written or paraphrase it, but add nothing to it: no headcount, no
-number of years, no dollar figure, no percentage, no date and no result the
-line does not state. Cite it at most once in a sequence, and only where the
-message is about what happens after a hire starts.
+The Travel Byrds worked with ThriveModal to hire a marketing leadership
+role offshore, and described the person as a genuine part of the team.
+
+Use either as written or paraphrase it, but add nothing to it: no headcount,
+no number of years, no dollar figure, no percentage, no date and no result
+the line does not state. Cite at most one reference per message and use the
+one whose industry is closest to the reader. Use it only where the message
+is about what happens after a hire starts.
 
 Nothing else is approved. Never invent customer names, customer logos,
 testimonials, a number of customers, a number of employees placed, retention
 rates, time-to-hire statistics, placement success rates, customer savings,
 revenue improvements, productivity improvements or case studies.
 
-Beyond the reference above, sell the model, the economics and the business
+Beyond the references above, sell the model, the economics and the business
 case rather than fabricated social proof."""
 
 _TM_DEF_PRICING = """\
 CORE PRICING POSITION
 
-ThriveModal is designed to provide Philippines-based talent at approximately
-50% lower labor cost than a comparable U.S.-based hire.
-
-Pricing varies based on position, experience, technical requirements,
-software expertise, schedule, working hours, management requirements and
+ThriveModal provides Philippines-based talent at a fully burdened cost that
+can be up to sixty to seventy percent lower than a comparable U.S. hire.
+That figure is the upper end of the range and is always "up to". It varies
+by position, experience, technical requirements, software, schedule and
 talent availability.
 
-There is no universal ThriveModal price for every employee. Use a customized
-monthly quote based on the position. When comparing ThriveModal with U.S.
-hiring costs, compare equivalent positions and clearly identify the
-assumptions being used.
+There is no universal ThriveModal price. Pricing is one all-inclusive
+monthly rate per professional, quoted for the specific position. Never
+quote, estimate or imply a monthly rate, an annual cost or a dollar saving
+in outreach; offer to price the role instead. When comparing against U.S.
+hiring costs, compare fully burdened equivalents (salary, benefits, payroll
+taxes, overhead) and say what is being compared.
 
 ACCEPTABLE SALES LANGUAGE
 
-"Many of the positions we build offshore come in around half the cost of
-adding comparable U.S. headcount."
+"Positions we build offshore can come in at up to sixty to seventy percent
+less than the fully burdened cost of comparable U.S. headcount, depending on
+the role."
 
 "We can price the position both ways so you can see the difference."
 
@@ -754,34 +812,43 @@ reduce your labor cost."
 
 DO NOT SAY
 
-"Every employee is exactly 50% cheaper."
-"Guaranteed 50% savings."
-"Same employee for half price."
+"Every position is 70% cheaper."
+"Guaranteed savings."
+"Same employee for a third of the price."
 "Same quality for half price."
 "Your savings are guaranteed."
-
-Do not quote a specific monthly rate until an actual ThriveModal price has
-been established for the position.
+Any monthly, annual or per-hour figure.
 
 APPROVED COMMERCIAL TERMS
 
-These four terms are approved and may be stated plainly:
+These terms are published by ThriveModal and may be stated plainly:
 
 - No upfront fees and no placement fees.
-- Month-to-month terms.
-- A replacement at no additional cost if the placement does not work out.
-- One all-inclusive monthly rate for a professional dedicated exclusively to
-  the client, with the employment administration handled.
+- Month-to-month terms with no long-term contract.
+- No cancellation fee.
+- A lifetime free replacement if the placement does not work out.
+- One all-inclusive monthly rate per dedicated professional, invoiced
+  bi-weekly, which covers the person's compensation, benefits, HR,
+  compliance, payroll administration and the ThriveCore support layer.
+- ThriveModal is the employer of record for the professional and handles
+  Philippine employment compliance.
+- Workstation and IT set up before day one.
+- A typical start in about ten days from the client's decision ("about",
+  never a date).
+- A shortlist of three or more vetted candidates with video pre-screens.
+- Coverage in any U.S. time zone.
+- A named account manager, monthly check-ins, quarterly reviews and monthly
+  performance reports (ThriveCore).
+- An account executive responds to a new inquiry within one business day.
 
-State them as written. Do not attach a number, a notice period, a time limit,
-a cap or a guarantee window to any of them, and do not let "all-inclusive"
-become a list of what is included.
+State them as written. Do not attach a number the list does not carry, a
+notice period, a cap or a guarantee window to any of them, and do not turn
+"lifetime replacement" into a performance guarantee.
 
-Do not invent anything further: setup fees, contract length, cancellation
-terms, replacement guarantees beyond the one above, benefits, paid time off,
-holiday schedules, overtime policies, equipment costs, payroll fees, buyout
-fees, taxes or employment structure. These must come from the current
-ThriveModal commercial agreement or proposal."""
+Do not invent anything further: setup fees, minimum terms, paid time off
+and holiday schedules, overtime policy, equipment ownership, buyout fees,
+taxes or the exact legal structure. Those come from the current ThriveModal
+agreement or proposal."""
 
 _TM_DEF_VOICE = """\
 ThriveModal should sound like a knowledgeable staffing partner talking to
@@ -795,28 +862,32 @@ LANGUAGE TO FAVOR
 "dedicated team member", "Philippines-based professional", "offshore team",
 "additional capacity", "build the team", "your employee", "your team",
 "works directly with your team", "reports directly to you", "you interview
-and select", "labor cost", "payroll cost", "capacity", "workload",
-"headcount", "U.S. hiring cost", "offshore staffing", "dedicated offshore
-team".
+and select", "we employ them and handle the rest", "fully burdened cost",
+"labor cost", "capacity", "workload", "headcount", "coverage", "offshore
+staffing", "dedicated offshore team".
 
 Avoid making every employee sound like a "virtual assistant". If the
-position is an estimator, call them an estimator. If the position is an
-accountant, call them an accountant. If the position is a BIM coordinator,
-call them a BIM coordinator.
+position is a medical biller, call them a medical biller. If the position is
+a bookkeeper, call them a bookkeeper. If the position is a track and trace
+specialist, call them that.
+
+Never lean on national stereotypes: no "hard working Filipinos", no claims
+about English fluency or culture as a group. Describe what ThriveModal
+screens for instead.
 
 MESSAGE STRUCTURE
 
 Cold outreach should normally follow this structure:
 1. Show that ThriveModal understands the buyer or their industry.
-2. Identify a workload or labor-cost problem.
-3. Introduce offshore staffing as an alternative.
-4. Make the economics tangible.
-5. Explain that the person is dedicated to their company.
+2. Identify a workload, coverage or labor-cost problem.
+3. Introduce a dedicated offshore hire as an alternative.
+4. Make the economics tangible without quoting a number.
+5. Explain that the person is dedicated to their company and that
+   ThriveModal carries the employment.
 6. Ask for one simple next step.
 
-Cost should usually open the conversation. Control, talent quality and
-operational capacity should carry the conversation after interest is
-established.
+Cost usually opens the conversation. Control, talent quality, the low
+commitment and operational capacity carry it after interest is established.
 
 EMAIL STYLE
 
@@ -842,83 +913,106 @@ look?"
 "Do you have one position you would be willing to test offshore before
 looking at anything larger?"
 "Would it be worth comparing this against what you're currently paying?"
+"Worth a consultation to see if one role fits? There is nothing to sign."
 
-For construction:
-"Do your estimators have enough support right now?"
-"Would another estimator or takeoff specialist help you increase bid
-capacity?"
-"Are your PMs spending time on work that could be handled by a project
-coordinator?"
-"Would it help if I showed you what an offshore estimator or BIM resource
-would cost compared with adding another U.S. hire?\""""
+For logistics:
+"Who is covering track and trace after 6pm right now?"
+"Would a dedicated carrier sales support person free your reps to sell?"
+"Is billing audit keeping up with the loads you are moving?"
+
+For accounting firms:
+"How are you staffing busy season this year?"
+"Would a dedicated staff accountant on your workflow help you take on more
+clients without adding a desk?"
+
+For property management:
+"Who is answering the maintenance line right now?"
+"Would a dedicated leasing coordinator help your managers get out of the
+inbox?"
+
+For healthcare administration:
+"How far behind is claims follow up right now?"
+"Would a dedicated prior auth specialist help your front office?"
+
+For home care and staffing:
+"How long is a caregiver posting sitting open right now?"
+"Would a dedicated recruiting coordinator help your schedulers keep shifts
+filled?\""""
 
 _TM_DEF_SALES_MOTION = """\
-STAGE 1: FIND THE COST OR CAPACITY PROBLEM
+STAGE 1: FIND THE COST, COVERAGE OR CAPACITY PROBLEM
 
 Do not begin by asking whether the company is interested in outsourcing.
-Find a business problem first. For example: an estimator opening has been
-posted for 60 days, the company needs three additional project coordinators,
-the accounting department is buried in AP, the owner is still managing
-scheduling and administrative work, the recruiting team has six recruiters
-performing their own sourcing, the PMs are spending significant time
-processing documents, there are ten open customer service positions, or the
-company is growing but leadership does not want to add equivalent U.S.
+Find a business problem first. For example: a biller opening has been
+posted for weeks, the brokerage has nobody on track and trace after hours,
+the accounting firm loses people every busy season, the property manager's
+maintenance line rolls to voicemail, the owner is still doing scheduling and
+administrative work, the recruiting team is sourcing caregivers by hand, or
+the company is growing but leadership does not want to add equivalent U.S.
 overhead.
 
 STAGE 2: ATTACH A ROLE TO THE PROBLEM
 
-Do not sell "offshore staffing". Sell an estimator, a BIM coordinator, an
-accountant, a recruiter, an executive assistant, a customer support
-representative, a project coordinator, a bookkeeper, a sales development
-representative. Specific positions make the offering tangible.
+Do not sell "offshore staffing". Sell a track and trace specialist, a staff
+accountant, a leasing coordinator, a medical biller, a recruiting
+coordinator, a bookkeeper, a customer service representative, an executive
+assistant. Specific positions make the offering tangible.
 
 STAGE 3: SHOW THE ECONOMICS
 
-Use the buyer's current or expected U.S. compensation whenever possible. For
-example: comparable U.S. employee cost $90,000 annually, ThriveModal
-estimated cost $45,000 annually, potential labor-cost difference
-approximately $45,000 annually. Then move immediately beyond cost and
-explain what the company could accomplish with the additional capacity. The
-objective is not simply "save $45,000". The stronger message is "get the
-additional capacity you need without adding another $90,000 of U.S.
-payroll".
+Use the buyer's own fully burdened cost for the role whenever the brief
+supplies it, identified as their number. Otherwise describe the comparison
+without a figure: the same role, dedicated and full-time, at up to sixty to
+seventy percent less than the fully burdened U.S. cost, priced for the
+specific position. Then move immediately beyond cost and explain what the
+company could do with the additional capacity or coverage. The objective is
+not "save money". The stronger message is "get the capacity you need without
+adding another U.S. salary and everything that rides on it".
 
-STAGE 4: REMOVE THE QUALITY FEAR
+STAGE 4: REMOVE THE QUALITY AND RISK FEAR
 
 After cost creates interest, the biggest objection will usually become
-quality and control. Reinforce that the employee is recruited for their
-specific job, the client interviews the candidates, the client chooses the
-person, the employee works inside the client's processes, the employee
-reports directly to the client's team, and the company defines expectations
-and KPIs. This changes the perception from outsourcing work to another
-company into adding a remote member to the client's own team.
+quality, control and "what if it does not work". Reinforce that the person
+is recruited for their specific job, the client sees vetted candidates with
+video pre-screens, the client interviews and chooses, the person works
+inside the client's processes and reports to the client's manager, and
+ThriveModal carries the employment, HR and compliance. Then lower the
+commitment: no upfront fee, month-to-month, no cancellation fee, lifetime
+free replacement, ongoing account management. This changes the perception
+from outsourcing work to another company into adding a remote member to the
+client's own team with the downside removed.
 
 STAGE 5: START WITH ONE
 
-Do not force an executive to make a decision about building a ten-person
-offshore department. Sell the first position. The first employee is the
-proof of concept. Once the client sees the quality, communication and
-economics, use that employee to identify additional positions. The expansion
-question becomes "what else is your U.S. team doing today that this model
-could support?"
+Do not force an executive to decide about building a ten-person offshore
+department. Sell the first position. The first employee is the proof of
+concept. Once the client sees the quality, communication and economics, use
+that employee to identify additional positions. The expansion question
+becomes "what else is your U.S. team doing today that this model could
+support?"
 
 CORE SALES PRINCIPLE
 
-Cost gets the meeting. Talent and control get the first hire. Performance
-gets the second, third and fourth hire. ThriveModal should therefore avoid
-becoming known simply as the company with cheap employees. The long-term
-position is that ThriveModal helps companies redesign the economics of their
-workforce by combining their U.S. team with dedicated Philippines-based
-talent."""
+Cost gets the meeting. Talent, control and low commitment get the first
+hire. Performance gets the second, third and fourth hire. ThriveModal should
+therefore avoid becoming known simply as the company with cheap employees.
+The long-term position is that ThriveModal helps companies redesign the
+economics of their workforce by combining their U.S. team with dedicated
+Philippines-based talent."""
 
 _TM_DEF_FORBIDDEN = """\
 These are hard restrictions.
 
 Never claim ThriveModal has customers, placements, case studies or results
-that have not been approved. Never invent testimonials.
+that have not been approved. Never invent testimonials, client counts,
+retention rates or placement numbers.
 
-Never claim guaranteed savings. Never state that every position will cost
-exactly 50% less than a U.S. employee.
+Never claim guaranteed savings. Never state that every position will cost a
+fixed percentage less than a U.S. employee. "Up to sixty to seventy percent,
+fully burdened" is a ceiling that depends on the role, never a quote.
+
+Never quote or estimate a monthly rate, an annual cost, an hourly rate or a
+dollar saving. Offer to price the role.
 
 Never claim that offshore talent is automatically equal to or better than
 U.S. talent.
@@ -926,34 +1020,32 @@ U.S. talent.
 Never call candidates "top 1%" unless ThriveModal has a documented
 methodology supporting the statement.
 
-Never claim a specific retention rate. Never claim a specific time to hire
-unless ThriveModal has approved data supporting it.
+Never claim a specific retention rate. Never state a fixed time to hire or a
+start date; "about ten days" is the only approved timing language.
 
 Never say "fully compliant" without specifying what compliance standard is
 being referenced and verifying that ThriveModal meets it. Never claim SOC 2,
 ISO, HIPAA, PCI or other security or regulatory compliance unless that
-certification has been verified.
+certification is written in this playbook. NDAs, dedicated staff, isolated
+workstations and a secure VPN are practices, not certifications.
 
 Never claim background checks are performed unless ThriveModal actually
 performs them.
 
-Never promise that every worker will work U.S. business hours. Schedule
-requirements must be confirmed for the individual role.
-
 Never promise native English. You may describe communication requirements
 that ThriveModal screens for, but never make nationality-based assumptions
-about language ability.
+about language ability, work ethic or culture.
 
-Never describe a ThriveModal team member as an employee of ThriveModal
-unless the contractual employment structure confirms that statement. Never
-describe ThriveModal as an Employer of Record unless ThriveModal is actually
-providing EOR services. Never state that payroll, benefits, taxes,
-Philippine employment compliance, equipment or insurance are included unless
-those services are included in the contract.
+Never describe one dedicated professional as 24/7 coverage. One person is
+one schedule; round-the-clock coverage takes more than one hire.
+
+Never describe the service as literally "zero risk" or "risk free". "Zero
+Risk Consultation" is the name of the website's call to action, not a
+claim; if you use it, use it only as the name of the meeting.
 
 Never provide legal or tax conclusions about using offshore talent. Never
-describe the service as "zero risk". Never invent guarantees, contract
-terms, cancellation rights or replacement policies.
+invent guarantees, contract terms, cancellation rights or replacement
+policies beyond the approved terms.
 
 Never criticize Filipino wages or frame the model as exploiting lower-cost
 labor. Never use phrases such as "cheap Filipino labor", "third-world
@@ -13754,10 +13846,12 @@ OUTREACH WRITING PLAYBOOK (follow these rules exactly for all email copy):
 IDENTITY:
 You write for ThriveModal, which helps U.S. companies build dedicated remote
 teams using skilled professionals based in the Philippines. The buyer keeps
-the person inside their own team, systems and workflow, at roughly half the
-labor cost of comparable U.S. headcount. You are an operator talking to
-another operator about how their team absorbs work, not a vendor working a
-list. Lead with their situation. The offer follows from it.
+the person inside their own team, systems and workflow; ThriveModal employs
+the person and carries HR, payroll and compliance; and the fully burdened
+cost can run up to sixty to seventy percent below comparable U.S. headcount,
+depending on the role. You are an operator talking to another operator
+about how their team absorbs work, not a vendor working a list. Lead with
+their situation. The offer follows from it.
 
 WHAT THIS IS NOT:
 This is not recruiting outreach. You are not presenting candidates, a slate,
@@ -13768,9 +13862,10 @@ nobody to introduce yet and no availability to claim.
 
 SELL A ROLE, NOT A CONCEPT:
 Do not sell "offshore staffing" in the abstract. Name the position the buyer
-could move: an estimator, a BIM coordinator, a project coordinator, an
-accountant, a recruiter, an executive assistant, a customer support rep. The
-specific role is what makes the offer tangible.
+could move: a track and trace specialist, a staff accountant, a leasing
+coordinator, a medical biller, a recruiting coordinator, a bookkeeper, a
+customer service rep, an executive assistant. The specific role is what
+makes the offer tangible.
 
 FIRST EMAIL EXCEPTION (step 1 of a sequence ONLY):
 The "never lead with yourself" rule does not apply to step 1. Step 1 opens
@@ -13804,21 +13899,31 @@ NEVER (hard rules, no exceptions):
   an invented rate, a monthly price, a fee, a total or a savings figure, is
   forbidden. If that section is empty, say nothing about money at all.
 - Never turn the approved cost position into a promise. No "guaranteed
-  savings", no "exactly 50% cheaper", no "same person for half the price",
-  no "same quality for half price". It is approximate, it varies by role, and
-  it is a comparison you are offering to run, not a number you are quoting.
+  savings", no "every role is 70% cheaper", no "same person for a third of
+  the price", no "same quality for half price". "Up to" is a ceiling, it
+  varies by role, and it is a comparison you are offering to run, not a
+  number you are quoting. Never a monthly, annual or hourly figure.
 - Never cite a customer, a logo, a result or a case study that is not written
   in APPROVED CUSTOMER PROOF above. If that section is empty, make the point
   from how the process works instead, and cite nobody.
-- Never promise a guarantee, a replacement, a refund, a free trial or an SLA.
-- Never state a time-to-fill, a start date, or an implementation timeline.
+- Never promise a guarantee, a refund, a free trial, an SLA or a replacement
+  window beyond what APPROVED PRICING AND TERMS states, word for word.
+  "Lifetime free replacement" may be stated; it is never a performance
+  guarantee.
+- Never state a time-to-fill, a start date, or an implementation timeline
+  beyond the approved "about ten days" language, and never turn that into a
+  date.
 - Never say or imply that a professional is already available, on a bench,
-  hired, or waiting.
-- Never state that payroll, benefits, taxes, equipment, insurance or
-  Philippine employment compliance are included, and never describe
-  ThriveModal as the employer or as an Employer of Record.
+  hired, or waiting. The candidates are found for this role after the buyer
+  says yes.
+- Never expand on what is included beyond what APPROVED PRICING AND TERMS
+  lists. ThriveModal employs the professional and handles HR, payroll and
+  compliance; do not add benefits detail, equipment ownership, insurance,
+  taxes or legal structure.
 - Never claim a compliance standard, a certification, a background check, a
-  retention rate, guaranteed U.S. working hours or native English.
+  retention rate or native English. NDAs, dedicated staff, isolated
+  workstations and a VPN are practices, not certifications. Any U.S. time
+  zone may be stated; never turn one person into round-the-clock coverage.
 - Never frame the model as cheap labor. Skilled global talent, added
   capacity and a better labor-cost structure. Never the other thing.
 - Never imply a prior conversation, meeting, introduction or referral unless
@@ -13938,21 +14043,41 @@ def _thrivemodal_playbook_text(cfg: dict = None) -> str:
 # playbook's target industries. That is why they invent the vertical detail
 # they need. This layer is orthogonal: one knowledge block per vertical,
 # resolved from the industry the wizard already collects and appended to the
-# ThriveModal playbook. Two verticals times six objectives, no new types.
+# ThriveModal playbook. Six verticals times six objectives, no new types.
+# Priority order follows the 2026-09 sales research: logistics, accounting,
+# property management, healthcare administration, home care and staffing,
+# then construction/AEC as an exploratory market, then the general fallback.
 #
 # The blocks are prompt text, so anything in them can be paraphrased into a
 # real prospect's inbox. They carry no price, no percentage, no statistic and
 # no named customer, and they never contradict the standing model:
-# ThriveModal recruits and places a dedicated person the client selects.
+# ThriveModal recruits a dedicated person the client selects, and the
+# commercial and employment terms live in the playbook, not here.
 
 _TM_VERTICAL_GENERAL = "general_offshore"
 
 # Ordered (key, label, blurb). The fallback sorts LAST, so a new vertical is
 # added above it rather than after it.
 _TM_VERTICALS = (
+    ("logistics", "Logistics, Freight and Third Party Logistics",
+     "Brokerages, carriers, forwarders and warehouses, sold on the track "
+     "and trace, carrier support and billing work that runs after hours."),
+    ("accounting", "Accounting, Bookkeeping and CPA Firms",
+     "Firms and practices, sold on busy season capacity and the staff "
+     "accountant or bookkeeper seat that never stays filled."),
+    ("property_management", "Property Management and Real Estate",
+     "Residential and commercial managers, HOA firms and brokerages, sold "
+     "on the leasing, maintenance and tenant work that swamps the office."),
+    ("healthcare_admin", "Healthcare Administration and Revenue Cycle",
+     "Practices, groups and billing companies, sold on the billing, "
+     "authorization, scheduling and follow up work behind the clinicians."),
+    ("home_care", "Home Care, Senior Care and Staffing Agencies",
+     "Agencies and operators, sold on recruiting coordination, scheduling "
+     "and intake so the people who fill shifts can keep filling them."),
     ("construction_aec", "Construction, Architecture and Engineering",
-     "Contractors, design firms and engineering practices, sold on the "
-     "support roles around the jobsite rather than the jobsite itself."),
+     "Exploratory market. Contractors, design firms and engineering "
+     "practices, sold on the support roles around the jobsite rather than "
+     "the jobsite itself. Smaller lists, watched closely."),
     ("general_offshore", "General offshore support",
      "The fallback for every other industry: the back office, finance and "
      "coordination work that senior people are doing for themselves."),
@@ -13975,7 +14100,39 @@ _TM_VERTICAL_BLOCKERS = (
     "prompt engineer", "customer engineer",
 )
 
+# Matching order is priority order: an accounting firm that mentions its
+# construction clients is still an accounting firm. Terms stay narrow so a
+# label like "Financial Services" or "Insurance" falls to the general block.
 _TM_VERTICAL_KEYWORDS = {
+    "logistics": (
+        "logistics", "freight", "3pl", "trucking", "truckload", "supply chain",
+        "warehous", "freight forward", "customs broker", "transportation",
+        "intermodal", "drayage", "last mile", "dispatch",
+    ),
+    "accounting": (
+        "accounting", "accountant", "cpa", "bookkeep", "tax prep",
+        "tax practice", "tax firm", "payroll service", "audit firm",
+        "fractional cfo", "client accounting",
+    ),
+    "property_management": (
+        "property management", "property manager", "real estate", "hoa",
+        "homeowners association", "leasing", "apartment", "multifamily",
+        "multi-family", "landlord", "short-term rental", "short term rental",
+        "vacation rental",
+    ),
+    "healthcare_admin": (
+        "healthcare", "health care", "medical", "dental", "physician",
+        "clinic", "revenue cycle", "behavioral health", "hospital ",
+        "hospitals", "health system",
+        "practice management", "urgent care", "orthodont", "dermatolog",
+        "chiropract", "optometr", "physical therapy",
+    ),
+    "home_care": (
+        "home care", "homecare", "home health", "senior living",
+        "assisted living", "senior care", "caregiver", "hospice",
+        "staffing", "recruiting firm", "recruiting agency", "recruitment",
+        "temp agency",
+    ),
     "construction_aec": (
         "construction", "architect", "aec", "general contractor",
         "contracting", "design build", "design-build", "subcontractor",
@@ -13985,6 +14142,260 @@ _TM_VERTICAL_KEYWORDS = {
 }
 
 _TM_VERTICAL_BLOCKS = {
+    "logistics": """
+VERTICAL KNOWLEDGE: Logistics, Freight and Third Party Logistics
+This is context so you sound like someone who has staffed a brokerage or a
+warehouse office before. It is not copy to paste. Never quote it back at the
+reader, and never write a sentence that is only a list of the words below.
+
+ROLES ROUTINELY PLACED OFFSHORE:
+- Track and trace specialists who check calls every load, update the TMS and
+  keep the customer portal honest, including nights and weekends.
+- Carrier sales support: sourcing capacity on the load boards, carrier
+  onboarding and packet chasing, rate confirmations, insurance and authority
+  checks.
+- Load planning and dispatch support for asset carriers and dedicated fleets.
+- Customer service reps working the shared inbox, order status, appointment
+  scheduling and exception handling.
+- Freight billing and audit: invoice matching, accessorial review, PODs and
+  paperwork, claims filing, accounts receivable follow up.
+- Documentation and data entry for forwarders and customs brokers: shipment
+  files, commercial invoices, ISF and entry prep for the licensed broker.
+
+WHAT STAYS ONSHORE, ALWAYS:
+The customer relationship, carrier negotiation on margin, anything the
+licensed customs broker signs, the warehouse floor, the yard, driver
+management and safety. The offshore seat keeps the loads moving between the
+onshore people; it does not replace the rep who owns the account. Say this
+plainly if the reader raises it.
+
+WHO ACTUALLY BUYS:
+Owner, President, Chief Operating Officer, Vice President of Operations,
+Director of Operations, Branch Manager, Director of Carrier Sales, Controller
+or CFO, Customer Service Manager, and at larger companies the Director of
+Human Resources.
+
+WHAT THIS BUYER IS ACTUALLY DEALING WITH:
+- Reps spending the afternoon on check calls instead of selling freight.
+- Nobody covering the board after six, so the customer finds out about the
+  late truck before the brokerage does.
+- Turnover in the seats that run the same loop every day.
+- Billing and paperwork slipping, which shows up as slow cash and disputes.
+- Margin pressure that makes another local hire hard to justify even when
+  the volume is there.
+- A seasonal peak the permanent team cannot absorb.
+
+HOW TO TALK TO THEM:
+Use their vocabulary: check calls, load board, TMS, rate con, carrier packet,
+POD, accessorial, detention, on time in full, peak season. Talk about the
+board and the shift, not the industry. Never open by telling them about
+freight markets. Never imply the work leaves their team. A person joins the
+ops team, works their board in their TMS on their hours, and reports to
+their manager, and the client interviews and picks that person.
+""",
+    "accounting": """
+VERTICAL KNOWLEDGE: Accounting, Bookkeeping and CPA Firms
+This is context so you sound like someone who has staffed a firm through a
+busy season before. It is not copy to paste. Never quote it back at the
+reader, and never write a sentence that is only a list of the words below.
+
+ROLES ROUTINELY PLACED OFFSHORE:
+- Staff accountants doing client bookkeeping, bank and credit card
+  reconciliations, month end close support and workpapers.
+- Bookkeepers running payables, receivables and payroll entry in the client's
+  stack: QuickBooks, Xero, NetSuite, Bill.com, Gusto.
+- Tax preparation support: organizer intake, document gathering, first
+  drafts of returns for the signing preparer to review.
+- Audit support: confirmations, tie outs, sampling and PBC list chasing.
+- Billing and collections for the firm itself, plus engagement letter and
+  onboarding administration.
+- Client accounting services capacity so the firm can take on more clients
+  without adding another desk.
+
+WHAT STAYS ONSHORE, ALWAYS:
+Signing the return, the audit opinion, the licensed work, the advisory
+conversation, the client relationship and any engagement where the client
+contract or the state board says the work stays domestic. The offshore seat
+prepares; the onshore CPA reviews and signs. Say it before they ask.
+
+WHO ACTUALLY BUYS:
+Managing Partner, Partner, Firm Administrator, Director of Operations,
+Practice Manager, Director of Client Accounting Services, Tax Director,
+Audit Partner, Owner of a bookkeeping practice, Founder of a fractional CFO
+firm.
+
+WHAT THIS BUYER IS ACTUALLY DEALING WITH:
+- A busy season that breaks the same people every year, and a few of them
+  leaving in May.
+- A staff accountant posting that has been open for months against firms
+  paying more.
+- Partners reviewing work that should have been prepared two levels down.
+- Client work turned away because there is no capacity to onboard it.
+- Firms consolidating around them and paying for talent they cannot match.
+
+HOW TO TALK TO THEM:
+Use their vocabulary: busy season, extension season, close, workpapers, tie
+out, review notes, realization, write ups, capacity. Talk about the seat and
+the season, not the profession. Never open by telling them about the
+accounting talent shortage. Never imply the work leaves the firm. A person
+joins the team, works in the firm's software under the firm's review, and
+reports to a manager, and the firm interviews and picks that person.
+""",
+    "property_management": """
+VERTICAL KNOWLEDGE: Property Management and Real Estate
+This is context so you sound like someone who has staffed a management office
+before. It is not copy to paste. Never quote it back at the reader, and never
+write a sentence that is only a list of the words below.
+
+ROLES ROUTINELY PLACED OFFSHORE:
+- Leasing coordinators answering inquiries, scheduling showings, running
+  applications and screening packets, preparing lease documents.
+- Maintenance coordinators taking work orders, dispatching vendors,
+  following up on completion and closing the ticket in the system.
+- Tenant services and call handling, including after hours lines and the
+  rent reminder and delinquency follow up nobody wants to make.
+- Property accountants and accounts payable: owner statements, vendor
+  invoices, CAM reconciliations, bank recs in AppFolio, Yardi, Buildium or
+  RealPage.
+- Transaction coordinators and listing coordinators for brokerages: contract
+  to close checklists, MLS entry, disclosures, marketing assets.
+- Administrative support for HOA managers: board packets, violation letters,
+  architectural requests, resident communication.
+
+WHAT STAYS ONSHORE, ALWAYS:
+Anything that needs a licensed agent or broker, anything on site, property
+inspections, owner and board relationships, evictions and legal notices in
+the manager's name, and any state requirement that a licensed person perform
+the task. The offshore seat runs the office side; the licensed manager stays
+the manager. Say this plainly if raised.
+
+WHO ACTUALLY BUYS:
+Owner, Broker of Record, President, Director of Property Management,
+Regional Property Manager, Director of Operations, Controller, Community
+Association Manager, Portfolio Manager, Operations Manager at a short term
+rental operator.
+
+WHAT THIS BUYER IS ACTUALLY DEALING WITH:
+- Managers living in the inbox and the phone queue instead of the portfolio.
+- The maintenance line rolling to voicemail and the owner hearing about it.
+- Leasing season stacking showings on people who also run the books.
+- Coordinator turnover every time a competitor pays a dollar more.
+- Owners asking for more reporting while fees stay flat.
+- Growth in doors without growth in the office to support them.
+
+HOW TO TALK TO THEM:
+Use their vocabulary: doors, units, work orders, turns, delinquency, owner
+statements, showings, applications, board packet, renewals. Talk about the
+line that is ringing, not the real estate market. Never open by telling them
+about their own industry. Never imply the work leaves their office. A person
+joins the team, works in their property software on their hours, and reports
+to their manager, and the client interviews and picks that person.
+""",
+    "healthcare_admin": """
+VERTICAL KNOWLEDGE: Healthcare Administration and Revenue Cycle
+This is context so you sound like someone who has staffed a practice back
+office before. It is not copy to paste. Never quote it back at the reader,
+and never write a sentence that is only a list of the words below.
+
+ROLES ROUTINELY PLACED OFFSHORE:
+- Medical billers working charge entry, claim scrubbing, denials and
+  resubmissions in the practice management system.
+- Insurance verification and prior authorization specialists working the
+  payer portals and the phone queues before the visit.
+- Patient schedulers and front office support: appointment reminders,
+  recalls, intake paperwork, inbound call overflow.
+- Claims follow up and accounts receivable: aging reports, payer calls,
+  patient statements, payment posting.
+- Credentialing support keeping provider enrollments, CAQH profiles and
+  re-attestations current.
+- Coding support and transcription for the certified coder or the provider to
+  review.
+
+WHAT STAYS ONSHORE, ALWAYS:
+Clinical care, clinical judgment, anything the licensed provider signs,
+in person patient contact, and any function the practice's compliance officer
+or payer contracts require be performed domestically. Handle confidentiality
+by describing the practice's own controls and the dedicated, one client
+staffing model; never name a compliance standard the playbook does not. The
+offshore seat feeds the front desk and the billing lead; it does not replace
+the clinician.
+
+WHO ACTUALLY BUYS:
+Practice Administrator, Practice Manager, Office Manager, Director of Revenue
+Cycle, Billing Manager, Chief Operating Officer of a medical group, Owner of
+a billing company, Dental Practice Owner, Regional Director at a DSO,
+Executive Director of a behavioral health group.
+
+WHAT THIS BUYER IS ACTUALLY DEALING WITH:
+- Denials sitting past the timely filing window because nobody worked the
+  queue.
+- Prior auths backing up and visits rescheduled because of it.
+- Front desk turnover that means the phones ring through every few months.
+- Providers doing administrative work between patients.
+- Payers paying slower while payroll for the back office keeps rising.
+- A billing company that cannot take another practice without another hire.
+
+HOW TO TALK TO THEM:
+Use their vocabulary: denials, clean claim rate, days in AR, prior auth,
+eligibility, payer mix, recalls, no shows, credentialing, aging. Talk about
+the queue and the desk, not healthcare. Never open by telling them about
+their own industry. Never imply the work leaves the practice. A person joins
+the team, works in the practice's system on the practice's hours, and
+reports to the administrator, and the practice interviews and picks that
+person.
+""",
+    "home_care": """
+VERTICAL KNOWLEDGE: Home Care, Senior Care and Staffing Agencies
+This is context so you sound like someone who has staffed a scheduling desk
+or a recruiting team before. It is not copy to paste. Never quote it back at
+the reader, and never write a sentence that is only a list of the words
+below.
+
+ROLES ROUTINELY PLACED OFFSHORE:
+- Recruiting coordinators posting roles, screening applicants by phone,
+  booking interviews and keeping the applicant tracking system current.
+- Caregiver and candidate sourcers working job boards, referrals and the
+  re-engagement of people who applied before.
+- Schedulers filling open shifts, confirming visits, handling call offs and
+  updating the scheduling platform.
+- Onboarding and credentialing support: document collection, background
+  check paperwork handoff, references, license and certification tracking,
+  compliance reminders.
+- Intake and client services coordinators for new client inquiries,
+  assessments scheduling and family communication.
+- Payroll and billing support: timesheet reconciliation, EVV exception
+  cleanup, invoicing and payer submissions.
+
+WHAT STAYS ONSHORE, ALWAYS:
+The care itself, the nurse assessment, the in person interview and
+orientation, anything a state license or the agency's payer contracts require
+locally, and the relationship with the family or the client. The offshore
+seat keeps the desk running so the onshore team can be in the field. Say it
+plainly.
+
+WHO ACTUALLY BUYS:
+Owner, Administrator, Executive Director, Director of Operations, Director of
+Recruiting, Talent Acquisition Manager, Scheduling Manager, Branch Manager,
+Chief Operating Officer of a staffing firm, Regional Director of a senior
+living operator.
+
+WHAT THIS BUYER IS ACTUALLY DEALING WITH:
+- Open shifts every week and a scheduler who is also the recruiter.
+- Applicants going cold because nobody called them the same day.
+- Caregiver turnover that resets the recruiting funnel every quarter.
+- Growth capped by the recruiting team, not by client demand.
+- Compliance paperwork piling up ahead of a survey or an audit.
+- A staffing firm whose recruiters spend half the day on admin.
+
+HOW TO TALK TO THEM:
+Use their vocabulary: open shifts, fill rate, call offs, time to fill,
+applicant flow, onboarding, EVV, census, referral sources, retention. Talk
+about the desk and the funnel, not the industry. Never open by telling them
+about the caregiver shortage. Never imply the work leaves their team. A
+person joins the office team, works in their scheduling and applicant
+systems on their hours, and reports to their manager, and the client
+interviews and picks that person.
+""",
     "construction_aec": """
 VERTICAL KNOWLEDGE: Construction, Architecture and Engineering
 This is context so you sound like someone who has staffed these teams before.
@@ -15848,6 +16259,8 @@ SIDEBAR_NAV = [
 SIDEBAR_LIBRARY = [
     ("newspaper", "Newsletters",  "newsletters"),
     ("present",   "Sales Assets", "pdf_gen"),
+    # ThriveModal only: the render loop skips this row unless _is_thrivemodal().
+    ("sparkle",   "AI Prompt",    "tm_prompts"),
 ]
 SIDEBAR_SETTINGS = [
     ("mail",     "Email & AI Setup", "ai_settings"),
@@ -15867,7 +16280,7 @@ SIDEBAR_PAGE_ROW = {
     "active_clients": "clients",
     "seq_mgr": "campaigns", "active_camps": "campaigns", "queue": "campaigns",
     "evergreen": "campaigns", "evergreen_create": "campaigns", "e_evergreen": "campaigns",
-    "newsletters": "library", "pdf_gen": "library",
+    "newsletters": "library", "pdf_gen": "library", "tm_prompts": "library",
     "ai_settings": "settings", "company_profile": "settings", "team_settings": "settings",
     "signature": "settings", "e_signature": "settings", "timezone": "settings", "dnc": "settings",
     "tm_analytics": "analytics",
@@ -15881,6 +16294,7 @@ SIDEBAR_TITLES = {
     "seq_mgr": "Campaigns", "active_camps": "Campaigns", "queue": "Email Queue",
     "evergreen": "Nurture Campaigns", "evergreen_create": "New Nurture Campaign",
     "newsletters": "Content Library", "pdf_gen": "Content Library",
+    "tm_prompts": "Content Library",
     "ai_settings": "Email & AI Setup", "company_profile": "Company Profile",
     "team_settings": "Team", "signature": "Signature", "e_signature": "Signature",
     "timezone": "Timezone", "dnc": "Do Not Contact", "admin": "Admin",
@@ -17401,6 +17815,8 @@ _SIDEBAR_ICONS = {
     "newspaper":  '<path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/>'
                   '<path d="M18 14h-8"/><path d="M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/>',
     "present":    '<path d="M2 3h20"/><path d="M21 3v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V3"/><path d="m7 21 5-5 5 5"/>',
+    "sparkle":    '<path d="M12 3l1.9 5.6L19.5 10.5l-5.6 1.9L12 18l-1.9-5.6L4.5 10.5l5.6-1.9Z"/>'
+                  '<path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8Z"/>',
     "sales_dash": '<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
     "analytics":  '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
     "settings":   '<line x1="21" x2="14" y1="4" y2="4"/><line x1="10" x2="3" y1="4" y2="4"/><line x1="21" x2="12" y1="12" y2="12"/>'
@@ -17634,6 +18050,8 @@ def _sidebar_v2(s: AppState, rf):
                          badge=badge, badge_cls=badge_cls, tour=tour)
                     if _lib_open:
                         for sik, slbl, skey in SIDEBAR_LIBRARY:
+                            if skey == "tm_prompts" and not _is_thrivemodal():
+                                continue
                             _row(sik, slbl, skey, on=(page == skey), sub=True)
 
         # ── Bottom: Admin, Settings (+ sub-rows), profile ──
@@ -59665,6 +60083,16 @@ def render_page(s: AppState, rf):
                 except Exception as _aip_ex:
                     print(f"[AIPrompts] page failed: {_aip_ex}", flush=True)
                     ui.label(f"AI Prompts is unavailable: {_aip_ex}").style(
+                        f"font-size:14px;color:{C['warn']};padding:20px 0;")
+            elif page == "tm_prompts":
+                # ThriveModal's AI Prompt page: the same engine as ai_prompts,
+                # bound to the inboxslide catalogue. Lazy for the same reason.
+                try:
+                    import tm_prompts as _tmp
+                    _tmp.p_tm_prompts(s, rf)
+                except Exception as _tmp_ex:
+                    print(f"[TMPrompts] page failed: {_tmp_ex}", flush=True)
+                    ui.label(f"AI Prompt is unavailable: {_tmp_ex}").style(
                         f"font-size:14px;color:{C['warn']};padding:20px 0;")
             elif page == "sales_campaign":
                 # Companion module (same pattern as ats.py). Imported here

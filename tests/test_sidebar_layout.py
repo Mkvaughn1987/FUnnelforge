@@ -171,13 +171,16 @@ def test_inboxslide_env_example_enables_sidebar():
 
 def test_content_library_pages_are_sidebar_subrows():
     import flowdrip_app as fa
-    assert [r[2] for r in fa.SIDEBAR_LIBRARY] == ["newsletters", "pdf_gen"]
+    assert [r[2] for r in fa.SIDEBAR_LIBRARY] == ["newsletters", "pdf_gen", "tm_prompts"]
     for ik, _lbl, key in fa.SIDEBAR_LIBRARY:
         assert ik in fa._SIDEBAR_ICONS, f"missing icon {ik}"
         assert fa.SIDEBAR_PAGE_ROW.get(key) == "library"
+    assert fa.SIDEBAR_TITLES.get("tm_prompts") == "Content Library"
     src = inspect.getsource(fa._sidebar_v2)
-    assert 'if ik == "library" and active == "library":' in src
+    assert '_lib_open = ik == "library" and active == "library"' in src
     assert "SIDEBAR_LIBRARY" in src
+    # The AI Prompt row is ThriveModal-only: Arena's sidebar skips it.
+    assert 'if skey == "tm_prompts" and not _is_thrivemodal():' in src
 
 
 def test_roundup_hidden_on_sales_instances():

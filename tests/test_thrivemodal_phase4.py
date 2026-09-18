@@ -76,10 +76,12 @@ _REQUIRED_HEADINGS = (
 
 def test_01_the_registry_is_ordered_and_has_the_two_shipped_verticals(fa):
     keys = [k for k, _label, _blurb in fa._TM_VERTICALS]
-    assert keys == ["construction_aec", "general_offshore"], (
-        "Phase 4 ships exactly two verticals, AEC first and general last; "
-        "general_offshore is the fallback and must sort last so a future "
-        "vertical is added above it, not after it")
+    assert keys == ["logistics", "accounting", "property_management",
+                    "healthcare_admin", "home_care", "construction_aec",
+                    "general_offshore"], (
+        "Registry order is the 2026-09 sales priority order, AEC demoted to "
+        "exploratory just above the fallback; general_offshore must sort "
+        "last so a future vertical is added above it, not after it")
     for key, label, blurb in fa._TM_VERTICALS:
         assert label.strip(), f"{key} has no label"
         assert blurb.strip(), f"{key} has no blurb"
@@ -119,7 +121,7 @@ def test_06_an_explicit_aec_term_survives_a_software_word_in_the_same_string(fa)
 
 
 def test_07_unrelated_industries_resolve_to_the_general_vertical(fa):
-    for text in ("Healthcare", "Legal", "Retail & Consumer", "Education",
+    for text in ("Insurance", "Legal", "Retail & Consumer", "Education",
                  "Financial Services", "Hospitality & Food Service"):
         assert fa._tm_vertical_for(text) == "general_offshore", text
 
@@ -199,9 +201,11 @@ def test_16_no_block_promises_or_guarantees_anything(fa):
 
 
 def test_17_no_block_contradicts_the_staffing_model(fa):
-    """ThriveModal recruits and places dedicated people the client selects.
-    It is not the employer of record, the payroll provider or the compliance
-    provider, and a vertical block must never imply otherwise."""
+    """ThriveModal recruits dedicated people the client selects. The
+    employment and commercial terms (ThriveModal as employer of record,
+    payroll, benefits) live in the playbook's APPROVED PRICING AND TERMS
+    section, worded exactly. Vertical copy must not restate or embellish
+    them, so these phrases stay banned here."""
     banned = ("employer of record", " eor ", "we payroll", "payroll provider",
               "we employ them", "peo ", "benefits administration")
     for key, _label, _blurb in fa._TM_VERTICALS:
