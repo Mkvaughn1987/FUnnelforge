@@ -671,7 +671,7 @@ def test_24_type_visible_unchanged_for_every_registry_key(fa):
         assert arena is expected, f"{k} under arena"
 
         tm = fa._type_visible(k, fa.PLAYBOOK_THRIVEMODAL)
-        assert tm is (k in fa._TM_TYPE_KEYS or k in fa._PLAYBOOK_NEUTRAL_TYPE_KEYS), k
+        assert tm is (k in fa._TM_OFFERED_TYPE_KEYS or k in fa._PLAYBOOK_NEUTRAL_TYPE_KEYS), k
 
     # Visibility filters a display list; they never delete a key, or saved
     # campaigns break and _VALID_TEMPLATES stops being honest for the API.

@@ -125,7 +125,7 @@ def test_types_route_on_a_thrivemodal_workspace_returns_only_its_allowlist(
     r = _client().get("/api/v1/campaign_types", headers={"X-API-Key": key})
     assert r.status_code == 200
     keys = {t["key"] for t in r.json()}
-    assert keys == set(fa._TM_TYPE_KEYS) | set(fa._PLAYBOOK_NEUTRAL_TYPE_KEYS)
+    assert keys == set(fa._TM_OFFERED_TYPE_KEYS) | set(fa._PLAYBOOK_NEUTRAL_TYPE_KEYS)
     assert not (keys & fa._RECRUITING_TYPE_KEYS)
 
 

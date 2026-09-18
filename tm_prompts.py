@@ -354,27 +354,29 @@ def _derive_tm(r, vals, d):
             vals[key] = v[attr]
 
 
-# ── Sequences: the six ThriveModal campaign types ──────────────────────────
+# ── Sequences: the ThriveModal cold-outreach campaign types ────────────────
+# New business only. The relationship types (hiring signal, after a meeting,
+# re-engage, grow a client) stay registered in the app but are not offered.
 
 SEQUENCES = [
-    "Respond to a Hiring Signal",
     "Start a Conversation",
-    "Follow Up After a Meeting",
-    "Re-engage a Prospect",
-    "Stay in Touch",
-    "Grow an Existing Client",
+    "ThriveModal 5x7",
+    "3x3 Aggressive",
+    "5 Emails, 3 Calls + LinkedIn",
+    "Cold Nurture",
+    "12-Week BD Program",
     "One of my saved styles",
     "Let Claude choose",
 ]
 TEMPLATE_KEY = {
-    "Respond to a Hiring Signal": "tm_hiring_signal",
     "Start a Conversation": "tm_conversation",
-    "Follow Up After a Meeting": "tm_meeting_followup",
-    "Re-engage a Prospect": "tm_reengage",
-    "Stay in Touch": "tm_stay_in_touch",
-    "Grow an Existing Client": "tm_grow_client",
+    "ThriveModal 5x7": "tm_fivebyseven",
+    "3x3 Aggressive": "tm_threebythree",
+    "5 Emails, 3 Calls + LinkedIn": "tm_fivethreeli",
+    "Cold Nurture": "tm_stay_in_touch",
+    "12-Week BD Program": "tm_twelveweek",
 }
-DEFAULT_SEQUENCE = "Respond to a Hiring Signal"
+DEFAULT_SEQUENCE = "Start a Conversation"
 DEFAULT_TEMPLATE = TEMPLATE_KEY[DEFAULT_SEQUENCE]
 
 
@@ -486,7 +488,7 @@ ROUTINES = [
         "name": "Find companies showing a hiring signal",
         "blurb": "Search the job boards for companies in one vertical that "
                  "are hiring the roles ThriveModal places, pull the buyer, "
-                 "and build a Respond to a Hiring Signal campaign for each.",
+                 "and build a new-business campaign for each.",
         "example": "Find freight brokerages in Texas hiring overnight track "
                    "and trace reps and set up outreach to the owners",
         "tools": _CAMPAIGN_TOOLS,
@@ -745,7 +747,7 @@ ROUTINES = [
         "name": "Something else",
         "blurb": "Describe it in your own words and the prompt is built "
                  "around that, with the ThriveModal rules attached.",
-        "example": "Go through my Stay in Touch campaigns and tell me which "
+        "example": "Go through my Cold Nurture campaigns and tell me which "
                    "contacts have replied",
         "tools": [],
         "fields": [
@@ -778,10 +780,10 @@ STARTERS = [
         "id": "signal",
         "label": "Find companies showing a hiring signal",
         "sub": "Job boards, one vertical, the buyer at each company, and a "
-               "Respond to a Hiring Signal campaign for every one.",
+               "new-business campaign for every one.",
         "summary": "Find companies in one vertical hiring the roles "
                    "ThriveModal places, pull the buyer at each, and build a "
-                   "Respond to a Hiring Signal campaign for each one.",
+                   "new-business campaign for each one.",
         "routine": "tm_signal_hunt",
         "vals": {"vertical": "Logistics / 3PL"},
     },

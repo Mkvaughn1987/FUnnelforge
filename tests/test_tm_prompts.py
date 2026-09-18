@@ -113,14 +113,14 @@ def test_catalogue_is_inboxslide_not_dripdrop(tm):
     assert "DripDrop" not in c.page_sub and "DripDrop" not in c.result_copy
 
 
-def test_sequences_map_to_the_six_thrivemodal_campaign_types(tm):
+def test_sequences_map_to_the_offered_thrivemodal_campaign_types(tm):
     assert set(tm.TEMPLATE_KEY.values()) == {
-        "tm_conversation", "tm_hiring_signal", "tm_meeting_followup",
-        "tm_reengage", "tm_stay_in_touch", "tm_grow_client"}
+        "tm_conversation", "tm_fivebyseven", "tm_threebythree",
+        "tm_fivethreeli", "tm_stay_in_touch", "tm_twelveweek"}
     for label in tm.TEMPLATE_KEY:
         assert label in tm.SEQUENCES
     assert tm.SEQUENCES[-2:] == ["One of my saved styles", "Let Claude choose"]
-    assert tm.TM.default_template == "tm_hiring_signal"
+    assert tm.TM.default_template == "tm_conversation"
 
 
 def test_verticals_are_ordered_core_first_then_exploratory(tm):
@@ -238,7 +238,7 @@ def test_signal_hunt_prompt_wires_the_campaign_build(tm, aip):
     r = tm.ROUTINE_BY_KEY["tm_signal_hunt"]
     p = tm.build_prompt({"routine": "tm_signal_hunt",
                          "vals": _defaults(aip, r), "summary": "x"})
-    assert 'template "tm_hiring_signal"' in p
+    assert 'template "tm_conversation"' in p
     assert "call tm_mailboxes" in p
     assert "create_campaign" in p
     assert "contacts argument" in p

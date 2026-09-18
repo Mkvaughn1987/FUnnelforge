@@ -2421,7 +2421,7 @@ _WIZARD_DRAFT_FIELDS = (
     "aicb_sel_locations", "aicb_sel_roles",
     "aicb_camp_type", "aicb_byos_desc",
     "aicb_cand_count", "aicb_cand_source", "aicb_cand_cards",
-    "_aicb_cand_text", "aicb_tm_profiles",
+    "_aicb_cand_text", "aicb_tm_profiles", "aicb_tm_pdfs",
     # Chooser context
     "_chooser_origin",
     # In-progress Library draft (so a refresh keeps updating the same one)
@@ -5748,12 +5748,14 @@ AICB_CAMPAIGN_TYPES = [
      "Step 6 - Timing check (delay_days:7, step_type:email_auto) - "
      "Ask plainly whether this is a this-year or a next-year problem and say "
      "either answer is useful. Close the loop if the answer is neither."),
-    ("tm_stay_in_touch", "Stay in Touch", "7 steps - 15 weeks", "#60A5FA",
-     "Right account, wrong moment. One useful touch every couple of weeks, "
-     "each from a different angle - context, process, economics, what support "
-     "looks like after a hire - ending with a genuine door-open close.",
-     "Long cycles - not-now accounts - relationship building",
+    ("tm_stay_in_touch", "Cold Nurture", "7 steps - 15 weeks", "#60A5FA",
+     "For cold prospects who fit but are not ready. One useful touch every "
+     "couple of weeks, each from a different angle - context, process, "
+     "economics, what support looks like after a hire - ending with a genuine "
+     "door-open close.",
+     "Cold lists - long cycles - not-now accounts",
      "Step 1 - Low-pressure intro (delay_days:0, step_type:email_auto) - "
+     "This is a cold first touch: they have never heard from the sender. "
      "One specific observation about their business plus one sentence on what "
      "the sender does. Say explicitly that you are not asking for anything "
      "today. No figures.\n"
@@ -5820,6 +5822,207 @@ AICB_CAMPAIGN_TYPES = [
      "Step 6 - Make it easy (delay_days:6, step_type:email_auto) - "
      "Short. Offer to run the same requirements process for the next role. "
      "Quote pricing ONLY if the approved pricing field supplies it."),
+    # -- ThriveModal cold-outreach lineup (2026-09-18) -------------------------
+    # Mike: "We are strictly focusing on finding new business." These three
+    # plus tm_conversation and Cold Nurture (tm_stay_in_touch) are what the
+    # picker offers; the relationship types above stay registered so saved
+    # campaigns keep working, but are hidden (_TM_HIDDEN_TYPE_KEYS).
+    ("tm_fivebyseven", "ThriveModal 5x7", "7 steps - 3 weeks", "#0EA5E9",
+     "Five emails, one call and one LinkedIn touch over three weeks. Opens on "
+     "a capacity question, prices one role, shows what transfers, answers the "
+     "control question and closes cleanly. No candidate record needed.",
+     "Cold outreach - named accounts - market segments",
+     "Step 1 - Capacity (delay_days:0, step_type:email_auto) - "
+     "This is a cold first touch: they have never heard from the sender. "
+     "Subject in the shape 'More capacity for <Company>', under 50 "
+     "characters. Open with ONE question about what their team would get to "
+     "if a SPECIFIC recurring task taken from the BRIEF stopped eating their "
+     "day - name the task outright, never a bracketed placeholder. Then one "
+     "sentence on what the sender does: helps companies hire dedicated "
+     "professionals in the Philippines who work as part of the client's own "
+     "team, and the client interviews and chooses who joins. Close with one "
+     "question. No cost figure, no percentage, no timeline, no attachment "
+     "reference.\n"
+     "Step 2 - What the role would cost (delay_days:3, step_type:email_auto) - "
+     "Different opening pattern from Step 1. Give the evaluation order: define "
+     "the work first, then compare the cost of getting it covered. Then what "
+     "they get: one all-inclusive monthly rate and a professional dedicated "
+     "only to their company, working their U.S. hours. Name a percentage or "
+     "figure ONLY as the approved pricing and service terms field states it. "
+     "CTA: offer to price out one named, relevant role for them.\n"
+     "Step 3 - Follow-up Call (delay_days:0, step_type:call) - SAME DAY as "
+     "Step 2. Short call script in the body: reference the costing email, ask "
+     "who owns that work today and what happens when volume spikes. "
+     "Qualifying, not closing.\n"
+     "Step 4 - LinkedIn Connect (delay_days:0, step_type:linkedin) - SAME DAY "
+     "as Steps 2 and 3. Connection note in the body, UNDER 300 characters, no "
+     "pitch, no link, no figures.\n"
+     "Step 5 - What actually transfers (delay_days:3, step_type:email_auto) - "
+     "Take ONE role that fits this company and split it honestly: two or three "
+     "named tasks a Philippines-based professional absorbs well and two or "
+     "three that stay onshore, drawn from the BRIEF. Name the position the way "
+     "the buyer would, never 'virtual assistant'. One question CTA.\n"
+     "Step 6 - Control and commitment (delay_days:4, step_type:email_auto) - "
+     "Answer the reservation this buyer most likely holds - quality, "
+     "oversight, time-zone overlap or data access - with how it works: "
+     "recruited for that job, the client interviews and chooses, works inside "
+     "the client's systems and reports to their team. Then the commercial "
+     "terms as short bullet lines, using ONLY terms in the approved pricing "
+     "and service terms field, dropping any it does not support. CTA: ask for "
+     "a job description to start from.\n"
+     "Step 7 - Close the loop (delay_days:5, step_type:email_auto) - "
+     "Short and warm, no guilt. Say plainly this is the last note. Three "
+     "options to pick from: they have a role in mind, it is something for "
+     "later, it is not a priority. Do NOT offer a newsletter, a mailing list "
+     "or any ongoing sends."),
+    ("tm_threebythree", "3x3 Aggressive", "3 steps - 1 week", "#EF4444",
+     "Three short, direct emails in one week, email only. Names the work, "
+     "makes the case, then asks for a straight answer. For lists where you "
+     "want a fast read on who is interested.",
+     "High-volume cold lists - fast read - email only",
+     "Step 1 - Direct opener (delay_days:0, step_type:email_auto) - "
+     "Cold first touch, UNDER 90 words. Subject under 40 characters. Name ONE "
+     "recurring task from the BRIEF that a dedicated professional in the "
+     "Philippines could take off their team, say in one sentence what the "
+     "sender does, and ask directly for 15 minutes this week. No figures, no "
+     "attachment reference.\n"
+     "Step 2 - The case (delay_days:2, step_type:email_auto) - UNDER 110 "
+     "words, subject different in shape from Step 1. Make the case in short "
+     "bullet lines: dedicated to their company, works their U.S. hours, they "
+     "interview and choose, plus ONLY the commercial terms and savings claim "
+     "the approved pricing and service terms field supports, worded as it "
+     "words them. CTA: offer to price one named role.\n"
+     "Step 3 - Straight answer (delay_days:3, step_type:email_auto) - UNDER 60 "
+     "words. The last note, said plainly. Ask for a one-word reply: 'now', "
+     "'later' or 'no'. Any answer is useful. No newsletter, no ongoing-send "
+     "promise, no guilt."),
+    ("tm_fivethreeli", "5 Emails, 3 Calls + LinkedIn", "9 steps - 3 weeks", "#8B5CF6",
+     "The full multichannel push: five emails, three calls and a LinkedIn "
+     "connect over three weeks. Every call follows an email on the same "
+     "angle, so each conversation has something to point back to.",
+     "Priority accounts - named buyers - multichannel",
+     "Step 1 - Capacity (delay_days:0, step_type:email_auto) - "
+     "Cold first touch. Subject under 50 characters. Open with ONE question "
+     "about a SPECIFIC recurring task from the BRIEF, named outright. One "
+     "sentence on what the sender does: dedicated professionals in the "
+     "Philippines who join the client's own team, chosen by the client. One "
+     "question CTA. No figures, no attachment reference.\n"
+     "Step 2 - LinkedIn Connect (delay_days:0, step_type:linkedin) - SAME DAY "
+     "as Step 1. Connection note, UNDER 300 characters, no pitch, no link, no "
+     "figures.\n"
+     "Step 3 - What the role would cost (delay_days:2, step_type:email_auto) - "
+     "Define the work first, then compare the cost of covering it: one "
+     "all-inclusive monthly rate for a professional dedicated only to their "
+     "company. Name a percentage or figure ONLY as the approved pricing and "
+     "service terms field states it. CTA: offer to price one named role.\n"
+     "Step 4 - Call 1 (delay_days:0, step_type:call) - SAME DAY as Step 3. "
+     "Script: reference the costing email, ask who owns that work today. Add "
+     "a voicemail line under 20 seconds.\n"
+     "Step 5 - What actually transfers (delay_days:3, step_type:email_auto) - "
+     "Split ONE fitting role into two or three tasks that transfer well and "
+     "two or three that stay onshore, drawn from the BRIEF. One question "
+     "CTA.\n"
+     "Step 6 - Call 2 (delay_days:2, step_type:call) - Script: ask which of "
+     "those tasks takes the most of their team's week and what it would free "
+     "them to do. Voicemail line under 20 seconds.\n"
+     "Step 7 - Control and commitment (delay_days:3, step_type:email_auto) - "
+     "Answer the likely reservation (quality, oversight, time zones, data "
+     "access) with how it works: the client interviews and chooses, the "
+     "person works in the client's systems and reports to their team. Then "
+     "the terms as bullet lines using ONLY the approved pricing and service "
+     "terms field. CTA: ask for a job description to start from.\n"
+     "Step 8 - Call 3 (delay_days:2, step_type:call) - Last call. Direct "
+     "script: is there one role worth pricing out, yes or no. Voicemail line "
+     "saying one more email is coming and then you will stop.\n"
+     "Step 9 - Close the loop (delay_days:3, step_type:email_auto) - Short and "
+     "warm, plainly the last note. Three options to pick from: a role in "
+     "mind, later, not a priority. No newsletter, no ongoing-send promise."),
+    # The Arena Team West 12-week BD program (15 touchpoints), rewritten for
+    # ThriveModal: the "market pulse" becomes a capacity-and-cost snapshot,
+    # the candidate snapshot becomes the kind of professional ThriveModal
+    # would recruit (never a real or available person), and the case study is
+    # limited to what the approved-proof field allows.
+    ("tm_twelveweek", "12-Week BD Program", "15 steps - 12 weeks", "#F59E0B",
+     "Fifteen touchpoints over twelve weeks: eight emails, four calls and "
+     "three LinkedIn touches. Built so a target account remembers you, sees "
+     "you as the expert on offshore capacity, and takes a 15-minute call. "
+     "Every touch carries one clear ask.",
+     "Named target accounts - long cycles - multi-threading",
+     "Step 1 - LinkedIn Connect (delay_days:0, step_type:linkedin) - Week 1. "
+     "Connection note UNDER 300 characters: say you follow the company "
+     "because of a SPECIFIC detail from the BRIEF, and that the sender helps "
+     "companies like theirs add dedicated team members in the Philippines. "
+     "Ask if they are open to connecting. No pitch, no link, no figures.\n"
+     "Step 2 - Insight email (delay_days:1, step_type:email_auto) - Week 1, "
+     "cold first touch. Subject in the shape 'A quick note on covering "
+     "<work> at <Company>'. Open with two short bullets on what is putting "
+     "pressure on teams like theirs right now, drawn from the BRIEF and the "
+     "playbook's target industries; invent no statistic. Then offer a short "
+     "snapshot of which of their roles transfer well and what one would "
+     "cost. Close: worth a 15-minute call this week?\n"
+     "Step 3 - Call 1 + voicemail (delay_days:1, step_type:call) - Week 1. "
+     "Opener: reference the email, then ONE question that reveals where the "
+     "pressure is - which recurring work is eating their team's week. Add a "
+     "voicemail under 20 seconds offering the snapshot.\n"
+     "Step 4 - Capacity snapshot (delay_days:5, step_type:email_auto) - "
+     "Week 2. Two or three bullets and one question: the roles at this "
+     "company that most often move to a dedicated offshore professional, "
+     "what stays onshore, and whether they are planning to add capacity in "
+     "the next 60 to 90 days or later.\n"
+     "Step 5 - LinkedIn message (delay_days:5, step_type:linkedin) - Week 3. "
+     "A short direct message: thanks for connecting, then one routing "
+     "question - if they added a team member for that work, who owns the "
+     "decision: Operations, Finance or the department lead? Also like or "
+     "comment on a recent company post.\n"
+     "Step 6 - Call 2, cost of waiting (delay_days:5, step_type:call) - "
+     "Week 4. Script: when that work backs up, what breaks first - response "
+     "times, overtime, quality or the team's focus on higher-value work? "
+     "Close: if I send a one-page breakdown of how the role would work, "
+     "would a 15-minute call be useful?\n"
+     "Step 7 - Expert asset (delay_days:5, step_type:email_auto) - Week 5. "
+     "A useful one-page read for this buyer: which tasks in one fitting role "
+     "transfer well and which stay onshore, what to look for in the person, "
+     "and how the client interviews and chooses. Offer a quick walk-through. "
+     "One question CTA.\n"
+     "Step 8 - Who we would recruit (delay_days:5, step_type:email_auto) - "
+     "Week 6. Describe two short profiles of the KIND of professional the "
+     "sender would recruit for one of their roles (three bullets each: "
+     "experience, systems, the work they would own). Say plainly these show "
+     "the profile the sender would recruit for, not specific people who are "
+     "available. Offer a quick fit call.\n"
+     "Step 9 - Cost reality check (delay_days:5, step_type:email_auto) - "
+     "Week 7. Define the work first, then compare the cost of covering it: "
+     "one all-inclusive monthly rate for a professional dedicated only to "
+     "their company. Name a percentage or figure ONLY as the approved "
+     "pricing and service terms field states it. CTA: offer to price one "
+     "named role this quarter.\n"
+     "Step 10 - LinkedIn proof note (delay_days:5, step_type:linkedin) - "
+     "Week 8. Short message. Cite customer proof ONLY as the approved-proof "
+     "field allows, adding no number, date or result to it; if that field "
+     "approves nothing, describe how a first role usually gets set up "
+     "instead. Offer to share what worked in two minutes.\n"
+     "Step 11 - Call 3, multi-thread (delay_days:5, step_type:call) - Week 9. "
+     "Routing script: who actually owns adding a team member for this work - "
+     "Operations, Finance or the department lead - and is the need "
+     "immediate or tied to a busy season or a new contract? Close: can we "
+     "book 15 minutes to confirm what is realistic?\n"
+     "Step 12 - Industry alert (delay_days:5, step_type:email_auto) - "
+     "Week 10. One trend affecting their industry drawn from the BRIEF (no "
+     "invented statistic), what that means for teams covering that work, "
+     "and two short bullets on what is working. Offer to send a checklist.\n"
+     "Step 13 - Ask for the call (delay_days:5, step_type:email_auto) - "
+     "Week 11. No pitch: offer 15 minutes to walk through which of their "
+     "roles would transfer, what it would cost, and how the client "
+     "interviews and chooses. Offer two days as options.\n"
+     "Step 14 - Close the loop (delay_days:5, step_type:email_auto) - "
+     "Week 12. Short and warm. If adding capacity is not a priority, ask "
+     "them to reply 'pause' and say you will stop. If it is, ask them to "
+     "reply 'send' for a one-page breakdown of one role. No newsletter, no "
+     "ongoing-send promise.\n"
+     "Step 15 - Final call + referral ask (delay_days:1, step_type:call) - "
+     "Week 12. Script: if they are not the right person, who is the best "
+     "contact for adding team capacity? Voicemail under 20 seconds with the "
+     "same ask."),
     ("byos", "Custom Build", "You design it", "#F59E0B",
      "Describe what you want and AI will build it. Tell us the number of steps, "
      "channels (email, LinkedIn, call), timing, and style - AI handles the rest.",
@@ -5854,7 +6057,15 @@ _RECRUITING_TYPE_KEYS = frozenset({
 _TM_TYPE_KEYS = frozenset({
     "tm_conversation", "tm_hiring_signal", "tm_meeting_followup",
     "tm_reengage", "tm_stay_in_touch", "tm_grow_client",
+    "tm_fivebyseven", "tm_threebythree", "tm_fivethreeli", "tm_twelveweek",
 })
+# Registered (saved campaigns and the API keep working) but not offered: the
+# instance is new-business only for now, and these four work an existing
+# relationship or a trigger rather than a cold account.
+_TM_HIDDEN_TYPE_KEYS = frozenset({
+    "tm_hiring_signal", "tm_meeting_followup", "tm_reengage", "tm_grow_client",
+})
+_TM_OFFERED_TYPE_KEYS = _TM_TYPE_KEYS - _TM_HIDDEN_TYPE_KEYS
 # Shapes that carry no playbook-specific content: their step instructions say
 # "the sender's company" and name no offer, so they read correctly under either
 # playbook. This set exists so the ThriveModal branch below can be a positive
@@ -5886,7 +6097,7 @@ def _type_visible(key: str, playbook: str = None) -> bool:
         # known-good also means a sequence type added to Arena later cannot
         # appear on a ThriveModal instance just because nobody remembered to
         # exclude it.
-        return key in _TM_TYPE_KEYS or key in _PLAYBOOK_NEUTRAL_TYPE_KEYS
+        return key in _TM_OFFERED_TYPE_KEYS or key in _PLAYBOOK_NEUTRAL_TYPE_KEYS
     # ARENA (the default, and what every pre-existing workspace resolves to).
     if key in _TM_TYPE_KEYS:
         return False
@@ -6869,6 +7080,53 @@ def _aicb_research_brief(client, *, camp_type="", company="", website="",
     return brief
 
 
+# Mike, 2026-09-18: many owners hesitate about offshore staffing, so every
+# ThriveModal email opens on it - warm, the question, how it works, what it
+# saves - before the step makes its own point. One rule for every type
+# (including Custom Build on a ThriveModal workspace), so a new type cannot
+# forget it. The savings wording is the approved-pricing claim: "up to",
+# fully burdened, depending on the role, never a dollar amount or a rate.
+_TM_EMAIL_OPENER_RULE = (
+    "THRIVEMODAL EMAIL OPENER (applies to EVERY email step; LinkedIn and "
+    "call steps are exempt). This rule takes precedence over any step line "
+    "that says 'no cost figure' or 'no percentage', for the opener only:\n"
+    "- Right after 'Hi {FirstName},', open warm and human, then within the "
+    "first two or three sentences: ask whether they have ever considered "
+    "offshore staffing for the specific work that step is about; explain in "
+    "one plain sentence how it works (a dedicated professional in the "
+    "Philippines, recruited to their requirements, whom they interview and "
+    "choose, working their U.S. hours as part of their own team, with the "
+    "employment administration handled); and say what it saves in the words "
+    "the approved pricing and service terms field allows - a fully burdened "
+    "cost up to sixty to seventy percent lower than a comparable U.S. hire, "
+    "depending on the role. Always 'up to'. Never a dollar amount, a monthly "
+    "rate or an annual figure. If that field states no savings figure, "
+    "describe the saving without a number.\n"
+    "- Many owners hesitate about offshore staffing. Name that honestly in a "
+    "few of the emails and give them a reason to try one role, using ONLY "
+    "terms the approved field supports (for example no upfront fee, "
+    "month-to-month, they interview and choose, a free replacement).\n"
+    "- Word the opener differently in every email. Never reuse an opening "
+    "sentence. After the first email, refer back naturally instead of "
+    "repeating the whole explanation, but still restate the question and "
+    "the saving in a fresh way.\n"
+    "- Keep the opener to about three sentences, then carry on with that "
+    "step's own point and its one CTA.\n\n"
+)
+
+
+def _tm_opener_rule(camp_type) -> str:
+    """The opener rule for a ThriveModal campaign, else ""."""
+    if (camp_type or "").strip() in _TM_TYPE_KEYS:
+        return _TM_EMAIL_OPENER_RULE
+    try:
+        if _workspace_playbook() == PLAYBOOK_THRIVEMODAL:
+            return _TM_EMAIL_OPENER_RULE
+    except Exception:
+        pass
+    return ""
+
+
 def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
                                     niche="", industry="", roles=None,
                                     location="", cand_block="",
@@ -6956,6 +7214,7 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
            f'time:"10:00 AM". The first step must always be email_auto.\n'
            f'- Never place LinkedIn before any email step.\n'
            f'- Never include more than one LinkedIn step.\n\n') +
+        _tm_opener_rule(camp_type) +
         f'For LinkedIn steps, put the connection/DM message in the "body" field.\n'
         f'For Call steps, put the call script in the "body" field.\n'
         f'For Task steps, put the task instructions in the "body" field.\n\n'
@@ -12007,6 +12266,31 @@ _TM_STEP_SHAPE = {
         1: (0, ST.EMAIL_AUTO), 2: (4, ST.EMAIL_AUTO), 3: (0, ST.CALL),
         4: (4, ST.EMAIL_AUTO), 5: (5, ST.EMAIL_AUTO), 6: (6, ST.EMAIL_AUTO),
     },
+    # 5 emails + call + LinkedIn, the call and LinkedIn on Step 2's day.
+    "tm_fivebyseven": {
+        1: (0, ST.EMAIL_AUTO), 2: (3, ST.EMAIL_AUTO), 3: (0, ST.CALL),
+        4: (0, ST.LINKEDIN),   5: (3, ST.EMAIL_AUTO), 6: (4, ST.EMAIL_AUTO),
+        7: (5, ST.EMAIL_AUTO),
+    },
+    # Email only, three sends inside one business week.
+    "tm_threebythree": {
+        1: (0, ST.EMAIL_AUTO), 2: (2, ST.EMAIL_AUTO), 3: (3, ST.EMAIL_AUTO),
+    },
+    # 5 emails, 3 calls, 1 LinkedIn; each call on the day of the email before.
+    "tm_fivethreeli": {
+        1: (0, ST.EMAIL_AUTO), 2: (0, ST.LINKEDIN),   3: (2, ST.EMAIL_AUTO),
+        4: (0, ST.CALL),       5: (3, ST.EMAIL_AUTO), 6: (2, ST.CALL),
+        7: (3, ST.EMAIL_AUTO), 8: (2, ST.CALL),       9: (3, ST.EMAIL_AUTO),
+    },
+    # 15 touchpoints over 12 weeks: one touch a week (5 business days) after
+    # the Week 1 launch, and two in Week 12.
+    "tm_twelveweek": {
+        1: (0, ST.LINKEDIN),    2: (1, ST.EMAIL_AUTO),  3: (1, ST.CALL),
+        4: (5, ST.EMAIL_AUTO),  5: (5, ST.LINKEDIN),    6: (5, ST.CALL),
+        7: (5, ST.EMAIL_AUTO),  8: (5, ST.EMAIL_AUTO),  9: (5, ST.EMAIL_AUTO),
+        10: (5, ST.LINKEDIN),   11: (5, ST.CALL),       12: (5, ST.EMAIL_AUTO),
+        13: (5, ST.EMAIL_AUTO), 14: (5, ST.EMAIL_AUTO), 15: (1, ST.CALL),
+    },
 }
 
 # Phrases that promise something the message cannot deliver. Checked per LINE
@@ -16561,6 +16845,7 @@ class AppState:
         # ── Step 3 Candidates (2026-04-26 wizard restructure) ──
         self.aicb_cand_count: int = 3             # stepper value 1-6
         self.aicb_tm_profiles: int = 0            # ThriveModal AI profiles 0-3
+        self.aicb_tm_pdfs: list = []              # ThriveModal PDF kinds, max 2
         self.aicb_cand_source: str = ""           # "pool" | "autogen" | "skip" | ""
         self.aicb_cand_cards: list = []           # list of {label, role, bullets:[str]}
         self.aicb_redact_companies: bool = True   # 5x3 only: hide real employer names (default ON)
@@ -16929,7 +17214,7 @@ _AICB_PERSISTED_FIELDS = (
     "aicb_sel_locations", "aicb_sel_roles",
     "aicb_camp_type", "aicb_byos_desc",
     "aicb_cand_count", "aicb_cand_source", "aicb_cand_cards",
-    "aicb_tm_profiles",
+    "aicb_tm_profiles", "aicb_tm_pdfs",
     "aicb_tone",
     # Target-a-Candidate wizard (Phase 2, 2026-05-10). Skip tc_jd_generating
     # and tc_generating — transient spinner flags. Skip tc_error — should
@@ -24443,6 +24728,49 @@ _TM_CHOOSER_OBJECTIVES = [
         "border": "#14B8A6",
     },
     {
+        "key": "tm_fivebyseven",
+        "icon": "🎯",
+        "title": "ThriveModal 5x7",
+        "subtitle": "Five emails, a call and a LinkedIn touch",
+        "desc": ("Seven steps over three weeks. Opens on a capacity question, "
+                 "prices one role, shows what transfers, answers the control "
+                 "question and closes cleanly."),
+        "best_for": ["Cold outreach", "Named accounts", "Market segments"],
+        "border": "#0EA5E9",
+    },
+    {
+        "key": "tm_threebythree",
+        "icon": "⚡",
+        "title": "3x3 Aggressive",
+        "subtitle": "Three direct emails in one week",
+        "desc": ("Email only. Names the work, makes the case, then asks for a "
+                 "straight now, later or no. A fast read on a cold list."),
+        "best_for": ["High-volume lists", "Fast read", "Email only"],
+        "border": "#EF4444",
+    },
+    {
+        "key": "tm_fivethreeli",
+        "icon": "📞",
+        "title": "5 Emails, 3 Calls + LinkedIn",
+        "subtitle": "The full multichannel push",
+        "desc": ("Nine steps over three weeks. Every call follows an email on "
+                 "the same angle, so each conversation has something to "
+                 "point back to."),
+        "best_for": ["Priority accounts", "Named buyers", "Multichannel"],
+        "border": "#8B5CF6",
+    },
+    {
+        "key": "tm_twelveweek",
+        "icon": "🗓️",
+        "title": "12-Week BD Program",
+        "subtitle": "Fifteen touchpoints over twelve weeks",
+        "desc": ("Eight emails, four calls and three LinkedIn touches. Built "
+                 "so a target account remembers you, sees you as the expert "
+                 "and takes a 15-minute call."),
+        "best_for": ["Named accounts", "Long cycles", "Multi-threading"],
+        "border": "#F59E0B",
+    },
+    {
         "key": "tm_hiring_signal",
         "icon": "📡",
         "title": "Respond to a Hiring Signal",
@@ -24478,8 +24806,8 @@ _TM_CHOOSER_OBJECTIVES = [
     {
         "key": "tm_stay_in_touch",
         "icon": "🌱",
-        "title": "Stay in Touch",
-        "subtitle": "Right account, wrong moment",
+        "title": "Cold Nurture",
+        "subtitle": "Cold prospects who fit but are not ready",
         "desc": ("One useful touch every couple of weeks over about fifteen "
                  "weeks, each from a different angle - context, process, "
                  "economics, support after a hire - ending with a genuine "
@@ -24502,7 +24830,9 @@ _TM_CHOOSER_OBJECTIVES = [
 ]
 
 # Objective cards first, then the two shapes that are not objectives at all.
-TM_CHOOSER_OPTIONS = _TM_CHOOSER_OBJECTIVES + [
+TM_CHOOSER_OPTIONS = [
+    o for o in _TM_CHOOSER_OBJECTIVES if o["key"] not in _TM_HIDDEN_TYPE_KEYS
+] + [
     opt for opt in CHOOSER_OPTIONS if opt["key"] in ("saved", "scratch")
 ]
 
@@ -40405,6 +40735,146 @@ def _aicb_attach_pdfs(pdf_data: dict, campaign_data: dict, company: str,
     return attached_count
 
 
+# PDFs a ThriveModal campaign can carry, picked on the wizard's Review step.
+# These are the six ThriveModal sales PDFs (OneDrive Sales/Thrivemodal,
+# build_thrivemodal_assets.py, copy aligned to thrivemodal.com's claims),
+# shipped read-only in assets/thrivemodal_pdfs. They are the same file for
+# every prospect, so nothing is generated and nothing can come out half-built.
+# To refresh them, rebuild in OneDrive and copy the files over these.
+# (kind, label, file, line added to the email that carries it)
+_TM_CAMPAIGN_PDF_DIR = Path(__file__).resolve().parent / "assets" / "thrivemodal_pdfs"
+_TM_CAMPAIGN_PDF_KINDS = [
+    ("tm_role_cost", "What a Role Really Costs",
+     "ThriveModal_What_a_Role_Really_Costs.pdf",
+     "I've attached a short comparison of what common roles cost fully "
+     "loaded in the US and with a dedicated professional in the Philippines."),
+    ("tm_understaffed", "The Real Cost of Staying Understaffed",
+     "ThriveModal_Cost_of_Staying_Understaffed.pdf",
+     "I've attached a short worksheet that puts a number on what an open "
+     "seat costs while it stays open."),
+    ("tm_how_it_works", "How It Works and the Zero Risk Model",
+     "ThriveModal_How_It_Works.pdf",
+     "I've attached a one-page overview of how the engagement works and the "
+     "terms behind it."),
+    ("tm_logistics", "Offshore Staffing Playbook for Logistics",
+     "ThriveModal_Logistics_Playbook.pdf",
+     "I've attached our playbook for logistics teams: which roles transfer "
+     "well and how teams are usually built."),
+    ("tm_accounting", "Offshore Staffing Playbook for Accounting and Finance",
+     "ThriveModal_Accounting_Finance_Playbook.pdf",
+     "I've attached our playbook for accounting and finance teams: which "
+     "roles transfer well and how the work is kept secure."),
+    ("tm_twelve_questions", "Twelve Questions Owners Ask",
+     "ThriveModal_Twelve_Questions.pdf",
+     "I've attached the twelve questions owners most often ask before going "
+     "offshore, with straight answers."),
+]
+TM_CAMPAIGN_PDF_MAX = 2
+# A PDF lands on the step whose point it backs. Anything without a preference
+# (or whose step is taken) falls back to the next free email after the first.
+_TM_PDF_PREFERRED_STEP = {
+    "tm_conversation": {
+        "tm_role_cost": 2, "tm_understaffed": 2, "tm_logistics": 5,
+        "tm_accounting": 5, "tm_how_it_works": 8, "tm_twelve_questions": 7,
+    },
+    "tm_fivebyseven": {
+        "tm_role_cost": 2, "tm_understaffed": 2, "tm_logistics": 5,
+        "tm_accounting": 5, "tm_how_it_works": 6, "tm_twelve_questions": 6,
+    },
+    "tm_fivethreeli": {
+        "tm_role_cost": 3, "tm_understaffed": 3, "tm_logistics": 5,
+        "tm_accounting": 5, "tm_how_it_works": 7, "tm_twelve_questions": 7,
+    },
+    "tm_threebythree": {
+        "tm_role_cost": 2, "tm_understaffed": 2, "tm_how_it_works": 2,
+    },
+    "tm_twelveweek": {
+        "tm_understaffed": 4, "tm_logistics": 7, "tm_accounting": 7,
+        "tm_how_it_works": 7, "tm_role_cost": 9, "tm_twelve_questions": 13,
+    },
+}
+
+
+def _clamp_tm_pdf_kinds(v) -> list:
+    valid = {k for k, *_ in _TM_CAMPAIGN_PDF_KINDS}
+    out = []
+    for k in (v or []):
+        if k in valid and k not in out:
+            out.append(k)
+    return out[:TM_CAMPAIGN_PDF_MAX]
+
+
+def _tm_pdf_placement(camp_type, emails, kinds) -> dict:
+    """{kind: email index}. Never the first email, never a non-email step,
+    never an email that already carries an attachment, one PDF per email."""
+    eligible = [
+        ei for ei, em in enumerate(emails or [])
+        if ei > 0
+        and em.get("step_type", "") in ("email_auto", "email")
+        and not em.get("attachments")
+    ]
+    prefs = _TM_PDF_PREFERRED_STEP.get((camp_type or "").strip(), {})
+    by_step = {}
+    for ei in eligible:
+        n = _fivebyfive_step_no(emails[ei].get("name"))
+        if n:
+            by_step.setdefault(n, ei)
+    placed, used = {}, set()
+    for kind in _clamp_tm_pdf_kinds(kinds):
+        ei = by_step.get(prefs.get(kind))
+        if ei is None or ei in used:
+            ei = next((i for i in eligible if i not in used), None)
+        if ei is None:
+            break
+        placed[kind] = ei
+        used.add(ei)
+    return placed
+
+
+def _tm_insert_pdf_line(body: str, line: str) -> str:
+    """Put the attachment line right after the greeting."""
+    body = body or ""
+    m = re.match(r'(Hi\s+\{[^}]+\},?\s*(?:<br\s*/?>\s*)*)', body, re.IGNORECASE)
+    if m:
+        return f"{m.group(1)}{line}<br><br>{body[len(m.group(1)):]}"
+    return f"{line}<br><br>{body}"
+
+
+def _tm_attach_campaign_pdfs(camp_type, campaign_data, built: dict) -> int:
+    """Attach staged ThriveModal PDFs ({kind: filename}) to their steps."""
+    emails = (campaign_data or {}).get("emails") or []
+    lines = {k: line for k, _l, _f, line in _TM_CAMPAIGN_PDF_KINDS}
+    kinds = [k for k in _clamp_tm_pdf_kinds(list(built)) if built.get(k)]
+    placed = _tm_pdf_placement(camp_type, emails, kinds)
+    for kind, ei in placed.items():
+        emails[ei]["attachments"] = [built[kind]]
+        emails[ei]["body"] = _tm_insert_pdf_line(emails[ei].get("body"), lines[kind])
+        print(f"[AICB] TM: attached {built[kind]} to email {ei + 1}", flush=True)
+    return len(placed)
+
+
+def _tm_stage_campaign_pdfs(kinds, dest_dir=None) -> dict:
+    """Copy the picked PDFs into the user's PDFs folder, where the send path
+    resolves attachments by filename. Returns {kind: filename}; a file that
+    is missing from assets is left out rather than attached as a dead link."""
+    import shutil as _sh
+    dest = Path(dest_dir) if dest_dir else _user_pdf_dir()
+    files = {k: fn for k, _l, fn, _i in _TM_CAMPAIGN_PDF_KINDS}
+    staged = {}
+    for kind in _clamp_tm_pdf_kinds(kinds):
+        src_p = _TM_CAMPAIGN_PDF_DIR / files[kind]
+        if not src_p.is_file():
+            print(f"[AICB] TM PDF missing from assets: {src_p}", flush=True)
+            continue
+        try:
+            dest.mkdir(parents=True, exist_ok=True)
+            _sh.copyfile(src_p, dest / files[kind])
+            staged[kind] = files[kind]
+        except Exception as ex:
+            print(f"[AICB] TM PDF copy failed ({kind}): {ex}", flush=True)
+    return staged
+
+
 def _aicb_generate_pdfs(client, brief, roles_str, location_str, company, sig_name, campaign_data, appstate=None):
     """Backward-compat wrapper: runs Phase 1 (AI data gen) then Phase 2
     (build + attach) sequentially. Used by callers that don't need the
@@ -45085,9 +45555,15 @@ def p_ai_campaign(s: AppState, rf):
                     # ThriveModal sales assets are generated deliberately
                     # from the Sales Assets page instead, where the cost
                     # worksheet can collect its figures.
-                    _tm_campaign = (s.aicb_camp_type or "").strip() in _TM_TYPE_KEYS
-                    s._aicb_pdfs_in_progress = not _tm_campaign
-                    s._aicb_pdfs_total = 0 if _tm_campaign else len(_AICB_PDF_KINDS)
+                    # The exception is the ThriveModal set the user picks on
+                    # the Review step (max 2), built in _tm_pdf_worker below.
+                    _tm_campaign = ((s.aicb_camp_type or "").strip() in _TM_TYPE_KEYS
+                                    or _workspace_playbook() == PLAYBOOK_THRIVEMODAL)
+                    _tm_pdf_kinds = (_clamp_tm_pdf_kinds(getattr(s, "aicb_tm_pdfs", []))
+                                     if _tm_campaign else [])
+                    s._aicb_pdfs_in_progress = bool(_tm_pdf_kinds) or not _tm_campaign
+                    s._aicb_pdfs_total = (len(_tm_pdf_kinds) if _tm_campaign
+                                          else len(_AICB_PDF_KINDS))
                     s._aicb_pdfs_done = 0
                     _pdf_data_holder: dict = {}
                     import threading as _thr_pdf
@@ -45108,11 +45584,25 @@ def p_ai_campaign(s: AppState, rf):
                         finally:
                             _pdf_data_event.set()
 
+                    def _tm_pdf_worker():
+                        try:
+                            _pdf_data_holder["tm_built"] = _tm_stage_campaign_pdfs(
+                                _tm_pdf_kinds)
+                        except Exception as _ex:
+                            print(f"[AICB] TM PDF error: {_ex}", flush=True)
+                            _pdf_data_holder["tm_built"] = {}
+                        finally:
+                            s._aicb_pdfs_done = len(_tm_pdf_kinds)
+                            _pdf_data_event.set()
+
                     if _tm_campaign:
-                        # Nothing to wait for: resolve the event so the
-                        # generation path does not sit on its 240s timeout.
                         _pdf_data_holder["data"] = {}
-                        _pdf_data_event.set()
+                        if _tm_pdf_kinds:
+                            _thr_pdf.Thread(target=_tm_pdf_worker, daemon=True).start()
+                        else:
+                            # Nothing to wait for: resolve the event so the
+                            # generation path does not sit on its 240s timeout.
+                            _pdf_data_event.set()
                     else:
                         _thr_pdf.Thread(target=_pdf_data_worker, daemon=True).start()
 
@@ -45401,6 +45891,13 @@ def p_ai_campaign(s: AppState, rf):
                             except Exception as _w_ex:
                                 print(f"[AICB] wait error: {_w_ex}", flush=True)
                             _pdf_data_payload = _pdf_data_holder.get("data") or {}
+                            if _tm_campaign and _pdf_data_holder.get("tm_built"):
+                                try:
+                                    _tm_attach_campaign_pdfs(
+                                        s.aicb_camp_type, campaign_data,
+                                        _pdf_data_holder["tm_built"])
+                                except Exception as _att_ex:
+                                    print(f"[AICB] TM attach error: {_att_ex}", flush=True)
                             if _pdf_data_payload:
                                 # Free Flow ('byos'): restrict PDF attach
                                 # to only the kinds the user named in
@@ -45558,6 +46055,8 @@ def p_ai_campaign(s: AppState, rf):
                                 ui.label(_v).style(
                                     f"font-size:13px;color:{C['text_l']};"
                                     f"word-break:break-word;")
+                        _tm_review = (s.aicb_camp_type in _TM_TYPE_KEYS
+                                      or _workspace_playbook() == PLAYBOOK_THRIVEMODAL)
                         if s.aicb_camp_type in _TM_TYPE_KEYS:
                             with ui.element("div").style(
                                     "display:grid;grid-template-columns:130px 1fr;"
@@ -45578,6 +46077,57 @@ def p_ai_campaign(s: AppState, rf):
                                         getattr(s, "aicb_tm_profiles", 0)),
                                     on_change=_set_tm_prof,
                                 ).props("dense outlined").style("max-width:240px;")
+                        if _tm_review:
+                            _picked_pdfs = _clamp_tm_pdf_kinds(
+                                getattr(s, "aicb_tm_pdfs", []))
+                            _pdfs_full = len(_picked_pdfs) >= TM_CAMPAIGN_PDF_MAX
+                            with ui.element("div").style(
+                                    "display:grid;grid-template-columns:130px 1fr;"
+                                    "gap:10px;padding:8px 0;align-items:start;"
+                                    f"border-bottom:1px solid {C['border']}60;"):
+                                ui.label("PDFs").style(
+                                    f"font-size:11px;font-weight:700;color:{C['muted']};"
+                                    f"text-transform:uppercase;letter-spacing:.05em;"
+                                    f"padding-top:6px;")
+                                with ui.element("div"):
+                                    with ui.element("div").style(
+                                            "display:flex;flex-wrap:wrap;gap:8px;"):
+                                        for _pk, _pl, *_ in _TM_CAMPAIGN_PDF_KINDS:
+                                            _on = _pk in _picked_pdfs
+                                            _off = _pdfs_full and not _on
+
+                                            def _toggle_pdf(k=_pk):
+                                                cur = _clamp_tm_pdf_kinds(
+                                                    getattr(s, "aicb_tm_pdfs", []))
+                                                if k in cur:
+                                                    cur.remove(k)
+                                                elif len(cur) < TM_CAMPAIGN_PDF_MAX:
+                                                    cur.append(k)
+                                                else:
+                                                    return
+                                                s.aicb_tm_pdfs = cur
+                                                rf()
+
+                                            with ui.element("button").style(
+                                                    "padding:6px 12px;border-radius:99px;"
+                                                    "font-size:12px;font-weight:600;"
+                                                    + (f"background:{C['teal']};color:#fff;"
+                                                       f"border:1px solid {C['teal']};"
+                                                       if _on else
+                                                       f"background:transparent;color:{C['text_l']};"
+                                                       f"border:1px solid {C['border']};")
+                                                    + ("opacity:.4;cursor:not-allowed;"
+                                                       if _off else "cursor:pointer;")
+                                                    ).on("click", (lambda: None) if _off
+                                                         else _toggle_pdf):
+                                                ui.label(("✓ " if _on else "") + _pl)
+                                    ui.label(
+                                        f"Pick up to {TM_CAMPAIGN_PDF_MAX}. "
+                                        + ("To swap one, unpick it first."
+                                           if _pdfs_full else
+                                           "Each one goes on its own email.")
+                                    ).style(f"font-size:11px;color:{C['muted']};"
+                                            f"margin-top:6px;")
                         ui.label("Need to change something? Use the back button on the progress bar above.").style(
                             f"font-size:11px;color:{C['muted']};margin-top:10px;"
                             f"font-style:italic;")
@@ -45596,18 +46146,33 @@ def p_ai_campaign(s: AppState, rf):
                         ui.spinner("dots", size="48px", color=C["teal"])
                         ui.label("Generating your campaign + PDFs...").style(
                             f"font-size:15px;font-weight:600;color:{C['teal']};margin-top:12px;")
-                        ui.label(
-                            "AI is researching the company, writing personalized "
-                            "emails, AND building your market PDFs (Market Pulse, "
-                            "Salary Guide, Scorecard, Tenure Snapshot, Interview "
-                            "Guide) — all in parallel."
-                        ).style(
+                        if (s.aicb_camp_type in _TM_TYPE_KEYS
+                                or _workspace_playbook() == PLAYBOOK_THRIVEMODAL):
+                            _gen_pdfs = [l for k, l, *_ in _TM_CAMPAIGN_PDF_KINDS
+                                         if k in _clamp_tm_pdf_kinds(
+                                             getattr(s, "aicb_tm_pdfs", []))]
+                            _gen_what = (
+                                "AI is researching the company, writing personalized "
+                                "emails, and building your "
+                                + " and ".join(_gen_pdfs) + ", all in parallel."
+                                if _gen_pdfs else
+                                "AI is researching the company and writing "
+                                "personalized emails.")
+                            _gen_wait = (
+                                "Total wait is about 90 seconds. Don't close the tab.")
+                        else:
+                            _gen_what = (
+                                "AI is researching the company, writing personalized "
+                                "emails, AND building your market PDFs (Market Pulse, "
+                                "Salary Guide, Scorecard, Tenure Snapshot, Interview "
+                                "Guide) — all in parallel.")
+                            _gen_wait = (
+                                "Total wait is about 90 seconds. When it finishes "
+                                "your campaign opens with every PDF already attached "
+                                "to the right email step. Don't close the tab.")
+                        ui.label(_gen_what).style(
                             f"font-size:12px;color:{C['muted']};margin-top:6px;line-height:1.5;")
-                        ui.label(
-                            "Total wait is about 90 seconds. When it finishes "
-                            "your campaign opens with every PDF already attached "
-                            "to the right email step. Don't close the tab."
-                        ).style(
+                        ui.label(_gen_wait).style(
                             f"font-size:11px;color:{C['muted']};margin-top:8px;line-height:1.5;")
                     # Auto-poll for completion every 3 seconds
                     async def _poll():
@@ -46136,7 +46701,8 @@ def p_ai_campaign(s: AppState, rf):
                     ("salary_guide_",    "Salary Guide"),
                     ("interview_guide_", "Interview Guide"),
                     ("tenure_snapshot_", "Tenure Snapshot"),
-                ]:
+                ] + [(fn.lower()[:-4], l)
+                     for _k, l, fn, _i in _TM_CAMPAIGN_PDF_KINDS]:
                     if _flow.startswith(_pfx):
                         _human = _lbl
                         break

@@ -68,8 +68,11 @@ def test_arena_playbook_hides_thrivemodal_objectives():
 def test_thrivemodal_playbook_hides_candidate_shapes():
     for k in ("fourbyfour", "fivebyfive", "fivebythree"):
         assert fa._type_visible(k, fa.PLAYBOOK_THRIVEMODAL) is False
-    for k in fa._TM_TYPE_KEYS:
+    for k in fa._TM_OFFERED_TYPE_KEYS:
         assert fa._type_visible(k, fa.PLAYBOOK_THRIVEMODAL) is True
+    # Registered but not offered: the instance is new-business only.
+    for k in fa._TM_HIDDEN_TYPE_KEYS:
+        assert fa._type_visible(k, fa.PLAYBOOK_THRIVEMODAL) is False
 
 
 def test_arena_shapes_stay_visible_under_arena():
@@ -620,8 +623,11 @@ def test_thrivemodal_assets_override_the_real_numbers_rule():
 
 def test_thrivemodal_campaigns_do_not_auto_attach_recruiting_pdfs():
     src = _inspect.getsource(fa.p_ai_campaign)
-    assert "_tm_campaign = (s.aicb_camp_type or \"\").strip() in _TM_TYPE_KEYS" in src
-    assert "s._aicb_pdfs_total = 0 if _tm_campaign else len(_AICB_PDF_KINDS)" in src
+    assert "_tm_campaign = ((s.aicb_camp_type or \"\").strip() in _TM_TYPE_KEYS" in src
+    # Only the Review-step pick is built for a ThriveModal campaign; the
+    # Arena set is counted (and generated) only when it is not one.
+    assert "s._aicb_pdfs_total = (len(_tm_pdf_kinds) if _tm_campaign" in src
+    assert "if _tm_campaign else [])" in src
     assert "if _tm_campaign:\n                                    " in src
 
 
@@ -869,7 +875,7 @@ def test_thrivemodal_visibility_is_an_allowlist_not_an_exclusion():
                             fa.PLAYBOOK_THRIVEMODAL) is False
     allowed = {ct[0] for ct in fa.AICB_CAMPAIGN_TYPES
                if fa._type_visible(ct[0], fa.PLAYBOOK_THRIVEMODAL)}
-    assert allowed == set(fa._TM_TYPE_KEYS) | set(fa._PLAYBOOK_NEUTRAL_TYPE_KEYS)
+    assert allowed == set(fa._TM_OFFERED_TYPE_KEYS) | set(fa._PLAYBOOK_NEUTRAL_TYPE_KEYS)
 
 
 def test_the_neutral_shapes_name_no_offer_of_their_own():
@@ -906,7 +912,7 @@ def test_locked_thrivemodal_instance_offers_only_the_allowlist():
         offered = {ct[0] for ct in fa.AICB_CAMPAIGN_TYPES
                    if fa._type_visible(ct[0])}
     assert "offerled" not in offered and "slowburn" not in offered
-    assert offered == set(fa._TM_TYPE_KEYS) | set(fa._PLAYBOOK_NEUTRAL_TYPE_KEYS)
+    assert offered == set(fa._TM_OFFERED_TYPE_KEYS) | set(fa._PLAYBOOK_NEUTRAL_TYPE_KEYS)
 
 
 # ── Improve with AI: the rewrite may sharpen, never add a figure ───────────
