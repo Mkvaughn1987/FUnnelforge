@@ -359,7 +359,7 @@ def _derive_tm(r, vals, d):
 # re-engage, grow a client) stay registered in the app but are not offered.
 
 SEQUENCES = [
-    "Start a Conversation",
+    "Offshore Deep Dive",
     "ThriveModal 5x7",
     "3x3 Aggressive",
     "5 Emails, 3 Calls + LinkedIn",
@@ -369,14 +369,14 @@ SEQUENCES = [
     "Let Claude choose",
 ]
 TEMPLATE_KEY = {
-    "Start a Conversation": "tm_conversation",
+    "Offshore Deep Dive": "tm_conversation",
     "ThriveModal 5x7": "tm_fivebyseven",
     "3x3 Aggressive": "tm_threebythree",
     "5 Emails, 3 Calls + LinkedIn": "tm_fivethreeli",
     "Cold Nurture": "tm_stay_in_touch",
     "12-Week BD Program": "tm_twelveweek",
 }
-DEFAULT_SEQUENCE = "Start a Conversation"
+DEFAULT_SEQUENCE = "Offshore Deep Dive"
 DEFAULT_TEMPLATE = TEMPLATE_KEY[DEFAULT_SEQUENCE]
 
 
@@ -536,7 +536,7 @@ ROUTINES = [
                    "and is never named in the emails."),
             _vertical_field(),
         ] + _targeting_fields() + _newsletter_fields() + _email_fields(
-            "Start a Conversation") + [
+            "Offshore Deep Dive") + [
             F("lookalike_pool", "How many lookalikes to pull before scoring",
               "size", "number", default="40"),
         ] + _size_fields("10", "4", "160") + SKIP_FIELDS,
@@ -575,7 +575,7 @@ ROUTINES = [
               default="Manila, Cebu, Philippines, offshore team, offshore "
                       "operations, night shift, overnight team, virtual "
                       "assistant"),
-        ] + _newsletter_fields() + _email_fields("Start a Conversation") + \
+        ] + _newsletter_fields() + _email_fields("Offshore Deep Dive") + \
             _size_fields("5", "4", "120") + SKIP_FIELDS,
         "steps": [
             "{vertical_guide}",
@@ -616,7 +616,7 @@ ROUTINES = [
             F("lookback", "How far back to look", "details",
               default="the last 90 days"),
         ] + _targeting_fields() + _newsletter_fields() + _email_fields(
-            "Start a Conversation") + _size_fields("5", "4", "120") + \
+            "Offshore Deep Dive") + _size_fields("5", "4", "120") + \
             SKIP_FIELDS,
         "steps": [
             "{vertical_guide}",
@@ -652,7 +652,7 @@ ROUTINES = [
             F("season_note", "Why now", "details", hint=_REC,
               placeholder="Recommended timing note for the vertical"),
         ] + _targeting_fields() + _newsletter_fields() + _email_fields(
-            "Start a Conversation") + _size_fields("8", "4", "160") + \
+            "Offshore Deep Dive") + _size_fields("8", "4", "160") + \
             SKIP_FIELDS,
         "steps": [
             "{vertical_guide}",
@@ -683,7 +683,7 @@ ROUTINES = [
               placeholder="The name it has under Audiences"),
             _vertical_field("General back office"),
         ] + _newsletter_fields() + _email_fields(
-            "Start a Conversation", "the audience name") + [
+            "Offshore Deep Dive", "the audience name") + [
             F("email_cap", "Most people in one campaign", "size", "number",
               default="150",
               hint="A bigger audience is split into batches of this size."),
