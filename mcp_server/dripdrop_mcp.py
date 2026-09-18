@@ -423,6 +423,97 @@ async def sales_run_update(run_id: str, update: dict) -> dict:
         return {"error": str(e.body), "status_code": e.status_code}
 
 
+@mcp.tool(description=(
+    "Import ZoomInfo contact records into a DripDrop contact list, keeping "
+    "their firmographics (industry, company size, job function, seniority, "
+    "hiring signal). Pass records EXACTLY as ZoomInfo returned them - do not "
+    "reshape them first. Returns how many were kept, how many were added "
+    "versus updated, and the reason for every record dropped. Re-importing a "
+    "record that is already on the list enriches it rather than duplicating "
+    "it, and a field ZoomInfo left blank never erases one already stored."
+))
+async def tm_import_contacts(records: list, list_name: str = "") -> dict:
+    email = _current_email()
+    try:
+        client = DripDropClient(DATA_DIR, email)
+        return await client.tm_import_contacts(records, list_name)
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
+@mcp.tool(description=(
+    "List the saved audiences for this account, with the criteria each one "
+    "filters on. Use this before tm_audience_preview to find out what the "
+    "user has already defined instead of inventing criteria."
+))
+async def tm_audiences() -> dict:
+    email = _current_email()
+    try:
+        client = DripDropClient(DATA_DIR, email)
+        return await client.tm_audiences()
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
+@mcp.tool(description=(
+    "Preview how many contacts an audience would reach before launching "
+    "anything. Pass either {'audience': '<saved name>'} or {'criteria': "
+    "{industries, size_buckets, job_functions, seniorities, signal_types, "
+    "include_unknown, require_complete_signal}}, against a saved list name or "
+    "inline contacts. Returns the match count, how many are already being "
+    "worked in another campaign, and how many were excluded for a MISSING "
+    "field rather than a wrong one - report that second number, because a "
+    "small match count usually means thin data, not a bad fit."
+))
+async def tm_audience_preview(body: dict) -> dict:
+    email = _current_email()
+    try:
+        client = DripDropClient(DATA_DIR, email)
+        return await client.tm_audience_preview(body)
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
+@mcp.tool(description=(
+    "Outreach results for this account: contacted, replied, reply rate, "
+    "opt-outs and bounces, overall and per campaign. Optionally limit to the "
+    "last N days or one campaign. There is NO open or click tracking anywhere "
+    "in this product - do not report opens or clicks, and do not infer them."
+))
+async def tm_analytics(days: int = 0, campaign: str = "") -> dict:
+    email = _current_email()
+    try:
+        client = DripDropClient(DATA_DIR, email)
+        return await client.tm_analytics(days, campaign)
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
+@mcp.tool(description=(
+    "The connected sending mailboxes and how many emails each may still send "
+    "TODAY. Check this before promising a send volume: a mailbox still in its "
+    "warmup ramp is allowed far less than its configured daily cap, and the "
+    "send loop enforces the ramp, not the cap."
+))
+async def tm_mailboxes() -> dict:
+    email = _current_email()
+    try:
+        client = DripDropClient(DATA_DIR, email)
+        return await client.tm_mailboxes()
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
 def main() -> None:
     transport = os.environ.get("DRIPDROP_MCP_TRANSPORT", "streamable-http")
     if transport == "stdio":

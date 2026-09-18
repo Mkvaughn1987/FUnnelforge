@@ -7158,6 +7158,206 @@ async def api_sales_run_update(run_id: str, request: Request):
     return JSONResponse(summary)
 
 
+# ---------------------------------------------------------------------------
+#  ThriveModal API - the entities an agent needs and the four-layer chain lacked
+# ---------------------------------------------------------------------------
+#
+#  Every one of these is reachable from the public internet with a valid API
+#  key, including an Arena user's. So each door does the same three things in
+#  the same order: resolve the owner from the KEY, bind that owner's paths,
+#  and only then ask whether this workspace is ThriveModal. The order matters -
+#  _is_thrivemodal() reads the workspace config, which is not resolved until
+#  the paths are bound. An Arena key gets 404, not 403: telling a key that an
+#  endpoint exists but is not for them leaks the other product's surface.
+
+
+def _tm_api_owner(request):
+    """The account this request may write to, from its key. None if unauthed.
+
+    One door rather than a preamble copied into every route: five copies of an
+    auth check is five chances for one of them to drift, and the one that
+    drifts is the one that matters."""
+    auth = request.headers.get("authorization", "")
+    key = (auth[7:].strip() if auth.lower().startswith("bearer ")
+           else request.headers.get("x-api-key", "").strip())
+    return _resolve_api_key(key)
+
+
+def _tm_api_bind(owner):
+    """Point this request's file paths at the key's owner."""
+    _CURRENT_USER_EMAIL.set(owner)
+    try:
+        _switch_to_user_paths(owner)
+    except Exception:
+        pass
+
+
+@app.post("/api/v1/tm/contacts")
+async def api_tm_import_contacts(request: Request):
+    """Ingest ZoomInfo records into a contact list, with firmographics intact.
+
+    Body: {"records": [<zoominfo record>, ...], "list": "<optional name>"}.
+    Records go in as ZoomInfo returned them - translating them agent-side would
+    put the mapping somewhere this app cannot keep correct."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "body must be valid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    records = body.get("records")
+    if not isinstance(records, list):
+        return JSONResponse({"error": "records must be a list"}, status_code=400)
+    try:
+        res = _tm_zi_ingest(records)
+        stats = _tm_zi_save_contacts(res["contacts"], body.get("list", ""))
+    except Exception as ex:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(ex)}, status_code=500)
+    return JSONResponse({
+        "received": res["total"],
+        "kept": res["kept"],
+        "dropped": [{"email": d.get("email", ""),
+                     "reason": d.get("drop_reason", "")} for d in res["dropped"]],
+        "added": stats.get("added", 0),
+        "updated": stats.get("updated", 0),
+        "list": stats.get("list", ""),
+        "total_on_file": stats.get("total_on_file", 0),
+    })
+
+
+@app.get("/api/v1/tm/audiences")
+async def api_tm_audiences(request: Request):
+    """Every saved audience for this account, criteria and all."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return JSONResponse({"audiences": load_saved_audiences()})
+
+
+@app.post("/api/v1/tm/audience_preview")
+async def api_tm_audience_preview(request: Request):
+    """How many contacts an audience would actually reach, and who it loses.
+
+    Body takes either {"audience": "<saved name>"} or {"criteria": {...}},
+    against either {"list": "<name>"} or an inline {"contacts": [...]}. The
+    excluded counts come back too: a preview that says only "41 match" invites
+    the user to believe the other 159 were a bad fit, when most of them were
+    simply missing a field."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    if not isinstance(body, dict):
+        body = {}
+    contacts = body.get("contacts")
+    if not isinstance(contacts, list):
+        contacts = _tm_zi_contacts_on_file(body.get("list", ""))
+    wanted = str(body.get("audience", "") or "").strip()
+    if wanted:
+        key = _audience_key(wanted)
+        aud = next((a for a in load_saved_audiences()
+                    if _audience_key(a.get("name", "")) == key), None)
+        if aud is None:
+            return JSONResponse({"error": "no saved audience named %r" % wanted},
+                                status_code=404)
+    else:
+        criteria = body.get("criteria")
+        aud = _normalise_audience("preview", criteria if isinstance(criteria, dict) else {})
+    res = _tm_audience_filter(contacts, **_audience_filter_kwargs(aud))
+    eligible, already = _tm_dedupe_split(res["matched"])
+    return JSONResponse({
+        "audience": aud.get("name", ""),
+        "total": res["total"],
+        "matched": res["kept"],
+        "eligible": len(eligible),
+        "already_enrolled": len(already),
+        "excluded_unknown": res["excluded_unknown"],
+        "excluded_mismatch": res["excluded_mismatch"],
+        "excluded_incomplete_signal": res["excluded_incomplete_signal"],
+        "unknown_by_field": res["unknown_by_field"],
+        "summary": _audience_summary_line(res),
+    })
+
+
+@app.get("/api/v1/tm/analytics")
+async def api_tm_analytics(request: Request):
+    """Outreach numbers for this account: overall, then per campaign.
+
+    Query: ?days=<n>&campaign=<name>. There is no open or click tracking
+    anywhere in this product, so none is reported - an agent that invented a
+    zero here would be read as "nobody opened it"."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    raw_days = (request.query_params.get("days") or "").strip()
+    try:
+        days = int(raw_days) if raw_days else None
+    except ValueError:
+        return JSONResponse({"error": "days must be a whole number"}, status_code=400)
+    campaign = (request.query_params.get("campaign") or "").strip() or None
+    src = _tm_analytics_sources()
+    return JSONResponse({
+        "overall": _tm_outreach_stats(src["queue"], src["responded"], src["dnc"],
+                                      days=days, campaign=campaign),
+        "campaigns": _tm_campaign_analytics(src["queue"], src["responded"],
+                                            days=days),
+        "tracking": "no open or click tracking exists in this product",
+    })
+
+
+@app.get("/api/v1/tm/mailboxes")
+async def api_tm_mailboxes(request: Request):
+    """The mailbox registry and what each one may still send TODAY.
+
+    The remaining budget, not the configured cap: a mailbox mid-warmup is
+    allowed a fraction of its cap, and an agent told to queue 200 emails needs
+    the number the send loop will actually honour."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    boxes = _tm_load_mailboxes()
+    budgets = _tm_mailbox_budgets(boxes, _tm_analytics_sources()["queue"],
+                                  datetime.now().date())
+    return JSONResponse({
+        "mailboxes": boxes,
+        "remaining_today": budgets,
+        "remaining_total": sum(budgets.values()),
+    })
+
+
 @app.post("/api/v1/campaigns")
 async def api_create_campaign(request: Request):
     """Create + launch an AICB campaign from a posted spec. Auth via a per-user
@@ -8841,6 +9041,342 @@ def _contact_field(contact, key):
 
 
 _TARGETING_COLS_BY_KEY = {v: k for k, v in _TARGETING_KEYS.items()}
+
+
+# ---------------------------------------------------------------------------
+#  ZoomInfo record ingest
+# ---------------------------------------------------------------------------
+#
+#  A ZoomInfo LIVE record and a ZoomInfo CSV EXPORT are not the same shape, and
+#  only the export was ever handled. The export is flat with display headers
+#  ("Management Level"); a live record is nested, camel-cased, and wraps its
+#  firmographics in a `company` block. Everything downstream of here - the
+#  audience filter, the analytics page, the vertical picker - reads the flat
+#  snake_case contact shape, so this is the one translation point between the
+#  two. Get it wrong in one place instead of five.
+#
+#  This deliberately does NOT touch sales_campaign.py. Arena's live sourcing
+#  path shares that module, and _contact_csv_fieldnames is DATA-driven: the
+#  moment any contact carries targeting data the file widens from ten columns
+#  to twenty. Populating firmographics there would widen Arena's contacts.csv
+#  on every sales run, which breaks "preserve all existing Arena workflows".
+#  ThriveModal gets its own gated door instead.
+
+_TM_ZI_SENIORITY = {
+    "c level exec": "C-Level", "c-level": "C-Level", "c level": "C-Level",
+    "cxo": "C-Level", "c suite": "C-Level", "c-suite": "C-Level",
+    "vp level exec": "VP", "vp-level": "VP", "vp level": "VP",
+    "vice president": "VP", "vp": "VP",
+    "director level": "Director", "director": "Director",
+    "manager level": "Manager", "manager": "Manager",
+    "non manager": "Non-Manager", "non-manager": "Non-Manager",
+    "board members": "Board Member", "board member": "Board Member",
+}
+
+
+def _tm_zi_seniority(raw):
+    """One canonical seniority label from whatever ZoomInfo called it.
+
+    ZoomInfo is not consistent with itself - "C Level Exec", "C-Level" and
+    "CXO" all turn up - and the audience panel builds each dropdown's options
+    FROM the values present in the loaded list. So without this, two pulls a
+    month apart offer the user two options that each match half their list.
+    An unrecognised level passes through unchanged rather than being dropped:
+    a label this does not know is still a real label, and losing it silently
+    would be worse than showing it."""
+    try:
+        s = " ".join(str(raw or "").split())
+    except Exception:
+        return ""
+    if not s:
+        return ""
+    return _TM_ZI_SENIORITY.get(s.lower(), s)
+
+
+def _tm_zi_company(row):
+    """The nested company block off a record, or {}."""
+    if not isinstance(row, dict):
+        return {}
+    a = row.get("attributes") if isinstance(row.get("attributes"), dict) else row
+    if isinstance(a, dict) and isinstance(a.get("data"), dict):
+        a = a["data"]
+    comp = a.get("company") if isinstance(a, dict) else None
+    return comp if isinstance(comp, dict) else {}
+
+
+def _tm_zi_value(row, *names):
+    """First non-empty value under any of `names`, as text.
+
+    Unwraps the two envelopes ZoomInfo answers in ({"attributes": {...}} and
+    {"data": {...}}) and then looks at the record before the nested company,
+    so a person-level field always beats a company-level one of the same name.
+    Missing is "" and never None: every consumer of a contact indexes these,
+    and one of them would forget to guard. Numbers come back as text because
+    that is what a CSV column holds; booleans do not, because True is not a
+    headcount."""
+    if not isinstance(row, dict):
+        return ""
+    a = row.get("attributes") if isinstance(row.get("attributes"), dict) else row
+    if not isinstance(a, dict):
+        return ""
+    if isinstance(a.get("data"), dict):
+        a = a["data"]
+    comp = a.get("company") if isinstance(a.get("company"), dict) else {}
+    for src in (a, comp):
+        for n in names:
+            v = src.get(n)
+            if isinstance(v, bool):
+                continue
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+            if isinstance(v, (int, float)):
+                return str(v)
+    return ""
+
+
+def _tm_zi_domain(raw):
+    """A bare domain from whatever form the website arrived in.
+
+    ZoomInfo returns "https://www.northcrest.com/about" as readily as
+    "northcrest.com". Stored bare so two records for the same company compare
+    equal instead of looking like two companies."""
+    s = ("" if raw is None else str(raw)).strip().lower()
+    if not s:
+        return ""
+    s = re.sub(r"^[a-z][a-z0-9+.-]*://", "", s)
+    s = s.split("/")[0].split("?")[0].split("#")[0]
+    if s.startswith("www."):
+        s = s[4:]
+    return s.strip()
+
+
+def _tm_zi_company_size(row):
+    """Headcount as ZoomInfo gave it, kept raw rather than pre-bucketed.
+
+    _size_bucket already runs at both filter time and display time, and it
+    reads "420" and "201 - 500" alike, so bucketing here would throw away
+    precision and buy nothing. A value _size_bucket cannot read is stored as
+    blank instead: it would otherwise appear in the size dropdown as an option
+    that matches nobody. Missing stays blank - zero is a headcount, "we do not
+    know" is not."""
+    raw = _tm_zi_value(row, "employeeCount", "employees", "numberOfEmployees",
+                       "companyEmployeeCount", "employee_count")
+    if not raw:
+        return ""
+    return raw if _size_bucket(raw) else ""
+
+
+def _tm_zi_signal(row):
+    """The four parts of a hiring signal off a record's scoop.
+
+    A signal is only repeatable back to a prospect if it says what kind it is,
+    what it said, where it came from and when, so the four travel together. A
+    partial scoop keeps whatever arrived rather than being dropped here:
+    require_complete_signal on the audience filter is the enforcement point,
+    and that is the one place the user can see what was excluded and why."""
+    blank = {k: "" for k in _SIGNAL_KEYS}
+    if not isinstance(row, dict):
+        return blank
+    a = row.get("attributes") if isinstance(row.get("attributes"), dict) else row
+    if not isinstance(a, dict):
+        return blank
+    if isinstance(a.get("data"), dict):
+        a = a["data"]
+    scoop = a.get("scoop")
+    if not isinstance(scoop, dict):
+        lst = a.get("scoops")
+        scoop = next((x for x in lst if isinstance(x, dict)), None) \
+            if isinstance(lst, list) else None
+    if not isinstance(scoop, dict):
+        return blank
+
+    def g(*names):
+        for n in names:
+            v = scoop.get(n)
+            if isinstance(v, bool):
+                continue
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+            if isinstance(v, (int, float)):
+                return str(v)
+        return ""
+
+    return {
+        "signal_type": g("scoopType", "type", "scoop_type", "category"),
+        "signal_description": g("description", "scoopText", "text", "title",
+                                "summary"),
+        "signal_source_url": g("scoopUrl", "url", "sourceUrl", "link"),
+        "signal_date": g("publishedDate", "date", "scoopDate", "published",
+                         "publishedOn"),
+    }
+
+
+def _tm_zi_contact(row):
+    """One ZoomInfo record as the flat contact shape the rest of the app uses.
+
+    Every targeting key is present even when empty, because a contact with
+    some keys missing and a contact with them blank would filter differently
+    for no reason the user could see. Email is lowercased here rather than at
+    each comparison: it is the identity this whole path dedupes and merges on.
+    Total - a junk record yields a contact with a blank email, which the
+    ingest then drops with a reason, instead of raising and losing the batch."""
+    company = _tm_zi_company(row)
+    signal = _tm_zi_signal(row)
+    contact = {
+        "email": _tm_zi_value(row, "email", "emailAddress").lower(),
+        "first_name": _tm_zi_value(row, "firstName", "first_name"),
+        "last_name": _tm_zi_value(row, "lastName", "last_name"),
+        "company": (_tm_zi_value(row, "companyName", "company_name")
+                    or str(company.get("name") or "").strip()),
+        "title": _tm_zi_value(row, "jobTitle", "title", "job_title"),
+        "phone_mobile": _tm_zi_value(row, "mobilePhone", "mobile",
+                                     "mobile_phone"),
+        "phone_office": _tm_zi_value(row, "directPhone", "phone",
+                                     "companyPhone", "work_phone"),
+        "linkedin": _tm_zi_value(row, "linkedInUrl", "linkedin",
+                                 "linkedInProfile"),
+        "city": _tm_zi_value(row, "city"),
+        "state": _tm_zi_value(row, "state"),
+        "industry": _tm_zi_value(row, "industry", "primaryIndustry",
+                                 "zoominfoIndustry", "industries"),
+        "company_size": _tm_zi_company_size(row),
+        "job_function": _tm_zi_value(row, "jobFunction", "job_function",
+                                     "department"),
+        "seniority": _tm_zi_seniority(_tm_zi_value(row, "managementLevel",
+                                                   "management_level",
+                                                   "seniority")),
+        "company_domain": _tm_zi_domain(
+            _tm_zi_value(row, "website", "companyWebsite", "companyDomain",
+                         "domain")),
+        "company_id": (_tm_zi_value(row, "companyId", "company_id")
+                       or str(company.get("id") or "").strip()),
+    }
+    contact.update(signal)
+    for key in _TARGETING_KEYS.values():
+        contact.setdefault(key, "")
+    return contact
+
+
+def _tm_zi_ingest(rows):
+    """A batch of ZoomInfo records into contacts, with a reason for each drop.
+
+    This runs on whatever an agent posted, so junk is the normal case and
+    nothing here raises. Drops are returned rather than logged: a pull that
+    quietly shrinks from 200 to 140 is the kind of thing nobody notices until
+    a campaign under-delivers. Dedupe is within the batch and keeps the FIRST
+    of a pair, because ZoomInfo returns its best match first."""
+    if not isinstance(rows, list):
+        rows = []
+    kept, dropped, seen = [], [], set()
+    for row in rows:
+        try:
+            contact = _tm_zi_contact(row)
+        except Exception:
+            dropped.append({"email": "", "drop_reason": "unreadable record"})
+            continue
+        email = contact.get("email", "")
+        if "@" not in email or "." not in email.rsplit("@", 1)[-1]:
+            contact["drop_reason"] = "no usable email"
+            dropped.append(contact)
+            continue
+        if email in seen:
+            contact["drop_reason"] = "duplicate within this batch"
+            dropped.append(contact)
+            continue
+        seen.add(email)
+        kept.append(contact)
+    return {"contacts": kept, "dropped": dropped,
+            "total": len(rows), "kept": len(kept)}
+
+
+def _tm_zi_merge(existing, incoming):
+    """Upsert a pull into the contacts already on file. Pure - no I/O.
+
+    Matching is on lowercased email. A blank incoming value never erases a
+    stored one: ZoomInfo returning less this time is not evidence that what it
+    said last time was wrong, and the user would have no way to tell that a
+    re-pull had emptied their list. Existing order is preserved and new
+    contacts append, so a list does not reshuffle because a pull ran. The list
+    handed in is never mutated - the caller may still be rendering it."""
+    out, index = [], {}
+    for c in (existing if isinstance(existing, list) else []):
+        if not isinstance(c, dict):
+            continue
+        rec = dict(c)
+        out.append(rec)
+        key = str(rec.get("email", "") or "").strip().lower()
+        if key:
+            index[key] = rec
+    added = updated = 0
+    for c in (incoming if isinstance(incoming, list) else []):
+        if not isinstance(c, dict):
+            continue
+        key = str(c.get("email", "") or "").strip().lower()
+        if not key:
+            continue
+        cur = index.get(key)
+        if cur is None:
+            rec = dict(c)
+            rec["email"] = key
+            out.append(rec)
+            index[key] = rec
+            added += 1
+            continue
+        changed = False
+        for k, v in c.items():
+            if k == "email":
+                continue
+            new = "" if v is None else str(v).strip()
+            if new and new != str(cur.get(k, "") or "").strip():
+                cur[k] = new
+                changed = True
+        if changed:
+            updated += 1
+    return out, {"added": added, "updated": updated, "matched": len(index)}
+
+
+def _tm_zi_list_path(name=""):
+    """The CSV a pull reads and writes. No name means the active contacts.csv.
+
+    A name arrives over the API from an agent, so it is untrusted, and a name
+    that walked out of the Contacts directory would let one call write
+    anywhere the app can. Sanitised to a bare stem rather than rejected: the
+    agent picked a label, not a path, and failing the whole import over a
+    slash would be the wrong trade."""
+    stem = re.sub(r"[^A-Za-z0-9 _-]", "", str(name or "")).strip()
+    if not stem:
+        return _user_contacts_csv_path()
+    return _user_contacts_dir() / ("%s.csv" % stem[:80])
+
+
+def _tm_zi_contacts_on_file(name=""):
+    """Whatever is already saved under that list name, or []."""
+    path = _tm_zi_list_path(name)
+    try:
+        if not path.exists():
+            return []
+        return _parse_contacts_csv(path.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+
+def _tm_zi_save_contacts(contacts, name=""):
+    """Merge a pull into a saved list and write it back.
+
+    Read-merge-write rather than append, because a pull that overlaps the list
+    already saved must ENRICH those contacts, not duplicate them - and the
+    second copy would be the one carrying the firmographics, so the campaign
+    would enrol the empty one. Goes through _atomic_write_csv_text, which does
+    not translate line endings; the plain text writer would turn the csv
+    module's "\r\n" into "\r\r\n" on Windows and the file would stop
+    round-tripping."""
+    path = _tm_zi_list_path(name)
+    merged, stats = _tm_zi_merge(_tm_zi_contacts_on_file(name), contacts)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_csv_text(path, _contacts_csv_text(merged, _CONTACT_COLMAP_SNAKE))
+    stats["list"] = path.stem
+    stats["total_on_file"] = len(merged)
+    return stats
 
 
 # ---------------------------------------------------------------------------

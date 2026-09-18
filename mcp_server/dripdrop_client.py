@@ -233,3 +233,63 @@ class DripDropClient:
             )
         await self._raise_for_error(resp)
         return resp.json()
+
+    # -- ThriveModal -------------------------------------------------------
+    # One method per route. A tool without one of these is a tool that 404s at
+    # call time with nothing in the code to show it would (see candidates_search,
+    # 2026-08-27), which is why the test suite pairs them structurally.
+
+    async def tm_import_contacts(self, records: list, list_name: str = "") -> dict:
+        # Generous timeout: a pull can carry a few hundred records and the
+        # server merges them into the saved list before answering.
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            resp = await client.post(
+                f"{self.base_url}/api/v1/tm/contacts",
+                json={"records": records, "list": list_name},
+                headers={**self._headers(), "Content-Type": "application/json"},
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def tm_audiences(self) -> dict:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/tm/audiences",
+                headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def tm_audience_preview(self, body: dict) -> dict:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(
+                f"{self.base_url}/api/v1/tm/audience_preview",
+                json=body or {},
+                headers={**self._headers(), "Content-Type": "application/json"},
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def tm_analytics(self, days: int = 0, campaign: str = "") -> dict:
+        params = {}
+        if days:
+            params["days"] = str(days)
+        if campaign:
+            params["campaign"] = campaign
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/tm/analytics",
+                params=params,
+                headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def tm_mailboxes(self) -> dict:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/tm/mailboxes",
+                headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
