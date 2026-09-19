@@ -170,3 +170,25 @@ def test_sales_profile_cards_sit_flush(monkeypatch):
     html = fa._render_newsletter_html({"newsletter_name": "x", "spotlights": cards})
     assert 'width="10"' not in html  # no gutter cells between cards
     assert html.count("border-left:1px solid") == 2
+
+
+def test_next_step_is_fixed_copy():
+    assert fa._tm_next_step(3).startswith("Want to meet Candidates A-C?")
+    assert "Candidates A and B" in fa._tm_next_step(2)
+    assert "Candidate A?" in fa._tm_next_step(1)
+    assert fa._tm_next_step(0).startswith("Let me know what's piling up")
+    assert '"next_step"' not in fa._tm_newsletter_prompt(
+        "x", "y", "z", "", "October 2026",
+        {"angle": "a", "angle_brief": "b", "objection": "q", "story": False},
+        "", "", "", "")
+
+
+def test_thrivemodal_swaps_calendar_for_signature(monkeypatch):
+    data = {"newsletter_name": "x", "contact_name": "Mike Vaughn",
+            "contact_email": "m@example.com", "website": "www.thrivemodal.com"}
+    monkeypatch.setattr(fa, "_is_thrivemodal", lambda cfg=None: True)
+    html = fa._render_newsletter_html(dict(data))
+    assert "Mike Vaughn" in html and "www.thrivemodal.com" in html
+    assert "border-radius:12px" in html
+    monkeypatch.setattr(fa, "_is_thrivemodal", lambda cfg=None: False)
+    assert "border-radius:12px;padding:18px 14px" not in fa._render_newsletter_html(dict(data))

@@ -54306,12 +54306,31 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             "Your Next Step",
             f'<p style="{_body_p}margin:0;font-weight:500;">{_nl_md(data["next_step"])}</p>')
 
+    # ── Build contact bar ────────────────────────────────────────────────
+    contact_parts = []
+    if contact_name:
+        contact_parts.append(f'<span style="font-weight:700;color:{nc["white"]};">{contact_name}</span>')
+    if contact_title:
+        contact_parts.append(f'<span style="color:rgba(255,255,255,0.75);">{contact_title}</span>')
+    if contact_phone:
+        contact_parts.append(f'<span style="color:rgba(255,255,255,0.75);">{contact_phone}</span>')
+    if contact_email:
+        contact_parts.append(f'<a href="mailto:{contact_email}" style="color:rgba(255,255,255,0.92);text-decoration:none;">{contact_email}</a>')
+    contact_bar_html = ""
+    if contact_parts:
+        divider = f'<span style="margin:0 10px;color:rgba(255,255,255,0.28);">&middot;</span>'
+        contact_bar_html = f'''
+        <div style="font-size:12px;margin-top:10px;line-height:1.9;font-family:{_FONT};">
+          {divider.join(contact_parts)}
+        </div>'''
+
     # ── "Meet Your Hiring Partner" section ─────────────────────────────────────
     # Personal update from the sender. Vertically stacked and horizontally
     # centered so it visually aligns with the "Let's Talk" CTA that follows
     # (headshot → label → note → button → reply line, all center-axis).
     _from_name = (contact_name or "").strip()
     _first_name = _from_name.split()[0] if _from_name else ""
+    _sig_in_body = False
     if _first_name:
         _note_body = _newsletter_note()
         _avatar_b64 = _newsletter_avatar_b64()
@@ -54367,13 +54386,31 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
                                         overrides=_hol_overrides)
         _hol_html = _render_holiday_calendar(int(_send_year), int(_send_month),
                                              _holidays)
+        if _is_thrivemodal():
+            # ThriveModal (Mike, 2026-09-19): no calendar; the company
+            # signature moves up here from the footer to shorten the issue.
+            _sig_in_body = True
+            _hol_html = (
+                f'<div style="background:{_footer_bg or nc["navy_deep"]};border-radius:12px;'
+                f'padding:18px 14px;text-align:center;">'
+                f'{_footer_logo_html}'
+                f'<div style="font-size:14px;color:{nc["white"]};font-weight:700;'
+                f'font-family:{_FONT};">{company}</div>'
+                + (f'<div style="font-size:12px;margin-top:4px;font-family:{_FONT};">'
+                   f'<a href="https://{website}" style="color:#FFFFFF;text-decoration:underline;">'
+                   f'{website}</a></div>' if website else '')
+                + "".join(
+                    f'<div style="font-size:12px;margin-top:{"10px" if i == 0 else "2px"};'
+                    f'font-family:{_FONT};white-space:nowrap;">{part}</div>'
+                    for i, part in enumerate(contact_parts))
+                + '</div>')
 
         sections_html += f'''
         <tr><td style="padding:18px 40px 10px;background:#FFFFFF;">
           <table cellpadding="0" cellspacing="0" width="100%"
                  style="border-collapse:collapse;">
             <tr>
-              <td valign="top" width="42%" style="padding-right:24px;text-align:left;">
+              <td valign="top" width="42%" style="padding-right:24px;text-align:{'center' if _sig_in_body else 'left'};vertical-align:{'middle' if _sig_in_body else 'top'};">
                 {_hol_html}
               </td>
               <td valign="top" width="58%" style="text-align:center;">
@@ -54421,24 +54458,6 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
     if custom_html:
         sections_html += f'''
         <tr><td style="padding:0 40px 24px;">{custom_html}</td></tr>'''
-
-    # ── Build contact bar ────────────────────────────────────────────────
-    contact_parts = []
-    if contact_name:
-        contact_parts.append(f'<span style="font-weight:700;color:{nc["white"]};">{contact_name}</span>')
-    if contact_title:
-        contact_parts.append(f'<span style="color:rgba(255,255,255,0.75);">{contact_title}</span>')
-    if contact_phone:
-        contact_parts.append(f'<span style="color:rgba(255,255,255,0.75);">{contact_phone}</span>')
-    if contact_email:
-        contact_parts.append(f'<a href="mailto:{contact_email}" style="color:rgba(255,255,255,0.92);text-decoration:none;">{contact_email}</a>')
-    contact_bar_html = ""
-    if contact_parts:
-        divider = f'<span style="margin:0 10px;color:rgba(255,255,255,0.28);">&middot;</span>'
-        contact_bar_html = f'''
-        <div style="font-size:12px;margin-top:10px;line-height:1.9;font-family:{_FONT};">
-          {divider.join(contact_parts)}
-        </div>'''
 
     # ── Byline row (magazine-style author credit under the title) ──────
     # Builds "Curated by {name} · {company} · {date}" from available fields,
@@ -54502,12 +54521,12 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
   {sections_html}
 
   <!-- FOOTER  -  navy, clean (ThriveModal: logo on a lighter logo-blue) -->
-  <tr><td style="background:{_footer_bg or nc["navy_deep"]};padding:26px 40px;text-align:center;">
-    {_footer_logo_html}
-    <div style="font-size:14px;color:{nc["white"]};font-weight:700;font-family:{_FONT};letter-spacing:0.2px;">{company}</div>
-    {('<div style="font-size:12px;margin-top:4px;font-family:' + _FONT + ';"><a href="https://' + website + '" style="color:#BFD4EB;text-decoration:underline;"><span style="color:#BFD4EB;">' + website + '</span></a></div>') if website else ''}
-    {contact_bar_html}
-    <div style="font-size:10px;color:rgba(255,255,255,{'0.7' if _footer_bg else '0.4'});margin-top:14px;font-family:{_FONT};letter-spacing:0.3px;">You received this because you're connected with our team &middot; Reply UNSUBSCRIBE to opt out</div>
+  <tr><td style="background:{_footer_bg or nc["navy_deep"]};padding:{'12px 40px' if _sig_in_body else '26px 40px'};text-align:center;">
+    {'' if _sig_in_body else _footer_logo_html}
+    {'' if _sig_in_body else '<div style="font-size:14px;color:' + nc["white"] + ';font-weight:700;font-family:' + _FONT + ';letter-spacing:0.2px;">' + company + '</div>'}
+    {('<div style="font-size:12px;margin-top:4px;font-family:' + _FONT + ';"><a href="https://' + website + '" style="color:#BFD4EB;text-decoration:underline;"><span style="color:#BFD4EB;">' + website + '</span></a></div>') if website and not _sig_in_body else ''}
+    {'' if _sig_in_body else contact_bar_html}
+    <div style="font-size:10px;color:rgba(255,255,255,{'0.7' if _footer_bg else '0.4'});margin-top:{'0' if _sig_in_body else '14px'};font-family:{_FONT};letter-spacing:0.3px;">You received this because you're connected with our team &middot; Reply UNSUBSCRIBE to opt out</div>
   </td></tr>
 
 </table>
@@ -55751,6 +55770,19 @@ def _tm_newsletter_cost_math(client, role: str, region: str) -> dict:
         return {}
 
 
+def _tm_next_step(n_profiles: int) -> str:
+    """Fixed "Your Next Step" copy (Mike, 2026-09-19): meet the profiled
+    candidates, or say what is piling up."""
+    letters = [chr(65 + i) for i in range(min(max(n_profiles, 0), 6))]
+    ask = "Let me know what's piling up on your desk and I'll show you how we can help."
+    if not letters:
+        return ask
+    who = ("Candidate " + letters[0] if len(letters) == 1
+           else "Candidates " + (" and ".join(letters) if len(letters) == 2
+                                 else f"{letters[0]}-{letters[-1]}"))
+    return f"Want to meet {who}? Just reply and let us know. Or {ask[0].lower()}{ask[1:]}"
+
+
 def _tm_newsletter_prompt(nl_name: str, company: str, niche: str, region: str,
                           month_year: str, plan: dict, spot_instruction: str,
                           spot_schema: str, playbook: str, proof: str) -> str:
@@ -55826,8 +55858,6 @@ def _tm_newsletter_prompt(nl_name: str, company: str, niche: str, region: str,
         f'  "objection": {{"question": "{plan["objection"]}", "answer": "2 short sentences"}},\n'
         f'  "objection_2": {{"question": "{_TM_NL_STANDING_Q}", "answer": "2 short sentences"}},\n'
         + _story_schema +
-        '  "next_step": "one sentence: a small, low-effort ask tied to the article, e.g. reply '
-        'with one recurring task and we will map it to a role",\n'
         '  "personal_corner_note": "2-3 first-person sentences (25-50 words) from the sender '
         'about the month and offshore staffing. No greeting, sign-off, link or CTA.",\n'
         + spot_schema +
@@ -56300,7 +56330,8 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
                             if _tm_plan["objection"] != _TM_NL_STANDING_Q else {}),
             "story": (result.get("story") if _tm_plan["story"]
                       and isinstance(result.get("story"), dict) else {}),
-            "next_step": (result.get("next_step") or "").strip(),
+            "next_step": _tm_next_step(len([sp for sp in (nl_data.get("spotlights") or [])
+                                            if isinstance(sp, dict)])),
             "spotlights": [dict(sp, location="",
                                 salary_ask=_tm_profile_rate(client, sp.get("title", "")))
                            for sp in (nl_data.get("spotlights") or [])
