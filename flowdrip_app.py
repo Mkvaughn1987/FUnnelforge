@@ -7152,14 +7152,15 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
                                     niche="", industry="", roles=None,
                                     location="", cand_block="",
                                     candidate_cards=None, byos_desc="",
-                                    ai_profiles=0):
+                                    ai_profiles=None):
     """Build + post-process the campaign from an already-fetched brief. Shared
     by the wizard (passes its own brief + pre-built cand_block) and the API.
     Raises RuntimeError if the model returns no parseable JSON.
 
-    `ai_profiles` (0-3, ThriveModal types only): weave that many AI-written
-    profiles of the professional ThriveModal would recruit into the emails.
-    Ignored when real candidates were supplied."""
+    `ai_profiles` (3-5, ThriveModal types only, None = 3): that many
+    AI-written candidate profiles, each with an hourly rate and 2-3 bullets,
+    added to one email after the build (_tm_add_campaign_profiles). Ignored
+    when real candidates were supplied."""
     roles = list(roles or [])
     roles_str = ", ".join(roles)
     _first_role = roles[0] if roles else ""
@@ -7173,10 +7174,13 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
 
     if not cand_block and candidate_cards:
         cand_block = _format_candidate_block(candidate_cards, camp_type)
-    if not cand_block and (camp_type or "").strip() in _TM_TYPE_KEYS:
-        cand_block = _tm_recruit_profiles_block(
-            ai_profiles, roles_str, niche_str or ind_label or company,
-            client=client)
+    # ThriveModal campaigns without real candidates get AI candidate profiles,
+    # built in their own call after the campaign and set into one email, so
+    # the count, bullets and rates are exact rather than left to the writer.
+    _tm_profiles = (not cand_block
+                    and (camp_type or "").strip() in _TM_TYPE_KEYS)
+    if _tm_profiles:
+        cand_block = _TM_PROFILES_WRITER_NOTE
 
     # ── Step 2: Campaign build ──
     camp_type_def = next((ct for ct in AICB_CAMPAIGN_TYPES if ct[0] == camp_type),
@@ -7299,6 +7303,14 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
     _apply_fivebyfive_overrides(camp_type, campaign_data)
     _apply_fivebythree_overrides(camp_type, campaign_data)
     _apply_thrivemodal_overrides(camp_type, campaign_data)
+    if _tm_profiles:
+        try:
+            _tm_add_campaign_profiles(
+                client, campaign_data, ai_profiles, roles_str,
+                niche_str or ind_label or company, company=company,
+                brief=brief)
+        except Exception as ex:
+            print(f"[AICB] TM candidate profiles failed: {ex}", flush=True)
     _spread_email_times(campaign_data.get("emails", []))
     return campaign_data
 
@@ -7306,7 +7318,7 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
 def generate_aicb_campaign(client, *, camp_type, company="", website="",
                            niche="", industry="", roles=None, location="",
                            cand_block="", candidate_cards=None, byos_desc="",
-                           ai_profiles=0):
+                           ai_profiles=None):
     """Headless AICB campaign generation — research then build — used by the
     API (and exercised in tests). Returns campaign_data with the brief stashed
     under "_brief". Raises RuntimeError on empty research / unparseable JSON.
@@ -17119,7 +17131,7 @@ class AppState:
 
         # ── Step 3 Candidates (2026-04-26 wizard restructure) ──
         self.aicb_cand_count: int = 3             # stepper value 1-6
-        self.aicb_tm_profiles: int = 0            # ThriveModal AI profiles 0-3
+        self.aicb_tm_profiles: int = 3            # ThriveModal AI profiles 3-5
         self.aicb_tm_pdfs = None                  # ThriveModal PDF kinds, max 3; None = type default
         self.aicb_cand_source: str = ""           # "pool" | "autogen" | "skip" | ""
         self.aicb_cand_cards: list = []           # list of {label, role, bullets:[str]}
@@ -46552,7 +46564,7 @@ def p_ai_campaign(s: AppState, rf):
                             cand_block=_cand_block,
                             byos_desc=getattr(s, "aicb_byos_desc", ""),
                             ai_profiles=_clamp_ai_profiles(
-                                getattr(s, "aicb_tm_profiles", 0)),
+                                getattr(s, "aicb_tm_profiles", None)),
                         )
 
                         if campaign_data:
@@ -46783,11 +46795,11 @@ def p_ai_campaign(s: AppState, rf):
                                     s.aicb_tm_profiles = _clamp_ai_profiles(e.value)
 
                                 ui.select(
-                                    {0: "None", 1: "1 candidate profile",
-                                     2: "2 candidate profiles",
-                                     3: "3 candidate profiles"},
+                                    {n: f"{n} candidate profiles"
+                                     for n in range(TM_CAMPAIGN_PROFILES_MIN,
+                                                    TM_CAMPAIGN_PROFILES_MAX + 1)},
                                     value=_clamp_ai_profiles(
-                                        getattr(s, "aicb_tm_profiles", 0)),
+                                        getattr(s, "aicb_tm_profiles", None)),
                                     on_change=_set_tm_prof,
                                 ).props("dense outlined").style("max-width:240px;")
                         if _tm_review:
@@ -55748,83 +55760,210 @@ def _tm_profiles_rules(niche: str, n: int, recommendations: str = "") -> str:
         "English fluency or work ethic.")
 
 
+TM_CAMPAIGN_PROFILES_MIN = 3
+TM_CAMPAIGN_PROFILES_MAX = 5
+
+
 def _clamp_ai_profiles(v) -> int:
+    """Candidate profiles in a ThriveModal campaign: at least 3 (Mike,
+    2026-09-19), at most 5. Missing or unreadable means 3."""
     try:
-        return max(0, min(3, int(v or 0)))
+        n = int(v)
     except (TypeError, ValueError):
-        return 0
+        n = TM_CAMPAIGN_PROFILES_MIN
+    return max(TM_CAMPAIGN_PROFILES_MIN, min(TM_CAMPAIGN_PROFILES_MAX, n))
 
 
-def _tm_profile_rate_lines(client, roles: str, niche: str) -> list:
-    """[(job title, 'Est. $lo-$hi/hr'), ...] for a campaign's candidate
-    profiles: the target roles when given, otherwise the usual offshore
-    roles for the niche's vertical. At most 4, only titles with a wage."""
-    if not (_SALES_MODE and _is_thrivemodal()):
-        return []
-    titles = [r.strip() for r in str(roles or "").split(",") if r.strip()]
-    if not titles:
-        titles = list(_TM_NL_ROLES.get(_tm_vertical_for(niche), []))
+# ── AI candidate profiles inside ThriveModal campaigns ────────────────────
+# Same idea as Arena's made-up candidate cards: a labelled candidate, the
+# role, 2-3 bullets. Built in their own model call after the campaign and set
+# into one email by code, so the count, bullets and rates always hold. The
+# rate comes from U.S. wage data (_tm_profile_rate), never from the model.
+# Introduced as profiles from ThriveModal's candidate pipeline (the owner
+# confirmed 2026-09-18 that a real pipeline exists and that real candidates
+# are presented on the follow-up call). No names, employers, start dates or
+# availability, so any one of them can be matched by a real candidate.
+_TM_PROFILES_LEAD = "Here are some of the candidate profiles in our pipeline:"
+
+# Told to the campaign writer so it leaves room instead of writing its own.
+_TM_PROFILES_WRITER_NOTE = (
+    "CANDIDATE PROFILES: the system adds a short set of candidate profiles to "
+    "one of the follow-up emails after you write the campaign. Do not write "
+    "candidate profiles or describe individual candidates yourself, and do "
+    "not promise profiles in any other email.\n\n")
+
+# Steps whose name or subject is about the people get the profiles first.
+_TM_PROFILE_STEP_WORDS = ("candidate", "profile", "talent", "who we",
+                          "people", "team", "bench", "shortlist", "pipeline",
+                          "what we need", "role")
+
+# One profile set as written by _tm_profiles_html, for rerunnable removal.
+_TM_PROFILES_BLOCK_RE = re.compile(
+    r"(?:<br\s*/?>\s*)*" + re.escape(_TM_PROFILES_LEAD)
+    + r"(?:\s*<br\s*/?>)+"
+    r"(?:<b>Candidate [A-Z]:[^<]*</b>[^<]*(?:<br\s*/?>\s*•[^<]*)+"
+    r"(?:\s*<br\s*/?>)*)+", re.IGNORECASE)
+
+
+def _tm_profile_titles(roles, niche) -> list:
+    """Job titles a campaign's profiles may use: the target roles first, then
+    the usual offshore roles for the niche's vertical."""
+    vertical = (_tm_vertical_for(niche or "") if _is_thrivemodal()
+                else _TM_VERTICAL_GENERAL)
     out = []
-    for t in titles[:4]:
-        try:
-            r = _tm_profile_rate(client, t)
-        except Exception:
-            r = ""
-        if r:
-            out.append((t, r))
+    for t in [r.strip() for r in str(roles or "").split(",")] + list(
+            _TM_NL_ROLES.get(vertical) or _TM_NL_ROLES["general_offshore"]):
+        if t and t.lower() not in {o.lower() for o in out}:
+            out.append(t)
     return out
 
 
-def _tm_recruit_profiles_block(n: int, roles: str, niche: str,
-                               client=None) -> str:
-    """Prompt block for AI candidate profiles inside a ThriveModal campaign.
-
-    Introduced as profiles from ThriveModal's candidate pipeline (the owner
-    confirmed 2026-09-18 that a real pipeline exists and that real candidates
-    are presented on the follow-up call). The profiles are written to be
-    typical of that pipeline rather than standout, with no name, pay or start
-    date, so any one of them can be matched by a real candidate when a
-    prospect asks."""
-    n = _clamp_ai_profiles(n)
-    if not n:
+def _tm_clean_profile_bullet(b) -> str:
+    b = re.sub(r"<[^>]+>", "", str(b or "")).strip().lstrip("•*- ").strip()
+    b = _strip_dashes(b).rstrip(".").strip()
+    low = b.lower()
+    if (not b or "$" in b or "%" in b
+            or any(p in low for p in _TM_ATTACHMENT_PHRASES)
+            or any(p in low for p in _TM_NEWSLETTER_PHRASES)
+            or re.search(r"\b(salary|per hour|/hr|available|start date)\b", low)):
         return ""
-    # Each profile carries an estimated hourly rate (Mike, 2026-09-19),
-    # computed from U.S. wage data, never by the model. It is the single
-    # exception to the playbook's no-hourly-rate rule.
-    rates = _tm_profile_rate_lines(client, roles, niche)
-    if rates:
-        rate_rule = (
-            "RATES: use only these job titles, and end each profile with its "
-            "estimated rate copied exactly as written here, for example "
-            "\"(Est. $9-$11/hr)\":\n"
-            + "".join(f"- {t}: {r}\n" for t, r in rates)
-            + "This is the ONE exception to the rule against quoting an hourly "
-            "rate: it applies only to these profile lines. Never change, "
-            "round or explain the figure, and never write any other rate, "
-            "salary or cost. ")
-        pay_ban = "any other pay, salary or rate figure"
-    else:
-        rate_rule = ""
-        pay_ban = "pay, salary, a rate"
-    return (
-        f"CANDIDATE PROFILES: weave {n} short candidate profile"
-        f"{'s' if n > 1 else ''} into the EMAIL steps (never the call or "
-        f"LinkedIn steps), one per email, in the emails where the role or the "
-        f"economics come up. Introduce them as profiles from our candidate "
-        f"pipeline, for example: \"Here are some of the candidate profiles in "
-        f"our pipeline:\" (or, for one, \"Here's one of the candidate profiles "
-        f"in our pipeline:\"). Each is {_tm_profiles_who()}, in a real job "
-        f"title from the TARGET ROLES or one a {niche or 'business like theirs'} "
-        f"commonly moves offshore{(' (' + roles + ')') if roles else ''}. Make "
-        f"each concrete and typical rather than exceptional: years of relevant "
-        f"experience with U.S. companies, the specific U.S. tools and software "
-        f"they use, and the work they would take off the team's plate. Example: "
-        f"\"Track and Trace Specialist: four-plus years at U.S. brokerages, "
-        f"works in McLeod and DAT daily, handles after-hours check calls.\" "
-        f"{rate_rule}"
-        f"Never give a name, a current or past employer name, {pay_ban}, "
-        f"a start date or an availability date; never say \"attached\"; "
-        f"do not call them samples or examples.\n\n")
+    return b[:1].upper() + b[1:]
+
+
+def _tm_generate_campaign_profiles(client, n, roles, niche, company="",
+                                   brief="") -> list:
+    """[{title, years, rate, bullets}] for n candidate profiles relevant to
+    the campaign's company, industry and target roles. Rates are computed
+    from wage data; a title without one keeps its profile, without a rate."""
+    n = _clamp_ai_profiles(n)
+    titles = _tm_profile_titles(roles, niche)
+    target = [r.strip() for r in str(roles or "").split(",") if r.strip()]
+    prompt = (
+        f"Write {n} candidate profiles for a staffing company's sales email. "
+        f"Each is a dedicated, full-time professional based in the "
+        f"Philippines who works U.S. hours inside the client's own systems. "
+        f"The reader is a U.S. business owner or manager"
+        + (f" at {company}" if company else "")
+        + (f" in {niche}" if niche else "")
+        + ". Pick candidates that business would want to hire.\n\n"
+        + (f"TARGET ROLES: {', '.join(target)}. The first profile is for "
+           f"{target[0]}. The rest may be the same role at a different level "
+           f"of experience or another title from the list below that this "
+           f"business would also move offshore.\n" if target else "")
+        + "ALLOWED TITLES (use these exact words): " + "; ".join(titles[:12])
+        + "\n\n"
+        + (f"ABOUT THE BUSINESS:\n{str(brief)[:1200]}\n\n" if brief else "")
+        + "Each profile gets years of relevant experience (2 to 9) and 2 or 3 "
+        "bullets. A bullet is one short line (under 18 words) naming a "
+        "concrete skill, the real U.S. tools or software they use, or the "
+        "kind of U.S. work they have done for companies like this one. Make "
+        "them typical of a strong pipeline, not exceptional, and different "
+        "from each other.\n"
+        "Never write a name, an employer name, pay, a rate, a salary, a "
+        "percentage, a performance metric, a start date, availability, shift "
+        "times, or anything about nationality, English or work ethic. Do not "
+        "call them samples or examples.\n\n"
+        'Return ONLY JSON: {"profiles":[{"title":"...","years":5,'
+        '"bullets":["...","..."]}]}')
+    msg = _claude_create_with_retry(
+        client, model=_TM_NL_MODEL, max_tokens=1500,
+        messages=[{"role": "user", "content": prompt}])
+    text = msg.content[0].text
+    m = re.search(r"\{.*\}", text.replace("```json", "").replace("```", ""),
+                  re.DOTALL)
+    raw = (json.loads(m.group()) if m else {}).get("profiles") or []
+    by_low = {t.lower(): t for t in titles}
+    out = []
+    for p in raw:
+        if not isinstance(p, dict):
+            continue
+        title = by_low.get(str(p.get("title") or "").strip().lower())
+        if not title:
+            continue
+        try:
+            years = max(2, min(9, int(p.get("years") or 4)))
+        except (TypeError, ValueError):
+            years = 4
+        bullets = [b for b in (_tm_clean_profile_bullet(x)
+                               for x in (p.get("bullets") or [])) if b][:3]
+        if len(bullets) < 2:
+            continue
+        try:
+            rate = _tm_profile_rate(client, f"{title}, {years} years")
+        except Exception:
+            rate = ""
+        out.append({"title": title, "years": years, "rate": rate,
+                    "bullets": bullets})
+        if len(out) == n:
+            break
+    return out
+
+
+def _tm_profiles_html(profiles) -> str:
+    """The profile set as it appears in the email."""
+    parts = [_TM_PROFILES_LEAD]
+    for i, p in enumerate(profiles):
+        head = (f"<b>Candidate {chr(65 + i)}: {p['title']}</b>"
+                f" · {p['years']} years")
+        if p.get("rate"):
+            head += f" · Est. {p['rate']}"
+        parts.append(head + "".join(f"<br>• {b}" for b in p["bullets"]))
+    return "<br><br>".join(parts)
+
+
+def _tm_strip_campaign_profiles(body: str) -> str:
+    out = _TM_PROFILES_BLOCK_RE.sub("<br><br>", body or "")
+    out = re.sub(r"(?:<br\s*/?>\s*){3,}", "<br><br>", out)
+    return re.sub(r"(?:<br\s*/?>\s*)+$", "", out)
+
+
+def _tm_profiles_email_index(emails):
+    """The email that carries the profiles: a follow-up email (never the
+    first) about the people if there is one, else the first follow-up email
+    without a PDF, else the first follow-up email. The first email only when
+    it is the sole email."""
+    elig = _tm_pdf_eligible_emails(emails)
+    if not elig:
+        return next((i for i, e in enumerate(emails or []) if e.get(
+            "step_type", "") in ("email_auto", "email")), None)
+    def _hay(i):
+        return ((emails[i].get("name") or "") + " "
+                + (emails[i].get("subject") or "")).lower()
+    for w in _TM_PROFILE_STEP_WORDS:
+        i = next((i for i in elig if w in _hay(i)
+                  and not emails[i].get("attachments")), None)
+        if i is not None:
+            return i
+    return next((i for i in elig if not emails[i].get("attachments")), elig[0])
+
+
+def _tm_insert_profiles(body: str, block: str) -> str:
+    """Set the profiles in before the email's closing paragraph (its ask)."""
+    paras = re.split(r"(?:<br\s*/?>\s*){2,}", body or "")
+    if len(paras) >= 3:
+        return "<br><br>".join(paras[:-1] + [block, paras[-1]])
+    return "<br><br>".join([p for p in paras if p.strip()] + [block])
+
+
+def _tm_add_campaign_profiles(client, campaign_data, n, roles, niche,
+                              company="", brief="", profiles=None) -> dict:
+    """Give a ThriveModal campaign its candidate profiles, replacing any set
+    an earlier run added. Returns {"email": index or None, "profiles": [...]}.
+    `profiles` skips the model call (tests, dry runs)."""
+    emails = (campaign_data or {}).get("emails") or []
+    for em in emails:
+        if _TM_PROFILES_LEAD.lower() in (em.get("body") or "").lower():
+            em["body"] = _tm_strip_campaign_profiles(em.get("body"))
+    if profiles is None:
+        profiles = _tm_generate_campaign_profiles(
+            client, n, roles, niche, company=company, brief=brief)
+    ei = _tm_profiles_email_index(emails) if profiles else None
+    if ei is not None:
+        emails[ei]["body"] = _tm_insert_profiles(
+            emails[ei].get("body"), _tm_profiles_html(profiles))
+        print(f"[AICB] TM: {len(profiles)} candidate profiles on email "
+              f"{ei + 1}", flush=True)
+    return {"email": ei, "profiles": profiles}
 
 
 def _tm_spotlight_prompt_block(niche: str, n: int,

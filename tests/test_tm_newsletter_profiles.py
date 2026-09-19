@@ -3,6 +3,7 @@
 They must be labelled as samples, carry no pay figure, and leave Arena's
 candidate spotlights untouched."""
 import inspect
+import json
 
 import flowdrip_app as fa
 
@@ -52,42 +53,123 @@ def test_dialogs_offer_the_toggle_and_save_three_or_zero():
 
 # ── AI candidate profiles inside ThriveModal campaigns ─────────────────────
 
-def test_campaign_profiles_block_is_honest_and_unlabelled():
-    b = fa._tm_recruit_profiles_block(2, "Track and Trace Specialist", "Freight Brokerage")
-    assert "weave 2 short candidate profiles" in b
-    assert "Here are some of the candidate profiles in our pipeline:" in b
-    assert "Never give a name" in b and "pay, salary" in b
-    assert "do not call them samples" in b
-    assert fa._tm_recruit_profiles_block(0, "", "") == ""
+class _Msg:
+    def __init__(self, text):
+        self.content = [type("B", (), {"text": text})()]
 
 
-def test_ai_profiles_clamped_0_to_3():
-    assert [fa._clamp_ai_profiles(v) for v in (None, "2", 9, -1, "x")] == [0, 2, 3, 0, 0]
-
-
-def test_builder_uses_profiles_only_for_tm_without_real_candidates():
-    src = inspect.getsource(fa._aicb_build_campaign_from_brief)
-    assert "if not cand_block and (camp_type or \"\").strip() in _TM_TYPE_KEYS:" in src
-    assert "ai_profiles=ai_profiles" in inspect.getsource(fa.generate_aicb_campaign)
-    assert 'spec.get("ai_profiles")' in inspect.getsource(fa._api_create_campaign_blocking)
-
-
-def test_campaign_profiles_carry_computed_hourly_rates(monkeypatch):
-    monkeypatch.setattr(fa, "_SALES_MODE", True)
+def _fake_model(monkeypatch, payload, seen=None):
+    def create(client, **kw):
+        if seen is not None:
+            seen.append(kw["messages"][0]["content"])
+        return _Msg(json.dumps(payload))
+    monkeypatch.setattr(fa, "_claude_create_with_retry", create)
     monkeypatch.setattr(fa, "_is_thrivemodal", lambda: True)
     monkeypatch.setattr(fa, "_tm_profile_rate",
-                        lambda client, t: "Est. $9-$11/hr" if "Track" in t else "")
-    b = fa._tm_recruit_profiles_block(
-        2, "Track and Trace Specialist, Load Planner", "Freight Brokerage")
-    assert "- Track and Trace Specialist: Est. $9-$11/hr" in b
-    assert "Load Planner:" not in b          # no wage found, no rate line
-    assert "ONE exception" in b and "any other pay, salary or rate" in b
-    # No target roles: the vertical's usual roles are priced instead.
-    b2 = fa._tm_recruit_profiles_block(1, "", "freight brokerage")
-    assert "- Track and Trace Specialist: Est. $9-$11/hr" in b2
+                        lambda client, t: "$10.25/hr" if "Track" in t else "")
 
 
-def test_campaign_profiles_without_rates_keep_the_pay_ban(monkeypatch):
-    monkeypatch.setattr(fa, "_is_thrivemodal", lambda: False)
-    b = fa._tm_recruit_profiles_block(1, "Bookkeeper", "Accounting")
-    assert "RATES:" not in b and "pay, salary, a rate" in b
+_THREE = {"profiles": [
+    {"title": "Track and Trace Specialist", "years": 5,
+     "bullets": ["Works in McLeod and DAT daily",
+                 "Runs after-hours check calls for U.S. brokerages",
+                 "Updates shippers on exceptions before they ask"]},
+    {"title": "freight billing and audit specialist", "years": 3,
+     "bullets": ["Audits carrier invoices against rate confirmations",
+                 "Paid $22/hr at last job"]},   # pay bullet dropped -> 1 left
+    {"title": "Load Planner", "years": 12,
+     "bullets": ["Builds loads in Descartes", "Balances lanes by equipment type"]},
+    {"title": "Wizard of Logistics", "years": 4,  # not an allowed title
+     "bullets": ["a", "b"]},
+]}
+
+
+def test_profiles_are_at_least_three():
+    assert [fa._clamp_ai_profiles(v) for v in (None, 0, "2", 4, 9, "x")] == [
+        3, 3, 3, 4, 5, 3]
+    assert fa.AppState().aicb_tm_profiles == 3
+
+
+def test_generated_profiles_are_clean_and_priced_from_wage_data(monkeypatch):
+    seen = []
+    _fake_model(monkeypatch, _THREE, seen)
+    out = fa._tm_generate_campaign_profiles(
+        None, 3, "Track and Trace Specialist", "Freight Brokerage",
+        company="Redwood Logistics")
+    assert [p["title"] for p in out] == ["Track and Trace Specialist",
+                                         "Load Planner"]
+    assert out[0]["rate"] == "$10.25/hr" and out[1]["rate"] == ""
+    assert out[1]["years"] == 9                      # clamped
+    assert all(2 <= len(p["bullets"]) <= 3 for p in out)
+    prompt = seen[0]
+    assert "The first profile is for Track and Trace Specialist" in prompt
+    assert "Redwood Logistics" in prompt and "Never write a name" in prompt
+
+
+def test_bullets_never_carry_pay_or_promises():
+    for bad in ("Earns $12/hr", "Cut costs 40%", "Available to start Monday",
+                "Resume attached", "On our newsletter list"):
+        assert fa._tm_clean_profile_bullet(bad) == ""
+    assert fa._tm_clean_profile_bullet("• works in QuickBooks.") == (
+        "Works in QuickBooks")
+
+
+def _camp():
+    names = ["Step 1 - Intro", "Step 2 - Call", "Step 3 - The cost",
+             "Step 4 - Who we would send you", "Step 5 - Close"]
+    return {"emails": [
+        {"name": n, "subject": "s",
+         "body": "Hi {FirstName},<br><br>Para one.<br><br>Worth a call?",
+         "step_type": "call" if "Call" in n else "email_auto"} for n in names]}
+
+
+_PROFILES = [{"title": "Bookkeeper", "years": 5, "rate": "$9.50/hr",
+              "bullets": ["Closes the month in QuickBooks Online",
+                          "Reconciles bank and card feeds daily"]},
+             {"title": "Staff Accountant", "years": 3, "rate": "",
+              "bullets": ["Preps accruals", "Builds the AP aging"]},
+             {"title": "Payroll Specialist", "years": 7, "rate": "$11.00/hr",
+              "bullets": ["Runs ADP payroll", "Files state returns",
+                          "Handles garnishments"]}]
+
+
+def test_profiles_go_on_the_people_email_before_the_ask_and_rerun_cleanly():
+    camp = _camp()
+    for _ in range(2):
+        out = fa._tm_add_campaign_profiles(None, camp, 3, "", "",
+                                           profiles=_PROFILES)
+    assert out["email"] == 3                         # "Who we would send you"
+    body = camp["emails"][3]["body"]
+    assert body.count(fa._TM_PROFILES_LEAD) == 1
+    assert body.startswith("Hi {FirstName},<br><br>Para one.<br><br>"
+                           + fa._TM_PROFILES_LEAD)
+    assert body.endswith("<br><br>Worth a call?")
+    assert "<b>Candidate A: Bookkeeper</b> · 5 years · Est. $9.50/hr" in body
+    assert "<b>Candidate B: Staff Accountant</b> · 3 years<br>" in body
+    assert "<b>Candidate C: Payroll Specialist</b>" in body
+    assert body.count("<br>• ") == 7
+    others = " ".join(e["body"] for i, e in enumerate(camp["emails"]) if i != 3)
+    assert fa._TM_PROFILES_LEAD not in others
+    # Stripping gives back the original email.
+    assert fa._tm_strip_campaign_profiles(body) == (
+        "Hi {FirstName},<br><br>Para one.<br><br>Worth a call?")
+
+
+def test_profiles_never_go_on_the_first_email_or_a_call():
+    camp = _camp()
+    for e in camp["emails"]:
+        e["name"] = "Step - x"
+    i = fa._tm_profiles_email_index(camp["emails"])
+    assert i == 2
+    camp["emails"][2]["attachments"] = ["Staffing_Cost_Comparison_X.pdf"]
+    assert fa._tm_profiles_email_index(camp["emails"]) == 3
+
+
+def test_builder_adds_profiles_only_for_tm_without_real_candidates():
+    src = inspect.getsource(fa._aicb_build_campaign_from_brief)
+    assert ("_tm_profiles = (not cand_block\n"
+            "                    and (camp_type or \"\").strip() in _TM_TYPE_KEYS)") in src
+    assert "_tm_add_campaign_profiles(" in src
+    assert "ai_profiles=ai_profiles" in inspect.getsource(fa.generate_aicb_campaign)
+    assert 'spec.get("ai_profiles")' in inspect.getsource(fa._api_create_campaign_blocking)
+    assert "Do not write candidate profiles" in fa._TM_PROFILES_WRITER_NOTE
