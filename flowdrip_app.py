@@ -53444,6 +53444,63 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
                 cells.append(_stat_cell(stat, col_w))
             return f'<tr>{"".join(cells)}</tr>'
 
+        def _savings_row(stats: list, cfg) -> str:
+            """Green boxes under the Why Now stats (ThriveModal only; Arena
+            never sets jolts_savings). A wage stat gets the same wage cut by
+            pct; any other stat gets the Cost Math yearly savings figure."""
+            if not isinstance(cfg, dict) or not stats:
+                return ""
+            pct = float(cfg.get("pct") or 0.6)
+            brand = str(cfg.get("brand") or "Offshore")
+            _green, _navy = "#84BF55", "#082139"
+
+            def _money(n: float, cents: bool) -> str:
+                return f"${n:,.2f}" if cents else f"${round(n, -2):,.0f}"
+
+            def _wage_cell(stat: dict):
+                val = str(stat.get("value", "") or "")
+                lbl = str(stat.get("label", "") or "").lower()
+                m = re.search(r"\$\s*([\d,]+(?:\.\d+)?)\s*([kK])?\s*(?:/\s*(hr|hour|h|yr|year|annual))?", val)
+                if not m:
+                    return None
+                unit = (m.group(3) or "").lower()
+                if not unit and not re.search(r"wage|pay|salary|earning|comp", lbl):
+                    return None
+                amt = float(m.group(1).replace(",", "")) * (1000 if m.group(2) else 1)
+                hourly = unit in ("hr", "hour", "h") or (not unit and amt < 500)
+                ours = amt * (1 - pct)
+                yearly_save = (amt - ours) * (2080 if hourly else 1)
+                return (f"With {brand}",
+                        _money(ours, hourly) + ("/hr" if hourly else "/yr"),
+                        f"&#9660; {pct:.0%} less &middot; saves ~{_money(yearly_save, False)}/yr")
+
+            cells, any_cell = [], False
+            col_w = f"{100 // len(stats)}%"
+            for i, stat in enumerate(stats):
+                if i > 0:
+                    cells.append('<td width="6" style="width:6px;"></td>')
+                c = _wage_cell(stat)
+                if c is None and cfg.get("fallback"):
+                    c = ("Est. savings per hire", f"{cfg['fallback']}/yr",
+                         f"with {brand}, vs. a local hire")
+                if c is None:
+                    cells.append(f'<td width="{col_w}"></td>')
+                    continue
+                any_cell = True
+                cells.append(
+                    f'<td width="{col_w}" style="background:{_green};border-radius:10px;'
+                    f'padding:11px 6px;vertical-align:top;" align="center">'
+                    f'<div style="font-family:{_FONT};font-size:9px;font-weight:700;'
+                    f'color:{_navy};text-transform:uppercase;letter-spacing:1.2px;'
+                    f'margin-bottom:4px;white-space:nowrap;">{c[0]}</div>'
+                    f'<div style="font-family:{_DISPLAY_FONT};font-size:22px;'
+                    f'color:{_navy};font-weight:400;letter-spacing:-0.3px;'
+                    f'line-height:1.1;">{c[1]}</div>'
+                    f'<div style="font-size:10px;color:{_navy};font-family:{_FONT};'
+                    f'letter-spacing:0.2px;margin-top:3px;font-weight:600;">{c[2]}</div>'
+                    f'</td>')
+            return f'<tr>{"".join(cells)}</tr>' if any_cell else ""
+
         def _sub_label(text: str) -> str:
             return (
                 f'<div style="font-family:{_FONT};font-size:9px;font-weight:700;'
@@ -53462,8 +53519,20 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
                 f'{_build_stat_row(_jolts_stats)}</table>'
             )
             _sources.append((_jolts.get("source_note") or "BLS JOLTS, latest release").strip())
+            _sv_row = _savings_row(_jolts_stats[:5], data.get("jolts_savings"))
+            if _sv_row:
+                _inner_html += (
+                    f'<table cellpadding="0" cellspacing="0" width="100%"'
+                    f' style="border-collapse:separate;border-spacing:0;'
+                    f'table-layout:fixed;margin-top:6px;">{_sv_row}</table>'
+                )
+                _pct_txt = f"{data['jolts_savings'].get('pct', 0.6):.0%}"
+                _sources.append(
+                    f"{data['jolts_savings'].get('brand') or 'Offshore'} figures are "
+                    f"estimates at {_pct_txt} below the U.S. rate shown (published "
+                    f"range up to 60-70%); the actual figure is confirmed in a quote")
 
-        _takeaway = (_jolts.get("takeaway") or "").strip()
+        _takeaway =(_jolts.get("takeaway") or "").strip()
         _takeaway_html = (
             f'<div style="font-size:12.5px;color:{nc["text"]};line-height:1.5;'
             f'font-family:{_FONT};font-style:italic;margin-top:12px;">'
@@ -55185,7 +55254,7 @@ def _tm_spotlight_prompt_block(niche: str, n: int,
         + ",\n    ".join(
             f'{{"name": "Profile {chr(65 + i)}", '
             f'"title": "specific job title + years of experience", '
-            f'"location": "Philippines · works U.S. hours", '
+            f'"location": "", '
             f'"salary_ask": "", '
             f'"bullets": [3 short single-sentence bullets: tools/software, '
             f'the U.S. work they handle, one concrete strength]}}'
@@ -55346,12 +55415,14 @@ def _tm_profile_rate(client, title: str) -> str:
             base = None
     if not base or base <= 0:
         return ""
+    # One rate per profile (Mike 2026-09-19: no ranges): 40% of the U.S.
+    # hourly, i.e. 60% less, nudged by the years of experience in the title.
     hourly = base / 2080.0
-    lo = int(round(hourly * (1 - _TM_RATE_DISCOUNT[0])))
-    hi = int(round(hourly * (1 - _TM_RATE_DISCOUNT[1])))
-    if hi <= lo:
-        hi = lo + 1
-    return f"Est. ${lo}-${hi}/hr"
+    m = re.search(r"(\d+)\+?\s*(?:years?|yrs?)", str(title or ""), re.I)
+    yrs = int(m.group(1)) if m else 4
+    adj = 0.92 if yrs <= 2 else 1.0 if yrs <= 4 else 1.08 if yrs <= 6 else 1.15
+    rate = round(hourly * 0.40 * adj * 4) / 4
+    return f"${rate:.2f}/hr"
 
 
 def _tm_newsletter_cost_math(client, role: str, region: str) -> dict:
@@ -55424,7 +55495,6 @@ def _tm_newsletter_prompt(nl_name: str, company: str, niche: str, region: str,
         f"season, year end, and so on).\n"
         f"THIS ISSUE'S ARTICLE: \"{plan['angle']}\": {plan['angle_brief']}. "
         f"Adapt the headline to {_niche}.\n"
-        f"ROLE OF THE MONTH: {plan['role']}.\n"
         f"QUESTION OF THE MONTH: \"{plan['objection']}\" Answer it plainly "
         f"and honestly within the playbook rules.\n\n"
         f"WHY NOW: use web search for 2 REAL, recent U.S. figures that show why "
@@ -55435,7 +55505,7 @@ def _tm_newsletter_prompt(nl_name: str, company: str, niche: str, region: str,
         f"are only ever \"up to 60-70%\", one person is never round-the-clock "
         f"coverage, no certifications, no guarantees, no invented customers or "
         f"statistics about {company}, never frame it as cheap labor. Do not "
-        f"quote a price or rate; the Cost Math section is added separately.\n"
+        f"quote a price or rate.\n"
         f"HARD RULES (a draft that breaks one is rejected):\n"
         f"- No dollar amounts, percentages or statistics anywhere except the "
         f"WHY NOW stats and the phrase \"up to 60-70%\".\n"
@@ -55461,10 +55531,6 @@ def _tm_newsletter_prompt(nl_name: str, company: str, niche: str, region: str,
         f'  "feature": {{"headline": "article headline", "paragraphs": ["3 paragraphs of 50-80 words, '
         f'concrete and specific to {_niche}; you may **bold** one key phrase per paragraph"], '
         f'"takeaways": ["3 short, practical takeaways"]}},\n'
-        f'  "role_of_month": {{"title": "{plan["role"]}", "summary": "one sentence on why '
-        f'{_niche} companies move this role offshore", "owns": ["4 bullets: the recurring work '
-        f'this person owns day to day"], "tools": "the real U.S. software this role uses in '
-        f'{_niche}", "stays_in_house": "one sentence on what stays with the local team"}},\n'
         f'  "objection": {{"question": "{plan["objection"]}", "answer": "3-4 sentences"}},\n'
         + _story_schema +
         '  "next_step": "one sentence: a small, low-effort ask tied to the article, e.g. reply '
@@ -55908,8 +55974,8 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         _show_city_life = False
         _why = result.get("why_now") if isinstance(result.get("why_now"), dict) else {}
         _feat = result.get("feature") if isinstance(result.get("feature"), dict) else {}
-        _role = result.get("role_of_month") if isinstance(result.get("role_of_month"), dict) else {}
         _obj = result.get("objection") if isinstance(result.get("objection"), dict) else {}
+        _tm_cm = _tm_newsletter_cost_math(client, _tm_plan["role"], region)
         nl_data.update({
             "tagline": (f"Offshore Staffing Insights for {_industry_lbl.title()}"
                         if _industry_lbl else "Offshore Staffing Insights"),
@@ -55921,13 +55987,22 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
             "market_update": "",
             "top_news": [],
             "feature": dict(_feat, label=f"This Month: {_tm_plan['angle']}"),
-            "role_of_month": dict(_role, title=_tm_plan["role"]),
-            "cost_math": _tm_newsletter_cost_math(client, _tm_plan["role"], region),
+            # Role of the Month + Cost Math removed (Mike 2026-09-19);
+            # _tm_cm still feeds the green Why Now savings fallback.
+            "role_of_month": {},
+            "cost_math": {},
+            # Green "with ThriveModal" row under the Why Now wage boxes.
+            "jolts_savings": {
+                "pct": 0.60, "brand": company or "Offshore",
+                "fallback": (_tm_cm.get("rows") or [[None, ""]] * 3)[2][1]
+                            if _tm_cm else "",
+            },
             "objection": dict(_obj, question=_tm_plan["objection"]),
             "story": (result.get("story") if _tm_plan["story"]
                       and isinstance(result.get("story"), dict) else {}),
             "next_step": (result.get("next_step") or "").strip(),
-            "spotlights": [dict(sp, salary_ask=_tm_profile_rate(client, sp.get("title", "")))
+            "spotlights": [dict(sp, location="",
+                                salary_ask=_tm_profile_rate(client, sp.get("title", "")))
                            for sp in (nl_data.get("spotlights") or [])
                            if isinstance(sp, dict)],
             "partner_label": "Your Offshore Staffing Partner",
