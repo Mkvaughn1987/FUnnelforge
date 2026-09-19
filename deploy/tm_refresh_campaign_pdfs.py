@@ -57,6 +57,10 @@ OVERRIDES = {
         "industry": "Accounting & Finance"},
     "Corporate_Finance__Wealth_Management__Forensic_Accounting_-_": {
         "industry": "Accounting & Finance"},
+    # TargetRole holds the buyers (Owner/Principal, VP of Operations, ...).
+    "Property_Management__Manila_Style": {
+        "role": "Maintenance Coordinator", "location": "United States",
+        "industry": "Property Management"},
     "Fluor_Corporation_-_Structural_and_Civil_Support": {
         "location": "United States", "industry": "Engineering & Construction"},
 }

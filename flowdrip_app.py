@@ -55805,13 +55805,21 @@ _TM_PROFILES_BLOCK_RE = re.compile(
     r"(?:\s*<br\s*/?>)*)+", re.IGNORECASE)
 
 
+# Titles of the people a campaign sells TO. A campaign's TargetRole sometimes
+# holds these (the buyer list); they are never a candidate's title.
+_TM_BUYER_TITLE_RE = re.compile(
+    r"\b(owner|principal|president|founder|partner|ceo|cfo|coo|cto|chief|"
+    r"vp|vice president|director|head of|controller)\b", re.IGNORECASE)
+
+
 def _tm_profile_titles(roles, niche) -> list:
     """Job titles a campaign's profiles may use: the target roles first, then
     the usual offshore roles for the niche's vertical."""
     vertical = (_tm_vertical_for(niche or "") if _is_thrivemodal()
                 else _TM_VERTICAL_GENERAL)
     out = []
-    for t in [r.strip() for r in str(roles or "").split(",")] + list(
+    for t in [r.strip() for r in str(roles or "").split(",")
+              if not _TM_BUYER_TITLE_RE.search(r)] + list(
             _TM_NL_ROLES.get(vertical) or _TM_NL_ROLES["general_offshore"]):
         if t and t.lower() not in {o.lower() for o in out}:
             out.append(t)
@@ -55837,9 +55845,11 @@ def _tm_generate_campaign_profiles(client, n, roles, niche, company="",
     from wage data; a title without one keeps its profile, without a rate."""
     n = _clamp_ai_profiles(n)
     titles = _tm_profile_titles(roles, niche)
-    target = [r.strip() for r in str(roles or "").split(",") if r.strip()]
+    target = [r.strip() for r in str(roles or "").split(",")
+              if r.strip() and not _TM_BUYER_TITLE_RE.search(r)]
+    # One spare, so a profile whose title has no wage data can be dropped.
     prompt = (
-        f"Write {n} candidate profiles for a staffing company's sales email. "
+        f"Write {n + 1} candidate profiles for a staffing company's sales email. "
         f"Each is a dedicated, full-time professional based in the "
         f"Philippines who works U.S. hours inside the client's own systems. "
         f"The reader is a U.S. business owner or manager"
@@ -55896,9 +55906,8 @@ def _tm_generate_campaign_profiles(client, n, roles, niche, company="",
             rate = ""
         out.append({"title": title, "years": years, "rate": rate,
                     "bullets": bullets})
-        if len(out) == n:
-            break
-    return out
+    # Priced profiles first (each should show a rate), order otherwise kept.
+    return sorted(out, key=lambda p: not p["rate"])[:n]
 
 
 def _tm_profiles_html(profiles) -> str:

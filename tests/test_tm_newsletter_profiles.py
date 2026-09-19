@@ -108,6 +108,25 @@ def test_generated_profiles_are_clean_and_priced_from_wage_data(monkeypatch):
     assert "Redwood Logistics" in prompt and "Never write a name" in prompt
 
 
+def test_buyer_titles_are_never_candidate_titles(monkeypatch):
+    monkeypatch.setattr(fa, "_is_thrivemodal", lambda: True)
+    titles = fa._tm_profile_titles(
+        "Owner/Principal, VP of Operations, Controller/CFO, Leasing Coordinator",
+        "property management")
+    assert titles[0] == "Leasing Coordinator"
+    assert not any(fa._TM_BUYER_TITLE_RE.search(t) for t in titles)
+
+
+def test_priced_profiles_come_first(monkeypatch):
+    _fake_model(monkeypatch, {"profiles": [
+        {"title": "Load Planner", "years": 4, "bullets": ["a b", "c d"]},
+        {"title": "Track and Trace Specialist", "years": 4,
+         "bullets": ["a b", "c d"]}]})
+    out = fa._tm_generate_campaign_profiles(None, 3, "", "freight brokerage")
+    assert [p["title"] for p in out] == ["Track and Trace Specialist",
+                                         "Load Planner"]
+
+
 def test_bullets_never_carry_pay_or_promises():
     for bad in ("Earns $12/hr", "Cut costs 40%", "Available to start Monday",
                 "Resume attached", "On our newsletter list"):
