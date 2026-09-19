@@ -54011,6 +54011,8 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
         # bullets (2-3 lines each) fit without overflow.
         _content_h = {1: 220, 2: 360, 3: 290}.get(_density, 290)
 
+        _row_starts = {sum(_rows_layout[:k]) for k in range(len(_rows_layout))}
+
         def _render_cand_card(cand: dict, idx: int) -> str:
             _bullets = cand.get("bullets") or []
             if not _bullets and (cand.get("qa") or []):
@@ -54155,6 +54157,24 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             # height so bottoms always line up. Content is top-anchored
             # (valign="top") so any extra space lands at the bottom.
             _outer_h = _content_h + 5  # +5 for the accent bar row
+            if _SALES_MODE:
+                # Flush cards (Mike 2026-09-19): plain cells of one shared
+                # table, so they sit edge to edge and a row is as tall as
+                # its longest card. The border and shadow are on the row
+                # table; a hairline divides neighbours.
+                _divider = (f'border-left:1px solid {nc["hairline"]};'
+                            if idx not in _row_starts else "")
+                return (
+                    f'<td width="{_card_widths[idx]}" valign="top" '
+                    f'style="vertical-align:top;background:#FFFFFF;'
+                    f'border-top:5px solid {nc["primary"]};{_divider}'
+                    f'padding:{_pad};">'
+                    + _label_html
+                    + f'<div style="height:8px;line-height:0;font-size:0;">&nbsp;</div>'
+                    + _meta_html
+                    + _bullets_html
+                    + '</td>'
+                )
             return (
                 f'<td width="{_card_widths[idx]}" valign="top" '
                 f'height="{_outer_h}" '
@@ -54198,15 +54218,26 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             for _j in range(_row_size):
                 _global_idx = _offset + _j
                 if _global_idx >= _n: break
-                if _j > 0:
+                if _j > 0 and not _SALES_MODE:
                     _row_cells += '<td width="10" style="width:10px;"></td>'
                 _row_cells += _render_cand_card(_spotlights[_global_idx], _global_idx)
             # Pad short rows (e.g. 5 cards → row 2 has 2 of 3 slots filled)
-            if _row_size > (_n - _offset):
+            if _row_size > (_n - _offset) and not _SALES_MODE:
                 _missing = _row_size - (_n - _offset)
                 for _k in range(_missing):
                     _row_cells += f'<td width="10" style="width:10px;"></td>'
                     _row_cells += f'<td width="{_card_pct}" style="width:{_card_pct};"></td>'
+            if _SALES_MODE:
+                # One bordered table per row keeps the flush cards equal
+                # height; short rows (5 of 6) just end early.
+                _row_cells = (
+                    f'<td colspan="99" style="padding:0;">'
+                    f'<table cellpadding="0" cellspacing="0" width="100%" '
+                    f'style="border-collapse:separate;border-spacing:0;'
+                    f'table-layout:fixed;border:1px solid {nc["hairline"]};'
+                    f'border-radius:14px;overflow:hidden;background:#FFFFFF;'
+                    f'box-shadow:0 6px 18px rgba(18,35,58,0.10);">'
+                    f'<tr>{_row_cells}</tr></table></td>')
             _rows_html += f'<tr>{_row_cells}</tr>'
             # Spacer row between card rows
             if _row_idx < len(_rows_layout) - 1:
@@ -54235,11 +54266,17 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
     # with them at the top of the issue.
     sections_html += _around_town_html
 
-    _obj = data.get("objection") if isinstance(data.get("objection"), dict) else {}
-    if (_obj.get("question") or "").strip() and (_obj.get("answer") or "").strip():
-        _inner = (f'<div style="{_section_h}font-style:italic;">&ldquo;{_nl_md(_obj["question"])}&rdquo;</div>'
-                  f'<p style="{_body_p}margin:0;">{_nl_md(_obj["answer"])}</p>')
-        sections_html += _nl_section("The Question We Hear Most", _inner)
+    _qas = [o for o in (data.get("objection"), data.get("objection_2"))
+            if isinstance(o, dict) and (o.get("question") or "").strip()
+            and (o.get("answer") or "").strip()]
+    if _qas:
+        _inner = "".join(
+            f'<div style="{_section_h}font-style:italic;{"margin-top:14px;" if i else ""}">'
+            f'&ldquo;{_nl_md(o["question"])}&rdquo;</div>'
+            f'<p style="{_body_p}margin:0;">{_nl_md(o["answer"])}</p>'
+            for i, o in enumerate(_qas))
+        sections_html += _nl_section("The Questions We Hear Most" if len(_qas) > 1
+                                     else "The Question We Hear Most", _inner)
 
     _story = data.get("story") if isinstance(data.get("story"), dict) else {}
     if (_story.get("text") or "").strip() or (_story.get("quote") or "").strip():
@@ -55511,16 +55548,25 @@ _TM_NL_OBJECTIONS = [
     "Who actually employs them?",
 ]
 
+# Asked in every issue after the month's question (Mike, 2026-09-19).
+_TM_NL_STANDING_Q = "What if they don't work out?"
+
 # Extra steer for questions whose honest answer is easy to get wrong.
 _TM_NL_ANSWER_HINTS = {
     "But how is their English?": (
         "Answer it as \"you will hear it before you hire\": ThriveModal "
         "screens heavily first, and every candidate goes through multiple "
-        "interviews with ThriveModal before the client ever meets them "
-        "(Mike, 2026-09-19). The client then watches each candidate's video "
+        "interviews with ThriveModal before the client ever meets them. "
+        "The client then watches each candidate's video "
         "pre-screen and interviews them directly, so nobody joins whose "
         "communication is not right for the role. Say nothing about English, "
         "accents or culture in the Philippines as a group."),
+    _TM_NL_STANDING_Q: (
+        "Answer with the lifetime free replacement: if the placement does not "
+        "work out, ThriveModal replaces the person at no cost, and the client "
+        "stays on month-to-month terms with no cancellation fee. Word it as "
+        "the playbook does; no replacement window, timeline or performance "
+        "guarantee."),
 }
 
 _TM_NL_ROLES = {
@@ -55732,7 +55778,9 @@ def _tm_newsletter_prompt(nl_name: str, company: str, niche: str, region: str,
         f"Adapt the headline to {_niche}.\n"
         f"QUESTION OF THE MONTH: \"{plan['objection']}\" Answer it plainly "
         f"and honestly within the playbook rules. "
-        f"{_TM_NL_ANSWER_HINTS.get(plan['objection'], '')}\n\n"
+        f"{_TM_NL_ANSWER_HINTS.get(plan['objection'], '')}\n"
+        f"SECOND QUESTION, every issue: \"{_TM_NL_STANDING_Q}\" "
+        f"{_TM_NL_ANSWER_HINTS[_TM_NL_STANDING_Q]}\n\n"
         f"WHY NOW: use web search for 2 REAL, recent U.S. figures that show why "
         f"{_niche} owners are looking at their labor costs (wage growth for "
         f"this industry's office or operations roles, openings, or turnover). "
@@ -55764,10 +55812,11 @@ def _tm_newsletter_prompt(nl_name: str, company: str, niche: str, region: str,
         '  "why_now": {"source_note": "source and release, e.g. BLS, August 2026", '
         '"stats": [{"label": "2-3 words", "value": "REAL compact number like 4.1% or $24.10/hr", '
         '"change": "YoY or MoM change, or empty", "trend": "up|down|flat"}]},\n'
-        f'  "feature": {{"headline": "article headline", "paragraphs": ["3 paragraphs of 50-80 words, '
+        f'  "feature": {{"headline": "article headline", "paragraphs": ["EXACTLY 2 paragraphs of 50-80 words, '
         f'concrete and specific to {_niche}; you may **bold** one key phrase per paragraph"], '
         f'"takeaways": ["3 short, practical takeaways"]}},\n'
-        f'  "objection": {{"question": "{plan["objection"]}", "answer": "3-4 sentences"}},\n'
+        f'  "objection": {{"question": "{plan["objection"]}", "answer": "2 short sentences"}},\n'
+        f'  "objection_2": {{"question": "{_TM_NL_STANDING_Q}", "answer": "2 short sentences"}},\n'
         + _story_schema +
         '  "next_step": "one sentence: a small, low-effort ask tied to the article, e.g. reply '
         'with one recurring task and we will map it to a role",\n'
@@ -56211,6 +56260,8 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         _why = result.get("why_now") if isinstance(result.get("why_now"), dict) else {}
         _feat = result.get("feature") if isinstance(result.get("feature"), dict) else {}
         _obj = result.get("objection") if isinstance(result.get("objection"), dict) else {}
+        _obj2 = result.get("objection_2") if isinstance(result.get("objection_2"), dict) else {}
+        _feat = dict(_feat, paragraphs=(_feat.get("paragraphs") or [])[:2])
         nl_data.update({
             "tagline": (f"Offshore Staffing Insights for {_industry_lbl.title()}"
                         if _industry_lbl else "Offshore Staffing Insights"),
@@ -56237,6 +56288,8 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
                  if str(r).strip()] + [_tm_plan["role"]],
                 company or "offshore"),
             "objection": dict(_obj, question=_tm_plan["objection"]),
+            "objection_2": (dict(_obj2, question=_TM_NL_STANDING_Q)
+                            if _tm_plan["objection"] != _TM_NL_STANDING_Q else {}),
             "story": (result.get("story") if _tm_plan["story"]
                       and isinstance(result.get("story"), dict) else {}),
             "next_step": (result.get("next_step") or "").strip(),

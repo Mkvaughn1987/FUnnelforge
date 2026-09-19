@@ -144,3 +144,29 @@ def test_footer_takes_a_lighter_logo_blue_on_thrivemodal_only(monkeypatch):
     assert fa._nl_footer_blue(img) == ""
     src = inspect.getsource(fa._render_newsletter_html)
     assert "{_footer_logo_html}" in src and '_footer_bg or nc["navy_deep"]' in src
+
+
+def test_two_paragraphs_and_the_standing_question(monkeypatch):
+    # Mike 2026-09-19: article cut to 2 paragraphs, shorter answers, and
+    # "What if they don't work out?" (lifetime free replacement) every issue.
+    monkeypatch.setattr(fa, "_is_thrivemodal", lambda cfg=None: True)
+    plan = fa._tm_newsletter_plan("Property Management", 2026, 10, 0)
+    p = fa._tm_newsletter_prompt("x", "ThriveModal", "Property Management", "",
+                                 "October 2026", plan, "", "", "", "")
+    assert "EXACTLY 2 paragraphs" in p and "3 paragraphs" not in p
+    assert '"objection_2"' in p and "lifetime free replacement" in p
+    assert "(Mike," not in p  # the hint's source note leaked into the copy
+    html = fa._render_newsletter_html({
+        "newsletter_name": "x",
+        "objection": {"question": "But how is their English?", "answer": "A."},
+        "objection_2": {"question": fa._TM_NL_STANDING_Q, "answer": "B."}})
+    assert "The Questions We Hear Most" in html and html.count("&ldquo;") >= 2
+
+
+def test_sales_profile_cards_sit_flush(monkeypatch):
+    monkeypatch.setattr(fa, "_SALES_MODE", True)
+    cards = [{"name": f"Candidate {c}", "title": "Bookkeeper", "bullets": ["x"]}
+             for c in "ABC"]
+    html = fa._render_newsletter_html({"newsletter_name": "x", "spotlights": cards})
+    assert 'width="10"' not in html  # no gutter cells between cards
+    assert html.count("border-left:1px solid") == 2
