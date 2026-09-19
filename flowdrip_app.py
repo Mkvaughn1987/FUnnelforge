@@ -53368,7 +53368,10 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
     _local_stats = [s for s in _local_stats
                     if isinstance(s, dict) and _valid_val(s.get("value", ""))]
 
-    _has_national = bool(_jolts_stats)
+    # ThriveModal: one blue U.S.-wage box + one green ThriveModal-wage box
+    # for the campaign's position, replacing the AI stats (Arena never sets it).
+    _wc = data.get("wage_compare") if isinstance(data.get("wage_compare"), dict) else None
+    _has_national = bool(_jolts_stats) or bool(_wc)
     _has_local = bool(_local_stats)
 
     if (_has_national or _has_local) and _show("show_jolts"):
@@ -53444,62 +53447,32 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
                 cells.append(_stat_cell(stat, col_w))
             return f'<tr>{"".join(cells)}</tr>'
 
-        def _savings_row(stats: list, cfg) -> str:
-            """Green boxes under the Why Now stats (ThriveModal only; Arena
-            never sets jolts_savings). A wage stat gets the same wage cut by
-            pct; any other stat gets the Cost Math yearly savings figure."""
-            if not isinstance(cfg, dict) or not stats:
-                return ""
-            pct = float(cfg.get("pct") or 0.6)
-            brand = str(cfg.get("brand") or "Offshore")
-            _green, _navy = "#84BF55", "#082139"
-
-            def _money(n: float, cents: bool) -> str:
-                return f"${n:,.2f}" if cents else f"${round(n, -2):,.0f}"
-
-            def _wage_cell(stat: dict):
-                val = str(stat.get("value", "") or "")
-                lbl = str(stat.get("label", "") or "").lower()
-                m = re.search(r"\$\s*([\d,]+(?:\.\d+)?)\s*([kK])?\s*(?:/\s*(hr|hour|h|yr|year|annual))?", val)
-                if not m:
-                    return None
-                unit = (m.group(3) or "").lower()
-                if not unit and not re.search(r"wage|pay|salary|earning|comp", lbl):
-                    return None
-                amt = float(m.group(1).replace(",", "")) * (1000 if m.group(2) else 1)
-                hourly = unit in ("hr", "hour", "h") or (not unit and amt < 500)
-                ours = amt * (1 - pct)
-                yearly_save = (amt - ours) * (2080 if hourly else 1)
-                return (f"With {brand}",
-                        _money(ours, hourly) + ("/hr" if hourly else "/yr"),
-                        f"&#9660; {pct:.0%} less &middot; saves ~{_money(yearly_save, False)}/yr")
-
-            cells, any_cell = [], False
-            col_w = f"{100 // len(stats)}%"
-            for i, stat in enumerate(stats):
-                if i > 0:
-                    cells.append('<td width="6" style="width:6px;"></td>')
-                c = _wage_cell(stat)
-                if c is None and cfg.get("fallback"):
-                    c = ("Est. savings per hire", f"{cfg['fallback']}/yr",
-                         f"with {brand}, vs. a local hire")
-                if c is None:
-                    cells.append(f'<td width="{col_w}"></td>')
-                    continue
-                any_cell = True
-                cells.append(
-                    f'<td width="{col_w}" style="background:{_green};border-radius:10px;'
-                    f'padding:11px 6px;vertical-align:top;" align="center">'
+        def _wage_compare_row(wc: dict) -> str:
+            """Blue U.S. wage box + green ThriveModal wage box for one role."""
+            def _cell(bg, ink, sub_ink, label, value, sub):
+                return (
+                    f'<td width="50%" style="background:{bg};border-radius:10px;'
+                    f'padding:12px 8px;vertical-align:top;" align="center">'
                     f'<div style="font-family:{_FONT};font-size:9px;font-weight:700;'
-                    f'color:{_navy};text-transform:uppercase;letter-spacing:1.2px;'
-                    f'margin-bottom:4px;white-space:nowrap;">{c[0]}</div>'
-                    f'<div style="font-family:{_DISPLAY_FONT};font-size:22px;'
-                    f'color:{_navy};font-weight:400;letter-spacing:-0.3px;'
-                    f'line-height:1.1;">{c[1]}</div>'
-                    f'<div style="font-size:10px;color:{_navy};font-family:{_FONT};'
-                    f'letter-spacing:0.2px;margin-top:3px;font-weight:600;">{c[2]}</div>'
+                    f'color:{sub_ink};text-transform:uppercase;letter-spacing:1.2px;'
+                    f'margin-bottom:4px;">{label}</div>'
+                    f'<div style="font-family:{_DISPLAY_FONT};font-size:24px;'
+                    f'color:{ink};font-weight:400;letter-spacing:-0.3px;'
+                    f'line-height:1.1;">{value}</div>'
+                    f'<div style="font-size:11px;color:{sub_ink};font-family:{_FONT};'
+                    f'margin-top:4px;font-weight:600;line-height:1.35;">{sub}</div>'
                     f'</td>')
-            return f'<tr>{"".join(cells)}</tr>' if any_cell else ""
+            return (
+                '<tr>'
+                + _cell(nc["primary"], "#FFFFFF", "#E0E7F1",
+                        f"Average U.S. wage", wc["us_hr"],
+                        f'{wc["role"]}<br>{wc["us_yr"]}/yr')
+                + '<td width="6" style="width:6px;"></td>'
+                + _cell("#84BF55", "#082139", "#082139",
+                        f'Average {wc.get("brand") or "offshore"} wage', wc["tm_hr"],
+                        f'{wc["role"]}<br>&#9660; {wc["pct"]} less, '
+                        f'saves ~{wc["save_yr"]}/yr')
+                + '</tr>')
 
         def _sub_label(text: str) -> str:
             return (
@@ -53512,25 +53485,20 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
         _sources = []
 
         # National numbers only
-        if _has_national:
+        if _wc:
+            _inner_html += (
+                f'<table cellpadding="0" cellspacing="0" width="100%"'
+                f' style="border-collapse:separate;border-spacing:0;table-layout:fixed;">'
+                f'{_wage_compare_row(_wc)}</table>'
+            )
+            _sources.append(_wc.get("source") or "BLS")
+        elif _has_national:
             _inner_html += (
                 f'<table cellpadding="0" cellspacing="0" width="100%"'
                 f' style="border-collapse:separate;border-spacing:0;table-layout:fixed;">'
                 f'{_build_stat_row(_jolts_stats)}</table>'
             )
             _sources.append((_jolts.get("source_note") or "BLS JOLTS, latest release").strip())
-            _sv_row = _savings_row(_jolts_stats[:5], data.get("jolts_savings"))
-            if _sv_row:
-                _inner_html += (
-                    f'<table cellpadding="0" cellspacing="0" width="100%"'
-                    f' style="border-collapse:separate;border-spacing:0;'
-                    f'table-layout:fixed;margin-top:6px;">{_sv_row}</table>'
-                )
-                _pct_txt = f"{data['jolts_savings'].get('pct', 0.6):.0%}"
-                _sources.append(
-                    f"{data['jolts_savings'].get('brand') or 'Offshore'} figures are "
-                    f"estimates at {_pct_txt} below the U.S. rate shown (published "
-                    f"range up to 60-70%); the actual figure is confirmed in a quote")
 
         _takeaway =(_jolts.get("takeaway") or "").strip()
         _takeaway_html = (
@@ -55411,6 +55379,44 @@ def _tm_profile_role(title: str) -> str:
     return re.split(r"[,\u2022\u00b7|(]| - ", str(title or ""), maxsplit=1)[0].strip()
 
 
+def _tm_wage_compare(client, positions: list, brand: str) -> dict:
+    """Why Now boxes for the first position with a U.S. wage: average U.S.
+    wage vs the ThriveModal wage at _TM_AUTO_SAVINGS less. {} if none."""
+    for pos in positions:
+        pos = str(pos or "").strip().rstrip(".")
+        role = _tm_profile_role(pos) if pos else ""
+        if not role:
+            continue
+        bench = _tm_benchmark(_tm_match_benchmark(role))
+        base, src = (float(bench["base"]), f"BLS, {bench.get('occupation') or role}"
+                     ) if bench else (None, "")
+        if not base:
+            try:
+                found = _tm_lookup_local_salary(client, role, "")
+            except Exception:
+                found = None
+            if found:
+                base, src = float(found["salary"]), found.get("source") or "BLS"
+        if not base or base <= 0:
+            continue
+        us_hr = base / 2080.0
+        tm_hr = us_hr * (1 - _TM_AUTO_SAVINGS)
+        return {
+            "role": pos[:1].upper() + pos[1:],
+            "brand": brand,
+            "us_hr": f"${us_hr:,.2f}/hr",
+            "us_yr": f"${round(base, -2):,.0f}",
+            "tm_hr": f"${tm_hr:,.2f}/hr",
+            "pct": f"{_TM_AUTO_SAVINGS:.0%}",
+            "save_yr": f"${round((us_hr - tm_hr) * 2080, -2):,.0f}",
+            "source": (f"U.S. wage: {src} median. {brand} wage is an estimate "
+                       f"{_TM_AUTO_SAVINGS:.0%} below it, within the published "
+                       f"range of up to 60-70%; the actual figure is confirmed "
+                       f"in a quote"),
+        }
+    return {}
+
+
 def _tm_profile_rate(client, title: str) -> str:
     """'Est. $9-$11/hr' for a profile's job title, or "" when no U.S. wage
     is found for it."""
@@ -55990,7 +55996,6 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         _why = result.get("why_now") if isinstance(result.get("why_now"), dict) else {}
         _feat = result.get("feature") if isinstance(result.get("feature"), dict) else {}
         _obj = result.get("objection") if isinstance(result.get("objection"), dict) else {}
-        _tm_cm = _tm_newsletter_cost_math(client, _tm_plan["role"], region)
         nl_data.update({
             "tagline": (f"Offshore Staffing Insights for {_industry_lbl.title()}"
                         if _industry_lbl else "Offshore Staffing Insights"),
@@ -56002,16 +56007,20 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
             "market_update": "",
             "top_news": [],
             "feature": dict(_feat, label=f"This Month: {_tm_plan['angle']}"),
-            # Role of the Month + Cost Math removed (Mike 2026-09-19);
-            # _tm_cm still feeds the green Why Now savings fallback.
+            # Role of the Month + Cost Math removed (Mike 2026-09-19).
             "role_of_month": {},
             "cost_math": {},
-            # Green "with ThriveModal" row under the Why Now wage boxes.
-            "jolts_savings": {
-                "pct": 0.60, "brand": company or "Offshore",
-                "fallback": (_tm_cm.get("rows") or [[None, ""]] * 3)[2][1]
-                            if _tm_cm else "",
-            },
+            # Why Now = blue U.S. wage vs green ThriveModal wage for the
+            # campaign's Target Positions (first with a wage), else the
+            # issue's role; falls back to the AI stats if neither has one.
+            "wage_compare": _tm_wage_compare(
+                client,
+                [r.strip() for r in (
+                    (_target_roles.split(",") if isinstance(_target_roles, str)
+                     else list(_target_roles))
+                    + str((camp.get("variables") or {}).get("TargetRole") or "").split(","))
+                 if str(r).strip()] + [_tm_plan["role"]],
+                company or "offshore"),
             "objection": dict(_obj, question=_tm_plan["objection"]),
             "story": (result.get("story") if _tm_plan["story"]
                       and isinstance(result.get("story"), dict) else {}),
