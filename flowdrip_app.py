@@ -23039,7 +23039,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                     steps[idx]["script_notes"] = script_area.value or ""
                 ui.notify("✓ Saved", type="positive", timeout=1500)
 
-            def _preview_email(idx=active):
+            async def _preview_email(idx=active):
                 if not is_email_step or subj_inp is None or body_area is None:
                     ui.notify("Preview only available for email steps.", type="warning")
                     return
@@ -23065,14 +23065,21 @@ def _sq_loaded_campaign(s: AppState, rf):
                 ui.notify("Sending preview…", type="info")
                 _for_user = getattr(s, '_user_email', '')
                 def _send():
-                    ok, err = _send_email_universal(
-                        to=to_addr, subject=subj, html_body=body_html,
-                        attachments=atts, is_preview=True,
-                        _for_user_email=_for_user,
-                    )
-                    if not ok:
-                        print(f"[Preview] Failed: {err}")
-                threading.Thread(target=_send, daemon=True).start()
+                    try:
+                        return _send_email_universal(
+                            to=to_addr, subject=subj, html_body=body_html,
+                            attachments=atts, is_preview=True,
+                            _for_user_email=_for_user,
+                        )
+                    except Exception as _pex:
+                        return False, str(_pex)[:200]
+                ok, err = await asyncio.get_event_loop().run_in_executor(None, _send)
+                if ok:
+                    ui.notify(f"Preview sent to {to_addr}.", type="positive")
+                else:
+                    print(f"[Preview] Failed: {err}", flush=True)
+                    ui.notify(f"Preview didn't send: {err}", type="negative",
+                              timeout=12000, multi_line=True, close_button=True)
 
             with ui.element("div").style("display:flex;gap:12px;justify-content:flex-end;margin-top:12px;align-items:center;"):
                 with ui.element("button").classes("fd-gb").style("padding:8px 20px;").on("click", _save_email):
@@ -31737,7 +31744,7 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
             # client before saving / sending. User report 2026-05-04:
             # "What happened to the button to send a preview?" — the
             # SlowDrip card has one, but the focused edit modal didn't.
-            def _send_preview_modal():
+            async def _send_preview_modal():
                 _body_now = _body_editor.value or state["body"] or ""
                 _subj_now = (_subj_inp.value or state["subject"] or "").strip()
                 if not _body_now.strip():
@@ -31764,24 +31771,29 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
 
                 def _send_prev_bg():
                     try:
-                        ok, err = _send_email_universal(
-                            to=_inbox, subject=f"[PREVIEW] {_subj_now}",
+                        # is_preview adds the [PREVIEW] prefix itself.
+                        return _send_email_universal(
+                            to=_inbox, subject=_subj_now,
                             html_body=_body_now, is_preview=True,
                             _for_user_email=_for,
                         )
-                        if not ok:
-                            print(
-                                f"[NewsletterEditModal] preview send failed: {err}",
-                                flush=True)
                     except Exception as _pex:
-                        print(
-                            f"[NewsletterEditModal] preview send error: {_pex}",
-                            flush=True)
+                        return False, str(_pex)[:200]
 
-                threading.Thread(target=_send_prev_bg, daemon=True).start()
-                ui.notify(
-                    f"Preview sent to {_inbox}. Check your inbox in ~30 seconds.",
-                    type="positive", timeout=4500)
+                # Wait for the real result: this used to say "Preview sent"
+                # before the send ran, so Gmail 403s were only in the journal.
+                ui.notify("Sending preview…", type="info", timeout=2000)
+                ok, err = await asyncio.get_event_loop().run_in_executor(
+                    None, _send_prev_bg)
+                if ok:
+                    ui.notify(f"Preview sent to {_inbox}.",
+                              type="positive", timeout=4500)
+                else:
+                    print(f"[NewsletterEditModal] preview send failed: {err}",
+                          flush=True)
+                    ui.notify(f"Preview didn't send: {err}",
+                              type="negative", timeout=12000, multi_line=True,
+                              close_button=True)
 
             with ui.element("button").classes("fd-gb").style(
                     "padding:8px 18px;font-size:12px;margin-left:auto;"
@@ -63188,9 +63200,19 @@ def google_auth_callback(code: str = None, error: str = None,
                 if _tm_target is not None:
                     _tm_target.parent.mkdir(parents=True, exist_ok=True)
                 _gmail_oauth.save_tokens(_tm_target or _user_config_path(), tokens)
-                _status_ok = True
-                _status_title = "Gmail Connected!"
-                _status_msg = f"Campaigns will send from {g_email}. Redirecting…"
+                # Google's consent screen lets people untick individual
+                # permissions; without gmail.send every send 403s.
+                _granted = str(result.get("scope", ""))
+                if _granted and "gmail.send" not in _granted:
+                    _status_title = "Gmail needs send permission"
+                    _status_msg = (
+                        f"{g_email} connected, but Google didn't grant permission "
+                        "to send email. Click Try Again and leave \"Send email on "
+                        "your behalf\" ticked.")
+                else:
+                    _status_ok = True
+                    _status_title = "Gmail Connected!"
+                    _status_msg = f"Campaigns will send from {g_email}. Redirecting…"
             except Exception as e:
                 _status_title = "Could not save Google credentials"
                 _status_msg = str(e)[:200]

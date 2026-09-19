@@ -253,17 +253,30 @@ def send_email(access_token: str, to: str, subject: str, html_body: str,
             body = resp.read().decode("utf-8", errors="replace")[:300]
             return False, f"Gmail HTTP {resp.status}: {body}"
     except urllib.error.HTTPError as e:
+        # Parse the FULL body: Google's 403 JSON runs past 400 chars, and
+        # truncating it first made json.loads fail so every 403 logged as a
+        # bare "Gmail HTTP 403" with the actual reason thrown away.
+        body = ""
         try:
-            body = e.read().decode("utf-8", errors="replace")[:400]
-            err_json = json.loads(body)
-            err = err_json.get("error", {})
+            body = e.read().decode("utf-8", errors="replace")
+            err = json.loads(body).get("error", {})
             if isinstance(err, dict):
-                msg = err.get("message", body)
-                code = err.get("code", e.code)
-                return False, f"Gmail ({code}): {msg}"
+                msg = err.get("message", "") or body[:300]
+                reasons = " ".join(
+                    str(d.get("reason", "")) for d in (err.get("details") or [])
+                    + (err.get("errors") or []) if isinstance(d, dict))
+                if "SCOPE_INSUFFICIENT" in reasons or "insufficient authentication scopes" in msg.lower():
+                    return False, ("Google didn't give inboxslide permission to send "
+                                   "email. Reconnect Gmail in Settings and leave the "
+                                   "\"Send email on your behalf\" box ticked.")
+                if "SERVICE_DISABLED" in reasons or "accessNotConfigured" in reasons or "has not been used in project" in msg:
+                    return False, ("The Gmail API is turned off in the Google Cloud "
+                                   "project behind this app. Enable it in Google Cloud "
+                                   "Console > APIs & Services > Library > Gmail API.")
+                return False, f"Gmail ({err.get('code', e.code)}): {msg[:300]}"
         except Exception:
             pass
-        return False, f"Gmail HTTP {e.code}"
+        return False, f"Gmail HTTP {e.code}: {body[:300]}"
     except urllib.error.URLError as e:
         return False, f"Could not reach Gmail: {e.reason}"
     except Exception as e:
