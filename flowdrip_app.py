@@ -763,6 +763,18 @@ not prospects to pitch.
 Knichel Logistics' CEO credits the consistency of its ThriveModal team with
 giving leadership more time for strategy, customers and relationships.
 
+Published quotes from Kristy Knichel, CEO and President, Knichel Logistics
+(thrivemodal.com). When quoting, copy one word for word:
+"The team Thrivemodal placed with us has been a strong fit. We've seen good
+attendance, strong performance, and people who take ownership of their
+work. That consistency allows our leadership team to focus on strategy,
+customers, and relationships instead of constantly having to fill staffing
+gaps."
+"Thrivemodal took the time to find people with logistics experience, which
+meant we were bringing in people who understood the industry and could
+contribute right away. We appreciate the effort and commitment these team
+members bring every day, and we're grateful to have them."
+
 The Travel Byrds worked with ThriveModal to hire a marketing leadership
 role offshore, and described the person as a genuine part of the team.
 
@@ -52646,6 +52658,12 @@ def _unsplash_download_variant(slug: str, cache_dir, variant: int) -> bool:
         return False
 
 
+def _nl_logo_max_h(ratio: float) -> int:
+    """Tallest the masthead logo may render. Wide wordmarks (3:1 and up,
+    Arena's) keep the original 60px cap; squarer marks get up to 120px."""
+    return 60 if ratio >= 2.5 else 120
+
+
 def _render_newsletter_html(data: dict, show: dict = None) -> str:
     """Render a complete HTML email newsletter from structured data."""
     if show is None:
@@ -52715,16 +52733,19 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             _src_img = _Image.open(_BytesIO(_src_bytes))
             _src_w, _src_h = _src_img.size
             if _src_w > 0 and _src_h > 0:
-                # Fit inside 220×60 box, preserving aspect ratio.
+                # Fit inside the 220-wide slot, preserving aspect ratio. A
+                # wide wordmark caps at 60 tall; a squarish mark (ThriveModal's
+                # is ~1.4:1) caps at 120, or it shrank to a ~80px chip.
                 _ratio = _src_w / _src_h
+                _max_h = _nl_logo_max_h(_ratio)
                 # Try fitting to width first; if too tall, refit to height.
                 _fit_w = 220
                 _fit_h = int(round(220 / _ratio))
-                if _fit_h > 60:
-                    _fit_h = 60
-                    _fit_w = int(round(60 * _ratio))
+                if _fit_h > _max_h:
+                    _fit_h = _max_h
+                    _fit_w = int(round(_max_h * _ratio))
                 _logo_w_attr = max(40, min(220, _fit_w))
-                _logo_h_attr = max(20, min(60, _fit_h))
+                _logo_h_attr = max(20, min(_max_h, _fit_h))
         except Exception:
             pass
     # Serve the logo from a URL (same as the hero / thumbnails) instead of a
@@ -53314,7 +53335,8 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
                         return name
             return ""
         _state_label = _state_from_location(_location_label)
-        _header_label = "National Labor Market Snapshot"
+        _header_label = (data.get("stats_label")
+                         or "National Labor Market Snapshot")
 
         def _trend_arrow(trend: str) -> str:
             t = (trend or "").lower().strip()
@@ -53455,6 +53477,70 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
           <div style="{_section_label}">{_label_with_icon(_mu_label)}</div>
           {_render_bullets(_deduped)}
         </td></tr>'''
+
+    # ── Offshore staffing sections (ThriveModal issues only) ──────────────
+    # Rendered only when the issue carries these keys, which only the
+    # ThriveModal generator writes, so every other newsletter is unchanged.
+    # Order: feature article, role of the month, cost math here; the
+    # objection, customer story and next step after the sample profiles.
+    import html as _nl_html
+
+    def _nl_md(txt) -> str:
+        t = _nl_html.escape(str(txt or "").strip())
+        return re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
+
+    def _nl_section(label: str, inner: str, tint: str = "intro") -> str:
+        return (f'<tr><td style="padding:18px 40px;background:{_tint(tint)};">'
+                f'<div style="{_section_label}">{_label_with_icon(_nl_md(label))}</div>'
+                f'{inner}</td></tr>')
+
+    _feat = data.get("feature") if isinstance(data.get("feature"), dict) else {}
+    _feat_paras = [p for p in (_feat.get("paragraphs") or []) if str(p).strip()]
+    if (_feat.get("headline") or "").strip() and _feat_paras:
+        _inner = f'<div style="{_section_h}font-size:20px;">{_nl_md(_feat["headline"])}</div>'
+        for _p in _feat_paras[:4]:
+            _inner += f'<p style="{_body_p}margin:0 0 10px;">{_nl_md(_p)}</p>'
+        _tk = [_nl_md(x) for x in (_feat.get("takeaways") or []) if str(x).strip()][:4]
+        if _tk:
+            _inner += (f'<div style="{_section_label}margin-top:6px;">Key takeaways</div>'
+                       + _render_bullets(_tk))
+        sections_html += _nl_section(_feat.get("label") or "This Month", _inner)
+
+    _role = data.get("role_of_month") if isinstance(data.get("role_of_month"), dict) else {}
+    if (_role.get("title") or "").strip():
+        _inner = f'<div style="{_section_h}">{_nl_md(_role["title"])}</div>'
+        if (_role.get("summary") or "").strip():
+            _inner += f'<p style="{_body_p}margin:0 0 8px;">{_nl_md(_role["summary"])}</p>'
+        _owns = [_nl_md(x) for x in (_role.get("owns") or []) if str(x).strip()][:5]
+        if _owns:
+            _inner += (f'<div style="{_section_label}margin-top:4px;">What they own</div>'
+                       + _render_bullets(_owns))
+        if (_role.get("tools") or "").strip():
+            _inner += (f'<p style="{_body_p}margin:8px 0 0;"><strong>Tools:</strong> '
+                       f'{_nl_md(_role["tools"])}</p>')
+        if (_role.get("stays_in_house") or "").strip():
+            _inner += (f'<p style="{_body_p}margin:8px 0 0;"><strong>Stays with your team:</strong> '
+                       f'{_nl_md(_role["stays_in_house"])}</p>')
+        sections_html += _nl_section("Role of the Month", _inner, "market")
+
+    _cm = data.get("cost_math") if isinstance(data.get("cost_math"), dict) else {}
+    if _cm.get("rows"):
+        _cell = f'padding:8px 10px;font-family:{_FONT};font-size:14px;color:{nc["text"]};border-bottom:1px solid {nc["hairline"]};'
+        _trs = ""
+        for _i, (_k, _v) in enumerate(_cm["rows"]):
+            _strong = _i == len(_cm["rows"]) - 1
+            _trs += (f'<tr><td style="{_cell}">{"<strong>" if _strong else ""}{_nl_md(_k)}{"</strong>" if _strong else ""}</td>'
+                     f'<td style="{_cell}text-align:right;white-space:nowrap;">'
+                     f'{"<strong>" if _strong else ""}{_nl_md(_v)}{"</strong>" if _strong else ""}</td></tr>')
+        _inner = ""
+        if (_cm.get("headline") or "").strip():
+            _inner += f'<div style="{_section_h}">{_nl_md(_cm["headline"])}</div>'
+        _inner += (f'<table cellpadding="0" cellspacing="0" width="100%" '
+                   f'style="border-collapse:collapse;">{_trs}</table>')
+        if (_cm.get("note") or "").strip():
+            _inner += (f'<div style="font-size:11px;color:{nc["muted"]};font-family:{_FONT};'
+                       f'font-style:italic;margin-top:8px;line-height:1.45;">{_nl_md(_cm["note"])}</div>')
+        sections_html += _nl_section("The Cost Math", _inner)
 
     # ── Around Town  -  2 relevant local articles ───────────────────────
     # 2026-05-16: render order swapped — this block now BUILDS the HTML
@@ -53846,6 +53932,32 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
     # with them at the top of the issue.
     sections_html += _around_town_html
 
+    _obj = data.get("objection") if isinstance(data.get("objection"), dict) else {}
+    if (_obj.get("question") or "").strip() and (_obj.get("answer") or "").strip():
+        _inner = (f'<div style="{_section_h}font-style:italic;">&ldquo;{_nl_md(_obj["question"])}&rdquo;</div>'
+                  f'<p style="{_body_p}margin:0;">{_nl_md(_obj["answer"])}</p>')
+        sections_html += _nl_section("The Question We Hear Most", _inner)
+
+    _story = data.get("story") if isinstance(data.get("story"), dict) else {}
+    if (_story.get("text") or "").strip() or (_story.get("quote") or "").strip():
+        _inner = f'<div style="border-left:3px solid {nc["primary"]};padding:2px 0 2px 14px;">'
+        if (_story.get("text") or "").strip():
+            _inner += f'<p style="{_body_p}margin:0 0 8px;">{_nl_md(_story["text"])}</p>'
+        _q = str(_story.get("quote") or "").strip().strip('"\u201c\u201d')
+        if _q:
+            _inner += (f'<p style="{_body_p}margin:0;font-style:italic;">'
+                       f'&ldquo;{_nl_md(_q)}&rdquo;</p>')
+        if (_story.get("attribution") or "").strip():
+            _inner += (f'<div style="font-size:12px;color:{nc["muted"]};font-family:{_FONT};'
+                       f'margin-top:6px;font-weight:600;">{_nl_md(_story["attribution"])}</div>')
+        _inner += '</div>'
+        sections_html += _nl_section("From Our Clients", _inner, "market")
+
+    if (data.get("next_step") or "").strip():
+        sections_html += _nl_section(
+            "Your Next Step",
+            f'<p style="{_body_p}margin:0;font-weight:500;">{_nl_md(data["next_step"])}</p>')
+
     # ── "Meet Your Hiring Partner" section ─────────────────────────────────────
     # Personal update from the sender. Vertically stacked and horizontally
     # centered so it visually aligns with the "Let's Talk" CTA that follows
@@ -53920,7 +54032,7 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
                 {_avatar_img}
                 <div style="font-family:{_FONT};font-size:10px;font-weight:700;
                      color:{nc["primary"]};text-transform:uppercase;
-                     letter-spacing:1.6px;margin:4px 0 6px;">Meet Your Hiring Partner</div>
+                     letter-spacing:1.6px;margin:4px 0 6px;">{data.get("partner_label") or "Meet Your Hiring Partner"}</div>
                 <div style="font-family:{_DISPLAY_FONT};font-size:14px;
                      color:{nc["text"]};line-height:1.55;font-style:italic;">
                   {_note_body}
@@ -53950,7 +54062,7 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
         sections_html += f'''
         <tr><td style="padding:14px 40px 40px;text-align:center;background:#FFFFFF;">
           <div style="font-size:13px;color:{nc["muted"]};font-family:{_FONT};letter-spacing:0.3px;">
-            Would you like to learn more about a candidate or just chat?
+            {data.get("cta_line") or "Would you like to learn more about a candidate or just chat?"}
             <a href="{cta_url}" target="_blank"
                style="color:{nc["primary"]};text-decoration:underline;font-weight:600;">Email me</a>.
           </div>
@@ -54210,6 +54322,27 @@ def _resolve_holiday_day(year: int, month: int, rule: tuple) -> int | None:
     return None
 
 
+# ThriveModal's holiday notes. Arena's above are recruiting and trades copy
+# ("the right hire", "the jobsite"); a ThriveModal reader is an owner
+# deciding about offshore capacity. A Settings override still wins.
+_TM_HOLIDAY_NOTES = {
+    "New Year's Day": "Here's to a year with a little more capacity and a lot less catch-up.",
+    "MLK Day": "Honoring the dream and the work that continues, in every community and on every team.",
+    "Valentine's Day": "A little appreciation goes a long way, for your team, your clients and the people who keep the work moving.",
+    "St. Patrick's Day": "Wishing you a little luck this month, and a team that doesn't need it.",
+    "Easter": "Hope you got real time with the people who matter this weekend.",
+    "Mother's Day": "Happy Mother's Day to all the moms holding it down, at home and at work.",
+    "Memorial Day": "Remembering those who gave everything. Grateful for their service and their families.",
+    "Father's Day": "Happy Father's Day to all the dads out there.",
+    "Juneteenth": "Recognizing freedom and progress, and the opportunity that should reach everyone.",
+    "Independence Day": "Wishing you a safe and happy 4th with the people you love.",
+    "Labor Day": "Thank you to everyone whose work keeps business moving. Enjoy the long weekend.",
+    "Halloween": "Hope your week brings more treats than tricks, and fewer surprises in the inbox.",
+    "Thanksgiving": "Grateful for the clients and teams we get to work with, here and in the Philippines.",
+    "Christmas": "Wishing you peace and rest with your people. Here's to starting the new year with the right team in place.",
+}
+
+
 def _holidays_for_month(year: int, month: int,
                         overrides: dict | None = None) -> list[tuple]:
     """Return a list of (day_int, name, note) for the given month/year,
@@ -54235,6 +54368,11 @@ def _holidays_for_month(year: int, month: int,
             note = overrides[month_key]
         else:
             note = h["note"]
+            try:
+                if _SALES_MODE and _is_thrivemodal():
+                    note = _TM_HOLIDAY_NOTES.get(h["name"], note)
+            except Exception:
+                pass
         out.append((day, h["name"], note))
     out.sort(key=lambda t: t[0])
     return out
@@ -54902,7 +55040,8 @@ def _tm_profiles_rules(niche: str, n: int, recommendations: str = "") -> str:
         "real U.S. tools and software they use, and the U.S. work they have "
         "done. These are illustrative composites, NOT real people: no names, "
         "no photos, no employers named as current clients, no pay, salary, "
-        "rate or cost figure of any kind, and no claims about nationality, "
+        "rate or cost figure of any kind, no performance metrics or "
+        "percentages, no shift times, and no claims about nationality, "
         "English fluency or work ethic.")
 
 
@@ -54964,6 +55103,253 @@ def _tm_spotlight_prompt_block(niche: str, n: int,
             for i in range(n))
         + '\n  ],\n')
     return (instruction, schema)
+
+
+# ── ThriveModal newsletter: offshore staffing, one angle per issue ────────
+# Arena's newsletter is a recruiting market report (JOLTS grid, city life,
+# candidates). A ThriveModal reader is deciding whether to put recurring work
+# offshore, so each issue is ONE article on a 12-month editorial calendar,
+# plus a rotating Role of the Month, the Cost Math for that role (computed
+# here from the BLS lookup, never by the model), one objection answered, a
+# customer story every third issue, and one small next step. Everything
+# rotates on the issue's send month, so a year of issues never repeats.
+_TM_NL_ANGLES = {
+    1: ("Start With One Workflow",
+        "how to scope a first offshore role around one bounded, recurring "
+        "responsibility, with a named manager, a baseline and a review plan"),
+    2: ("Offshore Staffing: Myths and Reality",
+        "the common assumptions owners have about offshore staffing and what "
+        "a dedicated, full-time model actually looks like day to day"),
+    3: ("The First 90 Days",
+        "what onboarding a dedicated offshore professional looks like: "
+        "documenting the work, the first weeks, check-ins and ramp-up"),
+    4: ("How Access and Security Are Set Up",
+        "how a dedicated offshore professional gets access to your systems: "
+        "NDAs, one-client dedication, isolated workstations and a secure VPN, "
+        "described as practices, not certifications"),
+    5: ("Which Roles Move Well Offshore",
+        "which recurring, computer-based work moves well offshore in this "
+        "industry and which work should stay with the local team"),
+    6: ("Working Across Time Zones",
+        "how teams split the day with a Philippines-based professional who "
+        "works U.S. hours, handoffs, and when the time difference is useful"),
+    7: ("From One Hire to a Team",
+        "how companies grow from one dedicated offshore professional to a "
+        "small team once the first role is working"),
+    8: ("Get Ahead of Q4",
+        "adding capacity before the busy season in this industry instead of "
+        "hiring in the middle of it"),
+    9: ("What Offshore Teams Take Off the Plate",
+        "the kinds of recurring work companies in this industry move "
+        "offshore and what it frees the local team to do"),
+    10: ("The Work That Piles Up After 5pm",
+         "the evening and after-hours queue in this industry and how a "
+         "dedicated professional on a different shift keeps it moving"),
+    11: ("Protect Your Senior People's Time",
+         "the preparation and admin work that reaches senior staff "
+         "unnecessarily, and moving it to a dedicated professional"),
+    12: ("Budgeting Next Year's Headcount",
+         "planning next year's hires by comparing a local hire and a "
+         "dedicated offshore professional like for like, fully burdened"),
+}
+
+_TM_NL_OBJECTIONS = [
+    "We need someone who knows our industry.",
+    "We tried outsourcing before and it didn't work.",
+    "I don't have time to manage another person.",
+    "Our customers expect someone local.",
+    "Is our data safe?",
+    "How much would we actually save?",
+    "Can one person cover us around the clock?",
+    "We only need a few hours a week.",
+    "We already have offshore help.",
+    "How fast can someone start?",
+    "Will they work our hours?",
+    "Who actually employs them?",
+]
+
+_TM_NL_ROLES = {
+    "logistics": ["Track and Trace Specialist", "Freight Billing and Audit Specialist",
+                  "Dispatch Support Specialist", "Carrier Sales Support",
+                  "Load Planner", "Accounts Receivable Specialist",
+                  "Customer Service Representative", "Documentation Specialist",
+                  "Data Entry Specialist"],
+    "accounting": ["Staff Accountant", "Bookkeeper", "Accounts Payable Specialist",
+                   "Accounts Receivable Specialist", "Payroll Specialist",
+                   "Tax Preparer", "Audit Support Specialist", "Billing Specialist",
+                   "Collections Specialist"],
+    "property_management": ["Maintenance Coordinator", "Leasing Coordinator",
+                            "Property Accountant", "Tenant Services Representative",
+                            "Accounts Payable Specialist", "Transaction Coordinator",
+                            "Listing and Marketing Coordinator",
+                            "Administrative Assistant"],
+    "healthcare_admin": ["Medical Biller", "Insurance Verification Specialist",
+                         "Prior Authorization Specialist", "Patient Scheduler",
+                         "Claims Follow Up Specialist", "Credentialing Coordinator",
+                         "Front Office Support Specialist"],
+    "home_care": ["Scheduling Coordinator", "Recruiting Coordinator",
+                  "Intake Coordinator", "Onboarding and Credentialing Coordinator",
+                  "Caregiver Sourcer", "Payroll and Billing Specialist",
+                  "Client Services Representative"],
+    "construction_aec": ["Project Coordinator", "Estimating Assistant",
+                         "Accounts Payable Specialist", "Document Controller",
+                         "Administrative Assistant"],
+    "general_offshore": ["Executive Assistant", "Bookkeeper",
+                         "Customer Service Representative", "Administrative Assistant",
+                         "Accounts Receivable Specialist", "Data Entry Specialist",
+                         "Marketing Coordinator", "Order Entry Specialist"],
+}
+
+
+# Sonnet, not Haiku: a Haiku draft of this prompt invented a notice period,
+# retention claims and a time-zone conversion on its first run (2026-09-18).
+_TM_NL_MODEL = "claude-sonnet-5"
+
+
+def _tm_newsletter_plan(industry_text: str, year: int, month: int,
+                        step_idx: int) -> dict:
+    """What one ThriveModal issue covers, from its send month."""
+    # Only the generator's ThriveModal branch calls this; the gate keeps the
+    # vertical layer unreachable from Arena all the same (phase 4, test 36).
+    vertical = (_tm_vertical_for(industry_text) if _is_thrivemodal()
+                else _TM_VERTICAL_GENERAL)
+    roles = _TM_NL_ROLES.get(vertical) or _TM_NL_ROLES["general_offshore"]
+    title, brief = _TM_NL_ANGLES[month]
+    return {
+        "vertical": vertical,
+        "angle": title,
+        "angle_brief": brief,
+        "role": roles[(year * 12 + month) % len(roles)],
+        "objection": _TM_NL_OBJECTIONS[(month - 1) % len(_TM_NL_OBJECTIONS)],
+        # Issues 3, 6, 9, 12 carry the customer story, so the approved
+        # references are not repeated every month.
+        "story": int(step_idx) % 3 == 2,
+    }
+
+
+def _tm_newsletter_cost_math(client, role: str, region: str) -> dict:
+    """The Cost Math section for one role, or {} when no salary is found.
+    Numbers come from the Staffing Cost Comparison worksheet (BLS local
+    median, national benchmarks, flat _TM_AUTO_SAVINGS), never the model."""
+    try:
+        lookup = _tm_lookup_local_salary(client, role, region)
+        pdf = _tm_auto_cost_pdf_data("your team", role, region, lookup)
+        ws = pdf.get("_worksheet") or {}
+        if not ws.get("complete"):
+            return {}
+        where = f" in {lookup['area']}" if lookup and lookup.get("area") else ""
+        if lookup:
+            src = (f"Salary: {lookup['basis']} for {lookup.get('occupation') or role}"
+                   + (f" in {lookup['area']}" if lookup.get("area") else "")
+                   + f" ({lookup.get('source') or 'published source'}).")
+        else:
+            src = ("Salary: U.S. national median for this occupation "
+                   f"(BLS, {_TM_BENCH_AS_OF}).")
+        pct = f"{_TM_AUTO_SAVINGS:.0%}"
+        return {
+            "headline": f"One {role}{where}, for a year",
+            "rows": [
+                ["Local hire, fully burdened", _tm_money(ws["domestic_total"])],
+                ["Dedicated offshore professional (est.)", _tm_money(ws["tm_total"])],
+                ["Estimated difference", _tm_money(ws["difference"])],
+            ],
+            "note": (f"{src} Local cost adds payroll taxes, benefits, workspace "
+                     f"and recruiting at U.S. averages. The offshore figure is an "
+                     f"estimate {pct} below that total, the middle of ThriveModal's "
+                     f"published range of up to 60-70% fully burdened; the actual "
+                     f"figure depends on the role and is confirmed in a quote."),
+        }
+    except Exception as ex:
+        print(f"[TMNewsletter] cost math skipped for {role!r}: {ex}", flush=True)
+        return {}
+
+
+def _tm_newsletter_prompt(nl_name: str, company: str, niche: str, region: str,
+                          month_year: str, plan: dict, spot_instruction: str,
+                          spot_schema: str, playbook: str, proof: str) -> str:
+    _niche = niche or "small and mid-sized businesses"
+    _story_schema = ""
+    _story_rule = ""
+    if plan.get("story") and (proof or "").strip():
+        _story_rule = (
+            "\n\nCUSTOMER STORY: pick ONE client quote or reference from the "
+            "APPROVED CUSTOMER PROOF below, the one closest to this industry. "
+            "Give one short sentence of context using ONLY facts the proof "
+            "states (no location, company size, roles or results it does not "
+            "name), then the quote copied WORD FOR WORD into the quote field, "
+            "without the surrounding quotation marks.\nAPPROVED CUSTOMER PROOF:\n"
+            + proof.strip())
+        _story_schema = ('  "story": {"text": "the context sentence only", '
+                         '"quote": "the verbatim quote, no surrounding quotation marks", '
+                         '"attribution": "name, title and company exactly as written in the proof"},\n')
+    return (
+        f"You are writing one issue of {nl_name}, a monthly email newsletter "
+        f"from {company} for owners, operations leaders and finance leaders at "
+        f"{_niche} companies in {region or 'the US'}. {company} provides "
+        f"dedicated, full-time professionals based in the Philippines who work "
+        f"the client's U.S. hours inside the client's own systems.\n\n"
+        f"The newsletter is about OFFSHORE STAFFING: why it works, how "
+        f"companies like the reader's use it, and how to do it well. Write like "
+        f"a knowledgeable peer, practical and specific to {_niche}, not like an "
+        f"ad. Confident about the model, honest about what it takes.\n\n"
+        f"ISSUE MONTH: {month_year}. Tie the intro and the article to this "
+        f"month and to where {_niche} is in its year (peak season, busy "
+        f"season, year end, and so on).\n"
+        f"THIS ISSUE'S ARTICLE: \"{plan['angle']}\": {plan['angle_brief']}. "
+        f"Adapt the headline to {_niche}.\n"
+        f"ROLE OF THE MONTH: {plan['role']}.\n"
+        f"QUESTION OF THE MONTH: \"{plan['objection']}\" Answer it plainly "
+        f"and honestly within the playbook rules.\n\n"
+        f"WHY NOW: use web search for 2 REAL, recent U.S. figures that show why "
+        f"{_niche} owners are looking at their labor costs (wage growth for "
+        f"this industry's office or operations roles, openings, or turnover). "
+        f"If a real number is not found, omit that stat. Never invent one.\n\n"
+        f"Follow the playbook below for every claim. In particular: savings "
+        f"are only ever \"up to 60-70%\", one person is never round-the-clock "
+        f"coverage, no certifications, no guarantees, no invented customers or "
+        f"statistics about {company}, never frame it as cheap labor. Do not "
+        f"quote a price or rate; the Cost Math section is added separately.\n"
+        f"HARD RULES (a draft that breaks one is rejected):\n"
+        f"- No dollar amounts, percentages or statistics anywhere except the "
+        f"WHY NOW stats and the phrase \"up to 60-70%\".\n"
+        f"- No claims about retention, turnover, tenure or how long people stay.\n"
+        f"- No notice periods, contract lengths, guarantees or replacement "
+        f"promises beyond the playbook's approved terms, worded as it words them.\n"
+        f"- {company} is the employer of record; never say the person is on the "
+        f"client's payroll.\n"
+        f"- Never state a time-zone conversion or a specific shift time; say "
+        f"they work the client's U.S. hours.\n"
+        f"- Name only real software products for {_niche} (a TMS, accounting "
+        f"or practice-management system), never a carrier, customer or brand "
+        f"that is not software.\n"
+        f"- WHY NOW stats come from BLS or another government or major "
+        f"industry source; cite it in source_note."
+        + _story_rule + spot_instruction +
+        "\n\nReturn ONLY valid JSON:\n{\n"
+        '  "subject": "specific, curiosity-worthy subject line for this issue, no month name",\n'
+        f'  "intro_text": "2 short, warm sentences tied to {month_year}, leading into the article",\n'
+        '  "why_now": {"source_note": "source and release, e.g. BLS, August 2026", '
+        '"stats": [{"label": "2-3 words", "value": "REAL compact number like 4.1% or $24.10/hr", '
+        '"change": "YoY or MoM change, or empty", "trend": "up|down|flat"}]},\n'
+        f'  "feature": {{"headline": "article headline", "paragraphs": ["3 paragraphs of 50-80 words, '
+        f'concrete and specific to {_niche}; you may **bold** one key phrase per paragraph"], '
+        f'"takeaways": ["3 short, practical takeaways"]}},\n'
+        f'  "role_of_month": {{"title": "{plan["role"]}", "summary": "one sentence on why '
+        f'{_niche} companies move this role offshore", "owns": ["4 bullets: the recurring work '
+        f'this person owns day to day"], "tools": "the real U.S. software this role uses in '
+        f'{_niche}", "stays_in_house": "one sentence on what stays with the local team"}},\n'
+        f'  "objection": {{"question": "{plan["objection"]}", "answer": "3-4 sentences"}},\n'
+        + _story_schema +
+        '  "next_step": "one sentence: a small, low-effort ask tied to the article, e.g. reply '
+        'with one recurring task and we will map it to a role",\n'
+        '  "personal_corner_note": "2-3 first-person sentences (25-50 words) from the sender '
+        'about the month and offshore staffing. No greeting, sign-off, link or CTA.",\n'
+        + spot_schema +
+        '  "top_news": []\n'
+        "}\n\n"
+        f"Valid JSON: escape any double quote inside a string value as \\\". "
+        f"No em dashes. No emoji.\n\nPLAYBOOK:\n{playbook}"
+    )
 
 
 def _jway_sales_prompt(sector: str, niche: str, region: str, month_year: str,
@@ -55265,10 +55651,19 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         f'Never put prose like "Not separately published", "Regional data only", "N/A", "See note", '
         f'"Below national average" in the value field. Better 2 real numbers than 5 with placeholders.'
     )
+    _tm_plan = None
+    if _SALES_MODE and _is_thrivemodal():
+        _tm_plan = _tm_newsletter_plan(" ".join([sector, niche, nl_name]),
+                                       _nl_year, _nl_month, step_idx)
+        prompt = _tm_newsletter_prompt(
+            nl_name, company, (niche or sector).strip(), region, month_year,
+            _tm_plan, _spot_instruction, _spot_schema_block,
+            _thrivemodal_playbook_text(),
+            _thrivemodal_context().get("tm_proof") or "")
     try:
         msg = _claude_create_with_retry(client,
-            model="claude-haiku-4-5-20251001",
-            max_tokens=4000,
+            model=_TM_NL_MODEL if _tm_plan else "claude-haiku-4-5-20251001",
+            max_tokens=7000 if _tm_plan else 4000,
             tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
             messages=[{"role": "user", "content": prompt}])
         text = "".join(b.text for b in msg.content if hasattr(b, "text"))
@@ -55335,6 +55730,32 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
     # predate the field. Off only when the user explicitly unchecked
     # "Include City Life section" in the create dialog.
     _show_city_life = bool(camp.get("newsletter_show_city_life", True))
+    if _tm_plan:
+        _show_city_life = False
+        _why = result.get("why_now") if isinstance(result.get("why_now"), dict) else {}
+        _feat = result.get("feature") if isinstance(result.get("feature"), dict) else {}
+        _role = result.get("role_of_month") if isinstance(result.get("role_of_month"), dict) else {}
+        _obj = result.get("objection") if isinstance(result.get("objection"), dict) else {}
+        nl_data.update({
+            "tagline": (f"Offshore Staffing Insights for {_industry_lbl.title()}"
+                        if _industry_lbl else "Offshore Staffing Insights"),
+            "stats_label": "Why Now",
+            "jolts": {"source_note": _why.get("source_note", ""),
+                      "stats": (_why.get("stats") or [])[:2]},
+            "local_labor": {},
+            "around_town": [],
+            "market_update": "",
+            "top_news": [],
+            "feature": dict(_feat, label=f"This Month: {_tm_plan['angle']}"),
+            "role_of_month": dict(_role, title=_tm_plan["role"]),
+            "cost_math": _tm_newsletter_cost_math(client, _tm_plan["role"], region),
+            "objection": dict(_obj, question=_tm_plan["objection"]),
+            "story": (result.get("story") if _tm_plan["story"]
+                      and isinstance(result.get("story"), dict) else {}),
+            "next_step": (result.get("next_step") or "").strip(),
+            "partner_label": "Your Offshore Staffing Partner",
+            "cta_line": "Want to talk through a role for your team?",
+        })
     _show_map = {
         "show_intro":         True,
         "show_jolts":         True,
