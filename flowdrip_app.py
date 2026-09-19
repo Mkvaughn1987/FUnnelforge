@@ -33111,6 +33111,28 @@ def p_newsletters(s, rf):
                             f"padding:9px 18px;font-size:13px;background:{fg};").on(
                             "click", _enroll):
                         ui.label("＋ Enroll").style("pointer-events:none;")
+                    # Regenerate (back 2026-09-19: the only other route was
+                    # ⚙ → Save, which nobody would find). Rewrites the next
+                    # unsent issue; the card polls until the worker is done.
+                    _busy = camp.get("name", "") in getattr(s, "_nl_refreshing", set())
+                    with ui.element("button").style(
+                            f"padding:9px 14px;font-size:13px;line-height:1;"
+                            f"background:transparent;color:{C['text']};"
+                            f"border:1px solid {C['border']};border-radius:8px;"
+                            f"cursor:{'wait' if _busy else 'pointer'};font-family:inherit;"
+                            f"opacity:{0.6 if _busy else 1};"
+                            ).on("click", _refresh):
+                        ui.label("Regenerating…" if _busy else "↻ Regenerate").style(
+                            "pointer-events:none;")
+                        ui.tooltip("Rewrite the next unsent issue with fresh content. "
+                                   "Takes about a minute.")
+                    if _busy:
+                        def _poll(n=camp.get("name", "")):
+                            if n not in getattr(s, "_nl_refreshing", set()):
+                                ui.notify(f"\"{n}\" regenerated. Open it to take a look.",
+                                          type="positive")
+                                rf()
+                        ui.timer(4.0, _poll)
                     # Settings — opens the per-campaign settings dialog
                     # for spotlight recommendations, count, city life.
                     def _open_settings(c=camp):
