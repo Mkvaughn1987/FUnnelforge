@@ -122,9 +122,7 @@ def main():
             out = fa._tm_refresh_campaign_pdfs(
                 trial, **subj,
                 build=lambda kinds, company, role, location, **_: {
-                    k: fa._tm_campaign_pdf_filename(
-                        k, (company or subj["industry"] or role) + " " + role,
-                        location if not company else "")
+                    k: fa._tm_campaign_pdf_filename(k, company or role)
                     for k in kinds})
         else:
             out = fa._tm_refresh_campaign_pdfs(camp, **subj, client=client)
