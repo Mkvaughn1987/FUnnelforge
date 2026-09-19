@@ -158,7 +158,7 @@ def test_two_paragraphs_and_the_standing_question(monkeypatch):
     assert "(Mike," not in p  # the hint's source note leaked into the copy
     html = fa._render_newsletter_html({
         "newsletter_name": "x",
-        "objection": {"question": "But how is their English?", "answer": "A."},
+        "objection": {"question": "How is their English?", "answer": "A."},
         "objection_2": {"question": fa._TM_NL_STANDING_Q, "answer": "B."}})
     assert "The Questions We Hear Most" in html and html.count("&ldquo;") >= 2
 

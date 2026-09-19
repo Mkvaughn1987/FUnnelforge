@@ -54654,7 +54654,10 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
     if (data.get("next_step") or "").strip():
         sections_html += _nl_section(
             "Your Next Step",
-            f'<p style="{_body_p}margin:0;font-weight:500;">{_nl_md(data["next_step"])}</p>')
+            f'<p style="{_body_p}margin:0;font-weight:500;">{_nl_md(data["next_step"])}</p>'
+            # ThriveModal: the "Want to talk through a role?" line and the
+            # sign-off land here (filled in at the CTA step below).
+            + ("<!--TM_CTA-->" if _is_thrivemodal() else ""))
 
     # ── Build contact bar ────────────────────────────────────────────────
     contact_parts = []
@@ -54806,7 +54809,14 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
     cta_text = data.get("cta_text", "")
     _default_cta = f"mailto:{contact_email}" if contact_email else (f"https://{website}" if website else "#")
     cta_url = data.get("cta_url", "") or _default_cta
-    if _show("show_cta"):
+    if _show("show_cta") and "<!--TM_CTA-->" in sections_html:
+        sections_html = sections_html.replace("<!--TM_CTA-->", (
+            f'<p style="{_body_p}margin:12px 0 0;">'
+            f'{data.get("cta_line") or "Want to talk through a role for your team?"} '
+            f'<a href="{cta_url}" target="_blank" style="color:{nc["primary"]};'
+            f'text-decoration:underline;font-weight:600;">Email me</a>.</p>'
+            f'<div style="text-align:left;">{_tm_signoff_html}</div>'), 1)
+    elif _show("show_cta"):
         sections_html += f'''
         <tr><td style="padding:14px 40px 40px;text-align:center;background:#FFFFFF;">
           <div style="font-size:13px;color:{nc["muted"]};font-family:{_FONT};letter-spacing:0.3px;">
@@ -56095,7 +56105,7 @@ _TM_NL_OBJECTIONS = [
     "We only need a few hours a week.",
     "We already have offshore help.",
     # Index 9 = the October issue (Mike 2026-09-19); see _TM_NL_ANSWER_HINTS.
-    "But how is their English?",
+    "How is their English?",
     "How fast can someone start?",
     "Will they work our hours?",
     "Who actually employs them?",
@@ -56106,7 +56116,7 @@ _TM_NL_STANDING_Q = "What if they don't work out?"
 
 # Extra steer for questions whose honest answer is easy to get wrong.
 _TM_NL_ANSWER_HINTS = {
-    "But how is their English?": (
+    "How is their English?": (
         "Answer it as \"you will hear it before you hire\": ThriveModal "
         "screens heavily first, and every candidate goes through multiple "
         "interviews with ThriveModal before the client ever meets them. "
