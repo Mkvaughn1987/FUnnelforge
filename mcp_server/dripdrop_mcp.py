@@ -190,6 +190,19 @@ async def login_submit(request: Request):
     return RedirectResponse(redirect_url, status_code=302)
 
 
+# The ThriveModal Sales Assets PDFs a campaign can attach. Mirrors
+# _TM_CAMPAIGN_PDF_KINDS in flowdrip_app.py (a test keeps the two in step).
+_PDF_KINDS_DOC = (
+    "tm_role_blueprint (Offshore Role Blueprint: what the role covers, skills "
+    "and systems, how the client oversees it), tm_cost_compare (Staffing Cost "
+    "Comparison: a U.S. hire beside a dedicated professional in the "
+    "Philippines), tm_how_it_works (How We Work Together: how an engagement "
+    "runs from defining the role to onboarding), interview_guide (Interview "
+    "Guide for the role), market_pulse (Market Pulse: a short sourced "
+    "briefing on the industry)."
+)
+
+
 @mcp.tool(
     description=(
         "Create and launch a DripDrop outbound email campaign from a spec "
@@ -198,7 +211,12 @@ async def login_submit(request: Request):
         "immediately, same as posting to /api/v1/campaigns. For the "
         "`findcandidates` template - the only template that emails "
         "candidates directly instead of companies - pass a job_description "
-        "instead of company/niche/roles."
+        "instead of company/niche/roles. On a ThriveModal workspace the "
+        "campaign attaches Sales Assets PDFs built for its role and "
+        "location: pass spec.pdfs to choose which (max 3) and optionally the "
+        "step each goes on, or leave it out for the default (Role Blueprint "
+        "+ Cost Comparison, plus How We Work Together on long sequences). "
+        "Kinds: " + _PDF_KINDS_DOC
     )
 )
 async def create_campaign(spec: dict) -> dict:
@@ -216,6 +234,13 @@ async def create_campaign(spec: dict) -> dict:
         JD text) instead of company/niche/roles, and contacts as the
         candidates to reach (their emails). Optional cadence: "one_email"
         (default), "two_emails_1day", or "three_emails_3days".
+
+        ThriveModal only - pdfs: list of PDF kinds, e.g.
+        ["tm_cost_compare", "interview_guide"], or of {"kind": ...,
+        "step": n} to put one on step n (1-based; never step 1 or a
+        call/LinkedIn step). [] attaches none. The response lists where each
+        PDF landed under "pdfs"; problems come back under "pdf_notes".
+        To change PDFs after launch, use tm_campaign_pdfs.
     """
     email = _current_email()
     try:
@@ -564,6 +589,44 @@ async def tm_mailboxes() -> dict:
     try:
         client = DripDropClient(DATA_DIR, email)
         return await client.tm_mailboxes()
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
+@mcp.tool(description=(
+    "Choose which Sales Assets PDFs an EXISTING campaign attaches, and "
+    "optionally which step each rides on (ThriveModal workspaces only). The "
+    "PDFs are generated fresh for the campaign's role and location and "
+    "replace the campaign's current Sales Assets PDFs; files the user "
+    "uploaded by hand are kept. Emails already queued and waiting to send "
+    "pick up the change too. Kinds (max 3 per campaign): "
+    + _PDF_KINDS_DOC + " Use campaigns_list / campaign_get to find the "
+    "campaign_id and see its steps. Takes up to a couple of minutes."
+))
+async def tm_campaign_pdfs(campaign_id: str, pdfs: list, role: str = "",
+                           location: str = "", industry: str = "",
+                           company: str = "") -> dict:
+    """Args:
+    campaign_id: id from campaigns_list (or the campaign name).
+    pdfs: list of kinds, e.g. ["tm_cost_compare", "tm_role_blueprint"], or
+        of {"kind": ..., "step": n} to put a PDF on step n (1-based, as
+        campaign_get numbers them). Never step 1, a call/LinkedIn step, or two
+        PDFs on one step. Unpinned PDFs go on the step whose subject they back,
+        else spread over the sequence. [] removes the Sales Assets PDFs.
+    role, location, industry, company: optional; what to build the PDFs for
+        when the campaign's own values are wrong or empty.
+    """
+    email = _current_email()
+    body = {"campaign_id": campaign_id, "pdfs": pdfs}
+    for k, v in (("role", role), ("location", location),
+                 ("industry", industry), ("company", company)):
+        if v:
+            body[k] = v
+    try:
+        client = DripDropClient(DATA_DIR, email)
+        return await client.tm_campaign_pdfs(body)
     except NoApiKeyError as e:
         return {"error": str(e)}
     except DripDropApiError as e:

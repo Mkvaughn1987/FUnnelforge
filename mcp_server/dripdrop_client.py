@@ -119,7 +119,8 @@ class DripDropClient:
             raise DripDropApiError(resp.status_code, body)
 
     async def create_campaign(self, spec: dict) -> dict:
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        # ThriveModal campaigns also build their Sales Assets PDFs in the call.
+        async with httpx.AsyncClient(timeout=240.0) as client:
             resp = await client.post(
                 f"{self.base_url}/api/v1/campaigns",
                 json=spec,
@@ -290,6 +291,17 @@ class DripDropClient:
             resp = await client.get(
                 f"{self.base_url}/api/v1/tm/mailboxes",
                 headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def tm_campaign_pdfs(self, body: dict) -> dict:
+        # Building a PDF is an AI call per kind (run in parallel server-side).
+        async with httpx.AsyncClient(timeout=240.0) as client:
+            resp = await client.post(
+                f"{self.base_url}/api/v1/tm/campaign_pdfs",
+                json=body,
+                headers={**self._headers(), "Content-Type": "application/json"},
             )
         await self._raise_for_error(resp)
         return resp.json()

@@ -7612,6 +7612,38 @@ def _api_create_campaign_blocking(client, spec, owner):
         cards, skip = _api_resolve_5x3_cards(client, spec, owner=owner)
         if skip:
             return {"skip": skip}
+    # ThriveModal: the Sales Assets PDFs, as the caller picked them (or the
+    # wizard's default when it named none). They only need the role and
+    # location, so they build alongside the emails rather than after them.
+    tm_pdfs = None
+    if _is_thrivemodal():
+        _kinds, _pins, _perr = _tm_parse_pdf_request(spec.get("pdfs"))
+        if _perr:
+            return {"error": _perr, "status": 400}
+        _subj = {
+            "company": (spec.get("company") or "").strip(),
+            "role": ((list(spec.get("roles") or []) or [""])[0]
+                     or spec.get("niche") or "").strip(),
+            "location": (spec.get("location") or "").strip() or "United States",
+            "industry": (spec.get("industry") or "").strip(),
+        }
+        _first = _kinds if _kinds is not None else _tm_default_pdf_kinds(template)
+
+        def _build_pdfs(ks):
+            _CURRENT_USER_EMAIL.set(owner)
+            try:
+                _switch_to_user_paths(owner)
+            except Exception:
+                pass
+            return _tm_build_campaign_pdfs(
+                ks, _subj["company"], _subj["role"], _subj["location"],
+                industry=_subj["industry"], client=client)
+
+        import concurrent.futures as _cf
+        _pool = _cf.ThreadPoolExecutor(max_workers=1)
+        tm_pdfs = {"kinds": _kinds, "pins": _pins, "build": _build_pdfs,
+                   "future": _pool.submit(_build_pdfs, _first) if _first else None}
+        _pool.shutdown(wait=False)
     try:
         campaign_data = generate_aicb_campaign(
             client,
@@ -7639,7 +7671,36 @@ def _api_create_campaign_blocking(client, spec, owner):
             _attach_resumes_to_emails(template, emails, pdfs)
         except Exception as _re:
             print(f"[api] 5x3 résumé attach skipped: {_re}", flush=True)
-    return {"template": template, "campaign_data": campaign_data, "emails": emails}
+    out = {"template": template, "campaign_data": campaign_data, "emails": emails}
+    if tm_pdfs is not None:
+        try:
+            built = tm_pdfs["future"].result() if tm_pdfs["future"] else {}
+            kinds = tm_pdfs["kinds"]
+            if kinds is None:
+                # A long sequence's default adds a third PDF, which is only
+                # known once the steps exist.
+                kinds = _tm_default_pdf_kinds(template, emails)
+                extra = [k for k in kinds if k not in built]
+                if extra:
+                    built.update(tm_pdfs["build"](extra))
+            built = {k: f for k, f in built.items() if k in kinds}
+            notes = []
+            pins = tm_pdfs["pins"]
+            pin_err = _tm_check_pdf_pins(emails, pins)
+            if pin_err:
+                notes.append(f"{pin_err}. Placed automatically instead.")
+                pins = {}
+            _tm_attach_campaign_pdfs(template, campaign_data, built, pinned=pins)
+            failed = [k for k in kinds if k not in built]
+            if failed:
+                notes.append(f"could not build: {', '.join(failed)}")
+            out["pdfs"] = _tm_pdf_report(emails, built)
+            if notes:
+                out["pdf_notes"] = notes
+        except Exception as _pe:
+            print(f"[api] TM PDF attach skipped: {_pe}", flush=True)
+            out["pdf_notes"] = [f"PDFs skipped: {_pe}"]
+    return out
 
 
 def _sales_run_owner(request):
@@ -7922,6 +7983,85 @@ async def api_tm_mailboxes(request: Request):
     })
 
 
+@app.post("/api/v1/tm/campaign_pdfs")
+async def api_tm_campaign_pdfs(request: Request):
+    """Choose the Sales Assets PDFs an existing campaign carries.
+
+    Body: {"campaign_id": ..., "pdfs": [kind | {"kind", "step"}], and
+    optionally "role"/"location"/"industry"/"company" to build them for}.
+    The campaign's current Sales Assets PDFs are replaced (hand uploads are
+    kept), and pending queue items pick up the change, since the queue froze
+    body and attachments at launch. "pdfs": [] removes them all."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "body must be valid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    cid = str(body.get("campaign_id") or "").strip()
+    if not cid:
+        return JSONResponse({"error": "campaign_id is required"}, status_code=400)
+    kinds, pins, perr = _tm_parse_pdf_request(body.get("pdfs"))
+    if kinds is None and not perr:
+        perr = "pdfs is required (a list; [] removes them)"
+    if perr:
+        return JSONResponse({"error": perr, "choices": _tm_pdf_menu()},
+                            status_code=400)
+    camp = next((c for c in load_campaigns()
+                 if Path(c.get("_path", "")).stem == cid or c.get("name") == cid),
+                None)
+    if not camp:
+        return JSONResponse({"error": f"no campaign found for id '{cid}'"},
+                            status_code=404)
+    subject = _tm_campaign_pdf_subject(camp, body)
+    if kinds and not subject["role"]:
+        return JSONResponse({"error": "this campaign names no role to build "
+                             "the PDFs for; pass role"}, status_code=400)
+    if kinds and not ANTHROPIC_API_KEY:
+        return JSONResponse({"error": "AI not configured on server"}, status_code=503)
+
+    def _run():
+        _CURRENT_USER_EMAIL.set(owner)
+        try:
+            _switch_to_user_paths(owner)
+        except Exception:
+            pass
+        client = None
+        if kinds:
+            import anthropic
+            client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        res = _tm_set_campaign_pdfs(camp, kinds, pins, subject, client=client)
+        if "error" in res:
+            return res
+        save_campaign(camp)
+        try:
+            _cache_campaigns.invalidate()
+        except Exception:
+            pass
+        res["queue_items_updated"] = _tm_save_queue_sync(camp)
+        return res
+
+    try:
+        res = await asyncio.get_event_loop().run_in_executor(None, _run)
+    except Exception as ex:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(ex)}, status_code=500)
+    if "error" in res:
+        return JSONResponse(res, status_code=400)
+    res.update({"campaign_id": Path(camp.get("_path", "")).stem or cid,
+                "name": camp.get("name", ""), "built_for": subject})
+    return JSONResponse(res)
+
+
 @app.get("/api/v1/campaigns")
 async def api_campaigns_list(request: Request):
     """List the calling account's own campaigns (tenant-scoped, same as
@@ -8124,6 +8264,10 @@ async def api_create_campaign(request: Request):
                            "DNC/opt-out/MX)")
     if _nl_result is not None:
         resp["newsletter_enrollment"] = _nl_result
+    if "pdfs" in result:
+        resp["pdfs"] = result["pdfs"]
+    if "pdf_notes" in result:
+        resp["pdf_notes"] = result["pdf_notes"]
     return JSONResponse(resp, status_code=200)
 
 
@@ -41056,18 +41200,26 @@ def _tm_resolve_pdf_pick(picked, camp_type, emails=None) -> list:
     return clamped
 
 
-def _tm_pdf_placement(camp_type, emails, kinds) -> dict:
+def _tm_pdf_placement(camp_type, emails, kinds, pinned=None) -> dict:
     """{kind: email index}. Never the first email, never a non-email step,
-    never an email that already carries an attachment, one PDF per email."""
+    never an email that already carries an attachment, one PDF per email.
+    `pinned` ({kind: email index}, from a connector caller naming the step)
+    is honoured first wherever the step is allowed to carry a PDF."""
     eligible = [ei for ei in _tm_pdf_eligible_emails(emails)
                 if not emails[ei].get("attachments")]
     placed, used = {}, set()
     kinds = _clamp_tm_pdf_kinds(kinds)
+    for kind, ei in (pinned or {}).items():
+        if kind in kinds and ei in eligible and ei not in used:
+            placed[kind] = ei
+            used.add(ei)
     # Pass 1: a step whose name/subject names what the PDF is about.
     def _hay(ei):
         return ((emails[ei].get("name") or "") + " "
                 + (emails[ei].get("subject") or "")).lower()
     for kind in sorted(kinds, key=_TM_PDF_MATCH_ORDER.index):
+        if kind in placed:
+            continue
         for w in _TM_PDF_STEP_WORDS[kind]:
             ei = next((i for i in eligible if i not in used and w in _hay(i)), None)
             if ei is not None:
@@ -41100,12 +41252,13 @@ def _tm_insert_pdf_line(body: str, line: str) -> str:
     return f"{line}<br><br>{body}"
 
 
-def _tm_attach_campaign_pdfs(camp_type, campaign_data, built: dict) -> int:
+def _tm_attach_campaign_pdfs(camp_type, campaign_data, built: dict,
+                             pinned=None) -> int:
     """Attach built ThriveModal PDFs ({kind: filename}) to their steps."""
     emails = (campaign_data or {}).get("emails") or []
     lines = {k: line for k, _l, line in _TM_CAMPAIGN_PDF_KINDS}
     kinds = [k for k in _clamp_tm_pdf_kinds(list(built)) if built.get(k)]
-    placed = _tm_pdf_placement(camp_type, emails, kinds)
+    placed = _tm_pdf_placement(camp_type, emails, kinds, pinned=pinned)
     for kind, ei in placed.items():
         emails[ei]["attachments"] = [built[kind]]
         emails[ei]["body"] = _tm_insert_pdf_line(emails[ei].get("body"), lines[kind])
@@ -41240,6 +41393,191 @@ def _tm_refresh_campaign_pdfs(camp, company="", role="", location="",
             "where": {em.get("attachments", [""])[0]: i + 1
                       for i, em in enumerate(emails)
                       if em.get("attachments") and em["attachments"][0] in built.values()}}
+
+
+# ── Connector: Claude picks the PDFs ─────────────────────────────────────────
+# Through the MCP connector Claude names which Sales Assets PDFs a campaign
+# carries, and optionally the step each rides on, instead of taking the
+# default. Same kinds, same builder, same placement rules as the wizard.
+
+def _tm_pdf_menu() -> list:
+    return [{"kind": k, "label": l} for k, l, _ in _TM_CAMPAIGN_PDF_KINDS]
+
+
+def _tm_parse_pdf_request(raw):
+    """A connector caller's pick: a list of kind keys, or of
+    {"kind": ..., "step": n} where n is the 1-based step it should ride on.
+    Returns (kinds, pins {kind: email index}, error). kinds is None when the
+    caller said nothing (use the default); [] means "no PDFs"."""
+    if raw is None:
+        return None, {}, ""
+    valid = [k for k, *_ in _TM_CAMPAIGN_PDF_KINDS]
+    if not isinstance(raw, list):
+        return None, {}, "pdfs must be a list of PDF kinds"
+    kinds, pins = [], {}
+    for item in raw:
+        step = None
+        if isinstance(item, str):
+            kind = item.strip()
+        elif isinstance(item, dict):
+            kind = str(item.get("kind") or "").strip()
+            step = item.get("step")
+        else:
+            return None, {}, "each pdfs entry is a kind or {kind, step}"
+        if kind not in valid:
+            return None, {}, (f"unknown PDF kind {kind!r}; choose from "
+                              f"{', '.join(valid)}")
+        if kind in kinds:
+            return None, {}, f"PDF kind {kind!r} is listed twice"
+        kinds.append(kind)
+        if step not in (None, ""):
+            try:
+                pins[kind] = int(step) - 1
+            except (TypeError, ValueError):
+                return None, {}, f"step for {kind!r} must be a step number"
+    if len(kinds) > TM_CAMPAIGN_PDF_MAX:
+        return None, {}, f"at most {TM_CAMPAIGN_PDF_MAX} PDFs per campaign"
+    return kinds, pins, ""
+
+
+def _tm_check_pdf_pins(emails, pins) -> str:
+    """Why a pinned step cannot carry its PDF, or "" when every pin is fine.
+    Checked against the campaign after its own PDFs are stripped."""
+    eligible = [ei for ei in _tm_pdf_eligible_emails(emails)
+                if not (emails[ei].get("attachments"))]
+    seen = {}
+    for kind, ei in pins.items():
+        if ei in seen:
+            return f"step {ei + 1} is pinned for both {seen[ei]} and {kind}"
+        seen[ei] = kind
+        if ei not in eligible:
+            ok = ", ".join(str(i + 1) for i in eligible) or "none"
+            return (f"step {ei + 1} cannot carry {kind} (never the first "
+                    f"email, a call/LinkedIn step, or a step with a file "
+                    f"already attached); steps that can: {ok}")
+    return ""
+
+
+def _tm_campaign_pdf_subject(camp, override=None) -> dict:
+    """What a saved campaign's PDFs are built for, from its variables; any
+    non-empty key in `override` wins."""
+    v = camp.get("variables") or {}
+    out = {
+        "company": (v.get("CompanyName") or "").strip(),
+        "role": (v.get("TargetRole") or "").split(",")[0].strip(),
+        "location": (v.get("Geography") or "").strip() or "United States",
+        "industry": (v.get("Industry") or v.get("PrimaryIndustry") or "").strip(),
+    }
+    for k in out:
+        val = str((override or {}).get(k) or "").strip()
+        if val:
+            out[k] = val
+    return out
+
+
+def _tm_pdf_report(emails, built) -> list:
+    labels = {k: l for k, l, _ in _TM_CAMPAIGN_PDF_KINDS}
+    by_file = {f: k for k, f in (built or {}).items()}
+    out = []
+    for i, em in enumerate(emails or []):
+        for a in em.get("attachments") or []:
+            if a in by_file:
+                out.append({"kind": by_file[a], "label": labels[by_file[a]],
+                            "file": a, "step": i + 1,
+                            "step_name": em.get("name", "")})
+    return out
+
+
+def _tm_insert_pdf_line_rendered(body: str, line: str) -> str:
+    """_tm_insert_pdf_line for a queued body, where {FirstName} is already
+    the contact's name."""
+    body = body or ""
+    m = re.match(r'(Hi\s+[^,<\n]{1,60},?\s*(?:<br\s*/?>\s*)*)', body,
+                 re.IGNORECASE)
+    if m:
+        return f"{m.group(1)}{line}<br><br>{body[len(m.group(1)):]}"
+    return f"{line}<br><br>{body}"
+
+
+def _tm_sync_queue_pdfs(camp, queue: list) -> int:
+    """Carry a saved campaign's PDF change into its pending queue items, which
+    froze the body and attachment paths when the campaign launched. Mutates
+    `queue`; returns the number of items changed."""
+    emails = camp.get("emails") or []
+    lines = {k: line for k, _l, line in _TM_CAMPAIGN_PDF_KINDS}
+    line_for_file = {}
+    for em in emails:
+        for a in em.get("attachments") or []:
+            for k, l, _ in _TM_CAMPAIGN_PDF_KINDS:
+                if str(a).startswith(l.replace(" ", "_") + "_"):
+                    line_for_file[a] = lines[k]
+    changed = 0
+    for it in queue:
+        if it.get("campaign") != camp.get("name") or it.get("status") != "pending":
+            continue
+        idx = it.get("_step_idx")
+        if not isinstance(idx, int) or not (0 <= idx < len(emails)):
+            continue
+        step_atts = emails[idx].get("attachments", []) if idx > 0 else []
+        new_atts = [str(_user_pdf_dir() / a) if not os.path.isabs(a) else a
+                    for a in step_atts]
+        body = it.get("body") or ""
+        new_body = body
+        if body:
+            for line in lines.values():
+                new_body = new_body.replace(line + "<br><br>", "").replace(line, "")
+            for a in step_atts:
+                if a in line_for_file:
+                    new_body = _tm_insert_pdf_line_rendered(new_body, line_for_file[a])
+        if new_atts != (it.get("attachments") or []) or new_body != body:
+            it["attachments"] = new_atts
+            it["body"] = new_body
+            changed += 1
+    return changed
+
+
+def _tm_save_queue_sync(camp) -> int:
+    """Rewrite this user's pending queue items for `camp` under the queue lock."""
+    qp = _user_queue_path()
+    if not qp.exists():
+        return 0
+    if _FUNNELFORGE_OK and _ffc is not None:
+        with _ffc._queue_lock:
+            q = _ffc._load_queue(qp)
+            n = _tm_sync_queue_pdfs(camp, q)
+            if n:
+                _ffc._save_queue(q, qp)
+    else:
+        q = json.loads(qp.read_text(encoding="utf-8"))
+        n = _tm_sync_queue_pdfs(camp, q) if isinstance(q, list) else 0
+        if n:
+            qp.write_text(json.dumps(q, indent=2), encoding="utf-8")
+    if n:
+        _invalidate_queue_cache()
+    return n
+
+
+def _tm_set_campaign_pdfs(camp, kinds, pins, subject, client=None,
+                          build=None) -> dict:
+    """Replace a saved campaign's Sales Assets PDFs with `kinds`, pinned
+    where the caller said. Mutates `camp` (the caller saves it). Hand uploads
+    are left alone. Returns a summary, or {"error": ...} before touching
+    anything if a pin names a step that cannot carry a PDF."""
+    import copy as _copy
+    emails = camp.get("emails") or []
+    trial = _copy.deepcopy(emails)
+    _tm_strip_campaign_pdfs(trial)
+    err = _tm_check_pdf_pins(trial, pins)
+    if err:
+        return {"error": err}
+    built = (build or _tm_build_campaign_pdfs)(
+        kinds, subject["company"], subject["role"], subject["location"],
+        industry=subject["industry"], client=client) if kinds else {}
+    removed = _tm_strip_campaign_pdfs(emails)
+    camp_type = camp.get("aicb_camp_type") or camp.get("template_key") or ""
+    _tm_attach_campaign_pdfs(camp_type, camp, built, pinned=pins)
+    return {"removed": removed, "pdfs": _tm_pdf_report(emails, built),
+            "failed": [k for k in kinds if k not in built]}
 
 
 def _aicb_generate_pdfs(client, brief, roles_str, location_str, company, sig_name, campaign_data, appstate=None):
