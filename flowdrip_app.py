@@ -16763,6 +16763,16 @@ SIDEBAR_NAV = [
 # Everything that used to be its own sidebar row (Team, My Profile, Settings)
 # or top-bar-only (Do Not Contact, Signature, Timezone), consolidated under one
 # Settings entry. Rendered as sub-rows while a settings page is open.
+# Campaigns' views, rendered as sub-rows under the Campaigns row while any of
+# them is open (they used to be tabs in the page header). The third field is a
+# view key, not a page key: Active/Completed are one page (seq_mgr) with a
+# flag, Saved is start_seq's saved tab, Templates is the campaign-type chooser.
+SIDEBAR_CAMPAIGNS = [
+    ("c_active", "Active",    "active"),
+    ("c_done",   "Completed", "completed"),
+    ("c_saved",  "Saved",     "saved"),
+    ("c_tpl",    "Templates", "templates"),
+]
 # Content Library's pages, rendered as sub-rows under the Content Library row
 # while either is open (same pattern as the Settings sub-rows below).
 SIDEBAR_LIBRARY = [
@@ -18323,6 +18333,11 @@ _SIDEBAR_ICONS = {
     "pipeline":   '<path d="M6 5v11"/><path d="M12 5v6"/><path d="M18 5v14"/>',
     "clients":    '<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
     "campaigns":  '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
+    "c_active":   '<circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/>',
+    "c_done":     '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
+    "c_saved":    '<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>',
+    "c_tpl":      '<rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/>'
+                  '<rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>',
     "library":    '<path d="m16 6 4 14"/><path d="M12 6v14"/><path d="M8 8v12"/><path d="M4 4v16"/>',
     "newspaper":  '<path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/>'
                   '<path d="M18 14h-8"/><path d="M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/>',
@@ -18369,8 +18384,20 @@ def _sidebar_active(s) -> str:
     + New Campaign button (chooser + every wizard/detail page)."""
     page = _sidebar_current_page(s)
     if page == "start_seq":
-        return "campaigns" if getattr(s, "_tab", "") == "saved" else "new"
+        # Saved tab and the bare chooser (Templates) sit under Campaigns;
+        # every step past the chooser is the + New Campaign wizard.
+        return "campaigns" if getattr(s, "_tab", "") in ("saved", "") else "new"
     return SIDEBAR_PAGE_ROW.get(page, "new")
+
+
+def _sidebar_campaign_view(s) -> str:
+    """Which SIDEBAR_CAMPAIGNS sub-row is lit, or "" if none."""
+    page = _sidebar_current_page(s)
+    if page == "seq_mgr":
+        return "completed" if getattr(s, "_mgr_show_completed", False) else "active"
+    if page == "start_seq":
+        return {"saved": "saved", "": "templates"}.get(getattr(s, "_tab", ""), "")
+    return ""
 
 
 def _sidebar_workspace_name(s) -> str:
@@ -18484,7 +18511,18 @@ def _sidebar_v2(s: AppState, rf):
     def _go(k, tab=""):
         _sidebar_nav(s, rf, k, _setup, tab)
 
-    def _row(ik, lbl, key, on=False, badge=None, badge_cls="", tour="", sub=False, open_=False):
+    def _go_campaign_view(view):
+        if view in ("active", "completed"):
+            s._mgr_show_completed = view == "completed"
+            s.sel_camp_name = ""      # let the manager pick the first of that list
+            _go("seq_mgr")
+        elif view == "saved":
+            _go("start_seq", "saved")
+        else:
+            _go("start_seq")
+
+    def _row(ik, lbl, key, on=False, badge=None, badge_cls="", tour="", sub=False, open_=False,
+             click=None):
         # open_: a parent whose sub-rows are showing. Only the sub-row gets the
         # highlight pill; the parent keeps the accent text without the fill.
         cls = ("fd-side-row" + (" on" if on else "") + (" open" if open_ else "")
@@ -18492,7 +18530,7 @@ def _sidebar_v2(s: AppState, rf):
         el = ui.element("div").classes(cls)
         if tour:
             el.props(f'data-tour="{tour}"')
-        with el.on("click", lambda k=key: _go(k)):
+        with el.on("click", click or (lambda k=key: _go(k))):
             ui.html(_svg_icon(ik, 16 if sub else 18))
             ui.label(lbl).classes("fd-side-lbl")
             if badge:
@@ -18558,8 +18596,16 @@ def _sidebar_v2(s: AppState, rf):
                         badge_cls = "hot" if _overdue else ""
                     tour = {"overview": "nav-dashboard", "contacts": "nav-contacts"}.get(ik, "")
                     _lib_open = ik == "library" and active == "library"
-                    _row(ik, lbl, key, on=(active == ik and not _lib_open), open_=_lib_open,
+                    _camp_open = ik == "campaigns" and active == "campaigns"
+                    _open = _lib_open or _camp_open
+                    _row(ik, lbl, key, on=(active == ik and not _open), open_=_open,
                          badge=badge, badge_cls=badge_cls, tour=tour)
+                    if _camp_open:
+                        _view = _sidebar_campaign_view(s)
+                        with ui.element("div").classes("fd-side-subgroup"):
+                            for sik, slbl, view in SIDEBAR_CAMPAIGNS:
+                                _row(sik, slbl, "", on=(_view == view), sub=True,
+                                     click=lambda v=view: _go_campaign_view(v))
                     if _lib_open:
                         with ui.element("div").classes("fd-side-subgroup"):
                             for sik, slbl, skey in SIDEBAR_LIBRARY:
@@ -18634,8 +18680,8 @@ def _sidebar_v2(s: AppState, rf):
 
 def _page_header_v2(s: AppState, rf):
     """Compact 56px page header: section crumb + title, contextual actions
-    (Campaigns status tabs, Content Library tabs, suppression shortcut),
-    quick-find search over campaigns and contacts, theme toggle."""
+    (suppression shortcut), quick-find search over campaigns and contacts,
+    theme toggle."""
     if s.hub == "today":
         s.hub = "sales"; s.sp = "dashboard"
     page = _sidebar_current_page(s)
@@ -18645,10 +18691,6 @@ def _page_header_v2(s: AppState, rf):
     def _go(k, tab=""):
         _sidebar_nav(s, rf, k, _setup, tab)
 
-    def _tab(lbl, on, handler):
-        with ui.element("button").classes("fd-ph-tab" + (" on" if on else "")).props('type="button"').on("click", handler):
-            ui.label(lbl)
-
     with ui.element("header").classes("fd-ph"):
         with ui.element("div").classes("fd-ph-titles"):
             if crumb:
@@ -18656,20 +18698,8 @@ def _page_header_v2(s: AppState, rf):
             ui.label(title).classes("fd-ph-title")
 
         # ── Contextual actions ──
-        _saved_tab = page == "start_seq" and getattr(s, "_tab", "") == "saved"
-        if page == "seq_mgr" or _saved_tab:
-            def _show(completed):
-                s._mgr_show_completed = completed
-                s.sel_camp_name = ""      # let the manager pick the first of that list
-                _go("seq_mgr")
-            with ui.element("div").classes("fd-ph-tabs"):
-                _tab("Active",    page == "seq_mgr" and not s._mgr_show_completed, lambda: _show(False))
-                _tab("Completed", page == "seq_mgr" and bool(s._mgr_show_completed), lambda: _show(True))
-                _tab("Saved",     _saved_tab, lambda: _go("start_seq", "saved"))
-                # Templates = the campaign-type chooser (4x4, 5x3, AI builder,
-                # from scratch...). It is the app's template gallery today.
-                _tab("Templates", False, lambda: _go("start_seq"))
-        elif page in ("contacts", "e_contacts"):
+        # (Campaigns' Active/Completed/Saved/Templates are sidebar sub-rows.)
+        if page in ("contacts", "e_contacts"):
             with ui.element("button").classes("fd-ph-act").props('type="button"').on("click", lambda: _go("dnc")):
                 ui.html(_svg_icon("ban", 15))
                 ui.label("Do Not Contact")

@@ -120,16 +120,36 @@ def test_active_row_mapping_for_consolidated_pages():
     assert '"saved"' in src and '"campaigns"' in src
 
 
-def test_page_header_has_campaign_tabs_and_search():
+def test_page_header_has_search_and_no_section_tabs():
     import flowdrip_app as fa
     src = inspect.getsource(fa._page_header_v2)
-    for tab in ("Active", "Completed", "Saved", "Templates"):
-        assert f'"{tab}"' in src, f"missing header tab {tab}"
-    # Newsletters / Sales Assets moved to sidebar sub-rows under Content Library.
-    assert '"Sales Assets"' not in src
-    assert "_mgr_show_completed" in src
+    # Campaigns' and Content Library's views are sidebar sub-rows now.
+    for tab in ("Active", "Completed", "Saved", "Templates", "Sales Assets"):
+        assert f'"{tab}"' not in src, f"header still has tab {tab}"
     assert "Do Not Contact" in src, "suppression management must stay one click away"
     assert "fd-ph-search" in src
+
+
+def test_campaign_views_are_sidebar_subrows():
+    import types
+    import flowdrip_app as fa
+    assert [r[1] for r in fa.SIDEBAR_CAMPAIGNS] == ["Active", "Completed", "Saved", "Templates"]
+    for ik, _lbl, _view in fa.SIDEBAR_CAMPAIGNS:
+        assert ik in fa._SIDEBAR_ICONS, f"missing icon {ik}"
+    src = inspect.getsource(fa._sidebar_v2)
+    assert "SIDEBAR_CAMPAIGNS" in src and "_mgr_show_completed" in src
+
+    def st(sp, tab="", done=False):
+        return types.SimpleNamespace(hub="sales", sp=sp, ep="", _tab=tab,
+                                     _mgr_show_completed=done)
+    cases = [(st("seq_mgr"), "active"), (st("seq_mgr", done=True), "completed"),
+             (st("start_seq", "saved"), "saved"), (st("start_seq"), "templates")]
+    for s, view in cases:
+        assert fa._sidebar_active(s) == "campaigns"
+        assert fa._sidebar_campaign_view(s) == view
+    # Past the chooser is the + New Campaign wizard, not a Campaigns view.
+    wiz = st("start_seq", "templates")
+    assert fa._sidebar_active(wiz) == "new" and fa._sidebar_campaign_view(wiz) == ""
 
 
 def test_dashboard_pipeline_card_gated_on_ats():
