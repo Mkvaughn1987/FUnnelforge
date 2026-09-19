@@ -55321,10 +55321,22 @@ _TM_NL_OBJECTIONS = [
     "Can one person cover us around the clock?",
     "We only need a few hours a week.",
     "We already have offshore help.",
+    # Index 9 = the October issue (Mike 2026-09-19); see _TM_NL_ANSWER_HINTS.
+    "But how is their English?",
     "How fast can someone start?",
     "Will they work our hours?",
     "Who actually employs them?",
 ]
+
+# Extra steer for questions whose honest answer is easy to get wrong.
+_TM_NL_ANSWER_HINTS = {
+    "But how is their English?": (
+        "Answer it as \"you will hear it before you hire\": every candidate "
+        "comes with a video pre-screen the client can watch, the client then "
+        "interviews them, and nobody joins whose communication is not right "
+        "for the role. Say nothing about English, accents or culture in the "
+        "Philippines as a group."),
+}
 
 _TM_NL_ROLES = {
     "logistics": ["Track and Trace Specialist", "Freight Billing and Audit Specialist",
@@ -55496,7 +55508,8 @@ def _tm_newsletter_prompt(nl_name: str, company: str, niche: str, region: str,
         f"THIS ISSUE'S ARTICLE: \"{plan['angle']}\": {plan['angle_brief']}. "
         f"Adapt the headline to {_niche}.\n"
         f"QUESTION OF THE MONTH: \"{plan['objection']}\" Answer it plainly "
-        f"and honestly within the playbook rules.\n\n"
+        f"and honestly within the playbook rules. "
+        f"{_TM_NL_ANSWER_HINTS.get(plan['objection'], '')}\n\n"
         f"WHY NOW: use web search for 2 REAL, recent U.S. figures that show why "
         f"{_niche} owners are looking at their labor costs (wage growth for "
         f"this industry's office or operations roles, openings, or turnover). "
