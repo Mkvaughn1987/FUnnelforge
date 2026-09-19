@@ -70,3 +70,24 @@ def test_builder_uses_profiles_only_for_tm_without_real_candidates():
     assert "if not cand_block and (camp_type or \"\").strip() in _TM_TYPE_KEYS:" in src
     assert "ai_profiles=ai_profiles" in inspect.getsource(fa.generate_aicb_campaign)
     assert 'spec.get("ai_profiles")' in inspect.getsource(fa._api_create_campaign_blocking)
+
+
+def test_campaign_profiles_carry_computed_hourly_rates(monkeypatch):
+    monkeypatch.setattr(fa, "_SALES_MODE", True)
+    monkeypatch.setattr(fa, "_is_thrivemodal", lambda: True)
+    monkeypatch.setattr(fa, "_tm_profile_rate",
+                        lambda client, t: "Est. $9-$11/hr" if "Track" in t else "")
+    b = fa._tm_recruit_profiles_block(
+        2, "Track and Trace Specialist, Load Planner", "Freight Brokerage")
+    assert "- Track and Trace Specialist: Est. $9-$11/hr" in b
+    assert "Load Planner:" not in b          # no wage found, no rate line
+    assert "ONE exception" in b and "any other pay, salary or rate" in b
+    # No target roles: the vertical's usual roles are priced instead.
+    b2 = fa._tm_recruit_profiles_block(1, "", "freight brokerage")
+    assert "- Track and Trace Specialist: Est. $9-$11/hr" in b2
+
+
+def test_campaign_profiles_without_rates_keep_the_pay_ban(monkeypatch):
+    monkeypatch.setattr(fa, "_is_thrivemodal", lambda: False)
+    b = fa._tm_recruit_profiles_block(1, "Bookkeeper", "Accounting")
+    assert "RATES:" not in b and "pay, salary, a rate" in b

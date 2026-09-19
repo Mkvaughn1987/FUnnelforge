@@ -7175,7 +7175,8 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
         cand_block = _format_candidate_block(candidate_cards, camp_type)
     if not cand_block and (camp_type or "").strip() in _TM_TYPE_KEYS:
         cand_block = _tm_recruit_profiles_block(
-            ai_profiles, roles_str, niche_str or ind_label or company)
+            ai_profiles, roles_str, niche_str or ind_label or company,
+            client=client)
 
     # ── Step 2: Campaign build ──
     camp_type_def = next((ct for ct in AICB_CAMPAIGN_TYPES if ct[0] == camp_type),
@@ -55088,7 +55089,28 @@ def _clamp_ai_profiles(v) -> int:
         return 0
 
 
-def _tm_recruit_profiles_block(n: int, roles: str, niche: str) -> str:
+def _tm_profile_rate_lines(client, roles: str, niche: str) -> list:
+    """[(job title, 'Est. $lo-$hi/hr'), ...] for a campaign's candidate
+    profiles: the target roles when given, otherwise the usual offshore
+    roles for the niche's vertical. At most 4, only titles with a wage."""
+    if not (_SALES_MODE and _is_thrivemodal()):
+        return []
+    titles = [r.strip() for r in str(roles or "").split(",") if r.strip()]
+    if not titles:
+        titles = list(_TM_NL_ROLES.get(_tm_vertical_for(niche), []))
+    out = []
+    for t in titles[:4]:
+        try:
+            r = _tm_profile_rate(client, t)
+        except Exception:
+            r = ""
+        if r:
+            out.append((t, r))
+    return out
+
+
+def _tm_recruit_profiles_block(n: int, roles: str, niche: str,
+                               client=None) -> str:
     """Prompt block for AI candidate profiles inside a ThriveModal campaign.
 
     Introduced as profiles from ThriveModal's candidate pipeline (the owner
@@ -55100,6 +55122,24 @@ def _tm_recruit_profiles_block(n: int, roles: str, niche: str) -> str:
     n = _clamp_ai_profiles(n)
     if not n:
         return ""
+    # Each profile carries an estimated hourly rate (Mike, 2026-09-19),
+    # computed from U.S. wage data, never by the model. It is the single
+    # exception to the playbook's no-hourly-rate rule.
+    rates = _tm_profile_rate_lines(client, roles, niche)
+    if rates:
+        rate_rule = (
+            "RATES: use only these job titles, and end each profile with its "
+            "estimated rate copied exactly as written here, for example "
+            "\"(Est. $9-$11/hr)\":\n"
+            + "".join(f"- {t}: {r}\n" for t, r in rates)
+            + "This is the ONE exception to the rule against quoting an hourly "
+            "rate: it applies only to these profile lines. Never change, "
+            "round or explain the figure, and never write any other rate, "
+            "salary or cost. ")
+        pay_ban = "any other pay, salary or rate figure"
+    else:
+        rate_rule = ""
+        pay_ban = "pay, salary, a rate"
     return (
         f"CANDIDATE PROFILES: weave {n} short candidate profile"
         f"{'s' if n > 1 else ''} into the EMAIL steps (never the call or "
@@ -55115,8 +55155,9 @@ def _tm_recruit_profiles_block(n: int, roles: str, niche: str) -> str:
         f"they use, and the work they would take off the team's plate. Example: "
         f"\"Track and Trace Specialist: four-plus years at U.S. brokerages, "
         f"works in McLeod and DAT daily, handles after-hours check calls.\" "
-        f"Never give a name, a current or past employer name, pay, salary, a "
-        f"rate, a start date or an availability date; never say \"attached\"; "
+        f"{rate_rule}"
+        f"Never give a name, a current or past employer name, {pay_ban}, "
+        f"a start date or an availability date; never say \"attached\"; "
         f"do not call them samples or examples.\n\n")
 
 
