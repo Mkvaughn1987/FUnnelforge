@@ -55091,6 +55091,24 @@ def _generate_jway_newsletter(client, camp: dict, nl_name: str, company: str,
     return (_strip_dashes(subject), _jway_render(d, contact_name))
 
 
+def _nl_issue_year_month(step: dict, today: date = None) -> tuple:
+    """(year, month) an issue is written for: the month of its own send
+    date. Every issue of a newsletter was generated on the day it was
+    created, so a "today" rule stamped all twelve issues of one campaign
+    with the same month (inboxslide, 2026-09-18: Oct 2026 through Sep 2027
+    all read "October 2026"). A step with no usable fixed_date falls back
+    to the old rule: the current month, rolling to next month on the 15th."""
+    try:
+        fx = date.fromisoformat(str((step or {}).get("fixed_date") or "")[:10])
+        return (fx.year, fx.month)
+    except (TypeError, ValueError):
+        pass
+    t = today or date.today()
+    if t.day >= 15:
+        return (t.year + 1, 1) if t.month == 12 else (t.year, t.month + 1)
+    return (t.year, t.month)
+
+
 def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
     """Standalone newsletter content generator  -  no UI coupling.
     Used by both the manual Refresh flow and the auto-refresh scheduler.
@@ -55138,14 +55156,7 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
     # for the UPCOMING month — so on May 25 the content prompt must
     # tell Claude "write June content," not May. Mirrors the calendar
     # rollover rule in _render_newsletter_html.
-    _today_nl = date.today()
-    if _today_nl.day >= 15:
-        if _today_nl.month == 12:
-            _nl_year, _nl_month = _today_nl.year + 1, 1
-        else:
-            _nl_year, _nl_month = _today_nl.year, _today_nl.month + 1
-    else:
-        _nl_year, _nl_month = _today_nl.year, _today_nl.month
+    _nl_year, _nl_month = _nl_issue_year_month(step)
     month_year = date(_nl_year, _nl_month, 1).strftime("%B %Y")
     cfg = load_config()
     company = _get_company_name()
@@ -55298,6 +55309,8 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         "location": region,
         "website": website,
         "date": month_year,
+        "_send_year": _nl_year,
+        "_send_month": _nl_month,
         "intro_text": result.get("intro_text", ""),
         "top_news": result.get("top_news", []),
         "jolts": result.get("jolts", {}),
