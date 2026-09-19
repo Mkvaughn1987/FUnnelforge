@@ -55922,8 +55922,27 @@ def _tm_profiles_html(profiles) -> str:
     return "<br><br>".join(parts)
 
 
+_TM_PROFILES_LEAD_RE = re.compile(r"candidate profiles? in our pipeline",
+                                  re.IGNORECASE)
+
+
 def _tm_strip_campaign_profiles(body: str) -> str:
+    """Remove a profile set: the current format, and the prose or dash-list
+    profiles the campaign writer used to weave in before 2026-09-19 (the lead
+    paragraph plus the '- Title: ...' paragraphs right after it)."""
     out = _TM_PROFILES_BLOCK_RE.sub("<br><br>", body or "")
+    if _TM_PROFILES_LEAD_RE.search(out):
+        keep, skipping = [], False
+        for p in re.split(r"(?:<br\s*/?>\s*){2,}", out):
+            txt = re.sub(r"<[^>]+>", "", p).strip()
+            if _TM_PROFILES_LEAD_RE.search(txt):
+                skipping = True
+                continue
+            if skipping and txt.startswith(("-", "•", "*")):
+                continue
+            skipping = False
+            keep.append(p)
+        out = "<br><br>".join(keep)
     out = re.sub(r"(?:<br\s*/?>\s*){3,}", "<br><br>", out)
     return re.sub(r"(?:<br\s*/?>\s*)+$", "", out)
 
@@ -55963,7 +55982,7 @@ def _tm_add_campaign_profiles(client, campaign_data, n, roles, niche,
     `profiles` skips the model call (tests, dry runs)."""
     emails = (campaign_data or {}).get("emails") or []
     for em in emails:
-        if _TM_PROFILES_LEAD.lower() in (em.get("body") or "").lower():
+        if _TM_PROFILES_LEAD_RE.search(em.get("body") or ""):
             em["body"] = _tm_strip_campaign_profiles(em.get("body"))
     if profiles is None:
         profiles = _tm_generate_campaign_profiles(

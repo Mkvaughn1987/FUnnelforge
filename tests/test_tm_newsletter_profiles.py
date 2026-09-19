@@ -176,6 +176,24 @@ def test_profiles_go_on_the_people_email_before_the_ask_and_rerun_cleanly():
         "Hi {FirstName},<br><br>Para one.<br><br>Worth a call?")
 
 
+def test_old_woven_profiles_are_removed_before_the_new_set():
+    dash = ("Hi {FirstName},<br><br>Intro.<br><br>Here are some of the candidate "
+            "profiles in our pipeline:<br><br>- Estimator: five years<br><br>"
+            "- Drafter: six years<br>- Coordinator: four<br><br>Worth a call?")
+    inline = ("Hi {FirstName},<br><br>Intro.<br><br>Here are some of the "
+              "candidate profiles in our pipeline: Drafter with five years. "
+              "Estimator with six.<br><br>Worth a call?")
+    for body in (dash, inline):
+        assert fa._tm_strip_campaign_profiles(body) == (
+            "Hi {FirstName},<br><br>Intro.<br><br>Worth a call?")
+    camp = _camp()
+    camp["emails"][2]["body"] = dash
+    fa._tm_add_campaign_profiles(None, camp, 3, "", "", profiles=_PROFILES)
+    bodies = [e["body"] for e in camp["emails"]]
+    assert sum(fa._TM_PROFILES_LEAD in b for b in bodies) == 1
+    assert "- Estimator" not in " ".join(bodies)
+
+
 def test_profiles_never_go_on_the_first_email_or_a_call():
     camp = _camp()
     for e in camp["emails"]:
