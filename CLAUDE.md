@@ -73,3 +73,6 @@
 - Toolbar uses canvas-drawn icons (not tk.Button) for consistent styling
 - Email HTML uses two-pass serialization (flatten segments into lines, then generate HTML)
 - Inline CSS on list elements (ul/ol/li) to prevent Outlook spacing issues
+
+## Deploying inboxslide (standing order from Mike, 2026-09-19)
+- When work is committed and tests pass, deploy it yourself by running `ssh root@216.128.142.21 'bash ~/bin/deploy-inboxslide.sh'`. Do not hand Mike the command to paste. Run it and paste the deploy output.
