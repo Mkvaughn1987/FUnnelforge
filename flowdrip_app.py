@@ -16781,6 +16781,7 @@ SIDEBAR_LIBRARY = [
     ("present",   "Sales Assets", "pdf_gen"),
     # ThriveModal only: the render loop skips this row unless _is_thrivemodal().
     ("sparkle",   "AI Prompt",    "tm_prompts"),
+    ("c_saved",   "Saved Prompts", "tm_saved_prompts"),
 ]
 SIDEBAR_SETTINGS = [
     ("mail",     "Email & AI Setup", "ai_settings"),
@@ -16801,6 +16802,7 @@ SIDEBAR_PAGE_ROW = {
     "seq_mgr": "campaigns", "active_camps": "campaigns", "queue": "campaigns",
     "evergreen": "campaigns", "evergreen_create": "campaigns", "e_evergreen": "campaigns",
     "newsletters": "library", "pdf_gen": "library", "tm_prompts": "library",
+    "tm_saved_prompts": "library",
     "ai_settings": "settings", "company_profile": "settings", "team_settings": "settings",
     "signature": "settings", "e_signature": "settings", "timezone": "settings", "dnc": "settings",
     "tm_analytics": "analytics",
@@ -16814,7 +16816,7 @@ SIDEBAR_TITLES = {
     "seq_mgr": "Campaigns", "active_camps": "Campaigns", "queue": "Email Queue",
     "evergreen": "Nurture Campaigns", "evergreen_create": "New Nurture Campaign",
     "newsletters": "Content Library", "pdf_gen": "Content Library",
-    "tm_prompts": "Content Library",
+    "tm_prompts": "Content Library", "tm_saved_prompts": "Content Library",
     "ai_settings": "Email & AI Setup", "company_profile": "Company Profile",
     "team_settings": "Team", "signature": "Signature", "e_signature": "Signature",
     "timezone": "Timezone", "dnc": "Do Not Contact", "admin": "Admin",
@@ -18610,7 +18612,8 @@ def _sidebar_v2(s: AppState, rf):
                     if _lib_open:
                         with ui.element("div").classes("fd-side-subgroup"):
                             for sik, slbl, skey in SIDEBAR_LIBRARY:
-                                if skey == "tm_prompts" and not _is_thrivemodal():
+                                if (skey in ("tm_prompts", "tm_saved_prompts")
+                                        and not _is_thrivemodal()):
                                     continue
                                 _row(sik, slbl, skey, on=(page == skey), sub=True)
 
@@ -52712,6 +52715,23 @@ def _nl_hero_enabled() -> bool:
         return True
 
 
+def _nl_footer_blue(img) -> str:
+    """ThriveModal footer colour: the logo's own background blue, lightened
+    a little so the logo's box still shows against the band (Mike,
+    2026-09-19). "" when the logo has no solid background colour, or on
+    any other workspace, which keeps the navy footer."""
+    try:
+        if not (_SALES_MODE and _is_thrivemodal()):
+            return ""
+        r, g, b, *a = img.convert("RGBA").getpixel((1, 1))
+        if a and a[0] < 250:
+            return ""
+        mix = lambda c: int(round(c + (255 - c) * 0.14))
+        return "#{:02X}{:02X}{:02X}".format(mix(r), mix(g), mix(b))
+    except Exception:
+        return ""
+
+
 def _nl_logo_max_h(ratio: float) -> int:
     """Tallest the masthead logo may render. Wide wordmarks (3:1 and up,
     Arena's) keep the original 60px cap; squarer marks get up to 120px."""
@@ -52778,6 +52798,7 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
     # masthead slot.
     _logo_w_attr = 220
     _logo_h_attr = 50
+    _footer_bg = ""
     if logo_b64:
         try:
             import base64 as _b64
@@ -52786,6 +52807,7 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             _src_bytes = _b64.b64decode(logo_b64)
             _src_img = _Image.open(_BytesIO(_src_bytes))
             _src_w, _src_h = _src_img.size
+            _footer_bg = _nl_footer_blue(_src_img)
             if _src_w > 0 and _src_h > 0:
                 # Fit inside the 220-wide slot, preserving aspect ratio. A
                 # wide wordmark caps at 60 tall; a squarish mark (ThriveModal's
@@ -52809,6 +52831,15 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
     # (2026-06-04 "her Arena logo is cut off when sent" report.) In desktop
     # mode _email_img_src returns the data URI so local preview still works.
     _logo_src = _email_img_src(logo_b64, "logo", mime="image/png") if logo_b64 else ""
+    # Footer copy of the logo, only when the footer takes the logo's blue.
+    _footer_logo_html = ""
+    if _footer_bg and _logo_src:
+        _fh = min(64, _logo_h_attr)
+        _fw = int(round(_logo_w_attr * _fh / max(1, _logo_h_attr)))
+        _footer_logo_html = (
+            f'<img src="{_logo_src}" alt="{company}" width="{_fw}" '
+            f'height="{_fh}" style="display:block;margin:0 auto 10px;'
+            f'width:{_fw}px;height:{_fh}px;border:0;outline:none;">')
     _compact_logo_img = (
         f'<img src="{_logo_src}" alt="{company}" '
         f'width="{_logo_w_attr}" height="{_logo_h_attr}" '
@@ -54242,12 +54273,13 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
   <!-- SECTIONS -->
   {sections_html}
 
-  <!-- FOOTER  -  navy, clean -->
-  <tr><td style="background:{nc["navy_deep"]};padding:26px 40px;text-align:center;">
+  <!-- FOOTER  -  navy, clean (ThriveModal: logo on a lighter logo-blue) -->
+  <tr><td style="background:{_footer_bg or nc["navy_deep"]};padding:26px 40px;text-align:center;">
+    {_footer_logo_html}
     <div style="font-size:14px;color:{nc["white"]};font-weight:700;font-family:{_FONT};letter-spacing:0.2px;">{company}</div>
     {('<div style="font-size:12px;margin-top:4px;font-family:' + _FONT + ';"><a href="https://' + website + '" style="color:#BFD4EB;text-decoration:underline;"><span style="color:#BFD4EB;">' + website + '</span></a></div>') if website else ''}
     {contact_bar_html}
-    <div style="font-size:10px;color:rgba(255,255,255,0.4);margin-top:14px;font-family:{_FONT};letter-spacing:0.3px;">You received this because you're connected with our team &middot; Reply UNSUBSCRIBE to opt out</div>
+    <div style="font-size:10px;color:rgba(255,255,255,{'0.7' if _footer_bg else '0.4'});margin-top:14px;font-family:{_FONT};letter-spacing:0.3px;">You received this because you're connected with our team &middot; Reply UNSUBSCRIBE to opt out</div>
   </td></tr>
 
 </table>
@@ -62517,9 +62549,10 @@ def render_page(s: AppState, rf):
                     print(f"[AIPrompts] page failed: {_aip_ex}", flush=True)
                     ui.label(f"AI Prompts is unavailable: {_aip_ex}").style(
                         f"font-size:14px;color:{C['warn']};padding:20px 0;")
-            elif page == "tm_prompts":
-                # ThriveModal's AI Prompt page: the same engine as ai_prompts,
-                # bound to the inboxslide catalogue. Lazy for the same reason.
+            elif page in ("tm_prompts", "tm_saved_prompts"):
+                # ThriveModal's AI Prompt page (and its Saved Prompts list):
+                # the same engine as ai_prompts, bound to the inboxslide
+                # catalogue. Lazy for the same reason.
                 try:
                     import tm_prompts as _tmp
                     import ai_prompts as _aip_nl
@@ -62530,7 +62563,12 @@ def render_page(s: AppState, rf):
                         if c.get("evergreen_only") and c.get("name")]
                     _aip_nl.NEWSLETTER_CREATE = (
                         lambda _s, _rf: _create_newsletter_dialog(_s, _rf))
-                    _tmp.p_tm_prompts(s, rf)
+                    # Saved Prompts "Open" jumps back to the AI Prompt page.
+                    _aip_nl.NAVIGATE = lambda _k: _sidebar_nav(s, rf, _k, {})
+                    if page == "tm_saved_prompts":
+                        _tmp.p_tm_saved_prompts(s, rf)
+                    else:
+                        _tmp.p_tm_prompts(s, rf)
                 except Exception as _tmp_ex:
                     print(f"[TMPrompts] page failed: {_tmp_ex}", flush=True)
                     ui.label(f"AI Prompt is unavailable: {_tmp_ex}").style(

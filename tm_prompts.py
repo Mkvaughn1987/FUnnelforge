@@ -950,3 +950,8 @@ def p_tm_prompts(s, rf):
     """AI Prompt - the inboxslide page. Binds the ThriveModal catalogue and
     hands the rest to the engine."""
     _e.render_page(s, rf, TM)
+
+
+def p_tm_saved_prompts(s, rf):
+    """Saved Prompts - the prompts this user saved from the AI Prompt page."""
+    _e.render_saved_page(s, rf, TM)

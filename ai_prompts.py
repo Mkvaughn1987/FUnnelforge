@@ -1475,6 +1475,11 @@ def _setups_path():
     return _ff()._resolve_user_root() / _CAT.setups_file
 
 
+# Set by the host app: NAVIGATE(page_key) switches pages. The Saved
+# Prompts list uses it to open a saved prompt on the AI Prompt page.
+NAVIGATE = None
+
+
 def _load_setups():
     try:
         p = _setups_path()
@@ -1843,6 +1848,98 @@ def _aip_ask(s, rf, C):
                     _aip_setup_row(s, rf, C, row, setups)
 
 
+def _open_setup(s, row, built=False):
+    """Load a saved setup's answers into the session. built=True also
+    builds the prompt, so the page opens straight on the result."""
+    key = row.get("routine") or _CAT.default_routine
+    r = _CAT.routine_by_key.get(key, _CAT.routine_by_key[_CAT.default_routine])
+    vals = defaults_for(r)
+    # Only keys the routine still has. A setup saved before a field was
+    # renamed loads with that one answer missing rather than failing.
+    for k, v in (row.get("vals") or {}).items():
+        if k in r["field_by_key"]:
+            vals[k] = v
+    s._aip_req = {
+        "raw": row.get("raw") or "",
+        "routine": r["key"],
+        "title": row.get("name") or r["name"],
+        "summary": row.get("summary") or "",
+        "vals": vals,
+        "filled": list(vals.keys()),
+        "detail": list(row.get("detail") or []),
+    }
+    s._aip_prompt = build_prompt(s._aip_req) if built else None
+    s._aip_open = None
+    s._aip_saving = False
+    s._aip_err = ""
+
+
+def render_saved_page(s, rf, cat):
+    """Saved Prompts: every prompt this user saved, newest first. Open
+    rebuilds it from the saved answers (so it picks up any wording fixes
+    since) and shows it on the AI Prompt page; Edit opens the answers."""
+    global _CAT
+    _CAT = cat
+    C = _ff().C
+    _aip_owner(s)
+    rows = _load_setups()
+
+    def _go(row, built):
+        _open_setup(s, row, built)
+        if NAVIGATE:
+            NAVIGATE("tm_prompts")
+        else:
+            rf()
+
+    def _delete(row):
+        _save_setups([x for x in rows if x.get("id") != row.get("id")])
+        ui.notify("Deleted.", type="positive")
+        rf()
+
+    with ui.element("div").classes("aip-wrap"):
+        _aip_css()
+        with ui.element("div").style("margin-bottom:14px;"):
+            ui.label("Saved Prompts").classes("fd-h1")
+            ui.label("Prompts you saved from AI Prompt. Open one to copy it "
+                     "again.").classes("fd-sub")
+        if not rows:
+            with _card(C):
+                _text("Nothing saved yet. Build a prompt on AI Prompt, then "
+                      "press Save prompt.", C, 13, colour=C["muted"])
+            return
+        with ui.element("div").style(
+                "display:flex;flex-direction:column;gap:8px;"):
+            for row in rows:
+                routine = _CAT.routine_by_key.get(row.get("routine") or "", {})
+                with ui.element("div").style(
+                        f"display:flex;align-items:center;gap:10px;"
+                        f"flex-wrap:wrap;background:{C['bg']};"
+                        f"border:1px solid {C['border']};border-radius:9px;"
+                        f"padding:12px 16px;"):
+                    with ui.element("div").style("flex:1;min-width:180px;"):
+                        ui.label(row.get("name") or "Untitled").style(
+                            f"font-size:13px;font-weight:700;"
+                            f"color:{C['text_l']};display:block;")
+                        sub = " · ".join(x for x in (
+                            routine.get("name", ""),
+                            "saved " + row["saved_at"] if row.get("saved_at")
+                            else "") if x)
+                        ui.label(sub).style(
+                            f"font-size:11px;color:{C['muted']};display:block;")
+                    with ui.element("button").classes("fd-pb").style(
+                            "padding:7px 16px;font-size:12px;").on(
+                            "click", lambda r_=row: _go(r_, True)):
+                        ui.label("Open")
+                    with ui.element("button").classes("fd-gb").style(
+                            "padding:7px 14px;font-size:12px;").on(
+                            "click", lambda r_=row: _go(r_, False)):
+                        ui.label("Edit answers")
+                    with ui.element("button").classes("fd-gb").style(
+                            "padding:7px 12px;font-size:12px;").on(
+                            "click", lambda r_=row: _delete(r_)):
+                        ui.label("Delete")
+
+
 def _aip_setup_row(s, rf, C, row, setups):
     def _load():
         key = row.get("routine") or _CAT.default_routine
@@ -2053,7 +2150,7 @@ def _aip_extra(s, rf, C, req):
         ui.label("Add another")
 
 
-def _aip_save_setup(s, rf, C, req):
+def _aip_save_setup(s, rf, C, req, label="Save these answers"):
     # The name box used to sit here unasked, pre-filled with the job's own
     # one-line description - full width, no label, right under the build
     # button. It read as one more question about the run rather than as a
@@ -2065,7 +2162,7 @@ def _aip_save_setup(s, rf, C, req):
             rf()
         with ui.element("button").classes("fd-gb").style(
                 "padding:8px 18px;font-size:12px;").on("click", _open):
-            ui.label("Save these answers")
+            ui.label(label)
         return
 
     name_box = ui.input(
@@ -2092,7 +2189,8 @@ def _aip_save_setup(s, rf, C, req):
         })
         if _save_setups(rows[:30]):
             s._aip_saving = False
-            ui.notify("Saved. It'll be on the first screen next time.",
+            ui.notify("Saved. Find it under Saved Prompts." if NAVIGATE
+                      else "Saved. It'll be on the first screen next time.",
                       type="positive")
             rf()
         else:
@@ -2292,6 +2390,7 @@ def _aip_result(s, rf, C):
             with ui.element("button").classes("fd-gb").style(
                     "padding:9px 18px;font-size:12px;").on("click", _restart):
                 ui.label("Ask for something else")
+            _aip_save_setup(s, rf, C, req, label="Save prompt")
 
     if _CAT.result_extra:
         _CAT.result_extra(s, rf, C, r)

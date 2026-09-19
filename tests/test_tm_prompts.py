@@ -364,3 +364,23 @@ def test_page_binding_is_the_catalogue_passed(aip, tm, tmp_path, monkeypatch):
     assert aip._CAT is tm.TM
     aip.p_ai_prompts(_Session(), lambda: None)
     assert aip._CAT is aip.ARENA
+
+
+def test_saved_prompt_opens_straight_on_the_built_prompt():
+    # Saved Prompts "Open" (2026-09-19): load the saved answers and build
+    # the prompt in one go; "Edit answers" loads them without building.
+    import ai_prompts as e
+    import tm_prompts as t
+    from types import SimpleNamespace as NS
+    e._CAT = t.TM
+    r = t.TM.routine_by_key[t.TM.default_routine]
+    row = {"id": "x", "name": "Dallas CPAs", "routine": r["key"],
+           "vals": dict(e.defaults_for(r), bogus_old_key="dropped")}
+    s = NS()
+    e._open_setup(s, row, built=True)
+    assert s._aip_req["title"] == "Dallas CPAs"
+    assert "bogus_old_key" not in s._aip_req["vals"]
+    assert s._aip_prompt == e.build_prompt(s._aip_req)
+    e._open_setup(s, row)
+    assert s._aip_prompt is None
+    assert hasattr(t, "p_tm_saved_prompts")
