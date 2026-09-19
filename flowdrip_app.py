@@ -54681,6 +54681,9 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
     _from_name = (contact_name or "").strip()
     _first_name = _from_name.split()[0] if _from_name else ""
     _sig_in_body = False
+    # ThriveModal: the sign-off (e.g. "Thanks," + email) sits under the
+    # "Email me" line in dark text, not in the blue box (Mike, 2026-09-19).
+    _tm_signoff_html = ""
     if _first_name:
         _note_body = _newsletter_note()
         _avatar_b64 = _newsletter_avatar_b64()
@@ -54749,11 +54752,21 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
                 + (f'<div style="font-size:12px;margin-top:4px;font-family:{_FONT};">'
                    f'<a href="https://{website}" style="color:#FFFFFF;text-decoration:underline;">'
                    f'{website}</a></div>' if website else '')
-                + "".join(
-                    f'<div style="font-size:12px;margin-top:{"10px" if i == 0 else "2px"};'
-                    f'font-family:{_FONT};white-space:nowrap;">{part}</div>'
-                    for i, part in enumerate(contact_parts))
                 + '</div>')
+            _signoff_bits = [
+                (contact_name, f'font-weight:700;color:{nc["text"]};'),
+                (contact_title, f'color:{nc["muted"]};'),
+                (contact_phone, f'color:{nc["muted"]};'),
+            ]
+            _tm_signoff_html = "".join(
+                f'<div style="font-size:13px;margin-top:{"12px" if i == 0 else "2px"};'
+                f'font-family:{_FONT};{style}">{val}</div>'
+                for i, (val, style) in enumerate(b for b in _signoff_bits if b[0]))
+            if contact_email:
+                _tm_signoff_html += (
+                    f'<div style="font-size:13px;margin-top:2px;font-family:{_FONT};">'
+                    f'<a href="mailto:{contact_email}" style="color:{nc["primary"]};'
+                    f'text-decoration:none;">{contact_email}</a></div>')
 
         sections_html += f'''
         <tr><td style="padding:18px 40px 10px;background:#FFFFFF;">
@@ -54801,6 +54814,12 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             <a href="{cta_url}" target="_blank"
                style="color:{nc["primary"]};text-decoration:underline;font-weight:600;">Email me</a>.
           </div>
+          {_tm_signoff_html}
+        </td></tr>'''
+    elif _tm_signoff_html:
+        sections_html += f'''
+        <tr><td style="padding:4px 40px 40px;text-align:center;background:#FFFFFF;">
+          {_tm_signoff_html}
         </td></tr>'''
 
     # ── Custom HTML Block ────────────────────────────────────────────────
