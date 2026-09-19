@@ -41005,8 +41005,8 @@ _TM_PDF_STEP_WORDS = {
     "tm_cost_compare": ("cost", "economics", "math", "saving", "budget",
                         "pricing"),
     "tm_how_it_works": ("how it works", "commitment", "control", "terms",
-                        "after the hire", "after selection", "quality",
-                        "commercial", "process"),
+                        "after the hire", "after selection", "no risk",
+                        "offer", "commercial", "quality", "process"),
     "tm_role_blueprint": ("blueprint", "transfer", "requirement", "what we need",
                           "expert asset", "role fit", "role would", "role"),
     "interview_guide": ("interview", "shortlist", "selection", "candidate"),
@@ -41074,14 +41074,18 @@ def _tm_pdf_placement(camp_type, emails, kinds) -> dict:
                 placed[kind] = ei
                 used.add(ei)
                 break
-    # Pass 2: the rest, spread over the free emails in priority order.
+    # Pass 2: the rest, spread evenly over the free emails in priority order
+    # (never bunched on the first free one).
     rest = [k for k in kinds if k not in placed]
     free = [ei for ei in eligible if ei not in used]
-    for i, kind in enumerate(rest):
-        if not free:
+    picks = sorted({free[min(len(free) - 1, ((i + 1) * len(free)) // (len(rest) + 1))]
+                    for i in range(len(rest))} if free else set())
+    for ei in free:
+        if len(picks) >= min(len(rest), len(free)):
             break
-        pos = min(len(free) - 1, (i * len(free)) // max(1, len(rest)))
-        ei = free.pop(pos)
+        if ei not in picks:
+            picks.append(ei)
+    for kind, ei in zip(rest, sorted(picks)):
         placed[kind] = ei
         used.add(ei)
     return placed
@@ -41109,13 +41113,17 @@ def _tm_attach_campaign_pdfs(camp_type, campaign_data, built: dict) -> int:
     return len(placed)
 
 
-def _tm_campaign_pdf_filename(kind, subject, location="") -> str:
+def _tm_campaign_pdf_filename(kind, subject) -> str:
+    """Label + company (or role). Prospects see this name, so it is cut on a
+    word boundary, never mid-word."""
     label = next((l for k, l, _ in _TM_CAMPAIGN_PDF_KINDS if k == kind), kind)
-    slug = "_".join(p for p in (
-        re.sub(r'[^A-Za-z0-9]+', '_', subject or "").strip('_')[:30],
-        re.sub(r'[^A-Za-z0-9]+', '_', location or "").strip('_')[:20],
-    ) if p) or "Campaign"
-    return f"{label.replace(' ', '_')}_{slug}.pdf"
+    words = re.sub(r'[^A-Za-z0-9]+', ' ', subject or "").split()
+    slug = ""
+    for w in words:
+        if len(slug) + len(w) + 1 > 40:
+            break
+        slug = f"{slug}_{w}" if slug else w
+    return f"{label.replace(' ', '_')}_{slug or 'Campaign'}.pdf"
 
 
 def _tm_build_campaign_pdfs(kinds, company, role, location, industry="",
@@ -41159,8 +41167,8 @@ def _tm_build_campaign_pdfs(kinds, company, role, location, industry="",
                 _CURRENT_USER_EMAIL.set(user_email)
             data = _generate_rich_pdf_data(client, kind, ctx, research_context="",
                                            style_guide=style)
-            fname = _tm_campaign_pdf_filename(kind, subject + " " + (role or ""),
-                                              location if not company else "")
+            fname = _tm_campaign_pdf_filename(kind, (company or "").strip()
+                                              or (role or "").strip() or subject)
             build = {
                 "title": data.get("title") or f"{labels[kind]} - {subject}",
                 "badge": data.get("badge") or labels[kind].upper(),
