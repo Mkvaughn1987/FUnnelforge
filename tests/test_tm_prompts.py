@@ -115,12 +115,14 @@ def test_catalogue_is_inboxslide_not_dripdrop(tm):
 
 def test_sequences_map_to_the_offered_thrivemodal_campaign_types(tm):
     assert set(tm.TEMPLATE_KEY.values()) == {
-        "tm_conversation", "tm_fivebyseven", "tm_threebythree",
-        "tm_fivethreeli", "tm_stay_in_touch", "tm_twelveweek"}
+        "tm_fivebyseven", "tm_threebythree", "tm_conversation",
+        "tm_hiring_signal", "tm_twelveweek", "tm_stay_in_touch",
+        "tm_reengage", "tm_meeting_followup"}
     for label in tm.TEMPLATE_KEY:
         assert label in tm.SEQUENCES
     assert tm.SEQUENCES[-2:] == ["One of my saved styles", "Let Claude choose"]
-    assert tm.TM.default_template == "tm_conversation"
+    assert tm.TM.default_template == "tm_fivebyseven"
+    assert tm.DEFAULT_SEQUENCE == "Standard Outreach"
 
 
 def test_verticals_are_ordered_core_first_then_exploratory(tm):
@@ -238,7 +240,8 @@ def test_signal_hunt_prompt_wires_the_campaign_build(tm, aip):
     r = tm.ROUTINE_BY_KEY["tm_signal_hunt"]
     p = tm.build_prompt({"routine": "tm_signal_hunt",
                          "vals": _defaults(aip, r), "summary": "x"})
-    assert 'template "tm_conversation"' in p
+    # A hiring signal defaults to the They're Hiring sequence.
+    assert 'template "tm_hiring_signal"' in p
     assert "call tm_mailboxes" in p
     assert "create_campaign" in p
     assert "contacts argument" in p
@@ -255,7 +258,7 @@ def test_lookalikes_default_to_knichel_and_never_name_it_in_emails(tm, aip):
     p = tm.build_prompt({"routine": "tm_lookalikes",
                          "vals": _defaults(aip, r), "summary": "x"})
     assert "find_similar_companies with knichellogistics.com" in _flat(p)
-    assert 'template "tm_conversation"' in p
+    assert 'template "tm_fivebyseven"' in p
     assert "40 companies" in p
 
 

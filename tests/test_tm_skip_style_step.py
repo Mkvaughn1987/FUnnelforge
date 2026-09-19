@@ -23,7 +23,8 @@ def test_lock_check_still_accepts_arena_4x4():
 
 
 def test_tm_tile_sets_the_lock():
-    i = SRC.index("if k in _TM_TYPE_KEYS:")
-    block = SRC[i:SRC.index("elif k ==", i)]
+    # Every TM tile (and Help me choose) opens the wizard through this helper.
+    i = SRC.index("def _tm_start_objective(s, k):")
+    block = SRC[i:SRC.index("_TM_STEP_ICON = ", i)]
     assert "s.aicb_style_locked = True" in block
     assert "s.aicb_camp_type = k" in block

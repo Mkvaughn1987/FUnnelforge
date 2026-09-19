@@ -5553,13 +5553,13 @@ AICB_CAMPAIGN_TYPES = [
     # the same-day call + LinkedIn pairing on Step 2's day; Steps 8 and 9
     # extend that cadence for the two added emails. See _TM_STEP_SHAPE, which
     # is what actually pins it.
-    ("tm_conversation", "7 Emails, 3 Calls + LinkedIn", "11 steps - 4 weeks", "#14B8A6",
-     "Seven emails, three calls and one LinkedIn touch over about four weeks. "
-     "Opens on a capacity question, prices the role, shows which work "
-     "actually transfers, covers what happens after the hire starts, answers "
-     "the control question, states the commitment plainly and closes with a "
-     "three-option check-in. No candidate record needed.",
-     "Cold outreach - named accounts - market segments",
+    ("tm_conversation", "Priority Account Push", "11 steps - 4 weeks", "#14B8A6",
+     "For a company you really want. Seven emails, three calls and one "
+     "LinkedIn touch over about four weeks. Opens on a capacity question, "
+     "prices the role, shows which work actually transfers, covers what "
+     "happens after the hire starts, answers the control question, states "
+     "the commitment plainly and closes with a three-option check-in.",
+     "Must-win accounts - you will make the calls",
      "Step 1 - Capacity (delay_days:0, step_type:email_auto) - "
      "Subject in the shape 'More capacity for <Company>', under 50 "
      "characters. Open with ONE question: what work would their team finally "
@@ -5658,7 +5658,7 @@ AICB_CAMPAIGN_TYPES = [
      "role in mind, it is something for later, it is not a priority. Say a "
      "quick reply is plenty. Do NOT offer, promise or imply a newsletter, a "
      "mailing list or any ongoing sends."),
-    ("tm_hiring_signal", "Respond to a Hiring Signal", "6 steps - 3 weeks", "#F97316",
+    ("tm_hiring_signal", "They're Hiring", "6 steps - 3 weeks", "#F97316",
      "They just posted a role, announced growth or opened a location. Reaches "
      "them while the need is live, with offshore support framed against the "
      "role they are already trying to fill, then prices that role and states "
@@ -5698,7 +5698,7 @@ AICB_CAMPAIGN_TYPES = [
      "Step 6 - Close the loop (delay_days:5, step_type:email_auto) - "
      "Short. Acknowledge the search may already be closed, leave the door open "
      "for the next one, stop. No newsletter, no ongoing-send promise."),
-    ("tm_meeting_followup", "Follow Up After a Meeting", "6 steps - 3 weeks", "#8B5CF6",
+    ("tm_meeting_followup", "After the Call", "6 steps - 3 weeks", "#8B5CF6",
      "For a prospect you have ACTUALLY spoken with. Recaps what was discussed, "
      "confirms the role shape, covers what happens once they choose someone, "
      "puts the commitment in plain terms and moves toward a shortlist.",
@@ -5735,7 +5735,7 @@ AICB_CAMPAIGN_TYPES = [
      "Step 6 - Nudge (delay_days:6, step_type:email_auto) - "
      "Short check-in if the requirements never came back. Offer to draft them "
      "from the call instead. One question, no pressure."),
-    ("tm_reengage", "Re-engage a Prospect", "6 steps - 5 weeks", "#EF4444",
+    ("tm_reengage", "Revive Old Leads", "6 steps - 5 weeks", "#EC4899",
      "For accounts that went quiet. Comes back from a different angle instead "
      "of repeating the original pitch, re-prices the role, keeps the "
      "commitment small, and gives them an easy way to say not now.",
@@ -5769,14 +5769,16 @@ AICB_CAMPAIGN_TYPES = [
      "Step 6 - Timing check (delay_days:7, step_type:email_auto) - "
      "Ask plainly whether this is a this-year or a next-year problem and say "
      "either answer is useful. Close the loop if the answer is neither."),
-    ("tm_stay_in_touch", "Cold Nurture", "7 steps - 15 weeks", "#60A5FA",
-     "For cold prospects who fit but are not ready. One useful touch every "
-     "couple of weeks, each from a different angle - context, process, "
-     "economics, what support looks like after a hire - ending with a genuine "
-     "door-open close.",
-     "Cold lists - long cycles - not-now accounts",
+    ("tm_stay_in_touch", "Stay on Their Radar", "6 steps - 12 weeks", "#60A5FA",
+     "For prospects who fit but are not ready, or who never replied. One "
+     "useful touch every two to three weeks, each from a different angle - "
+     "context, economics, how it works and what support looks like after a "
+     "hire - ending with a genuine door-open close.",
+     "Not-now accounts - no reply yet - long cycles",
      "Step 1 - Low-pressure intro (delay_days:0, step_type:email_auto) - "
-     "This is a cold first touch: they have never heard from the sender. "
+     "Treat this as a cold first touch: they have never heard from the "
+     "sender, unless the BRIEF says they already received outreach, in which "
+     "case acknowledge that lightly in one clause and do not re-pitch. "
      "One specific observation about their business plus one sentence on what "
      "the sender does. Say explicitly that you are not asking for anything "
      "today. No figures.\n"
@@ -5784,13 +5786,9 @@ AICB_CAMPAIGN_TYPES = [
      "Something genuinely useful about their industry's operating pressure. If "
      "the BRIEF supplies a statistic, use it and name the source and the date; "
      "if it does not, make the point WITHOUT a number. No call ask.\n"
-     "Step 3 - How the process works (delay_days:14, step_type:email_auto) - "
-     "Walk the process plainly: role discovery, recruiting to their "
-     "requirements, candidate review, client interviews, onboarding, ongoing "
-     "support. No timeline claims. One soft question.\n"
-     "Step 4 - Check-in Call (delay_days:14, step_type:call) - Low-key. "
+     "Step 3 - Check-in Call (delay_days:14, step_type:call) - Low-key. "
      "Script: find out what would have to change for this to matter.\n"
-     "Step 5 - What the economics look like (delay_days:10, step_type:email_auto) - "
+     "Step 4 - What the economics look like (delay_days:10, step_type:email_auto) - "
      "Still no pressure. Give the evaluation order they would use whenever the "
      "moment arrives: define the work, then compare the cost of covering it - "
      "an all-inclusive monthly rate for a professional dedicated exclusively "
@@ -5799,14 +5797,16 @@ AICB_CAMPAIGN_TYPES = [
      "benefits administrator. Do NOT name a dollar figure, a monthly rate or a "
      "percentage unless the approved pricing and service terms field supplies "
      "it verbatim. No meeting ask; offer the comparison if they ever want it.\n"
-     "Step 6 - After the hire starts (delay_days:14, step_type:email_auto) - "
-     "What continues once a client selects someone: onboarding coordination, a "
-     "dedicated manager, monthly check-ins, quarterly reviews, with the client "
-     "setting the day-to-day priorities. Cite customer proof ONLY as the "
-     "approved-proof field allows, adding no number, figure or date to it; if "
-     "that field approves nothing, cite no customer at all. One soft "
-     "question.\n"
-     "Step 7 - Door open (delay_days:14, step_type:email_auto) - "
+     "Step 5 - How it works, start to finish (delay_days:14, step_type:email_auto) - "
+     "Walk the process in two or three plain lines: role discovery, "
+     "recruiting to their requirements, the client interviews and chooses. "
+     "Then what continues once a client selects someone: onboarding "
+     "coordination, a dedicated manager, monthly check-ins, quarterly "
+     "reviews, with the client setting the day-to-day priorities. No "
+     "timeline claims. Cite customer proof ONLY as the approved-proof field "
+     "allows, adding no number, figure or date to it; if that field approves "
+     "nothing, cite no customer at all. One soft question.\n"
+     "Step 6 - Door open (delay_days:14, step_type:email_auto) - "
      "Short, warm, and explicitly the last scheduled note. Do NOT promise a "
      "newsletter or any further automatic sends."),
     ("tm_grow_client", "Grow an Existing Client", "6 steps - 4 weeks", "#10B981",
@@ -5843,16 +5843,19 @@ AICB_CAMPAIGN_TYPES = [
      "Step 6 - Make it easy (delay_days:6, step_type:email_auto) - "
      "Short. Offer to run the same requirements process for the next role. "
      "Quote pricing ONLY if the approved pricing field supplies it."),
-    # -- ThriveModal cold-outreach lineup (2026-09-18) -------------------------
-    # Mike: "We are strictly focusing on finding new business." These three
-    # plus tm_conversation and Cold Nurture (tm_stay_in_touch) are what the
-    # picker offers; the relationship types above stay registered so saved
-    # campaigns keep working, but are hidden (_TM_HIDDEN_TYPE_KEYS).
-    ("tm_fivebyseven", "ThriveModal 5x7", "7 steps - 3 weeks", "#0EA5E9",
-     "Five emails, one call and one LinkedIn touch over three weeks. Opens on "
-     "a capacity question, prices one role, shows what transfers, answers the "
-     "control question and closes cleanly. No candidate record needed.",
-     "Cold outreach - named accounts - market segments",
+    # -- ThriveModal cold-outreach lineup (2026-09-18, renamed 2026-09-19) ----
+    # Mike: "We are strictly focusing on finding new business." Names say the
+    # SITUATION (Quick Intro, Standard Outreach...), never the step count, so
+    # someone new to the app can pick one without decoding "5x7". The chooser
+    # card shows the counts, computed from _TM_STEP_SHAPE. tm_fivebyseven
+    # absorbed tm_fivethreeli (the two were the same arc), which is now hidden
+    # but still registered so saved campaigns keep working.
+    ("tm_fivebyseven", "Standard Outreach", "8 steps - 3 weeks", "#0EA5E9",
+     "The default for any new company. Five emails, two calls and one "
+     "LinkedIn touch over three weeks. Opens on a capacity question, prices "
+     "one role, shows what transfers, answers the control question and "
+     "closes cleanly.",
+     "Any good-fit company you have not contacted yet",
      "Step 1 - Capacity (delay_days:0, step_type:email_auto) - "
      "This is a cold first touch: they have never heard from the sender. "
      "Subject in the shape 'More capacity for <Company>', under 50 "
@@ -5883,7 +5886,11 @@ AICB_CAMPAIGN_TYPES = [
      "named tasks a Philippines-based professional absorbs well and two or "
      "three that stay onshore, drawn from the BRIEF. Name the position the way "
      "the buyer would, never 'virtual assistant'. One question CTA.\n"
-     "Step 6 - Control and commitment (delay_days:4, step_type:email_auto) - "
+     "Step 6 - Follow-up Call 2 (delay_days:0, step_type:call) - SAME DAY as "
+     "Step 5. Script: ask which of those tasks takes the most of their team's "
+     "week and what it would free them to do. Voicemail line under 20 "
+     "seconds.\n"
+     "Step 7 - Control and commitment (delay_days:4, step_type:email_auto) - "
      "Answer the reservation this buyer most likely holds - quality, "
      "oversight, time-zone overlap or data access - with how it works: "
      "recruited for that job, the client interviews and chooses, works inside "
@@ -5891,29 +5898,29 @@ AICB_CAMPAIGN_TYPES = [
      "terms as short bullet lines, using ONLY terms in the approved pricing "
      "and service terms field, dropping any it does not support. CTA: ask for "
      "a job description to start from.\n"
-     "Step 7 - Close the loop (delay_days:5, step_type:email_auto) - "
+     "Step 8 - Close the loop (delay_days:5, step_type:email_auto) - "
      "Short and warm, no guilt. Say plainly this is the last note. Three "
      "options to pick from: they have a role in mind, it is something for "
      "later, it is not a priority. Do NOT offer a newsletter, a mailing list "
      "or any ongoing sends."),
-    ("tm_threebythree", "3x3 Aggressive", "3 steps - 1 week", "#EF4444",
-     "Three short, direct emails in one week, email only. Names the work, "
-     "makes the case, then asks for a straight answer. For lists where you "
-     "want a fast read on who is interested.",
-     "High-volume cold lists - fast read - email only",
+    ("tm_threebythree", "Quick Intro", "3 steps - 2 weeks", "#EF4444",
+     "Three short, direct emails over about a week and a half, email only. "
+     "Names the work, makes the case, then asks for a straight answer. For "
+     "big lists where you want a fast read on who is interested.",
+     "Big lists - see who bites - email only",
      "Step 1 - Direct opener (delay_days:0, step_type:email_auto) - "
      "Cold first touch, UNDER 90 words. Subject under 40 characters. Name ONE "
      "recurring task from the BRIEF that a dedicated professional in the "
      "Philippines could take off their team, say in one sentence what the "
      "sender does, and ask directly for 15 minutes this week. No figures, no "
      "attachment reference.\n"
-     "Step 2 - The case (delay_days:2, step_type:email_auto) - UNDER 110 "
+     "Step 2 - The case (delay_days:3, step_type:email_auto) - UNDER 110 "
      "words, subject different in shape from Step 1. Make the case in short "
      "bullet lines: dedicated to their company, works their U.S. hours, they "
      "interview and choose, plus ONLY the commercial terms and savings claim "
      "the approved pricing and service terms field supports, worded as it "
      "words them. CTA: offer to price one named role.\n"
-     "Step 3 - Straight answer (delay_days:3, step_type:email_auto) - UNDER 60 "
+     "Step 3 - Straight answer (delay_days:4, step_type:email_auto) - UNDER 60 "
      "words. The last note, said plainly. Ask for a one-word reply: 'now', "
      "'later' or 'no'. Any answer is useful. No newsletter, no ongoing-send "
      "promise, no guilt."),
@@ -5963,7 +5970,7 @@ AICB_CAMPAIGN_TYPES = [
     # the candidate snapshot becomes the kind of professional ThriveModal
     # would recruit (never a real or available person), and the case study is
     # limited to what the approved-proof field allows.
-    ("tm_twelveweek", "12-Week BD Program", "15 steps - 12 weeks", "#F59E0B",
+    ("tm_twelveweek", "Top 25 Accounts", "15 steps - 12 weeks", "#F59E0B",
      "Fifteen touchpoints over twelve weeks: eight emails, four calls and "
      "three LinkedIn touches. Built so a target account remembers you, sees "
      "you as the expert on offshore capacity, and takes a 15-minute call. "
@@ -6080,12 +6087,11 @@ _TM_TYPE_KEYS = frozenset({
     "tm_reengage", "tm_stay_in_touch", "tm_grow_client",
     "tm_fivebyseven", "tm_threebythree", "tm_fivethreeli", "tm_twelveweek",
 })
-# Registered (saved campaigns and the API keep working) but not offered: the
-# instance is new-business only for now, and these four work an existing
-# relationship or a trigger rather than a cold account.
-_TM_HIDDEN_TYPE_KEYS = frozenset({
-    "tm_hiring_signal", "tm_meeting_followup", "tm_reengage", "tm_grow_client",
-})
+# Registered (saved campaigns and the API keep working) but not offered.
+# tm_grow_client needs existing clients; tm_fivethreeli merged into Standard
+# Outreach (tm_fivebyseven) on 2026-09-19. Hiring signal, re-engage and
+# after-the-call came back the same day: they are all new-business plays.
+_TM_HIDDEN_TYPE_KEYS = frozenset({"tm_grow_client", "tm_fivethreeli"})
 _TM_OFFERED_TYPE_KEYS = _TM_TYPE_KEYS - _TM_HIDDEN_TYPE_KEYS
 # Shapes that carry no playbook-specific content: their step instructions say
 # "the sender's company" and name no offer, so they read correctly under either
@@ -7689,8 +7695,8 @@ def _api_create_campaign_blocking(client, spec, owner):
             built = tm_pdfs["future"].result() if tm_pdfs["future"] else {}
             kinds = tm_pdfs["kinds"]
             if kinds is None:
-                # A long sequence's default adds a third PDF, which is only
-                # known once the steps exist.
+                # The default is capped by how many emails can carry a
+                # PDF, which is only known once the steps exist.
                 kinds = _tm_default_pdf_kinds(template, emails)
                 extra = [k for k in kinds if k not in built]
                 if extra:
@@ -8003,7 +8009,7 @@ async def api_tm_campaign_pdfs(request: Request):
     optionally "role"/"location"/"industry"/"company" to build them for}.
     The campaign's current Sales Assets PDFs are replaced (hand uploads are
     kept), and pending queue items pick up the change, since the queue froze
-    body and attachments at launch. "pdfs": [] removes them all."""
+    body and attachments at launch. Every campaign keeps one or two."""
     from starlette.responses import JSONResponse
 
     owner = _tm_api_owner(request)
@@ -8023,7 +8029,8 @@ async def api_tm_campaign_pdfs(request: Request):
         return JSONResponse({"error": "campaign_id is required"}, status_code=400)
     kinds, pins, perr = _tm_parse_pdf_request(body.get("pdfs"))
     if kinds is None and not perr:
-        perr = "pdfs is required (a list; [] removes them)"
+        perr = (f"pdfs is required (a list of {TM_CAMPAIGN_PDF_MIN} to "
+                f"{TM_CAMPAIGN_PDF_MAX} kinds)")
     if perr:
         return JSONResponse({"error": perr, "choices": _tm_pdf_menu()},
                             status_code=400)
@@ -12532,24 +12539,27 @@ _TM_STEP_SHAPE = {
         1: (0, ST.EMAIL_AUTO), 2: (5, ST.EMAIL_AUTO), 3: (2, ST.LINKEDIN),
         4: (5, ST.EMAIL_AUTO), 5: (5, ST.EMAIL_AUTO), 6: (7, ST.EMAIL_AUTO),
     },
+    # Six touches over about 12 weeks (62 business days). The old Step 3
+    # ("how the process works") folded into Step 5.
     "tm_stay_in_touch": {
-        1: (0, ST.EMAIL_AUTO), 2: (10, ST.EMAIL_AUTO), 3: (14, ST.EMAIL_AUTO),
-        4: (14, ST.CALL),      5: (10, ST.EMAIL_AUTO), 6: (14, ST.EMAIL_AUTO),
-        7: (14, ST.EMAIL_AUTO),
+        1: (0, ST.EMAIL_AUTO), 2: (10, ST.EMAIL_AUTO), 3: (14, ST.CALL),
+        4: (10, ST.EMAIL_AUTO), 5: (14, ST.EMAIL_AUTO), 6: (14, ST.EMAIL_AUTO),
     },
     "tm_grow_client": {
         1: (0, ST.EMAIL_AUTO), 2: (4, ST.EMAIL_AUTO), 3: (0, ST.CALL),
         4: (4, ST.EMAIL_AUTO), 5: (5, ST.EMAIL_AUTO), 6: (6, ST.EMAIL_AUTO),
     },
-    # 5 emails + call + LinkedIn, the call and LinkedIn on Step 2's day.
+    # Standard Outreach: 5 emails + 2 calls + LinkedIn over 15 business days.
+    # Call 1 and LinkedIn land on Step 2's day, Call 2 on Step 5's day.
     "tm_fivebyseven": {
         1: (0, ST.EMAIL_AUTO), 2: (3, ST.EMAIL_AUTO), 3: (0, ST.CALL),
-        4: (0, ST.LINKEDIN),   5: (3, ST.EMAIL_AUTO), 6: (4, ST.EMAIL_AUTO),
-        7: (5, ST.EMAIL_AUTO),
+        4: (0, ST.LINKEDIN),   5: (3, ST.EMAIL_AUTO), 6: (0, ST.CALL),
+        7: (4, ST.EMAIL_AUTO), 8: (5, ST.EMAIL_AUTO),
     },
-    # Email only, three sends inside one business week.
+    # Quick Intro: email only, business days 0 / 3 / 7. Three cold emails in
+    # five days read as pushy and draw spam complaints; this spacing doesn't.
     "tm_threebythree": {
-        1: (0, ST.EMAIL_AUTO), 2: (2, ST.EMAIL_AUTO), 3: (3, ST.EMAIL_AUTO),
+        1: (0, ST.EMAIL_AUTO), 2: (3, ST.EMAIL_AUTO), 3: (4, ST.EMAIL_AUTO),
     },
     # 5 emails, 3 calls, 1 LinkedIn; each call on the day of the email before.
     "tm_fivethreeli": {
@@ -17124,6 +17134,7 @@ class AppState:
         self.aicb_style_locked = False            # True when an entry tile (Arena 4×4) fixed the
                                                   # style → wizard skips the Campaign Style step
         self.aicb_byos_desc = ""                  # BYOS custom description
+        self.aicb_followon_from = ""              # TM: finished campaign whose non-repliers were loaded
         self.aicb_candidate_resume = ""           # candidate resume text from Candidate Finder
         # Resume-to-campaign state
         self.aicb_resumes: list = []              # list of dicts: {filename, raw_text, candidate, redacted_path}
@@ -17132,7 +17143,7 @@ class AppState:
         # ── Step 3 Candidates (2026-04-26 wizard restructure) ──
         self.aicb_cand_count: int = 3             # stepper value 1-6
         self.aicb_tm_profiles: int = 3            # ThriveModal AI profiles 3-5
-        self.aicb_tm_pdfs = None                  # ThriveModal PDF kinds, max 3; None = type default
+        self.aicb_tm_pdfs = None                  # ThriveModal PDF kinds, 1-2 of the top 3; None = type default
         self.aicb_cand_source: str = ""           # "pool" | "autogen" | "skip" | ""
         self.aicb_cand_cards: list = []           # list of {label, role, bullets:[str]}
         self.aicb_redact_companies: bool = True   # 5x3 only: hide real employer names (default ON)
@@ -22991,13 +23002,12 @@ def _sq_loaded_campaign(s: AppState, rf):
                     ("tenure_snapshot", "Tenure Snapshot", "📈", C["indigo"]),
                 ]
                 if _is_thrivemodal():
-                    # Same set, same order as the Sales Assets page.
+                    # The campaign set: the top three Sales Assets only
+                    # (_TM_CAMPAIGN_PDF_OFFERED), same order as that page.
                     _pdf_types_inline2 = [
                         ("tm_role_blueprint", "Offshore Role Blueprint", "📋", C["email_col"]),
                         ("tm_cost_compare",   "Staffing Cost Comparison", "💰", C["warn"]),
                         ("tm_how_it_works",   "How We Work Together", "🤝", C["indigo"]),
-                        ("interview_guide",   "Interview Guide", "🎯", C["good"]),
-                        ("market_pulse",      "Market Pulse", "📊", C["teal"]),
                     ]
                 # Generating state
                 if not hasattr(s, '_pdf_generating'):
@@ -25038,127 +25048,455 @@ _CHOOSER_RECRUITING_KEYS = frozenset({
 # campaign setup (the wizard already owns that question) rather than being
 # baked into the tile the way the ARENA tiles do it.
 _TM_CHOOSER_OBJECTIVES = [
-    {
-        "key": "tm_conversation",
-        "icon": "💬",
-        "title": "7 Emails, 3 Calls + LinkedIn",
-        "subtitle": "Four weeks of cold outreach to one company or segment",
-        "desc": ("Seven emails, three calls and one LinkedIn touch over about "
-                 "four weeks. Opens on a capacity question, prices the role, "
-                 "shows what actually transfers, covers support after the "
-                 "hire and the commitment, then closes cleanly on three "
-                 "options. No candidate needed."),
-        "best_for": ["Cold outreach", "Named accounts", "Market segments"],
-        "border": "#14B8A6",
-    },
+    # ── Reach new companies ──
     {
         "key": "tm_fivebyseven",
+        "group": "new",
         "icon": "🎯",
-        "title": "ThriveModal 5x7",
-        "subtitle": "Five emails, a call and a LinkedIn touch",
-        "desc": ("Seven steps over three weeks. Opens on a capacity question, "
-                 "prices one role, shows what transfers, answers the control "
-                 "question and closes cleanly."),
-        "best_for": ["Cold outreach", "Named accounts", "Market segments"],
+        "title": "Standard Outreach",
+        "recommended": True,
+        "use_when": "Your default for any good-fit company you haven't contacted yet.",
+        "desc": ("Opens on a capacity question, prices one role, shows what "
+                 "work transfers, answers the control question and closes "
+                 "cleanly on three options."),
         "border": "#0EA5E9",
     },
     {
         "key": "tm_threebythree",
+        "group": "new",
         "icon": "⚡",
-        "title": "3x3 Aggressive",
-        "subtitle": "Three direct emails in one week",
+        "title": "Quick Intro",
+        "use_when": "You have a big list and want to see who's interested, fast.",
         "desc": ("Email only. Names the work, makes the case, then asks for a "
-                 "straight now, later or no. A fast read on a cold list."),
-        "best_for": ["High-volume lists", "Fast read", "Email only"],
+                 "one-word reply: now, later or no."),
         "border": "#EF4444",
     },
     {
-        "key": "tm_fivethreeli",
-        "icon": "📞",
-        "title": "5 Emails, 3 Calls + LinkedIn",
-        "subtitle": "The full multichannel push",
-        "desc": ("Nine steps over three weeks. Every call follows an email on "
-                 "the same angle, so each conversation has something to "
-                 "point back to."),
-        "best_for": ["Priority accounts", "Named buyers", "Multichannel"],
-        "border": "#8B5CF6",
-    },
-    {
-        "key": "tm_twelveweek",
-        "icon": "🗓️",
-        "title": "12-Week BD Program",
-        "subtitle": "Fifteen touchpoints over twelve weeks",
-        "desc": ("Eight emails, four calls and three LinkedIn touches. Built "
-                 "so a target account remembers you, sees you as the expert "
-                 "and takes a 15-minute call."),
-        "best_for": ["Named accounts", "Long cycles", "Multi-threading"],
-        "border": "#F59E0B",
+        "key": "tm_conversation",
+        "group": "new",
+        "icon": "💬",
+        "title": "Priority Account Push",
+        "use_when": "A company you really want, and you'll make the calls.",
+        "desc": ("The fullest cold sequence. Adds a note on support after the "
+                 "hire and a plain statement of the commitment before it "
+                 "closes."),
+        "border": "#14B8A6",
     },
     {
         "key": "tm_hiring_signal",
+        "group": "new",
         "icon": "📡",
-        "title": "Respond to a Hiring Signal",
-        "subtitle": "They just posted a role or announced growth",
-        "desc": ("Reaches them while the need is live. Frames the offshore "
-                 "option against the role they are already trying to fill, "
-                 "and splits it into what goes offshore and what stays."),
-        "best_for": ["Job-post triggers", "Expansion news", "New locations"],
+        "title": "They're Hiring",
+        "use_when": "They just posted a job, announced growth or opened a location.",
+        "desc": ("Reaches them while the need is live, splits the role into "
+                 "what goes offshore and what stays, then prices it."),
         "border": "#F97316",
     },
     {
-        "key": "tm_meeting_followup",
-        "icon": "🤝",
-        "title": "Follow Up After a Meeting",
-        "subtitle": "For a prospect you have actually spoken with",
-        "desc": ("Recaps what was discussed, confirms the role requirements, "
-                 "and moves toward a shortlist. The only sequence that "
-                 "references a prior conversation, because here there was one."),
-        "best_for": ["Post-discovery", "After an intro call", "Requirements"],
-        "border": "#8B5CF6",
+        "key": "tm_twelveweek",
+        "group": "new",
+        "icon": "🗓️",
+        "title": "Top 25 Accounts",
+        "use_when": "Your dream accounts, where you'll play the long game.",
+        "desc": ("One touch a week for twelve weeks across email, phone and "
+                 "LinkedIn, so they remember you and take a 15-minute call."),
+        "border": "#F59E0B",
     },
-    {
-        "key": "tm_reengage",
-        "icon": "🔄",
-        "title": "Re-engage a Prospect",
-        "subtitle": "Accounts that went quiet",
-        "desc": ("Comes back from a different angle instead of repeating the "
-                 "original pitch. No 'just circling back', no invented prior "
-                 "exchange, and an easy way for them to say not now."),
-        "best_for": ["Closed-lost", "Stalled deals", "Went dark"],
-        "border": "#EF4444",
-    },
+    # ── Follow up ──
     {
         "key": "tm_stay_in_touch",
+        "group": "follow",
         "icon": "🌱",
-        "title": "Cold Nurture",
-        "subtitle": "Cold prospects who fit but are not ready",
-        "desc": ("One useful touch every couple of weeks over about fifteen "
-                 "weeks, each from a different angle - context, process, "
-                 "economics, support after a hire - ending with a genuine "
-                 "door-open close. No newsletter promise, no ongoing-send "
-                 "commitment."),
-        "best_for": ["Long cycles", "Not-now accounts", "Relationships"],
+        "title": "Stay on Their Radar",
+        "use_when": "They fit, but said 'not now' or never replied.",
+        "desc": ("One useful note every two to three weeks, no pressure, "
+                 "ending with a genuine door-open close. Finished campaigns "
+                 "offer to move the people who didn't reply into this one."),
         "border": "#60A5FA",
     },
     {
+        "key": "tm_reengage",
+        "group": "follow",
+        "icon": "🔄",
+        "title": "Revive Old Leads",
+        "use_when": "You talked months ago, or a deal went quiet.",
+        "desc": ("Comes back from a new angle instead of repeating the old "
+                 "pitch, and gives them an easy way to say not now."),
+        "border": "#EC4899",
+    },
+    {
+        "key": "tm_meeting_followup",
+        "group": "follow",
+        "icon": "🤝",
+        "title": "After the Call",
+        "use_when": "You've had a real conversation and need to move it forward.",
+        "desc": ("Recaps what they said, confirms the role requirements and "
+                 "moves toward interviews."),
+        "border": "#8B5CF6",
+    },
+    # ── Registered but hidden (_TM_HIDDEN_TYPE_KEYS) ──
+    {
+        "key": "tm_fivethreeli",
+        "group": "new",
+        "icon": "📞",
+        "title": "5 Emails, 3 Calls + LinkedIn",
+        "use_when": "Merged into Standard Outreach.",
+        "desc": "",
+        "border": "#8B5CF6",
+    },
+    {
         "key": "tm_grow_client",
+        "group": "follow",
         "icon": "📈",
         "title": "Grow an Existing Client",
-        "subtitle": "Add a seat or a second function",
-        "desc": ("Written to an existing relationship, not to a prospect. "
-                 "Focused on the next seat and the next constrained function "
-                 "instead of re-selling the company."),
-        "best_for": ["Account expansion", "Second seat", "New department"],
+        "use_when": "An existing client could use a second seat.",
+        "desc": "",
         "border": "#10B981",
     },
 ]
 
-# Objective cards first, then the two shapes that are not objectives at all.
+_TM_CHOOSER_GROUPS = [
+    ("new", "Reach new companies"),
+    ("follow", "Follow up"),
+    ("own", "Or build your own"),
+]
+
+# Objective cards, then "Build Your Own". Saved Campaigns has its own sidebar
+# row, so it is not repeated here.
 TM_CHOOSER_OPTIONS = [
     o for o in _TM_CHOOSER_OBJECTIVES if o["key"] not in _TM_HIDDEN_TYPE_KEYS
 ] + [
-    opt for opt in CHOOSER_OPTIONS if opt["key"] in ("saved", "scratch")
+    dict(opt, group="own", title="Build Your Own",
+         use_when="None of these fit and you want to set the steps yourself.",
+         desc=("Pick how many emails, calls and LinkedIn touches you want, "
+               "set the spacing, and write each step or let AI draft it. "
+               "Saved to My Campaign Styles to reuse any time."))
+    for opt in CHOOSER_OPTIONS if opt["key"] == "scratch"
 ]
+
+# "Help me choose": two questions at most. Each answer either names a
+# sequence or asks the second question. (answer text, type key or "q2")
+_TM_HELP_Q1 = ("What's the situation?", [
+    ("A new company I haven't contacted", "q2"),
+    ("They just posted a job or announced growth", "tm_hiring_signal"),
+    ("They fit, but aren't ready or never replied", "tm_stay_in_touch"),
+    ("We talked before, then it went quiet", "tm_reengage"),
+    ("We just had a call or a meeting", "tm_meeting_followup"),
+])
+_TM_HELP_Q2 = ("How much effort do you want to put in?", [
+    ("A big list: I just want to see who's interested", "tm_threebythree"),
+    ("A normal list: emails plus a couple of calls", "tm_fivebyseven"),
+    ("A few companies I really want", "tm_conversation"),
+    ("My top accounts: a long, steady program", "tm_twelveweek"),
+])
+
+
+def _tm_type_weeks(key) -> int:
+    """Weeks the sequence runs, from its registry label ("8 steps - 3 weeks")."""
+    t = next((x for x in AICB_CAMPAIGN_TYPES if x[0] == key), None)
+    m = re.search(r"(\d+)\s*weeks?", (t[2] if t else "") or "")
+    return int(m.group(1)) if m else 1
+
+
+def _tm_shape_summary(key) -> str:
+    """'5 emails · 2 calls · 1 LinkedIn · about 3 weeks', from the pinned shape."""
+    kinds = [st for _d, st in (_TM_STEP_SHAPE.get(key) or {}).values()]
+    parts = []
+    for st, one, many in ((ST.EMAIL_AUTO, "email", "emails"),
+                          (ST.CALL, "call", "calls"),
+                          (ST.LINKEDIN, "LinkedIn", "LinkedIn")):
+        n = kinds.count(st)
+        if n:
+            parts.append(f"{n} {one if n == 1 else many}")
+    if not parts:
+        return ""
+    if kinds.count(ST.CALL) == 0 and kinds.count(ST.LINKEDIN) == 0:
+        parts[-1] += " only"
+    w = _tm_type_weeks(key)
+    parts.append(f"about {w} week{'s' if w != 1 else ''}")
+    return " · ".join(parts)
+
+
+def _tm_shape_weeks(key) -> list:
+    """Step types grouped by the week they land in (business days / 5),
+    clamped to the weeks the sequence is labelled with. Empty weeks stay in
+    the list so the strip shows the spacing."""
+    shape = _TM_STEP_SHAPE.get(key) or {}
+    weeks = [[] for _ in range(_tm_type_weeks(key))]
+    cum = 0
+    for n in sorted(shape):
+        d, st = shape[n]
+        cum += d
+        weeks[min(cum // 5, len(weeks) - 1)].append(st)
+    return weeks
+
+
+def _tm_start_objective(s, k):
+    """Open the campaign wizard on ThriveModal type `k`. The tile IS the style
+    choice, so it is locked, but aicb_target_mode is NOT preset: landing on
+    wizard step 1 hands the "named company vs market segment" question to the
+    wizard's own picker, which already validates it."""
+    s._nav_history.append(_nav_snapshot(s))
+    _reset_wizard_state(s)
+    s._chooser_origin = k
+    s.aicb_camp_type = k
+    s.aicb_style_locked = True
+    s.sp = "ai_campaign"
+    s.aicb_step = 1
+    s.aicb_wizard_step = 1
+    s.aicb_type_picked = True
+    s.aicb_contacts = []
+
+
+_TM_STEP_ICON = {ST.EMAIL_AUTO: "✉", ST.CALL: "☎", ST.LINKEDIN: "in"}
+
+
+def _tm_render_shape_strip(key, color):
+    """One small column per week, an icon per touch, so the cadence reads at
+    a glance without the step list."""
+    weeks = _tm_shape_weeks(key)
+    if not weeks:
+        return
+    with ui.element("div").style(
+            "display:flex;flex-wrap:wrap;gap:4px;align-items:flex-end;margin:8px 0 2px;"):
+        for wi, touches in enumerate(weeks):
+            with ui.element("div").style(
+                    "display:flex;flex-direction:column;align-items:center;gap:2px;"
+                    "min-width:30px;"):
+                with ui.element("div").style(
+                        "display:flex;gap:2px;min-height:20px;align-items:center;"):
+                    if not touches:
+                        ui.label("·").style(f"font-size:12px;color:{C['muted']};")
+                    for st in touches:
+                        ui.label(_TM_STEP_ICON.get(st, "•")).style(
+                            f"font-size:10px;font-weight:700;color:{color};"
+                            f"background:{color}1f;border:1px solid {color}55;"
+                            f"border-radius:4px;padding:1px 4px;line-height:14px;")
+                ui.label(f"Wk {wi + 1}").style(
+                    f"font-size:9px;color:{C['muted']};letter-spacing:.3px;")
+
+
+def _tm_render_chooser_card(opt, on_pick, highlight=False):
+    color = opt["border"]
+    summary = _tm_shape_summary(opt["key"])
+    with ui.element("div").style(
+            f"background:{color + '14' if highlight else C['card']};"
+            f"border:1px solid {color}{'' if highlight else '60'};"
+            f"border-left:4px solid {color};"
+            f"border-radius:0 12px 12px 0;padding:16px 20px;"
+            f"cursor:pointer;transition:background .15s;"
+            ).on("click", on_pick):
+        with ui.element("div").style("display:flex;align-items:flex-start;gap:16px;"):
+            with ui.element("div").style(
+                    f"width:44px;height:44px;border-radius:10px;"
+                    f"background:{color}22;border:1px solid {color}60;"
+                    f"display:flex;align-items:center;justify-content:center;flex-shrink:0;"):
+                ui.label(opt["icon"]).style("font-size:20px;")
+            with ui.element("div").style("flex:1;min-width:0;"):
+                with ui.element("div").style(
+                        "display:flex;align-items:center;gap:10px;flex-wrap:wrap;"
+                        "margin-bottom:2px;"):
+                    ui.label(opt["title"]).style(
+                        f"font-size:16px;font-weight:700;color:{color};"
+                        f"font-family:'Nunito',sans-serif;")
+                    if opt.get("recommended"):
+                        ui.label("Recommended").style(
+                            f"font-size:10px;font-weight:700;color:#fff;"
+                            f"background:{color};border-radius:99px;padding:2px 8px;"
+                            f"text-transform:uppercase;letter-spacing:.5px;")
+                    if summary:
+                        ui.label(summary).style(f"font-size:12px;color:{C['muted']};")
+                ui.label(opt.get("use_when", "")).style(
+                    f"font-size:13px;font-weight:600;color:{C['text_l']};"
+                    f"line-height:1.5;margin-bottom:2px;")
+                if opt.get("desc"):
+                    ui.label(opt["desc"]).style(
+                        f"font-size:12px;color:{C['text']};line-height:1.6;")
+                if opt["key"] in _TM_STEP_SHAPE:
+                    _tm_render_shape_strip(opt["key"], color)
+            ui.label("→").style(
+                f"font-size:20px;color:{color};font-weight:700;"
+                f"flex-shrink:0;align-self:center;")
+
+
+def _tm_render_help_me_choose(s, rf):
+    """The two-question picker above the cards. State lives on the session:
+    _tm_help_open (panel shown), _tm_help_q (None, "q2", or a type key)."""
+    open_ = bool(getattr(s, "_tm_help_open", False))
+    ans = getattr(s, "_tm_help_q", None)
+
+    def _set(q):
+        s._tm_help_q = q
+        rf()
+
+    def _toggle():
+        s._tm_help_open = not open_
+        s._tm_help_q = None
+        rf()
+
+    btn_css = (f"padding:8px 14px;border-radius:8px;cursor:pointer;"
+               f"background:{C['card']};border:1px solid {C['border']};"
+               f"color:{C['text_l']};font-family:inherit;font-size:13px;"
+               f"text-align:left;")
+    with ui.element("div").style(
+            f"max-width:860px;margin-bottom:18px;border:1px solid {C['teal']}40;"
+            f"background:{C['teal']}0d;border-radius:12px;padding:12px 16px;"):
+        with ui.element("div").style(
+                "display:flex;align-items:center;justify-content:space-between;"
+                "cursor:pointer;gap:12px;").on("click", _toggle):
+            ui.label("Not sure which one? Answer one or two quick questions.").style(
+                f"font-size:13px;font-weight:600;color:{C['teal']};")
+            ui.label("Hide" if open_ else "Help me choose").style(
+                f"font-size:12px;color:{C['teal']};text-decoration:underline;")
+        if not open_:
+            return
+        if ans in (None, "q2"):
+            q, answers = _TM_HELP_Q2 if ans == "q2" else _TM_HELP_Q1
+            ui.label(q).style(
+                f"font-size:14px;font-weight:700;color:{C['text_l']};margin:12px 0 8px;")
+            with ui.element("div").style("display:flex;flex-direction:column;gap:6px;"):
+                for text, nxt in answers:
+                    with ui.element("button").style(btn_css).on(
+                            "click", lambda n=nxt: _set(n)):
+                        ui.label(text).style("pointer-events:none;")
+            if ans == "q2":
+                ui.label("← Back").style(
+                    f"font-size:12px;color:{C['muted']};cursor:pointer;margin-top:8px;"
+                ).on("click", lambda: _set(None))
+            return
+        opt = next((o for o in _TM_CHOOSER_OBJECTIVES if o["key"] == ans), None)
+        if not opt:
+            s._tm_help_q = None
+            return
+        ui.label("We'd suggest").style(
+            f"font-size:12px;color:{C['muted']};margin:12px 0 6px;")
+
+        def _go(k=ans):
+            s._tm_help_open = False
+            s._tm_help_q = None
+            _tm_start_objective(s, k)
+            rf()
+        _tm_render_chooser_card(opt, _go, highlight=True)
+        ui.label("Start over").style(
+            f"font-size:12px;color:{C['muted']};cursor:pointer;margin-top:8px;"
+            f"text-decoration:underline;").on("click", lambda: _set(None))
+
+
+# ── "Move the people who didn't reply" hand-off ──────────────────────────────
+# A finished ThriveModal campaign offers to start Stay on Their Radar for its
+# contacts who never replied. It pre-loads them into the wizard; nothing is
+# sent until the user generates and launches that campaign.
+
+def _tm_camp_type(camp) -> str:
+    """The ThriveModal type a saved campaign was built as, or "". The wizard
+    saves it as template_key, the API as aicb_camp_type too; check all three
+    markers the way _camp_is_4x4 does."""
+    camp = camp or {}
+    for m in (camp.get("aicb_camp_type"), camp.get("template_key"),
+              camp.get("_chooser_origin")):
+        m = str(m or "").strip()
+        if m in _TM_TYPE_KEYS:
+            return m
+    return ""
+
+
+def _tm_nonresponder_rows(camp, responded_emails, dnc_emails) -> list:
+    """Contacts of `camp` who never replied and are not on the DNC list (which
+    is also where bounced addresses land), as wizard rows (CONTACT_FIELDS
+    keys). The two *_emails args are sets of lowercased addresses."""
+    replied = set(responded_emails or ())
+    for r in (camp or {}).get("responders") or []:
+        e = r.get("email") if isinstance(r, dict) else r
+        if e:
+            replied.add(str(e).strip().lower())
+    dnc = set(dnc_emails or ())
+    rows, seen = [], set()
+    for c in (camp or {}).get("contacts") or []:
+        if not isinstance(c, dict):
+            continue
+        email = str(c.get("Email") or c.get("email") or "").strip()
+        low = email.lower()
+        if not email or low in seen or low in replied or low in dnc:
+            continue
+        seen.add(low)
+
+        def g(*keys):
+            for k in keys:
+                v = c.get(k)
+                if v:
+                    return str(v).strip()
+            return ""
+        rows.append({
+            "Email": email,
+            "FirstName": g("FirstName", "first_name"),
+            "LastName": g("LastName", "last_name"),
+            "Company": g("Company", "company"),
+            "JobTitle": g("JobTitle", "title"),
+            "MobilePhone": g("MobilePhone", "phone_mobile"),
+            "WorkPhone": g("WorkPhone", "phone_office"),
+            "LinkedInPage": g("LinkedInPage", "linkedin"),
+            "City": g("City", "city"),
+            "State": g("State", "state"),
+        })
+    return rows
+
+
+def _tm_followon_note(prior_campaign) -> str:
+    """Put at the top of the brief when the wizard was opened from a finished
+    campaign, so Step 1 does not greet them as strangers."""
+    if not prior_campaign:
+        return ""
+    return ("CONTEXT: every contact on this campaign already received the "
+            f"'{prior_campaign}' sequence from the sender and did not reply. "
+            "They are not new to the sender: do not introduce the offer as "
+            "if for the first time, and do not mention that they did not "
+            "reply.\n\n")
+
+
+def _tm_start_followon(s, camp, rows):
+    """Open Stay on Their Radar with `rows` pre-loaded, remembering which
+    campaign they came from."""
+    _tm_start_objective(s, "tm_stay_in_touch")
+    s.aicb_contacts = list(rows)
+    s.aicb_followon_from = camp.get("name", "")
+    v = camp.get("variables") or {}
+    if v.get("Industry"):
+        s.aicb_industry = v["Industry"]
+
+
+def _tm_render_chooser_page(s, rf):
+    """The ThriveModal chooser: one-line intro, Help me choose, then the cards
+    grouped by situation. The caller renders My Campaign Styles below it."""
+    ui.label("Choose a Campaign").style(
+        f"font-size:20px;font-weight:700;color:{C['text_l']};margin-bottom:6px;"
+        f"font-family:'Nunito',sans-serif;")
+    ui.label(
+        "Pick the situation you're in. We write every email, call script and "
+        "LinkedIn note for you, and you review it all before anything sends."
+    ).style(f"font-size:13px;color:{C['muted']};margin-bottom:16px;line-height:1.55;")
+    _tm_render_help_me_choose(s, rf)
+
+    def _pick(k):
+        if k in _TM_TYPE_KEYS:
+            _tm_start_objective(s, k)
+        elif k == "scratch":
+            # Same target as the shared chooser's "scratch" tile.
+            _reset_wizard_state(s)
+            s.sp = "seq_builder"
+        rf()
+
+    for gkey, glabel in _TM_CHOOSER_GROUPS:
+        opts = [o for o in TM_CHOOSER_OPTIONS if o.get("group") == gkey]
+        if not opts:
+            continue
+        ui.label(glabel).style(
+            f"font-size:11px;font-weight:700;color:{C['muted']};"
+            f"text-transform:uppercase;letter-spacing:1.2px;"
+            f"margin:14px 0 8px;font-family:'Nunito',sans-serif;")
+        with ui.element("div").style(
+                "display:flex;flex-direction:column;gap:10px;max-width:860px;"):
+            for opt in opts:
+                _tm_render_chooser_card(opt, lambda k=opt["key"]: _pick(k))
 
 
 def _sq_pick(s, rf):
@@ -25173,63 +25511,50 @@ def _sq_pick(s, rf):
         # Resolve the workspace playbook ONCE per render. A workspace that
         # never chose one resolves to ARENA, i.e. exactly today's chooser.
         _pb_tm = _is_thrivemodal()
-        ui.label("Choose a Campaign Objective" if _pb_tm else "Choose a Sequence Type").style(
-            f"font-size:20px;font-weight:700;color:{C['text_l']};margin-bottom:8px;"
-            f"font-family:'Nunito',sans-serif;")
-        ui.label(
-            "Every sequence starts here. Pick the option that matches "
-            "what you're trying to do today, and the next page will walk "
-            "you through the rest. Not sure? Read the description on each "
-            "card — the icon color hints at the type of outreach. You can "
-            "always change direction or come back to this page later."
-        ).style(
-            f"font-size:13px;color:{C['muted']};margin-bottom:6px;line-height:1.55;")
-        ui.label(
-            # Same hint, minus the sentence pointing at a tile this
-            # instance does not show.
-            ("Pick the objective that matches where this account already is. "
-             "The next page asks whether you're going after one named company "
-             "or a whole market segment. "
-             "Re-running something that worked? Saved Campaigns. "
-             "Want full manual control? Create a Campaign Style.")
-            if _pb_tm else
-            ("Going to a single company? Pick Target a Company. "
-             "Working a vertical or region? Target a Market. "
-             "Re-running something that worked? Saved Campaigns. "
-             "Want full manual control? Create a Campaign Style.")
-            if _SALES_MODE else
-            ("Going to a single company? Pick Target a Company. "
-             "Working a vertical or region? Target a Market. "
-             "Working a specific role? Find Candidates. "
-             "Re-running something that worked? Saved Campaigns. "
-             "Want full manual control? Create a Campaign Style.")
-        ).style(
-            f"font-size:12px;color:{C['muted']};margin-bottom:24px;line-height:1.55;"
-            f"font-style:italic;")
+        if _pb_tm:
+            _tm_render_chooser_page(s, rf)
+        else:
+            ui.label("Choose a Sequence Type").style(
+                f"font-size:20px;font-weight:700;color:{C['text_l']};margin-bottom:8px;"
+                f"font-family:'Nunito',sans-serif;")
+            ui.label(
+                "Every sequence starts here. Pick the option that matches "
+                "what you're trying to do today, and the next page will walk "
+                "you through the rest. Not sure? Read the description on each "
+                "card — the icon color hints at the type of outreach. You can "
+                "always change direction or come back to this page later."
+            ).style(
+                f"font-size:13px;color:{C['muted']};margin-bottom:6px;line-height:1.55;")
+            ui.label(
+                # Same hint, minus the sentence pointing at a tile this
+                # instance does not show.
+                ("Pick the objective that matches where this account already is. "
+                 "The next page asks whether you're going after one named company "
+                 "or a whole market segment. "
+                 "Re-running something that worked? Saved Campaigns. "
+                 "Want full manual control? Create a Campaign Style.")
+                if _pb_tm else
+                ("Going to a single company? Pick Target a Company. "
+                 "Working a vertical or region? Target a Market. "
+                 "Re-running something that worked? Saved Campaigns. "
+                 "Want full manual control? Create a Campaign Style.")
+                if _SALES_MODE else
+                ("Going to a single company? Pick Target a Company. "
+                 "Working a vertical or region? Target a Market. "
+                 "Working a specific role? Find Candidates. "
+                 "Re-running something that worked? Saved Campaigns. "
+                 "Want full manual control? Create a Campaign Style.")
+            ).style(
+                f"font-size:12px;color:{C['muted']};margin-bottom:24px;line-height:1.55;"
+                f"font-style:italic;")
 
         with ui.element("div").style("display:flex;flex-direction:column;gap:10px;max-width:860px;"):
-            for opt in (TM_CHOOSER_OPTIONS if _pb_tm else CHOOSER_OPTIONS):
+            for opt in (() if _pb_tm else CHOOSER_OPTIONS):
                 key = opt["key"]
                 if _SALES_MODE and not _pb_tm and key in _CHOOSER_RECRUITING_KEYS:
                     continue
                 def _pick(k=key):
-                    if k in _TM_TYPE_KEYS:
-                        # The tile IS the style choice, so lock it - but do NOT
-                        # preset aicb_target_mode. Landing on wizard step 1
-                        # (rather than step 2, the way the ARENA tiles do) hands
-                        # the "named company vs market segment" question to the
-                        # wizard's own picker, which already validates it.
-                        s._nav_history.append(_nav_snapshot(s))
-                        _reset_wizard_state(s)
-                        s._chooser_origin = k
-                        s.aicb_camp_type = k
-                        s.aicb_style_locked = True
-                        s.sp = "ai_campaign"
-                        s.aicb_step = 1
-                        s.aicb_wizard_step = 1
-                        s.aicb_type_picked = True
-                        s.aicb_contacts = []
-                    elif k == "client":
+                    if k == "client":
                         s._nav_history.append(_nav_snapshot(s))
                         _reset_wizard_state(s)
                         s._chooser_origin = "client"
@@ -36626,6 +36951,35 @@ def p_seq_mgr(s, rf):
                                 "padding:6px 16px;font-size:12px;").on("click", _edit):
                             ui.label("✎ Edit").style("pointer-events:none;")
 
+                        # ThriveModal: a finished campaign offers to carry the
+                        # people who never replied into Stay on Their Radar.
+                        _tm_ct = _tm_camp_type(sel_camp) if status_txt == "Completed" else ""
+                        if _tm_ct and _tm_ct != "tm_stay_in_touch" and _is_thrivemodal():
+                            _tm_quiet = _tm_nonresponder_rows(
+                                sel_camp,
+                                {str(x.get("email", "")).strip().lower()
+                                 for x in load_responded() if isinstance(x, dict)},
+                                {str(d.get("email", "")).strip().lower()
+                                 for d in load_dnc() if isinstance(d, dict)})
+                            if _tm_quiet:
+                                def _followon(c=sel_camp, rows=_tm_quiet):
+                                    _tm_start_followon(s, c, rows)
+                                    ui.notify(
+                                        f"{len(rows)} people who didn't reply are "
+                                        f"loaded into Stay on Their Radar. Nothing "
+                                        f"sends until you launch it.",
+                                        type="info", timeout=6000)
+                                    rf()
+                                with ui.element("button").classes("fd-pb").style(
+                                        "padding:6px 16px;font-size:12px;").on(
+                                        "click", _followon):
+                                    ui.label(
+                                        f"🌱 Stay on Their Radar ({len(_tm_quiet)} no reply)"
+                                    ).style("pointer-events:none;")
+                                    ui.tooltip(
+                                        "Start a slower, no-pressure follow-up for "
+                                        "the people in this campaign who never replied.")
+
                         # Add Contacts ───────────────────────────────────────────
                         async def _add_contacts_btn(c=sel_camp, cn=cname):
                             saved = list_saved_contact_lists()
@@ -41133,14 +41487,23 @@ _TM_CAMPAIGN_PDF_KINDS = [
      "I've attached a short market briefing for your industry, with sources "
      "and dates."),
 ]
-TM_CAMPAIGN_PDF_MAX = 3
-# Every campaign carries at least two. A sequence long enough to space three
-# attachments apart without stacking them gets the third core PDF as well.
+# Mike, 2026-09-19: every campaign carries one or two PDFs, and only from the
+# top three. Interview Guide and Market Pulse stay in the list above so files
+# already attached keep their labels, but campaigns no longer offer them.
+_TM_CAMPAIGN_PDF_OFFERED = ("tm_role_blueprint", "tm_cost_compare",
+                            "tm_how_it_works")
+TM_CAMPAIGN_PDF_MIN = 1
+TM_CAMPAIGN_PDF_MAX = 2
 TM_CAMPAIGN_PDF_DEFAULT = ["tm_role_blueprint", "tm_cost_compare"]
-TM_CAMPAIGN_PDF_DEFAULT_LONG = ["tm_role_blueprint", "tm_cost_compare",
-                                "tm_how_it_works"]
-_TM_PDF_LONG_MIN_EMAILS = 6
-_TM_LONG_TYPE_KEYS = frozenset({"tm_conversation", "tm_twelveweek"})
+# Per type, the pair that matches what the sequence's steps talk about, so
+# placement finds a step that fits each PDF. Quick Intro has two emails that
+# can carry a file and is a fast read, so it carries one.
+_TM_TYPE_PDF_DEFAULT = {
+    "tm_threebythree": ["tm_cost_compare"],
+    "tm_stay_in_touch": ["tm_cost_compare", "tm_how_it_works"],
+    "tm_reengage": ["tm_cost_compare", "tm_how_it_works"],
+    "tm_meeting_followup": ["tm_role_blueprint", "tm_how_it_works"],
+}
 
 # The six static PDFs campaigns used to carry (assets/thrivemodal_pdfs). No
 # longer offered; kept so a campaign saved with one still shows a readable
@@ -41174,7 +41537,7 @@ _TM_PDF_MATCH_ORDER = list(_TM_PDF_STEP_WORDS)
 
 
 def _clamp_tm_pdf_kinds(v) -> list:
-    valid = {k for k, *_ in _TM_CAMPAIGN_PDF_KINDS}
+    valid = set(_TM_CAMPAIGN_PDF_OFFERED)
     out = []
     for k in (v or []):
         if k in valid and k not in out:
@@ -41190,24 +41553,25 @@ def _tm_pdf_eligible_emails(emails) -> list:
 
 
 def _tm_default_pdf_kinds(camp_type, emails=None) -> list:
-    """Two PDFs for every campaign, three when the sequence is long enough."""
-    n = len(_tm_pdf_eligible_emails(emails)) if emails is not None else 0
-    if ((camp_type or "").strip() in _TM_LONG_TYPE_KEYS
-            or n >= _TM_PDF_LONG_MIN_EMAILS):
-        return list(TM_CAMPAIGN_PDF_DEFAULT_LONG)
-    return list(TM_CAMPAIGN_PDF_DEFAULT)
+    """The type's pair (one for Quick Intro), never more than the sequence
+    has emails to carry them."""
+    kinds = list(_TM_TYPE_PDF_DEFAULT.get((camp_type or "").strip(),
+                                          TM_CAMPAIGN_PDF_DEFAULT))
+    if emails is not None:
+        n = len(_tm_pdf_eligible_emails(emails))
+        kinds = kinds[:max(TM_CAMPAIGN_PDF_MIN, n)]
+    return kinds
 
 
 def _tm_resolve_pdf_pick(picked, camp_type, emails=None) -> list:
     """The wizard stores None until the user touches the PDF chips, which
-    means "use the default for this type"; an explicit list is honoured,
-    including an explicit empty one."""
+    means "use the default for this type"; an explicit pick is honoured, but
+    every campaign carries at least one, so an empty pick (or one holding
+    only retired kinds) gets the default."""
     if picked is None:
         return _tm_default_pdf_kinds(camp_type, emails)
     clamped = _clamp_tm_pdf_kinds(picked)
-    if picked and not clamped:
-        # A restored draft holding only the retired static kinds
-        # (tm_role_cost, tm_logistics, ...) gets the default, not nothing.
+    if len(clamped) < TM_CAMPAIGN_PDF_MIN:
         return _tm_default_pdf_kinds(camp_type, emails)
     return clamped
 
@@ -41390,7 +41754,7 @@ def _tm_strip_campaign_pdfs(emails) -> int:
 def _tm_refresh_campaign_pdfs(camp, company="", role="", location="",
                               industry="", client=None, build=None) -> dict:
     """Swap a saved campaign's PDFs for freshly built ThriveModal Sales Assets:
-    two by default, three on a long sequence, never on the first email.
+    the type's default one or two, never on the first email.
     `build` defaults to _tm_build_campaign_pdfs (tests pass a stub).
     Mutates `camp`; the caller saves it. Returns a summary."""
     emails = camp.get("emails") or []
@@ -41413,7 +41777,8 @@ def _tm_refresh_campaign_pdfs(camp, company="", role="", location="",
 # default. Same kinds, same builder, same placement rules as the wizard.
 
 def _tm_pdf_menu() -> list:
-    return [{"kind": k, "label": l} for k, l, _ in _TM_CAMPAIGN_PDF_KINDS]
+    return [{"kind": k, "label": l} for k, l, _ in _TM_CAMPAIGN_PDF_KINDS
+            if k in _TM_CAMPAIGN_PDF_OFFERED]
 
 
 def _tm_parse_pdf_request(raw):
@@ -41423,7 +41788,7 @@ def _tm_parse_pdf_request(raw):
     caller said nothing (use the default); [] means "no PDFs"."""
     if raw is None:
         return None, {}, ""
-    valid = [k for k, *_ in _TM_CAMPAIGN_PDF_KINDS]
+    valid = list(_TM_CAMPAIGN_PDF_OFFERED)
     if not isinstance(raw, list):
         return None, {}, "pdfs must be a list of PDF kinds"
     kinds, pins = [], {}
@@ -41449,6 +41814,9 @@ def _tm_parse_pdf_request(raw):
                 return None, {}, f"step for {kind!r} must be a step number"
     if len(kinds) > TM_CAMPAIGN_PDF_MAX:
         return None, {}, f"at most {TM_CAMPAIGN_PDF_MAX} PDFs per campaign"
+    if len(kinds) < TM_CAMPAIGN_PDF_MIN:
+        return None, {}, (f"every campaign carries at least "
+                          f"{TM_CAMPAIGN_PDF_MIN} PDF")
     return kinds, pins, ""
 
 
@@ -46553,7 +46921,9 @@ def p_ai_campaign(s: AppState, rf):
                         # the candidate block (_cand_block) feed in unchanged.
                         campaign_data = _aicb_build_campaign_from_brief(
                             client,
-                            brief=brief,
+                            brief=(_tm_followon_note(
+                                getattr(s, "aicb_followon_from", ""))
+                                + (brief or "")),
                             camp_type=s.aicb_camp_type,
                             company=company,
                             niche=(s.aicb_niche or ""),
@@ -46818,6 +47188,8 @@ def p_ai_campaign(s: AppState, rf):
                                     with ui.element("div").style(
                                             "display:flex;flex-wrap:wrap;gap:8px;"):
                                         for _pk, _pl, *_ in _TM_CAMPAIGN_PDF_KINDS:
+                                            if _pk not in _TM_CAMPAIGN_PDF_OFFERED:
+                                                continue
                                             _on = _pk in _picked_pdfs
                                             _off = _pdfs_full and not _on
 
@@ -46826,6 +47198,8 @@ def p_ai_campaign(s: AppState, rf):
                                                     getattr(s, "aicb_tm_pdfs", None),
                                                     s.aicb_camp_type)
                                                 if k in cur:
+                                                    if len(cur) <= TM_CAMPAIGN_PDF_MIN:
+                                                        return  # always at least one
                                                     cur.remove(k)
                                                 elif len(cur) < TM_CAMPAIGN_PDF_MAX:
                                                     cur.append(k)
@@ -46848,9 +47222,9 @@ def p_ai_campaign(s: AppState, rf):
                                                          else _toggle_pdf):
                                                 ui.label(("✓ " if _on else "") + _pl)
                                     ui.label(
-                                        f"Up to {TM_CAMPAIGN_PDF_MAX}, built for this "
-                                        "role and location. Each goes on its own "
-                                        "email, never the first. "
+                                        "One or two, built for this role and "
+                                        "location. Each goes on its own email, "
+                                        "never the first. "
                                         + ("To swap one, unpick it first."
                                            if _pdfs_full else "")
                                     ).style(f"font-size:11px;color:{C['muted']};"

@@ -95,7 +95,8 @@ def test_no_type_was_removed_from_the_registry():
 
 def test_thrivemodal_chooser_offers_objectives_not_candidate_shapes():
     keys = [o["key"] for o in fa.TM_CHOOSER_OPTIONS]
-    assert "saved" in keys and "scratch" in keys
+    # Saved Campaigns lives in the sidebar on ThriveModal; scratch stays.
+    assert "scratch" in keys
     for gone in ("candidate", "mpc", "fourbyfour", "fivebyfive", "fivebythree"):
         assert gone not in keys
     # ARENA's chooser is untouched.
@@ -158,7 +159,9 @@ def test_every_tm_type_agrees_with_itself_on_count_delay_and_step_type():
     and _TM_STEP_SHAPE, which is what actually pins the campaign. They drift
     silently - the label is cosmetic and the prompt is advice to a model - so
     this is the only thing keeping them honest. delay_days are BUSINESS days
-    (see _add_business_days), hence total / 5 for the week count."""
+    (see _add_business_days), hence total / 5 for the week count, rounded
+    either way: Quick Intro's last email lands on business day 7, inside
+    week 2, so "2 weeks" is honest even though 7 / 5 rounds to 1."""
     step_re = re.compile(
         r"Step (\d+) - [^(]*\(delay_days:(\d+), step_type:(\w+)\)")
     label_re = re.compile(r"^(\d+) steps - (\d+) weeks?$")
@@ -183,7 +186,8 @@ def test_every_tm_type_agrees_with_itself_on_count_delay_and_step_type():
             assert kind == want_kind, (key, n, kind, want_kind)
 
         total = sum(d for d, _st in shape.values())
-        assert round(total / 5) == weeks_label, (key, total, weeks_label)
+        assert weeks_label in (round(total / 5), -(-total // 5)), (
+            key, total, weeks_label)
     assert seen == set(fa._TM_TYPE_KEYS)
 
 

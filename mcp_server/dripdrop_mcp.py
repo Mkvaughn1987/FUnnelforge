@@ -197,9 +197,8 @@ _PDF_KINDS_DOC = (
     "and systems, how the client oversees it), tm_cost_compare (Staffing Cost "
     "Comparison: a U.S. hire beside a dedicated professional in the "
     "Philippines), tm_how_it_works (How We Work Together: how an engagement "
-    "runs from defining the role to onboarding), interview_guide (Interview "
-    "Guide for the role), market_pulse (Market Pulse: a short sourced "
-    "briefing on the industry)."
+    "runs from defining the role to onboarding). Every campaign carries one "
+    "or two of these three."
 )
 
 
@@ -213,9 +212,9 @@ _PDF_KINDS_DOC = (
         "candidates directly instead of companies - pass a job_description "
         "instead of company/niche/roles. On a ThriveModal workspace the "
         "campaign attaches Sales Assets PDFs built for its role and "
-        "location: pass spec.pdfs to choose which (max 3) and optionally the "
-        "step each goes on, or leave it out for the default (Role Blueprint "
-        "+ Cost Comparison, plus How We Work Together on long sequences). "
+        "location: pass spec.pdfs to choose which (1 or 2) and optionally the "
+        "step each goes on, or leave it out for the type's default (usually "
+        "Role Blueprint + Cost Comparison). "
         "Kinds: " + _PDF_KINDS_DOC
     )
 )
@@ -236,9 +235,9 @@ async def create_campaign(spec: dict) -> dict:
         (default), "two_emails_1day", or "three_emails_3days".
 
         ThriveModal only - pdfs: list of PDF kinds, e.g.
-        ["tm_cost_compare", "interview_guide"], or of {"kind": ...,
+        ["tm_cost_compare", "tm_how_it_works"], or of {"kind": ...,
         "step": n} to put one on step n (1-based; never step 1 or a
-        call/LinkedIn step). [] attaches none. The response lists where each
+        call/LinkedIn step). One or two kinds. The response lists where each
         PDF landed under "pdfs"; problems come back under "pdf_notes".
         To change PDFs after launch, use tm_campaign_pdfs.
     """
@@ -601,7 +600,7 @@ async def tm_mailboxes() -> dict:
     "PDFs are generated fresh for the campaign's role and location and "
     "replace the campaign's current Sales Assets PDFs; files the user "
     "uploaded by hand are kept. Emails already queued and waiting to send "
-    "pick up the change too. Kinds (max 3 per campaign): "
+    "pick up the change too. Kinds (1 or 2 per campaign): "
     + _PDF_KINDS_DOC + " Use campaigns_list / campaign_get to find the "
     "campaign_id and see its steps. Takes up to a couple of minutes."
 ))
@@ -614,7 +613,8 @@ async def tm_campaign_pdfs(campaign_id: str, pdfs: list, role: str = "",
         of {"kind": ..., "step": n} to put a PDF on step n (1-based, as
         campaign_get numbers them). Never step 1, a call/LinkedIn step, or two
         PDFs on one step. Unpinned PDFs go on the step whose subject they back,
-        else spread over the sequence. [] removes the Sales Assets PDFs.
+        else spread over the sequence. One or two kinds; a campaign always
+        keeps at least one.
     role, location, industry, company: optional; what to build the PDFs for
         when the campaign's own values are wrong or empty.
     """

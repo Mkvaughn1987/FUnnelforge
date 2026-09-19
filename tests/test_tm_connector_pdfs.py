@@ -31,25 +31,28 @@ def _stub_build(kinds, company, role, location, **_):
 
 # ── parsing the pick ────────────────────────────────────────────────────────
 
-def test_parse_nothing_means_default_and_empty_means_none():
+def test_parse_nothing_means_default_and_empty_is_refused():
     assert fa._tm_parse_pdf_request(None) == (None, {}, "")
-    assert fa._tm_parse_pdf_request([]) == ([], {}, "")
+    kinds, _pins, err = fa._tm_parse_pdf_request([])
+    assert kinds is None and "at least 1" in err
 
 
 def test_parse_kinds_and_pinned_steps():
     kinds, pins, err = fa._tm_parse_pdf_request(
-        ["tm_cost_compare", {"kind": "interview_guide", "step": 4}])
+        ["tm_cost_compare", {"kind": "tm_how_it_works", "step": 4}])
     assert err == ""
-    assert kinds == ["tm_cost_compare", "interview_guide"]
-    assert pins == {"interview_guide": 3}
+    assert kinds == ["tm_cost_compare", "tm_how_it_works"]
+    assert pins == {"tm_how_it_works": 3}
 
 
 @pytest.mark.parametrize("raw,needle", [
     ("tm_cost_compare", "must be a list"),
     (["bogus"], "unknown PDF kind"),
     (["tm_cost_compare", "tm_cost_compare"], "twice"),
-    (["tm_cost_compare", "tm_role_blueprint", "tm_how_it_works",
-      "market_pulse"], "at most 3"),
+    (["tm_cost_compare", "tm_role_blueprint", "tm_how_it_works"], "at most 2"),
+    (["market_pulse"], "unknown PDF kind"),
+    (["interview_guide"], "unknown PDF kind"),
+    ([], "at least 1"),
     ([{"kind": "tm_cost_compare", "step": "two"}], "step number"),
     ([42], "kind or {kind, step}"),
 ])
@@ -217,8 +220,8 @@ def test_route_is_404_on_arena(route, monkeypatch):
 def test_route_rejects_a_bad_kind_and_lists_the_choices(route):
     r = _post(route, {"campaign_id": "acme", "pdfs": ["salary_guide"]})
     assert r.status_code == 400
-    assert {c["kind"] for c in r.json()["choices"]} == {
-        k for k, *_ in fa._TM_CAMPAIGN_PDF_KINDS}
+    assert {c["kind"] for c in r.json()["choices"]} == set(
+        fa._TM_CAMPAIGN_PDF_OFFERED)
 
 
 def test_route_requires_pdfs(route):
@@ -227,7 +230,7 @@ def test_route_requires_pdfs(route):
 
 
 def test_route_404s_an_unknown_campaign(route):
-    r = _post(route, {"campaign_id": "nope", "pdfs": []})
+    r = _post(route, {"campaign_id": "nope", "pdfs": ["tm_cost_compare"]})
     assert r.status_code == 404
 
 
@@ -277,23 +280,23 @@ def _spec(**kw):
 
 def test_create_attaches_the_picked_pdfs_where_asked(create):
     out = fa._api_create_campaign_blocking(None, _spec(pdfs=[
-        {"kind": "interview_guide", "step": 7}, "market_pulse"]), _OWNER)
+        {"kind": "tm_how_it_works", "step": 7}, "tm_cost_compare"]), _OWNER)
     steps = {p["kind"]: p["step"] for p in out["pdfs"]}
-    assert steps["interview_guide"] == 7 and "market_pulse" in steps
-    assert create == [(["interview_guide", "market_pulse"], "Acme",
+    assert steps["tm_how_it_works"] == 7 and "tm_cost_compare" in steps
+    assert create == [(["tm_how_it_works", "tm_cost_compare"], "Acme",
                        "Bookkeeper", "Denver, CO", "Logistics")]
     assert "pdf_notes" not in out
 
 
-def test_create_with_no_pick_uses_the_long_default(create):
+def test_create_with_no_pick_uses_the_default_pair(create):
     out = fa._api_create_campaign_blocking(None, _spec(), _OWNER)
-    assert {p["kind"] for p in out["pdfs"]} == set(fa.TM_CAMPAIGN_PDF_DEFAULT_LONG)
+    assert {p["kind"] for p in out["pdfs"]} == set(fa.TM_CAMPAIGN_PDF_DEFAULT)
 
 
-def test_create_with_empty_pick_attaches_nothing(create):
+def test_create_with_empty_pick_is_400_before_generating(create):
     out = fa._api_create_campaign_blocking(None, _spec(pdfs=[]), _OWNER)
-    assert out["pdfs"] == [] and create == []
-    assert not any(e.get("attachments") for e in out["emails"])
+    assert out.get("status") == 400 and "at least 1" in out["error"]
+    assert create == []
 
 
 def test_create_bad_pick_is_400_before_generating(create, monkeypatch):
@@ -332,9 +335,9 @@ def test_tool_and_client_method_exist():
     assert "tm_campaign_pdfs" in tools and "tm_campaign_pdfs" in methods
 
 
-def test_tool_docs_name_every_pdf_kind():
+def test_tool_docs_name_every_offered_pdf_kind_and_no_other():
     src = (_ROOT / "mcp_server/dripdrop_mcp.py").read_text(encoding="utf-8")
     start = src.index("_PDF_KINDS_DOC = (")
     doc = src[start:src.index("\n)\n", start)]
     for k, *_ in fa._TM_CAMPAIGN_PDF_KINDS:
-        assert k in doc, k
+        assert (k in doc) == (k in fa._TM_CAMPAIGN_PDF_OFFERED), k

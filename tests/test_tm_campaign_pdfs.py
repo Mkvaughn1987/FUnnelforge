@@ -1,6 +1,6 @@
 """ThriveModal campaigns: the PDFs a campaign carries (the Sales Assets set,
-two by default, three on long sequences), where each lands in the sequence,
-the refresh of saved campaigns, and the new-business-only type lineup."""
+one or two from the top three), where each lands in the sequence, the
+refresh of saved campaigns, and the type lineup."""
 import flowdrip_app as fa
 
 
@@ -31,32 +31,42 @@ def test_old_arena_and_static_kinds_are_not_offered():
                         "tm_role_cost", "tm_logistics", "tm_twelve_questions"}
 
 
-def test_clamp_caps_at_three_and_drops_unknown_and_dupes():
+def test_clamp_keeps_two_of_the_top_three_and_drops_the_rest():
     assert fa._clamp_tm_pdf_kinds(
-        ["market_pulse", "bogus", "market_pulse", "tm_cost_compare",
-         "tm_how_it_works", "tm_role_blueprint"]) == [
-        "market_pulse", "tm_cost_compare", "tm_how_it_works"]
+        ["market_pulse", "bogus", "interview_guide", "tm_cost_compare",
+         "tm_cost_compare", "tm_how_it_works", "tm_role_blueprint"]) == [
+        "tm_cost_compare", "tm_how_it_works"]
     assert fa._clamp_tm_pdf_kinds(None) == []
+    assert fa.TM_CAMPAIGN_PDF_MIN == 1 and fa.TM_CAMPAIGN_PDF_MAX == 2
+    assert fa._TM_CAMPAIGN_PDF_OFFERED == tuple(
+        k for k, *_ in fa._TM_CAMPAIGN_PDF_KINDS[:3])
 
 
-def test_default_is_two_and_three_on_long_sequences():
-    assert fa._tm_resolve_pdf_pick(None, "tm_threebythree") == [
-        "tm_role_blueprint", "tm_cost_compare"]
+def test_default_is_the_types_pair_and_one_on_quick_intro():
+    assert fa._tm_resolve_pdf_pick(None, "tm_threebythree") == ["tm_cost_compare"]
     assert fa._tm_resolve_pdf_pick(None, "tm_twelveweek") == [
-        "tm_role_blueprint", "tm_cost_compare", "tm_how_it_works"]
-    # An explicit pick wins, including an explicit "none".
-    assert fa._tm_resolve_pdf_pick(["market_pulse"], "tm_twelveweek") == ["market_pulse"]
-    assert fa._tm_resolve_pdf_pick([], "tm_twelveweek") == []
-    # A restored draft holding only retired kinds gets the default.
-    assert fa._tm_resolve_pdf_pick(["tm_logistics"], "tm_threebythree") == [
         "tm_role_blueprint", "tm_cost_compare"]
+    assert fa._tm_resolve_pdf_pick(None, "tm_stay_in_touch") == [
+        "tm_cost_compare", "tm_how_it_works"]
+    # An explicit pick of the top three wins.
+    assert fa._tm_resolve_pdf_pick(["tm_how_it_works"], "tm_twelveweek") == [
+        "tm_how_it_works"]
+    # Never zero: an empty pick, or one holding only kinds campaigns no longer
+    # offer, gets the default.
+    assert fa._tm_resolve_pdf_pick([], "tm_twelveweek") == [
+        "tm_role_blueprint", "tm_cost_compare"]
+    assert fa._tm_resolve_pdf_pick(["market_pulse"], "tm_twelveweek") == [
+        "tm_role_blueprint", "tm_cost_compare"]
+    assert fa._tm_resolve_pdf_pick(["tm_logistics"], "tm_threebythree") == [
+        "tm_cost_compare"]
 
 
 def test_every_offered_type_places_its_default_never_first_or_call():
     for ct in fa._TM_OFFERED_TYPE_KEYS:
         camp = _campaign(ct)
         kinds = fa._tm_default_pdf_kinds(ct, camp["emails"])
-        assert len(kinds) >= 2, ct
+        assert 1 <= len(kinds) <= 2, ct
+        assert set(kinds) <= set(fa._TM_CAMPAIGN_PDF_OFFERED), ct
         placed = fa._tm_pdf_placement(ct, camp["emails"], kinds)
         assert len(placed) == min(len(kinds), len(
             fa._tm_pdf_eligible_emails(camp["emails"]))), ct
@@ -74,10 +84,12 @@ def test_pdf_lands_on_the_step_that_talks_about_it():
                "step_type": "call" if "Call" in n else "email_auto"}
               for n in names]
     placed = fa._tm_pdf_placement(
-        "x", emails, ["tm_role_blueprint", "tm_cost_compare", "tm_how_it_works"])
+        "x", emails, ["tm_role_blueprint", "tm_cost_compare"])
     assert {k: emails[i]["name"] for k, i in placed.items()} == {
         "tm_cost_compare": "Step 2 - What the role would cost",
-        "tm_role_blueprint": "Step 4 - What actually transfers",
+        "tm_role_blueprint": "Step 4 - What actually transfers"}
+    placed = fa._tm_pdf_placement("x", emails, ["tm_how_it_works"])
+    assert {k: emails[i]["name"] for k, i in placed.items()} == {
         "tm_how_it_works": "Step 5 - Control and commitment"}
 
 
@@ -142,16 +154,42 @@ def test_thrivemodal_workspace_never_builds_the_old_arena_pdfs():
 
 # ── the lineup ─────────────────────────────────────────────────────────────
 
-def test_offered_lineup_is_cold_outreach_only():
+def test_offered_lineup():
     assert fa._TM_OFFERED_TYPE_KEYS == {
-        "tm_conversation", "tm_fivebyseven", "tm_threebythree",
-        "tm_fivethreeli", "tm_stay_in_touch", "tm_twelveweek"}
+        "tm_fivebyseven", "tm_threebythree", "tm_conversation",
+        "tm_hiring_signal", "tm_twelveweek", "tm_stay_in_touch",
+        "tm_reengage", "tm_meeting_followup"}
+    assert fa._TM_HIDDEN_TYPE_KEYS == {"tm_grow_client", "tm_fivethreeli"}
     for k in fa._TM_HIDDEN_TYPE_KEYS:
         assert k in {t[0] for t in fa.AICB_CAMPAIGN_TYPES}  # still registered
         assert not fa._type_visible(k, fa.PLAYBOOK_THRIVEMODAL)
     chooser = [o["key"] for o in fa.TM_CHOOSER_OPTIONS]
     assert not set(chooser) & fa._TM_HIDDEN_TYPE_KEYS
     assert set(fa._TM_OFFERED_TYPE_KEYS) <= set(chooser)
+    # Saved Campaigns has its own sidebar row; the chooser does not repeat it.
+    assert "saved" not in chooser and chooser[-1] == "scratch"
+
+
+def test_names_say_the_situation_not_the_step_count():
+    names = {t[0]: t[1] for t in fa.AICB_CAMPAIGN_TYPES}
+    assert {k: names[k] for k in fa._TM_OFFERED_TYPE_KEYS} == {
+        "tm_fivebyseven": "Standard Outreach",
+        "tm_threebythree": "Quick Intro",
+        "tm_conversation": "Priority Account Push",
+        "tm_hiring_signal": "They're Hiring",
+        "tm_twelveweek": "Top 25 Accounts",
+        "tm_stay_in_touch": "Stay on Their Radar",
+        "tm_reengage": "Revive Old Leads",
+        "tm_meeting_followup": "After the Call",
+    }
+    cards = {o["key"]: o["title"] for o in fa.TM_CHOOSER_OPTIONS}
+    for k in fa._TM_OFFERED_TYPE_KEYS:
+        assert cards[k] == names[k], k
+    assert cards["scratch"] == "Build Your Own"
+    assert [o["key"] for o in fa.TM_CHOOSER_OPTIONS
+            if o.get("recommended")] == ["tm_fivebyseven"]
+    for o in fa.TM_CHOOSER_OPTIONS:
+        assert o["use_when"] and o["group"] in {g for g, _ in fa._TM_CHOOSER_GROUPS}
 
 
 def _shape_counts(key):
@@ -161,19 +199,108 @@ def _shape_counts(key):
 
 
 def test_new_shapes_match_what_was_asked_for():
-    assert _shape_counts("tm_fivebyseven") == (5, 1, 1)
+    assert _shape_counts("tm_fivebyseven") == (5, 2, 1)
     assert _shape_counts("tm_threebythree") == (3, 0, 0)
     assert _shape_counts("tm_fivethreeli") == (5, 3, 1)
-    # Three weeks = 15 business days; the 3x3 fits inside one week.
+    assert _shape_counts("tm_stay_in_touch") == (5, 1, 0)
+    # Three weeks = 15 business days; Quick Intro lands on days 0, 3 and 7.
     assert sum(d for d, _ in fa._TM_STEP_SHAPE["tm_fivebyseven"].values()) == 15
     assert sum(d for d, _ in fa._TM_STEP_SHAPE["tm_fivethreeli"].values()) == 15
-    assert sum(d for d, _ in fa._TM_STEP_SHAPE["tm_threebythree"].values()) <= 5
+    assert [d for _n, (d, _st) in sorted(
+        fa._TM_STEP_SHAPE["tm_threebythree"].items())] == [0, 3, 4]
+    assert round(sum(d for d, _ in fa._TM_STEP_SHAPE[
+        "tm_stay_in_touch"].values()) / 5) == 12
 
 
-def test_stay_in_touch_is_now_cold_nurture():
+def test_stay_on_their_radar_is_cold_unless_the_brief_says_otherwise():
     t = {x[0]: x for x in fa.AICB_CAMPAIGN_TYPES}["tm_stay_in_touch"]
-    assert t[1] == "Cold Nurture"
+    assert t[1] == "Stay on Their Radar"
     assert "cold first touch" in t[6]
+    assert "unless the BRIEF says they already received outreach" in t[6]
+
+
+def test_card_summary_and_week_strip_come_from_the_shape():
+    assert fa._tm_shape_summary("tm_fivebyseven") == (
+        "5 emails · 2 calls · 1 LinkedIn · about 3 weeks")
+    assert fa._tm_shape_summary("tm_threebythree") == (
+        "3 emails only · about 2 weeks")
+    E, C_, L = fa.ST.EMAIL_AUTO, fa.ST.CALL, fa.ST.LINKEDIN
+    assert fa._tm_shape_weeks("tm_threebythree") == [[E, E], [E]]
+    assert fa._tm_shape_weeks("tm_fivebyseven") == [
+        [E, E, C_, L], [E, C_], [E, E]]
+    for k in fa._TM_OFFERED_TYPE_KEYS:
+        weeks = fa._tm_shape_weeks(k)
+        assert len(weeks) == fa._tm_type_weeks(k), k
+        assert sum(len(w) for w in weeks) == len(fa._TM_STEP_SHAPE[k]), k
+
+
+def test_help_me_choose_answers_all_lead_to_offered_types():
+    reached = set()
+    for _q, answers in (fa._TM_HELP_Q1, fa._TM_HELP_Q2):
+        for _text, nxt in answers:
+            assert nxt == "q2" or nxt in fa._TM_OFFERED_TYPE_KEYS, nxt
+            reached.add(nxt)
+    assert reached - {"q2"} == set(fa._TM_OFFERED_TYPE_KEYS)
+
+
+# ── the "didn't reply" hand-off ────────────────────────────────────────────
+
+def test_camp_type_reads_any_of_the_three_markers():
+    assert fa._tm_camp_type({"template_key": "tm_fivebyseven"}) == "tm_fivebyseven"
+    assert fa._tm_camp_type({"aicb_camp_type": "tm_reengage"}) == "tm_reengage"
+    assert fa._tm_camp_type({"_chooser_origin": "tm_twelveweek"}) == "tm_twelveweek"
+    assert fa._tm_camp_type({"template_key": "fourbyfour"}) == ""
+    assert fa._tm_camp_type(None) == ""
+
+
+def test_nonresponders_skip_repliers_dnc_dupes_and_blank_emails():
+    camp = {"responders": ["b@x.com", {"email": "C@x.com"}], "contacts": [
+        {"email": "a@x.com", "first_name": "Ann", "company": "Acme",
+         "title": "COO", "phone_office": "555"},
+        {"Email": "B@x.com"},
+        {"email": "c@x.com"},
+        {"Email": "d@x.com", "FirstName": "Dee", "Company": "Dot"},
+        {"email": "e@x.com"},
+        {"email": "A@x.com"},
+        {"email": ""},
+        "junk",
+    ]}
+    rows = fa._tm_nonresponder_rows(camp, {"e@x.com"}, {"f@x.com"})
+    assert [r["Email"] for r in rows] == ["a@x.com", "d@x.com"]
+    assert rows[0] == {"Email": "a@x.com", "FirstName": "Ann", "LastName": "",
+                       "Company": "Acme", "JobTitle": "COO", "MobilePhone": "",
+                       "WorkPhone": "555", "LinkedInPage": "", "City": "",
+                       "State": ""}
+    assert set(rows[0]) == set(fa.CONTACT_FIELDS)
+    assert fa._tm_nonresponder_rows(
+        camp, set(), {"a@x.com", "d@x.com", "e@x.com"}) == []
+
+
+def test_followon_note_only_when_opened_from_a_campaign():
+    assert fa._tm_followon_note("") == ""
+    note = fa._tm_followon_note("Acme - Standard Outreach")
+    assert "'Acme - Standard Outreach'" in note and "did not reply" in note
+    assert "do not mention that they did not" in note
+    src = open(fa.__file__, encoding="utf-8").read()
+    assert "brief=(_tm_followon_note(" in src
+
+
+def test_followon_preloads_the_wizard_on_stay_on_their_radar(monkeypatch):
+    class S:
+        pass
+    s = S()
+    s._nav_history = []
+    monkeypatch.setattr(fa, "_nav_snapshot", lambda st: {})
+    monkeypatch.setattr(fa, "_reset_wizard_state",
+                        lambda st: setattr(st, "aicb_followon_from", ""))
+    rows = [{"Email": "a@x.com"}]
+    fa._tm_start_followon(s, {"name": "Acme", "variables": {
+        "Industry": "Logistics"}}, rows)
+    assert s.aicb_camp_type == "tm_stay_in_touch" and s.aicb_style_locked
+    assert s.sp == "ai_campaign" and s.aicb_wizard_step == 1
+    assert s.aicb_contacts == rows and s.aicb_contacts is not rows
+    assert s.aicb_followon_from == "Acme" and s.aicb_industry == "Logistics"
+    assert s._nav_history == [{}]
 
 
 def test_twelve_week_program_is_fifteen_touches_over_twelve_weeks():

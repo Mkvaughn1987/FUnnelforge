@@ -354,29 +354,34 @@ def _derive_tm(r, vals, d):
             vals[key] = v[attr]
 
 
-# ── Sequences: the ThriveModal cold-outreach campaign types ────────────────
-# New business only. The relationship types (hiring signal, after a meeting,
-# re-engage, grow a client) stay registered in the app but are not offered.
+# ── Sequences: the ThriveModal campaign types ─────────────────────────────
+# Named for the situation, matching the app's chooser (2026-09-19). Grow a
+# client and the old 5 Emails, 3 Calls + LinkedIn stay registered in the app
+# but are not offered.
 
 SEQUENCES = [
-    "7 Emails, 3 Calls + LinkedIn",
-    "ThriveModal 5x7",
-    "3x3 Aggressive",
-    "5 Emails, 3 Calls + LinkedIn",
-    "Cold Nurture",
-    "12-Week BD Program",
+    "Standard Outreach",
+    "Quick Intro",
+    "Priority Account Push",
+    "They're Hiring",
+    "Top 25 Accounts",
+    "Stay on Their Radar",
+    "Revive Old Leads",
+    "After the Call",
     "One of my saved styles",
     "Let Claude choose",
 ]
 TEMPLATE_KEY = {
-    "7 Emails, 3 Calls + LinkedIn": "tm_conversation",
-    "ThriveModal 5x7": "tm_fivebyseven",
-    "3x3 Aggressive": "tm_threebythree",
-    "5 Emails, 3 Calls + LinkedIn": "tm_fivethreeli",
-    "Cold Nurture": "tm_stay_in_touch",
-    "12-Week BD Program": "tm_twelveweek",
+    "Standard Outreach": "tm_fivebyseven",
+    "Quick Intro": "tm_threebythree",
+    "Priority Account Push": "tm_conversation",
+    "They're Hiring": "tm_hiring_signal",
+    "Top 25 Accounts": "tm_twelveweek",
+    "Stay on Their Radar": "tm_stay_in_touch",
+    "Revive Old Leads": "tm_reengage",
+    "After the Call": "tm_meeting_followup",
 }
-DEFAULT_SEQUENCE = "7 Emails, 3 Calls + LinkedIn"
+DEFAULT_SEQUENCE = "Standard Outreach"
 DEFAULT_TEMPLATE = TEMPLATE_KEY[DEFAULT_SEQUENCE]
 
 
@@ -501,7 +506,7 @@ ROUTINES = [
         ] + _targeting_fields() + [
             F("triggers", "Which signals count", "details", hint=_REC,
               placeholder="Recommended signals for the vertical"),
-        ] + _newsletter_fields() + _email_fields() + _size_fields() + [
+        ] + _newsletter_fields() + _email_fields("They're Hiring") + _size_fields() + [
             F("posting_age", "How recent the job postings have to be", "size",
               "select", default="Posted in the last 30 days",
               options=POSTING_AGE),
@@ -540,7 +545,7 @@ ROUTINES = [
                    "and is never named in the emails."),
             _vertical_field(),
         ] + _targeting_fields() + _newsletter_fields() + _email_fields(
-            "7 Emails, 3 Calls + LinkedIn") + [
+            DEFAULT_SEQUENCE) + [
             F("lookalike_pool", "How many lookalikes to pull before scoring",
               "size", "number", default="40"),
         ] + _size_fields("10", "4", "160") + _TM_SKIP_FIELDS,
@@ -579,7 +584,7 @@ ROUTINES = [
               default="Manila, Cebu, Philippines, offshore team, offshore "
                       "operations, night shift, overnight team, virtual "
                       "assistant"),
-        ] + _newsletter_fields() + _email_fields("7 Emails, 3 Calls + LinkedIn") + \
+        ] + _newsletter_fields() + _email_fields(DEFAULT_SEQUENCE) + \
             _size_fields("5", "4", "120") + _TM_SKIP_FIELDS,
         "steps": [
             "{vertical_guide}",
@@ -620,7 +625,7 @@ ROUTINES = [
             F("lookback", "How far back to look", "details",
               default="the last 90 days"),
         ] + _targeting_fields() + _newsletter_fields() + _email_fields(
-            "7 Emails, 3 Calls + LinkedIn") + _size_fields("5", "4", "120") + \
+            DEFAULT_SEQUENCE) + _size_fields("5", "4", "120") + \
             _TM_SKIP_FIELDS,
         "steps": [
             "{vertical_guide}",
@@ -656,7 +661,7 @@ ROUTINES = [
             F("season_note", "Why now", "details", hint=_REC,
               placeholder="Recommended timing note for the vertical"),
         ] + _targeting_fields() + _newsletter_fields() + _email_fields(
-            "7 Emails, 3 Calls + LinkedIn") + _size_fields("8", "4", "160") + \
+            DEFAULT_SEQUENCE) + _size_fields("8", "4", "160") + \
             _TM_SKIP_FIELDS,
         "steps": [
             "{vertical_guide}",
@@ -687,7 +692,7 @@ ROUTINES = [
               placeholder="The name it has under Audiences"),
             _vertical_field("General back office"),
         ] + _newsletter_fields() + _email_fields(
-            "7 Emails, 3 Calls + LinkedIn", "the audience name") + [
+            DEFAULT_SEQUENCE, "the audience name") + [
             F("email_cap", "Most people in one campaign", "size", "number",
               default="150",
               hint="A bigger audience is split into batches of this size."),
@@ -751,7 +756,7 @@ ROUTINES = [
         "name": "Something else",
         "blurb": "Describe it in your own words and the prompt is built "
                  "around that, with the ThriveModal rules attached.",
-        "example": "Go through my Cold Nurture campaigns and tell me which "
+        "example": "Go through my Stay on Their Radar campaigns and tell me which "
                    "contacts have replied",
         "tools": [],
         "fields": [
