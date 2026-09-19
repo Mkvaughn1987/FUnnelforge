@@ -1,3 +1,4 @@
+import inspect
 """ThriveModal newsletters are about offshore staffing: one article per issue
 on a 12-month calendar, a rotating Role of the Month, server-computed Cost
 Math, one objection, a customer story every third issue. Arena newsletters
@@ -128,3 +129,18 @@ def test_json_reply_parser_prefers_last_text_block():
                       NS(text='```json\n{"headline": "Hi", "items": [1,],}\n```')])
     assert fa._nl_parse_json_reply(msg) == {"headline": "Hi", "items": [1]}
     assert fa._nl_parse_json_reply(NS(content=[NS(text="no json here")])) is None
+
+
+def test_footer_takes_a_lighter_logo_blue_on_thrivemodal_only(monkeypatch):
+    from PIL import Image
+    img = Image.new("RGB", (40, 30), (38, 90, 173))
+    monkeypatch.setattr(fa, "_SALES_MODE", True)
+    monkeypatch.setattr(fa, "_is_thrivemodal", lambda *a, **k: True)
+    blue = fa._nl_footer_blue(img)
+    r, g, b = (int(blue[i:i + 2], 16) for i in (1, 3, 5))
+    assert (38, 90, 173) < (r, g, b) and b > r and b > g   # lighter, still blue
+    assert fa._nl_footer_blue(Image.new("RGBA", (40, 30), (0, 0, 0, 0))) == ""
+    monkeypatch.setattr(fa, "_is_thrivemodal", lambda *a, **k: False)
+    assert fa._nl_footer_blue(img) == ""
+    src = inspect.getsource(fa._render_newsletter_html)
+    assert "{_footer_logo_html}" in src and '_footer_bg or nc["navy_deep"]' in src
