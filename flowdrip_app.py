@@ -62522,6 +62522,14 @@ def render_page(s: AppState, rf):
                 # bound to the inboxslide catalogue. Lazy for the same reason.
                 try:
                     import tm_prompts as _tmp
+                    import ai_prompts as _aip_nl
+                    # Newsletter dropdown: the user's evergreen newsletters,
+                    # and "+ New newsletter" opens the usual create dialog.
+                    _aip_nl.NEWSLETTER_NAMES = lambda: [
+                        c.get("name") for c in load_campaigns()
+                        if c.get("evergreen_only") and c.get("name")]
+                    _aip_nl.NEWSLETTER_CREATE = (
+                        lambda _s, _rf: _create_newsletter_dialog(_s, _rf))
                     _tmp.p_tm_prompts(s, rf)
                 except Exception as _tmp_ex:
                     print(f"[TMPrompts] page failed: {_tmp_ex}", flush=True)

@@ -26,7 +26,8 @@ def test_prompt_is_offshore_and_keeps_the_claim_rules(monkeypatch):
     p = fa._tm_newsletter_prompt("The Ledger", "ThriveModal", "CPA Firms", "Dallas, TX",
                                  "October 2026", plan, "", "", "PLAYBOOK TEXT",
                                  'Kristy Knichel: "quote"')
-    assert "OFFSHORE STAFFING" in p and plan["angle"] in p and plan["role"] in p
+    assert "OFFSHORE STAFFING" in p and plan["angle"] in p
+    assert "role_of_month" not in p  # section removed 2026-09-19
     assert "up to 60-70%" in p and "round-the-clock" in p
     assert "WORD FOR WORD" in p and '"story"' in p and "PLAYBOOK TEXT" in p
     no_story = fa._tm_newsletter_prompt("x", "y", "z", "", "October 2026",
@@ -104,12 +105,14 @@ def test_thrivemodal_newsletter_has_no_hero_photo(monkeypatch):
     assert "_loc_raw and _nl_hero_enabled()" in inspect.getsource(fa._render_newsletter_html)
 
 
-def test_profile_rate_is_a_range_about_60_percent_below_the_us_median():
+def test_profile_rate_is_one_rate_60_percent_below_the_us_median():
+    # Single rate, no range (Mike 2026-09-19): 40% of the U.S. hourly,
+    # x1.08 for 5-6 years, rounded to the quarter.
     bench = fa._tm_benchmark("staff_accountant")
     hourly = bench["base"] / 2080.0
     rate = fa._tm_profile_rate(None, "Staff Accountant, 5 years experience")
-    lo, hi = [int(x) for x in rate.replace("Est. $", "").replace("/hr", "").split("-$")]
-    assert lo == round(hourly * 0.35) and hi == round(hourly * 0.45) and lo < hi
+    assert "-" not in rate and rate.endswith("/hr")
+    assert float(rate[1:-3]) == round(hourly * 0.40 * 1.08 * 4) / 4
     assert fa._tm_profile_role("Leasing Coordinator, 5 years") == "Leasing Coordinator"
 
 

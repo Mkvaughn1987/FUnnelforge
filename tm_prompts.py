@@ -12,7 +12,7 @@ docs/thrivemodal-research/. Every claim below is one thrivemodal.com makes
 itself; the research is evidence for who to target, not for what to promise.
 """
 import ai_prompts as _e
-from ai_prompts import (Catalogue, F, NEWSLETTER_DEFAULT, NEWSLETTER_MODES,
+from ai_prompts import (Catalogue, F,
                         POSTING_AGE, SKIP_FIELDS, WHEN_OPTIONS,
                         finalize_routines)
 
@@ -406,14 +406,20 @@ def _targeting_fields():
     ]
 
 
+# The three skip checkboxes only: "Never these companies" / "Only these
+# companies" text boxes removed from ThriveModal (Mike 2026-09-19).
+_TM_SKIP_FIELDS = [f for f in SKIP_FIELDS
+                   if f["key"] not in ("never_these", "only_these")]
+
+
 def _newsletter_fields():
     return [
-        F("newsletter_mode", "Add them to a newsletter", "details", "select",
-          default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
-        F("newsletter", "Which newsletter", "details",
-          placeholder="Only if you're naming one above",
-          hint="Leave this blank and Claude picks whichever of your "
-               "newsletters is in the same line of work."),
+        # One dropdown of the user's newsletters (+ create button), which
+        # writes newsletter_mode / newsletter itself (ai_prompts type
+        # "newsletter"). Mike 2026-09-19.
+        F("newsletter", "Add them to a newsletter", "details", "newsletter",
+          hint="Pick one of yours, let Claude match one by line of work, "
+               "or create a new one."),
     ]
 
 
@@ -430,7 +436,7 @@ def _email_fields(sequence=DEFAULT_SEQUENCE, name_default="the company name"):
     ]
 
 
-def _size_fields(companies="5", contacts="4", cap="120"):
+def _size_fields(companies="5", contacts="4", cap=None):
     return [
         F("companies", "How many companies you want to end up with", "size",
           "number", default=companies),
@@ -438,8 +444,8 @@ def _size_fields(companies="5", contacts="4", cap="120"):
           "number", default=contacts,
           hint="Two is the fewest worth doing, five the most. One buyer and "
                "the people around them, not the whole org chart."),
-        F("email_cap", "Most emails this run should send", "size", "number",
-          default=cap),
+        # "Most emails this run should send" removed (Mike 2026-09-19);
+        # `cap` is kept only so existing callers don't change.
     ]
 
 
@@ -454,9 +460,7 @@ _CONTACTS_STEP = (
 
 _SHOW_STEP = (
     "Show me the companies, the signal on each one, the contacts and the "
-    "total send volume. This run must not send more than {email_cap} "
-    "emails - if it would, cut the weakest companies until it doesn't. "
-    "Then {gate}.")
+    "total send volume. Then {gate}.")
 
 _BUILD_STEP = (
     "{go_prefix} call tm_mailboxes and confirm a connected sending mailbox "
@@ -504,7 +508,7 @@ ROUTINES = [
             F("boards", "Where to look for the jobs", "size",
               default="Google Jobs first, then ZipRecruiter, then LinkedIn, "
                       "then Indeed"),
-        ] + SKIP_FIELDS,
+        ] + _TM_SKIP_FIELDS,
         "steps": [
             "{vertical_guide}",
             "Search the job boards for {vertical_label} companies in "
@@ -539,7 +543,7 @@ ROUTINES = [
             "7 Emails, 3 Calls + LinkedIn") + [
             F("lookalike_pool", "How many lookalikes to pull before scoring",
               "size", "number", default="40"),
-        ] + _size_fields("10", "4", "160") + SKIP_FIELDS,
+        ] + _size_fields("10", "4", "160") + _TM_SKIP_FIELDS,
         "steps": [
             "{vertical_guide}",
             "Use your ZoomInfo connector: find_similar_companies with "
@@ -576,7 +580,7 @@ ROUTINES = [
                       "operations, night shift, overnight team, virtual "
                       "assistant"),
         ] + _newsletter_fields() + _email_fields("7 Emails, 3 Calls + LinkedIn") + \
-            _size_fields("5", "4", "120") + SKIP_FIELDS,
+            _size_fields("5", "4", "120") + _TM_SKIP_FIELDS,
         "steps": [
             "{vertical_guide}",
             "Search job boards, LinkedIn and company pages for "
@@ -617,7 +621,7 @@ ROUTINES = [
               default="the last 90 days"),
         ] + _targeting_fields() + _newsletter_fields() + _email_fields(
             "7 Emails, 3 Calls + LinkedIn") + _size_fields("5", "4", "120") + \
-            SKIP_FIELDS,
+            _TM_SKIP_FIELDS,
         "steps": [
             "{vertical_guide}",
             "Read the state WARN notice pages for {states} over {lookback} "
@@ -653,7 +657,7 @@ ROUTINES = [
               placeholder="Recommended timing note for the vertical"),
         ] + _targeting_fields() + _newsletter_fields() + _email_fields(
             "7 Emails, 3 Calls + LinkedIn") + _size_fields("8", "4", "160") + \
-            SKIP_FIELDS,
+            _TM_SKIP_FIELDS,
         "steps": [
             "{vertical_guide}",
             "Timing: {season_note}. Search job boards, LinkedIn and company "

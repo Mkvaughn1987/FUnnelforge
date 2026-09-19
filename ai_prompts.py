@@ -1951,6 +1951,9 @@ def _aip_field(s, rf, C, r, vals, f):
     # "You didn't say" only told the user off for a box they hadn't reached yet.
 
     cur = str(_val(r, vals, key) or "")
+    if f["type"] == "newsletter":
+        _newsletter_picker(s, rf, C, vals)
+        return
     if f["type"] == "select":
         opts = list(f["options"])
         if cur and cur not in opts:
@@ -1966,6 +1969,49 @@ def _aip_field(s, rf, C, r, vals, f):
                        on_change=_set).props("dense").classes("fd-input")
         if f["type"] == "number":
             inp.props("type=number")
+
+
+# Set by the host app for pages that use a "newsletter" field (ThriveModal):
+# NEWSLETTER_NAMES() -> the user's newsletter names; NEWSLETTER_CREATE(s, rf)
+# opens the app's own Create Newsletter dialog. Arena never uses the type.
+NEWSLETTER_NAMES = None
+NEWSLETTER_CREATE = None
+_NL_FIND, _NL_NONE = "Claude picks the one that fits", "No newsletter"
+
+
+def _newsletter_picker(s, rf, C, vals):
+    """One dropdown for the newsletter answer: pick-for-me, none, or one of
+    the user's newsletters by name, plus a button to create a new one. Writes
+    the same newsletter_mode / newsletter pair the prompt already reads."""
+    try:
+        names = list(NEWSLETTER_NAMES() if NEWSLETTER_NAMES else [])
+    except Exception:
+        names = []
+    mode = str(vals.get("newsletter_mode") or "").lower()
+    cur = str(vals.get("newsletter") or "").strip()
+    if cur and cur not in names:
+        names = [cur] + names
+    value = _NL_NONE if mode.startswith("no") else (cur or _NL_FIND)
+
+    def _set(e):
+        v = e.value or _NL_FIND
+        if v == _NL_NONE:
+            vals["newsletter_mode"], vals["newsletter"] = NEWSLETTER_MODES[2], ""
+        elif v == _NL_FIND:
+            vals["newsletter_mode"], vals["newsletter"] = NEWSLETTER_MODES[0], ""
+        else:
+            vals["newsletter_mode"], vals["newsletter"] = NEWSLETTER_MODES[1], v
+
+    with ui.element("div").style(
+            "display:flex;align-items:center;gap:8px;"):
+        with ui.element("div").style("flex:1;min-width:0;"):
+            ui.select(options=[_NL_FIND] + names + [_NL_NONE], value=value,
+                      on_change=_set).props("dense").classes("fd-input")
+        if NEWSLETTER_CREATE:
+            ui.button("+ New newsletter",
+                      on_click=lambda: NEWSLETTER_CREATE(s, rf)).props(
+                "flat dense no-caps").style(
+                f"color:{C['teal']};font-size:12px;white-space:nowrap;")
 
 
 def _aip_extra(s, rf, C, req):
