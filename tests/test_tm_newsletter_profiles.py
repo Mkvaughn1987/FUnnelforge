@@ -55,7 +55,9 @@ def test_dialogs_offer_the_toggle_and_save_three_or_zero():
 
 class _Msg:
     def __init__(self, text):
-        self.content = [type("B", (), {"text": text})()]
+        # A thinking block first, as Sonnet 5 sends it.
+        self.content = [type("T", (), {"type": "thinking", "thinking": "..."})(),
+                        type("B", (), {"type": "text", "text": text})()]
 
 
 def _fake_model(monkeypatch, payload, seen=None):

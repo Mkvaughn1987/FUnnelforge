@@ -55866,9 +55866,11 @@ def _tm_generate_campaign_profiles(client, n, roles, niche, company="",
         'Return ONLY JSON: {"profiles":[{"title":"...","years":5,'
         '"bullets":["...","..."]}]}')
     msg = _claude_create_with_retry(
-        client, model=_TM_NL_MODEL, max_tokens=1500,
+        client, model=_TM_NL_MODEL, max_tokens=4000,
         messages=[{"role": "user", "content": prompt}])
-    text = msg.content[0].text
+    # The reply can open with a thinking block; only text blocks carry JSON.
+    text = "".join(getattr(b, "text", "") for b in msg.content
+                   if getattr(b, "type", "text") == "text")
     m = re.search(r"\{.*\}", text.replace("```json", "").replace("```", ""),
                   re.DOTALL)
     raw = (json.loads(m.group()) if m else {}).get("profiles") or []
