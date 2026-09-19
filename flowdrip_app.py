@@ -16976,7 +16976,7 @@ class AppState:
         # ── Step 3 Candidates (2026-04-26 wizard restructure) ──
         self.aicb_cand_count: int = 3             # stepper value 1-6
         self.aicb_tm_profiles: int = 0            # ThriveModal AI profiles 0-3
-        self.aicb_tm_pdfs: list = []              # ThriveModal PDF kinds, max 2
+        self.aicb_tm_pdfs = None                  # ThriveModal PDF kinds, max 3; None = type default
         self.aicb_cand_source: str = ""           # "pool" | "autogen" | "skip" | ""
         self.aicb_cand_cards: list = []           # list of {label, role, bullets:[str]}
         self.aicb_redact_companies: bool = True   # 5x3 only: hide real employer names (default ON)
@@ -22612,7 +22612,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                                         ("salary_guide",    "Salary Guide"),
                                         ("interview_guide", "Interview Guide"),
                                         ("tenure_snapshot", "Tenure Snapshot"),
-                                    ]:
+                                    ] + [(k, l) for k, l, _i in _TM_CAMPAIGN_PDF_KINDS]:
                                         if _att_lower.startswith(_plabel_x.lower().replace(" ", "_") + "_"):
                                             _re_pid, _re_plabel = _pid_x, _plabel_x
                                             break
@@ -22834,6 +22834,15 @@ def _sq_loaded_campaign(s: AppState, rf):
                     ("interview_guide", "Interview Guide", "🎯", C["good"]),
                     ("tenure_snapshot", "Tenure Snapshot", "📈", C["indigo"]),
                 ]
+                if _is_thrivemodal():
+                    # Same set, same order as the Sales Assets page.
+                    _pdf_types_inline2 = [
+                        ("tm_role_blueprint", "Offshore Role Blueprint", "📋", C["email_col"]),
+                        ("tm_cost_compare",   "Staffing Cost Comparison", "💰", C["warn"]),
+                        ("tm_how_it_works",   "How We Work Together", "🤝", C["indigo"]),
+                        ("interview_guide",   "Interview Guide", "🎯", C["good"]),
+                        ("market_pulse",      "Market Pulse", "📊", C["teal"]),
+                    ]
                 # Generating state
                 if not hasattr(s, '_pdf_generating'):
                     s._pdf_generating = ""
@@ -40945,64 +40954,67 @@ def _aicb_attach_pdfs(pdf_data: dict, campaign_data: dict, company: str,
     return attached_count
 
 
-# PDFs a ThriveModal campaign can carry, picked on the wizard's Review step.
-# These are the six ThriveModal sales PDFs (OneDrive Sales/Thrivemodal,
-# build_thrivemodal_assets.py, copy aligned to thrivemodal.com's claims),
-# shipped read-only in assets/thrivemodal_pdfs. They are the same file for
-# every prospect, so nothing is generated and nothing can come out half-built.
-# To refresh them, rebuild in OneDrive and copy the files over these.
-# (kind, label, file, line added to the email that carries it)
-_TM_CAMPAIGN_PDF_DIR = Path(__file__).resolve().parent / "assets" / "thrivemodal_pdfs"
+# PDFs a ThriveModal campaign carries. These are the Sales Assets kinds, built
+# for the campaign's own role and location by the same generator the Sales
+# Assets page uses, so a campaign never ships a document that disagrees with
+# what the rep would build by hand. Order is priority: the first three are the
+# core set (Mike, 2026-09-19: "the top 3 are the most important").
+# (kind, label, line added to the email that carries it)
 _TM_CAMPAIGN_PDF_KINDS = [
-    ("tm_role_cost", "What a Role Really Costs",
-     "ThriveModal_What_a_Role_Really_Costs.pdf",
-     "I've attached a short comparison of what common roles cost fully "
-     "loaded in the US and with a dedicated professional in the Philippines."),
-    ("tm_understaffed", "The Real Cost of Staying Understaffed",
-     "ThriveModal_Cost_of_Staying_Understaffed.pdf",
-     "I've attached a short worksheet that puts a number on what an open "
-     "seat costs while it stays open."),
-    ("tm_how_it_works", "How It Works and the Zero Risk Model",
-     "ThriveModal_How_It_Works.pdf",
-     "I've attached a one-page overview of how the engagement works and the "
-     "terms behind it."),
-    ("tm_logistics", "Offshore Staffing Playbook for Logistics",
-     "ThriveModal_Logistics_Playbook.pdf",
-     "I've attached our playbook for logistics teams: which roles transfer "
-     "well and how teams are usually built."),
-    ("tm_accounting", "Offshore Staffing Playbook for Accounting and Finance",
-     "ThriveModal_Accounting_Finance_Playbook.pdf",
-     "I've attached our playbook for accounting and finance teams: which "
-     "roles transfer well and how the work is kept secure."),
-    ("tm_twelve_questions", "Twelve Questions Owners Ask",
-     "ThriveModal_Twelve_Questions.pdf",
-     "I've attached the twelve questions owners most often ask before going "
-     "offshore, with straight answers."),
+    ("tm_role_blueprint", "Offshore Role Blueprint",
+     "I've attached a short blueprint for the role: what it covers, the "
+     "skills and systems we recruit for, and how you would oversee it."),
+    ("tm_cost_compare", "Staffing Cost Comparison",
+     "I've attached a one-page cost comparison for the role, a U.S. hire "
+     "beside a dedicated professional in the Philippines."),
+    ("tm_how_it_works", "How We Work Together",
+     "I've attached a one-page overview of how an engagement runs, from "
+     "defining the role through your interviews and onboarding."),
+    ("interview_guide", "Interview Guide",
+     "I've attached an interview guide for the role, so the shortlist "
+     "conversations surface real signal quickly."),
+    ("market_pulse", "Market Pulse",
+     "I've attached a short market briefing for your industry, with sources "
+     "and dates."),
 ]
-TM_CAMPAIGN_PDF_MAX = 2
-# A PDF lands on the step whose point it backs. Anything without a preference
-# (or whose step is taken) falls back to the next free email after the first.
-_TM_PDF_PREFERRED_STEP = {
-    "tm_conversation": {
-        "tm_role_cost": 2, "tm_understaffed": 2, "tm_logistics": 5,
-        "tm_accounting": 5, "tm_how_it_works": 9, "tm_twelve_questions": 8,
-    },
-    "tm_fivebyseven": {
-        "tm_role_cost": 2, "tm_understaffed": 2, "tm_logistics": 5,
-        "tm_accounting": 5, "tm_how_it_works": 6, "tm_twelve_questions": 6,
-    },
-    "tm_fivethreeli": {
-        "tm_role_cost": 3, "tm_understaffed": 3, "tm_logistics": 5,
-        "tm_accounting": 5, "tm_how_it_works": 7, "tm_twelve_questions": 7,
-    },
-    "tm_threebythree": {
-        "tm_role_cost": 2, "tm_understaffed": 2, "tm_how_it_works": 2,
-    },
-    "tm_twelveweek": {
-        "tm_understaffed": 4, "tm_logistics": 7, "tm_accounting": 7,
-        "tm_how_it_works": 7, "tm_role_cost": 9, "tm_twelve_questions": 13,
-    },
+TM_CAMPAIGN_PDF_MAX = 3
+# Every campaign carries at least two. A sequence long enough to space three
+# attachments apart without stacking them gets the third core PDF as well.
+TM_CAMPAIGN_PDF_DEFAULT = ["tm_role_blueprint", "tm_cost_compare"]
+TM_CAMPAIGN_PDF_DEFAULT_LONG = ["tm_role_blueprint", "tm_cost_compare",
+                                "tm_how_it_works"]
+_TM_PDF_LONG_MIN_EMAILS = 6
+_TM_LONG_TYPE_KEYS = frozenset({"tm_conversation", "tm_twelveweek"})
+
+# The six static PDFs campaigns used to carry (assets/thrivemodal_pdfs). No
+# longer offered; kept so a campaign saved with one still shows a readable
+# label instead of a bare filename. (file prefix without .pdf, label)
+_TM_LEGACY_PDF_LABELS = [
+    ("ThriveModal_What_a_Role_Really_Costs", "What a Role Really Costs"),
+    ("ThriveModal_Cost_of_Staying_Understaffed", "The Real Cost of Staying Understaffed"),
+    ("ThriveModal_How_It_Works", "How It Works and the Zero Risk Model"),
+    ("ThriveModal_Logistics_Playbook", "Offshore Staffing Playbook for Logistics"),
+    ("ThriveModal_Accounting_Finance_Playbook", "Offshore Staffing Playbook for Accounting and Finance"),
+    ("ThriveModal_Twelve_Questions", "Twelve Questions Owners Ask"),
+]
+
+# A PDF lands on the email whose point it backs, matched on the step name and
+# subject. Anything unmatched (or whose email is taken) falls back to the next
+# free email after the first, spread out rather than bunched.
+_TM_PDF_STEP_WORDS = {
+    "tm_cost_compare": ("cost", "economics", "math", "saving", "budget",
+                        "pricing"),
+    "tm_how_it_works": ("how it works", "commitment", "control", "terms",
+                        "after the hire", "after selection", "quality",
+                        "commercial", "process"),
+    "tm_role_blueprint": ("blueprint", "transfer", "requirement", "what we need",
+                          "expert asset", "role fit", "role would", "role"),
+    "interview_guide": ("interview", "shortlist", "selection", "candidate"),
+    "market_pulse": ("market", "signal", "industry", "insight", "alert"),
 }
+# Matching order: the narrowest vocabulary claims its step first, so "What the
+# Role Would Cost" goes to the cost PDF rather than the blueprint's "role".
+_TM_PDF_MATCH_ORDER = list(_TM_PDF_STEP_WORDS)
 
 
 def _clamp_tm_pdf_kinds(v) -> list:
@@ -41014,28 +41026,62 @@ def _clamp_tm_pdf_kinds(v) -> list:
     return out[:TM_CAMPAIGN_PDF_MAX]
 
 
+def _tm_pdf_eligible_emails(emails) -> list:
+    """Indexes of emails that may carry a PDF: never the first email, never a
+    call or LinkedIn step."""
+    return [ei for ei, em in enumerate(emails or [])
+            if ei > 0 and em.get("step_type", "") in ("email_auto", "email")]
+
+
+def _tm_default_pdf_kinds(camp_type, emails=None) -> list:
+    """Two PDFs for every campaign, three when the sequence is long enough."""
+    n = len(_tm_pdf_eligible_emails(emails)) if emails is not None else 0
+    if ((camp_type or "").strip() in _TM_LONG_TYPE_KEYS
+            or n >= _TM_PDF_LONG_MIN_EMAILS):
+        return list(TM_CAMPAIGN_PDF_DEFAULT_LONG)
+    return list(TM_CAMPAIGN_PDF_DEFAULT)
+
+
+def _tm_resolve_pdf_pick(picked, camp_type, emails=None) -> list:
+    """The wizard stores None until the user touches the PDF chips, which
+    means "use the default for this type"; an explicit list is honoured,
+    including an explicit empty one."""
+    if picked is None:
+        return _tm_default_pdf_kinds(camp_type, emails)
+    clamped = _clamp_tm_pdf_kinds(picked)
+    if picked and not clamped:
+        # A restored draft holding only the retired static kinds
+        # (tm_role_cost, tm_logistics, ...) gets the default, not nothing.
+        return _tm_default_pdf_kinds(camp_type, emails)
+    return clamped
+
+
 def _tm_pdf_placement(camp_type, emails, kinds) -> dict:
     """{kind: email index}. Never the first email, never a non-email step,
     never an email that already carries an attachment, one PDF per email."""
-    eligible = [
-        ei for ei, em in enumerate(emails or [])
-        if ei > 0
-        and em.get("step_type", "") in ("email_auto", "email")
-        and not em.get("attachments")
-    ]
-    prefs = _TM_PDF_PREFERRED_STEP.get((camp_type or "").strip(), {})
-    by_step = {}
-    for ei in eligible:
-        n = _fivebyfive_step_no(emails[ei].get("name"))
-        if n:
-            by_step.setdefault(n, ei)
+    eligible = [ei for ei in _tm_pdf_eligible_emails(emails)
+                if not emails[ei].get("attachments")]
     placed, used = {}, set()
-    for kind in _clamp_tm_pdf_kinds(kinds):
-        ei = by_step.get(prefs.get(kind))
-        if ei is None or ei in used:
-            ei = next((i for i in eligible if i not in used), None)
-        if ei is None:
+    kinds = _clamp_tm_pdf_kinds(kinds)
+    # Pass 1: a step whose name/subject names what the PDF is about.
+    def _hay(ei):
+        return ((emails[ei].get("name") or "") + " "
+                + (emails[ei].get("subject") or "")).lower()
+    for kind in sorted(kinds, key=_TM_PDF_MATCH_ORDER.index):
+        for w in _TM_PDF_STEP_WORDS[kind]:
+            ei = next((i for i in eligible if i not in used and w in _hay(i)), None)
+            if ei is not None:
+                placed[kind] = ei
+                used.add(ei)
+                break
+    # Pass 2: the rest, spread over the free emails in priority order.
+    rest = [k for k in kinds if k not in placed]
+    free = [ei for ei in eligible if ei not in used]
+    for i, kind in enumerate(rest):
+        if not free:
             break
+        pos = min(len(free) - 1, (i * len(free)) // max(1, len(rest)))
+        ei = free.pop(pos)
         placed[kind] = ei
         used.add(ei)
     return placed
@@ -41051,9 +41097,9 @@ def _tm_insert_pdf_line(body: str, line: str) -> str:
 
 
 def _tm_attach_campaign_pdfs(camp_type, campaign_data, built: dict) -> int:
-    """Attach staged ThriveModal PDFs ({kind: filename}) to their steps."""
+    """Attach built ThriveModal PDFs ({kind: filename}) to their steps."""
     emails = (campaign_data or {}).get("emails") or []
-    lines = {k: line for k, _l, _f, line in _TM_CAMPAIGN_PDF_KINDS}
+    lines = {k: line for k, _l, line in _TM_CAMPAIGN_PDF_KINDS}
     kinds = [k for k in _clamp_tm_pdf_kinds(list(built)) if built.get(k)]
     placed = _tm_pdf_placement(camp_type, emails, kinds)
     for kind, ei in placed.items():
@@ -41063,26 +41109,129 @@ def _tm_attach_campaign_pdfs(camp_type, campaign_data, built: dict) -> int:
     return len(placed)
 
 
-def _tm_stage_campaign_pdfs(kinds, dest_dir=None) -> dict:
-    """Copy the picked PDFs into the user's PDFs folder, where the send path
-    resolves attachments by filename. Returns {kind: filename}; a file that
-    is missing from assets is left out rather than attached as a dead link."""
-    import shutil as _sh
+def _tm_campaign_pdf_filename(kind, subject, location="") -> str:
+    label = next((l for k, l, _ in _TM_CAMPAIGN_PDF_KINDS if k == kind), kind)
+    slug = "_".join(p for p in (
+        re.sub(r'[^A-Za-z0-9]+', '_', subject or "").strip('_')[:30],
+        re.sub(r'[^A-Za-z0-9]+', '_', location or "").strip('_')[:20],
+    ) if p) or "Campaign"
+    return f"{label.replace(' ', '_')}_{slug}.pdf"
+
+
+def _tm_build_campaign_pdfs(kinds, company, role, location, industry="",
+                            client=None, dest_dir=None) -> dict:
+    """Build the picked Sales Assets PDFs for one campaign, in parallel, into
+    the user's PDFs folder (where the send path resolves attachments by
+    filename). Returns {kind: filename}. A kind that fails is left out rather
+    than attached as a dead link. Caller must have the user's ContextVar set
+    so the logo, signature and PDFs folder resolve to that user."""
+    kinds = _clamp_tm_pdf_kinds(kinds)
+    if not kinds:
+        return {}
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parent / "funnel_forge"))
+        from arena_pdfs import build_custom_pdf
+    except ImportError:
+        print("[AICB] reportlab not installed - skipping TM PDFs", flush=True)
+        return {}
+    if client is None:
+        import anthropic
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
     dest = Path(dest_dir) if dest_dir else _user_pdf_dir()
-    files = {k: fn for k, _l, fn, _i in _TM_CAMPAIGN_PDF_KINDS}
-    staged = {}
-    for kind in _clamp_tm_pdf_kinds(kinds):
-        src_p = _TM_CAMPAIGN_PDF_DIR / files[kind]
-        if not src_p.is_file():
-            print(f"[AICB] TM PDF missing from assets: {src_p}", flush=True)
-            continue
+    dest.mkdir(parents=True, exist_ok=True)
+    _cfg = load_config()
+    # No company (a market campaign): title it by industry, as the Sales
+    # Assets page is used, so it does not read "Blueprint for <role> covering
+    # <role>".
+    subject = ((company or "").strip() or (industry or "").strip()
+               or (role or "").strip())
+    ctx = {"company": subject, "primary_industry": industry or "",
+           "secondary_industries": [], "positions": role or "",
+           "location": location or "", "exp_level": ""}
+    labels = {k: l for k, l, _ in _TM_CAMPAIGN_PDF_KINDS}
+    style = _style_guide_prompt()
+    user_email = _CURRENT_USER_EMAIL.get()
+
+    def _one(kind):
         try:
-            dest.mkdir(parents=True, exist_ok=True)
-            _sh.copyfile(src_p, dest / files[kind])
-            staged[kind] = files[kind]
+            if user_email:
+                _CURRENT_USER_EMAIL.set(user_email)
+            data = _generate_rich_pdf_data(client, kind, ctx, research_context="",
+                                           style_guide=style)
+            fname = _tm_campaign_pdf_filename(kind, subject + " " + (role or ""),
+                                              location if not company else "")
+            build = {
+                "title": data.get("title") or f"{labels[kind]} - {subject}",
+                "badge": data.get("badge") or labels[kind].upper(),
+                "date": date.today().strftime("%B %d, %Y"),
+                "prepared_by": _pdf_prepared_by(_cfg),
+                "prepared_email": _cfg.get("sig_email", ""),
+                "logo_path": _get_company_logo_path(),
+                "intro": data.get("intro", ""),
+                "sections": data.get("sections", []),
+                "cta": data.get("cta", ""),
+            }
+            fpath = str(dest / fname)
+            build_custom_pdf(fpath, build)
+            _save_pdf_sidecar(fpath, build)
+            return kind, fname
         except Exception as ex:
-            print(f"[AICB] TM PDF copy failed ({kind}): {ex}", flush=True)
-    return staged
+            print(f"[AICB] TM PDF build failed ({kind}): {ex}", flush=True)
+            return kind, ""
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=len(kinds)) as ex:
+        results = dict(ex.map(_one, kinds))
+    return {k: results[k] for k in kinds if results.get(k)}
+
+
+# Attachments a refresh replaces: the old curated Arena set, the six retired
+# static ThriveModal PDFs, and anything an earlier refresh built. Uploads and
+# anything else the user attached by hand are left alone.
+_TM_REPLACEABLE_PDF_PREFIXES = tuple(
+    ["market_pulse_", "role_scorecard_", "salary_guide_", "interview_guide_",
+     "tenure_snapshot_", "thrivemodal_"]
+    + [l.lower().replace(" ", "_") + "_" for _k, l, _i in _TM_CAMPAIGN_PDF_KINDS])
+
+
+def _tm_strip_campaign_pdfs(emails) -> int:
+    """Drop replaceable PDFs and the lines that announced them. Returns the
+    number of attachments removed."""
+    lines = [line for _k, _l, line in _TM_CAMPAIGN_PDF_KINDS]
+    removed = 0
+    for em in emails or []:
+        atts = em.get("attachments") or []
+        keep = [a for a in atts
+                if not str(a).lower().startswith(_TM_REPLACEABLE_PDF_PREFIXES)]
+        removed += len(atts) - len(keep)
+        if len(keep) != len(atts):
+            em["attachments"] = keep
+        body = em.get("body") or ""
+        for line in lines:
+            body = body.replace(line + "<br><br>", "").replace(line, "")
+        em["body"] = body
+    return removed
+
+
+def _tm_refresh_campaign_pdfs(camp, company="", role="", location="",
+                              industry="", client=None, build=None) -> dict:
+    """Swap a saved campaign's PDFs for freshly built ThriveModal Sales Assets:
+    two by default, three on a long sequence, never on the first email.
+    `build` defaults to _tm_build_campaign_pdfs (tests pass a stub).
+    Mutates `camp`; the caller saves it. Returns a summary."""
+    emails = camp.get("emails") or []
+    camp_type = camp.get("aicb_camp_type") or camp.get("template_key") or ""
+    removed = _tm_strip_campaign_pdfs(emails)
+    kinds = _tm_default_pdf_kinds(camp_type, emails)
+    built = (build or _tm_build_campaign_pdfs)(
+        kinds, company, role, location, industry=industry, client=client)
+    placed = _tm_attach_campaign_pdfs(camp_type, camp, built)
+    return {"removed": removed, "kinds": kinds, "built": built,
+            "attached": placed,
+            "where": {em.get("attachments", [""])[0]: i + 1
+                      for i, em in enumerate(emails)
+                      if em.get("attachments") and em["attachments"][0] in built.values()}}
 
 
 def _aicb_generate_pdfs(client, brief, roles_str, location_str, company, sig_name, campaign_data, appstate=None):
@@ -45756,21 +45905,23 @@ def p_ai_campaign(s: AppState, rf):
                             else (s.aicb_niche.strip() or location_str or "Market")
                         )
                     )
-                    # ThriveModal campaigns get no automatic PDFs. The
-                    # curated set is five recruiting assets (Market Pulse,
-                    # Role Scorecard, Salary Guide, Interview Guide, Tenure
-                    # Snapshot) written in candidate-placement language, and
-                    # attaching them here would also make the email copy
-                    # promise documents that contradict the playbook.
-                    # ThriveModal sales assets are generated deliberately
-                    # from the Sales Assets page instead, where the cost
-                    # worksheet can collect its figures.
-                    # The exception is the ThriveModal set the user picks on
-                    # the Review step (max 2), built in _tm_pdf_worker below.
+                    # ThriveModal campaigns never get the curated Arena set
+                    # (Market Pulse, Role Scorecard, Salary Guide, Interview
+                    # Guide, Tenure Snapshot in candidate-placement language).
+                    # They get the ThriveModal Sales Assets picked on the
+                    # Review step (default: the top two or three), built for
+                    # this campaign's first Target Position and location in
+                    # _tm_pdf_worker below.
                     _tm_campaign = ((s.aicb_camp_type or "").strip() in _TM_TYPE_KEYS
                                     or _workspace_playbook() == PLAYBOOK_THRIVEMODAL)
-                    _tm_pdf_kinds = (_clamp_tm_pdf_kinds(getattr(s, "aicb_tm_pdfs", []))
+                    _tm_pdf_kinds = (_tm_resolve_pdf_pick(
+                                         getattr(s, "aicb_tm_pdfs", None),
+                                         s.aicb_camp_type)
                                      if _tm_campaign else [])
+                    _tm_pdf_role = ((s.aicb_sel_roles or [""])[0] or roles_str).strip()
+                    _tm_pdf_loc = ((s.aicb_sel_locations or [""])[0]
+                                   or "United States").strip()
+                    _tm_pdf_user = getattr(s, "_user_email", "") or ""
                     s._aicb_pdfs_in_progress = bool(_tm_pdf_kinds) or not _tm_campaign
                     s._aicb_pdfs_total = (len(_tm_pdf_kinds) if _tm_campaign
                                           else len(_AICB_PDF_KINDS))
@@ -45796,8 +45947,14 @@ def p_ai_campaign(s: AppState, rf):
 
                     def _tm_pdf_worker():
                         try:
-                            _pdf_data_holder["tm_built"] = _tm_stage_campaign_pdfs(
-                                _tm_pdf_kinds)
+                            if _tm_pdf_user:
+                                _CURRENT_USER_EMAIL.set(_tm_pdf_user)
+                            _pdf_data_holder["tm_built"] = _tm_build_campaign_pdfs(
+                                _tm_pdf_kinds, s.aicb_company.strip(),
+                                _tm_pdf_role, _tm_pdf_loc,
+                                industry=(getattr(s, "aicb_primary_industry", "")
+                                          or ind_label or ""),
+                                client=client)
                         except Exception as _ex:
                             print(f"[AICB] TM PDF error: {_ex}", flush=True)
                             _pdf_data_holder["tm_built"] = {}
@@ -46288,8 +46445,8 @@ def p_ai_campaign(s: AppState, rf):
                                     on_change=_set_tm_prof,
                                 ).props("dense outlined").style("max-width:240px;")
                         if _tm_review:
-                            _picked_pdfs = _clamp_tm_pdf_kinds(
-                                getattr(s, "aicb_tm_pdfs", []))
+                            _picked_pdfs = _tm_resolve_pdf_pick(
+                                getattr(s, "aicb_tm_pdfs", None), s.aicb_camp_type)
                             _pdfs_full = len(_picked_pdfs) >= TM_CAMPAIGN_PDF_MAX
                             with ui.element("div").style(
                                     "display:grid;grid-template-columns:130px 1fr;"
@@ -46307,8 +46464,9 @@ def p_ai_campaign(s: AppState, rf):
                                             _off = _pdfs_full and not _on
 
                                             def _toggle_pdf(k=_pk):
-                                                cur = _clamp_tm_pdf_kinds(
-                                                    getattr(s, "aicb_tm_pdfs", []))
+                                                cur = _tm_resolve_pdf_pick(
+                                                    getattr(s, "aicb_tm_pdfs", None),
+                                                    s.aicb_camp_type)
                                                 if k in cur:
                                                     cur.remove(k)
                                                 elif len(cur) < TM_CAMPAIGN_PDF_MAX:
@@ -46332,10 +46490,11 @@ def p_ai_campaign(s: AppState, rf):
                                                          else _toggle_pdf):
                                                 ui.label(("✓ " if _on else "") + _pl)
                                     ui.label(
-                                        f"Pick up to {TM_CAMPAIGN_PDF_MAX}. "
+                                        f"Up to {TM_CAMPAIGN_PDF_MAX}, built for this "
+                                        "role and location. Each goes on its own "
+                                        "email, never the first. "
                                         + ("To swap one, unpick it first."
-                                           if _pdfs_full else
-                                           "Each one goes on its own email.")
+                                           if _pdfs_full else "")
                                     ).style(f"font-size:11px;color:{C['muted']};"
                                             f"margin-top:6px;")
                         ui.label("Need to change something? Use the back button on the progress bar above.").style(
@@ -46359,8 +46518,9 @@ def p_ai_campaign(s: AppState, rf):
                         if (s.aicb_camp_type in _TM_TYPE_KEYS
                                 or _workspace_playbook() == PLAYBOOK_THRIVEMODAL):
                             _gen_pdfs = [l for k, l, *_ in _TM_CAMPAIGN_PDF_KINDS
-                                         if k in _clamp_tm_pdf_kinds(
-                                             getattr(s, "aicb_tm_pdfs", []))]
+                                         if k in _tm_resolve_pdf_pick(
+                                             getattr(s, "aicb_tm_pdfs", None),
+                                             s.aicb_camp_type)]
                             _gen_what = (
                                 "AI is researching the company, writing personalized "
                                 "emails, and building your "
@@ -46911,8 +47071,9 @@ def p_ai_campaign(s: AppState, rf):
                     ("salary_guide_",    "Salary Guide"),
                     ("interview_guide_", "Interview Guide"),
                     ("tenure_snapshot_", "Tenure Snapshot"),
-                ] + [(fn.lower()[:-4], l)
-                     for _k, l, fn, _i in _TM_CAMPAIGN_PDF_KINDS]:
+                ] + [(l.lower().replace(" ", "_") + "_", l)
+                     for _k, l, _i in _TM_CAMPAIGN_PDF_KINDS] + [
+                    (fn.lower(), l) for fn, l in _TM_LEGACY_PDF_LABELS]:
                     if _flow.startswith(_pfx):
                         _human = _lbl
                         break

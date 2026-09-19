@@ -1,6 +1,6 @@
-"""ThriveModal campaigns: the Review-step PDF pick (max 2 of the six
-ThriveModal sales PDFs), where each picked PDF lands in the sequence, and the
-new-business-only type lineup."""
+"""ThriveModal campaigns: the PDFs a campaign carries (the Sales Assets set,
+two by default, three on long sequences), where each lands in the sequence,
+the refresh of saved campaigns, and the new-business-only type lineup."""
 import flowdrip_app as fa
 
 
@@ -16,87 +16,119 @@ def _campaign(camp_type):
 
 # ── the PDFs ───────────────────────────────────────────────────────────────
 
-def test_the_six_thrivemodal_pdfs_ship_with_the_app():
-    assert len(fa._TM_CAMPAIGN_PDF_KINDS) == 6
-    for _k, _label, fname, line in fa._TM_CAMPAIGN_PDF_KINDS:
-        p = fa._TM_CAMPAIGN_PDF_DIR / fname
-        assert p.is_file(), p
-        assert p.read_bytes()[:5] == b"%PDF-"
+def test_campaigns_offer_the_sales_assets_set_top_three_first():
+    kinds = [k for k, *_ in fa._TM_CAMPAIGN_PDF_KINDS]
+    assert kinds[:3] == ["tm_role_blueprint", "tm_cost_compare", "tm_how_it_works"]
+    assert set(kinds) == {"tm_role_blueprint", "tm_cost_compare",
+                          "tm_how_it_works", "interview_guide", "market_pulse"}
+    for _k, _label, line in fa._TM_CAMPAIGN_PDF_KINDS:
         assert line.startswith("I've attached")
 
 
-def test_old_generated_kinds_are_not_offered():
+def test_old_arena_and_static_kinds_are_not_offered():
     kinds = {k for k, *_ in fa._TM_CAMPAIGN_PDF_KINDS}
     assert not kinds & {"salary_guide", "scorecard", "tenure_snapshot",
-                        "market_pulse", "interview_guide",
-                        "tm_role_blueprint", "tm_cost_compare"}
+                        "tm_role_cost", "tm_logistics", "tm_twelve_questions"}
 
 
-def test_clamp_caps_at_two_and_drops_unknown_and_dupes():
+def test_clamp_caps_at_three_and_drops_unknown_and_dupes():
     assert fa._clamp_tm_pdf_kinds(
-        ["tm_logistics", "bogus", "tm_logistics", "tm_role_cost",
-         "tm_how_it_works"]) == ["tm_logistics", "tm_role_cost"]
+        ["market_pulse", "bogus", "market_pulse", "tm_cost_compare",
+         "tm_how_it_works", "tm_role_blueprint"]) == [
+        "market_pulse", "tm_cost_compare", "tm_how_it_works"]
     assert fa._clamp_tm_pdf_kinds(None) == []
 
 
-def test_stage_copies_the_picked_files(tmp_path):
-    got = fa._tm_stage_campaign_pdfs(["tm_role_cost", "tm_twelve_questions"],
-                                     dest_dir=tmp_path)
-    assert got == {"tm_role_cost": "ThriveModal_What_a_Role_Really_Costs.pdf",
-                   "tm_twelve_questions": "ThriveModal_Twelve_Questions.pdf"}
-    for fn in got.values():
-        assert (tmp_path / fn).read_bytes()[:5] == b"%PDF-"
+def test_default_is_two_and_three_on_long_sequences():
+    assert fa._tm_resolve_pdf_pick(None, "tm_threebythree") == [
+        "tm_role_blueprint", "tm_cost_compare"]
+    assert fa._tm_resolve_pdf_pick(None, "tm_twelveweek") == [
+        "tm_role_blueprint", "tm_cost_compare", "tm_how_it_works"]
+    # An explicit pick wins, including an explicit "none".
+    assert fa._tm_resolve_pdf_pick(["market_pulse"], "tm_twelveweek") == ["market_pulse"]
+    assert fa._tm_resolve_pdf_pick([], "tm_twelveweek") == []
+    # A restored draft holding only retired kinds gets the default.
+    assert fa._tm_resolve_pdf_pick(["tm_logistics"], "tm_threebythree") == [
+        "tm_role_blueprint", "tm_cost_compare"]
 
 
-def test_stage_leaves_out_a_missing_file(tmp_path, monkeypatch):
-    monkeypatch.setattr(fa, "_TM_CAMPAIGN_PDF_DIR", tmp_path / "nowhere")
-    assert fa._tm_stage_campaign_pdfs(["tm_role_cost"],
-                                      dest_dir=tmp_path) == {}
-
-
-def test_conversation_uses_the_step_each_pdf_backs():
-    camp = _campaign("tm_conversation")
-    placed = fa._tm_pdf_placement("tm_conversation", camp["emails"],
-                                  ["tm_how_it_works", "tm_role_cost"])
-    names = {k: camp["emails"][i]["name"] for k, i in placed.items()}
-    assert names == {"tm_how_it_works": "Step 9 - x",
-                     "tm_role_cost": "Step 2 - x"}
-
-
-def test_every_offered_type_places_two_pdfs_never_first_or_call():
+def test_every_offered_type_places_its_default_never_first_or_call():
     for ct in fa._TM_OFFERED_TYPE_KEYS:
         camp = _campaign(ct)
-        placed = fa._tm_pdf_placement(ct, camp["emails"],
-                                      ["tm_logistics", "tm_twelve_questions"])
-        assert len(placed) == 2, ct
-        assert len(set(placed.values())) == 2
+        kinds = fa._tm_default_pdf_kinds(ct, camp["emails"])
+        assert len(kinds) >= 2, ct
+        placed = fa._tm_pdf_placement(ct, camp["emails"], kinds)
+        assert len(placed) == min(len(kinds), len(
+            fa._tm_pdf_eligible_emails(camp["emails"]))), ct
+        assert len(set(placed.values())) == len(placed)
         for i in placed.values():
             assert i > 0
             assert camp["emails"][i]["step_type"] in ("email_auto", "email")
 
 
+def test_pdf_lands_on_the_step_that_talks_about_it():
+    names = ["Step 1 - Capacity", "Step 2 - What the role would cost",
+             "Step 3 - Follow-up Call", "Step 4 - What actually transfers",
+             "Step 5 - Control and commitment", "Step 6 - Close the loop"]
+    emails = [{"name": n, "subject": "", "body": "Hi {FirstName},<br><br>x",
+               "step_type": "call" if "Call" in n else "email_auto"}
+              for n in names]
+    placed = fa._tm_pdf_placement(
+        "x", emails, ["tm_role_blueprint", "tm_cost_compare", "tm_how_it_works"])
+    assert {k: emails[i]["name"] for k, i in placed.items()} == {
+        "tm_cost_compare": "Step 2 - What the role would cost",
+        "tm_role_blueprint": "Step 4 - What actually transfers",
+        "tm_how_it_works": "Step 5 - Control and commitment"}
+
+
 def test_attach_adds_file_and_line_only_where_placed():
     camp = _campaign("tm_conversation")
     n = fa._tm_attach_campaign_pdfs(
-        "tm_conversation", camp, {"tm_how_it_works": "ThriveModal_How_It_Works.pdf"})
+        "tm_conversation", camp, {"tm_how_it_works": "How_We_Work_Together_X.pdf"})
     assert n == 1
     carrying = [e for e in camp["emails"] if e.get("attachments")]
-    assert [e["name"] for e in carrying] == ["Step 9 - x"]
+    assert len(carrying) == 1 and carrying[0] is not camp["emails"][0]
     assert carrying[0]["body"].startswith("Hi {FirstName},<br><br>I've attached")
     # The unbacked-promise scrub keeps the line because the file is attached.
     assert "attached" in fa._tm_drop_unbacked_lines(carrying[0]["body"], True)
 
 
-def test_nothing_picked_attaches_nothing():
+def test_nothing_built_attaches_nothing():
     camp = _campaign("tm_conversation")
     assert fa._tm_attach_campaign_pdfs("tm_conversation", camp, {}) == 0
     assert not any(e.get("attachments") for e in camp["emails"])
-
-
-def test_failed_stage_is_not_attached():
-    camp = _campaign("tm_fivebyseven")
     assert fa._tm_attach_campaign_pdfs(
-        "tm_fivebyseven", camp, {"tm_logistics": ""}) == 0
+        "tm_fivebyseven", _campaign("tm_fivebyseven"), {"tm_cost_compare": ""}) == 0
+
+
+def test_refresh_replaces_old_pdfs_and_is_rerunnable():
+    camp = _campaign("tm_fivebyseven")
+    camp["aicb_camp_type"] = "tm_fivebyseven"
+    later = fa._tm_pdf_eligible_emails(camp["emails"])
+    camp["emails"][later[0]]["attachments"] = ["Salary_Guide_Construction.pdf"]
+    camp["emails"][later[1]]["attachments"] = ["my_upload.docx"]
+    calls = []
+
+    def fake_build(kinds, company, role, location, industry="", client=None):
+        calls.append((tuple(kinds), company, role, location))
+        return {k: fa._tm_campaign_pdf_filename(k, role) for k in kinds}
+
+    for _ in range(2):
+        out = fa._tm_refresh_campaign_pdfs(camp, "", "Estimator", "Denver, CO",
+                                           build=fake_build)
+    assert calls[-1] == (("tm_role_blueprint", "tm_cost_compare"), "",
+                         "Estimator", "Denver, CO")
+    atts = [a for e in camp["emails"] for a in (e.get("attachments") or [])]
+    assert "Salary_Guide_Construction.pdf" not in atts
+    assert "my_upload.docx" in atts  # a hand upload is never touched
+    assert sorted(a for a in atts if a.endswith(".pdf")) == [
+        "Offshore_Role_Blueprint_Estimator.pdf",
+        "Staffing_Cost_Comparison_Estimator.pdf"]
+    assert out["attached"] == 2
+    assert not camp["emails"][0].get("attachments")
+    # Running twice does not stack the "I've attached" line.
+    bodies = " ".join(e["body"] for e in camp["emails"])
+    assert bodies.count("I've attached") == 2
 
 
 def test_thrivemodal_workspace_never_builds_the_old_arena_pdfs():
