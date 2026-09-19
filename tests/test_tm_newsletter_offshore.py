@@ -89,3 +89,16 @@ def test_holiday_notes_switch_on_thrivemodal_only(monkeypatch):
     monkeypatch.setattr(fa, "_is_thrivemodal", lambda cfg=None: False)
     arena = dict((n, note) for _d, n, note in fa._holidays_for_month(2026, 12))
     assert "builds your projects" in arena["Christmas"]
+
+
+def test_thrivemodal_newsletter_has_no_hero_photo(monkeypatch):
+    import inspect
+    monkeypatch.setattr(fa, "_SALES_MODE", True)
+    monkeypatch.setattr(fa, "_is_thrivemodal", lambda cfg=None: True)
+    assert not fa._nl_hero_enabled()
+    html = fa._render_newsletter_html({"newsletter_name": "The Offshore Desk",
+                                       "date": "October 2026", "location": "Dallas, TX"})
+    assert 'height="180"' not in html
+    monkeypatch.setattr(fa, "_is_thrivemodal", lambda cfg=None: False)
+    assert fa._nl_hero_enabled()
+    assert "_loc_raw and _nl_hero_enabled()" in inspect.getsource(fa._render_newsletter_html)

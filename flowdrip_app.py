@@ -31586,7 +31586,8 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
             # Hero photo picker is a Full Send concept. The J's Way uses a
             # fixed bundled banner (see _jway_render) and has no per-issue
             # photo selection — so skip the whole gallery for J's Way issues.
-            if (camp.get("newsletter_style") or "").strip() != "j_way":
+            if ((camp.get("newsletter_style") or "").strip() != "j_way"
+                    and _nl_hero_enabled()):
                 _render_hero_gallery()
 
             # Body editor + (when generating) spinner overlay.
@@ -52658,6 +52659,16 @@ def _unsplash_download_variant(slug: str, cache_dir, variant: int) -> bool:
         return False
 
 
+def _nl_hero_enabled() -> bool:
+    """False on ThriveModal workspaces: their newsletter opens on the
+    headline and the logo, with no city photo (Mike, 2026-09-19). Every
+    other newsletter keeps the hero."""
+    try:
+        return not (_SALES_MODE and _is_thrivemodal())
+    except Exception:
+        return True
+
+
 def _nl_logo_max_h(ratio: float) -> int:
     """Tallest the masthead logo may render. Wide wordmarks (3:1 and up,
     Arena's) keep the original 60px cap; squarer marks get up to 120px."""
@@ -53196,7 +53207,7 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
     _hero_total = 1
     _loc_raw = _location_from_data(data)
     _hero_variant = int(data.get("_hero_variant", 0) or 0)
-    if _loc_raw:
+    if _loc_raw and _nl_hero_enabled():
         _parts = [p.strip() for p in _loc_raw.split(",")]
         _city = _parts[0] if _parts else ""
         _state = (_parts[1][:2].upper() if len(_parts) > 1 else "")
