@@ -102,3 +102,26 @@ def test_thrivemodal_newsletter_has_no_hero_photo(monkeypatch):
     monkeypatch.setattr(fa, "_is_thrivemodal", lambda cfg=None: False)
     assert fa._nl_hero_enabled()
     assert "_loc_raw and _nl_hero_enabled()" in inspect.getsource(fa._render_newsletter_html)
+
+
+def test_profile_rate_is_a_range_about_60_percent_below_the_us_median():
+    bench = fa._tm_benchmark("staff_accountant")
+    hourly = bench["base"] / 2080.0
+    rate = fa._tm_profile_rate(None, "Staff Accountant, 5 years experience")
+    lo, hi = [int(x) for x in rate.replace("Est. $", "").replace("/hr", "").split("-$")]
+    assert lo == round(hourly * 0.35) and hi == round(hourly * 0.45) and lo < hi
+    assert fa._tm_profile_role("Leasing Coordinator, 5 years") == "Leasing Coordinator"
+
+
+def test_cost_math_says_estimated_savings():
+    import inspect
+    src = inspect.getsource(fa._tm_newsletter_cost_math)
+    assert '"Estimated savings"' in src and "Estimated difference" not in src
+
+
+def test_json_reply_parser_prefers_last_text_block():
+    from types import SimpleNamespace as NS
+    msg = NS(content=[NS(text="Searching {rates} now."),
+                      NS(text='```json\n{"headline": "Hi", "items": [1,],}\n```')])
+    assert fa._nl_parse_json_reply(msg) == {"headline": "Hi", "items": [1]}
+    assert fa._nl_parse_json_reply(NS(content=[NS(text="no json here")])) is None

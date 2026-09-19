@@ -30657,7 +30657,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             _spotlight_options = {3: "3 per issue", 6: "6 per issue"}
             spotlight_in = ui.select(options=_spotlight_options, value=3).classes("fd-input").style("margin-bottom:12px;width:100%;")
 
-        # Sales instance: the section becomes "Sample Talent Profiles", an
+        # Sales instance: the section becomes "Candidate Profiles", an
         # on/off choice at a fixed 3 per issue. The count select is still
         # built (the save handler reads it) and just never shown.
         if _SALES_MODE:
@@ -53921,9 +53921,7 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
 
         if _SALES_MODE:
             _label_text = _TM_PROFILES_HEADING
-            _spot_note = (
-                f'<div style="font-size:11px;color:{nc["muted"]};'
-                f'font-style:italic;margin-top:8px;">{_TM_PROFILES_NOTE}</div>')
+            _spot_note = ""
         else:
             _label_text = ("Candidate Spotlight" if _n == 1
                            else "Candidate Spotlights")
@@ -54960,8 +54958,7 @@ def _jway_render(d: dict, contact_name: str) -> str:
     cands = d.get("candidates") or []
     if cands:
         if _SALES_MODE:
-            out.append(f"<p style='{H}'>{_TM_PROFILES_HEADING}:</p>"
-                       f"<p style='{P}font-style:italic;'>{_TM_PROFILES_NOTE}</p>")
+            out.append(f"<p style='{H}'>{_TM_PROFILES_HEADING}:</p>")
         else:
             out.append(f"<p style='{H}'>Top Talent Currently Available:</p>")
         for c in cands:
@@ -55013,17 +55010,14 @@ def _nl_sales_audience(sector: str, region: str, company: str,
     return txt
 
 
-# ── Sample talent profiles (sales instance) ───────────────────────────────
+# ── Candidate profiles (sales instance) ───────────────────────────────────
 # Arena's spotlights are recruiter inventory: "Candidate A, wants $95k".
 # A ThriveModal reader is a BUYER, so the same slot shows the kind of
 # dedicated offshore professional they could add for a role in their own
-# niche. They are AI-written composites, so the section is headed "Sample
-# Talent Profiles" and carries a one-line note saying so, and no profile
-# carries a pay figure (the playbook bans quoting rates in outreach).
-_TM_PROFILES_HEADING = "Sample Talent Profiles"
-_TM_PROFILES_NOTE = ("Illustrative profiles of the professionals we recruit "
-                     "for these roles. Reply to see real candidates for "
-                     "yours.")
+# niche. Headed "Candidate Profiles" with no disclaimer line, each carrying
+# an estimated hourly rate computed from U.S. wage data (_tm_profile_rate),
+# per Mike 2026-09-19. The model never writes a pay figure itself.
+_TM_PROFILES_HEADING = "Candidate Profiles"
 
 
 def _tm_profiles_who() -> str:
@@ -55051,7 +55045,8 @@ def _tm_profiles_rules(niche: str, n: int, recommendations: str = "") -> str:
         "real U.S. tools and software they use, and the U.S. work they have "
         "done. These are illustrative composites, NOT real people: no names, "
         "no photos, no employers named as current clients, no pay, salary, "
-        "rate or cost figure of any kind, no performance metrics or "
+        "rate or cost figure written by you (the hourly rate is added "
+        "afterwards from wage data), no performance metrics or "
         "percentages, no shift times, and no claims about nationality, "
         "English fluency or work ethic.")
 
@@ -55238,6 +55233,44 @@ def _tm_newsletter_plan(industry_text: str, year: int, month: int,
     }
 
 
+# Candidate Profiles carry an estimated hourly rate (Mike, 2026-09-19:
+# "about 60% less than the typical rate, a range so we can work with it").
+# Computed here, never by the model: the U.S. national median wage for the
+# title, as an hourly figure, less 55% to 65%, rounded to whole dollars.
+_TM_RATE_DISCOUNT = (0.65, 0.55)
+
+
+def _tm_profile_role(title: str) -> str:
+    """The job title from a profile title like 'Leasing Coordinator, 5 years'."""
+    return re.split(r"[,\u2022\u00b7|(]| - ", str(title or ""), maxsplit=1)[0].strip()
+
+
+def _tm_profile_rate(client, title: str) -> str:
+    """'Est. $9-$11/hr' for a profile's job title, or "" when no U.S. wage
+    is found for it."""
+    role = _tm_profile_role(title)
+    if not role:
+        return ""
+    base = None
+    bench = _tm_benchmark(_tm_match_benchmark(role))
+    if bench:
+        base = float(bench["base"])
+    else:
+        try:
+            found = _tm_lookup_local_salary(client, role, "")
+            base = float(found["salary"]) if found else None
+        except Exception:
+            base = None
+    if not base or base <= 0:
+        return ""
+    hourly = base / 2080.0
+    lo = int(round(hourly * (1 - _TM_RATE_DISCOUNT[0])))
+    hi = int(round(hourly * (1 - _TM_RATE_DISCOUNT[1])))
+    if hi <= lo:
+        hi = lo + 1
+    return f"Est. ${lo}-${hi}/hr"
+
+
 def _tm_newsletter_cost_math(client, role: str, region: str) -> dict:
     """The Cost Math section for one role, or {} when no salary is found.
     Numbers come from the Staffing Cost Comparison worksheet (BLS local
@@ -55262,7 +55295,7 @@ def _tm_newsletter_cost_math(client, role: str, region: str) -> dict:
             "rows": [
                 ["Local hire, fully burdened", _tm_money(ws["domestic_total"])],
                 ["Dedicated offshore professional (est.)", _tm_money(ws["tm_total"])],
-                ["Estimated difference", _tm_money(ws["difference"])],
+                ["Estimated savings", _tm_money(ws["difference"])],
             ],
             "note": (f"{src} Local cost adds payroll taxes, benefits, workspace "
                      f"and recruiting at U.S. averages. The offshore figure is an "
@@ -55482,10 +55515,35 @@ def _generate_jway_newsletter(client, camp: dict, nl_name: str, company: str,
     except Exception as e:
         print(f"[JWayNewsletter] AI call failed: {e}", flush=True)
         return (None, None)
+    if _SALES_MODE and _is_thrivemodal():
+        for _c in (d.get("candidates") or []):
+            if isinstance(_c, dict):
+                _r = _tm_profile_rate(client, _c.get("role", ""))
+                _c["salary"] = f"Estimated rate: {_r[5:]}" if _r else ""
     subject = (d.get("subject") or "").strip() or f"{(sector or 'Market').title()} Snapshot - {month_year}"
     # Sector label for the section headers (e.g. "Sector Strength (Manufacturing)").
     d.setdefault("sector", (niche or sector or "").strip().title())
     return (_strip_dashes(subject), _jway_render(d, contact_name))
+
+
+def _nl_parse_json_reply(msg) -> dict | None:
+    """The JSON object in a model reply, or None. Tries the last text block
+    first, then the whole reply; tolerates code fences and trailing commas."""
+    blocks = [b.text for b in (getattr(msg, "content", None) or [])
+              if getattr(b, "text", None)]
+    for text in ([blocks[-1]] if blocks else []) + ["".join(blocks)]:
+        clean = text.replace("```json", "").replace("```", "").strip()
+        m = re.search(r"\{.*\}", clean, re.DOTALL)
+        if not m:
+            continue
+        for cand in (m.group(), re.sub(r",(\s*[}\]])", r"\1", m.group())):
+            try:
+                d = json.loads(cand)
+                if isinstance(d, dict):
+                    return d
+            except json.JSONDecodeError:
+                pass
+    return None
 
 
 def _nl_issue_year_month(step: dict, today: date = None) -> tuple:
@@ -55671,10 +55729,32 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
             _tm_plan, _spot_instruction, _spot_schema_block,
             _thrivemodal_playbook_text(),
             _thrivemodal_context().get("tm_proof") or "")
-    try:
+    if _tm_plan:
+        # ThriveModal issues: one retry, and the JSON is read from the LAST
+        # text block first. With web search on, the reply arrives in several
+        # text blocks and a brace in the model's commentary made the
+        # whole-reply match unparseable (1 of 2 test runs, 2026-09-19).
+        result = None
+        for _attempt in range(2):
+            try:
+                msg = _claude_create_with_retry(client,
+                    model=_TM_NL_MODEL, max_tokens=7000,
+                    tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
+                    messages=[{"role": "user", "content": prompt}])
+                result = _nl_parse_json_reply(msg)
+            except Exception as e:
+                print(f"[NewsletterAutoRefresh] AI call failed: {e}", flush=True)
+            if result:
+                break
+            print(f"[NewsletterAutoRefresh] no usable JSON (attempt {_attempt + 1})",
+                  flush=True)
+        if not result:
+            return (None, None)
+    else:
+      try:
         msg = _claude_create_with_retry(client,
-            model=_TM_NL_MODEL if _tm_plan else "claude-haiku-4-5-20251001",
-            max_tokens=7000 if _tm_plan else 4000,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=4000,
             tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
             messages=[{"role": "user", "content": prompt}])
         text = "".join(b.text for b in msg.content if hasattr(b, "text"))
@@ -55686,7 +55766,7 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
             result = json.loads(m.group())
         except json.JSONDecodeError:
             result = json.loads(re.sub(r',(\s*[}\]])', r'\1', m.group()))
-    except Exception as e:
+      except Exception as e:
         print(f"[NewsletterAutoRefresh] AI call failed: {e}", flush=True)
         return (None, None)
 
@@ -55764,6 +55844,9 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
             "story": (result.get("story") if _tm_plan["story"]
                       and isinstance(result.get("story"), dict) else {}),
             "next_step": (result.get("next_step") or "").strip(),
+            "spotlights": [dict(sp, salary_ask=_tm_profile_rate(client, sp.get("title", "")))
+                           for sp in (nl_data.get("spotlights") or [])
+                           if isinstance(sp, dict)],
             "partner_label": "Your Offshore Staffing Partner",
             "cta_line": "Want to talk through a role for your team?",
         })

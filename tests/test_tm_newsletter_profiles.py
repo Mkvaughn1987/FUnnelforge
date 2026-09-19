@@ -38,8 +38,9 @@ def test_arena_spotlights_unchanged():
 
 def test_renderers_label_profiles_as_samples_on_sales_instances():
     src = inspect.getsource(fa._jway_render)
-    assert "_TM_PROFILES_HEADING" in src and "_TM_PROFILES_NOTE" in src
-    assert "Illustrative" in fa._TM_PROFILES_NOTE
+    assert "_TM_PROFILES_HEADING" in src
+    assert fa._TM_PROFILES_HEADING == "Candidate Profiles"
+    assert not hasattr(fa, "_TM_PROFILES_NOTE")
 
 
 def test_dialogs_offer_the_toggle_and_save_three_or_zero():
