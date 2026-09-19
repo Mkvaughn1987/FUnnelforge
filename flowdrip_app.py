@@ -55331,11 +55331,13 @@ _TM_NL_OBJECTIONS = [
 # Extra steer for questions whose honest answer is easy to get wrong.
 _TM_NL_ANSWER_HINTS = {
     "But how is their English?": (
-        "Answer it as \"you will hear it before you hire\": every candidate "
-        "comes with a video pre-screen the client can watch, the client then "
-        "interviews them, and nobody joins whose communication is not right "
-        "for the role. Say nothing about English, accents or culture in the "
-        "Philippines as a group."),
+        "Answer it as \"you will hear it before you hire\": ThriveModal "
+        "screens heavily first, and every candidate goes through multiple "
+        "interviews with ThriveModal before the client ever meets them "
+        "(Mike, 2026-09-19). The client then watches each candidate's video "
+        "pre-screen and interviews them directly, so nobody joins whose "
+        "communication is not right for the role. Say nothing about English, "
+        "accents or culture in the Philippines as a group."),
 }
 
 _TM_NL_ROLES = {
