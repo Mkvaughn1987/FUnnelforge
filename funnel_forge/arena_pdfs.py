@@ -9,7 +9,7 @@ Builds all four Arena Direct Hire PDF attachments:
 All use text-based ARENA wordmark — no image dependency.
 Colors: #122742 navy · #2C65AC blue · #F77331 orange
 """
-import os, json
+import os, json, re
 # Firm name used when none is configured. White-label instances set
 # DRIPDROP_BRAND_DOC_FIRM (inboxslide: ThriveModal); unset on Arena.
 _DEFAULT_FIRM = (os.environ.get("DRIPDROP_BRAND_DOC_FIRM") or "").strip() or "Arena Direct Hire"
@@ -22,7 +22,7 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 from reportlab.platypus import (
     BaseDocTemplate, Frame, PageTemplate,
     Paragraph, Spacer, Table, TableStyle, HRFlowable,
-    KeepInFrame,
+    KeepInFrame, CondPageBreak,
 )
 
 # ── Brand ──────────────────────────────────────────────────────────────────
@@ -191,20 +191,33 @@ def _clean(text: str) -> str:
             .replace("  ", " ").strip())
 
 
-def section_header(text):
+_SENT_SPLIT = re.compile(r"""(?<=[.!?])\s+(?=[A-Z0-9"'$(])""")
+
+
+def _sentences(text) -> list[str]:
+    """Split a paragraph into sentences for bullet rendering."""
+    if not isinstance(text, str):
+        return []
+    return [t.strip() for t in _SENT_SPLIT.split(text.strip()) if t.strip()]
+
+
+def section_header(text, keep_min=0.9*inch):
     """Blue bold section header with thin gray line underneath.
-    Font bumped +2 2026-05-02 per user readability request."""
-    # keepWithNext: never leave a heading stranded at the bottom of a page
-    # with its content starting on the next one.
-    rule = HRFlowable(width="100%", thickness=0.5, color=SILVER,
-                      spaceBefore=0, spaceAfter=4)
-    rule.keepWithNext = True
+    Font bumped +2 2026-05-02 per user readability request.
+
+    keep_min: room the section's first content needs below the heading.
+    If the page can't fit heading + keep_min, the heading moves to the next
+    page, so it is never stranded at the bottom. Deliberately NOT
+    keepWithNext: ReportLab glues keepWithNext to the WHOLE next flowable,
+    so a heading over a long table jumped the entire table to a new page
+    and left half a page blank above it."""
     return [
+        CondPageBreak(24 + keep_min),
         Paragraph(f"<b>{_clean(text)}</b>",
                   S("sh", fontName="Helvetica-Bold", fontSize=13,
-                    textColor=BLUE, leading=16, spaceAfter=1,
-                    keepWithNext=1)),
-        rule,
+                    textColor=BLUE, leading=16, spaceAfter=1)),
+        HRFlowable(width="100%", thickness=0.5, color=SILVER,
+                   spaceBefore=0, spaceAfter=4),
     ]
 
 def bullet_item(text):
@@ -1054,18 +1067,30 @@ def build_custom_pdf(output_path, d, cfg=None):
     _para = S("p", fontName="Helvetica", fontSize=11, textColor=NAVY,
               leading=14, spaceAfter=6)
 
+    # inboxslide (brand firm set) wants skimmable docs: every "paragraph"
+    # section renders as one bullet per sentence. Arena keeps paragraphs.
+    _bullet_paragraphs = d.get("paragraphs_as_bullets",
+                               bool((os.environ.get("DRIPDROP_BRAND_DOC_FIRM") or "").strip()))
+
     for sec in (d.get("sections") or []):
         heading = sec.get("heading") or ""
         stype = (sec.get("type") or "bullets").lower()
         items = sec.get("items") or []
 
-        if heading:
+        # Tables add their heading themselves once the first rows are sized.
+        if heading and stype != "table":
             story.extend(section_header(heading))
 
         if stype == "bullets":
             for b in items:
                 if isinstance(b, str) and b.strip():
                     story.append(bullet_item(b))
+            story.append(Spacer(1, 4))
+
+        elif stype == "paragraph" and _bullet_paragraphs:
+            for p in items:
+                for sent in _sentences(p):
+                    story.append(bullet_item(sent))
             story.append(Spacer(1, 4))
 
         elif stype == "paragraph":
@@ -1118,8 +1143,16 @@ def build_custom_pdf(output_path, d, cfg=None):
                     style = hdr_style if ri == 0 else cell_style
                     wrapped.append([Paragraph(c or "", style) for c in r])
 
+                # Keep the heading with the header row + first data row only;
+                # the rest of the table flows onto the next page (header
+                # repeats via repeatRows).
+                _, first_h = Table(wrapped[:2], colWidths=cols).wrap(CW, 10000)
+                if heading:
+                    story.extend(section_header(heading, keep_min=first_h + 12))
                 story.append(alt_table(wrapped, cols, header=True))
                 story.append(Spacer(1, 6))
+            elif heading:
+                story.extend(section_header(heading))
 
         elif stype == "qa":
             for qa in items:
