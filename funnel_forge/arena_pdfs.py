@@ -94,6 +94,18 @@ class ArenaDoc(BaseDocTemplate):
         self.addPageTemplates([
             PageTemplate(id="arena", frames=[frame], onPage=self._chrome)
         ])
+        self.last_page_fill = 0.0
+
+    def afterFlowable(self, flowable):
+        # How far down the current page content has reached (0..1). After
+        # build() this is the last page's fill, used by the 1.5-page cap.
+        f = getattr(self, "frame", None)
+        if f is None:
+            return
+        top = f._y2 - f._topPadding
+        usable = top - (f._y1 + f._bottomPadding)
+        if usable > 0:
+            self.last_page_fill = max(0.0, min(1.0, (top - f._y) / usable))
 
     def _chrome(self, canv, doc):
         canv.saveState()
@@ -223,10 +235,13 @@ def section_header(text, keep_min=0.9*inch):
 def bullet_item(text):
     """Standard bullet point with bullet prefix.
     Font bumped +2 2026-05-02 per user readability request."""
+    # allowOrphans/allowWidows=0: a two-line bullet never splits one line
+    # per page.
     return Paragraph(
         f'<font color="#2C65AC"><b>\u2022</b></font>  {_clean(text)}',
         S("bp", fontName="Helvetica", fontSize=10.5, textColor=NAVY,
-          leading=13, spaceAfter=2, leftIndent=12, firstLineIndent=-12))
+          leading=13, spaceAfter=2, leftIndent=12, firstLineIndent=-12,
+          allowOrphans=0, allowWidows=0))
 
 def band(text, color=NAVY):
     """Colored band header (kept for bench_snapshot compatibility)."""
@@ -1025,7 +1040,81 @@ def build_custom_pdf(output_path, d, cfg=None):
             "qa" → items is list[{"q": str, "a": str}]
         - items: per-type payload above
       cta: str (optional closing CTA paragraph)
+
+    On inboxslide (_skimmable) every PDF is held to 1.5 pages of bullets
+    (Mike, 2026-09-21): paragraph sections become one bullet per sentence,
+    then the longest sections lose their last items until the measured
+    layout fits. `d` is tightened in place so the editor sidecar saved
+    after this matches the PDF. Arena renders as before.
     """
+    if _skimmable(d):
+        _tighten_paragraphs(d)
+        for _ in range(60):
+            pages, fill = _measure_custom(d)
+            if pages < 2 or (pages == 2 and fill <= _MAX_LAST_PAGE_FILL):
+                break
+            if not _trim_one(d):
+                break
+    doc, story = _custom_doc_story(output_path, d)
+    _build_one_page(doc, story)
+    return output_path
+
+
+# Second page may be at most this full: 1 + 0.5 = the 1.5-page cap.
+_MAX_LAST_PAGE_FILL = 0.5
+# Trimming never takes a section below these counts (table count includes
+# the header row).
+_MIN_ITEMS = {"bullets": 2, "table": 3, "qa": 1}
+
+
+def _skimmable(d) -> bool:
+    """inboxslide (brand firm set) wants short, bulleted docs; Arena keeps
+    paragraphs and length. A payload can force either way."""
+    return bool(d.get("paragraphs_as_bullets",
+                      bool((os.environ.get("DRIPDROP_BRAND_DOC_FIRM") or "").strip())))
+
+
+def _tighten_paragraphs(d):
+    """Paragraph sections become bullets, one per sentence."""
+    for sec in d.get("sections") or []:
+        if isinstance(sec, dict) and (sec.get("type") or "").lower() == "paragraph":
+            sec["type"] = "bullets"
+            sec["items"] = [s for p in (sec.get("items") or [])
+                            for s in _sentences(p)]
+
+
+def _trim_one(d) -> bool:
+    """Drop the last item of the section with the most room to give. When
+    every section is at its minimum, drop the last section (keeping 3).
+    False once nothing more can go."""
+    best, best_spare = None, 0
+    for sec in d.get("sections") or []:
+        if not isinstance(sec, dict):
+            continue
+        stype = (sec.get("type") or "bullets").lower()
+        spare = len(sec.get("items") or []) - _MIN_ITEMS.get(stype, 2)
+        if spare > best_spare:
+            best, best_spare = sec, spare
+    if best is not None:
+        best["items"] = list(best["items"])[:-1]
+        return True
+    if len(d.get("sections") or []) > 3:
+        d["sections"] = list(d["sections"])[:-1]
+        return True
+    return False
+
+
+def _measure_custom(d):
+    """Lay `d` out for real (in memory) and return (pages, fraction of the
+    last page used). Measuring the actual build counts the space lost at
+    page breaks, which an estimate would miss."""
+    import io
+    doc, story = _custom_doc_story(io.BytesIO(), d)
+    doc.build(story)
+    return doc.page, doc.last_page_fill
+
+
+def _custom_doc_story(output_path, d):
     doc = ArenaDoc(output_path, badge_text=d.get("badge", "CUSTOM"),
                    prepared_by=d.get("prepared_by", ""),
                    prepared_email=d.get("prepared_email", ""),
@@ -1060,10 +1149,12 @@ def build_custom_pdf(output_path, d, cfg=None):
               leading=14, spaceAfter=6)))
 
     # Sections — body font sizes bumped +2 (2026-05-02 user request)
+    # A question always stays on the same page as its answer.
     _qa_q = S("qa_q", fontName="Helvetica-Bold", fontSize=11, textColor=NAVY,
-              leading=14, spaceAfter=1, leftIndent=0)
+              leading=14, spaceAfter=1, leftIndent=0, keepWithNext=1)
     _qa_a = S("qa_a", fontName="Helvetica", fontSize=10.5, textColor=NAVY,
-              leading=13, spaceAfter=6, leftIndent=12)
+              leading=13, spaceAfter=6, leftIndent=12,
+              allowOrphans=0, allowWidows=0)
     _para = S("p", fontName="Helvetica", fontSize=11, textColor=NAVY,
               leading=14, spaceAfter=6)
 
@@ -1178,8 +1269,7 @@ def build_custom_pdf(output_path, d, cfg=None):
         story.extend(section_header("Want to learn more?"))
         story.append(bullet_item(d["cta"]))
 
-    _build_one_page(doc, story)
-    return output_path
+    return doc, story
 
 
 # ─────────────────────────────────────────────────────────────────────────

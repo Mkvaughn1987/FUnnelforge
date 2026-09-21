@@ -11125,6 +11125,14 @@ def _custom_pdf_outline(client, description, ctx) -> dict:
         f"- Headings should be specific and reference the company/market/role, not generic ('Compensation Benchmarks' beats 'Pay').\n"
         f"- No fluff. Each section must earn its space and tie back to the user's request and the context above.\n"
     )
+    if _is_thrivemodal():
+        # 1.5 pages of bullets (Mike, 2026-09-21). Overrides the rules above.
+        prompt += (
+            "\nLENGTH AND FORMAT — THESE OVERRIDE THE RULES ABOVE:\n"
+            "- The PDF must fit in 1.5 pages at most; do not aim to fill a page.\n"
+            "- No 'paragraph' sections: open with a 'bullets' overview of 2-3 bullets.\n"
+            "- Tables 3-5 data rows, bullets 2-5 items, qa 2-3 pairs.\n"
+        )
     msg = _claude_create_with_retry(client,
         model="claude-haiku-4-5-20251001",
         max_tokens=600,
@@ -11203,7 +11211,8 @@ def _custom_pdf_build(client, outline, description, ctx_block, pdf_dir,
     msg = _claude_create_with_retry(client,
         model="claude-haiku-4-5-20251001",
         max_tokens=2400,
-        messages=[{"role": "user", "content": fill_prompt + _style_guide_prompt()}],
+        messages=[{"role": "user", "content": fill_prompt + _style_guide_prompt()
+                   + (_PDF_LENGTH_RULES if _is_thrivemodal() else "")}],
     )
     text = msg.content[0].text
     clean = text.replace("```json", "").replace("```", "").strip()
@@ -44181,6 +44190,10 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
                      ctx.get("brand") or
                      "your staffing partner").strip() or "your staffing partner"
 
+    # ThriveModal (inboxslide) PDFs are short and bulleted; Arena's keep
+    # their full-page shape.
+    _skim = _is_thrivemodal()
+
     common_rules = (
         "\nAUDIENCE & VOICE:\n"
         f"- This document is sent BY {_prep_company} TO an executive or hiring "
@@ -44207,12 +44220,16 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
         "- Reference any internal tools, budget cycles, vendor contracts, or "
         "back-office workflows. The client doesn't run those.\n"
         "\nRULES:\n"
-        "- Fill the page. Each section must carry real, specific content tied to the inputs above.\n"
-        "- Use REAL numbers, comp ranges, and named events/trends — no 'Market Rate', no 'Competitive', no placeholders.\n"
-        "- Paragraph sections: 3-5 sentences each. Bullet sections: each bullet ~2 sentences with a stat or specific.\n"
-        "- Q&A answers: 2-3 sentences each — substantive, not one-liners.\n"
-        "- Tables: include header row first, then 4-6 data rows. Every cell concrete.\n"
-        "- No em dashes, no markdown, no asterisks. Plain text in JSON strings only.\n"
+        + ("- Each section must carry real, specific content tied to the inputs above.\n"
+           if _skim else
+           "- Fill the page. Each section must carry real, specific content tied to the inputs above.\n")
+        + "- Use REAL numbers, comp ranges, and named events/trends — no 'Market Rate', no 'Competitive', no placeholders.\n"
+        + ("- Tables: include header row first. Every cell concrete.\n"
+           if _skim else
+           "- Paragraph sections: 3-5 sentences each. Bullet sections: each bullet ~2 sentences with a stat or specific.\n"
+           "- Q&A answers: 2-3 sentences each — substantive, not one-liners.\n"
+           "- Tables: include header row first, then 4-6 data rows. Every cell concrete.\n")
+        + "- No em dashes, no markdown, no asterisks. Plain text in JSON strings only.\n"
         "- Return ONLY valid JSON. No fences, no commentary outside the JSON.\n"
     )
 
@@ -44417,32 +44434,33 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"{role_label}" + (f" in {location}" if location else "") + ".\n"
             f"\nThis is the document a buyer reads to decide whether this role "
             f"can be run offshore at all, and what they would be signing up to "
-            f"manage. It is NOT a job advert and NOT a candidate profile.\n"
-            f"\nREQUIRED SECTIONS:\n"
-            f"  1. heading 'What This Role Covers' — type 'paragraph' — 3-5 "
-            f"sentences describing the work this role absorbs day to day for a "
-            f"{industry_str} business, in terms of what the client stops having "
-            f"to do themselves.\n"
-            f"  2. heading 'Responsibilities' — type 'bullets' — 5-6 bullets, "
-            f"each ~2 sentences, on the concrete work the role owns.\n"
-            f"  3. heading 'Skills and Systems' — type 'table' — header + 5-6 "
-            f"rows. Columns: ['Area','What We Recruit For','Systems'] — systems "
-            f"means the software a {industry_str} business would expect this "
-            f"role to work in. If you are not confident a named system is "
-            f"actually used in this industry, write the category instead of "
-            f"guessing a product name.\n"
-            f"  4. heading 'Working Hours and Coverage' — type 'paragraph' — "
-            f"3-4 sentences on how a Philippines-based team member covers "
-            f"{location or 'US'} business hours. State clearly that the "
-            f"specific schedule is set with the client, not fixed here.\n"
-            f"  5. heading 'How You Oversee the Role' — type 'bullets' — 4 "
-            f"bullets on the client's side of the arrangement: who they report "
-            f"to, cadence, tooling access, escalation. Be honest that this "
-            f"requires real management attention from the client.\n"
-            f"  6. heading 'Suggested Success Measures' — type 'bullets' — 4 "
-            f"bullets. Every one MUST be written as a proposal to agree, not a "
-            f"promise: 'Suggested: ...', 'Propose we agree ...'. Do not attach "
-            f"a target number unless the reader supplied it.\n"
+            f"manage. It is NOT a job advert and NOT a candidate profile. It "
+            f"must be skimmable in under a minute: short bullets only, no "
+            f"paragraphs.\n"
+            f"\nREQUIRED SECTIONS (every bullet ONE short sentence, max 18 words):\n"
+            f"  1. heading 'What This Role Covers' — type 'bullets' — 3 bullets "
+            f"on the work this role takes off a {industry_str} business's "
+            f"plate.\n"
+            f"  2. heading 'Responsibilities' — type 'bullets' — 5 bullets on "
+            f"the concrete work the role owns.\n"
+            f"  3. heading 'Skills and Systems' — type 'table' — header + 4 "
+            f"rows. Columns: ['Area','What We Recruit For','Systems']. Each "
+            f"cell 6 words or fewer. Systems means the software a "
+            f"{industry_str} business would expect this role to work in. If "
+            f"you are not confident a named system is actually used in this "
+            f"industry, write the category instead of guessing a product name.\n"
+            f"  4. heading 'Working Hours and Coverage' — type 'bullets' — 2 "
+            f"bullets on how a Philippines-based team member covers "
+            f"{location or 'US'} business hours. One must say the specific "
+            f"schedule is set with the client, not fixed here.\n"
+            f"  5. heading 'How You Oversee the Role' — type 'bullets' — 3 "
+            f"bullets on the client's side: who they report to, cadence, "
+            f"tooling access. Be honest that this needs real management "
+            f"attention from the client.\n"
+            f"  6. heading 'Suggested Success Measures' — type 'bullets' — 3 "
+            f"bullets. Every one MUST start 'Suggested:' and be a proposal to "
+            f"agree, not a promise. No target number unless the reader "
+            f"supplied it.\n"
             f"\nEvery assumption you make about how {company} works must be "
             f"visibly labelled as an assumption in the sentence itself.\n"
         )
@@ -44490,7 +44508,27 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
     if kind in _TM_PDF_KINDS:
         # Appended LAST so it overrides the common rules it contradicts.
         out += _tm_rich_rules()
-    return out
+    # Last, so it beats the per-kind section specs above ("type 'paragraph'
+    # — 4-5 sentences"). The renderer enforces the same cap on the result.
+    return out + (_PDF_LENGTH_RULES if _skim else "")
+
+
+# Every ThriveModal PDF: 1.5 pages max, bullets not paragraphs (Mike,
+# 2026-09-21). arena_pdfs.build_custom_pdf enforces it on whatever comes
+# back; this keeps the model from writing text that then gets cut.
+_PDF_LENGTH_RULES = (
+    "\nLENGTH AND FORMAT — THESE OVERRIDE EVERY RULE ABOVE:\n"
+    "- The whole document must fit in 1.5 pages at most. Do NOT fill the "
+    "page. Short and skimmable beats complete.\n"
+    "- No paragraphs. Any section described above as type 'paragraph' must be "
+    "returned as type 'bullets' with 2-3 bullets.\n"
+    "- Every bullet is ONE sentence of 20 words or fewer. No section has more "
+    "than 5 bullets, whatever a section above asks for.\n"
+    "- Tables: at most 6 data rows under the header; every cell 8 words or "
+    "fewer.\n"
+    "- Q&A: at most 3 pairs; each answer 1-2 short sentences.\n"
+    "- At most 6 sections. intro and cta: one short sentence each.\n"
+)
 
 
 def _pdf_sidecar_path(pdf_path) -> Path:
@@ -45194,6 +45232,49 @@ def _generate_rich_pdf_data(client, kind: str, ctx: dict, research_context: str 
     # Centralized here so every PDF code path benefits — no need to wire
     # the formatter into each call site.
     _format_pdf_table_salaries(data)
+    if kind == "tm_role_blueprint":
+        _clamp_tm_blueprint(data)
+    return data
+
+
+# Per-section caps for the Offshore Role Blueprint, keyed by heading. The
+# prompt asks for these counts; the clamp is what keeps it to ~1 page when
+# the model writes more anyway.
+_TM_BLUEPRINT_CAPS = {
+    "what this role covers": 3,
+    "responsibilities": 5,
+    "skills and systems": 5,          # header + 4 rows
+    "working hours and coverage": 2,
+    "how you oversee the role": 3,
+    "suggested success measures": 3,
+}
+
+
+def _clamp_tm_blueprint(data: dict) -> dict:
+    """Keep the blueprint short and bulleted: paragraphs become bullets
+    (one per sentence), bullets/rows are capped per section, and each
+    bullet is cut to its first sentence."""
+    _sent = re.compile(r"(?<=[.!?])\s+")
+    out = []
+    for sec in (data.get("sections") or [])[:6]:
+        if not isinstance(sec, dict):
+            continue
+        items = sec.get("items") or []
+        cap = _TM_BLUEPRINT_CAPS.get(
+            str(sec.get("heading", "")).strip().lower(), 4)
+        if sec.get("type") == "paragraph":
+            text = " ".join(str(i) for i in items)
+            items = [x.strip() for x in _sent.split(text) if x.strip()]
+            sec["type"] = "bullets"
+        if sec.get("type") == "bullets":
+            items = [_sent.split(str(i).strip())[0]
+                     for i in items if str(i).strip()]
+        sec["items"] = items[:cap]
+        out.append(sec)
+    data["sections"] = out
+    for k in ("intro", "cta"):
+        if data.get(k):
+            data[k] = _sent.split(str(data[k]).strip())[0]
     return data
 
 
