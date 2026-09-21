@@ -39232,8 +39232,10 @@ def _tm_find_metro(client, city: str, st: str):
 # benchmark row. Longest keyword wins, so "project accountant" beats
 # "accountant" and "medical biller" beats "biller".
 _TM_SOC_KEYWORDS = (
-    ("project coordinator", "131082"), ("project manager", "131082"),
-    ("construction coordinator", "131082"), ("project specialist", "131082"),
+    # A coordinator is not a project manager: 13-1082 is mostly PMs and
+    # prices a coordinator about $25k high. 13-1199 is the fairer figure.
+    ("project coordinator", "131199"), ("project manager", "131082"),
+    ("construction coordinator", "131199"), ("project specialist", "131199"),
     ("estimator", "131051"), ("estimating", "131051"), ("takeoff", "131051"),
     ("cost estimator", "131051"),
     ("drafter", "173011"), ("cad", "173011"), ("bim", "173011"),
@@ -39241,6 +39243,8 @@ _TM_SOC_KEYWORDS = (
     ("project accountant", "132011"), ("accountant", "132011"),
     ("staff accountant", "132011"), ("auditor", "132011"),
     ("payroll", "433051"), ("billing", "433021"), ("biller", "433021"),
+    ("freight billing", "433021"), ("tax preparer", "132082"),
+    ("tax preparation", "132082"),
     ("medical biller", "433021"), ("claims", "433021"),
     ("medical coder", "292072"), ("coder", "292072"),
     ("insurance verification", "439041"), ("prior authorization", "439041"),
@@ -39266,18 +39270,24 @@ def _tm_soc_for_role(client, role: str):
     BLS's occupation list, and the code must exist on that list."""
     occs = {r[0]: r[1] for r in _tm_bls_file("oe.occupation")
             if len(r) >= 2 and re.fullmatch(r"\d{6}", r[0])}
+    # Common playbook titles, mapped without a model call so a flaky or
+    # missing model never leaves them unpriced. The longer keyword wins
+    # between this table and the benchmark rows ("freight billing" is
+    # billing, not the dispatcher row's "freight").
+    txt = " " + re.sub(r"[^a-z0-9]+", " ", str(role or "").lower()) + " "
+    hit = max(((kw, code) for kw, code in _TM_SOC_KEYWORDS
+               if f" {kw} " in txt and code in occs),
+              key=lambda p: len(p[0]), default=None)
     bench = _tm_benchmark(_tm_match_benchmark(role))
+    bench_len = max((len(k) for k in (bench or {}).get("keywords", ())
+                     if f" {k} " in txt), default=0)
+    if hit and len(hit[0]) > bench_len:
+        return hit[1], occs[hit[1]]
     if bench:
         m = re.search(r"SOC (\d{2})-(\d{4})", bench["occupation"])
         if m:
             code = m.group(1) + m.group(2)
             return code, occs.get(code) or re.sub(r"\s*\(SOC.*", "", bench["occupation"])
-    # Common playbook titles with no benchmark row, mapped without a model
-    # call so a flaky or missing model never leaves them unpriced.
-    txt = " " + re.sub(r"[^a-z0-9]+", " ", str(role or "").lower()) + " "
-    hit = max(((kw, code) for kw, code in _TM_SOC_KEYWORDS
-               if f" {kw} " in txt and code in occs),
-              key=lambda p: len(p[0]), default=None)
     if hit:
         return hit[1], occs[hit[1]]
     if client is None or not occs:
@@ -39314,6 +39324,11 @@ def _tm_bls_annual_medians(series_ids: list) -> dict:
         except Exception:
             pass
     want = [s for s in series_ids if s not in _TM_BLS_VALUES]
+    if len(want) > 25:
+        # Unkeyed requests take at most 25 series.
+        for i in range(0, len(want), 25):
+            _tm_bls_annual_medians(want[i:i + 25])
+        return {s: _TM_BLS_VALUES[s] for s in series_ids if _TM_BLS_VALUES.get(s)}
     if want:
         try:
             import urllib.request
@@ -39354,6 +39369,49 @@ def _tm_bls_annual_medians(series_ids: list) -> dict:
             return {s: _TM_BLS_VALUES[s] for s in series_ids
                     if _TM_BLS_VALUES.get(s)}
     return {s: _TM_BLS_VALUES[s] for s in series_ids if _TM_BLS_VALUES.get(s)}
+
+
+def _tm_bls_local_salaries(client, roles, location: str) -> dict:
+    """{role: lookup} for several roles in one location, in ONE BLS request
+    (the metro is resolved once). Roles with no figure are left out."""
+    socs = {r: _tm_soc_for_role(client, r) for r in roles}
+    socs = {r: s for r, s in socs.items() if s}
+    if not socs:
+        return {}
+    city, st = _tm_split_location(location)
+    areas = []
+    metro = _tm_find_metro(client, city, st)
+    if metro:
+        areas.append(("M", metro[0], metro[1] + " metro area"))
+    if st in _TM_STATE_FIPS:
+        areas.append(("S", _TM_STATE_FIPS[st] + "00000",
+                      next((r[3] for r in _tm_bls_file("oe.area")
+                            if len(r) >= 4 and r[2] == "S"
+                            and r[1] == _TM_STATE_FIPS[st] + "00000"), st)))
+    areas.append(("N", "0000000", "United States"))
+    ids = {r: [f"OEU{t}{a}000000{code}13" for t, a, _n in areas]
+           for r, (code, _t) in socs.items()}
+    vals = _tm_bls_annual_medians([i for v in ids.values() for i in v])
+    out = {}
+    for r, (code, title) in socs.items():
+        for (t, a, name), sid in zip(areas, ids[r]):
+            if sid not in vals:
+                continue
+            val, year = vals[sid]
+            out[r] = {
+                "salary": float(int(round(val / 500.0)) * 500),
+                "basis": "median", "area": name,
+                "occupation": f"{title} (SOC {code[:2]}-{code[2:]})",
+                "source": f"BLS Occupational Employment and Wage Statistics, "
+                          f"May {year}",
+                "url": ("https://www.bls.gov/oes/current/"
+                        + (f"oes_{a[2:]}.htm" if t == "M"
+                           else f"oes_{st.lower()}.htm" if t == "S"
+                           else f"oes{code}.htm")),
+                "national": t == "N",
+            }
+            break
+    return out
 
 
 def _tm_bls_local_salary(client, role: str, location: str) -> dict | None:
@@ -39525,6 +39583,166 @@ def _tm_auto_cost_pdf_data(company: str, role: str, location: str,
         "cta": ("Send us your actual salary and benefits figures and we will "
                 "rerun this with your numbers."),
         "_worksheet": ws,
+    }
+
+
+# The roles each vertical is sold on (the playbook's "Roles:" lists), in the
+# order they lead. Every title maps to a BLS occupation through the
+# benchmark keywords or _TM_SOC_KEYWORDS, so no model picks a salary.
+_TM_VERTICAL_COST_ROLES = {
+    "logistics": ["Track and Trace Specialist", "Dispatcher",
+                  "Customer Service Representative", "Freight Billing Specialist",
+                  "Accounts Receivable Specialist", "Data Entry Specialist"],
+    "accounting": ["Staff Accountant", "Bookkeeper", "Payroll Specialist",
+                   "Tax Preparer", "Billing Specialist",
+                   "Accounts Payable Specialist"],
+    "property_management": ["Leasing Coordinator", "Maintenance Coordinator",
+                            "Property Accountant", "Accounts Payable Specialist",
+                            "Customer Service Representative",
+                            "Administrative Assistant"],
+    "healthcare_admin": ["Medical Biller", "Medical Coder",
+                         "Insurance Verification Specialist", "Patient Scheduler",
+                         "Credentialing Specialist", "Customer Service Representative"],
+    "home_care": ["Care Scheduler", "Recruiting Coordinator", "Intake Coordinator",
+                  "Payroll Specialist", "Billing Specialist",
+                  "Customer Service Representative"],
+    "construction_aec": ["Project Coordinator", "Estimator", "CAD and BIM Drafter",
+                         "Project Accountant", "Accounts Payable Specialist",
+                         "Administrative Assistant"],
+    "general_offshore": ["Administrative Assistant", "Bookkeeper",
+                         "Customer Service Representative", "Executive Assistant",
+                         "Data Entry Specialist", "Accounts Payable Specialist"],
+}
+_TM_COST_ROLE_COUNT = 5
+
+
+def _tm_cost_roles(role: str, industry: str, company: str) -> list:
+    """Candidate titles for the comparison, best first: the campaign's own
+    target role(s), then the vertical's roles. More than five, so a role BLS
+    can't price is replaced by the next rather than leaving a gap."""
+    own = [r.strip() for r in re.split(r"[,;/]| and (?=[A-Z])", str(role or ""))
+           if r.strip()]
+    # The vertical lists are ThriveModal playbook content; any other
+    # workspace gets the general back-office list.
+    vert = (_tm_vertical_for(" ".join([str(industry or ""), str(company or ""),
+                                       str(role or "")]))
+            if _is_thrivemodal() else _TM_VERTICAL_GENERAL)
+    out, seen = [], set()
+    for r in own + _TM_VERTICAL_COST_ROLES.get(
+            vert, _TM_VERTICAL_COST_ROLES[_TM_VERTICAL_GENERAL]):
+        if r.lower() not in seen:
+            seen.add(r.lower())
+            out.append(r)
+    return out
+
+
+def _tm_multi_cost_pdf_data(client, company: str, role: str, location: str,
+                            industry: str = "") -> dict:
+    """Staffing Cost Comparison for the five roles the company would most
+    likely hire for. One row per role: in-house total (local BLS median +
+    burden + workspace + recruiting) against ThriveModal at the flat
+    _TM_AUTO_SAVINGS. All arithmetic in Python; the only model calls pick an
+    occupation code or metro from BLS's own lists."""
+    company = (str(company or "").strip() or "your team")
+    location = str(location or "").strip()
+    cands = _tm_cost_roles(role, industry, company)
+    local = _tm_bls_local_salaries(client, cands, location)
+    if cands and cands[0] not in local:
+        # The campaign's own role gets the web-search fallback too.
+        found = _tm_lookup_local_salary(client, cands[0], location)
+        if found:
+            local[cands[0]] = found
+    priced, seen_occ = [], set()
+    for r in cands:
+        lk = local.get(r)
+        bench = _tm_benchmark(_tm_match_benchmark(r))
+        if lk:
+            base, occ = lk["salary"], lk.get("occupation") or r
+            area = lk.get("area") or "United States"
+            src = f"{lk.get('source') or 'Local salary'}: {lk['url']}"
+        elif bench:
+            base, occ = float(bench["base"]), bench["occupation"]
+            area = "United States"
+            src = ""
+        else:
+            continue
+        key = re.sub(r"\s*\(SOC.*", "", occ).lower()
+        if key in seen_occ:
+            continue
+        seen_occ.add(key)
+        burden = round(base * _TM_BENCH_BURDEN_PCT / 10000.0) * 100
+        domestic = base + burden + _TM_BENCH_OVERHEAD + _TM_BENCH_HIRING
+        tm = round(domestic * (1 - _TM_AUTO_SAVINGS) / 100.0) * 100
+        priced.append({"role": r, "base": base, "domestic": domestic, "tm": tm,
+                       "saving": domestic - tm, "area": area, "source": src,
+                       "occupation": re.sub(r"\s*\(SOC.*", "", occ)})
+        if len(priced) == _TM_COST_ROLE_COUNT:
+            break
+
+    if not priced:
+        return _tm_auto_cost_pdf_data(company, role, location, None)
+
+    n = len(priced)
+    tot_dom = sum(p["domestic"] for p in priced)
+    tot_tm = sum(p["tm"] for p in priced)
+    pct = f"{_TM_AUTO_SAVINGS:.0%}"
+    rows = [["Role", "Base Salary", "In-House Total", "With Us (est.)",
+             "You Save"]]
+    rows += [[p["role"], _tm_money(p["base"]), _tm_money(p["domestic"]),
+              _tm_money(p["tm"]), _tm_money(p["saving"])] for p in priced]
+    if n > 1:
+        rows.append([f"All {n} roles", "", _tm_money(tot_dom),
+                     _tm_money(tot_tm), _tm_money(tot_dom - tot_tm)])
+    # One sentence naming where each base salary comes from, grouped by
+    # area so a metro shared by every role is said once.
+    by_area = {}
+    for p in priced:
+        by_area.setdefault(p["area"], []).append(
+            f"{p['role']} as {p['occupation']}")
+    salary_note = "Base salary is the BLS median for the closest occupation: " + (
+        "; ".join(f"{', '.join(v)} ({a})" for a, v in by_area.items()) + ".")
+    where = f" in {location}" if location else ""
+    howto = [
+        f"Each in-house figure is one full-time person{where} for 12 months, "
+        f"in USD: base salary, plus payroll taxes and benefits at "
+        f"{_TM_BENCH_BURDEN_PCT:.0f}% of wages (BLS), plus US-average "
+        f"workspace ({_tm_money(_TM_BENCH_OVERHEAD)}) and recruiting "
+        f"({_tm_money(_TM_BENCH_HIRING)}).",
+        salary_note,
+        f"Our column is an estimate, {pct} below the in-house total (the "
+        f"middle of our published range of up to 60-70%, fully burdened); we "
+        f"confirm your quote separately. None of these are {company}'s own "
+        f"payroll figures, so swap in yours for an exact comparison.",
+    ]
+    # One line per distinct page; the Philippine rate cards only back the
+    # benchmark rate column, which this page does not use.
+    sources = list(dict.fromkeys(p["source"] for p in priced if p["source"]))
+    # "US median wages" backs only the national fallback.
+    national = any(not p["source"] for p in priced)
+    # Figures in brackets are already stated under How This Was Calculated.
+    sources += [f"{re.sub(r' *[(][^)]*[)]', '', lbl)}: {url}"
+                for lbl, url in _TM_BENCH_SOURCES
+                if not lbl.startswith("Philippine")
+                and (national or not lbl.startswith("US median"))]
+    lead = ("Five roles" if n == 5 else f"{n} roles" if n > 1 else "One role")
+    return {
+        "title": f"Staffing Cost Comparison - {company}",
+        "badge": "STAFFING COST COMPARISON",
+        "intro": (f"{lead} {company} would typically hire for, what each costs "
+                  f"in-house{where} for a year, and the estimated cost of the "
+                  f"same role with us. Across "
+                  + ("all of them" if n > 1 else "it")
+                  + f" that is about {_tm_money(tot_dom - tot_tm)} a year "
+                  f"({pct}) less."),
+        "sections": [
+            {"heading": "Cost Comparison by Role", "type": "table", "items": rows},
+            {"heading": "How This Was Calculated", "type": "bullets",
+             "items": howto},
+            {"heading": "Sources", "type": "bullets", "items": sources},
+        ],
+        "cta": ("Tell us which of these roles matters most and send your "
+                "actual salary figures. We'll rerun it with your numbers."),
+        "_worksheet": priced,
     }
 
 
@@ -40935,9 +41153,11 @@ def _generate_rich_pdf_data(client, kind: str, ctx: dict, research_context: str 
             if isinstance(_role, (list, tuple)):
                 _role = ", ".join(str(r) for r in _role)
             _loc = ctx.get("location", "")
-            return _tm_auto_cost_pdf_data(
-                ctx.get("company", ""), _role, _loc,
-                _tm_lookup_local_salary(client, _role, _loc))
+            # Five roles the company would hire for (the lead role first),
+            # each priced from BLS.
+            return _tm_multi_cost_pdf_data(
+                client, ctx.get("company", ""), _role, _loc,
+                ctx.get("primary_industry", ""))
         return _tm_cost_pdf_data(
             ctx.get("company", ""),
             ctx.get("tm_cost_inputs") or {},

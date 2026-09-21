@@ -1084,8 +1084,9 @@ def test_auto_worksheet_unknown_role_and_no_lookup_is_not_calculated():
 
 def test_blank_figures_route_to_the_automatic_worksheet():
     src = _inspect.getsource(fa._generate_rich_pdf_data)
-    assert "_tm_auto_cost_pdf_data(" in src
-    assert src.index("_tm_auto_cost_pdf_data(") < src.index("_rich_pdf_prompt(kind")
+    assert "_tm_multi_cost_pdf_data(" in src
+    assert src.index("_tm_multi_cost_pdf_data(") < src.index("_rich_pdf_prompt(kind")
+    assert "anthropic" not in _inspect.getsource(fa._tm_multi_cost_pdf_data)
     assert "anthropic" not in _inspect.getsource(fa._tm_auto_cost_pdf_data)
 
 

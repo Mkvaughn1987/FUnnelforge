@@ -9,7 +9,7 @@ import flowdrip_app as fa
 
 
 def test_playbook_titles_map_to_an_occupation_without_a_model():
-    assert fa._tm_soc_for_role(None, "Project Coordinator")[0] == "131082"
+    assert fa._tm_soc_for_role(None, "Project Coordinator")[0] == "131199"
     assert fa._tm_soc_for_role(None, "Estimator")[0] == "131051"
     assert fa._tm_soc_for_role(None, "Project Accountant")[0] == "132011"
     assert fa._tm_soc_for_role(None, "Medical Biller")[0] == "433021"
@@ -78,3 +78,54 @@ def test_bls_refusal_is_not_cached_as_no_data(monkeypatch, tmp_path, capsys):
     assert fa._tm_bls_annual_medians(["OEUS1"]) == {}
     assert "OEUS1" not in fa._TM_BLS_VALUES  # retried next time
     assert "BLS API refused" in capsys.readouterr().out
+
+
+# ── five-role Staffing Cost Comparison ─────────────────────────────────────
+
+def _fake_local(client, roles, location):
+    return {r: {"salary": 60000.0 + 1000 * i, "basis": "median",
+                "area": "Medford, OR metro area",
+                "occupation": f"Occ {r} (SOC 11-1111)",
+                "source": "BLS OEWS May 2025", "url": "https://www.bls.gov/x"}
+            for i, r in enumerate(roles)}
+
+
+def test_cost_comparison_names_five_roles_lead_role_first(monkeypatch):
+    monkeypatch.setattr(fa, "_tm_bls_local_salaries", _fake_local)
+    monkeypatch.setattr(fa, "_is_thrivemodal", lambda cfg=None: True)
+    d = fa._tm_multi_cost_pdf_data(None, "S+B James Construction",
+                                   "Project Coordinator", "White City, OR",
+                                   "Construction")
+    rows = d["sections"][0]["items"]
+    roles = [r[0] for r in rows[1:-1]]
+    assert len(roles) == 5 and roles[0] == "Project Coordinator"
+    assert "Estimator" in roles  # from the construction list
+    assert rows[-1][0] == "All 5 roles"
+    money = lambda t: float(t.replace("USD", "").replace(",", ""))
+    assert money(rows[-1][2]) == sum(money(r[2]) for r in rows[1:-1])
+    assert money(rows[-1][4]) == money(rows[-1][2]) - money(rows[-1][3])
+    assert d["badge"] == "STAFFING COST COMPARISON" and d["_worksheet"]
+    assert not any("Philippine" in s for s in d["sections"][2]["items"])
+
+
+def test_cost_comparison_skips_duplicate_occupations(monkeypatch):
+    def same_occ(client, roles, location):
+        out = _fake_local(client, roles, location)
+        for r in ("Bookkeeper", "Accounts Payable Specialist"):
+            if r in out:
+                out[r]["occupation"] = "Bookkeeping Clerks (SOC 43-3031)"
+        return out
+    monkeypatch.setattr(fa, "_tm_bls_local_salaries", same_occ)
+    monkeypatch.setattr(fa, "_is_thrivemodal", lambda cfg=None: True)
+    d = fa._tm_multi_cost_pdf_data(None, "Co", "", "", "Accounting")
+    roles = [r[0] for r in d["sections"][0]["items"][1:-1]]
+    assert not ("Bookkeeper" in roles and "Accounts Payable Specialist" in roles)
+
+
+def test_cost_comparison_with_nothing_priced_is_the_seller_note(monkeypatch):
+    monkeypatch.setattr(fa, "_tm_bls_local_salaries", lambda *a: {})
+    monkeypatch.setattr(fa, "_tm_lookup_local_salary", lambda *a: None)
+    monkeypatch.setattr(fa, "_TM_VERTICAL_COST_ROLES",
+                        {k: ["Superintendent"] for k in fa._TM_VERTICAL_COST_ROLES})
+    d = fa._tm_multi_cost_pdf_data(None, "Co", "Superintendent", "", "")
+    assert d["badge"] == "INCOMPLETE WORKSHEET" and d["_worksheet"] is None
