@@ -474,7 +474,7 @@ PLAYBOOK_THRIVEMODAL = "thrivemodal"
 _VALID_PLAYBOOKS = (PLAYBOOK_ARENA, PLAYBOOK_THRIVEMODAL)
 PLAYBOOK_LABELS = {
     PLAYBOOK_ARENA: "ARENA (recruiting / candidate placement)",
-    PLAYBOOK_THRIVEMODAL: "ThriveModal (offshore staffing sales)",
+    PLAYBOOK_THRIVEMODAL: "ThriveModal (offshore staff augmentation sales)",
 }
 
 # ── Instance playbook lock ────────────────────────────────────────────────
@@ -505,7 +505,7 @@ if _LOCKED_PLAYBOOK not in _VALID_PLAYBOOKS:
 # than only as an external ban.
 
 _TM_DEF_BUSINESS = """\
-ThriveModal, offshore staffing sales.
+ThriveModal, offshore staff augmentation sales.
 
 ThriveModal helps U.S. companies build dedicated remote teams using skilled
 professionals based in the Philippines. It recruits the person for the
@@ -697,7 +697,7 @@ Pressure from ownership, partners or investors to reduce operating cost
 without reducing output."""
 
 _TM_DEF_DIFFERENTIATORS = """\
-ThriveModal is a recruiting-first offshore staffing company, not a
+ThriveModal is a recruiting-first offshore staff augmentation company, not a
 virtual-assistant marketplace. The emphasis is finding the right person for
 a specific job rather than selling a generic offshore worker.
 
@@ -716,8 +716,9 @@ handles HR, compliance, payroll, benefits and administration in the
 Philippines. The client gets one all-inclusive monthly rate and manages the
 work, not the employment.
 
-Ready on day one. Workstation and IT are set up before the start date, and
-a placement can typically start in about ten days from the decision.
+Plug and play, ready on day one. Workstation and IT are set up before the
+start date, so the professional works in the client's systems from day one,
+and a placement can typically start in about ten days from the decision.
 
 Ongoing support, not a handoff. ThriveCore gives every client a named
 account manager, monthly check-ins, quarterly reviews and monthly reports,
@@ -965,7 +966,7 @@ overhead.
 
 STAGE 2: ATTACH A ROLE TO THE PROBLEM
 
-Do not sell "offshore staffing". Sell a track and trace specialist, a staff
+Do not sell "offshore staff augmentation". Sell a track and trace specialist, a staff
 accountant, a leasing coordinator, a medical biller, a recruiting
 coordinator, a bookkeeper, a customer service representative, an executive
 assistant. Specific positions make the offering tangible.
@@ -5651,7 +5652,7 @@ AICB_CAMPAIGN_TYPES = [
      "what the approved-proof field allows. One question CTA.\n"
      "Step 9 - How the commitment works (delay_days:4, step_type:email_auto) - "
      "Subject in the shape 'How the hiring commitment works'. Name the "
-     "hesitation directly: interested in offshore staffing, unsure about the "
+     "hesitation directly: interested in offshore staff augmentation, unsure about the "
      "commitment. Then state the commercial terms as three short bullet "
      "lines, using ONLY terms present in the approved pricing and service "
      "terms field - no upfront or placement fees, month-to-month terms, and a "
@@ -7128,7 +7129,7 @@ def _aicb_research_brief(client, *, camp_type="", company="", website="",
     return brief
 
 
-# Mike, 2026-09-18: many owners hesitate about offshore staffing, so every
+# Mike, 2026-09-18: many owners hesitate about offshore staff augmentation, so every
 # ThriveModal email opens on it - warm, the question, how it works, what it
 # saves - before the step makes its own point. One rule for every type
 # (including Custom Build on a ThriveModal workspace), so a new type cannot
@@ -7140,7 +7141,7 @@ _TM_EMAIL_OPENER_RULE = (
     "that says 'no cost figure' or 'no percentage', for the opener only:\n"
     "- Right after 'Hi {FirstName},', open warm and human, then within the "
     "first two or three sentences: ask whether they have ever considered "
-    "offshore staffing for the specific work that step is about; explain in "
+    "offshore staff augmentation for the specific work that step is about; explain in "
     "one plain sentence how it works (a dedicated professional in the "
     "Philippines, recruited to their requirements, whom they interview and "
     "choose, working their U.S. hours as part of their own team, with the "
@@ -7150,7 +7151,7 @@ _TM_EMAIL_OPENER_RULE = (
     "depending on the role. Always 'up to'. Never a dollar amount, a monthly "
     "rate or an annual figure. If that field states no savings figure, "
     "describe the saving without a number.\n"
-    "- Many owners hesitate about offshore staffing. Name that honestly in a "
+    "- Many owners hesitate about offshore staff augmentation. Name that honestly in a "
     "few of the emails and give them a reason to try one role, using ONLY "
     "terms the approved field supports (for example no upfront fee, "
     "month-to-month, they interview and choose, a free replacement).\n"
@@ -7161,11 +7162,16 @@ _TM_EMAIL_OPENER_RULE = (
     "- Keep the opener to about three sentences, then carry on with that "
     "step's own point and its one CTA.\n"
     "- SAY WHAT YOU DO, UP FRONT. The FIRST email states in the first person, "
-    "within its first two sentences, that we do offshore staffing, using "
-    "those exact words (for example 'I do offshore staffing: we place "
-    "dedicated professionals from the Philippines on U.S. teams'). Every "
-    "later email also says 'offshore staffing' in its first two sentences, "
+    "within its first two sentences, that we do offshore staff augmentation, using "
+    "those exact words (for example 'I do offshore staff augmentation: we place "
+    "dedicated, plug-and-play professionals from the Philippines on U.S. "
+    "teams'). Every "
+    "later email also says 'offshore staff augmentation' in its first two sentences, "
     "worded fresh, so a reader who opens only one email knows what we do.\n"
+    "- PLUG AND PLAY. Somewhere in the campaign (the first email is best), "
+    "say our professionals are plug-and-play: workstation and IT are set up "
+    "before day one, so they start working in the client's systems right "
+    "away. Word it naturally and do not repeat it in every email.\n"
     "- THE LAST EMAIL of the campaign says plainly that you are closing this "
     "series out, and that you will still keep in touch about once a month "
     "with a short personal note. Never call it a newsletter, a list or a "
@@ -12690,26 +12696,44 @@ def _apply_thrivemodal_overrides(camp_type, campaign_data):
 # Mike, 2026-09-21: every campaign says up front that we do offshore
 # staffing, and the last email promises a monthly check-in. The prompt asks
 # for both; these lines go in only when the model left them out.
-_TM_OFFSHORE_LINE = ("Quick background on me: I do offshore staffing, placing "
-                     "dedicated professionals from the Philippines on U.S. "
-                     "teams.")
+_TM_OFFSHORE_LINE = ("Quick background on me: I do offshore staff augmentation, placing "
+                     "dedicated, plug-and-play professionals from the "
+                     "Philippines on U.S. teams.")
 _TM_MONTHLY_LINE = ("I'll close this series out here, but I'll still check in "
                     "about once a month in case timing changes.")
 _TM_WE_DO_OFFSHORE_RE = re.compile(
-    r"\b(?:i|we|i'm|we're|i am|we are)\b[^.?!]{0,80}\boffshore staffing\b", re.I)
+    r"\b(?:i|we|i'm|we're|i am|we are)\b[^.?!]{0,80}\boffshore staff augmentation\b", re.I)
 # "monthly rate" and "monthly check-ins" (ThriveCore) are not a promise.
 _TM_MONTHLY_RE = re.compile(
     r"once a month|every month|(?:touch|check in|check-in) monthly", re.I)
 
 
+def _tm_aug_wording(text: str) -> str:
+    """Mike, 2026-09-21: "offshore staff augmentation", never "offshore
+    staffing", in anything a prospect reads. Case follows the original."""
+    def fix(m):
+        w = m.group(0)
+        if w.isupper():
+            return "OFFSHORE STAFF AUGMENTATION"
+        if w[:1].isupper():
+            return ("Offshore Staff Augmentation" if w.split()[1][:1].isupper()
+                    else "Offshore staff augmentation")
+        return "offshore staff augmentation"
+    return re.sub(r"(?i)\boffshore staffing\b", fix, text or "")
+
+
 def _tm_ensure_offshore_and_monthly(campaign_data) -> None:
+    for em in (campaign_data or {}).get("emails", []) or []:
+        for k in ("subject", "body"):
+            if em.get(k):
+                em[k] = _tm_aug_wording(em[k])
     emails = [e for e in (campaign_data or {}).get("emails", []) or []
               if e.get("step_type") in (None, "", ST.EMAIL_AUTO)]
     if not emails:
         return
     first, last = emails[0], emails[-1]
     body = first.get("body") or ""
-    # "Have you considered offshore staffing?" does not say we do it: need a
+    # "Have you considered offshore staff augmentation?" does not say we do it: need a
     # first-person line saying so in the opening three sentences.
     opening = " ".join(re.split(r"(?<=[.!?])\s+",
                                 re.sub(r"\s+", " ", _tm_scrub_line(body)))[:4])
@@ -14511,7 +14535,7 @@ the requirements and chooses the person later in the process, so there is
 nobody to introduce yet and no availability to claim.
 
 SELL A ROLE, NOT A CONCEPT:
-Do not sell "offshore staffing" in the abstract. Name the position the buyer
+Do not sell "offshore staff augmentation" in the abstract. Name the position the buyer
 could move: a track and trace specialist, a staff accountant, a leasing
 coordinator, a medical biller, a recruiting coordinator, a bookkeeper, a
 customer service rep, an executive assistant. The specific role is what
@@ -14740,7 +14764,7 @@ async def _tm_improve_section(key: str, current: str) -> str:
         "You are a senior B2B copy chief sharpening one section of the "
         "ThriveModal sales playbook. That playbook is the brief an AI writer "
         "follows when it writes cold email for ThriveModal, a Philippines "
-        "offshore staffing company. Make the section stronger: lead with the "
+        "offshore staff augmentation company. Make the section stronger: lead with the "
         "sharpest claims, cut filler and hedging that the facts do not "
         "require, use concrete buyer-facing language, and state every "
         "approved claim at full strength and with confidence. Keep every "
@@ -39693,9 +39717,9 @@ def _tm_cost_extra_sections() -> list:
             "payroll administration and ThriveCore support. We are the "
             "employer of record; you manage the work, not the employment.",
             "You choose the person from a shortlist of three or more vetted "
-            "candidates with video pre-screens. A typical start is about ten "
-            "days from your decision, with workstation and IT set up before "
-            "day one.",
+            "candidates with video pre-screens. They arrive plug-and-play, "
+            "with workstation and IT set up before day one, typically about "
+            "ten days from your decision.",
             "No upfront or placement fees, month-to-month terms, no "
             "cancellation fee, and a lifetime free replacement if the person "
             "does not work out.",
@@ -40120,7 +40144,7 @@ def _tm_cost_pdf_data(company: str, inputs: dict, seats: int = 1,
     if ws["complete"]:
         _dom_src = ("uses published US market benchmarks" if dom_bench
                     else f"is what {company} supplied")
-        _tm_src = ("a market benchmark for Philippine offshore staffing"
+        _tm_src = ("a market benchmark for Philippine offshore staff augmentation"
                    if rate_bench else "the approved rate")
         intro = (
             f"A like-for-like cost comparison for {company}, covering "
@@ -40214,6 +40238,7 @@ def _tm_fix_pdf_labels(kind: str, ctx: dict, data: dict) -> None:
     for key in ("intro", "cta", "sections"):
         if key in data:
             data[key] = _tm_scrub_internal(data[key])
+            data[key] = json.loads(_tm_aug_wording(json.dumps(data[key])))
     data["sections"] = [s for s in data.get("sections") or []
                         if not _TM_SOURCES_HEADING_RE.match(
                             str((s or {}).get("heading") or "").strip())]
@@ -42034,8 +42059,8 @@ _TM_LEGACY_PDF_LABELS = [
     ("ThriveModal_What_a_Role_Really_Costs", "What a Role Really Costs"),
     ("ThriveModal_Cost_of_Staying_Understaffed", "The Real Cost of Staying Understaffed"),
     ("ThriveModal_How_It_Works", "How It Works and the Zero Risk Model"),
-    ("ThriveModal_Logistics_Playbook", "Offshore Staffing Playbook for Logistics"),
-    ("ThriveModal_Accounting_Finance_Playbook", "Offshore Staffing Playbook for Accounting and Finance"),
+    ("ThriveModal_Logistics_Playbook", "Offshore Staff Augmentation Playbook for Logistics"),
+    ("ThriveModal_Accounting_Finance_Playbook", "Offshore Staff Augmentation Playbook for Accounting and Finance"),
     ("ThriveModal_Twelve_Questions", "Twelve Questions Owners Ask"),
 ]
 
@@ -55059,7 +55084,7 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
           {_render_bullets(_deduped)}
         </td></tr>'''
 
-    # ── Offshore staffing sections (ThriveModal issues only) ──────────────
+    # ── Offshore staff augmentation sections (ThriveModal issues only) ──────────────
     # Rendered only when the issue carries these keys, which only the
     # ThriveModal generator writes, so every other newsletter is unchanged.
     # Order: feature article, role of the month, cost math here; the
@@ -56964,7 +56989,7 @@ def _tm_spotlight_prompt_block(niche: str, n: int,
     return (instruction, schema)
 
 
-# ── ThriveModal newsletter: offshore staffing, one angle per issue ────────
+# ── ThriveModal newsletter: offshore staff augmentation, one angle per issue ────────
 # Arena's newsletter is a recruiting market report (JOLTS grid, city life,
 # candidates). A ThriveModal reader is deciding whether to put recurring work
 # offshore, so each issue is ONE article on a 12-month editorial calendar,
@@ -56976,8 +57001,8 @@ _TM_NL_ANGLES = {
     1: ("Start With One Workflow",
         "how to scope a first offshore role around one bounded, recurring "
         "responsibility, with a named manager, a baseline and a review plan"),
-    2: ("Offshore Staffing: Myths and Reality",
-        "the common assumptions owners have about offshore staffing and what "
+    2: ("Offshore Staff Augmentation: Myths and Reality",
+        "the common assumptions owners have about offshore staff augmentation and what "
         "a dedicated, full-time model actually looks like day to day"),
     3: ("The First 90 Days",
         "what onboarding a dedicated offshore professional looks like: "
@@ -57262,7 +57287,7 @@ def _tm_newsletter_prompt(nl_name: str, company: str, niche: str, region: str,
         f"{'across the U.S.' if _is_nationwide(region) or not region else 'in ' + region}. {company} provides "
         f"dedicated, full-time professionals based in the Philippines who work "
         f"the client's U.S. hours inside the client's own systems.\n\n"
-        f"The newsletter is about OFFSHORE STAFFING: why it works, how "
+        f"The newsletter is about OFFSHORE STAFF AUGMENTATION: why it works, how "
         f"companies like the reader's use it, and how to do it well. Write like "
         f"a knowledgeable peer, practical and specific to {_niche}, not like an "
         f"ad. Confident about the model, honest about what it takes.\n\n"
@@ -57314,7 +57339,7 @@ def _tm_newsletter_prompt(nl_name: str, company: str, niche: str, region: str,
         f'  "objection_2": {{"question": "{_TM_NL_STANDING_Q}", "answer": "2 short sentences"}},\n'
         + _story_schema +
         '  "personal_corner_note": "2-3 first-person sentences (25-50 words) from the sender '
-        'about the month and offshore staffing. No greeting, sign-off, link or CTA.",\n'
+        'about the month and offshore staff augmentation. No greeting, sign-off, link or CTA.",\n'
         + spot_schema +
         '  "top_news": []\n'
         "}\n\n"
@@ -57756,8 +57781,8 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         _obj2 = result.get("objection_2") if isinstance(result.get("objection_2"), dict) else {}
         _feat = dict(_feat, paragraphs=(_feat.get("paragraphs") or [])[:2])
         nl_data.update({
-            "tagline": (f"Offshore Staffing Insights for {_industry_lbl.title()}"
-                        if _industry_lbl else "Offshore Staffing Insights"),
+            "tagline": (f"Offshore Staff Augmentation Insights for {_industry_lbl.title()}"
+                        if _industry_lbl else "Offshore Staff Augmentation Insights"),
             "stats_label": "Why Now",
             "jolts": {"source_note": _why.get("source_note", ""),
                       "stats": (_why.get("stats") or [])[:2]},
@@ -57791,7 +57816,7 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
                                 salary_ask=_tm_profile_rate(client, sp.get("title", "")))
                            for sp in (nl_data.get("spotlights") or [])
                            if isinstance(sp, dict)],
-            "partner_label": "Your Offshore Staffing Partner",
+            "partner_label": "Your Offshore Staff Augmentation Partner",
             "cta_line": "Want to talk through a role for your team?",
         })
     _show_map = {

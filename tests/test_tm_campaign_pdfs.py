@@ -322,7 +322,7 @@ def test_every_thrivemodal_type_gets_the_offshore_opener():
 
 def test_opener_keeps_the_savings_claim_inside_the_rules():
     r = fa._TM_EMAIL_OPENER_RULE
-    assert "ever considered offshore staffing" in r
+    assert "ever considered offshore staff augmentation" in r
     assert "up to sixty to seventy percent" in r
     assert "depending on the role" in r
     assert "Never a dollar amount" in r

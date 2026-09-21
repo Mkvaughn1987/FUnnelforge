@@ -1,5 +1,5 @@
 import inspect
-"""ThriveModal newsletters are about offshore staffing: one article per issue
+"""ThriveModal newsletters are about offshore staff augmentation: one article per issue
 on a 12-month calendar, a rotating Role of the Month, server-computed Cost
 Math, one objection, a customer story every third issue. Arena newsletters
 must render exactly as before."""
@@ -27,7 +27,7 @@ def test_prompt_is_offshore_and_keeps_the_claim_rules(monkeypatch):
     p = fa._tm_newsletter_prompt("The Ledger", "ThriveModal", "CPA Firms", "Dallas, TX",
                                  "October 2026", plan, "", "", "PLAYBOOK TEXT",
                                  'Kristy Knichel: "quote"')
-    assert "OFFSHORE STAFFING" in p and plan["angle"] in p
+    assert "OFFSHORE STAFF AUGMENTATION" in p and plan["angle"] in p
     assert "role_of_month" not in p  # section removed 2026-09-19
     assert "up to 60-70%" in p and "round-the-clock" in p
     assert "WORD FOR WORD" in p and '"story"' in p and "PLAYBOOK TEXT" in p

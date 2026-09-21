@@ -1,4 +1,4 @@
-"""ThriveModal campaigns say up front that we do offshore staffing, and the
+"""ThriveModal campaigns say up front that we do offshore staff augmentation, and the
 last email promises a monthly check-in (Mike, 2026-09-21)."""
 import flowdrip_app as fa
 
@@ -23,14 +23,14 @@ def test_missing_lines_are_added():
 
 
 def test_a_question_about_offshore_staffing_is_not_saying_we_do_it():
-    c = _camp("Hi {FirstName},<br><br>Have you considered offshore staffing?",
+    c = _camp("Hi {FirstName},<br><br>Have you considered offshore staff augmentation?",
               "Hi {FirstName},<br><br>Last one.")
     fa._tm_ensure_offshore_and_monthly(c)
     assert fa._TM_OFFSHORE_LINE in c["emails"][0]["body"]
 
 
 def test_lines_already_there_are_left_alone():
-    first = ("Hi {FirstName},<br><br>I do offshore staffing for logistics "
+    first = ("Hi {FirstName},<br><br>I do offshore staff augmentation for logistics "
              "companies. Quick question.")
     last = ("Hi {FirstName},<br><br>Closing this out, but I'll check in about "
             "once a month.")
@@ -44,14 +44,14 @@ def test_lines_already_there_are_left_alone():
 
 
 def test_month_to_month_terms_are_not_a_check_in_promise():
-    c = _camp("Hi {FirstName},<br><br>We do offshore staffing.",
+    c = _camp("Hi {FirstName},<br><br>We do offshore staff augmentation.",
               "Hi {FirstName},<br><br>Month-to-month terms, monthly rate.")
     fa._tm_ensure_offshore_and_monthly(c)
     assert c["emails"][1]["body"].endswith(fa._TM_MONTHLY_LINE)
 
 
 def test_calls_and_linkedin_steps_are_skipped():
-    c = _camp("Hi {FirstName},<br><br>We do offshore staffing.",
+    c = _camp("Hi {FirstName},<br><br>We do offshore staff augmentation.",
               "Hi {FirstName},<br><br>Final email.")
     c["emails"].append({"name": "Step 3 - Call", "body": "script",
                         "step_type": fa.ST.CALL})
@@ -82,4 +82,27 @@ def test_no_tm_step_still_forbids_ongoing_contact():
             assert "ongoing-send" not in t[6] and "ongoing sends" not in t[6], t[0]
             assert "you will stop" not in t[6], t[0]
     assert "once a month" in fa._TM_EMAIL_OPENER_RULE
-    assert "offshore staffing" in fa._TM_EMAIL_OPENER_RULE
+    assert "offshore staff augmentation" in fa._TM_EMAIL_OPENER_RULE
+
+
+def test_offshore_staffing_is_reworded_everywhere_in_tm_copy():
+    c = _camp("Hi {FirstName},<br><br>We do Offshore Staffing. OFFSHORE STAFFING.",
+              "Hi {FirstName},<br><br>Offshore staffing, once a month.")
+    c["emails"][0]["subject"] = "Offshore staffing for you"
+    fa._tm_ensure_offshore_and_monthly(c)
+    b0 = c["emails"][0]["body"]
+    assert "Offshore Staff Augmentation" in b0 and "OFFSHORE STAFF AUGMENTATION" in b0
+    assert c["emails"][0]["subject"] == "Offshore staff augmentation for you"
+    assert "Offshore staff augmentation, once" in c["emails"][1]["body"]
+    assert "offshore staffing" not in fa._TM_EMAIL_OPENER_RULE.lower()
+    assert "plug-and-play" in fa._TM_EMAIL_OPENER_RULE
+    assert "plug-and-play" in fa._TM_OFFSHORE_LINE
+
+
+def test_tm_pdfs_say_staff_augmentation():
+    data = {"title": "t", "intro": "Why offshore staffing works.",
+            "sections": [{"heading": "h", "type": "bullets",
+                          "items": ["Offshore staffing, done right."]}], "cta": ""}
+    fa._tm_fix_pdf_labels("tm_role_blueprint", {"company": "Acme"}, data)
+    assert data["intro"] == "Why offshore staff augmentation works."
+    assert data["sections"][0]["items"][0] == "Offshore staff augmentation, done right."
