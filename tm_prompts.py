@@ -787,6 +787,7 @@ DEFAULT_ROUTINE = "other"
 STARTERS = [
     {
         "id": "signal",
+        "icon": "trending_up",
         "label": "Find companies showing a hiring signal",
         "sub": "Job boards, one vertical, the buyer at each company, and a "
                "new-business campaign for every one.",
@@ -798,6 +799,7 @@ STARTERS = [
     },
     {
         "id": "lookalike",
+        "icon": "content_copy",
         "label": "Find companies like a customer",
         "sub": "Start from a reference customer and find the companies that "
                "look like it.",
@@ -809,6 +811,7 @@ STARTERS = [
     },
     {
         "id": "displace",
+        "icon": "swap_horiz",
         "label": "Find companies already offshore",
         "sub": "They have proven the model. Pitch the better-run version.",
         "summary": "Find companies whose postings or pages show they already "
@@ -820,6 +823,7 @@ STARTERS = [
     },
     {
         "id": "pressure",
+        "icon": "savings",
         "label": "Scan for cost pressure",
         "sub": "WARN notices, roll-ups and closures in one vertical.",
         "summary": "Find companies in one vertical under visible cost "
@@ -830,6 +834,7 @@ STARTERS = [
     },
     {
         "id": "season",
+        "icon": "event",
         "label": "Run a seasonal push",
         "sub": "Time it to when one vertical plans its staffing.",
         "summary": "Run a push into one vertical timed to the season it "
@@ -839,6 +844,7 @@ STARTERS = [
     },
     {
         "id": "audience",
+        "icon": "groups",
         "label": "Turn a saved audience into a campaign",
         "sub": "Contacts already in inboxslide, checked and put into one "
                "campaign.",
@@ -849,6 +855,7 @@ STARTERS = [
     },
     {
         "id": "account",
+        "icon": "search",
         "label": "Research one account",
         "sub": "Everything worth knowing before a call. Nothing is sent.",
         "summary": "Research one company before I reach out: what they do, "
@@ -858,6 +865,7 @@ STARTERS = [
     },
     {
         "id": "other",
+        "icon": "edit_note",
         "label": "Something else",
         "sub": "Say it in your own words.",
         "summary": "",

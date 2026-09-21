@@ -1696,7 +1696,9 @@ def _aip_owner(s):
 
 def _aip_css():
     """The same q-field trim sales_campaign needs, scoped to this page's
-    wrapper so the forty-odd other pages using .fd-input don't move."""
+    wrapper so the forty-odd other pages using .fd-input don't move.
+    sanitize=False because NiceGUI 3 strips <style> from ui.html by
+    default, which silently left this whole block dead."""
     ui.html(
         "<style>"
         ".aip-wrap .fd-input{padding:0 10px !important;}"
@@ -1712,7 +1714,28 @@ def _aip_css():
         "margin:2px 0 10px;}"
         ".aip-wrap .aip-grid{display:grid;gap:14px;"
         "grid-template-columns:repeat(auto-fit,minmax(260px,1fr));}"
-        "</style>")
+        ".aip-wrap{max-width:1080px;}"
+        ".aip-wrap .aip-tiles{display:grid;gap:12px;"
+        "grid-template-columns:repeat(auto-fill,minmax(240px,1fr));}"
+        ".aip-wrap .aip-tile{position:relative;display:flex;gap:12px;"
+        "align-items:flex-start;padding:14px 16px;border-radius:12px;"
+        "cursor:pointer;border:1px solid var(--dd-border);"
+        "background:var(--dd-bg);transition:border-color .15s,"
+        "background .15s,transform .15s;}"
+        ".aip-wrap .aip-tile:hover{border-color:var(--dd-teal);"
+        "transform:translateY(-1px);}"
+        ".aip-wrap .aip-tile.on{border-color:var(--dd-teal);"
+        "background:var(--dd-teal_dim);"
+        "box-shadow:0 0 0 1px var(--dd-teal) inset;}"
+        ".aip-wrap .aip-ico{flex-shrink:0;width:34px;height:34px;"
+        "border-radius:9px;display:flex;align-items:center;"
+        "justify-content:center;font-size:19px;color:var(--dd-teal);"
+        "background:var(--dd-teal_dim);}"
+        ".aip-wrap .aip-tile.on .aip-ico{background:var(--dd-teal);"
+        "color:var(--dd-card);}"
+        ".aip-wrap .aip-tick{position:absolute;top:10px;right:10px;"
+        "font-size:18px;color:var(--dd-teal);}"
+        "</style>", sanitize=False)
 
 
 def _card(C, accent=None):
@@ -1780,32 +1803,33 @@ def _aip_ask(s, rf, C):
     r = _CAT.routine_by_key.get(st["routine"], _CAT.routine_by_key[_CAT.default_routine])
 
     with _card(C):
-        _sec("What do you want to do?", C)
-        _text("Pick the closest one. The next screen is where you put in the "
-              "specifics — the industry, the area, who to email, how many — "
-              "and you can change every one of them there.",
-              C, 12, colour=C["muted"], mb=12)
+        _text("What do you want to do?", C, 17, 700, C["text_l"], 2)
+        _text("Pick the closest one. You fill in the specifics (industry, "
+              "area, who to email, how many) on the next screen.",
+              C, 12, colour=C["muted"], mb=16)
 
-        def _pick(e):
-            s._aip_pick = e.value or _CAT.starters[0]["id"]
+        def _pick(key):
+            s._aip_pick = key
             s._aip_err = ""
             rf()
 
-        ui.select(options={x["id"]: x["label"] for x in _CAT.starters},
-                  value=pick, on_change=_pick).props("dense").classes(
-            "fd-input").style("width:100%;max-width:560px;")
+        with ui.element("div").classes("aip-tiles"):
+            for x in _CAT.starters:
+                on = x["id"] == pick
+                with ui.element("div").classes(
+                        "aip-tile" + (" on" if on else "")).on(
+                        "click", lambda _e, k=x["id"]: _pick(k)):
+                    with ui.element("div").classes("aip-ico"):
+                        ui.icon(x.get("icon") or "auto_awesome")
+                    with ui.element("div").style(
+                            "min-width:0;padding-right:18px;"):
+                        _text(x["label"], C, 13, 700, C["text_l"], 3)
+                        _text(x["sub"], C, 11.5, colour=C["muted"])
+                    if on:
+                        ui.icon("check_circle").classes("aip-tick")
 
-        with ui.element("div").style(
-                f"margin-top:12px;padding:12px 14px;background:{C['bg']};"
-                f"border:1px solid {C['border']};border-radius:10px;"
-                f"max-width:560px;"):
-            _text(st["sub"], C, 12, colour=C["text_l"], mb=6)
-            main = len([f for f in r["fields"] if f["section"] == "details"])
-            rest = len(r["fields"]) - main
-            _text("%d question%s on the next screen, and %d more in the "
-                  "sections under them if you want them."
-                  % (main, "" if main == 1 else "s", rest),
-                  C, 11, colour=C["muted"])
+        main = len([f for f in r["fields"] if f["section"] == "details"])
+        rest = len(r["fields"]) - main
 
         def _go():
             key = getattr(s, "_aip_pick", "") or _CAT.starters[0]["id"]
@@ -1825,15 +1849,23 @@ def _aip_ask(s, rf, C):
             rf()
 
         with ui.element("div").style(
-                "display:flex;align-items:center;gap:14px;margin-top:16px;"
-                "flex-wrap:wrap;"):
+                "display:flex;align-items:center;justify-content:space-between;"
+                f"gap:14px;margin-top:18px;padding-top:16px;"
+                f"border-top:1px solid {C['border']};flex-wrap:wrap;"):
+            with ui.element("div").style("min-width:0;flex:1 1 280px;"):
+                _text(st["label"], C, 13, 700, C["text_l"], 2)
+                _text("%d question%s next%s. Nothing runs or sends here: "
+                      "you're writing the message to paste into %s."
+                      % (main, "" if main == 1 else "s",
+                         ", %d more optional" % rest if rest else "",
+                         _CAT.assistant),
+                      C, 11, colour=C["muted"])
             with ui.element("button").classes("fd-pb").style(
-                    "padding:11px 24px;font-size:13px;flex-shrink:0;"
+                    "padding:11px 26px;font-size:13px;flex-shrink:0;"
+                    "display:flex;align-items:center;gap:6px;"
                     ).on("click", _go):
                 ui.label("Set this up")
-            _text("Nothing runs and nothing sends here. All you are doing is "
-                  "writing the message you'll paste into %s." % _CAT.assistant,
-                  C, 11, colour=C["muted"])
+                ui.icon("arrow_forward").style("font-size:16px;")
 
     setups = _load_setups()
     if setups:
