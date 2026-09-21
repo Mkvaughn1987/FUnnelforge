@@ -134,8 +134,8 @@ def test_refresh_replaces_old_pdfs_and_is_rerunnable():
     assert "Salary_Guide_Construction.pdf" not in atts
     assert "my_upload.docx" in atts  # a hand upload is never touched
     assert sorted(a for a in atts if a.endswith(".pdf")) == [
-        "Offshore_Role_Blueprint_Estimator.pdf",
-        "Staffing_Cost_Comparison_Estimator.pdf"]
+        "Offshore Role Blueprint Estimator.pdf",
+        "Staffing Cost Comparison Estimator.pdf"]
     assert out["attached"] == 2
     assert not camp["emails"][0].get("attachments")
     # Running twice does not stack the "I've attached" line.

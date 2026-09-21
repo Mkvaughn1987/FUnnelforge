@@ -59,7 +59,7 @@ def test_no_salary_cost_comparison_is_swapped_for_how_we_work(monkeypatch, tmp_p
         ["tm_role_blueprint", "tm_cost_compare"], "Co", "Superintendent",
         "White City, OR", client=object(), dest_dir=tmp_path)
     assert set(out) == {"tm_role_blueprint", "tm_how_it_works"}
-    assert not any("Staffing_Cost" in f for f in out.values())
+    assert not any("Staffing Cost" in f for f in out.values())
 
 
 def test_bls_refusal_is_not_cached_as_no_data(monkeypatch, tmp_path, capsys):

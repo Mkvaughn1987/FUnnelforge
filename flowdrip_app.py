@@ -11165,7 +11165,7 @@ def _custom_pdf_build(client, outline, description, ctx_block, pdf_dir,
 
     # Slug the title for the filename
     _title = data.get("title", "Custom_PDF")
-    _slug = re.sub(r'[^A-Za-z0-9]+', '_', _title).strip('_')[:40] or "Custom_PDF"
+    _slug = re.sub(r'[^A-Za-z0-9]+', ' ', _title).strip()[:40].strip() or "Custom PDF"
     fname = f"{_slug}.pdf"
     pdf_dir.mkdir(parents=True, exist_ok=True)
     fpath = str(pdf_dir / fname)
@@ -26488,7 +26488,8 @@ def _sq_loaded_campaign(s: AppState, rf):
                                         ("interview_guide", "Interview Guide"),
                                         ("tenure_snapshot", "Tenure Snapshot"),
                                     ] + [(k, l) for k, l, _i in _TM_CAMPAIGN_PDF_KINDS]:
-                                        if _att_lower.startswith(_plabel_x.lower().replace(" ", "_") + "_"):
+                                        if _att_lower.startswith((_plabel_x.lower().replace(" ", "_") + "_",
+                                                                  _plabel_x.lower() + " ")):
                                             _re_pid, _re_plabel = _pid_x, _plabel_x
                                             break
                                     with ui.element("div").style(
@@ -45961,8 +45962,8 @@ def _tm_campaign_pdf_filename(kind, subject) -> str:
     for w in words:
         if len(slug) + len(w) + 1 > 40:
             break
-        slug = f"{slug}_{w}" if slug else w
-    return f"{label.replace(' ', '_')}_{slug or 'Campaign'}.pdf"
+        slug = f"{slug} {w}" if slug else w
+    return f"{label} {slug or 'Campaign'}.pdf"
 
 
 def _tm_build_campaign_pdfs(kinds, company, role, location, industry="",
@@ -46052,9 +46053,12 @@ def _tm_build_campaign_pdfs(kinds, company, role, location, industry="",
 # static ThriveModal PDFs, and anything an earlier refresh built. Uploads and
 # anything else the user attached by hand are left alone.
 _TM_REPLACEABLE_PDF_PREFIXES = tuple(
-    ["market_pulse_", "role_scorecard_", "salary_guide_", "interview_guide_",
-     "tenure_snapshot_", "thrivemodal_"]
-    + [l.lower().replace(" ", "_") + "_" for _k, l, _i in _TM_CAMPAIGN_PDF_KINDS])
+    [p for p in ("market_pulse_", "role_scorecard_", "salary_guide_",
+                 "interview_guide_", "tenure_snapshot_")
+     for p in (p, p.replace("_", " "))]
+    + ["thrivemodal_"]
+    + [p for _k, l, _i in _TM_CAMPAIGN_PDF_KINDS
+       for p in (l.lower().replace(" ", "_") + "_", l.lower() + " ")])
 
 
 def _tm_strip_campaign_pdfs(emails) -> int:
@@ -46214,7 +46218,7 @@ def _tm_sync_queue_pdfs(camp, queue: list) -> int:
     for em in emails:
         for a in em.get("attachments") or []:
             for k, l, _ in _TM_CAMPAIGN_PDF_KINDS:
-                if str(a).startswith(l.replace(" ", "_") + "_"):
+                if str(a).startswith((l.replace(" ", "_") + "_", l + " ")):
                     line_for_file[a] = lines[k]
     changed = 0
     for it in queue:
@@ -52186,10 +52190,10 @@ def p_ai_campaign(s: AppState, rf):
                     ("salary_guide_",    "Salary Guide"),
                     ("interview_guide_", "Interview Guide"),
                     ("tenure_snapshot_", "Tenure Snapshot"),
-                ] + [(l.lower().replace(" ", "_") + "_", l)
-                     for _k, l, _i in _TM_CAMPAIGN_PDF_KINDS] + [
+                ] + [(p, l) for _k, l, _i in _TM_CAMPAIGN_PDF_KINDS
+                     for p in (l.lower().replace(" ", "_") + "_", l.lower() + " ")] + [
                     (fn.lower(), l) for fn, l in _TM_LEGACY_PDF_LABELS]:
-                    if _flow.startswith(_pfx):
+                    if _flow.startswith((_pfx, _pfx.replace("_", " "))):
                         _human = _lbl
                         break
 
@@ -53960,8 +53964,8 @@ def p_pdf_gen(s: AppState, rf):
                     continue
 
                 try:
-                    _co_slug = re.sub(r'[^A-Za-z0-9]+', '_', company).strip('_')[:30] or "Campaign"
-                    fname = f"{plabel.replace(' ', '_')}_{_co_slug}.pdf"
+                    _co_slug = re.sub(r'[^A-Za-z0-9]+', ' ', company).strip()[:30].strip() or "Campaign"
+                    fname = f"{plabel} {_co_slug}.pdf"
                     _pdf_dir.mkdir(parents=True, exist_ok=True)
                     fpath = str(_pdf_dir / fname)
 
