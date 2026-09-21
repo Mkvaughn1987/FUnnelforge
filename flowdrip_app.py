@@ -42620,7 +42620,7 @@ def p_ai_campaign(s: AppState, rf):
                         4: "Pick a cadence",
                         5: "One click from live",
                     }.get(_wiz_step, "Guidance")
-                    _guide_bullets = {
+                    _guide_map = {
                         1: [
                             ("A Company — one named account",
                              "Use this when you have a specific company in mind. "
@@ -42702,7 +42702,36 @@ def p_ai_campaign(s: AppState, rf):
                              "Web search + multi-email generation is the slowest "
                              "part. Don't close the tab."),
                         ],
-                    }.get(_wiz_step, [])
+                    }
+                    _guide_bullets = _guide_map.get(_wiz_step, [])
+                    # Sales instance (inboxslide): there is no candidate
+                    # step, so the stale 1-5 keys above put "Pick candidates"
+                    # on the Confirm step. Remap to the steps it really has:
+                    # 3 = Confirm, 5 = Campaign style, 6 = Review + generate.
+                    # Arena (_SALES_MODE False) is untouched.
+                    if _SALES_MODE:
+                        if _wiz_step == 2:
+                            # Drop the "roles live with the candidate
+                            # picker" bullet; there is no picker here.
+                            _guide_bullets = [
+                                b for b in _guide_bullets
+                                if b[0] != "Roles come next"]
+                        elif _wiz_step == 3:
+                            _guide_title = "Check the details"
+                            _guide_bullets = [
+                                ("Confirm what we filled in",
+                                 "Company, website, industry and locations "
+                                 "feed every email and every PDF you attach."),
+                                ("Edit anything that looks off",
+                                 "Your changes stay put when you go back "
+                                 "or forward a step."),
+                            ]
+                        elif _wiz_step == 5:
+                            _guide_title = "Pick a cadence"
+                            _guide_bullets = _guide_map[4]
+                        elif _wiz_step == 6:
+                            _guide_title = "One click from live"
+                            _guide_bullets = _guide_map[5]
                     ui.label(_guide_title).style(
                         f"font-size:13px;font-weight:800;color:{C['teal']};"
                         f"font-family:'Nunito',sans-serif;"
