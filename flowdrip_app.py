@@ -10917,6 +10917,29 @@ def _company_profile_from_website(url: str):
     return {k: v for k, v in staged.items() if str(v or "").strip()}
 
 
+_TM_PROFILE_LOGO = Path(__file__).parent / "assets" / "thrivemodal_profile_logo.png"
+
+
+def _tm_autofill_logo(url: str, dest_dir=None) -> bool:
+    """Website Auto-fill with a thrivemodal.com address puts the ThriveModal
+    logo in place, the same as an upload (logos save immediately; Save then
+    extracts the brand colour). Only when this user has no logo of their
+    own, so a custom upload is never replaced. True when one was written."""
+    from urllib.parse import urlparse
+    host = (urlparse(url if "//" in url else "https://" + url).hostname or "").lower()
+    if host != "thrivemodal.com" and not host.endswith(".thrivemodal.com"):
+        return False
+    if not _TM_PROFILE_LOGO.exists():
+        return False
+    dest_dir = Path(str(dest_dir or _user_dir()))
+    if any((dest_dir / f"company_logo.{e}").exists() for e in ("png", "jpg", "jpeg")):
+        return False
+    import shutil as _sh
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    _sh.copy2(_TM_PROFILE_LOGO, dest_dir / "company_logo.png")
+    return True
+
+
 def _tm_playbook_autofill_stage(s, cfg: dict = None) -> int:
     """Website Auto-fill also brings up the ThriveModal playbook: every Sales
     Playbook section that is currently empty is staged with its shipped
@@ -66296,8 +66319,14 @@ def _p_profile_body(s, rf):
                         s._cp_autofill_pending = _staged
                         s._cp_autofill_done = True
                         _pb_loaded = _tm_playbook_autofill_stage(s)
+                        try:
+                            _logo_set = _tm_autofill_logo(url)
+                        except Exception as _le:
+                            print(f"[LOGO] autofill copy failed: {_le}", flush=True)
+                            _logo_set = False
                         ui.notify(
                             f"Found {len(_staged)} field(s)"
+                            + (", added the ThriveModal logo" if _logo_set else "")
                             + (f" and loaded the {PLAYBOOK_LABELS.get(PLAYBOOK_THRIVEMODAL, 'ThriveModal')} "
                                f"playbook into {_pb_loaded} empty Sales Playbook section(s)"
                                if _pb_loaded else "")

@@ -54,3 +54,22 @@ def test_arena_workspace_stages_nothing(monkeypatch):
     s = SimpleNamespace()
     cfg = {"workspace_playbook": fa.PLAYBOOK_ARENA, **{k: "" for k in KEYS}}
     assert fa._tm_playbook_autofill_stage(s, cfg) == 0
+
+
+def test_thrivemodal_site_puts_logo_in_place(tmp_path):
+    assert fa._tm_autofill_logo("https://www.thrivemodal.com", tmp_path)
+    assert (tmp_path / "company_logo.png").read_bytes() == \
+        fa._TM_PROFILE_LOGO.read_bytes()
+
+
+def test_logo_never_replaces_own_upload(tmp_path):
+    (tmp_path / "company_logo.jpg").write_bytes(b"mine")
+    assert not fa._tm_autofill_logo("thrivemodal.com", tmp_path)
+    assert not (tmp_path / "company_logo.png").exists()
+
+
+def test_other_sites_get_no_logo(tmp_path):
+    for u in ("https://acme.com", "https://notthrivemodal.com",
+              "https://thrivemodal.com.evil.io"):
+        assert not fa._tm_autofill_logo(u, tmp_path)
+    assert not list(tmp_path.iterdir())
