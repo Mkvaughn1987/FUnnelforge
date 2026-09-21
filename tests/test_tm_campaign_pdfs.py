@@ -31,15 +31,18 @@ def test_old_arena_and_static_kinds_are_not_offered():
                         "tm_role_cost", "tm_logistics", "tm_twelve_questions"}
 
 
-def test_clamp_keeps_two_of_the_top_three_and_drops_the_rest():
+def test_clamp_keeps_every_offered_kind_once_and_drops_the_rest():
+    # Mike, 2026-09-21: as many PDFs as the user wants, all five offered.
     assert fa._clamp_tm_pdf_kinds(
         ["market_pulse", "bogus", "interview_guide", "tm_cost_compare",
          "tm_cost_compare", "tm_how_it_works", "tm_role_blueprint"]) == [
-        "tm_cost_compare", "tm_how_it_works"]
+        "market_pulse", "interview_guide", "tm_cost_compare",
+        "tm_how_it_works", "tm_role_blueprint"]
     assert fa._clamp_tm_pdf_kinds(None) == []
-    assert fa.TM_CAMPAIGN_PDF_MIN == 1 and fa.TM_CAMPAIGN_PDF_MAX == 2
+    assert fa.TM_CAMPAIGN_PDF_MIN == 1 and fa.TM_CAMPAIGN_PDF_MAX == 5
     assert fa._TM_CAMPAIGN_PDF_OFFERED == tuple(
-        k for k, *_ in fa._TM_CAMPAIGN_PDF_KINDS[:3])
+        k for k, *_ in fa._TM_CAMPAIGN_PDF_KINDS)
+    assert set(fa._TM_CAMPAIGN_PDF_BLURBS) == set(fa._TM_CAMPAIGN_PDF_OFFERED)
 
 
 def test_default_is_the_types_pair_and_one_on_quick_intro():
@@ -56,6 +59,10 @@ def test_default_is_the_types_pair_and_one_on_quick_intro():
     assert fa._tm_resolve_pdf_pick([], "tm_twelveweek") == [
         "tm_role_blueprint", "tm_cost_compare"]
     assert fa._tm_resolve_pdf_pick(["market_pulse"], "tm_twelveweek") == [
+        "market_pulse"]
+    # Cleared on purpose because a library PDF is picked: stays empty.
+    assert fa._tm_resolve_pdf_pick([], "tm_twelveweek", allow_empty=True) == []
+    assert fa._tm_resolve_pdf_pick(None, "tm_twelveweek", allow_empty=True) == [
         "tm_role_blueprint", "tm_cost_compare"]
     assert fa._tm_resolve_pdf_pick(["tm_logistics"], "tm_threebythree") == [
         "tm_cost_compare"]
@@ -348,3 +355,65 @@ def test_custom_build_on_a_thrivemodal_workspace_gets_the_opener(monkeypatch):
 def test_the_builder_prompt_carries_the_opener():
     src = open(fa.__file__, encoding="utf-8").read()
     assert "        _tm_opener_rule(camp_type) +" in src
+
+
+# ── as many PDFs as the user wants (2026-09-21) ────────────────────────────
+
+def test_more_pdfs_than_emails_double_up_never_on_the_first():
+    camp = _campaign("tm_threebythree")
+    eligible = fa._tm_pdf_eligible_emails(camp["emails"])
+    kinds = list(fa._TM_CAMPAIGN_PDF_OFFERED)
+    assert len(kinds) > len(eligible)
+    placed = fa._tm_pdf_placement("tm_threebythree", camp["emails"], kinds)
+    assert set(placed) == set(kinds)
+    assert set(placed.values()) <= set(eligible)
+    loads = [list(placed.values()).count(i) for i in eligible]
+    assert max(loads) - min(loads) <= 1  # spread, not piled on one email
+    n = fa._tm_attach_campaign_pdfs(
+        "tm_threebythree", camp, {k: f"{k}.pdf" for k in kinds})
+    assert n == len(kinds)
+    atts = [a for e in camp["emails"] for a in (e.get("attachments") or [])]
+    assert sorted(atts) == sorted(f"{k}.pdf" for k in kinds)
+    assert not camp["emails"][0].get("attachments")
+
+
+def test_library_pdfs_attach_as_is_on_the_least_loaded_email(tmp_path, monkeypatch):
+    monkeypatch.setattr(fa, "_user_pdf_dir", lambda: tmp_path)
+    (tmp_path / "ThriveModal Onboarding Checklist.pdf").write_bytes(b"%PDF-1.4")
+    camp = _campaign("tm_fivebyseven")
+    fa._tm_attach_campaign_pdfs("tm_fivebyseven", camp,
+                                {"tm_cost_compare": "Cost.pdf"})
+    n = fa._tm_attach_library_pdfs(
+        camp, ["ThriveModal Onboarding Checklist.pdf", "gone.pdf",
+               "ThriveModal Onboarding Checklist.pdf"])
+    assert n == 1  # a missing file is skipped, a repeat is attached once
+    carrying = [e for e in camp["emails"]
+                if "ThriveModal Onboarding Checklist.pdf" in (e.get("attachments") or [])]
+    assert len(carrying) == 1
+    assert carrying[0].get("attachments") == ["ThriveModal Onboarding Checklist.pdf"]
+    assert "I've attached ThriveModal Onboarding Checklist" in carrying[0]["body"]
+    assert not camp["emails"][0].get("attachments")
+    # Attaching again is a no-op.
+    assert fa._tm_attach_library_pdfs(
+        camp, ["ThriveModal Onboarding Checklist.pdf"]) == 0
+
+
+def test_pdf_library_lists_newest_first_without_redacted_resumes(tmp_path, monkeypatch):
+    import os
+    monkeypatch.setattr(fa, "_user_pdf_dir", lambda: tmp_path)
+    for i, name in enumerate(["old.pdf", "new.pdf"]):
+        f = tmp_path / name
+        f.write_bytes(b"%PDF-1.4")
+        os.utime(f, (1_700_000_000 + i, 1_700_000_000 + i))
+    monkeypatch.setattr(fa, "_is_redacted_resume_pdf", lambda n: n == "old.pdf")
+    assert [r["file"] for r in fa._tm_pdf_library()] == ["new.pdf"]
+
+
+def test_wizard_kinds_may_be_empty_only_with_a_library_pick():
+    class S:
+        aicb_camp_type = "tm_twelveweek"
+        aicb_tm_pdfs = []
+        aicb_tm_library_pdfs = []
+    assert fa._tm_wizard_pdf_kinds(S) == ["tm_role_blueprint", "tm_cost_compare"]
+    S.aicb_tm_library_pdfs = ["x.pdf"]
+    assert fa._tm_wizard_pdf_kinds(S) == []

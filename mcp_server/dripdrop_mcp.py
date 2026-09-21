@@ -197,8 +197,10 @@ _PDF_KINDS_DOC = (
     "and systems, how the client oversees it), tm_cost_compare (Staffing Cost "
     "Comparison: a U.S. hire beside a dedicated professional in the "
     "Philippines), tm_how_it_works (How We Work Together: how an engagement "
-    "runs from defining the role to onboarding). Every campaign carries one "
-    "or two of these three."
+    "runs from defining the role to onboarding), interview_guide (Interview "
+    "Guide for the shortlist stage), market_pulse (Market Pulse: industry "
+    "context with sources). A campaign carries at least one and may carry "
+    "any number of these."
 )
 
 
@@ -212,7 +214,7 @@ _PDF_KINDS_DOC = (
         "candidates directly instead of companies - pass a job_description "
         "instead of company/niche/roles. On a ThriveModal workspace the "
         "campaign attaches Sales Assets PDFs built for its role and "
-        "location: pass spec.pdfs to choose which (1 or 2) and optionally the "
+        "location: pass spec.pdfs to choose which (one or more) and optionally the "
         "step each goes on, or leave it out for the type's default (usually "
         "Role Blueprint + Cost Comparison). "
         "Kinds: " + _PDF_KINDS_DOC + " "
@@ -620,7 +622,7 @@ async def tm_mailboxes(action: str = "list", email: str = "",
     "PDFs are generated fresh for the campaign's role and location and "
     "replace the campaign's current Sales Assets PDFs; files the user "
     "uploaded by hand are kept. Emails already queued and waiting to send "
-    "pick up the change too. Kinds (1 or 2 per campaign): "
+    "pick up the change too. Kinds (one or more per campaign): "
     + _PDF_KINDS_DOC + " Use campaigns_list / campaign_get to find the "
     "campaign_id and see its steps. Takes up to a couple of minutes."
 ))
@@ -850,8 +852,6 @@ async def tm_newsletter_issue(campaign_id: str, refresh: bool = False) -> dict:
     "(newest first, each with a link) and the kinds available. With kind + "
     "role (+ company, location, industry), builds a new PDF and returns its "
     "link. Kinds: " + _PDF_KINDS_DOC + " The Sales Assets page also builds "
-    "interview_guide (Interview Guide for the shortlist stage) and "
-    "market_pulse (Market Pulse: industry context with sources), and "
     "kind='custom' (Create Your Own) builds a one-page PDF from description "
     "(a sentence or two on what it should be; role etc. optional). To change "
     "an existing PDF use tm_pdf_edit; to attach PDFs to a campaign use "

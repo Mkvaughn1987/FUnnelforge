@@ -2434,7 +2434,7 @@ _WIZARD_DRAFT_FIELDS = (
     "aicb_sel_locations", "aicb_sel_roles",
     "aicb_camp_type", "aicb_byos_desc",
     "aicb_cand_count", "aicb_cand_source", "aicb_cand_cards",
-    "_aicb_cand_text", "aicb_tm_profiles", "aicb_tm_pdfs",
+    "_aicb_cand_text", "aicb_tm_profiles", "aicb_tm_pdfs", "aicb_tm_library_pdfs",
     # Chooser context
     "_chooser_origin",
     # In-progress Library draft (so a refresh keeps updating the same one)
@@ -20918,7 +20918,8 @@ class AppState:
         # ── Step 3 Candidates (2026-04-26 wizard restructure) ──
         self.aicb_cand_count: int = 3             # stepper value 1-6
         self.aicb_tm_profiles: int = 3            # ThriveModal AI profiles 3-5
-        self.aicb_tm_pdfs = None                  # ThriveModal PDF kinds, 1-2 of the top 3; None = type default
+        self.aicb_tm_pdfs = None                  # ThriveModal PDF kinds to build; None = type default
+        self.aicb_tm_library_pdfs: list = []      # ThriveModal: files picked from the PDFs library, attached as-is
         self.aicb_cand_source: str = ""           # "pool" | "autogen" | "skip" | ""
         self.aicb_cand_cards: list = []           # list of {label, role, bullets:[str]}
         self.aicb_redact_companies: bool = True   # 5x3 only: hide real employer names (default ON)
@@ -21287,7 +21288,7 @@ _AICB_PERSISTED_FIELDS = (
     "aicb_sel_locations", "aicb_sel_roles",
     "aicb_camp_type", "aicb_byos_desc",
     "aicb_cand_count", "aicb_cand_source", "aicb_cand_cards",
-    "aicb_tm_profiles", "aicb_tm_pdfs",
+    "aicb_tm_profiles", "aicb_tm_pdfs", "aicb_tm_library_pdfs",
     "aicb_tone",
     # Target-a-Candidate wizard (Phase 2, 2026-05-10). Skip tc_jd_generating
     # and tc_generating — transient spinner flags. Skip tc_error — should
@@ -45940,13 +45941,24 @@ _TM_CAMPAIGN_PDF_KINDS = [
      "I've attached a short market briefing for your industry, with sources "
      "and dates."),
 ]
-# Mike, 2026-09-19: every campaign carries one or two PDFs, and only from the
-# top three. Interview Guide and Market Pulse stay in the list above so files
-# already attached keep their labels, but campaigns no longer offer them.
-_TM_CAMPAIGN_PDF_OFFERED = ("tm_role_blueprint", "tm_cost_compare",
-                            "tm_how_it_works")
+# Mike, 2026-09-21: "give the user the option to add as many PDFs as they
+# want". Every kind above is offered again and the only cap is the list
+# itself (2026-09-19 had it at one or two of the top three). A campaign still
+# carries at least one. Defaults below are unchanged.
+_TM_CAMPAIGN_PDF_OFFERED = tuple(k for k, *_ in _TM_CAMPAIGN_PDF_KINDS)
 TM_CAMPAIGN_PDF_MIN = 1
-TM_CAMPAIGN_PDF_MAX = 2
+TM_CAMPAIGN_PDF_MAX = len(_TM_CAMPAIGN_PDF_OFFERED)
+# One line per kind for the Review step's "Browse all PDFs" dialog.
+_TM_CAMPAIGN_PDF_BLURBS = {
+    "tm_role_blueprint": "What the role covers, the skills we recruit for, "
+                         "and how they would oversee it.",
+    "tm_cost_compare": "A U.S. hire beside a dedicated professional in the "
+                       "Philippines.",
+    "tm_how_it_works": "How an engagement runs, from defining the role to "
+                       "onboarding.",
+    "interview_guide": "Questions that get real signal from the shortlist.",
+    "market_pulse": "A short, sourced briefing on their industry.",
+}
 TM_CAMPAIGN_PDF_DEFAULT = ["tm_role_blueprint", "tm_cost_compare"]
 # Per type, the pair that matches what the sequence's steps talk about, so
 # placement finds a step that fits each PDF. Quick Intro has two emails that
@@ -46018,17 +46030,40 @@ def _tm_default_pdf_kinds(camp_type, emails=None) -> list:
     return kinds
 
 
-def _tm_resolve_pdf_pick(picked, camp_type, emails=None) -> list:
+def _tm_resolve_pdf_pick(picked, camp_type, emails=None,
+                         allow_empty=False) -> list:
     """The wizard stores None until the user touches the PDF chips, which
     means "use the default for this type"; an explicit pick is honoured, but
     every campaign carries at least one, so an empty pick (or one holding
-    only retired kinds) gets the default."""
+    only retired kinds) gets the default. `allow_empty` is for a campaign
+    that already carries a PDF from the user's library, which counts."""
     if picked is None:
         return _tm_default_pdf_kinds(camp_type, emails)
     clamped = _clamp_tm_pdf_kinds(picked)
-    if len(clamped) < TM_CAMPAIGN_PDF_MIN:
+    if len(clamped) < TM_CAMPAIGN_PDF_MIN and not (allow_empty and picked == []):
         return _tm_default_pdf_kinds(camp_type, emails)
     return clamped
+
+
+def _tm_wizard_pdf_kinds(s) -> list:
+    """The kinds the Review step will build: the user's pick, or none when
+    they cleared every kind but picked PDFs from their library."""
+    return _tm_resolve_pdf_pick(
+        getattr(s, "aicb_tm_pdfs", None), getattr(s, "aicb_camp_type", ""),
+        allow_empty=bool(getattr(s, "aicb_tm_library_pdfs", None)))
+
+
+def _tm_pdf_library(limit: int = 200) -> list:
+    """The user's PDFs folder, newest first, as [{file, title, created}]:
+    what the Review step's "Browse all PDFs" offers to attach as-is.
+    Redacted résumés are left out (they have their own picker)."""
+    d = _user_pdf_dir()
+    if not d.exists():
+        return []
+    files = sorted((p for p in d.glob("*.pdf")
+                    if not _is_redacted_resume_pdf(p.name)),
+                   key=lambda p: p.stat().st_mtime, reverse=True)
+    return [_tm_asset_row(p) for p in files[:limit]]
 
 
 def _tm_pdf_placement(camp_type, emails, kinds, pinned=None) -> dict:
@@ -46071,6 +46106,18 @@ def _tm_pdf_placement(camp_type, emails, kinds, pinned=None) -> dict:
     for kind, ei in zip(rest, sorted(picks)):
         placed[kind] = ei
         used.add(ei)
+    # Pass 3: more PDFs than free emails. The rest double up on the emails
+    # that may carry one, the least loaded first.
+    load = {ei: 0 for ei in eligible}
+    for ei in placed.values():
+        if ei in load:
+            load[ei] += 1
+    for kind in kinds:
+        if kind in placed or not load:
+            continue
+        ei = min(load, key=lambda i: (load[i], i))
+        placed[kind] = ei
+        load[ei] += 1
     return placed
 
 
@@ -46091,10 +46138,35 @@ def _tm_attach_campaign_pdfs(camp_type, campaign_data, built: dict,
     kinds = [k for k in _clamp_tm_pdf_kinds(list(built)) if built.get(k)]
     placed = _tm_pdf_placement(camp_type, emails, kinds, pinned=pinned)
     for kind, ei in placed.items():
-        emails[ei]["attachments"] = [built[kind]]
+        emails[ei]["attachments"] = list(emails[ei].get("attachments") or []) + [built[kind]]
         emails[ei]["body"] = _tm_insert_pdf_line(emails[ei].get("body"), lines[kind])
         print(f"[AICB] TM: attached {built[kind]} to email {ei + 1}", flush=True)
     return len(placed)
+
+
+def _tm_attach_library_pdfs(campaign_data, files) -> int:
+    """Attach PDFs the user picked from their library, as they are, each on
+    the least loaded email that may carry one (never the first). Files that
+    no longer exist are skipped rather than attached as dead links."""
+    emails = (campaign_data or {}).get("emails") or []
+    eligible = _tm_pdf_eligible_emails(emails)
+    if not eligible:
+        return 0
+    d = _user_pdf_dir()
+    n = 0
+    for fname in dict.fromkeys(files or []):
+        p = d / str(fname)
+        if not p.exists() or any(fname in (emails[i].get("attachments") or [])
+                                 for i in eligible):
+            continue
+        ei = min(eligible, key=lambda i: (len(emails[i].get("attachments") or []), i))
+        title = _tm_asset_row(p)["title"]
+        emails[ei]["attachments"] = list(emails[ei].get("attachments") or []) + [p.name]
+        emails[ei]["body"] = _tm_insert_pdf_line(
+            emails[ei].get("body"), f"I've attached {title}, in case it is useful.")
+        print(f"[AICB] TM: attached library PDF {p.name} to email {ei + 1}", flush=True)
+        n += 1
+    return n
 
 
 def _tm_campaign_pdf_filename(kind, subject) -> str:
@@ -51171,9 +51243,8 @@ def p_ai_campaign(s: AppState, rf):
                     # _tm_pdf_worker below.
                     _tm_campaign = ((s.aicb_camp_type or "").strip() in _TM_TYPE_KEYS
                                     or _workspace_playbook() == PLAYBOOK_THRIVEMODAL)
-                    _tm_pdf_kinds = (_tm_resolve_pdf_pick(
-                                         getattr(s, "aicb_tm_pdfs", None),
-                                         s.aicb_camp_type)
+                    _tm_pdf_kinds = _tm_wizard_pdf_kinds(s) if _tm_campaign else []
+                    _tm_lib_files = (list(getattr(s, "aicb_tm_library_pdfs", None) or [])
                                      if _tm_campaign else [])
                     _tm_pdf_role = ((s.aicb_sel_roles or [""])[0] or roles_str).strip()
                     _tm_pdf_loc = ((s.aicb_sel_locations or [""])[0]
@@ -51524,6 +51595,12 @@ def p_ai_campaign(s: AppState, rf):
                                         _pdf_data_holder["tm_built"])
                                 except Exception as _att_ex:
                                     print(f"[AICB] TM attach error: {_att_ex}", flush=True)
+                            if _tm_campaign and _tm_lib_files:
+                                try:
+                                    _tm_attach_library_pdfs(campaign_data, _tm_lib_files)
+                                except Exception as _att_ex:
+                                    print(f"[AICB] TM library attach error: {_att_ex}",
+                                          flush=True)
                             if _pdf_data_payload:
                                 # Free Flow ('byos'): restrict PDF attach
                                 # to only the kinds the user named in
@@ -51704,9 +51781,141 @@ def p_ai_campaign(s: AppState, rf):
                                     on_change=_set_tm_prof,
                                 ).props("dense outlined").style("max-width:240px;")
                         if _tm_review:
-                            _picked_pdfs = _tm_resolve_pdf_pick(
-                                getattr(s, "aicb_tm_pdfs", None), s.aicb_camp_type)
-                            _pdfs_full = len(_picked_pdfs) >= TM_CAMPAIGN_PDF_MAX
+                            _picked_pdfs = _tm_wizard_pdf_kinds(s)
+                            _lib_titles = {r["file"]: r["title"] for r in _tm_pdf_library()}
+                            _lib_picked = [f for f in (getattr(s, "aicb_tm_library_pdfs", None) or [])
+                                           if f in _lib_titles]
+                            _chip_on = (f"background:{C['teal']};color:#fff;"
+                                        f"border:1px solid {C['teal']};")
+                            _chip_off = (f"background:transparent;color:{C['text_l']};"
+                                         f"border:1px solid {C['border']};")
+                            _chip_base = ("padding:6px 12px;border-radius:99px;"
+                                          "font-size:12px;font-weight:600;cursor:pointer;")
+
+                            def _toggle_pdf(k):
+                                cur = _tm_wizard_pdf_kinds(s)
+                                if k in cur:
+                                    if (len(cur) <= TM_CAMPAIGN_PDF_MIN
+                                            and not getattr(s, "aicb_tm_library_pdfs", None)):
+                                        return  # always at least one PDF
+                                    cur.remove(k)
+                                else:
+                                    cur.append(k)
+                                s.aicb_tm_pdfs = cur
+                                rf()
+
+                            def _drop_lib_pdf(f):
+                                cur = [x for x in (getattr(s, "aicb_tm_library_pdfs", None) or [])
+                                       if x != f]
+                                if not cur and not _tm_wizard_pdf_kinds(s):
+                                    s.aicb_tm_pdfs = None  # back to the type default
+                                s.aicb_tm_library_pdfs = cur
+                                rf()
+
+                            def _open_pdf_browser():
+                                # Picks collect here and land when the dialog
+                                # closes, so the page never re-renders under it.
+                                pend_kinds = list(_tm_wizard_pdf_kinds(s))
+                                pend_lib = list(getattr(s, "aicb_tm_library_pdfs", None) or [])
+
+                                def _set(lst, key, on):
+                                    if on and key not in lst:
+                                        lst.append(key)
+                                    elif not on and key in lst:
+                                        lst.remove(key)
+
+                                def _apply():
+                                    s.aicb_tm_library_pdfs = pend_lib
+                                    s.aicb_tm_pdfs = [k for k in _TM_CAMPAIGN_PDF_OFFERED
+                                                      if k in pend_kinds]
+                                    if not s.aicb_tm_pdfs and not pend_lib:
+                                        s.aicb_tm_pdfs = None  # nothing picked: type default
+                                    rf()
+
+                                _lib = _tm_pdf_library()
+                                with ui.dialog() as dlg, ui.card().style(
+                                        f"background:{C['bg']};border:1px solid {C['border']};"
+                                        "border-radius:14px;padding:24px 26px;"
+                                        "width:640px;max-width:94vw;max-height:86vh;"):
+                                    ui.label("All PDFs").style(
+                                        f"font-size:20px;font-weight:800;color:{C['text_l']};")
+                                    ui.label("Pick as many as you like. Each goes on a "
+                                             "later email, never the first.").style(
+                                        f"font-size:12px;color:{C['muted']};margin-bottom:6px;")
+                                    ui.label("Built for this campaign").style(
+                                        f"font-size:11px;font-weight:700;color:{C['muted']};"
+                                        "text-transform:uppercase;letter-spacing:.05em;"
+                                        "margin-top:4px;")
+                                    for _k, _l, *_ in _TM_CAMPAIGN_PDF_KINDS:
+                                        if _k not in _TM_CAMPAIGN_PDF_OFFERED:
+                                            continue
+                                        with ui.element("div").style(
+                                                "display:flex;align-items:flex-start;gap:8px;"
+                                                "width:100%;"):
+                                            ui.checkbox(
+                                                value=_k in pend_kinds,
+                                                on_change=lambda e, k=_k: _set(
+                                                    pend_kinds, k, e.value)
+                                            ).props("dense")
+                                            with ui.element("div"):
+                                                ui.label(_l).style(
+                                                    f"font-size:13px;font-weight:600;"
+                                                    f"color:{C['text_l']};")
+                                                ui.label(_TM_CAMPAIGN_PDF_BLURBS.get(_k, "")).style(
+                                                    f"font-size:11px;color:{C['muted']};")
+                                    ui.label(f"From your library ({len(_lib)})").style(
+                                        f"font-size:11px;font-weight:700;color:{C['muted']};"
+                                        "text-transform:uppercase;letter-spacing:.05em;"
+                                        "margin-top:12px;")
+                                    if not _lib:
+                                        ui.label("PDFs you build on the Sales Assets page "
+                                                 "show up here.").style(
+                                            f"font-size:12px;color:{C['muted']};")
+                                    else:
+                                        _rows = []
+                                        _q = ui.input(placeholder="Search your PDFs").props(
+                                            "dense outlined clearable").style("width:100%;")
+                                        with ui.element("div").style(
+                                                "width:100%;max-height:300px;overflow-y:auto;"):
+                                            for _r in _lib:
+                                                with ui.element("div").style(
+                                                        "display:flex;align-items:center;"
+                                                        "gap:8px;padding:3px 0;") as _row:
+                                                    ui.checkbox(
+                                                        value=_r["file"] in pend_lib,
+                                                        on_change=lambda e, f=_r["file"]: _set(
+                                                            pend_lib, f, e.value)
+                                                    ).props("dense")
+                                                    ui.label(_r["title"]).style(
+                                                        f"font-size:13px;color:{C['text_l']};"
+                                                        "flex:1;min-width:0;overflow:hidden;"
+                                                        "text-overflow:ellipsis;white-space:nowrap;")
+                                                    ui.label(_r["created"][:10]).style(
+                                                        f"font-size:11px;color:{C['muted']};")
+                                                    with ui.link(target=_r["path"],
+                                                                 new_tab=True).style(
+                                                            "text-decoration:none;font-size:11px;"
+                                                            f"color:{C['muted']};"):
+                                                        ui.label("View")
+                                                _rows.append((_row, (_r["title"] + " "
+                                                                     + _r["file"]).lower()))
+
+                                        def _filter(e, rows=_rows):
+                                            q = (e.value or "").strip().lower()
+                                            for row, hay in rows:
+                                                row.set_visibility(not q or q in hay)
+                                        _q.on_value_change(_filter)
+                                    with ui.element("div").style(
+                                            "display:flex;justify-content:flex-end;width:100%;"
+                                            "margin-top:10px;"):
+                                        with ui.element("button").classes("fd-pb").style(
+                                                "padding:8px 22px;font-size:13px;"
+                                                "border-radius:99px;cursor:pointer;"
+                                                ).on("click", dlg.close):
+                                            ui.label("Done").style("pointer-events:none;")
+                                dlg.on("hide", lambda: _apply())
+                                dlg.open()
+
                             with ui.element("div").style(
                                     "display:grid;grid-template-columns:130px 1fr;"
                                     "gap:10px;padding:8px 0;align-items:start;"
@@ -51722,42 +51931,29 @@ def p_ai_campaign(s: AppState, rf):
                                             if _pk not in _TM_CAMPAIGN_PDF_OFFERED:
                                                 continue
                                             _on = _pk in _picked_pdfs
-                                            _off = _pdfs_full and not _on
-
-                                            def _toggle_pdf(k=_pk):
-                                                cur = _tm_resolve_pdf_pick(
-                                                    getattr(s, "aicb_tm_pdfs", None),
-                                                    s.aicb_camp_type)
-                                                if k in cur:
-                                                    if len(cur) <= TM_CAMPAIGN_PDF_MIN:
-                                                        return  # always at least one
-                                                    cur.remove(k)
-                                                elif len(cur) < TM_CAMPAIGN_PDF_MAX:
-                                                    cur.append(k)
-                                                else:
-                                                    return
-                                                s.aicb_tm_pdfs = cur
-                                                rf()
-
                                             with ui.element("button").style(
-                                                    "padding:6px 12px;border-radius:99px;"
-                                                    "font-size:12px;font-weight:600;"
-                                                    + (f"background:{C['teal']};color:#fff;"
-                                                       f"border:1px solid {C['teal']};"
-                                                       if _on else
-                                                       f"background:transparent;color:{C['text_l']};"
-                                                       f"border:1px solid {C['border']};")
-                                                    + ("opacity:.4;cursor:not-allowed;"
-                                                       if _off else "cursor:pointer;")
-                                                    ).on("click", (lambda: None) if _off
-                                                         else _toggle_pdf):
+                                                    _chip_base + (_chip_on if _on else _chip_off)
+                                                    ).on("click", lambda k=_pk: _toggle_pdf(k)):
                                                 ui.label(("✓ " if _on else "") + _pl)
+                                        for _lf in _lib_picked:
+                                            with ui.element("button").style(
+                                                    _chip_base + _chip_on
+                                                    + "max-width:280px;"
+                                                    ).on("click", lambda f=_lf: _drop_lib_pdf(f)
+                                                    ).tooltip("Click to remove"):
+                                                ui.label("✓ " + _lib_titles[_lf] + "  ✕").style(
+                                                    "overflow:hidden;text-overflow:ellipsis;"
+                                                    "white-space:nowrap;")
+                                        with ui.element("button").style(
+                                                _chip_base + "background:transparent;"
+                                                f"color:{C['teal']};"
+                                                f"border:1px dashed {C['teal']};"
+                                                ).on("click", _open_pdf_browser):
+                                            ui.label("📂 Browse all PDFs")
                                     ui.label(
-                                        "One or two, built for this role and "
-                                        "location. Each goes on its own email, "
-                                        "never the first. "
-                                        + ("To swap one, unpick it first."
-                                           if _pdfs_full else "")
+                                        "Pick as many as you like. New ones are built "
+                                        "for this role and location. Each goes on a "
+                                        "later email, never the first."
                                     ).style(f"font-size:11px;color:{C['muted']};"
                                             f"margin-top:6px;")
                         ui.label("Need to change something? Use the back button on the progress bar above.").style(
@@ -51781,9 +51977,9 @@ def p_ai_campaign(s: AppState, rf):
                         if (s.aicb_camp_type in _TM_TYPE_KEYS
                                 or _workspace_playbook() == PLAYBOOK_THRIVEMODAL):
                             _gen_pdfs = [l for k, l, *_ in _TM_CAMPAIGN_PDF_KINDS
-                                         if k in _tm_resolve_pdf_pick(
-                                             getattr(s, "aicb_tm_pdfs", None),
-                                             s.aicb_camp_type)]
+                                         if k in _tm_wizard_pdf_kinds(s)]
+                            if len(_gen_pdfs) > 1:
+                                _gen_pdfs = [", ".join(_gen_pdfs[:-1]), _gen_pdfs[-1]]
                             _gen_what = (
                                 "AI is researching the company, writing personalized "
                                 "emails, and building your "
