@@ -803,7 +803,9 @@ async def tm_sales_assets(kind: str = "", role: str = "", company: str = "",
 @mcp.tool(description=(
     "The user's Saved Prompts from the AI Prompt page. With no prompt_id, "
     "lists them; with one, returns that prompt's full text, rebuilt from its "
-    "saved answers, ready to follow."
+    "saved answers, ready to follow, plus the answers themselves. To change "
+    "a saved prompt's answers, save a new one or delete one, use "
+    "tm_ai_prompt."
 ))
 async def tm_saved_prompts(prompt_id: str = "") -> dict:
     return await _tm_call("tm_saved_prompts", prompt_id)
@@ -826,11 +828,20 @@ async def tm_clients(action: str = "list", domain: str = "", name: str = "",
 
 
 @mcp.tool(description=(
-    "Settings: the company profile, email signature and timezone. With no "
-    "update, returns them. update may hold any of {'profile': {<field>: "
-    "value}, 'signature': '<text>', 'timezone': 'America/Chicago'}; the "
-    "allowed profile fields come back from the read. Emails already queued "
-    "keep their old signature and send times."
+    "Settings (Company Profile + Email & AI Setup). With no update, returns "
+    "the company profile, email signature, timezone, the user's own name "
+    "and phone, the newsletter personal note, the AI writing style guide, "
+    "the daily send limit and whether the user is a team admin. update may "
+    "hold any of {'profile': {<field>: value}, 'signature': '<text>', "
+    "'timezone': 'America/Chicago', 'user': {'name', 'phone'}, "
+    "'newsletter_note': '<text>', 'ai_style_guide': '<one rule per line>', "
+    "'daily_send_limit': 5-500, 'restore_page_guides': true}. The allowed "
+    "profile fields come back from the read; if a logo is uploaded, its "
+    "colour replaces company_color, as in the app. Emails already queued "
+    "keep their old signature and send times. Credentials (mailbox "
+    "passwords, SMTP, OAuth sign-ins, API keys) cannot be read or changed "
+    "here: the user sets those in the app in a browser. For the Sales "
+    "Playbook, website auto-fill and team default use tm_playbook."
 ))
 async def tm_settings(update: dict | None = None) -> dict:
     return await _tm_call("tm_settings", update)
@@ -859,6 +870,83 @@ async def tm_dnc(action: str = "list", email: str = "", domain: str = "",
 
 
 # ── connector group C (2026-09-21) begin ──
+@mcp.tool(description=(
+    "The AI Prompt page: writes the prompt a user pastes into Claude to run "
+    "an outreach job, with the ThriveModal rules built in. Nothing runs or "
+    "sends here. action='runs' (default) lists the runs on offer and every "
+    "question each one asks (key, options, default, required). "
+    "action='build' returns the prompt text: pass run (a run id from "
+    "'runs') or prompt_id (a saved prompt, to edit its answers), answers "
+    "{question key: value} for anything to change from the defaults, and "
+    "optional instructions (extra lines added as steps). A select question "
+    "takes only one of its listed options. A required question left blank "
+    "is not an error: the prompt asks the user for it (see "
+    "still_to_answer). action='save' does the same and also saves it to "
+    "Saved Prompts under name (a saved prompt with the same name is "
+    "replaced). action='delete' removes the saved prompt prompt_id. "
+    "tm_saved_prompts lists the saved ones."
+))
+async def tm_ai_prompt(action: str = "runs", run: str = "", prompt_id: str = "",
+                       answers: dict | None = None,
+                       instructions: list | None = None,
+                       name: str = "") -> dict:
+    body: dict = {"action": action}
+    if run:
+        body["run"] = run
+    if prompt_id:
+        body["prompt_id"] = prompt_id
+    if answers:
+        body["answers"] = answers
+    if instructions is not None:
+        body["instructions"] = instructions
+    if name:
+        body["name"] = name
+    return await _tm_call("tm_ai_prompt", body)
+
+
+@mcp.tool(description=(
+    "Company Profile page: the Sales Playbook every ThriveModal campaign and "
+    "sales asset is written under, plus website auto-fill and team default. "
+    "action='get' (default) returns each playbook section (key, label, the "
+    "text in force, whether it is the shipped default or empty, whether it "
+    "can be improved) and the user's own custom sections. "
+    "action='update' with sections={key: text} and/or custom_sections="
+    "[{title, body}] (replaces all custom sections) saves them; an empty "
+    "section is saved empty and the AI then says nothing on that topic. "
+    "action='add_section' with title + body; action='remove_section' with "
+    "title. action='restore' puts the shipped text back in the sections "
+    "listed in sections=[keys], or in every empty section when none are "
+    "listed. action='improve' with section (+ optional text to improve "
+    "instead of the saved text) has the AI rewrite it without adding any "
+    "fact or figure; it returns the suggestion and saves it only with "
+    "apply=true - show the user the rewrite first. Proof and banned-claims "
+    "sections cannot be improved. action='switch' with playbook changes the "
+    "workspace playbook where the app allows it (switching away from "
+    "ThriveModal turns these tools off). action='autofill' with website "
+    "reads the company's site and returns the company-profile fields it "
+    "found; apply=true saves them. action='team_default' copies the saved "
+    "company profile and logo to the whole team (team admins only). Edit "
+    "single profile fields with tm_settings."
+))
+async def tm_playbook(action: str = "get", sections: dict | list | None = None,
+                      custom_sections: list | None = None, title: str = "",
+                      body: str = "", section: str = "", text: str | None = None,
+                      apply: bool = False, playbook: str = "",
+                      website: str = "") -> dict:
+    req: dict = {"action": action}
+    if sections is not None:
+        req["sections"] = sections
+    if custom_sections is not None:
+        req["custom_sections"] = custom_sections
+    for k, v in (("title", title), ("body", body), ("section", section),
+                 ("playbook", playbook), ("website", website)):
+        if v:
+            req[k] = v
+    if text is not None:
+        req["text"] = text
+    if apply:
+        req["apply"] = True
+    return await _tm_call("tm_playbook", req)
 # ── connector group C end ──
 
 

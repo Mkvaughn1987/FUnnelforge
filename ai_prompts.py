@@ -1471,8 +1471,8 @@ def build_prompt(req, cat=None):
 # a saved setup picks up any later improvement to the wording instead of
 # freezing a prompt written months ago.
 
-def _setups_path():
-    return _ff()._resolve_user_root() / _CAT.setups_file
+def _setups_path(cat=None):
+    return _ff()._resolve_user_root() / (cat or _CAT).setups_file
 
 
 # Set by the host app: NAVIGATE(page_key) switches pages. The Saved
@@ -1480,9 +1480,9 @@ def _setups_path():
 NAVIGATE = None
 
 
-def _load_setups():
+def _load_setups(cat=None):
     try:
-        p = _setups_path()
+        p = _setups_path(cat)
         if p.exists():
             data = json.loads(p.read_text(encoding="utf-8"))
             return data if isinstance(data, list) else []
@@ -1491,9 +1491,9 @@ def _load_setups():
     return []
 
 
-def _save_setups(rows):
+def _save_setups(rows, cat=None):
     try:
-        p = _setups_path()
+        p = _setups_path(cat)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(rows, indent=2, default=str),
                      encoding="utf-8")
@@ -1660,10 +1660,11 @@ ARENA = Catalogue(
 _CAT = ARENA
 
 
-def _req_from_starter(st):
+def _req_from_starter(st, cat=None):
     """A starter becomes the same shape the AI parse used to return, so view 2
     and build_prompt() cannot tell the difference."""
-    r = _CAT.routine_by_key.get(st["routine"], _CAT.routine_by_key[_CAT.default_routine])
+    cat = cat or _CAT
+    r = cat.routine_by_key.get(st["routine"], cat.routine_by_key[cat.default_routine])
     vals = defaults_for(r)
     preset = {k: v for k, v in (st.get("vals") or {}).items()
               if k in r["field_by_key"]}
@@ -2022,18 +2023,19 @@ def _aip_ask(s, rf, C):
                     _aip_setup_row(s, rf, C, row, setups)
 
 
-def _open_setup(s, row, built=False):
-    """Load a saved setup's answers into the session. built=True also
-    builds the prompt, so the page opens straight on the result."""
-    key = row.get("routine") or _CAT.default_routine
-    r = _CAT.routine_by_key.get(key, _CAT.routine_by_key[_CAT.default_routine])
+def req_from_setup(row, cat=None):
+    """A saved setup back into the request shape the questions screen and
+    build_prompt() use. Shared by the page and the connector."""
+    cat = cat or _CAT
+    key = row.get("routine") or cat.default_routine
+    r = cat.routine_by_key.get(key, cat.routine_by_key[cat.default_routine])
     vals = defaults_for(r)
     # Only keys the routine still has. A setup saved before a field was
     # renamed loads with that one answer missing rather than failing.
     for k, v in (row.get("vals") or {}).items():
         if k in r["field_by_key"]:
             vals[k] = v
-    s._aip_req = {
+    return {
         "raw": row.get("raw") or "",
         "routine": r["key"],
         "title": row.get("name") or r["name"],
@@ -2042,6 +2044,125 @@ def _open_setup(s, row, built=False):
         "filled": list(vals.keys()),
         "detail": list(row.get("detail") or []),
     }
+
+
+def save_setup(req, name, cat=None):
+    """Save a request's answers under `name`, newest first. A setup with the
+    same name (any case) is replaced, and only the 30 newest are kept.
+    Returns the saved row, or None when the file could not be written."""
+    cat = cat or _CAT
+    rows = _load_setups(cat)
+    rows = [x for x in rows
+            if (x.get("name") or "").lower() != name.lower()]
+    row = {
+        "id": uuid.uuid4().hex[:12],
+        "name": name,
+        "routine": req.get("routine") or cat.default_routine,
+        "raw": req.get("raw") or "",
+        "summary": req.get("summary") or "",
+        "vals": dict(req.get("vals") or {}),
+        "detail": list(req.get("detail") or []),
+        "saved_at": date.today().isoformat(),
+    }
+    rows.insert(0, row)
+    return row if _save_setups(rows[:30], cat) else None
+
+
+def delete_setup(setup_id, cat=None):
+    """Remove a saved setup by id. False when there was none to remove."""
+    rows = _load_setups(cat)
+    keep = [x for x in rows if x.get("id") != setup_id]
+    if len(keep) == len(rows):
+        return False
+    return _save_setups(keep, cat)
+
+
+def describe_runs(cat=None, newsletter_names=()):
+    """Every run the first screen offers, with the questions the next screen
+    asks: for callers that never render the page (the connector). Defaults
+    are the starter's own presets, as the questions screen opens with."""
+    cat = cat or _CAT
+    out = []
+    for st in cat.starters:
+        req = _req_from_starter(st, cat)
+        r = cat.routine_by_key[req["routine"]]
+        must = set(req.get("ask_extra") or ())
+        qs = []
+        for f in r["fields"]:
+            q = {"key": f["key"], "label": f["label"],
+                 "section": SECTION_NAME.get(f["section"], f["section"]),
+                 "type": f["type"], "default": req["vals"].get(f["key"], ""),
+                 "required": bool(f.get("ask") or f["key"] in must)}
+            if f["type"] == "newsletter":
+                q["type"] = "select"
+                q["options"] = [_NL_FIND] + list(newsletter_names) + [_NL_NONE]
+                q["default"] = _NL_FIND
+            elif f["options"]:
+                q["options"] = list(f["options"])
+            for k in ("hint", "placeholder"):
+                if f.get(k):
+                    q[k] = f[k]
+            qs.append(q)
+        out.append({"run": st["id"], "label": st["label"], "about": st["sub"],
+                    "routine": r["key"], "questions": qs})
+    return out
+
+
+def apply_answers(r, vals, answers):
+    """Write a caller's answers into vals the way the questions screen
+    would, and return what was wrong with them (an empty list is success).
+    A select only takes one of its own options, a toggle only a yes/no, and
+    the newsletter answer sets the same pair the page's dropdown sets."""
+    errors = []
+    for key, v in (answers or {}).items():
+        f = r["field_by_key"].get(key)
+        if not f:
+            errors.append("%s is not a question on this run" % key)
+            continue
+        if f["type"] == "toggle":
+            if isinstance(v, bool):
+                vals[key] = v
+            elif str(v).strip().lower() in ("1", "true", "yes", "on"):
+                vals[key] = True
+            elif str(v).strip().lower() in ("0", "false", "no", "off", ""):
+                vals[key] = False
+            else:
+                errors.append("%s takes true or false" % key)
+            continue
+        if isinstance(v, (dict, list)):
+            errors.append("%s takes text, not a list or object" % key)
+            continue
+        v = "" if v is None else str(v).strip()
+        if f["type"] == "newsletter":
+            low = v.lower()
+            if not v or low == _NL_FIND.lower():
+                vals["newsletter_mode"], vals["newsletter"] = NEWSLETTER_MODES[0], ""
+            elif low in (_NL_NONE.lower(), "none", "no"):
+                vals["newsletter_mode"], vals["newsletter"] = NEWSLETTER_MODES[2], ""
+            else:
+                vals["newsletter_mode"], vals["newsletter"] = NEWSLETTER_MODES[1], v
+            continue
+        if f["options"] and v:
+            hit = next((o for o in f["options"] if o.lower() == v.lower()), "")
+            if not hit:
+                errors.append("%s must be one of: %s"
+                              % (key, "; ".join(f["options"])))
+                continue
+            v = hit
+        if f["type"] == "number" and v:
+            try:
+                float(v)
+            except ValueError:
+                errors.append("%s takes a number" % key)
+                continue
+        vals[key] = v
+    return errors
+
+
+def _open_setup(s, row, built=False):
+    """Load a saved setup's answers into the session. built=True also
+    builds the prompt, so the page opens straight on the result."""
+    s._aip_req = req_from_setup(row)
     s._aip_prompt = build_prompt(s._aip_req) if built else None
     s._aip_open = None
     s._aip_saving = False
@@ -2066,7 +2187,7 @@ def render_saved_page(s, rf, cat):
             rf()
 
     def _delete(row):
-        _save_setups([x for x in rows if x.get("id") != row.get("id")])
+        delete_setup(row.get("id"))
         ui.notify("Deleted.", type="positive")
         rf()
 
@@ -2104,23 +2225,7 @@ def render_saved_page(s, rf, cat):
 
 def _aip_setup_row(s, rf, C, row, setups):
     def _load():
-        key = row.get("routine") or _CAT.default_routine
-        r = _CAT.routine_by_key.get(key, _CAT.routine_by_key[_CAT.default_routine])
-        vals = defaults_for(r)
-        # Only keys the routine still has. A setup saved before a field was
-        # renamed loads with that one answer missing rather than failing.
-        for k, v in (row.get("vals") or {}).items():
-            if k in r["field_by_key"]:
-                vals[k] = v
-        s._aip_req = {
-            "raw": row.get("raw") or "",
-            "routine": r["key"],
-            "title": row.get("name") or r["name"],
-            "summary": row.get("summary") or "",
-            "vals": vals,
-            "filled": list(vals.keys()),
-            "detail": list(row.get("detail") or []),
-        }
+        s._aip_req = req_from_setup(row)
         s._aip_prompt = None
         s._aip_open = None
         s._aip_saving = False
@@ -2128,8 +2233,7 @@ def _aip_setup_row(s, rf, C, row, setups):
         rf()
 
     def _delete():
-        keep = [x for x in setups if x.get("id") != row.get("id")]
-        _save_setups(keep)
+        delete_setup(row.get("id"))
         ui.notify("Deleted.", type="positive")
         rf()
 
@@ -2318,20 +2422,7 @@ def _aip_save_setup(s, rf, C, req, label="Save these answers"):
         if not name:
             ui.notify("Give it a name first.", type="warning")
             return
-        rows = _load_setups()
-        rows = [x for x in rows
-                if (x.get("name") or "").lower() != name.lower()]
-        rows.insert(0, {
-            "id": uuid.uuid4().hex[:12],
-            "name": name,
-            "routine": req.get("routine") or _CAT.default_routine,
-            "raw": req.get("raw") or "",
-            "summary": req.get("summary") or "",
-            "vals": dict(req.get("vals") or {}),
-            "detail": list(req.get("detail") or []),
-            "saved_at": date.today().isoformat(),
-        })
-        if _save_setups(rows[:30]):
+        if save_setup(req, name):
             s._aip_saving = False
             ui.notify("Saved. Find it under Saved Prompts." if NAVIGATE
                       else "Saved. It'll be on the first screen next time.",
