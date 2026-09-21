@@ -11654,6 +11654,7 @@ async def api_campaigns_list(request: Request):
         out.append({
             "campaign_id": Path(c.get("_path", "")).stem or cn,
             "name": cn,
+            "status": c.get("status", ""),
             "template": c.get("template_key") or c.get("aicb_camp_type") or "",
             "start_date": c.get("start_date", ""),
             "steps": len(c.get("emails", [])),
@@ -11702,6 +11703,7 @@ async def api_campaign_get(campaign_id: str, request: Request):
     return JSONResponse({
         "campaign_id": Path(camp.get("_path", "")).stem or cn,
         "name": cn,
+        "status": camp.get("status", ""),
         "template": camp.get("template_key") or camp.get("aicb_camp_type") or "",
         "start_date": camp.get("start_date", ""),
         "synopsis": camp.get("synopsis", ""),
