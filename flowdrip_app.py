@@ -7045,7 +7045,8 @@ def _aicb_research_brief(client, *, camp_type="", company="", website="",
     the wizard and the API so both research identically."""
     roles = list(roles or [])
     roles_str = ", ".join(roles)
-    location_str = location.strip() if location else "their primary markets"
+    location_str = (location.strip() if location else
+                    (_TM_NATIONWIDE if _tm_nationwide() else "their primary markets"))
     ind_label = (AICB_INDUSTRIES.get(industry, {}).get("label", "") or industry) if industry else ""
     company = (company or "").strip()
     niche_str = (niche or "").strip()
@@ -7185,7 +7186,8 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
     roles = list(roles or [])
     roles_str = ", ".join(roles)
     _first_role = roles[0] if roles else ""
-    location_str = location.strip() if location else "their primary markets"
+    location_str = (location.strip() if location else
+                    (_TM_NATIONWIDE if _tm_nationwide() else "their primary markets"))
     ind_label = (AICB_INDUSTRIES.get(industry, {}).get("label", "") or industry) if industry else ""
     company = (company or "").strip()
     niche_str = (niche or "").strip()
@@ -30966,7 +30968,8 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
     if _pre_sector_key and _pre_sector_key not in _nl_sectors:
         _pre_sector_key = ""
     _pre_niche = (prefill.get("niche") or "").strip()
-    _pre_region = (prefill.get("region") or "").strip()
+    _pre_region = (_TM_NATIONWIDE if _tm_nationwide()
+                   else (prefill.get("region") or "").strip())
     _pre_contacts = list(prefill.get("contacts") or [])
     _pre_source = (prefill.get("source_campaign_name") or "").strip()
     _pre_start_after = (prefill.get("start_after") or "").strip()
@@ -39453,12 +39456,41 @@ def _tm_bls_local_salary(client, role: str, location: str) -> dict | None:
     return None
 
 
+# ThriveModal professionals work offshore, so a campaign's or newsletter's
+# location defaults to Nationwide everywhere (Mike, 2026-09-21). The field
+# stays editable; only the auto-filled value changes. Arena is untouched.
+_TM_NATIONWIDE = "Nationwide"
+_NATIONWIDE_WORDS = ("nationwide", "national", "united states", "usa", "u.s.",
+                     "us", "anywhere", "anywhere in the united states",
+                     "remote", "the united states")
+
+
+def _tm_nationwide() -> bool:
+    try:
+        return bool(_SALES_MODE and _is_thrivemodal())
+    except Exception:
+        return False
+
+
+def _default_locations(found) -> list:
+    """Auto-filled locations: ["Nationwide"] on ThriveModal, else `found`."""
+    if _tm_nationwide():
+        return [_TM_NATIONWIDE]
+    return list(found or [])
+
+
+def _is_nationwide(location: str) -> bool:
+    return str(location or "").strip().lower().rstrip(".") in _NATIONWIDE_WORDS
+
+
 def _tm_lookup_local_salary(client, role: str, location: str) -> dict | None:
     """Local salary for role in location, with its source, or None.
     BLS first (exact government figure); web search only if BLS has
     nothing. Never raises: a failed lookup falls back to the national
     benchmark in _tm_auto_cost_pdf_data."""
     role, location = str(role or "").strip(), str(location or "").strip()
+    if _is_nationwide(location):
+        location = ""
     if not role:
         return None
     key = (role.lower(), location.lower())
@@ -43629,6 +43661,8 @@ def _render_step3_confirm(s, rf):
     # split into two tokens. Roles stay on comma (role names don't
     # typically contain commas).
     ui.label("Locations").classes("fd-fl")
+    if not (getattr(s, "aicb_sel_locations", []) or []) and _tm_nationwide():
+        s.aicb_sel_locations = [_TM_NATIONWIDE]
     _loc_csv = "; ".join(getattr(s, "aicb_sel_locations", []) or [])
     _loc_in = ui.input(
         value=_loc_csv,
@@ -43667,9 +43701,11 @@ def _aicb_apply_extracted(s, data: dict):
     if _ind and _ind in AICB_INDUSTRIES: s.aicb_industry = _ind
     if _loc:
         if isinstance(_loc, str):
-            s.aicb_sel_locations = [x.strip() for x in _loc.split(",") if x.strip()]
+            s.aicb_sel_locations = _default_locations(
+                [x.strip() for x in _loc.split(",") if x.strip()])
         elif isinstance(_loc, list):
-            s.aicb_sel_locations = [str(x).strip() for x in _loc if str(x).strip()]
+            s.aicb_sel_locations = _default_locations(
+                [str(x).strip() for x in _loc if str(x).strip()])
     if _roles:
         if isinstance(_roles, list):
             s.aicb_sel_roles = [str(r).strip() for r in _roles if str(r).strip()][:5]
@@ -44512,7 +44548,7 @@ def _aicb_auto_fill_run(s):
                 existing.append(loc)
             if len(existing) >= 5:
                 break
-        s.aicb_sel_locations = existing[:5]
+        s.aicb_sel_locations = _default_locations(existing[:5])
 
         if not industries and not locations:
             s._aicb_autofill_err = (
@@ -45347,7 +45383,7 @@ def _analyze_contacts_with_ai(s, rows):
             if loc: loc_counts[loc] = loc_counts.get(loc, 0) + 1
         if loc_counts:
             top_loc = max(loc_counts, key=loc_counts.get)
-            s.aicb_sel_locations = [top_loc]
+            s.aicb_sel_locations = _default_locations([top_loc])
 
     # Use AI to enhance with industry, website, better niche description
     if ANTHROPIC_API_KEY:
@@ -45413,7 +45449,7 @@ def _analyze_contacts_with_ai(s, rows):
                     if label:
                         s.aicb_primary_industry = label
                 if result.get("location"):
-                    s.aicb_sel_locations = [result["location"]]
+                    s.aicb_sel_locations = _default_locations([result["location"]])
                 if result.get("roles"):
                     s.aicb_sel_roles = result["roles"][:5]
                 if result.get("website"):
@@ -46386,6 +46422,8 @@ def p_ai_campaign(s: AppState, rf):
                     # tells the model NOT to spread candidates across
                     # cities.
                     LOC_MAX = 3
+                    if not (getattr(s, "aicb_sel_locations", []) or []) and _tm_nationwide():
+                        s.aicb_sel_locations = [_TM_NATIONWIDE]
                     _cur_locs = list(getattr(s, "aicb_sel_locations", []) or [])
                     if _show_below_autofill:
                         with ui.element("div").style("margin-bottom:12px;"):
@@ -57132,7 +57170,8 @@ def _tm_newsletter_prompt(nl_name: str, company: str, niche: str, region: str,
     return (
         f"You are writing one issue of {nl_name}, a monthly email newsletter "
         f"from {company} for owners, operations leaders and finance leaders at "
-        f"{_niche} companies in {region or 'the US'}. {company} provides "
+        f"{_niche} companies "
+        f"{'across the U.S.' if _is_nationwide(region) or not region else 'in ' + region}. {company} provides "
         f"dedicated, full-time professionals based in the Philippines who work "
         f"the client's U.S. hours inside the client's own systems.\n\n"
         f"The newsletter is about OFFSHORE STAFFING: why it works, how "
@@ -60169,7 +60208,7 @@ def p_market_intel(s: AppState, rf):
                                 s.sp = "ai_campaign"; s.aicb_step = 1
                                 s.aicb_company = co
                                 s.aicb_sel_roles = [role] if role else []
-                                s.aicb_sel_locations = [loc] if loc else []
+                                s.aicb_sel_locations = _default_locations([loc] if loc else [])
                                 rf()
                             with ui.element("button").classes("fd-pb").style(
                                     "padding:4px 12px;font-size:10px;").on("click", _start_camp):
