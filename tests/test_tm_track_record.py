@@ -23,20 +23,21 @@ def test_line_reads_naturally():
 def test_rule_is_tm_only_and_carries_the_line():
     r = fa._tm_track_record_rule("tm_threebythree", "Dispatcher", "Logistics")
     assert fa._tm_track_record_line("Dispatcher", "Logistics") in r
-    assert "Have you ever considered offshore staff augmentation?" in r
+    assert "Model 1" in r and "No other email uses the number" in r
     assert fa._tm_track_record_rule("fivebyfive", "Dispatcher", "Logistics") == ""
 
 
-def test_backstop_adds_both_when_missing():
+def test_backstop_adds_the_line_to_the_first_email_only():
+    # Since the model-email rewrite (2026-09-21): no added question, no repeat.
     c = _camp("Hi {FirstName},<br><br>I do offshore staff augmentation.",
               "Hi {FirstName},<br><br>Second.", "Hi {FirstName},<br><br>Third.")
     fa._tm_ensure_track_record("tm_threebythree", c, "Dispatcher", "Logistics")
     b1, b2, b3 = (e["body"] for e in c["emails"])
-    assert b1.startswith("Hi {FirstName},<br><br>I'm reaching out because "
-                         "I've recently placed 50+ dispatchers in logistics")
-    assert "Have you ever considered offshore staff augmentation?" in b1
-    assert b1.endswith("I do offshore staff augmentation.")
-    assert "Having placed 50+ dispatchers in logistics" in b2
+    assert b1 == ("Hi {FirstName},<br><br>"
+                  + fa._tm_track_record_line("Dispatcher", "Logistics")
+                  + " I do offshore staff augmentation.")
+    assert "considered" not in b1
+    assert b2 == "Hi {FirstName},<br><br>Second."
     assert "50+" not in b3
 
 

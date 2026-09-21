@@ -5570,265 +5570,152 @@ AICB_CAMPAIGN_TYPES = [
     # extend that cadence for the two added emails. See _TM_STEP_SHAPE, which
     # is what actually pins it.
     ("tm_conversation", "Priority Account Push", "11 steps - 4 weeks", "#14B8A6",
-     "For a company you really want. Seven emails, three calls and one "
-     "LinkedIn touch over about four weeks. Opens on a capacity question, "
-     "prices the role, shows which work actually transfers, covers what "
-     "happens after the hire starts, answers the control question, states "
-     "the commitment plainly and closes with a three-option check-in.",
+     "For a company you really want. The same seven emails as Standard "
+     "Outreach, each built around a concrete detail about this company, with "
+     "three calls and one LinkedIn touch over about four weeks.",
      "Must-win accounts - you will make the calls",
-     "Step 1 - Capacity (delay_days:0, step_type:email_auto) - "
-     "Subject in the shape 'More capacity for <Company>', under 50 "
-     "characters. Open with ONE question: what work would their team finally "
-     "get to if a SPECIFIC recurring task stopped eating up their day. Take "
-     "that task from the BRIEF (AP coding, takeoffs, order entry, scheduling, "
-     "document processing) and name it outright - never a bracketed "
-     "placeholder like [specific recurring task], which goes out as raw text "
-     "and looks broken. Then one sentence on what the sender does: helps "
-     "companies hire dedicated professionals in the Philippines for roles "
-     "across operations, accounting, customer support and administration. "
-     "Then: recruiting happens around the client's requirements, the client "
-     "interviews and chooses the person who joins the team, and the point is "
-     "to free experienced people for the work that needs them most. Close "
-     "with one question - is there one role here they would like to take off "
-     "their hiring list. No cost figure, no percentage, no timeline, no "
-     "attachment reference.\n"
-     "Step 2 - What the role would cost (delay_days:3, step_type:email_auto) - "
-     "Subject in the shape 'What would the role actually cost?'. Different "
-     "opening pattern from Step 1. Open with a question about what covering "
-     "one SPECIFIC workflow would free their team to do. Then give the "
-     "evaluation order plainly: define the work first, then compare the cost "
-     "of getting it covered. Then what they get: an all-inclusive monthly "
-     "rate and a professional dedicated exclusively to their company, with "
-     "the employment administration handled and staff able to work their U.S. "
-     "business hours. Do NOT describe the sender as the legal employer, "
-     "Employer of Record, payroll provider or benefits administrator. Do NOT "
-     "name a dollar figure, a monthly rate or a percentage unless the "
-     "approved pricing and service terms field supplies it verbatim. CTA: "
-     "offer to price out a named, relevant role for them.\n"
+     "Step 1 - Capacity (delay_days:0, step_type:email_auto) (model: Capacity) "
+     "- Cold first touch to a priority account. Build every email in this "
+     "sequence around one concrete detail about this company from the BRIEF (a "
+     "project, a location, a service line, a growth signal), a different "
+     "detail each time where the BRIEF allows. Name the recurring work "
+     "outright, never a bracketed placeholder.\n"
+     "Step 2 - Economics (delay_days:3, step_type:email_auto) (model: "
+     "Economics) - The cost email, and the only one that states the saving. "
+     "Offer the comparison for one named role that fits this company.\n"
      "Step 3 - Follow-up Call (delay_days:0, step_type:call) - SAME DAY as "
-     "Step 2, on the same business angle. Put a short call script in the "
-     "body: reference the costing email, ask who owns that work today and "
-     "what it looks like when volume spikes. Qualifying, not closing.\n"
+     "Step 2. Short call script in the body: reference the cost email, ask who "
+     "owns that work today and what it looks like when volume spikes. "
+     "Qualifying, not closing.\n"
      "Step 4 - LinkedIn Connect (delay_days:0, step_type:linkedin) - SAME DAY "
-     "as Steps 2 and 3, same business angle. Connection note in the body, "
-     "UNDER 300 characters, no pitch, no link, no figures.\n"
-     "Step 5 - What actually transfers (delay_days:2, step_type:email_auto) - "
-     "Subject different in shape from Steps 1 and 2. Take ONE role that fits "
-     "this company and split it honestly: two or three named tasks a "
-     "Philippines-based professional absorbs well, and two or three that stay "
-     "onshore. Draw both sides from the BRIEF and the playbook's target "
-     "industries. Name the position the way the buyer would - estimator, AP "
-     "specialist, project coordinator, customer support rep - not 'virtual "
-     "assistant'. ONE question CTA, different from Steps 1 and 2. No cost "
-     "figure, no percentage, no timeline.\n"
-     "Step 6 - After the hire starts (delay_days:3, step_type:email_auto) - "
-     "Subject in the shape 'After the hire starts'. Open on the honest point: "
-     "adding someone should give their team more capacity, but getting that "
-     "person up to speed still takes a plan. Then what continues after the "
-     "client selects a candidate - ThriveCore: onboarding coordination, a "
-     "dedicated manager, monthly check-ins and quarterly reviews - and that "
-     "the client sets the day-to-day priorities. Then cite customer proof "
-     "ONLY as the approved-proof field allows, using it as written or "
-     "paraphrased with nothing added: no number, headcount, dollar figure, "
-     "percentage or date attached to it, and no other customer named. If that "
-     "field approves nothing, cite NO customer at all and make the point from "
-     "process instead. CTA: ask whether 15 minutes would be useful to map how "
-     "a relevant role could fit their team. Never reference an attachment.\n"
+     "as Steps 2 and 3. Connection note in the body, UNDER 300 characters, no "
+     "pitch, no link, no figures.\n"
+     "Step 5 - Role scope (delay_days:2, step_type:email_auto) (model: Role "
+     "scope) - Name the tasks the person would own in one role that fits this "
+     "company and what the client's team keeps. Name the position the way the "
+     "buyer would, never 'virtual assistant'.\n"
+     "Step 6 - After the person joins (delay_days:3, step_type:email_auto) "
+     "(model: After the person joins) - Cite customer proof ONLY as the "
+     "approved-proof field allows; if it approves nothing, cite no customer.\n"
      "Step 7 - Follow-up Call 2 (delay_days:0, step_type:call) - SAME DAY as "
-     "Step 6. Short call script in the body: reference the note about what "
-     "happens after the hire starts, ask which role they would add first and "
-     "who would bring that person up to speed. Add a voicemail line under 20 "
-     "seconds.\n"
-     "Step 8 - Quality and control (delay_days:4, step_type:email_auto) - "
-     "Subject different in shape from every earlier subject. Address the "
-     "reservation this buyer is most likely holding - quality, oversight, "
-     "communication, time-zone overlap or data access - and answer it with "
-     "how the arrangement actually works: the person is recruited for that "
-     "specific job, the client interviews and chooses, the person works "
-     "inside the client's systems and processes, reports to the client's "
-     "team, and the client defines the expectations and the KPIs. Frame it as "
-     "adding a remote member of their own team rather than handing work to "
-     "another company. No statistics, no guarantees, and no customer beyond "
-     "what the approved-proof field allows. One question CTA.\n"
-     "Step 9 - How the commitment works (delay_days:4, step_type:email_auto) - "
-     "Subject in the shape 'How the hiring commitment works'. Name the "
-     "hesitation directly: interested in offshore staff augmentation, unsure about the "
-     "commitment. Then state the commercial terms as three short bullet "
-     "lines, using ONLY terms present in the approved pricing and service "
-     "terms field - no upfront or placement fees, month-to-month terms, and a "
-     "replacement at no additional cost if the placement does not work out. "
-     "Drop any one of those lines that field does not support rather than "
-     "asserting it. Add that they interview candidates before deciding who "
-     "joins. Then the practical first step: look at one role - the experience "
-     "needed, the hours to cover, the monthly cost. CTA: ask whether they "
-     "have a job description you could use as a starting point.\n"
+     "Step 6. Short call script in the body: reference the note about "
+     "onboarding, ask which role they would add first and who would bring that "
+     "person up to speed. Add a voicemail line under 20 seconds.\n"
+     "Step 8 - Quality and control (delay_days:4, step_type:email_auto) "
+     "(model: Quality and control) - Name two or three skills that matter for "
+     "the role you scoped in Step 5.\n"
+     "Step 9 - Commitment (delay_days:4, step_type:email_auto) (model: "
+     "Commitment) - As the model does, offer to put the scope and current "
+     "commercial terms in front of them for review; do not list the terms.\n"
      "Step 10 - Follow-up Call 3 (delay_days:0, step_type:call) - SAME DAY as "
      "Step 9. Direct script: is there one role worth pricing out, yes or no. "
-     "Voicemail line under 20 seconds saying one more email is coming, then "
-     "a monthly check-in.\n"
-     "Step 11 - Close the loop (delay_days:5, step_type:email_auto) - "
-     "Subject in the shape 'Should I close the loop?'. Short and warm, no "
-     "guilt, no urgency. Say plainly that this is the last note. One line on "
-     "what the sender can help with if adding capacity becomes a priority. "
-     "Then three options as a short list for them to pick from: they have a "
-     "role in mind, it is something for later, it is not a priority. Say a "
-     "quick reply is plenty. Say that you will still check in about once a "
-     "month with a short personal note; never call it a newsletter or a "
-     "list."),
+     "Voicemail line under 20 seconds saying one more email is coming.\n"
+     "Step 11 - Close (delay_days:5, step_type:email_auto) (model: Close) - "
+     "The last email in the sequence."),
     ("tm_hiring_signal", "They're Hiring", "6 steps - 3 weeks", "#F97316",
      "They just posted a role, announced growth or opened a location. Reaches "
      "them while the need is live, with offshore support framed against the "
      "role they are already trying to fill, then prices that role and states "
      "the commitment before closing.",
      "Job-post triggers - expansion news - new locations",
-     "Step 1 - The signal (delay_days:0, step_type:email_auto) - "
-     "Name the SPECIFIC signal from the BRIEF in the first line (the posted "
-     "role, the announcement). Only reference a signal that is actually in the "
-     "BRIEF; if there is none, write a plain relevance opener instead and say "
-     "nothing about a posting. Then one sentence on covering that work with a "
-     "dedicated offshore professional recruited to their requirements. One "
-     "question CTA. No cost claims, no time-to-fill, no start date.\n"
-     "Step 2 - What the role would cover (delay_days:3, step_type:email_auto) - "
-     "Split the signalled role into the parts an offshore professional handles "
-     "well and the parts that stay onshore. Be concrete and honest about the "
-     "split. One CTA, different from Step 1.\n"
+     "Step 1 - The signal (delay_days:0, step_type:email_auto) (model: "
+     "Capacity) - In place of Model 1's first paragraph, name the SPECIFIC "
+     "signal from the BRIEF (the posted role, the announcement) and the work "
+     "it points to. Only reference a signal that is actually in the BRIEF; if "
+     "there is none, follow Model 1 as written and say nothing about a "
+     "posting. No time-to-fill, no start date.\n"
+     "Step 2 - Role scope (delay_days:3, step_type:email_auto) (model: Role "
+     "scope) - Scope the role they are hiring for: what the person would own "
+     "and what their team keeps.\n"
      "Step 3 - Follow-up Call (delay_days:0, step_type:call) - SAME DAY as "
      "Step 2. Script: ask how the search is going and what would have to be "
-     "true for an offshore seat to be worth trying.\n"
-     "Step 4 - What it would cost (delay_days:3, step_type:email_auto) - "
-     "Give the evaluation order: define the work first, then compare the cost "
-     "of getting it covered. Then what they get: an all-inclusive monthly "
-     "rate and a professional dedicated exclusively to their company, able to "
-     "work their U.S. business hours. Do NOT describe the sender as the legal "
-     "employer, Employer of Record, payroll provider or benefits "
-     "administrator. Do NOT name a dollar figure, a monthly rate or a "
-     "percentage unless the approved pricing and service terms field supplies "
-     "it verbatim. CTA: offer to price the posted role as an offshore seat.\n"
-     "Step 5 - How the commitment works (delay_days:4, step_type:email_auto) - "
-     "Short. State the commercial terms as three bullet lines using ONLY "
-     "terms present in the approved pricing and service terms field - no "
-     "upfront or placement fees, month-to-month terms, and a replacement at "
-     "no additional cost if the placement does not work out - dropping any "
-     "line that field does not support. Add that they interview candidates "
-     "before deciding who joins. CTA: ask for the job description they "
-     "already wrote for the posting.\n"
-     "Step 6 - Close the loop (delay_days:5, step_type:email_auto) - "
-     "Short. Acknowledge the search may already be closed, leave the door open "
-     "for the next one, and say you will check in about once a month. No "
-     "newsletter or list wording."),
+     "true for a dedicated offshore hire to be worth trying.\n"
+     "Step 4 - Economics (delay_days:3, step_type:email_auto) (model: "
+     "Economics) - The cost email, and the only one that states the saving. "
+     "Offer the comparison for the role they posted.\n"
+     "Step 5 - Commitment (delay_days:4, step_type:email_auto) (model: "
+     "Commitment) - Ask for the job description they already wrote for the "
+     "posting.\n"
+     "Step 6 - Close (delay_days:5, step_type:email_auto) (model: Close) - "
+     "Allow that the search may already be filled, and leave the door open for "
+     "the next one."),
     ("tm_meeting_followup", "After the Call", "6 steps - 3 weeks", "#8B5CF6",
      "For a prospect you have ACTUALLY spoken with. Recaps what was discussed, "
      "confirms the role shape, covers what happens once they choose someone, "
      "puts the commitment in plain terms and moves toward a shortlist.",
      "Post-discovery - after a demo - after an intro call",
-     "Step 1 - Recap (delay_days:0, step_type:email_auto) - "
-     "This sequence is only used after a real conversation, so referencing one "
-     "is correct here. Recap in three or four lines what the buyer said they "
-     "needed, using ONLY details present in the BRIEF or the user's notes. "
-     "Invent nothing about what was said. Confirm the agreed next step.\n"
-     "Step 2 - Role requirements (delay_days:3, step_type:email_auto) - "
-     "Lay out what is needed from them to start recruiting: responsibilities, "
-     "systems, working-hours overlap, who reviews candidates. Ask them to "
-     "confirm or correct it. Do not quote pricing unless the approved pricing "
-     "field supplies it verbatim.\n"
+     "Step 1 - Recap (delay_days:0, step_type:email_auto) - This sequence is "
+     "only used after a real conversation, so referencing one is correct here. "
+     "Recap in three or four lines what the buyer said they needed, using ONLY "
+     "details present in the BRIEF or the user's notes. Invent nothing about "
+     "what was said. Confirm the agreed next step.\n"
+     "Step 2 - Role scope (delay_days:3, step_type:email_auto) (model: Role "
+     "scope) - Scope the role they described, using ONLY details in the BRIEF "
+     "or the user's notes, and ask them to confirm or correct it. No pricing.\n"
      "Step 3 - Follow-up Call (delay_days:0, step_type:call) - SAME DAY as "
      "Step 2. Script: walk the requirements list, agree the interview panel.\n"
-     "Step 4 - After they choose someone (delay_days:3, step_type:email_auto) - "
-     "Move past selection. Adding someone should give their team capacity, but "
-     "getting that person up to speed still takes a plan. Describe what "
-     "continues after they pick a candidate - ThriveCore: onboarding "
-     "coordination, a dedicated manager, monthly check-ins, quarterly reviews "
-     "- and say they set the day-to-day priorities. Cite customer proof ONLY "
-     "as the approved-proof field allows, adding no number, figure or date to "
-     "it; if that field approves nothing, cite no customer at all and make the "
-     "point from process. One CTA tied to the next step they already agreed.\n"
-     "Step 5 - The commitment in plain terms (delay_days:4, step_type:email_auto) - "
-     "Short. State the commercial terms as three bullet lines using ONLY "
-     "terms present in the approved pricing and service terms field - no "
-     "upfront or placement fees, month-to-month terms, and a replacement at "
-     "no additional cost if the placement does not work out - dropping any "
-     "line that field does not support. Do not quote a monthly rate unless "
-     "that field supplies it verbatim. CTA: ask who else needs to see the "
-     "terms before they can move.\n"
-     "Step 6 - Nudge (delay_days:6, step_type:email_auto) - "
-     "Short check-in if the requirements never came back. Offer to draft them "
-     "from the call instead. One question, no pressure."),
+     "Step 4 - After the person joins (delay_days:3, step_type:email_auto) "
+     "(model: After the person joins) - Its question ties to the next step "
+     "they already agreed. Cite customer proof ONLY as the approved-proof "
+     "field allows.\n"
+     "Step 5 - Commitment (delay_days:4, step_type:email_auto) (model: "
+     "Commitment) - Offer to put the scope and current commercial terms in "
+     "front of them, and ask who else needs to see them before they can move. "
+     "Terms only as the approved pricing and service terms field states them.\n"
+     "Step 6 - Nudge (delay_days:6, step_type:email_auto) - Short check-in if "
+     "the requirements never came back. Offer to draft them from the call "
+     "instead. One question, no pressure."),
     ("tm_reengage", "Revive Old Leads", "6 steps - 5 weeks", "#EC4899",
      "For accounts that went quiet. Comes back from a different angle instead "
      "of repeating the original pitch, re-prices the role, keeps the "
      "commitment small, and gives them an easy way to say not now.",
      "Closed-lost - stalled deals - went dark after interest",
-     "Step 1 - Different angle (delay_days:0, step_type:email_auto) - "
-     "Do NOT open with 'just following up' or 'circling back', and do NOT "
-     "claim a specific prior exchange unless the BRIEF records one. Lead with "
-     "a new observation about their business or market. One question.\n"
-     "Step 2 - What changed (delay_days:5, step_type:email_auto) - "
-     "Give one genuine reason the conversation is worth restarting: a shift in "
-     "their market, a new service line of theirs, a different role shape. No "
+     "Step 1 - Different angle (delay_days:0, step_type:email_auto) - Do NOT "
+     "open with 'just following up' or 'circling back', and do NOT claim a "
+     "specific prior exchange unless the BRIEF records one. Lead with a new "
+     "observation about their business or market. One question.\n"
+     "Step 2 - What changed (delay_days:5, step_type:email_auto) - Give one "
+     "genuine reason the conversation is worth restarting: a shift in their "
+     "market, a new service line of theirs, a different role shape. No "
      "invented product news, no invented customer results.\n"
-     "Step 3 - LinkedIn Connect (delay_days:2, step_type:linkedin) - "
-     "Under 300 characters, no pitch, no link, no figures.\n"
-     "Step 4 - What the role costs now (delay_days:5, step_type:email_auto) - "
-     "Re-anchor on economics without repeating the original pitch. Define the "
-     "work first, then the cost of covering it: an all-inclusive monthly rate "
-     "and a professional dedicated exclusively to their company, able to work "
-     "their U.S. business hours. Do NOT describe the sender as the legal "
-     "employer, Employer of Record, payroll provider or benefits "
-     "administrator. Do NOT name a dollar figure, a monthly rate or a "
-     "percentage unless the approved pricing and service terms field supplies "
-     "it verbatim. One CTA: offer to price one role for them.\n"
-     "Step 5 - Small commitment (delay_days:5, step_type:email_auto) - "
-     "Short. The point is how little they are committing to. State the terms "
-     "as bullet lines using ONLY what the approved pricing and service terms "
-     "field supports - no upfront or placement fees, month-to-month terms, a "
-     "replacement at no additional cost - and drop any line it does not "
-     "support. Add that they interview candidates before deciding who joins. "
-     "One question CTA: would one role be worth testing.\n"
-     "Step 6 - Timing check (delay_days:7, step_type:email_auto) - "
-     "Ask plainly whether this is a this-year or a next-year problem and say "
-     "either answer is useful. Say this closes out the series and you will "
-     "check in about once a month."),
+     "Step 3 - LinkedIn Connect (delay_days:2, step_type:linkedin) - Under 300 "
+     "characters, no pitch, no link, no figures.\n"
+     "Step 4 - Economics (delay_days:5, step_type:email_auto) (model: "
+     "Economics) - Re-anchor on cost without repeating the original pitch. The "
+     "only email that states the saving.\n"
+     "Step 5 - Commitment (delay_days:5, step_type:email_auto) (model: "
+     "Commitment) - The point is how little they commit to by looking at one "
+     "role.\n"
+     "Step 6 - Close (delay_days:7, step_type:email_auto) (model: Close) - Its "
+     "question asks plainly whether this is a this-year or a next-year "
+     "problem, and says either answer is useful."),
     ("tm_stay_in_touch", "Stay on Their Radar", "6 steps - 12 weeks", "#60A5FA",
      "For prospects who fit but are not ready, or who never replied. One "
      "useful touch every two to three weeks, each from a different angle - "
      "context, economics, how it works and what support looks like after a "
      "hire - ending with a genuine door-open close.",
      "Not-now accounts - no reply yet - long cycles",
-     "Step 1 - Low-pressure intro (delay_days:0, step_type:email_auto) - "
-     "Treat this as a cold first touch: they have never heard from the "
-     "sender, unless the BRIEF says they already received outreach, in which "
-     "case acknowledge that lightly in one clause and do not re-pitch. "
-     "One specific observation about their business plus one sentence on what "
-     "the sender does. Say explicitly that you are not asking for anything "
-     "today. No figures.\n"
+     "Step 1 - Low-pressure intro (delay_days:0, step_type:email_auto) - Treat "
+     "this as a cold first touch: they have never heard from the sender, "
+     "unless the BRIEF says they already received outreach, in which case "
+     "acknowledge that lightly in one clause and do not re-pitch. One specific "
+     "observation about their business plus one sentence on what the sender "
+     "does. Say explicitly that you are not asking for anything today. No "
+     "figures.\n"
      "Step 2 - Industry context (delay_days:10, step_type:email_auto) - "
      "Something genuinely useful about their industry's operating pressure. If "
      "the BRIEF supplies a statistic, use it and name the source and the date; "
      "if it does not, make the point WITHOUT a number. No call ask.\n"
      "Step 3 - Check-in Call (delay_days:14, step_type:call) - Low-key. "
      "Script: find out what would have to change for this to matter.\n"
-     "Step 4 - What the economics look like (delay_days:10, step_type:email_auto) - "
-     "Still no pressure. Give the evaluation order they would use whenever the "
-     "moment arrives: define the work, then compare the cost of covering it - "
-     "an all-inclusive monthly rate for a professional dedicated exclusively "
-     "to their company, working their U.S. business hours. Do NOT describe the "
-     "sender as the legal employer, Employer of Record, payroll provider or "
-     "benefits administrator. Do NOT name a dollar figure, a monthly rate or a "
-     "percentage unless the approved pricing and service terms field supplies "
-     "it verbatim. No meeting ask; offer the comparison if they ever want it.\n"
-     "Step 5 - How it works, start to finish (delay_days:14, step_type:email_auto) - "
-     "Walk the process in two or three plain lines: role discovery, "
-     "recruiting to their requirements, the client interviews and chooses. "
-     "Then what continues once a client selects someone: onboarding "
-     "coordination, a dedicated manager, monthly check-ins, quarterly "
-     "reviews, with the client setting the day-to-day priorities. No "
-     "timeline claims. Cite customer proof ONLY as the approved-proof field "
-     "allows, adding no number, figure or date to it; if that field approves "
-     "nothing, cite no customer at all. One soft question.\n"
-     "Step 6 - Door open (delay_days:14, step_type:email_auto) - "
-     "Short, warm, and explicitly the last scheduled note. Say you will "
-     "still check in about once a month with a short personal note; never "
-     "call it a newsletter or a list."),
+     "Step 4 - Economics (delay_days:10, step_type:email_auto) (model: "
+     "Economics) - Still no pressure: offer the comparison for whenever the "
+     "moment arrives. The only email that states the saving.\n"
+     "Step 5 - After the person joins (delay_days:14, step_type:email_auto) "
+     "(model: After the person joins) - Cite customer proof ONLY as the "
+     "approved-proof field allows; if it approves nothing, cite no customer.\n"
+     "Step 6 - Close (delay_days:14, step_type:email_auto) (model: Close) - "
+     "Warm, and explicitly the last scheduled note."),
     ("tm_grow_client", "Grow an Existing Client", "6 steps - 4 weeks", "#10B981",
      "For companies already working with you. Focused on adding a seat or a "
      "second function, not on re-selling the company. Prices the next seat and "
@@ -5870,80 +5757,56 @@ AICB_CAMPAIGN_TYPES = [
     # card shows the counts, computed from _TM_STEP_SHAPE. tm_fivebyseven
     # absorbed tm_fivethreeli (the two were the same arc), which is now hidden
     # but still registered so saved campaigns keep working.
-    ("tm_fivebyseven", "Standard Outreach", "8 steps - 3 weeks", "#0EA5E9",
-     "The default for any new company. Five emails, two calls and one "
-     "LinkedIn touch over three weeks. Opens on a capacity question, prices "
-     "one role, shows what transfers, answers the control question and "
-     "closes cleanly.",
+    ("tm_fivebyseven", "Standard Outreach", "10 steps - 4 weeks", "#0EA5E9",
+     "The default for any new company. Seven short emails, two calls and one "
+     "LinkedIn touch over about four weeks: the work, the cost, the role's "
+     "scope, support after the hire, quality, the commitment and a clean "
+     "close.",
      "Any good-fit company you have not contacted yet",
-     "Step 1 - Capacity (delay_days:0, step_type:email_auto) - "
-     "This is a cold first touch: they have never heard from the sender. "
-     "Subject in the shape 'More capacity for <Company>', under 50 "
-     "characters. Open with ONE question about what their team would get to "
-     "if a SPECIFIC recurring task taken from the BRIEF stopped eating their "
-     "day - name the task outright, never a bracketed placeholder. Then one "
-     "sentence on what the sender does: helps companies hire dedicated "
-     "professionals in the Philippines who work as part of the client's own "
-     "team, and the client interviews and chooses who joins. Close with one "
-     "question. No cost figure, no percentage, no timeline, no attachment "
-     "reference.\n"
-     "Step 2 - What the role would cost (delay_days:3, step_type:email_auto) - "
-     "Different opening pattern from Step 1. Give the evaluation order: define "
-     "the work first, then compare the cost of getting it covered. Then what "
-     "they get: one all-inclusive monthly rate and a professional dedicated "
-     "only to their company, working their U.S. hours. Name a percentage or "
-     "figure ONLY as the approved pricing and service terms field states it. "
-     "CTA: offer to price out one named, relevant role for them.\n"
+     "Step 1 - Capacity (delay_days:0, step_type:email_auto) (model: Capacity) "
+     "- Cold first touch: they have never heard from the sender. Name the "
+     "recurring work outright, taken from the BRIEF for the target role, never "
+     "a bracketed placeholder.\n"
+     "Step 2 - Economics (delay_days:3, step_type:email_auto) (model: "
+     "Economics) - The cost email, and the only one that states the saving.\n"
      "Step 3 - Follow-up Call (delay_days:0, step_type:call) - SAME DAY as "
-     "Step 2. Short call script in the body: reference the costing email, ask "
-     "who owns that work today and what happens when volume spikes. "
-     "Qualifying, not closing.\n"
+     "Step 2. Short call script in the body: reference the cost email, ask who "
+     "owns that work today and what the role would need to cover. Qualifying, "
+     "not closing.\n"
      "Step 4 - LinkedIn Connect (delay_days:0, step_type:linkedin) - SAME DAY "
      "as Steps 2 and 3. Connection note in the body, UNDER 300 characters, no "
      "pitch, no link, no figures.\n"
-     "Step 5 - What actually transfers (delay_days:3, step_type:email_auto) - "
-     "Take ONE role that fits this company and split it honestly: two or three "
-     "named tasks a Philippines-based professional absorbs well and two or "
-     "three that stay onshore, drawn from the BRIEF. Name the position the way "
-     "the buyer would, never 'virtual assistant'. One question CTA.\n"
-     "Step 6 - Follow-up Call 2 (delay_days:0, step_type:call) - SAME DAY as "
-     "Step 5. Script: ask which of those tasks takes the most of their team's "
-     "week and what it would free them to do. Voicemail line under 20 "
-     "seconds.\n"
-     "Step 7 - Control and commitment (delay_days:4, step_type:email_auto) - "
-     "Answer the reservation this buyer most likely holds - quality, "
-     "oversight, time-zone overlap or data access - with how it works: "
-     "recruited for that job, the client interviews and chooses, works inside "
-     "the client's systems and reports to their team. Then the commercial "
-     "terms as short bullet lines, using ONLY terms in the approved pricing "
-     "and service terms field, dropping any it does not support. CTA: ask for "
-     "a job description to start from.\n"
-     "Step 8 - Close the loop (delay_days:5, step_type:email_auto) - "
-     "Short and warm, no guilt. Say plainly this is the last note. Three "
-     "options to pick from: they have a role in mind, it is something for "
-     "later, it is not a priority. Say you will still check in about once a "
-     "month; never call it a newsletter or a list."),
+     "Step 5 - Role scope (delay_days:3, step_type:email_auto) (model: Role "
+     "scope) - Name the tasks the person would own in the target role and what "
+     "the client's team keeps, drawn from the BRIEF. Name the position the way "
+     "the buyer would, never 'virtual assistant'.\n"
+     "Step 6 - After the person joins (delay_days:3, step_type:email_auto) "
+     "(model: After the person joins) - Cite customer proof ONLY as the "
+     "approved-proof field allows; if it approves nothing, cite no customer.\n"
+     "Step 7 - Quality and control (delay_days:4, step_type:email_auto) "
+     "(model: Quality and control) - Name two or three skills that matter for "
+     "the target role.\n"
+     "Step 8 - Follow-up Call 2 (delay_days:0, step_type:call) - SAME DAY as "
+     "Step 7. Script: ask which skill would matter most for the role and who "
+     "would interview. Voicemail line under 20 seconds.\n"
+     "Step 9 - Commitment (delay_days:4, step_type:email_auto) (model: "
+     "Commitment) - As the model does, offer to put the scope and current "
+     "commercial terms in front of them for review; do not list the terms.\n"
+     "Step 10 - Close (delay_days:5, step_type:email_auto) (model: Close) - "
+     "The last email in the sequence."),
     ("tm_threebythree", "Quick Intro", "3 steps - 2 weeks", "#EF4444",
-     "Three short, direct emails over about a week and a half, email only. "
-     "Names the work, makes the case, then asks for a straight answer. For "
-     "big lists where you want a fast read on who is interested.",
+     "Three short emails over about a week and a half, email only: the work, "
+     "the cost, then a straight answer. For big lists where you want a fast "
+     "read on who is interested.",
      "Big lists - see who bites - email only",
-     "Step 1 - Direct opener (delay_days:0, step_type:email_auto) - "
-     "Cold first touch, UNDER 90 words. Subject under 40 characters. Name ONE "
-     "recurring task from the BRIEF that a dedicated professional in the "
-     "Philippines could take off their team, say in one sentence what the "
-     "sender does, and ask directly for 15 minutes this week. No figures, no "
-     "attachment reference.\n"
-     "Step 2 - The case (delay_days:3, step_type:email_auto) - UNDER 110 "
-     "words, subject different in shape from Step 1. Make the case in short "
-     "bullet lines: dedicated to their company, works their U.S. hours, they "
-     "interview and choose, plus ONLY the commercial terms and savings claim "
-     "the approved pricing and service terms field supports, worded as it "
-     "words them. CTA: offer to price one named role.\n"
-     "Step 3 - Straight answer (delay_days:4, step_type:email_auto) - UNDER 60 "
-     "words. The last note, said plainly. Ask for a one-word reply: 'now', "
-     "'later' or 'no'. Any answer is useful. Say you will check in about "
-     "once a month. No newsletter wording, no guilt."),
+     "Step 1 - Capacity (delay_days:0, step_type:email_auto) (model: Capacity) "
+     "- Cold first touch. Name the recurring work outright, taken from the "
+     "BRIEF for the target role.\n"
+     "Step 2 - Economics (delay_days:3, step_type:email_auto) (model: "
+     "Economics) - The cost email, and the only one that states the saving.\n"
+     "Step 3 - Close (delay_days:4, step_type:email_auto) (model: Close) - The "
+     "last email. Its question asks for a one-word reply, 'now', 'later' or "
+     "'no', and says any answer is useful."),
     ("tm_fivethreeli", "5 Emails, 3 Calls + LinkedIn", "9 steps - 3 weeks", "#8B5CF6",
      "The full multichannel push: five emails, three calls and a LinkedIn "
      "connect over three weeks. Every call follows an email on the same "
@@ -5998,76 +5861,68 @@ AICB_CAMPAIGN_TYPES = [
      "Every touch carries one clear ask.",
      "Named target accounts - long cycles - multi-threading",
      "Step 1 - LinkedIn Connect (delay_days:0, step_type:linkedin) - Week 1. "
-     "Connection note UNDER 300 characters: say you follow the company "
-     "because of a SPECIFIC detail from the BRIEF, and that the sender helps "
-     "companies like theirs add dedicated team members in the Philippines. "
-     "Ask if they are open to connecting. No pitch, no link, no figures.\n"
+     "Connection note UNDER 300 characters: say you follow the company because "
+     "of a SPECIFIC detail from the BRIEF, and that the sender helps companies "
+     "like theirs add dedicated team members in the Philippines. Ask if they "
+     "are open to connecting. No pitch, no link, no figures.\n"
      "Step 2 - Insight email (delay_days:1, step_type:email_auto) - Week 1, "
-     "cold first touch. Subject in the shape 'A quick note on covering "
-     "<work> at <Company>'. Open with two short bullets on what is putting "
-     "pressure on teams like theirs right now, drawn from the BRIEF and the "
-     "playbook's target industries; invent no statistic. Then offer a short "
-     "snapshot of which of their roles transfer well and what one would "
-     "cost. Close: worth a 15-minute call this week?\n"
+     "cold first touch. Subject in the shape 'A quick note on covering <work> "
+     "at <Company>'. Open with two short bullets on what is putting pressure "
+     "on teams like theirs right now, drawn from the BRIEF and the playbook's "
+     "target industries; invent no statistic. Then offer a short snapshot of "
+     "which of their roles transfer well and what one would cost. Close: worth "
+     "a 15-minute call this week?\n"
      "Step 3 - Call 1 + voicemail (delay_days:1, step_type:call) - Week 1. "
      "Opener: reference the email, then ONE question that reveals where the "
      "pressure is - which recurring work is eating their team's week. Add a "
      "voicemail under 20 seconds offering the snapshot.\n"
-     "Step 4 - Capacity snapshot (delay_days:5, step_type:email_auto) - "
-     "Week 2. Two or three bullets and one question: the roles at this "
-     "company that most often move to a dedicated offshore professional, "
-     "what stays onshore, and whether they are planning to add capacity in "
-     "the next 60 to 90 days or later.\n"
-     "Step 5 - LinkedIn message (delay_days:5, step_type:linkedin) - Week 3. "
-     "A short direct message: thanks for connecting, then one routing "
-     "question - if they added a team member for that work, who owns the "
-     "decision: Operations, Finance or the department lead? Also like or "
-     "comment on a recent company post.\n"
-     "Step 6 - Call 2, cost of waiting (delay_days:5, step_type:call) - "
-     "Week 4. Script: when that work backs up, what breaks first - response "
-     "times, overtime, quality or the team's focus on higher-value work? "
-     "Close: if I send a one-page breakdown of how the role would work, "
-     "would a 15-minute call be useful?\n"
-     "Step 7 - Expert asset (delay_days:5, step_type:email_auto) - Week 5. "
-     "A useful one-page read for this buyer: which tasks in one fitting role "
-     "transfer well and which stay onshore, what to look for in the person, "
-     "and how the client interviews and chooses. Offer a quick walk-through. "
-     "One question CTA.\n"
+     "Step 4 - Capacity snapshot (delay_days:5, step_type:email_auto) - Week "
+     "2. Two or three bullets and one question: the roles at this company that "
+     "most often move to a dedicated offshore professional, what stays "
+     "onshore, and whether they are planning to add capacity in the next 60 to "
+     "90 days or later.\n"
+     "Step 5 - LinkedIn message (delay_days:5, step_type:linkedin) - Week 3. A "
+     "short direct message: thanks for connecting, then one routing question - "
+     "if they added a team member for that work, who owns the decision: "
+     "Operations, Finance or the department lead? Also like or comment on a "
+     "recent company post.\n"
+     "Step 6 - Call 2, cost of waiting (delay_days:5, step_type:call) - Week "
+     "4. Script: when that work backs up, what breaks first - response times, "
+     "overtime, quality or the team's focus on higher-value work? Close: if I "
+     "send a one-page breakdown of how the role would work, would a 15-minute "
+     "call be useful?\n"
+     "Step 7 - Role scope (delay_days:5, step_type:email_auto) (model: Role "
+     "scope) - Week 5. Scope one role that fits this company: what the person "
+     "would own and what their team keeps.\n"
      "Step 8 - Who we would recruit (delay_days:5, step_type:email_auto) - "
      "Week 6. Describe two short profiles of the KIND of professional the "
      "sender would recruit for one of their roles (three bullets each: "
      "experience, systems, the work they would own). Say plainly these show "
      "the profile the sender would recruit for, not specific people who are "
      "available. Offer a quick fit call.\n"
-     "Step 9 - Cost reality check (delay_days:5, step_type:email_auto) - "
-     "Week 7. Define the work first, then compare the cost of covering it: "
-     "one all-inclusive monthly rate for a professional dedicated only to "
-     "their company. Name a percentage or figure ONLY as the approved "
-     "pricing and service terms field states it. CTA: offer to price one "
-     "named role this quarter.\n"
-     "Step 10 - LinkedIn proof note (delay_days:5, step_type:linkedin) - "
-     "Week 8. Short message. Cite customer proof ONLY as the approved-proof "
-     "field allows, adding no number, date or result to it; if that field "
-     "approves nothing, describe how a first role usually gets set up "
-     "instead. Offer to share what worked in two minutes.\n"
+     "Step 9 - Economics (delay_days:5, step_type:email_auto) (model: "
+     "Economics) - Week 7. The cost email, and the only one that states the "
+     "saving.\n"
+     "Step 10 - LinkedIn proof note (delay_days:5, step_type:linkedin) - Week "
+     "8. Short message. Cite customer proof ONLY as the approved-proof field "
+     "allows, adding no number, date or result to it; if that field approves "
+     "nothing, describe how a first role usually gets set up instead. Offer to "
+     "share what worked in two minutes.\n"
      "Step 11 - Call 3, multi-thread (delay_days:5, step_type:call) - Week 9. "
      "Routing script: who actually owns adding a team member for this work - "
-     "Operations, Finance or the department lead - and is the need "
-     "immediate or tied to a busy season or a new contract? Close: can we "
-     "book 15 minutes to confirm what is realistic?\n"
-     "Step 12 - Industry alert (delay_days:5, step_type:email_auto) - "
-     "Week 10. One trend affecting their industry drawn from the BRIEF (no "
-     "invented statistic), what that means for teams covering that work, "
-     "and two short bullets on what is working. Offer to send a checklist.\n"
-     "Step 13 - Ask for the call (delay_days:5, step_type:email_auto) - "
-     "Week 11. No pitch: offer 15 minutes to walk through which of their "
-     "roles would transfer, what it would cost, and how the client "
-     "interviews and chooses. Offer two days as options.\n"
-     "Step 14 - Close the loop (delay_days:5, step_type:email_auto) - "
-     "Week 12. Short and warm. Say this closes out the series and you will "
-     "check in about once a month. If it is a priority now, ask them to "
-     "reply 'send' for a one-page breakdown of one role. No newsletter or "
-     "list wording.\n"
+     "Operations, Finance or the department lead - and is the need immediate "
+     "or tied to a busy season or a new contract? Close: can we book 15 "
+     "minutes to confirm what is realistic?\n"
+     "Step 12 - Industry alert (delay_days:5, step_type:email_auto) - Week 10. "
+     "One trend affecting their industry drawn from the BRIEF (no invented "
+     "statistic), what that means for teams covering that work, and two short "
+     "bullets on what is working. Offer to send a checklist.\n"
+     "Step 13 - Ask for the call (delay_days:5, step_type:email_auto) - Week "
+     "11. No pitch: offer 15 minutes to walk through which of their roles "
+     "would transfer, what it would cost, and how the client interviews and "
+     "chooses. Offer two days as options.\n"
+     "Step 14 - Close (delay_days:5, step_type:email_auto) (model: Close) - "
+     "Week 12. The last email in the sequence; a final call follows.\n"
      "Step 15 - Final call + referral ask (delay_days:1, step_type:call) - "
      "Week 12. Script: if they are not the right person, who is the best "
      "contact for adding team capacity? Voicemail under 20 seconds with the "
@@ -7135,52 +6990,125 @@ def _aicb_research_brief(client, *, camp_type="", company="", website="",
 # (including Custom Build on a ThriveModal workspace), so a new type cannot
 # forget it. The savings wording is the approved-pricing claim: "up to",
 # fully burdened, depending on the role, never a dollar amount or a rate.
+# Mike, 2026-09-21: these seven emails are the ThriveModal house style, and
+# every campaign's steps are tagged with the model they follow ("(model:
+# Economics)"). Kept from the rules that came before, at his choice: the
+# first email says "offshore staff augmentation" (and opens on his track
+# record, _tm_track_record_rule), the cost email states the "up to" saving
+# once, and the last email promises a monthly check-in. Dropped: that phrase
+# and the percentage in every email, and "plug-and-play".
+# (name, subject, paragraphs); written for an operations coordinator, which
+# the model swaps for each campaign's target role.
+_TM_MODEL_EMAILS = [
+    ("Capacity", "More room for the work that matters", (
+        "Document follow-up, record updates and routine coordination can "
+        "take time away from the work your experienced people need to own.",
+        "We do offshore staff augmentation: ThriveModal recruits dedicated "
+        "professionals in the Philippines around a specific role. You "
+        "interview and choose the person who joins your team and works your "
+        "agreed hours.",
+        "Would dedicated support for that work be useful to your team?")),
+    ("Economics", "What would the role actually cost?", (
+        "A useful staffing comparison starts with the work: the "
+        "responsibilities, experience and hours you need covered.",
+        "From there, we can price a dedicated Philippines-based role and "
+        "compare it with the fully burdened cost of a comparable U.S. hire. "
+        "Depending on the role, it can cost up to 60 to 70 percent less. The "
+        "point is to understand what capacity you would gain alongside the "
+        "cost.",
+        "Would a comparison for one role be useful?")),
+    ("Role scope", "A clearer scope for the role", (
+        "For an operations coordinator, a starting scope could include "
+        "following up on missing documents, updating records and keeping "
+        "routine requests moving.",
+        "Your team would define the process, retain approval decisions and "
+        "handle exceptions outside the coordinator's authority. That gives "
+        "the person clear ownership without leaving responsibilities vague.",
+        "Would a one-page outline of that role help?")),
+    ("After the person joins", "After the person joins", (
+        "Choosing the person is one part of adding capacity. Getting them up "
+        "to speed takes a clear handoff, access to the right systems and "
+        "someone to set priorities.",
+        "ThriveModal coordinates setup and stays involved through ThriveCore, "
+        "including monthly check-ins and quarterly reviews. Your team directs "
+        "the day-to-day work.",
+        "Would a short onboarding checklist be useful?")),
+    ("Quality and control", "What you would assess before hiring", (
+        "For a coordination role, the hiring brief should go beyond a job "
+        "title. Relevant systems experience, written communication and "
+        "knowing when to escalate all matter.",
+        "We recruit against your requirements, and you interview the "
+        "candidates before choosing who joins. Once hired, the person works "
+        "within the processes and expectations your team sets.",
+        "Which skill would matter most for this role?")),
+    ("Commitment", "Start with the role requirements", (
+        "You can evaluate one role without deciding what a larger offshore "
+        "team would look like.",
+        "A useful starting point is an existing job description. We can use "
+        "it to discuss the experience, hours and responsibilities you need, "
+        "then put the scope and current commercial terms in front of you for "
+        "review.",
+        "Do you have a job description we could start from?")),
+    ("Close", "Leaving this with you", (
+        "This is my final note in this sequence. If dedicated operations "
+        "support becomes useful, we can revisit a role around your team's "
+        "requirements. I'll still check in about once a month with a short "
+        "note.",
+        "Would you like the role outline before I close this out?")),
+]
+
+
+def _tm_model_emails_block() -> str:
+    out = []
+    for i, (name, subject, paras) in enumerate(_TM_MODEL_EMAILS, 1):
+        out.append(f"Model {i} - {name}\nSubject: {subject}\n"
+                   + "Hi {FirstName},<br><br>" + "<br><br>".join(paras))
+    return "\n\n".join(out)
+
+
 _TM_EMAIL_OPENER_RULE = (
-    "THRIVEMODAL EMAIL OPENER (applies to EVERY email step; LinkedIn and "
-    "call steps are exempt). This rule takes precedence over any step line "
-    "that says 'no cost figure' or 'no percentage', for the opener only:\n"
-    "- Right after 'Hi {FirstName},', open warm and human, then within the "
-    "first two or three sentences: ask whether they have ever considered "
-    "offshore staff augmentation for the specific work that step is about; explain in "
-    "one plain sentence how it works (a dedicated professional in the "
-    "Philippines, recruited to their requirements, whom they interview and "
-    "choose, working their U.S. hours as part of their own team, with the "
-    "employment administration handled); and say what it saves in the words "
-    "the approved pricing and service terms field allows - a fully burdened "
-    "cost up to sixty to seventy percent lower than a comparable U.S. hire, "
-    "depending on the role. Always 'up to'. Never a dollar amount, a monthly "
-    "rate or an annual figure. If that field states no savings figure, "
-    "describe the saving without a number.\n"
-    "- Many owners hesitate about offshore staff augmentation. Name that honestly in a "
-    "few of the emails and give them a reason to try one role, using ONLY "
-    "terms the approved field supports (for example no upfront fee, "
-    "month-to-month, they interview and choose, a free replacement).\n"
-    "- Word the opener differently in every email. Never reuse an opening "
-    "sentence. After the first email, refer back naturally instead of "
-    "repeating the whole explanation, but still restate the question and "
-    "the saving in a fresh way.\n"
-    "- Keep the opener to about three sentences, then carry on with that "
-    "step's own point and its one CTA.\n"
-    "- SAY WHAT YOU DO, UP FRONT. The FIRST email states in the first person, "
-    "within its first three sentences, that we do offshore staff augmentation, using "
-    "those exact words (for example 'I do offshore staff augmentation: we place "
-    "dedicated, plug-and-play professionals from the Philippines on U.S. "
-    "teams'). Every "
-    "later email also says 'offshore staff augmentation' in its first two sentences, "
-    "worded fresh, so a reader who opens only one email knows what we do.\n"
-    "- PLUG AND PLAY. Somewhere in the campaign (the first email is best), "
-    "say our professionals are plug-and-play: workstation and IT are set up "
-    "before day one, so they start working in the client's systems right "
-    "away. Word it naturally and do not repeat it in every email.\n"
-    "- THE LAST EMAIL of the campaign says plainly that you are closing this "
-    "series out, and that you will still keep in touch about once a month "
-    "with a short personal note. Never call it a newsletter, a list or a "
-    "subscription. This overrides any step line about stopping.\n\n"
+    "THRIVEMODAL HOUSE STYLE (applies to EVERY email step; LinkedIn and call "
+    "steps are exempt). The model emails below are the standard every email "
+    "is held to:\n"
+    "- LENGTH AND SHAPE: 50 to 90 words after the greeting, in three short "
+    "paragraphs: (1) one plain, specific point about the work or the "
+    "decision; (2) one or two sentences on how ThriveModal handles it; (3) "
+    "ONE question, usually offering something small and concrete (a "
+    "comparison for one role, a one-page outline, a checklist, a look at "
+    "their job description).\n"
+    "- VOICE: calm, plain and specific. No hype, no exclamation marks, no "
+    "'I hope this finds you well', no 'just following up', no 'circling "
+    "back', and no bullet lists unless a step asks for them.\n"
+    "- A step tagged (model: <name>) follows that model closely: its subject "
+    "line word for word, its paragraph order and the job its question does. "
+    "Swap the example work and role (an operations coordinator) for this "
+    "company's target role and the work in the BRIEF, and never write about "
+    "an operations coordinator unless that is the target role. A step's own "
+    "line adds to its model and wins where they differ. Untagged steps are "
+    "written in the same style.\n"
+    "- SAY WHAT WE DO, ONCE: the FIRST email says in the first person that "
+    "we do offshore staff augmentation, using those exact words, as Model 1 "
+    "does. Later emails describe the service plainly and need not repeat "
+    "the phrase. Always 'offshore staff augmentation', never 'offshore "
+    "staffing'.\n"
+    "- THE SAVING, ONCE: only the cost email states the saving, as Model 2 "
+    "does, and only in the words the approved pricing and service terms "
+    "field allows: up to sixty to seventy percent below a comparable U.S. "
+    "hire, depending on the role. Always 'up to'. No other email gives a "
+    "percentage, and no email ever gives a dollar amount, a monthly rate or "
+    "an annual figure. If that field states no savings figure, leave the "
+    "number out.\n"
+    "- THE LAST EMAIL of the campaign says plainly that this is your final "
+    "note in this sequence, and that you will still check in about once a "
+    "month with a short personal note, as Model 7 does. Never call it a "
+    "newsletter, a list or a subscription. This overrides any step line "
+    "about stopping.\n\n"
+    "MODEL EMAILS:\n\n" + _tm_model_emails_block() + "\n\n"
 )
 
 
-# Mike, 2026-09-21: the first email opens on his own track record, and one
-# follow-up repeats it. This is his claim about his own placements, so it is
+# Mike, 2026-09-21: the first email opens on his own track record (the
+# follow-up repeat went with the model-email rewrite the same day). This is his claim about his own placements, so it is
 # the one placement number the playbook's proof rule lets through.
 _TM_TRACK_RECORD_COUNT = "50+"
 _TM_ACRONYMS = {"ap", "ar", "cpa", "bim", "cad", "vdc", "hr", "it", "ea", "cs",
@@ -7230,20 +7158,15 @@ def _tm_track_record_rule(camp_type, role: str, industry: str) -> str:
         "figure is exempt from the proof rule's ban on placement numbers, "
         "and no other number may be added to it):\n"
         f"- The FIRST email opens, right after 'Hi {{FirstName}},', with this "
-        f"line, word for word: \"{line}\" Then ask: \"Have you ever "
-        "considered offshore staff augmentation?\" Then say what we do (the "
-        "offshore staff augmentation and plug-and-play lines above).\n"
-        f"- The SECOND email must mention it again, in its first two "
-        f"sentences and in fresh words, keeping the figure "
-        f"{_TM_TRACK_RECORD_COUNT} and the same role and industry (for "
-        f"example 'Having placed {_TM_TRACK_RECORD_COUNT} of these roles "
-        "recently, ...'). No other email uses the number.\n\n")
+        f"line, word for word: \"{line}\" Then it carries on as Model 1 "
+        "does: the point about the work, what we do, one question.\n"
+        "- No other email uses the number.\n\n")
 
 
 def _tm_ensure_track_record(camp_type, campaign_data, role: str,
                             industry: str) -> None:
-    """Backstop for _tm_track_record_rule: first email opens on the line, and
-    one follow-up repeats the figure. Adds only what the model left out."""
+    """Backstop for _tm_track_record_rule: the first email opens on the
+    line. Adds it only when the model left it out."""
     if (camp_type or "").strip() not in _TM_TYPE_KEYS:
         return
     emails = [e for e in (campaign_data or {}).get("emails", []) or []
@@ -7257,22 +7180,10 @@ def _tm_ensure_track_record(camp_type, campaign_data, role: str,
         head = body[:cut] if m else "Hi {FirstName},<br><br>"
         return head + text + " " + body[cut:].lstrip()
 
-    fig = _TM_TRACK_RECORD_COUNT
     first = emails[0]
-    if fig not in _tm_scrub_line(first.get("body") or ""):
-        text = _tm_track_record_line(role, industry)
-        if "considered offshore staff augmentation" not in _tm_scrub_line(
-                first.get("body") or ""):
-            text += " Have you ever considered offshore staff augmentation?"
-        first["body"] = _after_greeting(first.get("body") or "", text)
-    if len(emails) > 1 and not any(fig in _tm_scrub_line(e.get("body") or "")
-                                   for e in emails[1:]):
-        ind = _tm_industry_phrase(industry)
-        emails[1]["body"] = _after_greeting(
-            emails[1].get("body") or "",
-            f"Having placed {fig} {_tm_role_plural(role)}"
-            + (f" in {ind}" if ind else "") + " recently, I see this come up "
-            "a lot.")
+    if _TM_TRACK_RECORD_COUNT not in _tm_scrub_line(first.get("body") or ""):
+        first["body"] = _after_greeting(first.get("body") or "",
+                                        _tm_track_record_line(role, industry))
 
 
 def _tm_opener_rule(camp_type) -> str:
@@ -7431,7 +7342,13 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
         if not _b_stripped.startswith("Hi {FirstName}"):
             _b = "Hi {FirstName},<br><br>" + _b
         _b = _strip_ai_signoff(_b)
-        _s = _title_case_subject(_s)
+        # ThriveModal subjects stay in the sentence case its model emails
+        # and playbook use ("More room for the work that matters").
+        if (camp_type or "").strip() not in _TM_TYPE_KEYS:
+            _s = _title_case_subject(_s)
+        else:
+            _s = _s.strip()
+            _s = _s[:1].upper() + _s[1:]
         _b = _usd_to_dollar(_humanize_email_text(_b))
         _s = _usd_to_dollar(_humanize_email_text(_s))
         _b = _strip_dashes(_b)
@@ -12686,12 +12603,14 @@ _TM_STEP_SHAPE = {
         1: (0, ST.EMAIL_AUTO), 2: (4, ST.EMAIL_AUTO), 3: (0, ST.CALL),
         4: (4, ST.EMAIL_AUTO), 5: (5, ST.EMAIL_AUTO), 6: (6, ST.EMAIL_AUTO),
     },
-    # Standard Outreach: 5 emails + 2 calls + LinkedIn over 15 business days.
-    # Call 1 and LinkedIn land on Step 2's day, Call 2 on Step 5's day.
+    # Standard Outreach (Mike, 2026-09-21): 7 emails + 2 calls + LinkedIn
+    # over 22 business days. Call 1 and LinkedIn land on the cost email's
+    # day, Call 2 on the quality email's day.
     "tm_fivebyseven": {
         1: (0, ST.EMAIL_AUTO), 2: (3, ST.EMAIL_AUTO), 3: (0, ST.CALL),
-        4: (0, ST.LINKEDIN),   5: (3, ST.EMAIL_AUTO), 6: (0, ST.CALL),
-        7: (4, ST.EMAIL_AUTO), 8: (5, ST.EMAIL_AUTO),
+        4: (0, ST.LINKEDIN),   5: (3, ST.EMAIL_AUTO), 6: (3, ST.EMAIL_AUTO),
+        7: (4, ST.EMAIL_AUTO), 8: (0, ST.CALL),       9: (4, ST.EMAIL_AUTO),
+        10: (5, ST.EMAIL_AUTO),
     },
     # Quick Intro: email only, business days 0 / 3 / 7. Three cold emails in
     # five days read as pushy and draw spam complaints; this spacing doesn't.
@@ -12767,6 +12686,18 @@ def _tm_drop_unbacked_lines(body: str, has_attachment: bool) -> str:
     return cleaned.strip()
 
 
+def _tm_step_models(camp_type) -> dict:
+    """{step number: model email name}, from the type's "(model: X)" tags."""
+    seq = next((t[6] for t in AICB_CAMPAIGN_TYPES
+                if t[0] == (camp_type or "").strip()), "")
+    out = {}
+    for line in seq.split("\n"):
+        m = re.match(r"Step (\d+) - [^\n]*?\(model: ([^)]+)\)", line)
+        if m:
+            out[int(m.group(1))] = m.group(2)
+    return out
+
+
 def _apply_thrivemodal_overrides(camp_type, campaign_data):
     """Pin the ThriveModal cadence shape and strip unbacked promises.
 
@@ -12780,12 +12711,18 @@ def _apply_thrivemodal_overrides(camp_type, campaign_data):
     shape = _TM_STEP_SHAPE.get(key)
     if not shape:
         return campaign_data
+    models = _tm_step_models(key)
+    subjects = {name: subj for name, subj, _p in _TM_MODEL_EMAILS}
     for em in (campaign_data or {}).get("emails", []) or []:
         n = _fivebyfive_step_no(em.get("name"))  # generic "Step N -" parser
         if n in shape:
             delay, st = shape[n]
             em["delay_days"] = delay
             em["step_type"] = st
+            # A step tagged with a model email carries that model's subject
+            # exactly as Mike wrote it; the model drifts otherwise.
+            if st == ST.EMAIL_AUTO and models.get(n) in subjects:
+                em["subject"] = subjects[models[n]]
         has_att = bool(em.get("attachments"))
         em["body"] = _tm_drop_unbacked_lines(em.get("body") or "", has_att)
     _tm_ensure_offshore_and_monthly(campaign_data)
@@ -12795,9 +12732,9 @@ def _apply_thrivemodal_overrides(camp_type, campaign_data):
 # Mike, 2026-09-21: every campaign says up front that we do offshore
 # staffing, and the last email promises a monthly check-in. The prompt asks
 # for both; these lines go in only when the model left them out.
-_TM_OFFSHORE_LINE = ("Quick background on me: I do offshore staff augmentation, placing "
-                     "dedicated, plug-and-play professionals from the "
-                     "Philippines on U.S. teams.")
+_TM_OFFSHORE_LINE = ("We do offshore staff augmentation: we recruit dedicated "
+                     "professionals in the Philippines around a specific "
+                     "role, and you choose who joins your team.")
 _TM_MONTHLY_LINE = ("I'll close this series out here, but I'll still check in "
                     "about once a month in case timing changes.")
 _TM_WE_DO_OFFSHORE_RE = re.compile(
@@ -25290,9 +25227,9 @@ _TM_CHOOSER_OBJECTIVES = [
         "title": "Standard Outreach",
         "recommended": True,
         "use_when": "Your default for any good-fit company you haven't contacted yet.",
-        "desc": ("Opens on a capacity question, prices one role, shows what "
-                 "work transfers, answers the control question and closes "
-                 "cleanly on three options."),
+        "desc": ("Seven short emails: the work, the cost, the role's scope, "
+                 "support after the hire, quality, the commitment and a "
+                 "clean close."),
         "border": "#0EA5E9",
     },
     {
@@ -25301,8 +25238,8 @@ _TM_CHOOSER_OBJECTIVES = [
         "icon": "⚡",
         "title": "Quick Intro",
         "use_when": "You have a big list and want to see who's interested, fast.",
-        "desc": ("Email only. Names the work, makes the case, then asks for a "
-                 "one-word reply: now, later or no."),
+        "desc": ("Email only. Names the work, shows the cost, then asks for "
+                 "a one-word reply: now, later or no."),
         "border": "#EF4444",
     },
     {
@@ -25311,9 +25248,8 @@ _TM_CHOOSER_OBJECTIVES = [
         "icon": "💬",
         "title": "Priority Account Push",
         "use_when": "A company you really want, and you'll make the calls.",
-        "desc": ("The fullest cold sequence. Adds a note on support after the "
-                 "hire and a plain statement of the commitment before it "
-                 "closes."),
+        "desc": ("The Standard Outreach emails, each built around a detail "
+                 "about this one company, with a third call."),
         "border": "#14B8A6",
     },
     {
@@ -42178,9 +42114,11 @@ _TM_PDF_STEP_WORDS = {
     "tm_cost_compare": ("cost", "economics", "math", "saving", "budget",
                         "pricing"),
     "tm_how_it_works": ("how it works", "commitment", "control", "terms",
-                        "after the hire", "after selection", "no risk",
+                        "after the hire", "after selection", "joins",
+                        "no risk",
                         "offer", "commercial", "quality", "process"),
-    "tm_role_blueprint": ("blueprint", "transfer", "requirement", "what we need",
+    "tm_role_blueprint": ("blueprint", "scope", "transfer", "requirement",
+                          "what we need",
                           "expert asset", "role fit", "role would", "role"),
     "interview_guide": ("interview", "shortlist", "selection", "candidate"),
     "market_pulse": ("market", "signal", "industry", "insight", "alert"),

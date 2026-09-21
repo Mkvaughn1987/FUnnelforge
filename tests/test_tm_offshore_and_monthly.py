@@ -94,9 +94,11 @@ def test_offshore_staffing_is_reworded_everywhere_in_tm_copy():
     assert "Offshore Staff Augmentation" in b0 and "OFFSHORE STAFF AUGMENTATION" in b0
     assert c["emails"][0]["subject"] == "Offshore staff augmentation for you"
     assert "Offshore staff augmentation, once" in c["emails"][1]["body"]
-    assert "offshore staffing" not in fa._TM_EMAIL_OPENER_RULE.lower()
-    assert "plug-and-play" in fa._TM_EMAIL_OPENER_RULE
-    assert "plug-and-play" in fa._TM_OFFSHORE_LINE
+    # The rule names the banned phrase only to forbid it.
+    assert "never 'offshore staffing'" in fa._TM_EMAIL_OPENER_RULE
+    # Plug-and-play went with the model-email rewrite (2026-09-21).
+    assert "plug-and-play" not in fa._TM_EMAIL_OPENER_RULE
+    assert "plug-and-play" not in fa._TM_OFFSHORE_LINE
 
 
 def test_tm_pdfs_say_staff_augmentation():
