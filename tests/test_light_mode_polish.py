@@ -19,10 +19,13 @@ def test_default_theme_is_light():
     toggle and unrelated to the default-on-first-visit behavior."""
     import flowdrip_app as fa
     src = inspect.getsource(fa.inject_styles)
-    assert "localStorage.getItem('dd-theme') || 'light'" in src, (
-        "Boot script must default to 'light' for new visitors "
-        "(localStorage.getItem('dd-theme') || 'light')"
-    )
+    # Key and default are per-instance env settings, substituted into
+    # the script; with no override they must be 'dd-theme' and 'light'.
+    assert "localStorage.getItem('__DD_THEME_KEY__') || '__DD_THEME_DEFAULT__'" in src
+    assert '.replace("__DD_THEME_DEFAULT__", THEME_DEFAULT)' in src
+    assert fa.THEME_KEY == "dd-theme"
+    assert fa.THEME_DEFAULT == "light", (
+        "Boot script must default to 'light' for new visitors")
     assert "localStorage.getItem('dd-theme') || 'dark'" not in src, (
         "Boot script still has the old 'dark' default — should be 'light' now"
     )
