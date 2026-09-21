@@ -687,21 +687,37 @@ async def tm_my_day(date: str = "") -> dict:
 
 
 @mcp.tool(description=(
-    "Mark a My Day task done, exactly like its button in the app. result: "
-    "'done' (a task), 'connected' (spoke to them / LinkedIn sent), 'vm' "
-    "(left a voicemail) or 'skipped'. undo=true puts it back. Get task_id "
-    "from tm_my_day."
+    "Mark My Day tasks done, exactly like the buttons in the app. One task: "
+    "task_id; several: task_ids. result: 'done' (a task), 'connected' "
+    "(spoke to them / LinkedIn sent), 'vm' (left a voicemail) or 'skipped' "
+    "(default 'done'). undo=true puts them back. The page's bulk buttons: "
+    "all_overdue=true ('Mark all overdue done'), or campaign='<name or "
+    "campaign_id>' and/or channel='call'|'li'|'task' ('Mark all N done', "
+    "'All LinkedIn done'), for today unless date=YYYY-MM-DD. Bulk marks "
+    "give calls 'vm', LinkedIn 'connected' and tasks 'done' unless result "
+    "is set. Get ids from tm_my_day. Confirm with the user before a bulk mark."
 ))
-async def tm_task_done(task_id: str, result: str = "done", undo: bool = False) -> dict:
-    return await _tm_call("tm_task_done",
-                          {"task_id": task_id, "result": result, "undo": undo})
+async def tm_task_done(task_id: str = "", result: str = "", undo: bool = False,
+                       task_ids: list | None = None, all_overdue: bool = False,
+                       campaign: str = "", channel: str = "",
+                       date: str = "") -> dict:
+    body: dict = {"task_id": task_id, "result": result, "undo": undo,
+                  "all_overdue": all_overdue, "campaign": campaign,
+                  "channel": channel, "date": date}
+    if task_ids:
+        body["task_ids"] = task_ids
+    return await _tm_call("tm_task_done", body)
 
 
 @mcp.tool(description=(
     "Replies: everyone who wrote back to a campaign, with their message. "
-    "action='list' (default) lists them; action='followed_up' marks one "
-    "handled; action='dismiss' removes it from the list. The last two need "
-    "the email."
+    "action='list' (default) lists them; action='scan' re-scans the user's "
+    "inbox now for new replies (the app also scans every few minutes); "
+    "action='draft' with email returns a suggested answer to that reply; "
+    "action='followed_up' marks one handled; action='dismiss' removes it "
+    "from the list. Nothing here sends email: the user answers from their "
+    "own mailbox (you may also write the reply yourself), then mark it "
+    "followed_up."
 ))
 async def tm_replies(action: str = "list", email: str = "") -> dict:
     return await _tm_call("tm_replies", action, email)
@@ -801,15 +817,23 @@ async def tm_newsletter_issue(campaign_id: str, refresh: bool = False) -> dict:
     "Sales Assets PDFs. With no kind, lists the PDFs already in the library "
     "(newest first, each with a link) and the kinds available. With kind + "
     "role (+ company, location, industry), builds a new PDF and returns its "
-    "link. Kinds: " + _PDF_KINDS_DOC + " To attach PDFs to a campaign use "
-    "tm_campaign_pdfs instead."
+    "link. Kinds: " + _PDF_KINDS_DOC + " The Sales Assets page also builds "
+    "interview_guide (Interview Guide for the shortlist stage) and "
+    "market_pulse (Market Pulse: industry context with sources), and "
+    "kind='custom' (Create Your Own) builds a one-page PDF from description "
+    "(a sentence or two on what it should be; role etc. optional). To change "
+    "an existing PDF use tm_pdf_edit; to attach PDFs to a campaign use "
+    "tm_campaign_pdfs."
 ))
 async def tm_sales_assets(kind: str = "", role: str = "", company: str = "",
-                          location: str = "", industry: str = "") -> dict:
+                          location: str = "", industry: str = "",
+                          description: str = "") -> dict:
     body = None
     if kind:
         body = {"kind": kind, "role": role, "company": company,
                 "location": location, "industry": industry}
+        if description:
+            body["description"] = description
     return _link_pdfs(await _tm_call("tm_sales_assets", body))
 
 
@@ -1018,6 +1042,69 @@ async def tm_playbook(action: str = "get", sections: dict | list | None = None,
 
 
 # ── connector group D (2026-09-21) begin ──
+@mcp.tool(description=(
+    "The cold-call briefing My Day shows for a campaign's calls: company "
+    "overview, HQ and offices, open jobs, recent news and talking points, "
+    "from a web search. Pass task_id (a call from tm_my_day) or "
+    "campaign_id. Returns the saved one when there is one; refresh=true "
+    "writes a fresh one (15-60 seconds)."
+))
+async def tm_call_briefing(task_id: str = "", campaign_id: str = "",
+                           refresh: bool = False) -> dict:
+    return await _tm_call("tm_call_briefing", {
+        "task_id": task_id, "campaign_id": campaign_id, "refresh": refresh})
+
+
+@mcp.tool(description=(
+    "View and hand-edit a newsletter's issues, and change its settings. "
+    "campaign_id from tm_newsletters. action='issues' (default) lists every "
+    "issue (sent or not) and the settings; 'get_issue' returns one issue "
+    "(issue=n, default the next) with its full HTML body; 'edit_issue' with "
+    "issue and subject and/or body (the full HTML, edited from get_issue) "
+    "saves it, stops auto-refresh overwriting it and updates emails already "
+    "queued for it; issues already sent cannot be edited. 'settings' with no "
+    "settings returns them; with settings={...} saves them and rewrites the "
+    "next issue in the background. Settings keys: city_life (bool) plus, "
+    "for ThriveModal, profiles (bool: 3 sample talent profiles per issue) "
+    "and topic (what the issues are about); other workspaces use "
+    "spotlights_per_issue (3 or 6) and spotlight_guidance. To have the AI "
+    "rewrite an issue instead, use tm_newsletter_issue with refresh=true."
+))
+async def tm_newsletter_edit(campaign_id: str, action: str = "issues",
+                             issue: int = 0, subject: str | None = None,
+                             body: str | None = None,
+                             settings: dict | None = None) -> dict:
+    req: dict = {"campaign_id": campaign_id, "action": action}
+    if issue:
+        req["issue"] = issue
+    if subject is not None:
+        req["subject"] = subject
+    if body is not None:
+        req["body"] = body
+    if isinstance(settings, dict):
+        req.update({k: v for k, v in settings.items()
+                    if k not in ("campaign_id", "action")})
+    return await _tm_call("tm_newsletter_edit", req)
+
+
+@mcp.tool(description=(
+    "Edit a PDF already in the Sales Assets library, as the app's PDF "
+    "editor does. file is its filename or path from tm_sales_assets. "
+    "action='get' (default) returns its content: title, badge, intro, cta "
+    "and sections (each {heading, type: paragraph|bullets|table|qa, items}); "
+    "'update' with data={any of those} replaces them and re-renders; "
+    "'revise' with instruction (e.g. 'make the intro shorter') has the AI "
+    "apply it and re-renders. The file keeps its name and link, so "
+    "campaigns carrying it send the new version."
+))
+async def tm_pdf_edit(file: str, action: str = "get", instruction: str = "",
+                      data: dict | None = None) -> dict:
+    req: dict = {"file": file, "action": action}
+    if instruction:
+        req["instruction"] = instruction
+    if data is not None:
+        req["data"] = data
+    return _link_pdfs(await _tm_call("tm_pdf_edit", req))
 # ── connector group D end ──
 
 

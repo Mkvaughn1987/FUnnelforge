@@ -344,7 +344,9 @@ class DripDropClient:
     async def tm_replies(self, action: str = "list", email: str = "") -> dict:
         if action == "list":
             return await self._tm_get("replies")
-        return await self._tm_post("replies", {"action": action, "email": email})
+        # scan reads the inbox and draft calls the AI; both take a while.
+        return await self._tm_post("replies", {"action": action, "email": email},
+                                   timeout=180.0 if action in ("scan", "draft") else 60.0)
 
     async def tm_contacts(self, list_name: str = "", q: str = "", limit: int = 50) -> dict:
         return await self._tm_get("contacts/search",
@@ -373,7 +375,8 @@ class DripDropClient:
     async def tm_sales_assets(self, body: dict | None = None) -> dict:
         if not body:
             return await self._tm_get("sales_assets")
-        return await self._tm_post("sales_assets", body, timeout=240.0)
+        # A custom PDF is two AI calls (outline, then fill).
+        return await self._tm_post("sales_assets", body, timeout=300.0)
 
     async def tm_saved_prompts(self, prompt_id: str = "") -> dict:
         return await self._tm_get("saved_prompts", {"id": prompt_id})
@@ -431,4 +434,14 @@ class DripDropClient:
 
 
     # ── connector group D (2026-09-21) begin ──
+    async def tm_call_briefing(self, body: dict) -> dict:
+        # Writing a briefing runs a web search.
+        return await self._tm_post("tasks/briefing", body, timeout=180.0)
+
+    async def tm_newsletter_edit(self, body: dict) -> dict:
+        return await self._tm_post("newsletters/edit", body)
+
+    async def tm_pdf_edit(self, body: dict) -> dict:
+        # revise is one AI call plus a re-render.
+        return await self._tm_post("pdfs/edit", body, timeout=180.0)
     # ── connector group D end ──
