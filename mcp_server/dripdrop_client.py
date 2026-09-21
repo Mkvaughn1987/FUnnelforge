@@ -409,6 +409,24 @@ class DripDropClient:
 
 
     # ── connector group C (2026-09-21) begin ──
+    async def tm_ai_prompt(self, body: dict | None = None) -> dict:
+        body = dict(body or {})
+        if body.get("action", "runs") == "runs":
+            return await self._tm_get("ai_prompt")
+        return await self._tm_post("ai_prompt", body)
+
+    async def tm_playbook(self, body: dict | None = None) -> dict:
+        body = dict(body or {})
+        action = body.get("action", "get")
+        if action == "get":
+            return await self._tm_get("playbook")
+        if action == "autofill":
+            # Reads the website with web search.
+            return await self._tm_post("profile/autofill", body, timeout=180.0)
+        if action == "team_default":
+            return await self._tm_post("profile/team_default", body)
+        # improve is one AI rewrite.
+        return await self._tm_post("playbook", body, timeout=180.0)
     # ── connector group C end ──
 
 
