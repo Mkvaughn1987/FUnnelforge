@@ -45694,10 +45694,7 @@ def p_ai_campaign(s: AppState, rf):
             _last_wiz = getattr(s, "_aicb_last_rendered_wiz_step", None)
             if _last_wiz != _wiz_step:
                 s._aicb_last_rendered_wiz_step = _wiz_step
-                try:
-                    ui.run_javascript("window.scrollTo(0, 0);")
-                except Exception:
-                    pass
+                _scroll_content_top()
 
         # Title + top-right Next button. The Next button is a discoverable
         # forward control so users never have to scroll the page to find a
@@ -64215,6 +64212,19 @@ def p_admin(s: AppState, rf):
 
 
 # ── Routing ─────────────────────────────────────────────────────────────────
+def _scroll_content_top():
+    """Scroll the page content to the top. Pages scroll inside .fd-main-ct
+    (sidebar layout) or .fd-pg, not the window, so window.scrollTo alone does
+    nothing. Deferred a frame so it runs after the new page is in the DOM."""
+    try:
+        ui.run_javascript(
+            "requestAnimationFrame(()=>{window.scrollTo(0,0);"
+            "document.querySelectorAll('.fd-main-ct,.fd-pg,.fd-row>div')"
+            ".forEach(e=>{e.scrollTop=0;});});")
+    except Exception:
+        pass
+
+
 def render_page(s: AppState, rf):
     # Floating refresh button (bottom-left)
     with ui.element("button").style(
@@ -66129,7 +66139,7 @@ def index():
         s.tc_preset = ""
         s.tc_jd_mode = ""
         s.tc_contacts = _ats_tc_contacts or []
-    refs = {}
+    refs = {"_last_pg": (s.hub, s.sp, s.ep)}
 
     def rf():
         # Re-apply user paths on every render (multi-user safety)
@@ -66157,6 +66167,15 @@ def index():
             sidebar(s, rf)
         with refs["ct"]:
             render_page(s, rf)
+        # A new page opens at the top. The content scrolls inside
+        # .fd-main-ct, not the window, and clearing it keeps its old
+        # scrollTop, so a long page left you at the bottom of the next
+        # one looking at blank space. Same-page re-renders (field blur,
+        # toggles) keep their position.
+        _pg_key = (s.hub, s.sp, s.ep)
+        if refs.get("_last_pg") != _pg_key:
+            refs["_last_pg"] = _pg_key
+            _scroll_content_top()
 
     if _SIDEBAR_LAYOUT:
         # Sidebar layout: full-height sidebar on the left, compact page
