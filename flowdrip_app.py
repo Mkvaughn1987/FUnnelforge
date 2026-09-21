@@ -6253,9 +6253,10 @@ TEMPLATES = {
 #  DATA LAYER
 # ═══════════════════════════════════════════════════════════════════════════
 
-def load_contacts():
-    # Use async-safe per-user path accessor
-    _contacts_csv = _user_contacts_dir() / "contacts.csv"
+def load_contacts(path=None):
+    # Use async-safe per-user path accessor. `path` reads a saved list with
+    # the same mapping (the connector edits saved lists through this).
+    _contacts_csv = Path(path) if path else _user_contacts_dir() / "contacts.csv"
     if not _contacts_csv.exists():
         return []
     rows = []
@@ -8993,8 +8994,10 @@ async def api_tm_clients(request: Request):
 @app.post("/api/v1/tm/clients")
 async def api_tm_client_update(request: Request):
     """Body: {"action": "add", "domain", "name", "location", "notes",
-    "website"} or {"action": "remove", "id"}. Adding a client stops future
-    emails to that domain; emails already queued still need cancelling."""
+    "website"}, {"action": "add", "clients": [<domain> | {domain, name,
+    location, notes, website}, ...]} (the page's bulk upload), or
+    {"action": "remove", "id"}. Adding a client stops future emails to that
+    domain; emails already queued still need cancelling."""
     from starlette.responses import JSONResponse
 
     owner = _tm_api_owner(request)
@@ -9007,6 +9010,33 @@ async def api_tm_client_update(request: Request):
     if body is None:
         return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
     action = str(body.get("action") or "").strip().lower()
+    if action == "add" and body.get("clients") is not None:
+        # Bulk, as the Clients page's file upload commits it: one
+        # add_client_to_blocklist per row, website defaulting to the domain.
+        rows = body.get("clients")
+        if not isinstance(rows, list) or not rows:
+            return JSONResponse({"error": "clients must be a non-empty list"},
+                                status_code=400)
+        if len(rows) > 2000:
+            return JSONResponse({"error": "at most 2000 clients per call"},
+                                status_code=400)
+        results, added = [], 0
+        for r in rows:
+            r = {"domain": r} if isinstance(r, str) else r
+            if not isinstance(r, dict):
+                results.append({"domain": "", "added": False,
+                                "message": "each client must be a domain or an object"})
+                continue
+            dom = str(r.get("domain") or r.get("website") or "").strip()
+            ok, msg = add_client_to_blocklist(
+                dom, client_name=str(r.get("name") or r.get("client_name") or ""),
+                location=str(r.get("location") or ""),
+                notes=str(r.get("notes") or ""),
+                website=str(r.get("website") or "") or dom, actor_email=owner)
+            added += bool(ok)
+            results.append({"domain": dom, "added": bool(ok), "message": msg})
+        return JSONResponse({"added": added, "skipped": len(results) - added,
+                             "results": results})
     if action == "add":
         ok, msg = add_client_to_blocklist(
             str(body.get("domain") or ""), client_name=str(body.get("name") or ""),
@@ -9171,6 +9201,332 @@ async def api_tm_dnc_update(request: Request):
 
 
 # ── connector group B (2026-09-21) begin ──
+# Campaign Styles, saved audiences, contact lists and mailboxes: the write
+# half of pages the connector could already read. Each action calls the
+# helper its page button calls.
+
+# The builder's own bounds: emails, calls and LinkedIn messages, at most 15
+# steps, each later step 1-30 business days after the one before it.
+_TM_STYLE_STEP_TYPES = ("email", "call", "linkedin")
+_TM_STYLE_TONES = ("consultative", "direct", "casual", "formal")
+_TM_STYLE_MAX_STEPS = 15
+
+
+def _tm_style_steps(raw):
+    """The builder's step list ({type, delay_days, input}) from a caller's
+    steps, or (None, why not). Every step needs its content, as the builder's
+    Save button does."""
+    if not isinstance(raw, list) or not raw:
+        return None, "steps must be a non-empty list"
+    if len(raw) > _TM_STYLE_MAX_STEPS:
+        return None, f"at most {_TM_STYLE_MAX_STEPS} steps"
+    out = []
+    for i, st in enumerate(raw, start=1):
+        if not isinstance(st, dict):
+            return None, f"step {i} must be an object"
+        typ = str(st.get("type") or "email").strip().lower()
+        if typ not in _TM_STYLE_STEP_TYPES:
+            return None, (f"step {i}: type must be one of "
+                          + ", ".join(_TM_STYLE_STEP_TYPES))
+        content = str(st.get("content") or st.get("input")
+                      or st.get("guidance") or "").strip()
+        if not content:
+            return None, f"step {i} needs content (what this step says or does)"
+        delay = 0
+        if i > 1:
+            try:
+                delay = int(st.get("delay_days", st.get("days_after_previous", 2)))
+            except (TypeError, ValueError):
+                return None, f"step {i}: delay_days must be a whole number"
+            if not 1 <= delay <= 30:
+                return None, f"step {i}: delay_days must be 1 to 30"
+        out.append({"type": typ, "delay_days": delay, "input": content})
+    return out, ""
+
+
+@app.get("/api/v1/tm/campaign_styles")
+async def api_tm_campaign_styles(request: Request):
+    """My Campaign Styles, plus what a new one may be built from."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return JSONResponse({"styles": _load_my_campaign_styles(),
+                         "step_types": list(_TM_STYLE_STEP_TYPES),
+                         "tones": list(_TM_STYLE_TONES),
+                         "max_steps": _TM_STYLE_MAX_STEPS})
+
+
+@app.post("/api/v1/tm/campaign_styles")
+async def api_tm_campaign_style_update(request: Request):
+    """Body: {"action": "create", "name", "steps": [{type, delay_days,
+    content}], "tone"} (the Create a Campaign Style builder), or
+    {"action": "create", "name", "description"} (Save as Campaign Style), or
+    {"action": "delete", "id"}. A style is a description the AI rebuilds a
+    campaign from at launch (create_campaign style_id), not a fixed script."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await _tm_api_body(request)
+    if body is None:
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    action = str(body.get("action") or "").strip().lower()
+    styles = _load_my_campaign_styles()
+    if action == "create":
+        name = str(body.get("name") or "").strip()
+        if not name:
+            return JSONResponse({"error": "name is required"}, status_code=400)
+        if any(str(x.get("name", "")).strip().lower() == name.lower() for x in styles):
+            return JSONResponse({"error": f"a style named {name!r} already exists"},
+                                status_code=409)
+        if body.get("steps") is not None:
+            tone = str(body.get("tone") or "consultative").strip().lower()
+            if tone not in _TM_STYLE_TONES:
+                return JSONResponse({"error": "tone must be one of "
+                                     + ", ".join(_TM_STYLE_TONES)}, status_code=400)
+            steps, err = _tm_style_steps(body.get("steps"))
+            if steps is None:
+                return JSONResponse({"error": err}, status_code=400)
+            desc = _sb_compile_style_description(steps, tone)
+        else:
+            desc = str(body.get("description") or "").strip()
+            if not desc:
+                return JSONResponse({"error": "pass steps (or a description)"},
+                                    status_code=400)
+        new = {"id": str(uuid.uuid4()), "name": name, "description": desc,
+               "created_at": datetime.now().isoformat()}
+        styles.append(new)
+        _save_my_campaign_styles(styles)
+        return JSONResponse({"created": new})
+    if action == "delete":
+        sid = str(body.get("id") or "").strip()
+        if not sid:
+            return JSONResponse({"error": "id is required"}, status_code=400)
+        remaining = [x for x in styles if x.get("id") != sid]
+        if len(remaining) == len(styles):
+            return JSONResponse({"error": "no style with that id"}, status_code=404)
+        _save_my_campaign_styles(remaining)
+        return JSONResponse({"deleted": sid})
+    return JSONResponse({"error": "action must be create or delete"}, status_code=400)
+
+
+@app.post("/api/v1/tm/audiences")
+async def api_tm_audience_update(request: Request):
+    """Body: {"action": "save", "name", "criteria": {...}} (saving over an
+    existing name replaces it) or {"action": "delete", "name"}."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await _tm_api_body(request)
+    if body is None:
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    action = str(body.get("action") or "").strip().lower()
+    name = str(body.get("name") or "").strip()
+    if action == "save":
+        criteria = body.get("criteria")
+        if criteria is not None and not isinstance(criteria, dict):
+            return JSONResponse({"error": "criteria must be an object"}, status_code=400)
+        try:
+            aud = save_saved_audience(name, criteria or {})
+        except ValueError as ex:
+            return JSONResponse({"error": str(ex)}, status_code=400)
+        return JSONResponse({"saved": aud})
+    if action == "delete":
+        if not delete_saved_audience(name):
+            return JSONResponse({"error": f"no saved audience named {name!r}"},
+                                status_code=404)
+        return JSONResponse({"deleted": name})
+    return JSONResponse({"error": "action must be save or delete"}, status_code=400)
+
+
+_TM_MAILBOX_CONNECT_NOTE = (
+    "Signing a mailbox in is done in the app, in a browser: Settings, Email "
+    "& AI Setup, Sending Mailboxes, then Connect next to the address. It "
+    "sends nothing until it is connected.")
+
+
+@app.post("/api/v1/tm/mailboxes")
+async def api_tm_mailbox_update(request: Request):
+    """Body: {"action": "add", "email", "provider": "microsoft"|"google",
+    "daily_cap", "warmup_days"}, or {"action": "pause"|"resume"|"remove",
+    "id" (or "email")}. Adding registers the address only; connecting it is
+    an OAuth sign-in that stays in the browser."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await _tm_api_body(request)
+    if body is None:
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    action = str(body.get("action") or "").strip().lower()
+    email = str(body.get("email") or "").strip()
+    if action == "add":
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+            return JSONResponse({"error": "email looks wrong"}, status_code=400)
+        provider = str(body.get("provider") or "microsoft").strip().lower()
+        if provider not in ("microsoft", "google"):
+            return JSONResponse({"error": "provider must be microsoft or google"},
+                                status_code=400)
+        try:
+            cap = int(body.get("daily_cap", _TM_MAILBOX_DEFAULT_CAP))
+            days = int(body.get("warmup_days", _TM_WARMUP_DEFAULT_DAYS))
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "daily_cap and warmup_days must be "
+                                 "whole numbers"}, status_code=400)
+        if not 5 <= cap <= _TM_MAILBOX_MAX_CAP:
+            return JSONResponse({"error": f"daily_cap must be 5 to {_TM_MAILBOX_MAX_CAP}"},
+                                status_code=400)
+        if not 0 <= days <= 90:
+            return JSONResponse({"error": "warmup_days must be 0 to 90"}, status_code=400)
+        row, err = _tm_add_mailbox(email, provider, cap, days)
+        if row is None:
+            return JSONResponse({"error": err}, status_code=409)
+        return JSONResponse({"added": row, "connected": False,
+                             "next_step": _TM_MAILBOX_CONNECT_NOTE})
+    if action in ("pause", "resume", "remove"):
+        rows = _tm_load_mailboxes()
+        mid = str(body.get("id") or "").strip()
+        box = next((r for r in rows if (mid and r["id"] == mid)
+                    or (email and r["email"].lower() == email.lower())), None)
+        if box is None:
+            return JSONResponse({"error": "no mailbox with that id or email"},
+                                status_code=404)
+        if action == "remove":
+            _tm_write_mailboxes([r for r in rows if r["id"] != box["id"]])
+            return JSONResponse({"removed": box["email"]})
+        for r in rows:
+            if r["id"] == box["id"]:
+                r["paused"] = action == "pause"
+        _tm_write_mailboxes(rows)
+        return JSONResponse({"id": box["id"], "email": box["email"],
+                             "paused": action == "pause"})
+    return JSONResponse({"error": "action must be add, pause, resume or remove"},
+                        status_code=400)
+
+
+# What the Contacts page's edit form lets a user change on one contact.
+_TM_CONTACT_EDIT_FIELDS = ("first_name", "last_name", "email", "company", "title",
+                           "phone_mobile", "phone_office", "linkedin", "city", "state")
+
+
+def _tm_write_contact_list(path, rows):
+    """The Contacts page's own write: the whole list, atomically."""
+    _atomic_write_csv_text(path, _contacts_csv_text(rows, _CONTACT_COLMAP_SNAKE))
+
+
+@app.post("/api/v1/tm/contact_lists")
+async def api_tm_contact_list_update(request: Request):
+    """The Contacts page's edits. Body: {"action", "list"} plus:
+    delete_list: {"confirm": true} (the saved list is gone for good);
+    add_contact: {"contact": {email, first_name, ...}};
+    update_contact: {"email", "changes": {field: value}};
+    delete_contact: {"email"}.
+    A blank "list" is the active list the Contacts page has open."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await _tm_api_body(request)
+    if body is None:
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    action = str(body.get("action") or "").strip().lower()
+    if action not in ("delete_list", "add_contact", "update_contact", "delete_contact"):
+        return JSONResponse({"error": "action must be delete_list, add_contact, "
+                             "update_contact or delete_contact"}, status_code=400)
+    name = str(body.get("list") or "").strip()
+    saved = list_saved_contact_lists()
+    if name and name not in saved:
+        return JSONResponse({"error": f"no saved list named {name!r}",
+                             "lists": sorted(saved)}, status_code=404)
+    if action == "delete_list":
+        if not name:
+            return JSONResponse({"error": "name the saved list to delete"},
+                                status_code=400)
+        if body.get("confirm") is not True:
+            return JSONResponse({"error": "deleting a list cannot be undone; "
+                                 "ask the user, then pass confirm=true"},
+                                status_code=400)
+        try:
+            Path(saved[name]).unlink(missing_ok=True)
+        except Exception as ex:
+            return JSONResponse({"error": str(ex)}, status_code=500)
+        return JSONResponse({"deleted_list": name})
+    path = saved[name] if name else _user_contacts_csv_path()
+    rows = load_contacts(path) if Path(path).exists() else []
+    label = name or "(active list)"
+
+    def _find(em):
+        em = str(em or "").strip().lower()
+        return next((i for i, r in enumerate(rows)
+                     if em and str(r.get("email", "")).strip().lower() == em), None)
+
+    if action == "add_contact":
+        raw = body.get("contact")
+        c = _tm_api_contact(raw)
+        if c is None:
+            return JSONResponse({"error": "contact needs a valid email"}, status_code=400)
+        if _find(c["email"]) is not None:
+            return JSONResponse({"error": f"{c['email']} is already on {label}"},
+                                status_code=409)
+        for k in ("city", "state"):
+            c[k] = str(raw.get(k) or raw.get(k.capitalize()) or "").strip()
+        rows.insert(0, c)
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        _tm_write_contact_list(path, rows)
+        return JSONResponse({"added": c, "list": label, "total": len(rows)})
+    idx = _find(body.get("email"))
+    if idx is None:
+        return JSONResponse({"error": f"no contact with that email on {label}"},
+                            status_code=404)
+    if action == "delete_contact":
+        gone = rows.pop(idx)
+        _tm_write_contact_list(path, rows)
+        return JSONResponse({"deleted": gone.get("email", ""), "list": label,
+                             "total": len(rows)})
+    changes = body.get("changes")
+    if not isinstance(changes, dict) or not changes:
+        return JSONResponse({"error": "changes must be an object of fields to set",
+                             "fields": list(_TM_CONTACT_EDIT_FIELDS)}, status_code=400)
+    unknown = sorted(set(changes) - set(_TM_CONTACT_EDIT_FIELDS))
+    if unknown:
+        return JSONResponse({"error": "unknown fields: " + ", ".join(unknown),
+                             "fields": list(_TM_CONTACT_EDIT_FIELDS)}, status_code=400)
+    clean = {k: str(v if v is not None else "").strip() for k, v in changes.items()}
+    if "email" in clean:
+        clean["email"] = clean["email"].lower()
+        if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", clean["email"]):
+            return JSONResponse({"error": "email looks wrong"}, status_code=400)
+        other = _find(clean["email"])
+        if other is not None and other != idx:
+            return JSONResponse({"error": f"{clean['email']} is already on {label}"},
+                                status_code=409)
+    rows[idx].update(clean)
+    _tm_write_contact_list(path, rows)
+    return JSONResponse({"updated": rows[idx], "list": label})
+
+
 # ── connector group B end ──
 
 
@@ -11874,6 +12230,39 @@ def _tm_connect_target_path(state, cfg=None):
     return _tm_mailbox_config_path(_resolve_user_root(), mb_id)
 
 
+def _tm_add_mailbox(email, provider="microsoft", daily_cap=_TM_MAILBOX_DEFAULT_CAP,
+                    warmup_days=_TM_WARMUP_DEFAULT_DAYS):
+    """Register one more sending mailbox, warming up from today.
+
+    Returns (the row written, "") or (None, why not). Shared by the Sending
+    Mailboxes panel and the connector, so both seed the primary the same way:
+    the user's existing inbox has been sending all along, so it joins the
+    rotation as the primary rather than being replaced by the new one, and it
+    is already warmed up, so it gets no ramp."""
+    if not _is_thrivemodal():
+        return None, "Sending mailboxes are not available in this workspace."
+    email = str(email or "").strip()
+    rows = _tm_load_mailboxes()
+    if not rows:
+        rows.append({"id": _TM_PRIMARY_MAILBOX_ID,
+                     "email": (load_config().get("gmail_email")
+                               or load_config().get("ms_email")
+                               or "Your connected inbox"),
+                     "daily_cap": load_config().get("daily_send_limit", 250),
+                     "warmup_start": "", "warmup_days": 0})
+    new_id = _tm_mailbox_id(email)
+    if any(r["id"] == new_id for r in rows):
+        return None, "That mailbox is already in the rotation."
+    row = {"id": new_id, "email": email,
+           "provider": provider or "microsoft",
+           "daily_cap": int(daily_cap),
+           "warmup_start": date.today().isoformat(),
+           "warmup_days": int(warmup_days)}
+    rows.append(row)
+    written = _tm_write_mailboxes(rows)
+    return next((r for r in written if r["id"] == new_id), row), ""
+
+
 def _tm_mailbox_panel(C, rf):
     """The sending-mailboxes panel, under Deliverability Settings.
 
@@ -11981,27 +12370,13 @@ def _tm_mailbox_panel(C, rf):
                 ui.notify("Which address should this mailbox send from?",
                           type="warning")
                 return
-            rows = _tm_load_mailboxes()
-            if not rows:
-                # The user's existing inbox has been sending all along, so it
-                # joins the rotation as the primary rather than being replaced
-                # by it — and it is already warmed up, so it gets no ramp.
-                rows.append({"id": _TM_PRIMARY_MAILBOX_ID,
-                             "email": (load_config().get("gmail_email")
-                                       or load_config().get("ms_email")
-                                       or "Your connected inbox"),
-                             "daily_cap": load_config().get("daily_send_limit", 250),
-                             "warmup_start": "", "warmup_days": 0})
-            new_id = _tm_mailbox_id(email)
-            if any(r["id"] == new_id for r in rows):
-                ui.notify("That mailbox is already in the rotation.", type="warning")
+            _row, _err = _tm_add_mailbox(
+                email, _mb_provider.value or "microsoft",
+                int(_mb_cap.value or _TM_MAILBOX_DEFAULT_CAP),
+                int(_mb_days.value or 0))
+            if _row is None:
+                ui.notify(_err, type="warning")
                 return
-            rows.append({"id": new_id, "email": email,
-                         "provider": _mb_provider.value or "microsoft",
-                         "daily_cap": int(_mb_cap.value or _TM_MAILBOX_DEFAULT_CAP),
-                         "warmup_start": date.today().isoformat(),
-                         "warmup_days": int(_mb_days.value or 0)})
-            _tm_write_mailboxes(rows)
             ui.notify(f"{email} added. Use Connect to sign it in.", type="positive")
             rf()
 
