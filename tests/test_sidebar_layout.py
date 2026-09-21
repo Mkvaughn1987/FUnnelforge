@@ -133,7 +133,7 @@ def test_page_header_has_search_and_no_section_tabs():
 def test_campaign_views_are_sidebar_subrows():
     import types
     import flowdrip_app as fa
-    assert [r[1] for r in fa.SIDEBAR_CAMPAIGNS] == ["Active", "Completed", "Saved", "Templates"]
+    assert [r[1] for r in fa.SIDEBAR_CAMPAIGNS] == ["Active", "Completed", "Drafts", "Templates"]
     for ik, _lbl, _view in fa.SIDEBAR_CAMPAIGNS:
         assert ik in fa._SIDEBAR_ICONS, f"missing icon {ik}"
     src = inspect.getsource(fa._sidebar_v2)

@@ -20708,11 +20708,11 @@ SIDEBAR_NAV = [
 # Campaigns' views, rendered as sub-rows under the Campaigns row while any of
 # them is open (they used to be tabs in the page header). The third field is a
 # view key, not a page key: Active/Completed are one page (seq_mgr) with a
-# flag, Saved is start_seq's saved tab, Templates is the campaign-type chooser.
+# flag, Drafts is start_seq's saved tab, Templates is the campaign-type chooser.
 SIDEBAR_CAMPAIGNS = [
     ("c_active", "Active",    "active"),
     ("c_done",   "Completed", "completed"),
-    ("c_saved",  "Saved",     "saved"),
+    ("c_saved",  "Drafts",    "saved"),
     ("c_tpl",    "Templates", "templates"),
 ]
 # Content Library's pages, rendered as sub-rows under the Content Library row
@@ -28639,11 +28639,11 @@ def p_seq(s: AppState, rf):
 
     _page_decor(variant=1)  # Flowing Ribbon  -  the main Start a Campaign picker
 
-    # Sidebar layout: Campaigns > Saved lands here, so it is titled as the
+    # Sidebar layout: Campaigns > Drafts lands here, so it is titled as the
     # page it is rather than as step one of a new campaign.
     _saved_view = _SIDEBAR_LAYOUT and s._tab == "saved" and s.sq == 1
     with ui.element("div").style("display:flex;align-items:center;"):
-        ui.label("Saved Campaigns" if _saved_view
+        ui.label("Drafts" if _saved_view
                  else "New Campaign").classes("fd-h1")
         _show_page_help(s, rf, "start_seq")
     if _saved_view:
