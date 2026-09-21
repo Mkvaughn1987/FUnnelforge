@@ -27189,7 +27189,7 @@ def _sq_loaded_campaign(s: AppState, rf):
         ui.label("Choose Contacts").style(
             f"font-size:20px;font-weight:700;color:{C['text_l']};margin-bottom:4px;"
             f"font-family:'Nunito',sans-serif;")
-        ui.label("Upload a CSV or pick a saved list.").style(
+        ui.label("Upload a CSV, pick a saved list, or add one contact.").style(
             f"font-size:13px;color:{C['muted']};margin-bottom:20px;")
 
         # ── Status banner when contacts already loaded ────────────────────────
@@ -27303,7 +27303,8 @@ def _sq_loaded_campaign(s: AppState, rf):
         saved_border = C["teal"] if show_saved else C["border"]
         saved_bg     = C["teal_dim"] if show_saved else C["surface"]
 
-        with ui.element("div").style("display:flex;gap:14px;margin-bottom:20px;"):
+        with ui.element("div").style(
+                "display:flex;flex-wrap:wrap;gap:14px;margin-bottom:20px;"):
 
             # ── Card 1: Upload CSV ────────────────────────────────────────────
             def _on_uploaded_lc(new_contacts):
@@ -27313,7 +27314,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                 rf()
             _lc_upload_ref = _contact_upload_and_name(s, rf, _on_uploaded_lc)
             with ui.element("div").style(
-                    f"flex:1;background:{C['surface']};border:1px solid {C['border']};"
+                    f"flex:1;min-width:220px;background:{C['surface']};border:1px solid {C['border']};"
                     f"border-left:4px solid {C['email_col']};border-radius:0 12px 12px 0;"
                     f"padding:20px 22px;cursor:pointer;transition:background .15s;"
                     ).on("click", lambda: _lc_upload_ref.run_method('pickFiles') if _lc_upload_ref else None):
@@ -27341,7 +27342,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                 s._show_saved_lists = not getattr(s, "_show_saved_lists", False)
                 rf()
             with ui.element("div").style(
-                    f"flex:1;background:{saved_bg};"
+                    f"flex:1;min-width:220px;background:{saved_bg};"
                     f"border:1px solid {saved_border};"
                     f"border-left:4px solid {C['indigo']};border-radius:0 12px 12px 0;"
                     f"padding:20px 22px;cursor:pointer;transition:background .15s;"
@@ -27366,6 +27367,11 @@ def _sq_loaded_campaign(s: AppState, rf):
                         f"background:{_tint(C['indigo'],'15')};border:1px solid {_tint(C['indigo'],'40')};"):
                     ui.label("▾ Select a list" if show_saved else "▸ Select a list").style(
                         f"font-size:11px;color:{C['indigo']};font-weight:600;")
+
+            # ── Card 3: Add one contact (appends, never replaces) ─────────────
+            _lc_one = _single_contact_dialog(
+                lambda: camp.get("contacts") or [], _on_uploaded_lc)
+            _single_contact_card(_lc_one)
 
         # ── Saved list dropdown (when open) ──────────────────────────────────
         if show_saved:
@@ -27477,7 +27483,7 @@ def _sq_loaded_campaign(s: AppState, rf):
         else:
             with ui.element("div").classes("fd-empty").style("padding:32px 0;"):
                 ui.label("📭").style("font-size:32px;margin-bottom:8px;display:block;")
-                ui.label("No contacts yet  -  upload a CSV or pick a saved list above.").style(
+                ui.label("No contacts yet. Upload a CSV, pick a saved list, or add one contact above.").style(
                     f"font-size:13px;color:{C['muted']};")
 
 
@@ -31196,7 +31202,10 @@ def _contact_upload_and_name(s, rf, on_done):
         # Show naming dialog
         name_dialog.open()
 
-    with ui.element("div").style("height:0;overflow:hidden;"):
+    # Absolutely positioned so it never takes a slot in the flex row of
+    # option cards it is rendered into (it left a blank gap on the left).
+    with ui.element("div").style(
+            "position:absolute;width:0;height:0;overflow:hidden;"):
         _upload_el = ui.upload(on_upload=_on_upload, auto_upload=True,
                   label="＋ Import New Contact List").props('accept=".csv" flat color="teal" rounded')
 
@@ -31244,6 +31253,117 @@ def _contact_upload_and_name(s, rf, on_done):
                 f"background:{C['teal']};color:{C['on_teal']};font-weight:600;")
 
     return _upload_el
+
+
+def _single_contact_record(first="", last="", email="", company="",
+                           title="", phone=""):
+    """Build one contact in load_contacts()'s shape. Returns (rec, error)."""
+    email = (email or "").strip()
+    if not email:
+        return None, "Add an email address."
+    if not EMAIL_RE.match(email):
+        return None, f"'{email}' doesn't look like an email address."
+    return dict(
+        email=email,
+        first_name=(first or "").strip(),
+        last_name=(last or "").strip(),
+        company=(company or "").strip(),
+        title=(title or "").strip(),
+        phone_mobile="",
+        phone_office=(phone or "").strip(),
+        linkedin="", city="", state="",
+    ), ""
+
+
+def _append_single_contact(existing, rec):
+    """Return (new_list, error). Appends rec unless its email is already in."""
+    em = rec["email"].lower()
+    for c in existing or []:
+        if (c.get("email") or c.get("Email") or "").strip().lower() == em:
+            return list(existing), f"{rec['email']} is already in this list."
+    return list(existing or []) + [rec], ""
+
+
+def _single_contact_dialog(get_contacts, on_done):
+    """Dialog to add one contact by hand. Returns a function that opens it.
+
+    get_contacts() returns the list currently loaded; on_done(new_list) is
+    called with that list plus the new contact.
+    """
+    with ui.dialog() as dlg, ui.card().style(
+            f"background:{C['card']};border:1px solid {C['border']};"
+            f"min-width:420px;max-width:92vw;"):
+        ui.label("Add one contact").style(
+            f"font-size:15px;font-weight:700;color:{C['text_l']};"
+            f"font-family:'Nunito',sans-serif;")
+        ui.label("Only the email is required. The rest fills in the emails.").style(
+            f"font-size:12px;color:{C['muted']};margin-bottom:8px;")
+        with ui.element("div").style(
+                "display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;width:100%;"):
+            f_first = ui.input("First name")
+            f_last = ui.input("Last name")
+        f_email = ui.input("Email").props('type=email').style("width:100%;")
+        with ui.element("div").style(
+                "display:grid;grid-template-columns:1fr 1fr;gap:4px 12px;width:100%;"):
+            f_company = ui.input("Company")
+            f_title = ui.input("Title")
+        f_phone = ui.input("Phone (optional)").style("width:100%;")
+        fields = (f_first, f_last, f_email, f_company, f_title, f_phone)
+
+        def _add():
+            rec, err = _single_contact_record(
+                f_first.value, f_last.value, f_email.value,
+                f_company.value, f_title.value, f_phone.value)
+            if err:
+                ui.notify(err, type="warning"); return
+            new_list, err = _append_single_contact(get_contacts(), rec)
+            if err:
+                ui.notify(err, type="warning"); return
+            for f in fields:
+                f.set_value("")
+            dlg.close()
+            name = " ".join(x for x in (rec["first_name"], rec["last_name"]) if x)
+            ui.notify(f"✓ Added {name or rec['email']}", type="positive")
+            on_done(new_list)
+
+        f_email.on("keydown.enter", _add)
+        with ui.element("div").style(
+                "display:flex;gap:8px;margin-top:12px;justify-content:flex-end;width:100%;"):
+            ui.button("Cancel", on_click=dlg.close).props("flat").style(
+                f"color:{C['muted']};")
+            ui.button("Add contact", on_click=_add).style(
+                f"background:{C['teal']};color:{C['on_teal']};font-weight:600;")
+    return dlg.open
+
+
+def _single_contact_card(open_fn, pad="20px 22px"):
+    """Third option card on Choose Contacts: add one contact by hand."""
+    col = C["teal"]
+    with ui.element("div").style(
+            f"flex:1;min-width:220px;background:{C['surface']};"
+            f"border:1px solid {C['border']};"
+            f"border-left:4px solid {col};border-radius:0 12px 12px 0;"
+            f"padding:{pad};cursor:pointer;transition:background .15s;"
+            ).on("click", lambda: open_fn()):
+        with ui.element("div").style(
+                "display:flex;align-items:center;gap:12px;margin-bottom:8px;"):
+            with ui.element("div").style(
+                    f"width:36px;height:36px;border-radius:8px;flex-shrink:0;"
+                    f"background:{_tint(col,'20')};display:flex;align-items:center;"
+                    f"justify-content:center;font-size:18px;"):
+                ui.html("👤")
+            with ui.element("div"):
+                ui.label("Add One Contact").style(
+                    f"font-size:15px;font-weight:700;color:{C['text_l']};"
+                    f"font-family:'Nunito',sans-serif;display:block;")
+                ui.label("Type in a single person").style(
+                    f"font-size:12px;color:{C['muted']};display:block;")
+        with ui.element("div").style(
+                f"display:inline-flex;align-items:center;gap:5px;margin-top:6px;"
+                f"padding:4px 12px;border-radius:99px;"
+                f"background:{_tint(col,'15')};border:1px solid {_tint(col,'40')};"):
+            ui.label("＋ Add contact").style(
+                f"font-size:11px;color:{col};font-weight:600;")
 
 
 def _contact_dropdown(s, rf, on_select):
@@ -31760,7 +31880,7 @@ def _sq_contacts(s: AppState, rf):
     tpl = _get_active_tpl(s)
     ui.label(f"Choose Contacts  -  {tpl.get('name', '')}").style(
         f"font-size:16px;font-weight:600;color:{C['text_l']};margin-bottom:4px;")
-    ui.label("Upload a CSV or pick a saved list.").style(
+    ui.label("Upload a CSV, pick a saved list, or add one contact.").style(
         f"font-size:13px;color:{C['muted']};margin-bottom:16px;")
 
     # Status banner
@@ -31786,14 +31906,15 @@ def _sq_contacts(s: AppState, rf):
     sq_saved_border = C["indigo"] if show_saved else C["border"]
     sq_saved_bg     = C["indigo_dim"] if show_saved else C["surface"]
 
-    with ui.element("div").style("display:flex;gap:14px;margin-bottom:16px;"):
+    with ui.element("div").style(
+            "display:flex;flex-wrap:wrap;gap:14px;margin-bottom:16px;"):
 
         # Upload CSV
         def _on_uploaded(contacts):
             s.scon = contacts; rf()
         _wiz_upload_ref = _contact_upload_and_name(s, rf, _on_uploaded)
         with ui.element("div").style(
-                f"flex:1;background:{C['surface']};border:1px solid {C['border']};"
+                f"flex:1;min-width:220px;background:{C['surface']};border:1px solid {C['border']};"
                 f"border-left:4px solid {C['email_col']};border-radius:0 12px 12px 0;"
                 f"padding:18px 20px;cursor:pointer;transition:background .15s;"
                 ).on("click", lambda: _wiz_upload_ref.run_method('pickFiles') if _wiz_upload_ref else None):
@@ -31820,7 +31941,7 @@ def _sq_contacts(s: AppState, rf):
         def _toggle_saved():
             s._sq_show_saved = not getattr(s, "_sq_show_saved", False); rf()
         with ui.element("div").style(
-                f"flex:1;background:{sq_saved_bg};"
+                f"flex:1;min-width:220px;background:{sq_saved_bg};"
                 f"border:1px solid {sq_saved_border};"
                 f"border-left:4px solid {C['indigo']};border-radius:0 12px 12px 0;"
                 f"padding:18px 20px;cursor:pointer;transition:background .15s;"
@@ -31844,6 +31965,12 @@ def _sq_contacts(s: AppState, rf):
                     f"border:1px solid {_tint(C['indigo'],'40')};"):
                 ui.label("▾ Select a list" if show_saved else "▸ Select a list").style(
                     f"font-size:11px;color:{C['indigo']};font-weight:600;")
+
+        # Add one contact (appends, never replaces)
+        def _on_one(new_list):
+            s.scon = new_list; rf()
+        _single_contact_card(
+            _single_contact_dialog(lambda: s.scon or [], _on_one), pad="18px 20px")
 
     # Saved list dropdown
     if getattr(s, "_sq_show_saved", False):
@@ -31972,7 +32099,7 @@ def _sq_contacts(s: AppState, rf):
     else:
         with ui.element("div").classes("fd-empty").style("padding:24px 0;"):
             ui.label("📭").style("font-size:28px;margin-bottom:8px;display:block;")
-            ui.label("No contacts yet  -  upload a CSV or pick a saved list above.").style(
+            ui.label("No contacts yet. Upload a CSV, pick a saved list, or add one contact above.").style(
                 f"font-size:13px;color:{C['muted']};")
 
     # Navigation. Compute "are there usable contacts" up-front so the Next
