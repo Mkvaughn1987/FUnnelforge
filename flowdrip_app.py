@@ -60877,6 +60877,13 @@ def _pdf_prepared_by(cfg: dict = None) -> str:
                     app.storage.user.get("name") or "").strip()
     except Exception:
         name = ""
+    if not name:
+        # Background builds (campaign create, the connector, PDF refresh)
+        # have no browser session but do carry the user in the ContextVar;
+        # without this every campaign PDF read "Prepared by Thrivemodal".
+        email = (_CURRENT_USER_EMAIL.get() or "").strip()
+        if email:
+            name = (_get_user_record(email).get("name") or "").strip()
     name = name or (cfg.get("sig_name") or "").strip()
     if name and company and name.lower() != company.lower():
         return f"{name}, {company}"

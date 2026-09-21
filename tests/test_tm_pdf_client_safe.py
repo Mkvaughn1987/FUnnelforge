@@ -149,3 +149,17 @@ def test_market_campaign_reads_as_a_business_not_a_buyer(monkeypatch):
                                  + " Five roles an Accounting & Finance business")
     assert "in United States" not in d["intro"]
     assert "Accounting & Finance's" not in json.dumps(d)
+
+
+def test_prepared_by_names_the_user_in_a_background_build(monkeypatch):
+    """No browser session (campaign create, connector, PDF refresh): the
+    name still comes from the user the build runs for."""
+    monkeypatch.setattr(fa, "_get_company_name", lambda: "Thrivemodal")
+    monkeypatch.setattr(fa, "_get_user_record",
+                        lambda e: {"name": "Michael Vaughn"} if e == "m@x.com" else {})
+    tok = fa._CURRENT_USER_EMAIL.set("m@x.com")
+    try:
+        assert fa._pdf_prepared_by({}) == "Michael Vaughn, Thrivemodal"
+    finally:
+        fa._CURRENT_USER_EMAIL.reset(tok)
+    assert fa._pdf_prepared_by({}) == "Thrivemodal"
