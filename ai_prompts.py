@@ -1735,6 +1735,80 @@ def _aip_css():
         "color:var(--dd-card);}"
         ".aip-wrap .aip-tick{position:absolute;top:10px;right:10px;"
         "font-size:18px;color:var(--dd-teal);}"
+        # Steps 1-2-3 across the top of every view.
+        ".aip-wrap .aip-steps{display:flex;align-items:center;gap:10px;"
+        "flex-wrap:wrap;margin:0 0 16px;}"
+        ".aip-wrap .aip-step{display:flex;align-items:center;gap:8px;"
+        "font-size:12px;color:var(--dd-muted);}"
+        ".aip-wrap .aip-step .n{width:22px;height:22px;border-radius:50%;"
+        "border:1px solid var(--dd-border);display:flex;align-items:center;"
+        "justify-content:center;font-size:11px;font-weight:700;}"
+        ".aip-wrap .aip-step.on{color:var(--dd-text_l);font-weight:700;}"
+        ".aip-wrap .aip-step.on .n{background:var(--dd-teal);"
+        "border-color:var(--dd-teal);color:var(--dd-card);}"
+        ".aip-wrap .aip-step.done .n{background:var(--dd-teal_dim);"
+        "border-color:var(--dd-teal);color:var(--dd-teal);}"
+        ".aip-wrap .aip-step-line{width:28px;height:1px;"
+        "background:var(--dd-border);}"
+        # Collapsible sections, all in one card.
+        ".aip-wrap .aip-acc{background:var(--dd-card);"
+        "border:1px solid var(--dd-border);border-radius:12px;"
+        "margin-bottom:18px;overflow:hidden;}"
+        ".aip-wrap .aip-acc-row+.aip-acc-row{border-top:1px solid "
+        "var(--dd-border);}"
+        ".aip-wrap .aip-acc-head{display:flex;align-items:center;gap:12px;"
+        "width:100%;padding:15px 20px;background:transparent;border:none;"
+        "cursor:pointer;text-align:left;font-family:inherit;}"
+        ".aip-wrap .aip-acc-head:hover{background:var(--dd-bg);}"
+        ".aip-wrap .aip-acc-head .aip-chev{font-size:20px;"
+        "color:var(--dd-muted);transition:transform .15s;}"
+        ".aip-wrap .aip-acc-row.open .aip-chev{transform:rotate(180deg);"
+        "color:var(--dd-teal);}"
+        ".aip-wrap .aip-acc-body{padding:2px 20px 20px;}"
+        ".aip-wrap .aip-pill{font-size:11px;font-weight:600;"
+        "padding:3px 10px;border-radius:999px;white-space:nowrap;"
+        "background:var(--dd-bg);color:var(--dd-muted);"
+        "border:1px solid var(--dd-border);}"
+        ".aip-wrap .aip-pill.good{background:var(--dd-teal_dim);"
+        "color:var(--dd-teal);border-color:transparent;}"
+        ".aip-wrap .aip-pill.warn{color:var(--dd-warn);"
+        "border-color:var(--dd-warn);background:transparent;}"
+        # Field labels read as questions, not shouty form captions.
+        ".aip-wrap .fd-fl{text-transform:none;letter-spacing:0;"
+        "font-size:12.5px;font-weight:600;color:var(--dd-text_l);}"
+        # The bar with the page's buttons stays in reach on long forms.
+        ".aip-wrap .aip-bar{position:sticky;bottom:12px;z-index:5;"
+        "display:flex;align-items:center;justify-content:space-between;"
+        "gap:12px;flex-wrap:wrap;padding:14px 20px;margin-bottom:18px;"
+        "background:var(--dd-card);border:1px solid var(--dd-border);"
+        "border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.18);}"
+        ".aip-wrap .aip-bar-side{display:flex;align-items:center;gap:10px;"
+        "flex-wrap:wrap;}"
+        ".aip-wrap .aip-btn{display:inline-flex;align-items:center;gap:6px;}"
+        ".aip-wrap .aip-btn .q-icon{font-size:16px;}"
+        ".aip-wrap .aip-link{background:transparent;border:none;padding:0;"
+        "cursor:pointer;font-family:inherit;font-size:12px;"
+        "color:var(--dd-muted);display:inline-flex;align-items:center;"
+        "gap:4px;}"
+        ".aip-wrap .aip-link:hover{color:var(--dd-teal);}"
+        # The finished prompt.
+        ".aip-wrap .aip-prompt{position:relative;background:var(--dd-bg);"
+        "border:1px solid var(--dd-border);border-radius:10px;"
+        "padding:16px 18px;max-height:480px;overflow:auto;"
+        "white-space:pre-wrap;word-break:break-word;font-size:12px;"
+        "line-height:1.6;color:var(--dd-text);"
+        "font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}"
+        # Saved prompts, as cards.
+        ".aip-wrap .aip-saved{display:flex;flex-direction:column;gap:12px;"
+        "padding:16px;border-radius:12px;border:1px solid var(--dd-border);"
+        "background:var(--dd-bg);}"
+        ".aip-wrap .aip-saved-acts{display:flex;align-items:center;gap:8px;"
+        "margin-top:auto;}"
+        ".aip-wrap .aip-iconbtn{margin-left:auto;background:transparent;"
+        "border:none;cursor:pointer;color:var(--dd-muted);padding:4px;"
+        "border-radius:6px;display:flex;}"
+        ".aip-wrap .aip-iconbtn:hover{color:var(--dd-danger);"
+        "background:var(--dd-card);}"
         "</style>", sanitize=False)
 
 
@@ -1755,6 +1829,72 @@ def _text(body, C, size=12, weight=400, colour=None, mb=0):
 
 def _sec(title, C):
     ui.label(title).classes("aip-sec").style(f"color:{C['teal']};")
+
+
+def _btn(label, on_click, primary=False, icon=None, lead=None, small=False):
+    """One button in the page's two styles. icon trails the label (a
+    forward step), lead sits before it (Back, Copy)."""
+    b = ui.element("button").classes(
+        ("fd-pb" if primary else "fd-gb") + " aip-btn").style(
+        "padding:7px 14px;font-size:12px;" if small
+        else "padding:10px 20px;font-size:13px;").on("click", on_click)
+    with b:
+        if lead:
+            ui.icon(lead)
+        ui.label(label)
+        if icon:
+            ui.icon(icon)
+    return b
+
+
+def _steps(at):
+    """Pick → Answer → Copy, with the current one lit."""
+    with ui.element("div").classes("aip-steps"):
+        for i, name in enumerate(("Pick a job", "Answer the questions",
+                                  "Copy your prompt"), 1):
+            if i > 1:
+                ui.element("div").classes("aip-step-line")
+            state = " on" if i == at else (" done" if i < at else "")
+            with ui.element("div").classes("aip-step" + state):
+                with ui.element("div").classes("n"):
+                    if i < at:
+                        ui.icon("check").style("font-size:13px;")
+                    else:
+                        ui.label(str(i))
+                ui.label(name)
+
+
+def _icon_for(routine_key):
+    """The icon of the starter that opens this routine, so a job looks the
+    same on every screen."""
+    for st in _CAT.starters:
+        if st.get("routine") == routine_key and st.get("icon"):
+            return st["icon"]
+    return "auto_awesome"
+
+
+def _saved_card(C, row, actions):
+    """A saved prompt as a card. actions: (label, handler, primary) tuples;
+    the delete handler goes last as a bin icon."""
+    routine = _CAT.routine_by_key.get(row.get("routine") or "", {})
+    with ui.element("div").classes("aip-saved"):
+        with ui.element("div").style("display:flex;gap:12px;min-width:0;"):
+            with ui.element("div").classes("aip-ico"):
+                ui.icon(_icon_for(row.get("routine") or ""))
+            with ui.element("div").style("min-width:0;"):
+                _text(row.get("name") or "Untitled", C, 13, 700,
+                      C["text_l"], 2)
+                _text(" · ".join(x for x in (
+                    routine.get("name", ""),
+                    "saved " + row["saved_at"] if row.get("saved_at")
+                    else "") if x), C, 11, colour=C["muted"])
+        with ui.element("div").classes("aip-saved-acts"):
+            *btns, delete = actions
+            for label, fn, primary in btns:
+                _btn(label, fn, primary=primary, small=True)
+            with ui.element("button").classes("aip-iconbtn").props(
+                    'title="Delete"').on("click", delete):
+                ui.icon("delete_outline").style("font-size:18px;")
 
 
 def p_ai_prompts(s, rf):
@@ -1779,10 +1919,13 @@ def render_page(s, rf, cat):
             ui.label(cat.page_sub).classes("fd-sub")
 
         if getattr(s, "_aip_prompt", None):
+            _steps(3)
             _aip_result(s, rf, C)
         elif getattr(s, "_aip_req", None):
+            _steps(2)
             _aip_confirm(s, rf, C)
         else:
+            _steps(1)
             _aip_ask(s, rf, C)
 
 
@@ -1870,12 +2013,11 @@ def _aip_ask(s, rf, C):
     setups = _load_setups()
     if setups:
         with _card(C):
-            _sec("Pick up where you left off", C)
+            _text("Pick up where you left off", C, 15, 700, C["text_l"], 2)
             _text("Your saved answers. Loading one takes you straight to the "
                   "questions with everything already filled in.",
-                  C, 12, colour=C["muted"], mb=10)
-            with ui.element("div").style(
-                    "display:flex;flex-direction:column;gap:8px;"):
+                  C, 12, colour=C["muted"], mb=14)
+            with ui.element("div").classes("aip-tiles"):
                 for row in setups:
                     _aip_setup_row(s, rf, C, row, setups)
 
@@ -1936,40 +2078,28 @@ def render_saved_page(s, rf, cat):
                      "again.").classes("fd-sub")
         if not rows:
             with _card(C):
-                _text("Nothing saved yet. Build a prompt on AI Prompt, then "
-                      "press Save prompt.", C, 13, colour=C["muted"])
-            return
-        with ui.element("div").style(
-                "display:flex;flex-direction:column;gap:8px;"):
-            for row in rows:
-                routine = _CAT.routine_by_key.get(row.get("routine") or "", {})
                 with ui.element("div").style(
-                        f"display:flex;align-items:center;gap:10px;"
-                        f"flex-wrap:wrap;background:{C['bg']};"
-                        f"border:1px solid {C['border']};border-radius:9px;"
-                        f"padding:12px 16px;"):
-                    with ui.element("div").style("flex:1;min-width:180px;"):
-                        ui.label(row.get("name") or "Untitled").style(
-                            f"font-size:13px;font-weight:700;"
-                            f"color:{C['text_l']};display:block;")
-                        sub = " · ".join(x for x in (
-                            routine.get("name", ""),
-                            "saved " + row["saved_at"] if row.get("saved_at")
-                            else "") if x)
-                        ui.label(sub).style(
-                            f"font-size:11px;color:{C['muted']};display:block;")
-                    with ui.element("button").classes("fd-pb").style(
-                            "padding:7px 16px;font-size:12px;").on(
-                            "click", lambda r_=row: _go(r_, True)):
-                        ui.label("Open")
-                    with ui.element("button").classes("fd-gb").style(
-                            "padding:7px 14px;font-size:12px;").on(
-                            "click", lambda r_=row: _go(r_, False)):
-                        ui.label("Edit answers")
-                    with ui.element("button").classes("fd-gb").style(
-                            "padding:7px 12px;font-size:12px;").on(
-                            "click", lambda r_=row: _delete(r_)):
-                        ui.label("Delete")
+                        "display:flex;flex-direction:column;align-items:center;"
+                        "text-align:center;padding:28px 12px;gap:6px;"):
+                    with ui.element("div").classes("aip-ico").style(
+                            "width:52px;height:52px;font-size:28px;"
+                            "border-radius:14px;margin-bottom:8px;"):
+                        ui.icon("bookmark_border")
+                    _text("No saved prompts yet", C, 15, 700, C["text_l"])
+                    _text("Build a prompt on AI Prompt, then press Save "
+                          "prompt. It lands here so you can reuse it.",
+                          C, 12, colour=C["muted"], mb=10)
+                    if NAVIGATE:
+                        _btn("Build a prompt",
+                             lambda: NAVIGATE("tm_prompts"), primary=True,
+                             icon="arrow_forward")
+            return
+        with ui.element("div").classes("aip-tiles"):
+            for row in rows:
+                _saved_card(C, row, [
+                    ("Open", lambda r_=row: _go(r_, True), True),
+                    ("Edit answers", lambda r_=row: _go(r_, False), False),
+                    lambda r_=row: _delete(r_)])
 
 
 def _aip_setup_row(s, rf, C, row, setups):
@@ -2003,23 +2133,7 @@ def _aip_setup_row(s, rf, C, row, setups):
         ui.notify("Deleted.", type="positive")
         rf()
 
-    with ui.element("div").style(
-            f"display:flex;align-items:center;gap:10px;background:{C['bg']};"
-            f"border:1px solid {C['border']};border-radius:9px;"
-            f"padding:10px 14px;"):
-        with ui.element("div").style("flex:1;min-width:0;"):
-            ui.label(row.get("name") or "Untitled").style(
-                f"font-size:12px;font-weight:700;color:{C['text_l']};"
-                f"display:block;")
-            ui.label(_CAT.routine_by_key.get(
-                row.get("routine") or "", {}).get("name", "")).style(
-                f"font-size:11px;color:{C['muted']};display:block;")
-        with ui.element("button").classes("fd-gb").style(
-                "padding:6px 14px;font-size:11px;").on("click", _load):
-            ui.label("Use it")
-        with ui.element("button").classes("fd-gb").style(
-                "padding:6px 12px;font-size:11px;").on("click", _delete):
-            ui.label("Delete")
+    _saved_card(C, row, [("Use it", _load, True), _delete])
 
 
 # ── View 2: the questions ─────────────────────────────────────────────────
@@ -2168,18 +2282,17 @@ def _aip_extra(s, rf, C, req):
                 if 0 <= _i < len(detail):
                     del detail[_i]
                 rf()
-            with ui.element("button").classes("fd-gb").style(
-                    "padding:6px 12px;font-size:11px;flex-shrink:0;"
-                    ).on("click", _drop):
-                ui.label("Remove")
+            with ui.element("button").classes("aip-iconbtn").style(
+                    "margin-left:0;").props('title="Remove"').on(
+                    "click", _drop):
+                ui.icon("close").style("font-size:18px;")
 
     def _add():
         detail.append("")
         rf()
 
-    with ui.element("button").classes("fd-gb").style(
-            "padding:7px 16px;font-size:11px;").on("click", _add):
-        ui.label("Add another")
+    _btn("Add an instruction" if not detail else "Add another", _add,
+         lead="add", small=True)
 
 
 def _aip_save_setup(s, rf, C, req, label="Save these answers"):
@@ -2192,14 +2305,13 @@ def _aip_save_setup(s, rf, C, req, label="Save these answers"):
         def _open():
             s._aip_saving = True
             rf()
-        with ui.element("button").classes("fd-gb").style(
-                "padding:8px 18px;font-size:12px;").on("click", _open):
-            ui.label(label)
+        _btn(label, _open, lead="bookmark_border")
         return
 
     name_box = ui.input(
         placeholder="Name it, e.g. Colorado HVAC weekly"
-    ).props("dense autofocus").classes("fd-input").style("max-width:280px;")
+    ).props("dense autofocus").classes("fd-input").style(
+        "width:240px;max-width:100%;")
 
     def _save():
         name = (name_box.value or "").strip()
@@ -2232,12 +2344,8 @@ def _aip_save_setup(s, rf, C, req, label="Save these answers"):
         s._aip_saving = False
         rf()
 
-    with ui.element("button").classes("fd-gb").style(
-            "padding:8px 18px;font-size:12px;").on("click", _save):
-        ui.label("Save")
-    with ui.element("button").classes("fd-gb").style(
-            "padding:8px 14px;font-size:12px;").on("click", _cancel):
-        ui.label("Cancel")
+    _btn("Save", _save, lead="check")
+    _btn("Cancel", _cancel)
 
 
 def _aip_confirm(s, rf, C):
@@ -2260,51 +2368,59 @@ def _aip_confirm(s, rf, C):
         s._aip_err = ""
         rf()
 
-    with _card(C, C["teal"]):
+    with _card(C):
         heard = bool((req.get("raw") or "").strip())
         with ui.element("div").style(
-                "display:flex;align-items:baseline;justify-content:space-between;"
-                "gap:12px;flex-wrap:wrap;"):
-            _text("Here's what I understood" if heard else req.get("title")
-                  or "Set this up", C, 15, 700, C["text_l"], 4)
-            # Up here rather than beside "Write my prompt": throwing the
-            # answers away is not a step in filling them in.
-            with ui.element("button").style(
-                    f"font-size:11px;color:{C['muted']};background:transparent;"
-                    f"border:none;cursor:pointer;font-family:inherit;padding:0;"
-                    ).on("click", _restart):
-                ui.label("Start over").style("pointer-events:none;")
-        _text("Everything below is already answered. Change anything you like.",
-              C, 12, colour=C["muted"], mb=16)
+                "display:flex;align-items:flex-start;gap:14px;"):
+            with ui.element("div").classes("aip-ico").style(
+                    "width:42px;height:42px;font-size:22px;border-radius:11px;"):
+                ui.icon(_icon_for(r["key"]))
+            with ui.element("div").style("flex:1;min-width:0;"):
+                with ui.element("div").style(
+                        "display:flex;align-items:baseline;"
+                        "justify-content:space-between;gap:12px;"
+                        "flex-wrap:wrap;"):
+                    _text("Here's what I understood" if heard
+                          else req.get("title") or "Set this up",
+                          C, 17, 700, C["text_l"], 2)
+                    # Up here rather than beside "Write my prompt": throwing
+                    # the answers away is not a step in filling them in.
+                    with ui.element("button").classes("aip-link").on(
+                            "click", _restart):
+                        ui.icon("restart_alt").style("font-size:15px;")
+                        ui.label("Start over")
+                # No job picker here. The job was chosen on the screen before
+                # this one; repeating the choice next to the answers it decides
+                # only invited a change that silently reset them.
+                _text(r["blurb"], C, 12, colour=C["muted"], mb=12)
 
-        # No job picker here. The job was chosen on the screen before this
-        # one; repeating the choice next to the answers it decides only
-        # invited a change that silently reset them. Going back is the way
-        # to pick a different job.
-        _text(r["blurb"], C, 11, colour=C["muted"], mb=16)
+                # Stated as what Claude still needs, not as what the user
+                # failed to provide. Leaving these blank is a valid way to use
+                # the page.
+                unanswered = _open_questions(r, vals, req.get("ask_extra"))
+                with ui.element("div").style(
+                        "display:flex;align-items:center;gap:8px;"
+                        "flex-wrap:wrap;"):
+                    if unanswered:
+                        ui.label(_CAT.assistant + " will ask for: "
+                                 + ", ".join(unanswered)).classes(
+                            "aip-pill warn").style("white-space:normal;")
+                    else:
+                        with ui.element("span").classes("aip-pill good").style(
+                                "display:inline-flex;align-items:center;"
+                                "gap:4px;"):
+                            ui.icon("check").style("font-size:13px;")
+                            ui.label("Ready to go")
+                    _text("Everything is pre-filled. Change anything you like.",
+                          C, 11, colour=C["muted"])
 
-        # No "in one line" box here either. The blurb above already says what
-        # the job is in a sentence — asking the same question again just
-        # invited two answers that could disagree. The summary still exists,
-        # it just comes from the routine, and the words that are actually the
-        # user's own go in the fields below.
+    with ui.element("div").classes("aip-acc"):
+        for key, name in _aip_sections_for(r):
+            is_open = bool(opened.get(key))
+            rows = [f for f in r["fields"] if f["section"] == key]
+            count = len([f for f in rows
+                         if str(_val(r, vals, f["key"]) or "").strip()])
 
-        unanswered = _open_questions(r, vals, req.get("ask_extra"))
-        if unanswered:
-            # Stated as what Claude still needs, not as what the user failed to
-            # provide. Leaving these blank is a valid way to use the page.
-            _text(_CAT.assistant + " will ask for: " + ", ".join(unanswered) + ".",
-                  C, 11, colour=C["warn"], mb=16)
-        else:
-            _text("Ready to go.", C, 11, colour=C["muted"], mb=16)
-
-    for key, name in _aip_sections_for(r):
-        is_open = bool(opened.get(key))
-        rows = [f for f in r["fields"] if f["section"] == key]
-        count = len([f for f in rows
-                     if str(_val(r, vals, f["key"]) or "").strip()])
-
-        with _card(C):
             def _toggle(_k=key):
                 # Read the state back through the helper: a routine switch
                 # clears it, and a click can land on a screen that hasn't
@@ -2313,60 +2429,54 @@ def _aip_confirm(s, rf, C):
                 state[_k] = not state.get(_k)
                 rf()
 
-            with ui.element("button").style(
-                    "display:flex;align-items:center;gap:10px;width:100%;"
-                    "background:transparent;border:none;padding:0;"
-                    "cursor:pointer;text-align:left;"
-                    ).on("click", _toggle):
-                ui.label("▾" if is_open else "▸").style(
-                    f"font-size:12px;color:{C['teal']};")
-                ui.label(name).classes("aip-sec").style(
-                    f"color:{C['teal']};margin:0;")
-                if not is_open:
+            with ui.element("div").classes(
+                    "aip-acc-row" + (" open" if is_open else "")):
+                with ui.element("button").classes("aip-acc-head").on(
+                        "click", _toggle):
+                    ui.label(name[:1].upper() + name[1:].lower()).style(
+                        f"font-size:14px;font-weight:700;"
+                        f"color:{C['text_l']};flex:1;")
                     ui.label("%d answered" % count if rows
-                             else "nothing yet").style(
-                        f"font-size:10px;color:{C['muted']};"
-                        f"margin-left:auto;")
+                             else "optional").classes(
+                        "aip-pill" + (" good" if count else ""))
+                    ui.icon("expand_more").classes("aip-chev")
 
-            if not is_open:
-                continue
+                if not is_open:
+                    continue
 
-            with ui.element("div").style("margin-top:14px;"):
-                if key == "extra":
-                    _aip_extra(s, rf, C, req)
-                else:
-                    with ui.element("div").classes("aip-grid"):
-                        for f in rows:
-                            with ui.element("div"):
-                                _aip_field(s, rf, C, r, vals, f)
+                with ui.element("div").classes("aip-acc-body"):
+                    if key == "extra":
+                        _aip_extra(s, rf, C, req)
+                    else:
+                        with ui.element("div").classes("aip-grid"):
+                            for f in rows:
+                                with ui.element("div"):
+                                    _aip_field(s, rf, C, r, vals, f)
 
-    with _card(C):
-        def _build():
-            s._aip_prompt = build_prompt(req)
-            s._aip_saving = False
-            rf()
+    def _build():
+        s._aip_prompt = build_prompt(req)
+        s._aip_saving = False
+        rf()
 
-        def _back():
-            # Back, not "start over" - the answers are kept, so going out to
-            # read what the other jobs do costs nothing. They come back when
-            # you re-pick the same job. Start over, in the header, is the one
-            # that discards.
-            s._aip_back = s._aip_req
-            s._aip_req = None
-            s._aip_prompt = None
-            s._aip_saving = False
-            s._aip_err = ""
-            rf()
+    def _back():
+        # Back, not "start over" - the answers are kept, so going out to
+        # read what the other jobs do costs nothing. They come back when
+        # you re-pick the same job. Start over, in the header, is the one
+        # that discards.
+        s._aip_back = s._aip_req
+        s._aip_req = None
+        s._aip_prompt = None
+        s._aip_saving = False
+        s._aip_err = ""
+        rf()
 
-        with ui.element("div").style(
-                "display:flex;align-items:center;gap:12px;flex-wrap:wrap;"):
-            with ui.element("button").classes("fd-pb").style(
-                    "padding:11px 24px;font-size:13px;").on("click", _build):
-                ui.label("Write my prompt")
+    with ui.element("div").classes("aip-bar"):
+        with ui.element("div").classes("aip-bar-side"):
+            _btn("Back", _back, lead="arrow_back")
+        with ui.element("div").classes("aip-bar-side"):
             _aip_save_setup(s, rf, C, req)
-            with ui.element("button").classes("fd-gb").style(
-                    "padding:9px 18px;font-size:12px;").on("click", _back):
-                ui.label("← Back")
+            _btn("Write my prompt", _build, primary=True,
+                 icon="arrow_forward")
 
 
 # ── View 3: the prompt ────────────────────────────────────────────────────
@@ -2377,52 +2487,55 @@ def _aip_result(s, rf, C):
     r = _CAT.routine_by_key.get(req.get("routine") or "",
                            _CAT.routine_by_key[_CAT.default_routine])
 
-    with _card(C, C["good"]):
+    def _copy():
+        ui.run_javascript("navigator.clipboard.writeText(%s)"
+                          % json.dumps(prompt))
+        ui.notify("Copied. Paste it into %s." % _CAT.assistant,
+                  type="positive")
+
+    def _back():
+        s._aip_prompt = None
+        rf()
+
+    def _restart():
+        s._aip_req = None
+        s._aip_back = None
+        s._aip_prompt = None
+        s._aip_raw = ""
+        s._aip_pick = ""
+        s._aip_open = None
+        s._aip_saving = False
+        s._aip_err = ""
+        rf()
+
+    with _card(C):
         with ui.element("div").style(
-                "display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;"
-                "justify-content:space-between;margin-bottom:4px;"):
-            _text("Paste this into " + _CAT.assistant, C, 15, 700, C["text_l"])
-            _text(r["name"], C, 11, 700, C["teal"])
-        _text(_CAT.result_copy, C, 12, colour=C["muted"], mb=14)
+                "display:flex;align-items:flex-start;gap:14px;"
+                "margin-bottom:16px;"):
+            with ui.element("div").classes("aip-ico").style(
+                    "width:42px;height:42px;font-size:22px;border-radius:11px;"):
+                ui.icon("task_alt")
+            with ui.element("div").style("flex:1;min-width:0;"):
+                with ui.element("div").style(
+                        "display:flex;align-items:baseline;gap:12px;"
+                        "flex-wrap:wrap;justify-content:space-between;"):
+                    _text("Your prompt is ready", C, 17, 700, C["text_l"], 2)
+                    ui.label(r["name"]).classes("aip-pill good")
+                _text(_CAT.result_copy, C, 12, colour=C["muted"])
 
-        ui.textarea(value=prompt).props("dense readonly autogrow").classes(
-            "fd-input").style(
-            "width:100%;margin-bottom:14px;font-family:ui-monospace,"
-            "SFMono-Regular,Menlo,monospace;")
+        with ui.element("div").style("position:relative;"):
+            ui.label(prompt).classes("aip-prompt")
+            _btn("Copy", _copy, lead="content_copy", small=True).style(
+                f"position:absolute;top:10px;right:22px;"
+                f"background:{C['card']};")
 
-        def _copy():
-            ui.run_javascript("navigator.clipboard.writeText(%s)"
-                              % json.dumps(prompt))
-            ui.notify("Copied.", type="positive")
-
-        def _back():
-            s._aip_prompt = None
-            rf()
-
-        def _restart():
-            s._aip_req = None
-            s._aip_back = None
-            s._aip_prompt = None
-            s._aip_raw = ""
-            s._aip_pick = ""
-            s._aip_open = None
-            s._aip_saving = False
-            s._aip_err = ""
-            rf()
-
-        with ui.element("div").style(
-                f"border-top:1px solid {C['border']};padding-top:16px;"
-                f"display:flex;align-items:center;gap:12px;flex-wrap:wrap;"):
-            with ui.element("button").classes("fd-pb").style(
-                    "padding:11px 24px;font-size:13px;").on("click", _copy):
-                ui.label("Copy the prompt")
-            with ui.element("button").classes("fd-gb").style(
-                    "padding:9px 18px;font-size:12px;").on("click", _back):
-                ui.label("Change my answers")
-            with ui.element("button").classes("fd-gb").style(
-                    "padding:9px 18px;font-size:12px;").on("click", _restart):
-                ui.label("Ask for something else")
+    with ui.element("div").classes("aip-bar"):
+        with ui.element("div").classes("aip-bar-side"):
+            _btn("Change my answers", _back, lead="arrow_back")
+            _btn("Start a new prompt", _restart, lead="add")
+        with ui.element("div").classes("aip-bar-side"):
             _aip_save_setup(s, rf, C, req, label="Save prompt")
+            _btn("Copy the prompt", _copy, primary=True, lead="content_copy")
 
     if _CAT.result_extra:
         _CAT.result_extra(s, rf, C, r)

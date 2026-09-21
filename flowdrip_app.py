@@ -4198,6 +4198,9 @@ C_DARK = dict(
     border="#2E3D7A", teal="#1AE3D9", teal_dim="#0E3A3A",
     muted="#8FA3C8", text="#D8E4F5", text_l="#F0F8FF",
     warn="#F59E0B", danger="#EF4444", good="#10B981",
+    # Text on a teal (accent) fill. Dark by default; a light palette whose
+    # accent is dark overrides it, e.g. on_teal:FFFFFF.
+    on_teal="#0D1520",
     indigo="#6366F1", indigo_dim="#1E2560",
     email_col="#3EBFD9", call="#1AE3D9", li="#6366F1",
     call_col="#EF9F27", sms_col="#D4537E", task_col="#1D9E75",
@@ -4207,6 +4210,7 @@ C_LIGHT = dict(
     border="#C8D0DA", teal="#0FB8B5", teal_dim="#E0F9F8",
     muted="#4A5868", text="#2D3748", text_l="#1E2B5E",
     warn="#D97706", danger="#DC2626", good="#059669",
+    on_teal="#0D1520",
     indigo="#6366F1", indigo_dim="#EEF0FF",
     email_col="#3EBFD9", call="#0FB8B5", li="#6366F1",
     call_col="#D97706", sms_col="#BE185D", task_col="#15803D",
@@ -4224,6 +4228,17 @@ for _k, _v in _env_palette("DRIPDROP_THEME_LIGHT").items():
 
 # C outputs CSS var() references  -  actual values come from CSS custom properties
 C = {k: f"var(--dd-{k})" for k in C_DARK}
+
+
+def _tint(col, alpha_hex):
+    """col at the opacity of a two-digit hex alpha ("22", "80"). C holds
+    var(--dd-*) references, and "var(--dd-teal)22" is not a colour, so the
+    many inline "{C['teal']}22" tints this replaced were silently dropped by
+    the browser. A literal #RRGGBB still gets the suffix appended."""
+    if isinstance(col, str) and col.startswith("#") and len(col) == 7:
+        return col + alpha_hex
+    pct = round(int(alpha_hex, 16) / 2.55)
+    return f"color-mix(in srgb, {col} {pct}%, transparent)"
 
 # ── Time options (15-min intervals, 24-hour schedule) ─────────────────────
 TIME_OPTIONS = []
@@ -15758,18 +15773,18 @@ def _sidebar_layout_css() -> str:
   border:1px solid {C['border']};background:{C['card']};color:{C['text']};cursor:pointer;
   text-align:left;font-family:inherit;transition:background .12s,border-color .12s}}
 .fd-ws:hover{{background:{C['card_h']};border-color:{C['teal_dim']}}}
-.fd-ws-mark{{width:28px;height:28px;border-radius:8px;background:{C['teal']};color:#0D1520;
+.fd-ws-mark{{width:28px;height:28px;border-radius:8px;background:{C['teal']};color:{C['on_teal']};
   font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}}
 .fd-ws-name{{font-size:14px;font-weight:600;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .fd-ws-sub{{font-size:11px;color:{C['muted']};line-height:1.2}}
 .fd-ws-chev{{display:flex;color:{C['muted']}}}
 .fd-side-cta{{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:42px;
-  border-radius:10px;border:none;background:{C['teal']};color:#0D1520;font-weight:700;font-size:14px;
+  border-radius:10px;border:none;background:{C['teal']};color:{C['on_teal']};font-weight:700;font-size:14px;
   cursor:pointer;font-family:inherit;box-shadow:0 1px 2px rgba(0,0,0,.08);transition:filter .12s,transform .12s}}
 .fd-side-cta:hover{{filter:brightness(1.06)}}
 .fd-side-cta:active{{transform:translateY(1px)}}
 .fd-side-cta.on{{box-shadow:0 0 0 3px {C['teal_dim']}}}
-.fd-side-nav{{flex:1 1 auto;min-height:140px;overflow-y:auto;padding:4px 12px 8px;display:flex;flex-direction:column}}
+.fd-side-nav{{flex:1 1 auto;min-height:0;overflow-y:auto;padding:4px 12px 8px;display:flex;flex-direction:column}}
 .fd-side-sec{{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
   color:{C['muted']};padding:14px 10px 4px;opacity:.85}}
 .fd-side-row{{display:flex;flex:0 0 auto;align-items:center;gap:10px;height:40px;padding:0 10px;border-radius:9px;
@@ -15792,9 +15807,15 @@ def _sidebar_layout_css() -> str:
   background:{C['teal_dim']};color:{C['teal']};min-width:20px;text-align:center}}
 .fd-side-badge.hot{{background:{C['danger']};color:#fff}}
 .fd-side-badge.setup{{background:{C['warn']};color:#0D1520}}
-/* Bottom block may shrink (its links scroll) so the profile card is never clipped. */
-.fd-side-bottom{{flex:0 1 auto;min-height:0;padding:8px 12px 12px;border-top:1px solid {C['border']};display:flex;flex-direction:column;gap:2px}}
-.fd-side-blinks{{flex:0 1 auto;min-height:0;overflow-y:auto;display:flex;flex-direction:column;gap:2px}}
+/* Bottom block keeps its full height (profile card included); the main nav
+   is the part that gives way and scrolls. */
+.fd-side-bottom{{flex:0 0 auto;padding:8px 12px 12px;border-top:1px solid {C['border']};display:flex;flex-direction:column;gap:2px}}
+/* Settings' sub-rows show in full; the main nav above is what scrolls on a
+   short screen. Scrolling them instead hid Timezone and Do Not Contact
+   behind the profile card at laptop height with no sign there was more. */
+.fd-side-blinks{{flex:0 0 auto;display:flex;flex-direction:column;gap:2px}}
+/* A sub-row's "Setup" badge shrinks to a dot so the label is not cut off. */
+.fd-side-sub .fd-side-badge.setup{{font-size:0;padding:0;width:8px;height:8px;min-width:8px;flex:0 0 8px}}
 .fd-side-user{{flex:0 0 auto}}
 .fd-side-user{{display:flex;align-items:center;gap:10px;width:100%;margin-top:6px;padding:8px;border-radius:10px;
   border:1px solid transparent;background:transparent;color:{C['text']};cursor:pointer;text-align:left;font-family:inherit;
@@ -15974,7 +15995,7 @@ body,.nicegui-content{{background:{C['bg']} !important;font-family:'Segoe UI',sy
 .fd-ld{{font-size:18px;font-weight:700;color:{C['teal']}}}
 .fd-hub{{padding:16px 32px;border-radius:99px;font-size:16px;font-weight:600;border:1px solid {C['border']};background:transparent;color:{C['muted']};cursor:pointer;transition:all .15s;font-family:'Nunito','DM Sans',sans-serif;display:flex;align-items:center;gap:8px}}
 .fd-hub:hover{{color:{C['text']};border-color:{C['muted']}}}
-.fd-hub.on{{background:{C['teal']};color:#0D1520;border-color:{C['teal']}}}
+.fd-hub.on{{background:{C['teal']};color:{C['on_teal']};border-color:{C['teal']}}}
 .fd-api{{position:absolute;right:28px;font-size:12px;color:{C['muted']};display:flex;align-items:center;gap:5px}}
 .fd-api.ok{{color:{C['good']}}}
 .fd-dot{{width:7px;height:7px;border-radius:50%;background:{C['muted']};flex-shrink:0}}
@@ -16022,7 +16043,7 @@ body,.nicegui-content{{background:{C['bg']} !important;font-family:'Segoe UI',sy
 .fd-p.sc.open{{background:rgba(56,189,248,.1);border-color:{C['email_col']};color:{C['email_col']}}}
 .fd-p.st{{cursor:default;pointer-events:none}}
 .fd-scr{{background:rgba(0,201,167,.04);border-left:2px solid {C['teal_dim']};border-radius:0 8px 8px 0;padding:10px 14px;margin:-2px 0 8px 54px;font-size:12.5px;color:{C['text']};line-height:1.6;font-style:italic}}
-.fd-pb{{background:{C['teal']};color:#0D1520;border:none;border-radius:8px;padding:10px 24px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;transition:opacity .15s;white-space:nowrap}}
+.fd-pb{{background:{C['teal']};color:{C['on_teal']};border:none;border-radius:8px;padding:10px 24px;font-size:13px;font-weight:600;font-family:inherit;cursor:pointer;transition:opacity .15s;white-space:nowrap}}
 .fd-pb:hover{{opacity:.88}}
 .fd-gb{{background:transparent;color:{C['muted']};border:1px solid {C['border']};border-radius:8px;padding:10px 20px;font-size:13px;font-family:inherit;cursor:pointer;transition:all .15s;white-space:nowrap}}
 .fd-gb:hover{{color:{C['text']};border-color:{C['muted']}}}
@@ -16073,10 +16094,10 @@ body,.nicegui-content{{background:{C['bg']} !important;font-family:'Segoe UI',sy
 .fd-left-panel{{position:sticky;top:24px}}
 .fd-email-body{{background:{C['surface']};border:1px solid {C['border']};border-radius:8px;padding:14px 16px;margin:8px 0;font-size:12.5px;color:{C['text']};line-height:1.7;white-space:pre-wrap;font-family:'DM Sans','Segoe UI',sans-serif}}
 .fd-ai-btn{{background:transparent;color:{C['teal']};border:2px solid {C['teal']};border-radius:10px;padding:14px 24px;font-size:14px;font-weight:600;font-family:inherit;cursor:pointer;transition:all .2s;width:100%;display:flex;align-items:center;justify-content:center;gap:8px}}
-.fd-ai-btn:hover{{background:{C['teal']};color:#0D1520}}
+.fd-ai-btn:hover{{background:{C['teal']};color:{C['on_teal']}}}
 .fd-ai-btn.generating{{opacity:.7;pointer-events:none;border-style:dashed;animation:fd-ai-pulse 1.6s ease-in-out infinite}}
-@keyframes fd-ai-pulse{{0%,100%{{border-color:{C['teal']}80}}50%{{border-color:{C['teal']}}}}}
-.fd-ai-spinner{{display:inline-block;width:14px;height:14px;border:2px solid {C['teal']}40;border-top-color:{C['teal']};border-radius:50%;animation:fd-ai-spin .8s linear infinite}}
+@keyframes fd-ai-pulse{{0%,100%{{border-color:{_tint(C['teal'],'80')}}}50%{{border-color:{C['teal']}}}}}
+.fd-ai-spinner{{display:inline-block;width:14px;height:14px;border:2px solid {_tint(C['teal'],'40')};border-top-color:{C['teal']};border-radius:50%;animation:fd-ai-spin .8s linear infinite}}
 @keyframes fd-ai-spin{{to{{transform:rotate(360deg)}}}}
 /* ── Brand decorative shapes (Memphis-style corner accents) ─────────────── */
 .fd-decor-layer{{position:fixed;top:162px;left:196px;right:0;bottom:0;pointer-events:none;overflow:hidden;z-index:0}}
@@ -16105,6 +16126,21 @@ a .fd-attach-pill:hover{{background:rgba(56,189,248,.2);border-color:{C['email_c
 input:focus::placeholder,textarea:focus::placeholder{{color:transparent !important}}
 .q-field--focused .q-field__native::placeholder{{color:transparent !important}}
 .fd-input:focus{{border-color:{C['teal']}}}
+/* Quasar-wrapped .fd-input (ui.input / ui.select / ui.textarea): the outer
+   box is the field, so Quasar's own underline and 56px control go. Before
+   this every field was a ~72px box with a second border drawn inside it.
+   Labelled fields keep Quasar's height (the floating label needs it), and
+   a field in error keeps its message row. */
+.fd-input.q-field{{padding:0 12px;transition:border-color .15s,box-shadow .15s}}
+.fd-input.q-field--focused{{border-color:{C['teal']};box-shadow:0 0 0 3px {C['teal_dim']}}}
+.fd-input.q-field .q-field__control:before,
+.fd-input.q-field .q-field__control:after{{display:none !important}}
+.fd-input.q-field:not(.q-field--error) .q-field__bottom{{display:none}}
+.fd-input.q-field:not(.q-field--labeled) .q-field__control{{min-height:40px;height:auto}}
+.fd-input.q-field:not(.q-field--labeled) .q-field__marginal{{height:40px}}
+.fd-input.q-field:not(.q-field--labeled) .q-field__native{{min-height:40px;padding:0}}
+.fd-input.q-textarea:not(.q-field--labeled) .q-field__control{{min-height:88px}}
+.fd-input.q-textarea:not(.q-field--labeled) .q-field__native{{padding:10px 0;line-height:1.5}}
 /* Per-chip remove × inside .fd-input multi-selects. Quasar 2.x class
    is `q-chip__icon--remove` (double hyphen). An older one-hyphen
    selector lived here and was a no-op; restored as visible + recolored
@@ -16151,8 +16187,8 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
 .fd-back-bar{{display:flex;align-items:center;gap:10px;padding:4px 0 12px;margin-bottom:10px;}}
 /* Back button: amber pill, same spot every page. Distinct from the app's
    teal/navy palette so users can always spot the "escape" action. */
-.fd-back-btn{{display:inline-flex;align-items:center;gap:6px;padding:7px 16px;border-radius:99px;border:1.5px solid #F59E0B;background:rgba(245,158,11,0.10);color:#F59E0B;cursor:pointer;font-size:12px;font-weight:700;font-family:'Nunito','DM Sans',sans-serif;transition:all .15s;letter-spacing:.02em;}}
-.fd-back-btn:hover{{background:rgba(245,158,11,0.22);color:#FBBF24;box-shadow:0 0 0 3px rgba(245,158,11,0.18);}}
+.fd-back-btn{{display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:8px;border:1px solid {C['border']};background:{C['surface']};color:{C['muted']};cursor:pointer;font-size:12px;font-weight:600;font-family:inherit;transition:all .15s;}}
+.fd-back-btn:hover{{color:{C['teal']};border-color:{C['teal']};}}
 .fd-back-btn *{{pointer-events:none !important}}
 /* ── Theme toggle button ─────────────────────────────────────────────── */
 .fd-theme-toggle{{position:absolute;right:110px;top:50%;transform:translateY(-50%);background:transparent;border:1px solid {C['border']};border-radius:99px;width:38px;height:38px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .2s;padding:0}}
@@ -16251,7 +16287,7 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
 .fd-search-field .q-field__control{{padding:0 !important}}
 .fd-search-field .q-field__append{{padding-right:12px !important}}
 /* Avatar + dropdown menu */
-.fd-avatar-btn:hover{{transform:scale(1.06);box-shadow:0 0 0 3px {C['teal']}30}}
+.fd-avatar-btn:hover{{transform:scale(1.06);box-shadow:0 0 0 3px {_tint(C['teal'],'30')}}}
 .fd-menu-item:hover{{background:{C['card_h']}}}
 /* Inline links inside provider modal info text */
 .fd-modal-body a{{color:{C['teal']};text-decoration:underline;font-weight:600}}
@@ -16259,11 +16295,11 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
 /* Onboarding tour / coachmark overlay */
 .fd-tour-overlay{{position:fixed;inset:0;z-index:9998;pointer-events:auto}}
 .fd-tour-spot{{position:fixed;border-radius:10px;box-shadow:0 0 0 9999px rgba(10,18,45,0.78);transition:all .32s cubic-bezier(.25,.1,.25,1);pointer-events:none;border:2px solid {C['teal']}}}
-.fd-tour-bubble{{position:fixed;width:360px;max-width:92vw;background:{C['card']};border:1px solid {C['teal']}60;border-radius:14px;padding:20px 22px;z-index:9999;box-shadow:0 14px 48px rgba(0,0,0,0.55);font-family:'DM Sans','Segoe UI',sans-serif;transition:top .32s,left .32s}}
+.fd-tour-bubble{{position:fixed;width:360px;max-width:92vw;background:{C['card']};border:1px solid {_tint(C['teal'],'60')};border-radius:14px;padding:20px 22px;z-index:9999;box-shadow:0 14px 48px rgba(0,0,0,0.55);font-family:'DM Sans','Segoe UI',sans-serif;transition:top .32s,left .32s}}
 .fd-tour-step{{font-size:10px;font-weight:700;color:{C['teal']};text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px}}
 .fd-tour-title{{font-size:17px;font-weight:800;color:{C['text_l']};font-family:'Nunito',sans-serif;margin-bottom:6px;line-height:1.3}}
 .fd-tour-body{{font-size:13px;color:{C['text']};line-height:1.55;margin-bottom:16px}}
-.fd-tour-warn{{background:{C['warn']}18;border:1px solid {C['warn']}50;border-radius:8px;padding:8px 12px;margin-bottom:14px;font-size:12px;color:{C['warn']}}}
+.fd-tour-warn{{background:{_tint(C['warn'],'18')};border:1px solid {_tint(C['warn'],'50')};border-radius:8px;padding:8px 12px;margin-bottom:14px;font-size:12px;color:{C['warn']}}}
 .fd-tour-warn:empty{{display:none}}
 .fd-tour-btns{{display:flex;align-items:center;gap:8px}}
 .fd-tour-btn{{padding:8px 16px;font-size:12px;font-weight:600;border-radius:7px;cursor:pointer;font-family:inherit;border:1px solid {C['border']};background:transparent;color:{C['muted']};transition:all .15s}}
@@ -16281,14 +16317,14 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
   backdrop-filter:blur(3px);animation:dd-rc-fade .25s ease;
 }}
 .dd-rc-card{{
-  background:{C['card']};border:1px solid {C['teal']}60;border-radius:14px;
+  background:{C['card']};border:1px solid {_tint(C['teal'],'60')};border-radius:14px;
   padding:22px 28px;min-width:320px;max-width:420px;text-align:center;
   box-shadow:0 12px 48px rgba(0,0,0,0.5);
   font-family:'DM Sans','Segoe UI',sans-serif;
 }}
 .dd-rc-spinner{{
   width:32px;height:32px;margin:0 auto 12px;
-  border:3px solid {C['teal']}30;border-top-color:{C['teal']};
+  border:3px solid {_tint(C['teal'],'30')};border-top-color:{C['teal']};
   border-radius:50%;animation:dd-rc-spin .9s linear infinite;
 }}
 .dd-rc-title{{
@@ -17711,7 +17747,7 @@ def _seq_wizard_header(s: AppState, rf, current_page: str):
                 is_done    = i < cur_idx
                 is_current = i == cur_idx
                 col   = C["teal"] if is_current else (C["good"] if is_done else C["muted"])
-                bg    = f"{C['teal']}20" if is_current else (f"{C['good']}15" if is_done else "transparent")
+                bg    = f"{_tint(C['teal'],'20')}" if is_current else (f"{_tint(C['good'],'15')}" if is_done else "transparent")
                 bord  = C["teal"] if is_current else (C["good"] if is_done else C["border"])
                 pfx   = "✓" if is_done else icon
 
@@ -17751,7 +17787,7 @@ def _seq_wizard_header(s: AppState, rf, current_page: str):
     if current_page == "emails_build" and not s.es_campaign_name:
         with ui.element("div").style(
                 f"display:flex;align-items:center;gap:12px;padding:10px 16px;"
-                f"background:{C['warn']}10;border:1px solid {C['warn']}40;"
+                f"background:{_tint(C['warn'],'10')};border:1px solid {_tint(C['warn'],'40')};"
                 f"border-radius:8px;margin-bottom:16px;"):
             ui.label("📝").style("font-size:16px;flex-shrink:0;")
             ui.label("Give this campaign a name:").style(
@@ -17760,7 +17796,7 @@ def _seq_wizard_header(s: AppState, rf, current_page: str):
                 placeholder="e.g. Denver CNC  -  March",
                 value=s.es_campaign_name
             ).style(
-                f"flex:1;background:{C['surface']};border:1px solid {C['warn']}60;"
+                f"flex:1;background:{C['surface']};border:1px solid {_tint(C['warn'],'60')};"
                 f"border-radius:6px;padding:5px 10px;font-size:13px;color:{C['text_l']};")
             def _set_name():
                 s.es_campaign_name = name_inp.value.strip() or "Untitled Campaign"
@@ -18023,7 +18059,7 @@ def _show_page_help(s: AppState, rf, page_key: str):
     # Help icon button
     with ui.element("button").style(
             f"font-size:14px;width:28px;height:28px;border-radius:50%;"
-            f"background:{C['teal']}15;color:{C['teal']};border:1px solid {C['teal']}30;"
+            f"background:{_tint(C['teal'],'15')};color:{C['teal']};border:1px solid {_tint(C['teal'],'30')};"
             f"cursor:pointer;display:inline-flex;align-items:center;justify-content:center;"
             f"margin-left:10px;vertical-align:middle;flex-shrink:0;"
             ).on("click", _toggle_help):
@@ -18032,7 +18068,7 @@ def _show_page_help(s: AppState, rf, page_key: str):
     # Help panel (inline, below header)
     if _is_open:
         with ui.element("div").style(
-                f"background:{C['card']};border:1px solid {C['teal']}30;"
+                f"background:{C['card']};border:1px solid {_tint(C['teal'],'30')};"
                 f"border-radius:12px;padding:20px 24px;margin:12px 0 16px;"
                 f"max-width:800px;"):
             with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;"):
@@ -18109,6 +18145,11 @@ def _render_page_intro_strip(s, rf, page_key: str) -> None:
     if not summary or not next_action:
         return
     if _is_help_strip_dismissed(page_key):
+        return
+    # The sidebar layout's pages each open with a title and a one-line
+    # subtitle saying what the page is for, so the badge only repeated it
+    # while taking a whole row of its own above the title.
+    if _SIDEBAR_LAYOUT:
         return
 
     def _on_dismiss():
@@ -19098,7 +19139,7 @@ def topbar(s: AppState, rf):
                                 f"display:flex;align-items:center;gap:12px;"):
                             with ui.element("div").style(
                                     f"width:40px;height:40px;border-radius:50%;"
-                                    f"background:{C['teal_dim']};border:1px solid {C['teal']}60;"
+                                    f"background:{C['teal_dim']};border:1px solid {_tint(C['teal'],'60')};"
                                     f"display:flex;align-items:center;justify-content:center;"
                                     f"overflow:hidden;flex-shrink:0;"
                                     f"font-family:'Nunito',sans-serif;font-weight:800;font-size:13px;"
@@ -19167,7 +19208,7 @@ def _show_requeue_dialog(s, rf, camp: dict, cname: str, pending_count: int):
     pending items will be cancelled) before committing. Items already SENT
     are preserved  -  the same (contact, step) pair is never sent twice."""
     with ui.dialog() as dlg, ui.card().style(
-            f"background:{C['card']};border:1px solid {C['teal']}60;"
+            f"background:{C['card']};border:1px solid {_tint(C['teal'],'60')};"
             f"min-width:500px;max-width:560px;padding:28px;"):
         # Header
         with ui.element("div").style("display:flex;align-items:center;gap:12px;margin-bottom:10px;"):
@@ -19212,7 +19253,7 @@ def _show_requeue_dialog(s, rf, camp: dict, cname: str, pending_count: int):
 
         # Past-time note  -  reassures the user that today-time-already-past = instant send
         with ui.element("div").style(
-                f"background:{C['good']}12;border:1px solid {C['good']}35;"
+                f"background:{_tint(C['good'],'12')};border:1px solid {_tint(C['good'],'35')};"
                 f"border-radius:8px;padding:10px 14px;margin:14px 0 18px;"):
             ui.label("💡 If a step's scheduled time has already passed today, "
                      "those emails will send on the next 60-second scheduler tick.").style(
@@ -19249,7 +19290,7 @@ def _show_requeue_dialog(s, rf, camp: dict, cname: str, pending_count: int):
                     ).on("click", dlg.close):
                 ui.label("Cancel").style("pointer-events:none;")
             with ui.element("button").style(
-                    f"padding:8px 22px;background:{C['teal']};color:#0D1520;"
+                    f"padding:8px 22px;background:{C['teal']};color:{C['on_teal']};"
                     f"border:none;border-radius:7px;font-size:12px;font-weight:700;"
                     f"cursor:pointer;font-family:inherit;"
                     ).on("click", _do_requeue):
@@ -19284,7 +19325,7 @@ def _show_step_preview_dialog(s, step: dict):
     _name = step.get("name") or step.get("subject") or "Step"
 
     with ui.dialog() as dlg, ui.card().style(
-            f"background:{C['card']};border:1px solid {C['teal']}60;"
+            f"background:{C['card']};border:1px solid {_tint(C['teal'],'60')};"
             f"min-width:520px;max-width:680px;padding:0;overflow:hidden;"):
         with ui.element("div").style(
                 f"display:flex;align-items:center;gap:12px;padding:20px 24px 14px;"
@@ -19344,7 +19385,7 @@ def _show_setup_gate_dialog(s, rf, setup: dict):
     still dismiss with 'I'll do this later' but only after seeing what's
     missing and where to fix it."""
     with ui.dialog() as dlg, ui.card().style(
-            f"background:{C['card']};border:1px solid {C['teal']}40;"
+            f"background:{C['card']};border:1px solid {_tint(C['teal'],'40')};"
             f"min-width:480px;max-width:560px;padding:28px;"):
         # Header
         with ui.element("div").style("display:flex;align-items:center;gap:12px;margin-bottom:6px;"):
@@ -19420,7 +19461,7 @@ def _show_setup_gate_dialog(s, rf, setup: dict):
                     s.sp = page
                     rf()
                 with ui.element("button").style(
-                        f"padding:8px 16px;background:{C['teal']};color:#0D1520;"
+                        f"padding:8px 16px;background:{C['teal']};color:{C['on_teal']};"
                         f"border:none;border-radius:7px;font-size:11px;font-weight:700;"
                         f"cursor:pointer;font-family:inherit;flex-shrink:0;"
                         ).on("click", _go_fix):
@@ -20076,7 +20117,7 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
             with ui.element("div").style(
                     f"display:flex;flex-direction:column;gap:8px;"
                     f"margin-bottom:12px;padding:10px 12px;"
-                    f"background:{C['call_col']}10;border-left:3px solid {C['call_col']};"
+                    f"background:{_tint(C['call_col'],'10')};border-left:3px solid {C['call_col']};"
                     f"border-radius:4px;"):
                 if _overview:
                     ui.label(_overview).style(
@@ -20276,7 +20317,7 @@ def _render_li_message_card(camp: dict, s: AppState, rf):
         with ui.element("div").style(
                 f"font-style:italic;font-size:13px;color:{C['text_l']};"
                 f"max-width:600px;line-height:1.5;border-left:3px solid "
-                f"{C['indigo']}60;padding:2px 10px;margin-bottom:8px;"):
+                f"{_tint(C['indigo'],'60')};padding:2px 10px;margin-bottom:8px;"):
             ui.label(f"“{msg}”")
         _char_count = len(msg)
         with ui.element("div").style(
@@ -20292,7 +20333,7 @@ def _render_li_message_card(camp: dict, s: AppState, rf):
                     f"padding:5px 12px;border-radius:99px;font-size:11px;"
                     f"font-weight:600;cursor:pointer;"
                     f"background:{C['indigo_dim']};color:{C['indigo']};"
-                    f"border:1px solid {C['indigo']}60;font-family:inherit;"
+                    f"border:1px solid {_tint(C['indigo'],'60')};font-family:inherit;"
                     ).on("click", _copy):
                 ui.label("📋 Copy")
             ui.label(f"{_char_count}/300").style(
@@ -20545,7 +20586,7 @@ def p_today_combined(s: AppState, rf):
                     "display:flex;justify-content:flex-end;margin-bottom:14px;"):
                 with ui.element("button").classes("fd-gb").style(
                         f"padding:8px 16px;font-size:12px;font-weight:600;"
-                        f"color:{C['good']};border:1px solid {C['good']}55;"
+                        f"color:{C['good']};border:1px solid {_tint(C['good'],'55')};"
                         ).on("click", _bulk_mark_overdue_done):
                     ui.label(f"✓ Mark all {len(pending)} overdue as done")
 
@@ -20600,7 +20641,7 @@ def p_today_combined(s: AppState, rf):
                             if _any_eg:
                                 ui.label(f"{TERM_NURTURE_COMPACT} Sequence").style(
                                     f"font-size:9px;padding:2px 8px;border-radius:99px;font-weight:700;"
-                                    f"background:{C['indigo']}15;color:{C['indigo']};"
+                                    f"background:{_tint(C['indigo'],'15')};color:{C['indigo']};"
                                     f"text-transform:uppercase;letter-spacing:.05em;")
                             _render_ch_pills(ch_counts)
                         with ui.element("div").style("display:flex;align-items:center;gap:8px;flex-shrink:0;"):
@@ -20655,7 +20696,7 @@ def p_today_combined(s: AppState, rf):
                                             f"display:inline-flex;align-items:center;gap:5px;padding:5px 12px;"
                                             f"border-radius:99px;font-size:11px;font-weight:600;cursor:pointer;"
                                             f"background:{C['indigo_dim']};color:{C['indigo']};"
-                                            f"border:1px solid {C['indigo']}60;font-family:inherit;").on(
+                                            f"border:1px solid {_tint(C['indigo'],'60')};font-family:inherit;").on(
                                             "click", _open_batch):
                                         ui.label(_btn_label)
                                 if _li_batch_idx > 0:
@@ -20669,7 +20710,7 @@ def p_today_combined(s: AppState, rf):
                                         f"display:inline-flex;align-items:center;gap:5px;padding:5px 12px;"
                                         f"border-radius:99px;font-size:11px;font-weight:600;cursor:pointer;"
                                         f"background:{C['teal_dim']};color:{C['teal']};"
-                                        f"border:1px solid {C['teal']}40;font-family:inherit;").on("click", _mark_all_li):
+                                        f"border:1px solid {_tint(C['teal'],'40')};font-family:inherit;").on("click", _mark_all_li):
                                     ui.label(f"✓ All {len(camp_li)} LinkedIn Done")
                             def _mark_all_camp(tasks=camp_tasks):
                                 for t in tasks:
@@ -20980,9 +21021,9 @@ def p_today_combined(s: AppState, rf):
 def _render_ch_pills(ch_counts: dict):
     """Render colored channel-count pills inline next to a campaign name."""
     PILL_META = {
-        "call": ("☎", C["call_col"],  f"{C['call_col']}18",  f"{C['call_col']}50"),
-        "li":   ("in", C["indigo"],   C["indigo_dim"],        f"{C['indigo']}50"),
-        "task": ("✓",  C["task_col"], f"{C['task_col']}18",  f"{C['task_col']}50"),
+        "call": ("☎", C["call_col"],  f"{_tint(C['call_col'],'18')}",  f"{_tint(C['call_col'],'50')}"),
+        "li":   ("in", C["indigo"],   C["indigo_dim"],        f"{_tint(C['indigo'],'50')}"),
+        "task": ("✓",  C["task_col"], f"{_tint(C['task_col'],'18')}",  f"{_tint(C['task_col'],'50')}"),
     }
     for ch, count in ch_counts.items():
         icon, color, bg, border = PILL_META.get(
@@ -21338,8 +21379,8 @@ def _drip_card_detail(t, s: AppState, rf, idx: int = 0, total: int = 0,
             ui.html(
                 f'<span style="display:inline-flex;align-items:center;'
                 f'padding:2px 8px;border-radius:99px;font-size:10px;'
-                f'font-weight:700;background:{C["good"]}20;color:{C["good"]};'
-                f'border:1px solid {C["good"]}50;letter-spacing:.04em;'
+                f'font-weight:700;background:{_tint(C["good"],"20")};color:{C["good"]};'
+                f'border:1px solid {_tint(C["good"],"50")};letter-spacing:.04em;'
                 f'font-family:Nunito,sans-serif;flex-shrink:0;">✓ Opened</span>'
             )
 
@@ -21361,7 +21402,7 @@ def _drip_card_detail(t, s: AppState, rf, idx: int = 0, total: int = 0,
                 ui.html(f'<a href="{esc(clean_url)}" target="_blank" '
                         f'style="display:inline-flex;align-items:center;gap:3px;'
                         f'padding:2px 8px;border-radius:99px;font-size:11px;font-weight:600;'
-                        f'background:{C["indigo_dim"]};color:{C["indigo"]};border:1px solid {C["indigo"]}60;'
+                        f'background:{C["indigo_dim"]};color:{C["indigo"]};border:1px solid {_tint(C["indigo"],"60")};'
                         f'text-decoration:none;cursor:pointer;">in ↗</a>')
             elif ch == "li":
                 search_name = esc(f"{t['name']} {t.get('company', '')}".strip())
@@ -21369,7 +21410,7 @@ def _drip_card_detail(t, s: AppState, rf, idx: int = 0, total: int = 0,
                 ui.html(f'<a href="{search_url}" target="_blank" '
                         f'style="display:inline-flex;align-items:center;gap:3px;'
                         f'padding:2px 8px;border-radius:99px;font-size:11px;font-weight:500;'
-                        f'background:{C["warn"]}15;color:{C["warn"]};border:1px solid {C["warn"]}40;'
+                        f'background:{_tint(C["warn"],"15")};color:{C["warn"]};border:1px solid {_tint(C["warn"],"40")};'
                         f'text-decoration:none;cursor:pointer;">🔍 Find</a>')
             for ph in t.get("phones", []):
                 # B/C tag (2026-05-01 user request) — Business or Cell
@@ -21387,7 +21428,7 @@ def _drip_card_detail(t, s: AppState, rf, idx: int = 0, total: int = 0,
                 _tag_html = (
                     f'<span style="display:inline-block;font-size:9px;'
                     f'font-weight:800;padding:1px 5px;border-radius:99px;'
-                    f'background:{C["call_col"]}30;color:{C["call_col"]};'
+                    f'background:{_tint(C["call_col"],"30")};color:{C["call_col"]};'
                     f'margin-right:2px;letter-spacing:.06em;'
                     f'font-family:Nunito,sans-serif;">{_tag}</span>'
                 ) if _tag else ""
@@ -21395,7 +21436,7 @@ def _drip_card_detail(t, s: AppState, rf, idx: int = 0, total: int = 0,
                         f'style="display:inline-flex;align-items:center;gap:3px;'
                         f'padding:2px 8px;border-radius:99px;font-size:11px;'
                         f'background:rgba(239,159,39,.08);color:{C["call_col"]};'
-                        f'border:1px solid {C["call_col"]}40;text-decoration:none;">'
+                        f'border:1px solid {_tint(C["call_col"],"40")};text-decoration:none;">'
                         f'{_tag_html}☎ {esc(ph["number"])}</a>')
             if t.get("email"):
                 ui.label(t["email"]).style(f"font-size:11px;color:{C['email_col']};")
@@ -21468,11 +21509,11 @@ def _drip_done_card(t, s: AppState, rf):
                     rf()
             with ui.element("button").style(
                     f"font-size:10px;padding:2px 8px;border-radius:99px;"
-                    f"background:{C['danger']}15;color:{C['danger']};border:1px solid {C['danger']}40;"
+                    f"background:{_tint(C['danger'],'15')};color:{C['danger']};border:1px solid {_tint(C['danger'],'40')};"
                     f"cursor:pointer;font-family:inherit;").on("click", _remove):
                 ui.label("Remove from campaign")
         elif o == "vm":
-            ui.label("VM left").classes("fd-tag").style(f"background:{C['warn']}20;color:{C['warn']};")
+            ui.label("VM left").classes("fd-tag").style(f"background:{_tint(C['warn'],'20')};color:{C['warn']};")
         else:
             ui.label("Done").classes("fd-tag").style(f"background:{C['teal_dim']};color:{C['teal']};")
 
@@ -21574,7 +21615,7 @@ def p_responses(s, rf):
                 with ui.element("div").style(
                         f"display:grid;grid-template-columns:1fr 80px 80px 80px;"
                         f"gap:0;padding:8px 14px;align-items:center;"
-                        f"border-bottom:1px solid {C['border']}20;"):
+                        f"border-bottom:1px solid {_tint(C['border'],'20')};"):
                     ui.label(cname).style(
                         f"font-size:12px;font-weight:500;color:{C['text_l']};"
                         f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
@@ -21712,15 +21753,15 @@ def p_responses(s, rf):
                         ui.label(name).style(
                             f"font-size:14px;font-weight:600;color:{C['text_l']};")
                         ui.label("Replied").classes("fd-tag").style(
-                            f"background:{C['good']}20;color:{C['good']};")
+                            f"background:{_tint(C['good'],'20')};color:{C['good']};")
                         ui.label("Removed from campaigns").classes("fd-tag").style(
-                            f"background:{C['danger']}15;color:{C['danger']};font-size:10px;")
+                            f"background:{_tint(C['danger'],'15')};color:{C['danger']};font-size:10px;")
                         if fu:
                             ui.label("You responded").classes("fd-tag").style(
-                                f"background:{C['good']}20;color:{C['good']};font-size:10px;")
+                                f"background:{_tint(C['good'],'20')};color:{C['good']};font-size:10px;")
                         else:
                             ui.label("Awaiting your response").classes("fd-tag").style(
-                                f"background:{C['warn']}20;color:{C['warn']};font-size:10px;")
+                                f"background:{_tint(C['warn'],'20')};color:{C['warn']};font-size:10px;")
 
                     # Campaign · subject · email · date
                     ui.label(f"{campaign} · \"{subject[:50]}\"").style(
@@ -21774,7 +21815,7 @@ def p_responses(s, rf):
                                 _is_loading = _draft_text == "Drafting reply..."
                                 with ui.element("div").style(
                                         f"margin-top:8px;padding:12px 16px;"
-                                        f"background:{C['teal']}08;border:1px solid {C['teal']}25;"
+                                        f"background:{_tint(C['teal'],'08')};border:1px solid {_tint(C['teal'],'25')};"
                                         f"border-left:3px solid {C['teal']};border-radius:0 8px 8px 0;"):
                                     ui.label("AI Draft Reply").style(
                                         f"font-size:10px;font-weight:700;color:{C['teal']};text-transform:uppercase;"
@@ -21930,7 +21971,7 @@ def p_responses(s, rf):
                             threading.Thread(target=_gen, daemon=True).start()
                         with ui.element("button").style(
                                 f"padding:6px 14px;border-radius:6px;cursor:pointer;"
-                                f"background:{C['teal']}15;border:1px solid {C['teal']}30;"
+                                f"background:{_tint(C['teal'],'15')};border:1px solid {_tint(C['teal'],'30')};"
                                 f"color:{C['teal']};font-size:11px;font-family:inherit;"
                                 ).on("click", _draft_reply):
                             ui.label("✦ Draft Reply").style("pointer-events:none;")
@@ -22363,8 +22404,8 @@ def _sq_loaded_campaign(s: AppState, rf):
         with ui.element("button").style(
                 f"display:inline-flex;align-items:center;gap:5px;padding:6px 14px;"
                 f"border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;"
-                f"background:{C['danger']}15;color:{C['danger']};"
-                f"border:1px solid {C['danger']}40;font-family:inherit;flex-shrink:0;"
+                f"background:{_tint(C['danger'],'15')};color:{C['danger']};"
+                f"border:1px solid {_tint(C['danger'],'40')};font-family:inherit;flex-shrink:0;"
                 ).on("click", _exit_campaign):
             ui.label("✕ Exit Campaign")
 
@@ -22674,8 +22715,8 @@ def _sq_loaded_campaign(s: AppState, rf):
             step_atts = em.get("attachments", [])
             if active == 0:
                 with ui.element("div").style(
-                        f"margin-top:16px;padding:10px 14px;background:{C['warn']}10;"
-                        f"border:1px solid {C['warn']}30;border-radius:8px;"
+                        f"margin-top:16px;padding:10px 14px;background:{_tint(C['warn'],'10')};"
+                        f"border:1px solid {_tint(C['warn'],'30')};border-radius:8px;"
                         f"display:flex;align-items:center;gap:8px;"):
                     ui.label("⚠").style("font-size:14px;")
                     ui.label("Attachments cannot be added to the first email  -  they trigger spam filters and get blocked.").style(
@@ -22687,8 +22728,8 @@ def _sq_loaded_campaign(s: AppState, rf):
                               or "bitly" in _body_check)
                 if _has_links:
                     with ui.element("div").style(
-                            f"margin-top:8px;padding:10px 14px;background:{C['danger']}10;"
-                            f"border:1px solid {C['danger']}30;border-radius:8px;"
+                            f"margin-top:8px;padding:10px 14px;background:{_tint(C['danger'],'10')};"
+                            f"border:1px solid {_tint(C['danger'],'30')};border-radius:8px;"
                             f"display:flex;align-items:center;gap:8px;"):
                         ui.label("⚠").style("font-size:14px;")
                         ui.label("Links in your first email are a major spam signal. Shortened URLs (Bitly, etc.) are even worse. Save links for follow-ups after you've gotten a reply.").style(
@@ -22696,7 +22737,7 @@ def _sq_loaded_campaign(s: AppState, rf):
             elif step_atts or (is_email_step and active > 0):
                 with ui.element("div").style(
                         f"margin-top:16px;padding:14px 18px;background:{C['surface']};"
-                        f"border:1px solid {C['email_col']}30;border-radius:10px;"):
+                        f"border:1px solid {_tint(C['email_col'],'30')};border-radius:10px;"):
                     ui.label("📎 Attachments  -  sent with this email").style(
                         f"font-size:12px;font-weight:600;color:{C['email_col']};margin-bottom:8px;"
                         f"font-family:'Nunito',sans-serif;")
@@ -22711,7 +22752,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                                     _pdf_label = att.split(":", 1)[1] or "PDF"
                                     with ui.element("div").style(
                                             f"display:inline-flex;align-items:center;gap:6px;padding:8px 14px;"
-                                            f"background:{C['warn']}10;border:1px dashed {C['warn']}55;"
+                                            f"background:{_tint(C['warn'],'10')};border:1px dashed {_tint(C['warn'],'55')};"
                                             f"border-radius:8px;"):
                                         ui.label("⏳").style("font-size:14px;")
                                         ui.label(f"Generating {_pdf_label}…").style(
@@ -22738,7 +22779,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                                     with ui.element("div").style("flex-basis:100%;"):
                                         with ui.element("div").style(
                                                 f"display:inline-flex;align-items:center;gap:6px;padding:8px 14px;"
-                                                f"background:{C['card']};border:1px solid {C['email_col']}30;"
+                                                f"background:{C['card']};border:1px solid {_tint(C['email_col'],'30')};"
                                                 f"border-radius:8px;"):
                                             with ui.link(target=f"/pdfs/{att}", new_tab=True).style("text-decoration:none;display:flex;align-items:center;gap:6px;"):
                                                 ui.label("📄").style("font-size:16px;")
@@ -22785,7 +22826,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                                             break
                                     with ui.element("div").style(
                                             f"display:inline-flex;align-items:center;gap:8px;padding:8px 14px;"
-                                            f"background:{C['danger']}10;border:1px solid {C['danger']}80;"
+                                            f"background:{_tint(C['danger'],'10')};border:1px solid {_tint(C['danger'],'80')};"
                                             f"border-left:3px solid {C['danger']};border-radius:8px;"):
                                         ui.label("⚠").style(f"font-size:14px;color:{C['danger']};font-weight:700;")
                                         with ui.element("div").style("display:flex;flex-direction:column;gap:1px;"):
@@ -22964,7 +23005,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                                     "display:flex;align-items:center;gap:10px;"
                                     f"padding:7px 12px;margin-top:6px;"
                                     f"background:{C['card']};"
-                                    f"border:1px solid {C['email_col']}30;"
+                                    f"border:1px solid {_tint(C['email_col'],'30')};"
                                     "border-radius:8px;"):
                                 ui.label("📄").style("font-size:15px;")
                                 ui.label(_redacted_resume_label(_rp.name)).style(
@@ -23156,8 +23197,8 @@ def _sq_loaded_campaign(s: AppState, rf):
                             rf()
                         with ui.element("button").style(
                                 f"font-size:10px;padding:4px 10px;border-radius:6px;"
-                                f"background:linear-gradient(135deg,{C['indigo']}20,{C['indigo']}40);"
-                                f"color:{C['indigo']};border:1px solid {C['indigo']}60;"
+                                f"background:linear-gradient(135deg,{_tint(C['indigo'],'20')},{_tint(C['indigo'],'40')});"
+                                f"color:{C['indigo']};border:1px solid {_tint(C['indigo'],'60')};"
                                 f"cursor:pointer;font-family:inherit;display:inline-flex;"
                                 f"align-items:center;gap:3px;font-weight:700;"
                                 ).on("click", _open_custom_pdf):
@@ -23272,8 +23313,8 @@ def _sq_loaded_campaign(s: AppState, rf):
                         with ui.element("button").style(
                                 f"display:inline-flex;align-items:center;gap:5px;padding:8px 16px;"
                                 f"border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;"
-                                f"background:{C['indigo']}18;color:{C['indigo']};"
-                                f"border:1px solid {C['indigo']}40;font-family:inherit;"
+                                f"background:{_tint(C['indigo'],'18')};color:{C['indigo']};"
+                                f"border:1px solid {_tint(C['indigo'],'40')};font-family:inherit;"
                                 ).on("click", _polish):
                             ui.label("✦ Rewrite with AI")
                     # Remember Style button  -  learns from user's edits
@@ -23285,8 +23326,8 @@ def _sq_loaded_campaign(s: AppState, rf):
                         with ui.element("button").style(
                                 f"display:inline-flex;align-items:center;gap:5px;padding:8px 16px;"
                                 f"border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;"
-                                f"background:{C['warn']}18;color:{C['warn']};"
-                                f"border:1px solid {C['warn']}40;font-family:inherit;"
+                                f"background:{_tint(C['warn'],'18')};color:{C['warn']};"
+                                f"border:1px solid {_tint(C['warn'],'40')};font-family:inherit;"
                                 ).on("click", _teach_ai):
                             ui.label("🧠 Remember Style")
 
@@ -23355,8 +23396,8 @@ def _sq_loaded_campaign(s: AppState, rf):
                                         with ui.link(target=f"/pdfs/{att}", new_tab=True).style("text-decoration:none;"):
                                             ui.label(f"📎 {att}").style(
                                                 f"font-size:10px;padding:2px 8px;border-radius:99px;"
-                                                f"background:{C['email_col']}15;color:{C['email_col']};"
-                                                f"border:1px solid {C['email_col']}30;cursor:pointer;")
+                                                f"background:{_tint(C['email_col'],'15')};color:{C['email_col']};"
+                                                f"border:1px solid {_tint(C['email_col'],'30')};cursor:pointer;")
                                     else:
                                         ui.label(f"📎 {att}").style(
                                             f"font-size:10px;padding:2px 8px;border-radius:99px;"
@@ -23517,7 +23558,7 @@ def _sq_loaded_campaign(s: AppState, rf):
         if contacts:
             with ui.element("div").style(
                     f"display:flex;align-items:center;justify-content:space-between;"
-                    f"background:{C['teal_dim']};border:1px solid {C['teal']}40;"
+                    f"background:{C['teal_dim']};border:1px solid {_tint(C['teal'],'40')};"
                     f"border-radius:10px;padding:12px 18px;margin-bottom:20px;"):
                 with ui.element("div").style("display:flex;align-items:center;gap:10px;"):
                     ui.label("✓").style(f"font-size:18px;color:{C['teal']};")
@@ -23530,7 +23571,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                     rf()
                 with ui.element("button").style(
                         f"padding:5px 14px;border-radius:8px;cursor:pointer;font-family:inherit;"
-                        f"background:transparent;border:1px solid {C['teal']}60;"
+                        f"background:transparent;border:1px solid {_tint(C['teal'],'60')};"
                         f"color:{C['teal']};font-size:12px;font-weight:600;").on(
                         "click", _clear_contacts):
                     ui.label("✕ Clear & Change").style("pointer-events:none;")
@@ -23565,7 +23606,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                 _n_flag = len(_flagged_pairs)
                 _kept_lc = max(0, len(contacts) - _n_flag)
                 with ui.element("div").style(
-                        f"background:{C['danger']}12;border:1px solid {C['danger']}60;"
+                        f"background:{_tint(C['danger'],'12')};border:1px solid {_tint(C['danger'],'60')};"
                         f"border-left:4px solid {C['danger']};border-radius:8px;"
                         f"padding:14px 18px;margin-bottom:18px;"):
                     with ui.element("div").style(
@@ -23641,7 +23682,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                 with ui.element("div").style("display:flex;align-items:center;gap:12px;margin-bottom:8px;"):
                     with ui.element("div").style(
                             f"width:36px;height:36px;border-radius:8px;flex-shrink:0;"
-                            f"background:{C['email_col']}20;display:flex;align-items:center;"
+                            f"background:{_tint(C['email_col'],'20')};display:flex;align-items:center;"
                             f"justify-content:center;font-size:18px;"):
                         ui.html("📤")
                     with ui.element("div"):
@@ -23653,7 +23694,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                 with ui.element("div").style(
                         f"display:inline-flex;align-items:center;gap:5px;margin-top:6px;"
                         f"padding:4px 12px;border-radius:99px;"
-                        f"background:{C['email_col']}15;border:1px solid {C['email_col']}40;"):
+                        f"background:{_tint(C['email_col'],'15')};border:1px solid {_tint(C['email_col'],'40')};"):
                     ui.label("↑ Click to browse").style(
                         f"font-size:11px;color:{C['email_col']};font-weight:600;")
 
@@ -23670,7 +23711,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                 with ui.element("div").style("display:flex;align-items:center;gap:12px;margin-bottom:8px;"):
                     with ui.element("div").style(
                             f"width:36px;height:36px;border-radius:8px;flex-shrink:0;"
-                            f"background:{C['indigo']}20;display:flex;align-items:center;"
+                            f"background:{_tint(C['indigo'],'20')};display:flex;align-items:center;"
                             f"justify-content:center;font-size:18px;"):
                         ui.html("📋")
                     with ui.element("div"):
@@ -23684,7 +23725,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                 with ui.element("div").style(
                         f"display:inline-flex;align-items:center;gap:5px;margin-top:6px;"
                         f"padding:4px 12px;border-radius:99px;"
-                        f"background:{C['indigo']}15;border:1px solid {C['indigo']}40;"):
+                        f"background:{_tint(C['indigo'],'15')};border:1px solid {_tint(C['indigo'],'40')};"):
                     ui.label("▾ Select a list" if show_saved else "▸ Select a list").style(
                         f"font-size:11px;color:{C['indigo']};font-weight:600;")
 
@@ -23778,8 +23819,8 @@ def _sq_loaded_campaign(s: AppState, rf):
                 em_l = _cg(c, "email", "Email").lower()
                 skip = em_l in responded_emails
                 row_style = "opacity:.4;" if skip else ""
-                skip_badge = (f' <span style="font-size:9px;color:{C["warn"]};background:{C["warn"]}15;'
-                              f'padding:1px 6px;border-radius:99px;border:1px solid {C["warn"]}40;">responded</span>') if skip else ""
+                skip_badge = (f' <span style="font-size:9px;color:{C["warn"]};background:{_tint(C["warn"],"15")};'
+                              f'padding:1px 6px;border-radius:99px;border:1px solid {_tint(C["warn"],"40")};">responded</span>') if skip else ""
                 cells = ""
                 for i, fn in enumerate(cols_fn):
                     val = fn(c)
@@ -24026,7 +24067,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                 ui.label(f"Contacts ({len(contacts)})").classes("fd-sec")
                 if not contacts:
                     with ui.element("div").style(
-                            f"background:{C['danger']}10;border:1px solid {C['danger']}40;"
+                            f"background:{_tint(C['danger'],'10')};border:1px solid {_tint(C['danger'],'40')};"
                             f"border-radius:8px;padding:14px 16px;"):
                         ui.label("⚠ No contacts  -  go back to Choose Contacts.").style(
                             f"font-size:13px;color:{C['danger']};font-weight:500;")
@@ -24123,7 +24164,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                 else: s.ep = "e_signature"
                 rf()
             with ui.element("button").classes("fd-gb").style(
-                    f"border-color:{C['warn']}50;color:{C['warn']};margin-bottom:14px;"
+                    f"border-color:{_tint(C['warn'],'50')};color:{C['warn']};margin-bottom:14px;"
                     f"font-size:12px;padding:6px 16px;").on("click", _go_sig_cg):
                 ui.label("⚠ Set Email Signature →")
 
@@ -24256,7 +24297,7 @@ def _sq_loaded_campaign(s: AppState, rf):
         # describes the same action, so the whole card is the affordance now.
         # A small arrow on the right hints at its actionable nature.
         with ui.element("div").style(
-                f"background:{C['indigo']}10;border:1px solid {C['indigo']}40;"
+                f"background:{_tint(C['indigo'],'10')};border:1px solid {_tint(C['indigo'],'40')};"
                 f"border-left:3px solid {C['indigo']};"
                 f"border-radius:0 10px 10px 0;padding:14px 18px;margin-bottom:16px;"
                 f"display:flex;align-items:center;justify-content:space-between;"
@@ -24287,7 +24328,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                 save_campaign(camp)
                 ui.notify(f"✓ Sequence '{camp_name}' saved!", type="positive")
             with ui.element("button").classes("fd-gb").style(
-                    f"border-color:{C['email_col']}40;padding:10px 22px;").on("click", _save_camp):
+                    f"border-color:{_tint(C['email_col'],'40')};padding:10px 22px;").on("click", _save_camp):
                 ui.label("💾 Save Campaign")
 
             # Launch dialog  -  prompts for campaign name before launching
@@ -24362,7 +24403,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                     _day1_volume = _day1_steps * len(active_contacts)
                     if _day1_volume > _daily_lim:
                         with ui.element("div").style(
-                                f"padding:10px 14px;background:{C['warn']}10;border:1px solid {C['warn']}30;"
+                                f"padding:10px 14px;background:{_tint(C['warn'],'10')};border:1px solid {_tint(C['warn'],'30')};"
                                 f"border-radius:8px;margin-bottom:14px;display:flex;align-items:flex-start;gap:8px;"):
                             ui.label("⚠").style("font-size:14px;flex-shrink:0;margin-top:1px;")
                             ui.label(
@@ -24372,7 +24413,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                             ).style(f"font-size:11px;color:{C['warn']};line-height:1.5;")
                     elif _day1_volume > _daily_lim * 0.8:
                         with ui.element("div").style(
-                                f"padding:10px 14px;background:{C['warn']}08;border:1px solid {C['warn']}20;"
+                                f"padding:10px 14px;background:{_tint(C['warn'],'08')};border:1px solid {_tint(C['warn'],'20')};"
                                 f"border-radius:8px;margin-bottom:14px;display:flex;align-items:center;gap:8px;"):
                             ui.label(
                                 f"{_day1_volume} emails queued for day 1 (limit: {_daily_lim}/day)"
@@ -24439,7 +24480,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                                         _b["name"] = _fcname
                                 _kept = max(0, len(contacts) - _n_flagged)
                                 with ui.dialog() as _ac_dlg, ui.card().style(
-                                        f"background:{C['card']};border:1px solid {C['danger']}60;"
+                                        f"background:{C['card']};border:1px solid {_tint(C['danger'],'60')};"
                                         f"min-width:480px;max-width:580px;padding:24px 28px;"):
                                     ui.label(
                                         f"⚠ {_n_flagged} contact"
@@ -24505,7 +24546,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                                             await _confirm_launch()
                                         with ui.element("button").style(
                                                 f"padding:8px 16px;font-size:12px;"
-                                                f"background:transparent;border:1px solid {C['danger']}80;"
+                                                f"background:transparent;border:1px solid {_tint(C['danger'],'80')};"
                                                 f"color:{C['danger']};border-radius:8px;cursor:pointer;"
                                                 f"font-family:inherit;font-weight:600;"
                                                 ).on("click", _decide_send_all):
@@ -24707,8 +24748,8 @@ def _sq_loaded_campaign(s: AppState, rf):
                     ui.label(launch_label)
             else:
                 with ui.element("div").style(
-                        f"padding:10px 18px;border-radius:8px;background:{C['danger']}15;"
-                        f"border:1px solid {C['danger']}40;"):
+                        f"padding:10px 18px;border-radius:8px;background:{_tint(C['danger'],'15')};"
+                        f"border:1px solid {_tint(C['danger'],'40')};"):
                     ui.label("⚠ Add contacts before launching").style(
                         f"font-size:12px;color:{C['danger']};font-weight:500;")
 
@@ -24796,7 +24837,7 @@ def _sq_campaign_wizard_header(s: AppState, rf):
                 is_current = i == cur_idx
                 can_click  = (is_done or is_current) and not is_intro
                 col  = C["teal"] if is_current else (C["good"] if is_done else C["muted"])
-                bg   = f"{C['teal']}20" if is_current else (f"{C['good']}15" if is_done else "transparent")
+                bg   = f"{_tint(C['teal'],'20')}" if is_current else (f"{_tint(C['good'],'15')}" if is_done else "transparent")
                 bord = C["teal"] if is_current else (C["good"] if is_done else C["border"])
                 pfx  = "✓" if is_done else icon
 
@@ -24870,9 +24911,16 @@ def p_seq(s: AppState, rf):
 
     _page_decor(variant=1)  # Flowing Ribbon  -  the main Start a Campaign picker
 
+    # Sidebar layout: Campaigns > Saved lands here, so it is titled as the
+    # page it is rather than as step one of a new campaign.
+    _saved_view = _SIDEBAR_LAYOUT and s._tab == "saved" and s.sq == 1
     with ui.element("div").style("display:flex;align-items:center;"):
-        ui.label("New Campaign").classes("fd-h1")
+        ui.label("Saved Campaigns" if _saved_view
+                 else "New Campaign").classes("fd-h1")
         _show_page_help(s, rf, "start_seq")
+    if _saved_view:
+        ui.label("Campaigns you saved to reuse. Open one to fill it in and "
+                 "launch it.").classes("fd-sub")
 
     # ── Wizard header ────────────────────────────────────────────────────
     # Always shown for templates/custom flows AND for the intro picker
@@ -25339,8 +25387,8 @@ def _tm_render_help_me_choose(s, rf):
                f"color:{C['text_l']};font-family:inherit;font-size:13px;"
                f"text-align:left;")
     with ui.element("div").style(
-            f"max-width:860px;margin-bottom:18px;border:1px solid {C['teal']}40;"
-            f"background:{C['teal']}0d;border-radius:12px;padding:12px 16px;"):
+            f"max-width:860px;margin-bottom:18px;border:1px solid {_tint(C['teal'],'40')};"
+            f"background:{_tint(C['teal'],'0d')};border-radius:12px;padding:12px 16px;"):
         with ui.element("div").style(
                 "display:flex;align-items:center;justify-content:space-between;"
                 "cursor:pointer;gap:12px;").on("click", _toggle):
@@ -25766,18 +25814,21 @@ def _sq_pick(s, rf):
         "community": "Community",
         "templates": "Templates",
     }
-    with ui.element("div").style("display:flex;align-items:center;gap:12px;margin-bottom:20px;"):
-        def _back_to_picker():
-            _reset_wizard_state(s)
-            s._tab = ""
-            s.stpl = None
-            rf()
-        with ui.element("button").classes("fd-pb").style(
-                "padding:9px 20px;font-size:13px;font-weight:700;"
-                "border-radius:8px;").on("click", _back_to_picker):
-            ui.label("\u2190 Back to Start a Campaign")
-        ui.label(label_map.get(s._tab, "")).style(
-            f"font-size:16px;font-weight:700;color:{C['text_l']};font-family:'Nunito',sans-serif;")
+    # The sidebar's Saved row already titles this view (see p_seq), so the
+    # back-and-label row would only repeat it.
+    if not (_SIDEBAR_LAYOUT and s._tab == "saved"):
+        with ui.element("div").style("display:flex;align-items:center;gap:12px;margin-bottom:20px;"):
+            def _back_to_picker():
+                _reset_wizard_state(s)
+                s._tab = ""
+                s.stpl = None
+                rf()
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:8px 16px;font-size:13px;font-weight:600;"
+                    "border-radius:8px;").on("click", _back_to_picker):
+                ui.label("\u2190 Back to Start a Campaign")
+            ui.label(label_map.get(s._tab, "")).style(
+                f"font-size:16px;font-weight:700;color:{C['text_l']};font-family:'Nunito',sans-serif;")
 
     # ── CUSTOM TAB ─────────────────────────────────────────────────────────
     if s._tab == "custom":
@@ -25844,7 +25895,7 @@ def _sq_pick(s, rf):
                 _clear_wizard_draft()
                 rf()
             with ui.element("div").style(
-                    f"background:{C['warn']}10;border:1px solid {C['warn']}40;"
+                    f"background:{_tint(C['warn'],'10')};border:1px solid {_tint(C['warn'],'40')};"
                     f"border-left:3px solid {C['warn']};border-radius:0 10px 10px 0;"
                     f"padding:14px 18px;margin-bottom:14px;max-width:860px;"
                     f"display:flex;align-items:center;justify-content:space-between;"
@@ -25859,8 +25910,8 @@ def _sq_pick(s, rf):
                 with ui.element("div").style("display:flex;gap:8px;flex-shrink:0;"):
                     with ui.element("span").style(
                             f"color:{C['danger']};cursor:pointer;font-size:11px;padding:4px 8px;"
-                            f"border-radius:6px;border:1px solid {C['danger']}30;"
-                            f"background:{C['danger']}10;"
+                            f"border-radius:6px;border:1px solid {_tint(C['danger'],'30')};"
+                            f"background:{_tint(C['danger'],'10')};"
                             ).on("click.stop", _discard_wiz_draft):
                         ui.label("Discard")
                     with ui.element("span").style(
@@ -25897,7 +25948,7 @@ def _sq_pick(s, rf):
                     with ui.element("button").style(
                             f"padding:5px 12px;border-radius:6px;cursor:pointer;"
                             f"font-size:11px;font-weight:600;font-family:inherit;"
-                            f"background:{C['teal'] + '18' if _sac else 'transparent'};"
+                            f"background:{_tint(C['teal'], '18') if _sac else 'transparent'};"
                             f"border:1px solid {C['teal'] if _sac else C['border']};"
                             f"color:{C['teal'] if _sac else C['muted']};"
                             ).on("click", _set_sort):
@@ -25970,8 +26021,8 @@ def _sq_pick(s, rf):
                                             ui.label("Delete")
                                 with ui.element("span").style(
                                         f"color:{C['danger']};cursor:pointer;font-size:11px;padding:4px 8px;"
-                                        f"border-radius:6px;border:1px solid {C['danger']}30;"
-                                        f"background:{C['danger']}10;").on("click.stop", _del_dlg.open):
+                                        f"border-radius:6px;border:1px solid {_tint(C['danger'],'30')};"
+                                        f"background:{_tint(C['danger'],'10')};").on("click.stop", _del_dlg.open):
                                     ui.label("Delete")
                                 with ui.element("span").style(
                                         f"color:{C['teal']};cursor:pointer;font-size:16px;font-weight:700;"
@@ -26408,7 +26459,7 @@ def _sq_custom_builder(s, rf):
                 ).on("click", _from_scratch):
             with ui.element("div").style(
                     f"width:52px;height:52px;border-radius:12px;flex-shrink:0;"
-                    f"background:{C['teal']}20;display:flex;align-items:center;"
+                    f"background:{_tint(C['teal'],'20')};display:flex;align-items:center;"
                     f"justify-content:center;font-size:24px;"):
                 ui.label("+")
             with ui.element("div").style("flex:1;min-width:0;"):
@@ -26565,8 +26616,8 @@ def _sq_custom_builder(s, rf):
                         f"display:flex;align-items:center;justify-content:center;gap:6px;"
                         f"width:calc(100% - 32px);margin:0 16px;padding:8px 12px;"
                         f"border-radius:8px;font-size:12px;cursor:pointer;"
-                        f"background:{C['danger']}10;color:{C['danger']};"
-                        f"border:1px solid {C['danger']}30;font-family:inherit;"
+                        f"background:{_tint(C['danger'],'10')};color:{C['danger']};"
+                        f"border:1px solid {_tint(C['danger'],'30')};font-family:inherit;"
                         ).on("click", _clear_all):
                     ui.label("Clear All")
 
@@ -26874,8 +26925,8 @@ def _sq_custom_builder(s, rf):
                 if is_email_type and _is_first_email:
                     ui.element("div").style(f"height:1px;background:{C['border']};margin:16px 0 12px;")
                     with ui.element("div").style(
-                            f"padding:10px 14px;background:{C['warn']}10;"
-                            f"border:1px solid {C['warn']}30;border-radius:8px;"
+                            f"padding:10px 14px;background:{_tint(C['warn'],'10')};"
+                            f"border:1px solid {_tint(C['warn'],'30')};border-radius:8px;"
                             f"display:flex;align-items:center;gap:8px;"):
                         ui.label("⚠").style("font-size:14px;")
                         ui.label("Attachments cannot be added to the first email  -  they trigger spam filters and get blocked.").style(
@@ -27203,27 +27254,27 @@ def _sq_custom_editor(s, rf):
                     # Type-specific guidance
                     st = step.get("step_type", "")
                     if st == ST.LINKEDIN:
-                        with ui.element("div").style(f"background:{C['indigo_dim']};border:1px solid {C['indigo']}30;"
+                        with ui.element("div").style(f"background:{C['indigo_dim']};border:1px solid {_tint(C['indigo'],'30')};"
                                                      f"border-radius:8px;padding:14px 18px;margin-bottom:12px;"):
                             ui.label("LinkedIn Task").style(f"font-size:13px;font-weight:600;color:{C['indigo']};margin-bottom:4px;font-family:'Nunito',sans-serif;")
                             ui.label(f"When this step is due, each contact's LinkedIn profile will be shown as a clickable link in {TERM_TODAY}. "
                                      "Use the notes below for your connection message or talking points.").style(
                                 f"font-size:12px;color:{C['text']};line-height:1.5;")
                     elif st == ST.CALL:
-                        with ui.element("div").style(f"background:{C['call_col']}10;border:1px solid {C['call_col']}30;"
+                        with ui.element("div").style(f"background:{_tint(C['call_col'],'10')};border:1px solid {_tint(C['call_col'],'30')};"
                                                      f"border-radius:8px;padding:14px 18px;margin-bottom:12px;"):
                             ui.label("Phone Call").style(f"font-size:13px;font-weight:600;color:{C['call_col']};margin-bottom:4px;font-family:'Nunito',sans-serif;")
                             ui.label("When due, each contact's phone numbers will appear with click-to-call. "
                                      "Add your call script below  -  it'll be expandable on the task card.").style(
                                 f"font-size:12px;color:{C['text']};line-height:1.5;")
                     elif st == ST.SMS:
-                        with ui.element("div").style(f"background:{C['sms_col']}10;border:1px solid {C['sms_col']}30;"
+                        with ui.element("div").style(f"background:{_tint(C['sms_col'],'10')};border:1px solid {_tint(C['sms_col'],'30')};"
                                                      f"border-radius:8px;padding:14px 18px;margin-bottom:12px;"):
                             ui.label("SMS / Text").style(f"font-size:13px;font-weight:600;color:{C['sms_col']};margin-bottom:4px;font-family:'Nunito',sans-serif;")
                             ui.label("Add the text message template below.").style(
                                 f"font-size:12px;color:{C['text']};line-height:1.5;")
                     elif st == ST.TASK:
-                        with ui.element("div").style(f"background:{C['task_col']}10;border:1px solid {C['task_col']}30;"
+                        with ui.element("div").style(f"background:{_tint(C['task_col'],'10')};border:1px solid {_tint(C['task_col'],'30')};"
                                                      f"border-radius:8px;padding:14px 18px;margin-bottom:12px;"):
                             ui.label("General Task").style(f"font-size:13px;font-weight:600;color:{C['task_col']};margin-bottom:4px;font-family:'Nunito',sans-serif;")
                             ui.label("Describe what needs to be done for each contact.").style(
@@ -27553,7 +27604,7 @@ def _contact_upload_and_name(s, rf, on_done):
         with ui.element("div").style("display:flex;gap:8px;margin-top:12px;justify-content:flex-end;"):
             ui.button("Cancel", on_click=name_dialog.close).props("flat").style(f"color:{C['muted']};")
             ui.button("Save & Use", on_click=_save_list).style(
-                f"background:{C['teal']};color:#0D1520;font-weight:600;")
+                f"background:{C['teal']};color:{C['on_teal']};font-weight:600;")
 
     return _upload_el
 
@@ -27613,7 +27664,7 @@ def _open_active_clients_gate(s: AppState, rf, flagged_pairs: list,
     )
 
     with ui.dialog() as _gate, ui.card().style(
-            f"background:{C['card']};border:1px solid {C['danger']}60;"
+            f"background:{C['card']};border:1px solid {_tint(C['danger'],'60')};"
             f"min-width:480px;max-width:580px;padding:24px 28px;"):
         ui.label(f"⚠ {n} contact{'s' if n != 1 else ''} at active clients").style(
             f"font-size:18px;font-weight:800;color:{C['danger']};"
@@ -27682,7 +27733,7 @@ def _open_active_clients_gate(s: AppState, rf, flagged_pairs: list,
                 on_proceed()
             with ui.element("button").style(
                     f"padding:8px 16px;background:transparent;color:{C['warn']};"
-                    f"border:1px solid {C['warn']}80;border-radius:7px;"
+                    f"border:1px solid {_tint(C['warn'],'80')};border-radius:7px;"
                     f"font-size:12px;font-weight:600;cursor:pointer;"
                     f"font-family:inherit;"
                     ).on("click", _choose_send_all):
@@ -27764,7 +27815,7 @@ def _tm_audience_panel(s: AppState, rf):
     _has_any = any(_opts.values())
 
     with ui.element("div").style(
-            f"background:{C['surface']};border:1px solid {C['indigo']}45;"
+            f"background:{C['surface']};border:1px solid {_tint(C['indigo'],'45')};"
             f"border-left:4px solid {C['indigo']};border-radius:0 12px 12px 0;"
             f"padding:16px 20px;margin-bottom:14px;"):
         with ui.element("div").style(
@@ -27774,7 +27825,7 @@ def _tm_audience_panel(s: AppState, rf):
                 f"font-family:'Nunito',sans-serif;")
             ui.label("ThriveModal").style(
                 f"font-size:9px;font-weight:700;color:{C['indigo']};"
-                f"background:{C['indigo']}18;border:1px solid {C['indigo']}50;"
+                f"background:{_tint(C['indigo'],'18')};border:1px solid {_tint(C['indigo'],'50')};"
                 f"border-radius:99px;padding:2px 8px;text-transform:uppercase;"
                 f"letter-spacing:.06em;")
 
@@ -27993,7 +28044,7 @@ def _open_tm_dedupe_gate(s: AppState, rf, split, contacts_hash, on_proceed):
     camp_lines = sorted(by_camp.items(), key=lambda kv: (-kv[1], kv[0]))
 
     with ui.dialog() as _gate, ui.card().style(
-            f"background:{C['card']};border:1px solid {C['indigo']}70;"
+            f"background:{C['card']};border:1px solid {_tint(C['indigo'],'70')};"
             f"min-width:480px;max-width:580px;padding:24px 28px;"):
         ui.label(f"{n} contact{'s' if n != 1 else ''} already in a campaign").style(
             f"font-size:18px;font-weight:800;color:{C['indigo']};"
@@ -28058,7 +28109,7 @@ def _open_tm_dedupe_gate(s: AppState, rf, split, contacts_hash, on_proceed):
                 on_proceed()
             with ui.element("button").style(
                     f"padding:8px 16px;background:transparent;color:{C['warn']};"
-                    f"border:1px solid {C['warn']}80;border-radius:7px;"
+                    f"border:1px solid {_tint(C['warn'],'80')};border-radius:7px;"
                     f"font-size:12px;font-weight:600;cursor:pointer;"
                     f"font-family:inherit;"
                     ).on("click", _choose_send_all):
@@ -28079,7 +28130,7 @@ def _sq_contacts(s: AppState, rf):
     if s.scon:
         with ui.element("div").style(
                 f"display:flex;align-items:center;justify-content:space-between;"
-                f"background:{C['teal_dim']};border:1px solid {C['teal']}40;"
+                f"background:{C['teal_dim']};border:1px solid {_tint(C['teal'],'40')};"
                 f"border-radius:10px;padding:12px 18px;margin-bottom:14px;"):
             with ui.element("div").style("display:flex;align-items:center;gap:10px;"):
                 ui.label("✓").style(f"font-size:18px;color:{C['teal']};")
@@ -28112,7 +28163,7 @@ def _sq_contacts(s: AppState, rf):
             with ui.element("div").style("display:flex;align-items:center;gap:10px;margin-bottom:6px;"):
                 with ui.element("div").style(
                         f"width:32px;height:32px;border-radius:7px;flex-shrink:0;"
-                        f"background:{C['email_col']}20;display:flex;align-items:center;"
+                        f"background:{_tint(C['email_col'],'20')};display:flex;align-items:center;"
                         f"justify-content:center;font-size:16px;"):
                     ui.html("📤")
                 with ui.element("div"):
@@ -28123,8 +28174,8 @@ def _sq_contacts(s: AppState, rf):
                         f"font-size:12px;color:{C['muted']};display:block;")
             with ui.element("div").style(
                     f"display:inline-flex;align-items:center;padding:3px 10px;"
-                    f"border-radius:99px;background:{C['email_col']}15;"
-                    f"border:1px solid {C['email_col']}40;"):
+                    f"border-radius:99px;background:{_tint(C['email_col'],'15')};"
+                    f"border:1px solid {_tint(C['email_col'],'40')};"):
                 ui.label("↑ Click to browse").style(
                     f"font-size:11px;color:{C['email_col']};font-weight:600;")
 
@@ -28140,7 +28191,7 @@ def _sq_contacts(s: AppState, rf):
             with ui.element("div").style("display:flex;align-items:center;gap:10px;margin-bottom:6px;"):
                 with ui.element("div").style(
                         f"width:32px;height:32px;border-radius:7px;flex-shrink:0;"
-                        f"background:{C['indigo']}20;display:flex;align-items:center;"
+                        f"background:{_tint(C['indigo'],'20')};display:flex;align-items:center;"
                         f"justify-content:center;font-size:16px;"):
                     ui.html("📋")
                 with ui.element("div"):
@@ -28152,8 +28203,8 @@ def _sq_contacts(s: AppState, rf):
                         f"font-size:12px;color:{C['muted']};display:block;")
             with ui.element("div").style(
                     f"display:inline-flex;align-items:center;padding:3px 10px;"
-                    f"border-radius:99px;background:{C['indigo']}15;"
-                    f"border:1px solid {C['indigo']}40;"):
+                    f"border-radius:99px;background:{_tint(C['indigo'],'15')};"
+                    f"border:1px solid {_tint(C['indigo'],'40')};"):
                 ui.label("▾ Select a list" if show_saved else "▸ Select a list").style(
                     f"font-size:11px;color:{C['indigo']};font-weight:600;")
 
@@ -28255,15 +28306,15 @@ def _sq_contacts(s: AppState, rf):
                 rs = "opacity:.55;"
                 skip_badge = (
                     f' <span style="font-size:9px;color:{C["danger"]};'
-                    f'background:{C["danger"]}15;padding:1px 6px;border-radius:99px;'
-                    f'border:1px solid {C["danger"]}50;font-weight:700;">active client</span>'
+                    f'background:{_tint(C["danger"],"15")};padding:1px 6px;border-radius:99px;'
+                    f'border:1px solid {_tint(C["danger"],"50")};font-weight:700;">active client</span>'
                 )
             elif is_resp:
                 rs = "opacity:.4;"
                 skip_badge = (
                     f' <span style="font-size:9px;color:{C["warn"]};'
-                    f'background:{C["warn"]}15;padding:1px 6px;border-radius:99px;'
-                    f'border:1px solid {C["warn"]}40;">responded</span>'
+                    f'background:{_tint(C["warn"],"15")};padding:1px 6px;border-radius:99px;'
+                    f'border:1px solid {_tint(C["warn"],"40")};">responded</span>'
                 )
             else:
                 rs = ""
@@ -28423,8 +28474,8 @@ def _sq_review_split(s: AppState, rf):
         _flag_n = len(_flagged_now)
         if _flag_n > 0:
             _is_skip = (_ac_choice == "skip")
-            _bg = f"{C['teal']}15" if _is_skip else f"{C['warn']}15"
-            _bd = f"{C['teal']}50" if _is_skip else f"{C['warn']}60"
+            _bg = f"{_tint(C['teal'],'15')}" if _is_skip else f"{_tint(C['warn'],'15')}"
+            _bd = f"{_tint(C['teal'],'50')}" if _is_skip else f"{_tint(C['warn'],'60')}"
             _ic = "✓" if _is_skip else "⚠"
             _ic_col = C['teal'] if _is_skip else C['warn']
             _msg = (
@@ -28465,8 +28516,8 @@ def _sq_review_split(s: AppState, rf):
         _tm_n = _tm_split_now.get("count", 0)
         if _tm_n:
             _tm_skip = (_tm_choice_now == "skip")
-            _tm_bg = f"{C['teal']}15" if _tm_skip else f"{C['warn']}15"
-            _tm_bd = f"{C['teal']}50" if _tm_skip else f"{C['warn']}60"
+            _tm_bg = f"{_tint(C['teal'],'15')}" if _tm_skip else f"{_tint(C['warn'],'15')}"
+            _tm_bd = f"{_tint(C['teal'],'50')}" if _tm_skip else f"{_tint(C['warn'],'60')}"
             _tm_ic = "✓" if _tm_skip else "⚠"
             _tm_col = C['teal'] if _tm_skip else C['warn']
             _tm_msg = (
@@ -28605,7 +28656,7 @@ def _sq_review_split(s: AppState, rf):
                         asyncio.ensure_future(_generate())
                         return
                     with ui.dialog() as _ow_dlg, ui.card().style(
-                            f"background:{C['card']};border:1px solid {C['warn']}60;"
+                            f"background:{C['card']};border:1px solid {_tint(C['warn'],'60')};"
                             f"min-width:420px;max-width:520px;padding:22px 24px;"):
                         ui.label("Regenerate emails?").style(
                             f"font-size:16px;font-weight:800;color:{C['text_l']};"
@@ -28789,7 +28840,7 @@ def _sq_review_split(s: AppState, rf):
                 )
 
                 with ui.dialog() as _l_dlg, ui.card().style(
-                        f"background:{C['card']};border:1px solid {C['teal']}60;"
+                        f"background:{C['card']};border:1px solid {_tint(C['teal'],'60')};"
                         f"min-width:440px;max-width:540px;padding:24px 26px;"):
                     ui.label("Launch this campaign?").style(
                         f"font-size:18px;font-weight:800;color:{C['text_l']};"
@@ -29133,7 +29184,7 @@ def p_contacts(s, rf):
         if contacts:
             with ui.element("div").style(
                     f"display:flex;align-items:center;justify-content:space-between;"
-                    f"background:{C['teal_dim']};border:1px solid {C['teal']}40;"
+                    f"background:{C['teal_dim']};border:1px solid {_tint(C['teal'],'40')};"
                     f"border-radius:10px;padding:12px 18px;margin-bottom:16px;"):
                 with ui.element("div").style("display:flex;align-items:center;gap:10px;"):
                     ui.label("✓").style(f"font-size:18px;color:{C['teal']};")
@@ -29233,8 +29284,8 @@ def p_contacts(s, rf):
                             with ui.element("button").style(
                                     f"display:inline-flex;align-items:center;padding:3px 10px;"
                                     f"border-radius:99px;font-size:10px;font-weight:600;cursor:pointer;"
-                                    f"background:{C['danger']}15;color:{C['danger']};"
-                                    f"border:1px solid {C['danger']}40;font-family:inherit;"
+                                    f"background:{_tint(C['danger'],'15')};color:{C['danger']};"
+                                    f"border:1px solid {_tint(C['danger'],'40')};font-family:inherit;"
                                     f"white-space:nowrap;").on("click", confirm_dialog.open):
                                 ui.label("Delete")
         # ── RIGHT: Active contact list view ─────────────────────────────────
@@ -29291,7 +29342,7 @@ def p_contacts(s, rf):
                         _save_contacts_to_csv(contacts)
                         s.expanded.add("contact_0"); rf()
                     ui.button("＋ Add New Contact", on_click=_add_new).props("unelevated no-caps").style(
-                            f"background:{C['teal']};color:#0D1520;border-radius:99px;"
+                            f"background:{C['teal']};color:{C['on_teal']};border-radius:99px;"
                             f"font-size:12px;font-weight:700;white-space:nowrap;"
                             f"font-family:'Nunito',sans-serif;flex-shrink:0;margin-left:12px;padding:7px 16px;")
 
@@ -29488,7 +29539,7 @@ def p_active_camps(s, rf):
                             ui.label(cname).style(f"font-size:14px;font-weight:500;color:{C['text_l']};")
                             ui.label(tpl_name).classes("fd-tag").style(f"background:{tpl_col}20;color:{tpl_col};")
                             if resp_count:
-                                ui.label(f"{resp_count} responses").classes("fd-tag").style(f"background:{C['good']}20;color:{C['good']};")
+                                ui.label(f"{resp_count} responses").classes("fd-tag").style(f"background:{_tint(C['good'],'20')};color:{C['good']};")
                         with ui.element("div").style("display:flex;gap:16px;margin-top:4px;"):
                             ui.label(f"{n_contacts} contacts").style(f"font-size:12px;color:{C['muted']};")
                             ui.label(step_label).style(f"font-size:12px;color:{C['teal']};")
@@ -29545,7 +29596,7 @@ def p_active_camps(s, rf):
                                     ui.label(cname).style(f"font-size:13px;font-weight:500;color:{C['text']};")
                                     if resp_count:
                                         ui.label(f"{resp_count} replies").classes("fd-tag").style(
-                                            f"background:{C['good']}20;color:{C['good']};")
+                                            f"background:{_tint(C['good'],'20')};color:{C['good']};")
                                 ui.label(f"{n_contacts} contacts · {cq['sent']} sent").style(
                                     f"font-size:11px;color:{C['muted']};margin-top:2px;")
                             def _reuse(c=camp):
@@ -29883,7 +29934,7 @@ def p_launch(s, rf):
                     def _preview_test(c=camp):
                         ui.notify("Sending preview to your inbox…", type="info")
                     with ui.element("button").classes("fd-gb").style(
-                            f"width:100%;margin-bottom:8px;border-color:{C['teal']}40;").on("click", _preview_test):
+                            f"width:100%;margin-bottom:8px;border-color:{_tint(C['teal'],'40')};").on("click", _preview_test):
                         ui.label("📧 Preview Emails")
 
                     # Save button
@@ -29891,7 +29942,7 @@ def p_launch(s, rf):
                         save_campaign(c)
                         ui.notify("Sequence saved!", type="positive")
                     with ui.element("button").classes("fd-gb").style(
-                            f"width:100%;margin-bottom:8px;border-color:{C['email_col']}40;").on("click", _save):
+                            f"width:100%;margin-bottom:8px;border-color:{_tint(C['email_col'],'40')};").on("click", _save):
                         ui.label("💾 Save Campaign")
 
                     # Launch button
@@ -30411,7 +30462,7 @@ def _offer_slow_drip_enroll(to_email: str, name: str, rf):
     _pick = {"id": ""}
 
     with ui.dialog() as _dlg, ui.card().style(
-            f"background:{C['card']};border:1px solid {C['teal']}60;"
+            f"background:{C['card']};border:1px solid {_tint(C['teal'],'60')};"
             f"min-width:480px;max-width:560px;padding:22px 24px;"):
         ui.label("Stay connected with this contact?").style(
             f"font-size:16px;font-weight:800;color:{C['text_l']};"
@@ -30489,7 +30540,7 @@ def _offer_newsletter_enroll(to_email: str, name: str, rf):
             ui.notify(f"Enroll result: {result}", type="info")
 
     with ui.dialog() as _dlg, ui.card().style(
-            f"background:{C['card']};border:1px solid {C['teal']}60;"
+            f"background:{C['card']};border:1px solid {_tint(C['teal'],'60')};"
             f"min-width:460px;max-width:560px;padding:22px 24px;"):
         ui.label("Add to a newsletter").style(
             f"font-size:16px;font-weight:800;color:{C['text_l']};"
@@ -30668,7 +30719,7 @@ def _render_nl_first_gen_status(s, rf) -> None:
     if not _done:
         # In-flight: prominent centered card with big spinner.
         with ui.element("div").style(
-                f"background:{C['card']};border:1px solid {C['teal']}60;"
+                f"background:{C['card']};border:1px solid {_tint(C['teal'],'60')};"
                 f"border-left:5px solid {C['teal']};border-radius:12px;"
                 f"padding:22px 28px;margin:14px 0 18px;display:flex;"
                 f"align-items:center;gap:18px;"
@@ -30717,7 +30768,7 @@ def _render_nl_first_gen_status(s, rf) -> None:
         pass
 
     with ui.element("div").style(
-            f"background:{C['good']}10;border:1px solid {C['good']}55;"
+            f"background:{_tint(C['good'],'10')};border:1px solid {_tint(C['good'],'55')};"
             f"border-left:5px solid {C['good']};border-radius:12px;"
             f"padding:18px 22px;margin:14px 0 18px;"):
         with ui.element("div").style(
@@ -30992,7 +31043,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             with ui.element("span").style(
                     f"display:inline-flex;align-items:center;justify-content:center;"
                     f"width:16px;height:16px;border-radius:50%;"
-                    f"background:{C['teal']}20;border:1px solid {C['teal']}60;"
+                    f"background:{_tint(C['teal'],'20')};border:1px solid {_tint(C['teal'],'60')};"
                     f"color:{C['teal']};font-size:10px;font-weight:700;cursor:help;"
                     f"font-family:'Nunito',sans-serif;"):
                 ui.label("?").style("line-height:1;")
@@ -31031,7 +31082,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             with ui.element("span").style(
                     f"display:inline-flex;align-items:center;justify-content:center;"
                     f"width:16px;height:16px;border-radius:50%;"
-                    f"background:{C['teal']}20;border:1px solid {C['teal']}60;"
+                    f"background:{_tint(C['teal'],'20')};border:1px solid {_tint(C['teal'],'60')};"
                     f"color:{C['teal']};font-size:10px;font-weight:700;cursor:help;"
                     f"font-family:'Nunito',sans-serif;"):
                 ui.label("?").style("line-height:1;")
@@ -31119,8 +31170,8 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                             def _rm(_e=None, _id=_cid):
                                 _sel_cands.pop(_id, None); _refresh_chosen()
                             with ui.element("div").style(
-                                    f"display:flex;align-items:center;gap:5px;background:{C['teal']}18;"
-                                    f"border:1px solid {C['teal']}50;border-radius:12px;padding:2px 4px 2px 10px;"):
+                                    f"display:flex;align-items:center;gap:5px;background:{_tint(C['teal'],'18')};"
+                                    f"border:1px solid {_tint(C['teal'],'50')};border-radius:12px;padding:2px 4px 2px 10px;"):
                                 ui.label(_c.get("name", "Candidate")).style(
                                     f"font-size:10px;color:{C['teal']};font-weight:700;")
                                 ui.button("✕", on_click=_rm).props("flat dense round").style(
@@ -31205,7 +31256,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             with ui.element("span").style(
                     f"display:inline-flex;align-items:center;justify-content:center;"
                     f"width:16px;height:16px;border-radius:50%;"
-                    f"background:{C['teal']}20;border:1px solid {C['teal']}60;"
+                    f"background:{_tint(C['teal'],'20')};border:1px solid {_tint(C['teal'],'60')};"
                     f"color:{C['teal']};font-size:10px;font-weight:700;cursor:help;"
                     f"font-family:'Nunito',sans-serif;"):
                 ui.label("?").style("line-height:1;")
@@ -32101,8 +32152,8 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                         # unresponsive. Reported 2026-05-17.
                         with ui.element("div").style(
                                 f"width:160px;height:46px;"
-                                f"border:1px dashed {C['teal']}80;"
-                                f"background:{C['teal']}10;"
+                                f"border:1px dashed {_tint(C['teal'],'80')};"
+                                f"background:{_tint(C['teal'],'10')};"
                                 f"border-radius:6px;display:flex;"
                                 f"align-items:center;justify-content:center;"
                                 f"color:{C['teal']};font-size:11px;"
@@ -32143,7 +32194,7 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                     with _gen_holder:
                         with ui.element("div").style(
                                 f"background:{C['surface']};border:1px dashed "
-                                f"{C['teal']}60;border-radius:8px;padding:18px;"
+                                f"{_tint(C['teal'],'60')};border-radius:8px;padding:18px;"
                                 f"margin-top:10px;text-align:center;"):
                             ui.label("✨ Generating fresh content…").style(
                                 f"color:{C['teal']};font-weight:700;font-size:13px;"
@@ -32153,8 +32204,8 @@ def _edit_newsletter_modal(s, rf, camp: dict, step_idx: int,
                 elif state["error"]:
                     with _gen_holder:
                         with ui.element("div").style(
-                                f"background:{C['danger']}12;border:1px solid "
-                                f"{C['danger']}50;border-radius:8px;padding:14px;"
+                                f"background:{_tint(C['danger'],'12')};border:1px solid "
+                                f"{_tint(C['danger'],'50')};border-radius:8px;padding:14px;"
                                 f"margin-top:10px;"):
                             ui.label("Generation failed").style(
                                 f"color:{C['danger']};font-weight:700;margin-bottom:4px;")
@@ -33330,26 +33381,31 @@ def p_newsletters(s, rf):
         # the status regardless of which page they end up on.
         _render_nl_first_gen_status(s, rf)
 
+        # Title left, actions right: the same header every other page uses.
+        # It was the one centred page in the app.
         with ui.element("div").style(
-                "display:flex;align-items:center;justify-content:center;"
-                "gap:8px;margin-bottom:4px;"):
-            ui.label("Newsletters").classes("fd-h1").style("margin:0;")
-            try:
-                _show_page_help(s, rf, "newsletters")
-            except Exception:
-                pass
-        ui.label(
-            "Each card below is one of your monthly newsletters. "
-            "Click View / Edit to open this month's issue, review what "
-            "Claude drafted, and tweak before it sends."
-        ).classes("fd-sub").style("text-align:center;margin-bottom:18px;")
+                "display:flex;align-items:flex-start;justify-content:space-between;"
+                "gap:16px;flex-wrap:wrap;margin-bottom:18px;"):
+          with ui.element("div").style("flex:1;min-width:260px;"):
+            with ui.element("div").style(
+                    "display:flex;align-items:center;gap:8px;margin-bottom:4px;"):
+                ui.label("Newsletters").classes("fd-h1").style("margin:0;")
+                try:
+                    _show_page_help(s, rf, "newsletters")
+                except Exception:
+                    pass
+            ui.label(
+                "Each card below is one of your monthly newsletters. "
+                "Click View / Edit to open this month's issue, review what "
+                "Claude drafted, and tweak before it sends."
+            ).classes("fd-sub").style("margin-bottom:0;")
 
-        # Top action row — New Newsletter + Send Now (one-off send to a
-        # custom recipient list, separate from the scheduled enrolled-list
-        # sends). Send Now disabled when no newsletters exist yet.
-        with ui.element("div").style(
-                "display:flex;align-items:center;justify-content:center;"
-                "gap:10px;margin:0 0 22px;flex-wrap:wrap;"):
+          # Top action row — New Newsletter + Send Now (one-off send to a
+          # custom recipient list, separate from the scheduled enrolled-list
+          # sends). Send Now disabled when no newsletters exist yet.
+          with ui.element("div").style(
+                "display:flex;align-items:center;"
+                "gap:10px;flex-wrap:wrap;"):
             with ui.element("button").classes("fd-pb").style(
                     "padding:9px 22px;font-size:13px;").on(
                     "click", lambda: _create_newsletter_dialog(s, rf)):
@@ -33361,17 +33417,14 @@ def p_newsletters(s, rf):
             # campaign launch screen (p_launch).
 
             _can_send = bool(camps)
-            with ui.element("button").style(
-                    f"padding:9px 22px;font-size:13px;font-weight:700;"
-                    f"background:{C['teal']}22;color:{C['teal']};"
-                    f"border:1px solid {C['teal']}80;border-radius:8px;"
+            with ui.element("button").classes("fd-gb").style(
+                    f"padding:9px 20px;font-size:13px;font-weight:600;"
                     f"cursor:{'pointer' if _can_send else 'not-allowed'};"
-                    f"font-family:inherit;"
                     f"opacity:{1 if _can_send else 0.5};"
                     ).on("click",
                          (lambda: _send_now_dialog(s, rf, camps))
                          if _can_send else (lambda: None)):
-                ui.label("📨 Send a Newsletter Now").style("pointer-events:none;")
+                ui.label("Send a Newsletter Now").style("pointer-events:none;")
 
         # Deep link from preview email: ?edit_newsletter=<campaign_name>
         # Open the Edit modal for the named campaign on first render.
@@ -33642,7 +33695,7 @@ def p_newsletters(s, rf):
                     with ui.element("button").style(
                             f"padding:9px 11px;font-size:13px;line-height:1;"
                             f"background:transparent;color:{C['danger']};"
-                            f"border:1px solid {C['danger']}40;border-radius:8px;"
+                            f"border:1px solid {_tint(C['danger'],'40')};border-radius:8px;"
                             f"cursor:pointer;font-family:inherit;"
                             ).on("click", _delete_nl):
                         ui.label("✕").style("pointer-events:none;")
@@ -33744,7 +33797,7 @@ def p_evergreen(s, rf, *, as_section: bool = False):
             by_camp.setdefault(r["camp_name"], []).append(r)
 
         with ui.element("div").style(
-                f"background:{C['warn']}0E;border:1px solid {C['warn']}40;"
+                f"background:{_tint(C['warn'],'0E')};border:1px solid {_tint(C['warn'],'40')};"
                 f"border-radius:10px;padding:14px 18px;margin-bottom:16px;"):
             with ui.element("div").style(
                     "display:flex;align-items:center;gap:8px;margin-bottom:10px;"):
@@ -33820,7 +33873,7 @@ def p_evergreen(s, rf, *, as_section: bool = False):
                     with ui.element("div").style("margin-top:10px;"):
                         with ui.element("button").style(
                                 f"padding:5px 16px;border-radius:7px;cursor:pointer;"
-                                f"background:{C['warn']}15;border:1px solid {C['warn']}50;"
+                                f"background:{_tint(C['warn'],'15')};border:1px solid {_tint(C['warn'],'50')};"
                                 f"color:{C['warn']};font-size:12px;font-weight:600;"
                                 f"font-family:inherit;").on("click", _goto):
                             ui.label("✎ Review & Update Emails →").style(
@@ -33952,8 +34005,8 @@ def p_evergreen(s, rf, *, as_section: bool = False):
                             "display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px;"):
                         with ui.element("button").style(
                                 f"padding:5px 14px;font-size:12px;font-weight:600;"
-                                f"background:{C['danger']}15;color:{C['danger']};"
-                                f"border:1px solid {C['danger']}50;border-radius:8px;"
+                                f"background:{_tint(C['danger'],'15')};color:{C['danger']};"
+                                f"border:1px solid {_tint(C['danger'],'50')};border-radius:8px;"
                                 f"cursor:pointer;font-family:inherit;"
                                 ).on("click", _delete_camp):
                             ui.label("🗑 Delete").style("pointer-events:none;")
@@ -34048,7 +34101,7 @@ def p_evergreen(s, rf, *, as_section: bool = False):
 
                                 with ui.element("div").style(
                                         f"display:flex;align-items:center;gap:8px;padding:5px 0;"
-                                        f"border-bottom:1px solid {C['border']}15;"):
+                                        f"border-bottom:1px solid {_tint(C['border'],'15')};"):
                                     # Status dot
                                     _dot_col = C["good"] if not _camp_completed else C["muted"]
                                     ui.element("div").style(
@@ -34065,7 +34118,7 @@ def p_evergreen(s, rf, *, as_section: bool = False):
                                     if _camp_completed:
                                         ui.label("Completed").style(
                                             f"font-size:9px;padding:2px 6px;border-radius:99px;"
-                                            f"background:{C['good']}15;color:{C['good']};font-weight:700;")
+                                            f"background:{_tint(C['good'],'15')};color:{C['good']};font-weight:700;")
                                     else:
                                         ui.label(f"Step {_next_idx+1}/{_total_steps}").style(
                                             f"font-size:9px;padding:2px 6px;border-radius:99px;"
@@ -34077,7 +34130,7 @@ def p_evergreen(s, rf, *, as_section: bool = False):
                                         rf()
                                     with ui.element("button").style(
                                             f"font-size:9px;padding:2px 8px;border-radius:4px;"
-                                            f"background:{C['danger']}10;color:{C['danger']};border:1px solid {C['danger']}20;"
+                                            f"background:{_tint(C['danger'],'10')};color:{C['danger']};border:1px solid {_tint(C['danger'],'20')};"
                                             f"cursor:pointer;font-family:inherit;flex-shrink:0;"
                                             ).on("click", _remove_ct):
                                         ui.label("×")
@@ -34110,7 +34163,7 @@ def p_evergreen_create(s, rf):
 
     # ── Instructions panel ─────────────────────────────────────────────────
     with ui.element("div").style(
-            f"background:{C['card']};border:1px solid {C['teal']}40;"
+            f"background:{C['card']};border:1px solid {_tint(C['teal'],'40')};"
             f"border-left:4px solid {C['teal']};border-radius:0 10px 10px 0;"
             f"padding:14px 18px;margin:12px 0 20px;max-width:820px;"):
         with ui.element("div").style(
@@ -34542,7 +34595,7 @@ def p_dashboard(s: AppState, rf):
 
             with ui.element("div").style(
                     f"background:linear-gradient(135deg,{C_DARK['teal']}10,{C_DARK['indigo']}10);"
-                    f"border:1px solid {C['teal']}40;border-radius:14px;"
+                    f"border:1px solid {_tint(C['teal'],'40')};border-radius:14px;"
                     f"padding:22px 26px;margin-bottom:20px;"
                     f"box-shadow:0 2px 12px rgba(26,227,217,.08);"):
                 # Header row
@@ -34617,7 +34670,7 @@ def p_dashboard(s: AppState, rf):
                 for _st in _steps:
                     with ui.element("div").style(
                             f"display:flex;align-items:center;gap:14px;padding:10px 0;"
-                            f"border-bottom:1px solid {C['border']}40;"):
+                            f"border-bottom:1px solid {_tint(C['border'],'40')};"):
                         # Status icon circle
                         _bg = f"{_st['color']}20" if _st["done"] else f"{_st['color']}15"
                         ui.label(_st["icon"]).style(
@@ -34636,7 +34689,7 @@ def p_dashboard(s: AppState, rf):
                             def _go_step(page=_st["page"]):
                                 s.sp = page; rf()
                             with ui.element("button").style(
-                                    f"padding:7px 16px;background:{C['teal']};color:#0D1520;"
+                                    f"padding:7px 16px;background:{C['teal']};color:{C['on_teal']};"
                                     f"border:none;border-radius:7px;font-size:11px;font-weight:700;"
                                     f"cursor:pointer;font-family:inherit;flex-shrink:0;"
                                     ).on("click", _go_step):
@@ -34674,7 +34727,7 @@ def p_dashboard(s: AppState, rf):
         def _go_overdue():
             s.dash_drip_tab = "overdue"; rf()
         with ui.element("div").style(
-                f"background:{C['danger']}0A;border:1px solid {C['danger']}30;"
+                f"background:{_tint(C['danger'],'0A')};border:1px solid {_tint(C['danger'],'30')};"
                 f"border-radius:8px;padding:10px 16px;margin-bottom:16px;"
                 f"display:flex;align-items:center;justify-content:space-between;cursor:pointer;"
                 ).on("click", _go_overdue):
@@ -35294,8 +35347,8 @@ def p_emails_build(s: AppState, rf):
                     f'{sig_html}</div>')
         else:
             with ui.element("div").style(
-                    f"margin-top:10px;padding:8px 14px;background:{C['warn']}08;"
-                    f"border:1px solid {C['warn']}30;border-radius:6px;"
+                    f"margin-top:10px;padding:8px 14px;background:{_tint(C['warn'],'08')};"
+                    f"border:1px solid {_tint(C['warn'],'30')};border-radius:6px;"
                     f"display:flex;align-items:center;gap:8px;"):
                 ui.label("⚠").style(f"color:{C['warn']};font-size:13px;")
                 ui.label("No signature set - emails will send without one.").style(
@@ -35304,7 +35357,7 @@ def p_emails_build(s: AppState, rf):
                     s.ep = "e_signature"; rf()
                 with ui.element("button").style(
                         f"font-size:10px;padding:2px 10px;border-radius:99px;"
-                        f"border:1px solid {C['warn']}60;background:transparent;"
+                        f"border:1px solid {_tint(C['warn'],'60')};background:transparent;"
                         f"color:{C['warn']};cursor:pointer;font-family:inherit;margin-left:auto;"
                         ).on("click", _go_sig):
                     ui.label("Set Signature →")
@@ -35701,7 +35754,7 @@ def p_prev_launch(s: AppState, rf):
                     s.ep = "e_signature"; rf()
                 with ui.element("div").style(
                         f"display:inline-flex;align-items:center;gap:6px;padding:6px 14px;"
-                        f"border-radius:8px;border:1px solid {C['warn']}40;background:{C['warn']}10;"
+                        f"border-radius:8px;border:1px solid {_tint(C['warn'],'40')};background:{_tint(C['warn'],'10')};"
                         f"cursor:pointer;margin-top:8px;").on("click", _go_sig_pl):
                     ui.label("⚠").style(f"color:{C['warn']};font-size:13px;")
                     ui.label("Set your signature before launching →").style(
@@ -35750,7 +35803,7 @@ def p_prev_launch(s: AppState, rf):
                 ui.notify(f"Sequence '{camp['name']}' saved!", type="positive")
 
             with ui.element("button").classes("fd-gb").style(
-                    f"width:100%;margin-bottom:8px;border-color:{C['email_col']}40;").on("click", _save_camp):
+                    f"width:100%;margin-bottom:8px;border-color:{_tint(C['email_col'],'40')};").on("click", _save_camp):
                 ui.label("💾 Save Campaign")
 
             # Launch via Outlook
@@ -35799,7 +35852,7 @@ def p_prev_launch(s: AppState, rf):
                 except Exception as e:
                     ui.notify(f"Preview failed: {str(e)[:80]}", type="negative")
             with ui.element("button").classes("fd-gb").style(
-                    f"width:100%;margin-top:8px;border-color:{C['teal']}40;").on("click",
+                    f"width:100%;margin-top:8px;border-color:{_tint(C['teal'],'40')};").on("click",
                     lambda: asyncio.ensure_future(_preview())):
                 ui.label("📧 Preview Emails")
 
@@ -36076,7 +36129,7 @@ def p_seq_builder(s: AppState, rf):
                 f"font-size:11px;font-weight:700;padding:4px 10px;"
                 f"border-radius:99px;"
                 f"background:{C['teal'] if _active else C['surface']};"
-                f"color:{'#0D1520' if _active else (C['teal'] if _done else C['muted'])};"
+                f"color:{C['on_teal'] if _active else (C['teal'] if _done else C['muted'])};"
                 f"border:1px solid "
                 f"{C['teal'] if (_active or _done) else C['border']};")
 
@@ -37025,8 +37078,8 @@ def p_seq_mgr(s, rf):
                                                     f"font-size:11px;color:{C['muted']};pointer-events:none;")
                                 else:
                                     with ui.element("div").style(
-                                            f"background:{C['warn']}10;"
-                                            f"border:1px solid {C['warn']}30;"
+                                            f"background:{_tint(C['warn'],'10')};"
+                                            f"border:1px solid {_tint(C['warn'],'30')};"
                                             f"border-radius:8px;padding:12px 16px;margin-bottom:16px;"):
                                         ui.label(
                                             "No saved contact lists found. "
@@ -37076,14 +37129,14 @@ def p_seq_mgr(s, rf):
                                         rf()
                                     with ui.element("button").style(
                                             f"padding:8px 22px;border-radius:8px;cursor:pointer;"
-                                            f"background:{C['teal']};border:none;color:#0D1520;"
+                                            f"background:{C['teal']};border:none;color:{C['on_teal']};"
                                             f"font-size:13px;font-weight:700;"
                                             f"font-family:'Nunito',inherit;").on("click", _do_add):
                                         ui.label("Add Contacts →").style("pointer-events:none;")
                             dlg.open()
                         with ui.element("button").style(
                                 f"padding:6px 16px;font-size:12px;border-radius:8px;cursor:pointer;"
-                                f"background:{C['teal_dim']};border:1px solid {C['teal']}60;"
+                                f"background:{C['teal_dim']};border:1px solid {_tint(C['teal'],'60')};"
                                 f"color:{C['teal']};font-family:inherit;").on(
                                 "click", _add_contacts_btn):
                             ui.label("＋ Add Contacts").style("pointer-events:none;")
@@ -37126,8 +37179,8 @@ def p_seq_mgr(s, rf):
                                     f"font-weight:600;margin-bottom:16px;")
                                 if pending_count:
                                     with ui.element("div").style(
-                                            f"background:{C['danger']}12;"
-                                            f"border:1px solid {C['danger']}40;"
+                                            f"background:{_tint(C['danger'],'12')};"
+                                            f"border:1px solid {_tint(C['danger'],'40')};"
                                             f"border-radius:8px;padding:12px 16px;"
                                             f"margin-bottom:20px;"):
                                         ui.label(
@@ -37139,8 +37192,8 @@ def p_seq_mgr(s, rf):
                                             f"font-weight:500;line-height:1.5;")
                                 else:
                                     with ui.element("div").style(
-                                            f"background:{C['warn']}10;"
-                                            f"border:1px solid {C['warn']}30;"
+                                            f"background:{_tint(C['warn'],'10')};"
+                                            f"border:1px solid {_tint(C['warn'],'30')};"
                                             f"border-radius:8px;padding:12px 16px;"
                                             f"margin-bottom:20px;"):
                                         ui.label(
@@ -37243,7 +37296,7 @@ def p_seq_mgr(s, rf):
                             rf()
                         with ui.element("div").style(
                                 f"display:flex;align-items:center;justify-content:space-between;"
-                                f"background:{C['danger']}10;border:1px solid {C['danger']}40;"
+                                f"background:{_tint(C['danger'],'10')};border:1px solid {_tint(C['danger'],'40')};"
                                 f"border-radius:8px;padding:10px 16px;margin-bottom:16px;"):
                             ui.label(
                                 f"\u26a0  {failed_total} email"
@@ -37279,7 +37332,7 @@ def p_seq_mgr(s, rf):
                                 _show_requeue_dialog(s, rf, c, cn, pending_n)
                             with ui.element("button").style(
                                     f"padding:7px 14px;font-size:12px;font-weight:600;"
-                                    f"background:{C['teal']}15;border:1px solid {C['teal']}60;"
+                                    f"background:{_tint(C['teal'],'15')};border:1px solid {_tint(C['teal'],'60')};"
                                     f"color:{C['teal']};border-radius:7px;cursor:pointer;"
                                     f"font-family:inherit;flex-shrink:0;"
                                     ).on("click", _open_requeue_dlg):
@@ -37498,7 +37551,7 @@ def p_seq_mgr(s, rf):
                                         rf()
                                     with ui.element("button").style(
                                             f"padding:7px 20px;border-radius:8px;cursor:pointer;"
-                                            f"background:{C['teal']};border:none;color:#0D1520;"
+                                            f"background:{C['teal']};border:none;color:{C['on_teal']};"
                                             f"font-size:13px;font-weight:700;"
                                             f"font-family:'Nunito',inherit;").on(
                                             "click", _do_graduate_all):
@@ -37513,7 +37566,7 @@ def p_seq_mgr(s, rf):
                             with ui.element("button").style(
                                     f"display:inline-flex;align-items:center;gap:5px;"
                                     f"padding:5px 14px;border-radius:8px;cursor:pointer;"
-                                    f"background:{C['teal_dim']};border:1px solid {C['teal']}50;"
+                                    f"background:{C['teal_dim']};border:1px solid {_tint(C['teal'],'50')};"
                                     f"color:{C['teal']};font-size:12px;font-weight:600;"
                                     f"font-family:inherit;flex-shrink:0;").on(
                                     "click", _graduate_all_responded):
@@ -37585,19 +37638,19 @@ def p_seq_mgr(s, rf):
                                     _sbadge = (
                                         f'<span style="padding:2px 8px;border-radius:99px;'
                                         f'font-size:10px;font-weight:700;'
-                                        f'background:{C["good"]}20;'
+                                        f'background:{_tint(C["good"],"20")};'
                                         f'color:{C["good"]};">Replied</span>')
                                 elif _ct.get("removed"):
                                     _sbadge = (
                                         f'<span style="padding:2px 8px;border-radius:99px;'
                                         f'font-size:10px;font-weight:700;'
-                                        f'background:{C["warn"]}20;'
+                                        f'background:{_tint(C["warn"],"20")};'
                                         f'color:{C["warn"]};">Removed</span>')
                                 elif _cfail > 0:
                                     _sbadge = (
                                         f'<span style="padding:2px 8px;border-radius:99px;'
                                         f'font-size:10px;font-weight:700;'
-                                        f'background:{C["danger"]}20;'
+                                        f'background:{_tint(C["danger"],"20")};'
                                         f'color:{C["danger"]};">Failed</span>')
                                 elif _nxt:
                                     _sbadge = (
@@ -37680,7 +37733,7 @@ def p_seq_mgr(s, rf):
                                                 f"padding:3px 10px;border-radius:6px;"
                                                 f"cursor:pointer;font-family:inherit;"
                                                 f"background:transparent;"
-                                                f"border:1px solid {C['danger']}60;"
+                                                f"border:1px solid {_tint(C['danger'],'60')};"
                                                 f"color:{C['danger']};font-size:11px;"
                                                 f"font-weight:600;").on("click", _rm_contact):
                                             ui.label("Remove").style("pointer-events:none;")
@@ -37766,7 +37819,7 @@ def p_seq_mgr(s, rf):
                                                 f"padding:3px 10px;border-radius:6px;"
                                                 f"cursor:pointer;font-family:inherit;"
                                                 f"background:{C['teal_dim']};"
-                                                f"border:1px solid {C['teal']}50;"
+                                                f"border:1px solid {_tint(C['teal'],'50')};"
                                                 f"color:{C['teal']};font-size:11px;"
                                                 f"font-weight:600;").on("click", _grad_one):
                                             ui.label(f"🌱 {TERM_NURTURE}").style(
@@ -37832,14 +37885,22 @@ def p_dnc(s, rf):
                 f"padding:8px 20px;font-size:13px;margin-bottom:1px;").on("click", _add_dnc):
             ui.label("Block")
 
-    # Block entire domain
+    # Block entire domain. Its own card, like the email one above; the old
+    # tint was "{_tint(C['danger'],'08')}", which is not valid CSS once C holds var()
+    # references, so the fields floated loose on the page.
     with ui.element("div").style(
-            f"display:flex;align-items:flex-end;gap:10px;margin-bottom:20px;"
-            f"padding:14px 20px;background:{C['danger']}08;border:1px solid {C['danger']}25;"
-            f"border-radius:10px;"):
-        with ui.element("div").style("flex:1;min-width:0;max-width:300px;"):
-            ui.label("Block Entire Domain").style(
-                f"font-size:12px;font-weight:700;color:{C['danger']};margin-bottom:4px;")
+            f"display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px;"
+            f"background:{C['card']};border:1px solid {C['border']};"
+            f"border-left:3px solid {C['danger']};border-radius:10px;"
+            f"padding:14px 20px;margin-bottom:20px;"):
+        with ui.element("div").style("flex-basis:100%;"):
+            ui.label("Block an entire domain").style(
+                f"font-size:13px;font-weight:700;color:{C['text_l']};display:block;")
+            ui.label("Stops every email to anyone at that domain and cancels "
+                     "their pending sends.").style(
+                f"font-size:12px;color:{C['muted']};display:block;")
+        with ui.element("div").style("flex:1;min-width:200px;max-width:300px;"):
+            ui.label("Domain").classes("fd-fl")
             _domain_inp = ui.input(placeholder="company.com").classes("fd-input")
         with ui.element("div").style("width:160px;"):
             ui.label("Company (optional)").classes("fd-fl")
@@ -37858,8 +37919,6 @@ def p_dnc(s, rf):
                 f"background:{C['danger']};color:white;border:none;"
                 f"font-weight:600;font-family:inherit;margin-bottom:1px;").on("click", _block_domain):
             ui.label("Block Domain")
-        ui.label("Blocks ALL emails to anyone @domain  -  cancels pending sends.").style(
-            f"font-size:10px;color:{C['muted']};padding-bottom:4px;")
 
     # ── Search ────────────────────────────────────────────────────────────
     if dnc:
@@ -38047,7 +38106,7 @@ def p_tm_analytics(s, rf):
             with ui.element("div").style(
                     f"display:grid;grid-template-columns:{_cols};gap:0;"
                     f"padding:8px 14px;align-items:center;"
-                    f"border-bottom:1px solid {C['border']}20;"):
+                    f"border-bottom:1px solid {_tint(C['border'],'20')};"):
                 ui.label(row["name"]).style(
                     f"font-size:12px;font-weight:500;color:{C['text_l']};"
                     f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
@@ -38086,7 +38145,7 @@ def p_tm_analytics(s, rf):
                 with ui.element("div").style(
                         f"display:grid;grid-template-columns:{_scols};gap:0;"
                         f"padding:8px 14px;align-items:center;"
-                        f"border-bottom:1px solid {C['border']}20;"):
+                        f"border-bottom:1px solid {_tint(C['border'],'20')};"):
                     ui.label(f"{row['touch']}. {row['label']}").style(
                         f"font-size:12px;font-weight:500;color:{C['text_l']};"
                         f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
@@ -38162,7 +38221,7 @@ def p_active_clients(s, rf):
     # ── Add-one inline form (toggleable) ────────────────────────────────
     if getattr(s, "_ac_show_add", False):
         with ui.element("div").style(
-                f"background:{C['card']};border:1px solid {C['teal']}60;"
+                f"background:{C['card']};border:1px solid {_tint(C['teal'],'60')};"
                 f"border-left:4px solid {C['teal']};border-radius:0 12px 12px 0;"
                 f"padding:16px 20px;margin-bottom:18px;"):
             with ui.element("div").style(
@@ -38294,7 +38353,7 @@ def p_active_clients(s, rf):
 
             for i, entry in enumerate(visible):
                 _bg = C["card"] if i % 2 == 0 else C["surface"]
-                _border_b = "" if i == len(visible) - 1 else f"border-bottom:1px solid {C['border']}40;"
+                _border_b = "" if i == len(visible) - 1 else f"border-bottom:1px solid {_tint(C['border'],'40')};"
                 with ui.element("div").style(
                         f"display:grid;grid-template-columns:{_grid};gap:10px;"
                         f"padding:10px 16px;background:{_bg};{_border_b}"
@@ -38323,7 +38382,7 @@ def p_active_clients(s, rf):
                             if _user_email:
                                 _CURRENT_USER_EMAIL.set(_user_email)
                             with ui.dialog() as _del_dlg, ui.card().style(
-                                    f"background:{C['card']};border:1px solid {C['danger']}60;"
+                                    f"background:{C['card']};border:1px solid {_tint(C['danger'],'60')};"
                                     f"min-width:380px;padding:20px;"):
                                 ui.label("Remove client?").style(
                                     f"font-size:15px;font-weight:800;color:{C['text_l']};"
@@ -38351,7 +38410,7 @@ def p_active_clients(s, rf):
                                         ui.label("Remove")
                             _del_dlg.open()
                         with ui.element("button").style(
-                                f"background:transparent;border:1px solid {C['danger']}40;"
+                                f"background:transparent;border:1px solid {_tint(C['danger'],'40')};"
                                 f"color:{C['danger']};border-radius:6px;padding:4px 9px;"
                                 f"font-size:13px;cursor:pointer;font-family:inherit;"
                                 ).on("click", _del):
@@ -38383,7 +38442,7 @@ def _render_active_clients_upload(s, rf, user_email: str):
     pending = getattr(s, "_ac_upload_pending", None)
 
     with ui.element("div").style(
-            f"background:{C['card']};border:1px solid {C['teal']}60;"
+            f"background:{C['card']};border:1px solid {_tint(C['teal'],'60')};"
             f"border-left:4px solid {C['teal']};border-radius:0 12px 12px 0;"
             f"padding:16px 20px;margin-bottom:18px;"):
         with ui.element("div").style(
@@ -38458,7 +38517,7 @@ def _render_active_clients_upload(s, rf, user_email: str):
                     "gap:8px;padding:14px 0;"):
                 with ui.element("button").style(
                         f"display:inline-flex;align-items:center;gap:8px;"
-                        f"padding:12px 28px;background:{C['teal']};color:#0D1520;"
+                        f"padding:12px 28px;background:{C['teal']};color:{C['on_teal']};"
                         f"border:none;border-radius:8px;font-size:14px;"
                         f"font-weight:700;cursor:pointer;font-family:inherit;"
                         f"transition:all .15s;"
@@ -40283,7 +40342,7 @@ def _render_pdf_editor_toggle(s, rf, pdf_filename: str, step_idx: int):
         rf()
 
     with ui.element("button").style(
-            f"background:transparent;border:1px solid {C['teal']}40;"
+            f"background:transparent;border:1px solid {_tint(C['teal'],'40')};"
             f"color:{C['teal']};border-radius:6px;padding:3px 10px;"
             f"font-size:11px;font-weight:600;cursor:pointer;"
             f"font-family:inherit;margin-left:6px;"
@@ -40332,7 +40391,7 @@ def _render_pdf_editor_body(s, rf, pdf_filename: str, step_idx: int,
                 break
         with ui.element("div").style(
                 f"margin-top:10px;padding:14px 18px;"
-                f"background:{C['warn']}08;border:1px solid {C['warn']}40;"
+                f"background:{_tint(C['warn'],'08')};border:1px solid {_tint(C['warn'],'40')};"
                 f"border-left:3px solid {C['warn']};border-radius:8px;"
                 f"display:flex;align-items:center;gap:12px;flex-wrap:wrap;"):
             with ui.element("div").style("flex:1;min-width:200px;"):
@@ -40368,7 +40427,7 @@ def _render_pdf_editor_body(s, rf, pdf_filename: str, step_idx: int,
     # ── Editor body ─────────────────────────────────────────────────
     with ui.element("div").style(
             f"margin-top:10px;padding:16px 18px;background:{C['surface']};"
-            f"border:1px solid {C['teal']}40;border-radius:10px;"
+            f"border:1px solid {_tint(C['teal'],'40')};border-radius:10px;"
             f"display:flex;flex-direction:column;gap:14px;"):
 
         # Save-time field flush. Every input below registers a zero-arg
@@ -40391,8 +40450,8 @@ def _render_pdf_editor_body(s, rf, pdf_filename: str, step_idx: int,
         # Manual field-by-field editing is the fallback below.
         if ANTHROPIC_API_KEY:
             with ui.element("div").style(
-                    f"padding:12px 14px;background:{C['teal']}08;"
-                    f"border:1px solid {C['teal']}40;border-left:3px solid {C['teal']};"
+                    f"padding:12px 14px;background:{_tint(C['teal'],'08')};"
+                    f"border:1px solid {_tint(C['teal'],'40')};border-left:3px solid {C['teal']};"
                     f"border-radius:8px;display:flex;flex-direction:column;gap:8px;"):
                 ui.label("✨ Ask AI to revise").style(
                     f"font-size:11px;font-weight:700;color:{C['teal']};"
@@ -40485,7 +40544,7 @@ def _render_pdf_editor_body(s, rf, pdf_filename: str, step_idx: int,
                     _bind(_heading_in, _commit_heading)
                     ui.label(_stype.upper()).style(
                         f"font-size:9px;font-weight:800;color:{C['teal']};"
-                        f"background:{C['teal']}18;padding:2px 8px;border-radius:99px;"
+                        f"background:{_tint(C['teal'],'18')};padding:2px 8px;border-radius:99px;"
                         f"letter-spacing:.06em;flex-shrink:0;")
 
                 items = sec.get("items", []) or []
@@ -40519,7 +40578,7 @@ def _render_pdf_editor_body(s, rf, pdf_filename: str, step_idx: int,
                                     _s["items"].pop(_idx)
                                 rf()
                             with ui.element("button").style(
-                                    f"background:transparent;border:1px solid {C['danger']}40;"
+                                    f"background:transparent;border:1px solid {_tint(C['danger'],'40')};"
                                     f"color:{C['danger']};border-radius:6px;padding:2px 8px;"
                                     f"font-size:11px;cursor:pointer;font-family:inherit;"
                                     f"flex-shrink:0;").on("click", _del_bullet):
@@ -40528,7 +40587,7 @@ def _render_pdf_editor_body(s, rf, pdf_filename: str, step_idx: int,
                         _s.setdefault("items", []).append("New bullet")
                         rf()
                     with ui.element("button").style(
-                            f"background:transparent;border:1px dashed {C['teal']}55;"
+                            f"background:transparent;border:1px dashed {_tint(C['teal'],'55')};"
                             f"color:{C['teal']};border-radius:6px;padding:5px 12px;"
                             f"font-size:11px;font-weight:600;cursor:pointer;"
                             f"font-family:inherit;align-self:flex-start;"
@@ -40565,7 +40624,7 @@ def _render_pdf_editor_body(s, rf, pdf_filename: str, step_idx: int,
                                             _s["items"].pop(_idx)
                                         rf()
                                     with ui.element("button").style(
-                                            f"background:transparent;border:1px solid {C['danger']}40;"
+                                            f"background:transparent;border:1px solid {_tint(C['danger'],'40')};"
                                             f"color:{C['danger']};border-radius:6px;padding:2px 6px;"
                                             f"font-size:11px;cursor:pointer;font-family:inherit;"
                                             ).on("click", _del_row):
@@ -40574,7 +40633,7 @@ def _render_pdf_editor_body(s, rf, pdf_filename: str, step_idx: int,
                             _s.setdefault("items", []).append([""] * _ncols)
                             rf()
                         with ui.element("button").style(
-                                f"background:transparent;border:1px dashed {C['teal']}55;"
+                                f"background:transparent;border:1px dashed {_tint(C['teal'],'55')};"
                                 f"color:{C['teal']};border-radius:6px;padding:5px 12px;"
                                 f"font-size:11px;font-weight:600;cursor:pointer;"
                                 f"font-family:inherit;align-self:flex-start;"
@@ -40610,7 +40669,7 @@ def _render_pdf_editor_body(s, rf, pdf_filename: str, step_idx: int,
                                         _s["items"].pop(_idx)
                                     rf()
                                 with ui.element("button").style(
-                                        f"background:transparent;border:1px solid {C['danger']}40;"
+                                        f"background:transparent;border:1px solid {_tint(C['danger'],'40')};"
                                         f"color:{C['danger']};border-radius:6px;padding:2px 10px;"
                                         f"font-size:10px;cursor:pointer;font-family:inherit;"
                                         ).on("click", _del_qa):
@@ -40619,7 +40678,7 @@ def _render_pdf_editor_body(s, rf, pdf_filename: str, step_idx: int,
                         _s.setdefault("items", []).append({"q": "New question", "a": ""})
                         rf()
                     with ui.element("button").style(
-                            f"background:transparent;border:1px dashed {C['teal']}55;"
+                            f"background:transparent;border:1px dashed {_tint(C['teal'],'55')};"
                             f"color:{C['teal']};border-radius:6px;padding:5px 12px;"
                             f"font-size:11px;font-weight:600;cursor:pointer;"
                             f"font-family:inherit;align-self:flex-start;"
@@ -42872,7 +42931,7 @@ def _render_step2_upload(s, rf):
     # back to False, _poll() advances to Step 3 (Confirm).
     if getattr(s, "_aicb_upload_analyzing", False):
         with ui.element("div").classes("fd-gc").style(
-                f"background:{C['teal']}10;border:1px solid {C['teal']}40;"
+                f"background:{_tint(C['teal'],'10')};border:1px solid {_tint(C['teal'],'40')};"
                 f"text-align:center;padding:28px;margin-bottom:14px;"):
             ui.spinner("dots", size="42px", color=C["teal"])
             ui.label("Analyzing your contacts…").style(
@@ -42946,7 +43005,7 @@ def _render_step2_upload(s, rf):
             and not (s.aicb_company or "").strip()
             and not (s.aicb_niche or "").strip()):
         with ui.element("div").style(
-                f"background:{C['warn']}15;border:1px solid {C['warn']}55;"
+                f"background:{_tint(C['warn'],'15')};border:1px solid {_tint(C['warn'],'55')};"
                 f"border-radius:8px;padding:14px 16px;margin-bottom:14px;"):
             ui.label(
                 "Couldn't identify a target company or market from this CSV."
@@ -42991,7 +43050,7 @@ def _render_step2_upload(s, rf):
             "flex-wrap:wrap;max-width:680px;margin:0 auto 8px;"):
         # Option A — Upload CSV (primary, whole card clickable)
         with ui.element("div").style(
-                f"flex:1 1 240px;background:{C['teal']}15;"
+                f"flex:1 1 240px;background:{_tint(C['teal'],'15')};"
                 f"border:2px solid {C['teal']};border-radius:10px;"
                 f"padding:24px 18px;text-align:center;cursor:pointer;"
                 f"transition:transform .12s ease, box-shadow .12s ease;"
@@ -43125,7 +43184,7 @@ def _render_step3_confirm(s, rf):
             and _aicb_is_multi_company(_extracted)
             and not getattr(s, "_aicb_multi_company_ack", False)):
         with ui.element("div").style(
-                f"background:{C['warn']}15;border:1px solid {C['warn']}55;"
+                f"background:{_tint(C['warn'],'15')};border:1px solid {_tint(C['warn'],'55')};"
                 f"border-radius:8px;padding:14px 16px;margin-bottom:18px;"):
             ui.label(
                 "⚠ Looks like this list has multiple companies."
@@ -43441,8 +43500,8 @@ def _render_aicb_quick_start(s, rf):
                 s._aicb_qs_help_open = not getattr(s, '_aicb_qs_help_open', False); rf()
             with ui.element("button").style(
                     f"width:16px;height:16px;border-radius:50%;"
-                    f"background:{C['indigo']}20;color:{C['indigo']};"
-                    f"border:1px solid {C['indigo']}50;cursor:pointer;"
+                    f"background:{_tint(C['indigo'],'20')};color:{C['indigo']};"
+                    f"border:1px solid {_tint(C['indigo'],'50')};cursor:pointer;"
                     f"font-size:10px;font-weight:700;font-family:inherit;"
                     f"display:inline-flex;align-items:center;justify-content:center;"
                     f"padding:0;flex-shrink:0;"
@@ -43495,7 +43554,7 @@ def _render_aicb_quick_start(s, rf):
         # Help popover
         if getattr(s, '_aicb_qs_help_open', False):
             with ui.element("div").style(
-                    f"background:{C['surface']};border:1px solid {C['indigo']}40;"
+                    f"background:{C['surface']};border:1px solid {_tint(C['indigo'],'40')};"
                     f"border-radius:8px;padding:10px 14px;margin-top:10px;"):
                 ui.label(
                     "Type a company name or website. AI web-searches their careers "
@@ -45010,7 +45069,7 @@ def p_ai_campaign(s: AppState, rf):
 
     if not ANTHROPIC_API_KEY:
         with ui.element("div").style(
-                f"background:{C['warn']}10;border:1px solid {C['warn']}40;"
+                f"background:{_tint(C['warn'],'10')};border:1px solid {_tint(C['warn'],'40')};"
                 f"border-radius:10px;padding:20px;text-align:center;"):
             ui.label("API Key Required").style(f"font-size:16px;font-weight:700;color:{C['warn']};margin-bottom:8px;")
             ui.label("Go to Email & AI Setup in the sidebar to add your API key.").style(
@@ -45315,8 +45374,8 @@ def p_ai_campaign(s: AppState, rf):
                     _active = (_n == _wiz_step)
                     _done = (_n < _wiz_step)
                     _clickable = _done
-                    _pill_bg = C['teal'] if _active else (C['teal'] + '30' if _done else C['surface'])
-                    _pill_fg = '#0D1520' if _active else (C['teal'] if _done else C['muted'])
+                    _pill_bg = C['teal'] if _active else (_tint(C['teal'], '30') if _done else C['surface'])
+                    _pill_fg = C['on_teal'] if _active else (C['teal'] if _done else C['muted'])
                     _pill_border = C['teal'] if (_active or _done) else C['border']
                     _cursor = "cursor:pointer;" if _clickable else ""
                     with ui.element("div").style(
@@ -45671,7 +45730,7 @@ def p_ai_campaign(s: AppState, rf):
                         ]:
                             _active = (_mode_cur == _mk)
                             with ui.element("div").style(
-                                    f"background:{C['teal'] + '10' if _active else C['surface']};"
+                                    f"background:{_tint(C['teal'], '10') if _active else C['surface']};"
                                     f"border:2px solid {C['teal'] if _active else C['border']};"
                                     f"border-radius:12px;padding:18px;cursor:pointer;"
                                     f"transition:all .15s;"
@@ -45733,7 +45792,7 @@ def p_ai_campaign(s: AppState, rf):
                         if s.aicb_contacts:
                             ui.label("auto-detected").style(
                                 f"font-size:10px;color:{C['teal']};font-weight:600;padding:2px 8px;"
-                                f"background:{C['teal']}15;border-radius:99px;")
+                                f"background:{_tint(C['teal'],'15')};border-radius:99px;")
 
                     # ── Mode toggle: Company vs Market/Niche ─────────────────
                     # Mutually exclusive targets. Only the active mode's field
@@ -45775,7 +45834,7 @@ def p_ai_campaign(s: AppState, rf):
                             ]:
                                 _active = (_mode == _mk)
                                 with ui.element("div").style(
-                                        f"background:{C['teal'] + '15' if _active else C['surface']};"
+                                        f"background:{_tint(C['teal'], '15') if _active else C['surface']};"
                                         f"border:1px solid {C['teal'] if _active else C['border']};"
                                         f"border-radius:8px;padding:8px 10px;cursor:pointer;"
                                         f"transition:all .12s;text-align:center;"
@@ -45880,7 +45939,7 @@ def p_ai_campaign(s: AppState, rf):
                                 # validation toast in _af_click.
                                 with ui.element("button").classes("fd-pb").style(
                                         "padding:8px 16px;font-size:13px;border-radius:6px;"
-                                        f"background:{C['teal']};color:#0D1520;"
+                                        f"background:{C['teal']};color:{C['on_teal']};"
                                         f"border:none;font-weight:700;font-family:inherit;"
                                         f"cursor:pointer;"
                                         ).on("click", _af_click):
@@ -47143,7 +47202,7 @@ def p_ai_campaign(s: AppState, rf):
                             with ui.element("div").style(
                                     "display:grid;grid-template-columns:130px 1fr;"
                                     "gap:10px;padding:6px 0;"
-                                    f"border-bottom:1px solid {C['border']}60;"):
+                                    f"border-bottom:1px solid {_tint(C['border'],'60')};"):
                                 ui.label(_k).style(
                                     f"font-size:11px;font-weight:700;color:{C['muted']};"
                                     f"text-transform:uppercase;letter-spacing:.05em;")
@@ -47156,7 +47215,7 @@ def p_ai_campaign(s: AppState, rf):
                             with ui.element("div").style(
                                     "display:grid;grid-template-columns:130px 1fr;"
                                     "gap:10px;padding:6px 0;align-items:center;"
-                                    f"border-bottom:1px solid {C['border']}60;"):
+                                    f"border-bottom:1px solid {_tint(C['border'],'60')};"):
                                 ui.label("AI Candidates").style(
                                     f"font-size:11px;font-weight:700;color:{C['muted']};"
                                     f"text-transform:uppercase;letter-spacing:.05em;")
@@ -47179,7 +47238,7 @@ def p_ai_campaign(s: AppState, rf):
                             with ui.element("div").style(
                                     "display:grid;grid-template-columns:130px 1fr;"
                                     "gap:10px;padding:8px 0;align-items:start;"
-                                    f"border-bottom:1px solid {C['border']}60;"):
+                                    f"border-bottom:1px solid {_tint(C['border'],'60')};"):
                                 ui.label("PDFs").style(
                                     f"font-size:11px;font-weight:700;color:{C['muted']};"
                                     f"text-transform:uppercase;letter-spacing:.05em;"
@@ -47236,13 +47295,13 @@ def p_ai_campaign(s: AppState, rf):
                 # Show error if any
                 if getattr(s, "_aicb_error", ""):
                     with ui.element("div").style(
-                            f"background:{C['danger']}10;border:1px solid {C['danger']}40;"
+                            f"background:{_tint(C['danger'],'10')};border:1px solid {_tint(C['danger'],'40')};"
                             f"border-radius:10px;padding:14px 18px;margin-bottom:14px;"):
                         ui.label(s._aicb_error).style(f"font-size:13px;color:{C['danger']};")
 
                 if s.aicb_generating:
                     with ui.element("div").style(
-                            f"background:{C['teal_dim']};border:1px solid {C['teal']}40;"
+                            f"background:{C['teal_dim']};border:1px solid {_tint(C['teal'],'40')};"
                             f"border-radius:10px;padding:32px;text-align:center;"):
                         ui.spinner("dots", size="48px", color=C["teal"])
                         ui.label("Generating your campaign + PDFs...").style(
@@ -47495,7 +47554,7 @@ def p_ai_campaign(s: AppState, rf):
             _desc_to_save = (s.aicb_byos_desc or "").strip()
             if _desc_to_save:
                 with ui.dialog() as _save_dlg, ui.card().style(
-                        f"background:{C['card']};border:1px solid {C['teal']}60;"
+                        f"background:{C['card']};border:1px solid {_tint(C['teal'],'60')};"
                         f"min-width:440px;padding:22px 24px;"):
                     ui.label("⭐ Save this as a reusable template?").style(
                         f"font-size:16px;font-weight:800;color:{C['text_l']};"
@@ -47546,7 +47605,7 @@ def p_ai_campaign(s: AppState, rf):
                     for role in s.aicb_sel_roles:
                         ui.label(role).style(
                             f"font-size:11px;padding:2px 8px;border-radius:99px;"
-                            f"background:{C['warn']}15;color:{C['warn']};")
+                            f"background:{_tint(C['warn'],'15')};color:{C['warn']};")
             def _start_over():
                 # Reset back to a fresh wizard at Step 1
                 s.aicb_step = 1; s.aicb_wizard_step = 1
@@ -47558,7 +47617,7 @@ def p_ai_campaign(s: AppState, rf):
         # Synopsis
         if synopsis:
             with ui.element("div").style(
-                    f"background:{C['teal_dim']};border:1px solid {C['teal']}40;"
+                    f"background:{C['teal_dim']};border:1px solid {_tint(C['teal'],'40')};"
                     f"border-left:4px solid {C['teal']};border-radius:0 10px 10px 0;"
                     f"padding:16px 20px;margin-bottom:16px;"):
                 ui.label("Strategy Synopsis").style(
@@ -47653,7 +47712,7 @@ def p_ai_campaign(s: AppState, rf):
                 return
 
             with ui.element("div").style(
-                    f"background:{C['good']}10;border:1px solid {C['good']}40;"
+                    f"background:{_tint(C['good'],'10')};border:1px solid {_tint(C['good'],'40')};"
                     f"border-radius:10px;padding:14px 18px;margin-bottom:16px;"
                     f"display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;"):
                 with ui.element("div").style("flex:1;min-width:200px;"):
@@ -47687,7 +47746,7 @@ def p_ai_campaign(s: AppState, rf):
                                 ui.notify("Nothing to save  -  the Free Flow description is empty.",
                                           type="warning"); return
                             with ui.dialog() as _dlg, ui.card().style(
-                                    f"background:{C['card']};border:1px solid {C['teal']}60;"
+                                    f"background:{C['card']};border:1px solid {_tint(C['teal'],'60')};"
                                     f"min-width:420px;padding:22px 24px;"):
                                 ui.label("⭐ Save as Campaign Style").style(
                                     f"font-size:16px;font-weight:800;color:{C['text_l']};"
@@ -47738,7 +47797,7 @@ def p_ai_campaign(s: AppState, rf):
                         with ui.element("button").style(
                                 f"padding:10px 18px;font-size:13px;font-weight:700;"
                                 f"background:transparent;color:{C['teal']};"
-                                f"border:1px solid {C['teal']}60;border-radius:8px;"
+                                f"border:1px solid {_tint(C['teal'],'60')};border-radius:8px;"
                                 f"cursor:pointer;font-family:inherit;"
                                 ).on("click", _save_as_style):
                             ui.label("⭐ Save as Style")
@@ -47815,7 +47874,7 @@ def p_ai_campaign(s: AppState, rf):
                     if _pdf_exists:
                         with ui.element("div").style(
                                 f"display:flex;align-items:center;gap:10px;padding:10px 14px;"
-                                f"background:{C['card']};border:1px solid {C['email_col']}30;"
+                                f"background:{C['card']};border:1px solid {_tint(C['email_col'],'30')};"
                                 f"border-left:3px solid {C['email_col']};border-radius:8px;"
                                 f"flex-wrap:wrap;"):
                             ui.label("📄").style("font-size:18px;")
@@ -47846,7 +47905,7 @@ def p_ai_campaign(s: AppState, rf):
                         # the global X/5 counter; here we just note it.
                         with ui.element("div").style(
                                 f"display:flex;align-items:center;gap:10px;padding:10px 14px;"
-                                f"background:{C['warn']}10;border:1px solid {C['warn']}40;"
+                                f"background:{_tint(C['warn'],'10')};border:1px solid {_tint(C['warn'],'40')};"
                                 f"border-left:3px solid {C['warn']};border-radius:8px;"):
                             ui.label("⏳").style("font-size:16px;")
                             with ui.element("div").style("display:flex;flex-direction:column;gap:1px;"):
@@ -47976,7 +48035,7 @@ def _render_custom_pdf_modal(s: AppState, rf):
             "z-index:9998;display:flex;align-items:center;justify-content:center;"
             "backdrop-filter:blur(3px);"):
         with ui.element("div").style(
-                f"background:{C['card']};border:1px solid {C['teal']}40;"
+                f"background:{C['card']};border:1px solid {_tint(C['teal'],'40')};"
                 f"border-radius:14px;padding:28px 32px;"
                 f"width:720px;max-width:94vw;max-height:88vh;overflow-y:auto;"
                 f"box-shadow:0 12px 40px rgba(0,0,0,.5);"):
@@ -48165,7 +48224,7 @@ def _render_custom_pdf_modal(s: AppState, rf):
 
                 elif s._pdf_custom_outline.get("error"):
                     with ui.element("div").style(
-                            f"background:{C['danger']}15;border:1px solid {C['danger']}40;"
+                            f"background:{_tint(C['danger'],'15')};border:1px solid {_tint(C['danger'],'40')};"
                             f"border-radius:8px;padding:14px 18px;margin-bottom:14px;"):
                         ui.label("⚠ Couldn't draft an outline").style(
                             f"font-size:13px;font-weight:700;color:{C['danger']};margin-bottom:4px;")
@@ -48201,7 +48260,7 @@ def _render_custom_pdf_modal(s: AppState, rf):
                                 f"background:{C['surface']};border:1px solid {C['border']};"
                                 f"border-radius:6px;margin-bottom:6px;"):
                             ui.label(str(i)).style(
-                                f"width:24px;height:24px;border-radius:50%;background:{C['teal']}20;"
+                                f"width:24px;height:24px;border-radius:50%;background:{_tint(C['teal'],'20')};"
                                 f"color:{C['teal']};font-size:11px;font-weight:700;"
                                 f"display:flex;align-items:center;justify-content:center;flex-shrink:0;")
                             with ui.element("div").style("flex:1;"):
@@ -48496,7 +48555,7 @@ def _tc_render_step_jd(s: AppState, rf):
                     f"padding:9px 18px;font-size:13px;font-weight:700;border-radius:9px;"
                     f"cursor:pointer;font-family:inherit;border:1.5px solid "
                     f"{C['teal'] if _on else C['border']};"
-                    f"background:{(C['teal'] + '22') if _on else 'transparent'};"
+                    f"background:{(_tint(C['teal'], '22')) if _on else 'transparent'};"
                     f"color:{C['teal'] if _on else C['text']};"
                     ).on("click", lambda _e, m=_mk: _set_mode(m)):
                 ui.label(_ml).style("pointer-events:none;")
@@ -48548,7 +48607,7 @@ def _tc_render_step_jd(s: AppState, rf):
     if s.tc_jd_parsed:
         meta = s.tc_jd_parsed
         with ui.element("div").style(
-                f"background:{C['teal_dim']};border:1px solid {C['teal']}40;"
+                f"background:{C['teal_dim']};border:1px solid {_tint(C['teal'],'40')};"
                 f"border-radius:8px;padding:12px 16px;margin-bottom:18px;"):
             ui.label(f"AI extracted: {meta.get('role_title', '?')} "
                      f"({meta.get('seniority', '?')})").style(
@@ -48912,7 +48971,7 @@ def _tc_render_step_generate(s: AppState, rf):
     preset_label = preset_labels.get(s.tc_preset, s.tc_preset)
 
     with ui.element("div").style(
-            f"background:{C['teal_dim']};border:1px solid {C['teal']}40;"
+            f"background:{C['teal_dim']};border:1px solid {_tint(C['teal'],'40')};"
             f"border-radius:8px;padding:14px 18px;margin-bottom:18px;"):
         ui.label(f"Role: {role} {f'({seniority})' if seniority else ''}").style(
             f"font-size:13px;font-weight:600;color:{C['text_l']};")
@@ -49374,11 +49433,11 @@ def p_pdf_gen(s: AppState, rf):
 
             # Create Your Own — separate click path that skips multi-select
             with ui.element("div").style(
-                    f"background:{C['card']};border:1px solid {C['teal']}60;"
+                    f"background:{C['card']};border:1px solid {_tint(C['teal'],'60')};"
                     f"border-top:3px solid {C['teal']};border-radius:10px;"
                     f"padding:16px;cursor:pointer;transition:all .15s;"
                     f"text-align:center;"
-                    f"background:linear-gradient(135deg,{C['card']},{C['teal']}08);"
+                    f"background:linear-gradient(135deg,{C['card']},{_tint(C['teal'],'08')});"
                     ).on("click", _pick_custom):
                 ui.label("✨").style(
                     "font-size:28px;margin-bottom:6px;pointer-events:none;")
@@ -49441,7 +49500,7 @@ def p_pdf_gen(s: AppState, rf):
                     with ui.element("div").style(
                             f"display:inline-flex;align-items:center;"
                             f"padding:4px 10px;border-radius:99px;"
-                            f"background:{C['teal']}18;color:{C['teal']};"
+                            f"background:{_tint(C['teal'],'18')};color:{C['teal']};"
                             f"font-size:12px;font-weight:600;"):
                         ui.label(_lbl)
             with ui.element("button").classes("fd-gb").style(
@@ -49805,7 +49864,7 @@ def p_pdf_gen(s: AppState, rf):
         _total = getattr(s, "_pdf_batch_total", 1) or 1
         _progress = f" ({_done_n + 1} of {_total})" if _total > 1 else ""
         with ui.element("div").style(
-                f"background:{C['teal_dim']};border:1px solid {C['teal']}40;"
+                f"background:{C['teal_dim']};border:1px solid {_tint(C['teal'],'40')};"
                 f"border-radius:10px;padding:20px;text-align:center;max-width:700px;"):
             ui.spinner("dots", size="36px", color=C["teal"])
             ui.label(f"Generating {_cur_lbl}{_progress}…").style(
@@ -49827,7 +49886,7 @@ def p_pdf_gen(s: AppState, rf):
             _done = getattr(s, "_pdf_session_done", []) or []
             _failed = getattr(s, "_pdf_session_failed", []) or []
             with ui.element("div").style(
-                    f"background:{C['good']}10;border:1px solid {C['good']}40;"
+                    f"background:{_tint(C['good'],'10')};border:1px solid {_tint(C['good'],'40')};"
                     f"border-radius:10px;padding:14px 18px;max-width:700px;"
                     f"margin-bottom:10px;"):
                 ui.label(
@@ -49854,7 +49913,7 @@ def p_pdf_gen(s: AppState, rf):
             _from_campaign = getattr(s, "_pdf_from_campaign", False)
             _from_builder = getattr(s, "_pdf_from_builder", False)
             with ui.element("div").style(
-                    f"background:{C['good']}10;border:1px solid {C['good']}40;"
+                    f"background:{_tint(C['good'],'10')};border:1px solid {_tint(C['good'],'40')};"
                     f"border-radius:10px;padding:14px 18px;max-width:700px;"):
                 with ui.element("div").style(
                         "display:flex;align-items:center;justify-content:space-between;"):
@@ -49898,7 +49957,7 @@ def p_pdf_gen(s: AppState, rf):
                                 ui.label("Attach to Email & Go Back")
         else:
             with ui.element("div").style(
-                    f"background:{C['danger']}10;border:1px solid {C['danger']}40;"
+                    f"background:{_tint(C['danger'],'10')};border:1px solid {_tint(C['danger'],'40')};"
                     f"border-radius:10px;padding:14px 18px;max-width:700px;"):
                 ui.label(s._pdf_result).style(f"font-size:13px;color:{C['danger']};")
 
@@ -50310,7 +50369,7 @@ def p_candidate_campaign(s: AppState, rf):
                             if _s_sal:
                                 ui.label(_s_sal).style(
                                     f"font-size:13px;padding:4px 13px;border-radius:99px;"
-                                    f"background:{C['good']}15;color:{C['good']};")
+                                    f"background:{_tint(C['good'],'15')};color:{C['good']};")
                         if _s_sum:
                             ui.label("Candidate Summary (editable)").style(
                                 f"font-size:12px;font-weight:700;color:{C['muted']};"
@@ -50338,7 +50397,7 @@ def p_candidate_campaign(s: AppState, rf):
                     with ui.element("div").style(
                             f"display:flex;align-items:center;justify-content:center;"
                             f"padding:14px 18px;margin-bottom:12px;"
-                            f"background:{C['surface']};border:1px dashed {C['teal']}60;"
+                            f"background:{C['surface']};border:1px dashed {_tint(C['teal'],'60')};"
                             f"border-radius:10px;cursor:pointer;"
                             f"transition:background .15s, border-color .15s;"
                             ).on("click", _open_add_candidate_picker):
@@ -50629,7 +50688,7 @@ def p_candidate_campaign(s: AppState, rf):
                     with ui.element("button").style(
                             f"display:flex;align-items:center;justify-content:center;"
                             f"gap:8px;width:100%;padding:10px 14px;"
-                            f"background:{C['teal']}15;border:1.5px solid {C['teal']};"
+                            f"background:{_tint(C['teal'],'15')};border:1.5px solid {C['teal']};"
                             f"border-radius:8px;color:{C['teal']};font-weight:700;"
                             f"font-size:12.5px;font-family:'Nunito',sans-serif;"
                             f"cursor:pointer;margin-bottom:6px;"
@@ -50700,7 +50759,7 @@ def p_candidate_campaign(s: AppState, rf):
                             with ui.element("div").style(
                                     f"display:flex;align-items:center;gap:8px;"
                                     f"padding:6px 0;"
-                                    f"border-bottom:1px solid {C['border']}20;"):
+                                    f"border-bottom:1px solid {_tint(C['border'],'20')};"):
                                 ui.element("div").style(
                                     f"width:8px;height:8px;border-radius:50%;"
                                     f"background:{_co_col};flex-shrink:0;")
@@ -51153,7 +51212,7 @@ def p_candidate_campaign(s: AppState, rf):
         ui.label(f"Placement Campaign  -  {cand_name}").classes("fd-h1")
         with ui.element("div").style("text-align:center;padding:60px 20px;"):
             with ui.element("div").style(
-                    f"width:48px;height:48px;border:4px solid {C['teal']}30;"
+                    f"width:48px;height:48px;border:4px solid {_tint(C['teal'],'30')};"
                     f"border-top:4px solid {C['teal']};border-radius:50%;margin:0 auto 16px;"
                     f"animation:spin 1s linear infinite;"): pass
             ui.label("Generating placement campaign...").style(
@@ -51174,7 +51233,7 @@ def p_candidate_campaign(s: AppState, rf):
 
         if camp.get("synopsis"):
             with ui.element("div").style(
-                    f"background:{C['teal']}08;border:1px solid {C['teal']}25;"
+                    f"background:{_tint(C['teal'],'08')};border:1px solid {_tint(C['teal'],'25')};"
                     f"border-left:4px solid {C['teal']};border-radius:0 10px 10px 0;"
                     f"padding:14px 18px;margin-bottom:16px;"):
                 ui.label("Strategy").style(
@@ -51336,7 +51395,7 @@ def p_candidate_campaign(s: AppState, rf):
     if s._cpc_error:
         ui.label(f"Placement Campaign  -  {cand_name}").classes("fd-h1")
         with ui.element("div").style(
-                f"background:{C['danger']}10;border:1px solid {C['danger']}30;"
+                f"background:{_tint(C['danger'],'10')};border:1px solid {_tint(C['danger'],'30')};"
                 f"border-radius:10px;padding:20px;text-align:center;max-width:700px;"):
             ui.label(s._cpc_error).style(f"font-size:13px;color:{C['danger']};margin-bottom:10px;")
             def _retry():
@@ -51555,7 +51614,7 @@ def _p_match_jd_tab(s: AppState, rf, pool: list):
         with ui.element("div").style("display:flex;align-items:center;gap:12px;"):
             with ui.element("label").style(
                     f"display:inline-flex;align-items:center;gap:6px;padding:8px 16px;"
-                    f"background:{C['teal']}18;border:1px solid {C['teal']}70;"
+                    f"background:{_tint(C['teal'],'18')};border:1px solid {_tint(C['teal'],'70')};"
                     f"border-radius:6px;cursor:pointer;font-size:12px;font-weight:700;"
                     f"color:{C['teal']};font-family:inherit;"):
                 ui.html("\U0001F4C1 Upload JD file")
@@ -51718,7 +51777,7 @@ def _p_match_jd_tab(s: AppState, rf, pool: list):
         if s.cf_jd_matching:
             with ui.element("div").style(
                     f"display:flex;align-items:center;gap:8px;padding:10px 16px;"
-                    f"background:{C['teal_dim']};border:1px solid {C['teal']}40;"
+                    f"background:{C['teal_dim']};border:1px solid {_tint(C['teal'],'40')};"
                     f"border-radius:8px;"):
                 ui.spinner("dots", size="16px", color=C["teal"])
                 ui.label("Scoring candidates... 10-20 seconds.").style(
@@ -51739,7 +51798,7 @@ def _p_match_jd_tab(s: AppState, rf, pool: list):
     # ── Error display ──────────────────────────────────────────────────
     if s.cf_jd_error:
         with ui.element("div").style(
-                f"background:{C['danger']}10;border:1px solid {C['danger']}40;"
+                f"background:{_tint(C['danger'],'10')};border:1px solid {_tint(C['danger'],'40')};"
                 f"border-radius:8px;padding:12px 16px;margin-bottom:14px;max-width:800px;"):
             ui.label(s.cf_jd_error).style(f"font-size:12px;color:{C['danger']};")
 
@@ -51809,14 +51868,14 @@ def _p_match_jd_tab(s: AppState, rf, pool: list):
     elif s.cf_jd_summary and not s.cf_jd_matches:
         # Nobody qualified  -  show the summary note
         with ui.element("div").style(
-                f"background:{C['warn']}10;border:1px solid {C['warn']}40;"
+                f"background:{_tint(C['warn'],'10')};border:1px solid {_tint(C['warn'],'40')};"
                 f"border-radius:8px;padding:12px 16px;max-width:800px;"):
             ui.label(s.cf_jd_summary).style(f"font-size:12px;color:{C['warn']};")
 
     # ── Submittal modal (fired from Create Submittal button) ───────────
     if s.cf_submittal_open_for:
         with ui.dialog() as _sb_dlg, ui.card().style(
-                f"background:{C['bg']};border:1px solid {C['teal']}60;"
+                f"background:{C['bg']};border:1px solid {_tint(C['teal'],'60')};"
                 f"min-width:760px;max-width:900px;max-height:88vh;"
                 f"padding:22px 26px;border-radius:14px;"
                 f"display:flex;flex-direction:column;"):
@@ -51875,7 +51934,7 @@ def p_timezone(s, rf):
     # Status banner  -  unmissable
     if _is_set:
         with ui.element("div").style(
-                f"background:{C['good']}12;border:1px solid {C['good']}40;"
+                f"background:{_tint(C['good'],'12')};border:1px solid {_tint(C['good'],'40')};"
                 f"border-left:4px solid {C['good']};border-radius:0 10px 10px 0;"
                 f"padding:14px 20px;margin-bottom:20px;max-width:680px;"
                 f"display:flex;align-items:center;gap:12px;"):
@@ -52009,7 +52068,8 @@ def p_ai_settings(s, rf):
     global ANTHROPIC_API_KEY
     _render_page_intro_strip(s, rf, "ai_settings")
     with ui.element("div").style("display:flex;align-items:center;"):
-        ui.label("Settings").classes("fd-h1")
+        ui.label("Email & AI Setup" if _SIDEBAR_LAYOUT
+                 else "Settings").classes("fd-h1")
         _show_page_help(s, rf, "ai_settings")
     ui.label("Connect your email and add your AI key. Both are required to send campaigns.").classes("fd-sub")
 
@@ -52093,7 +52153,7 @@ def p_ai_settings(s, rf):
                 if connected:
                     ui.label("CONNECTED").style(
                         f"margin-left:auto;font-size:10px;font-weight:800;color:{C['good']};"
-                        f"background:{C['good']}20;padding:4px 10px;border-radius:99px;"
+                        f"background:{_tint(C['good'],'20')};padding:4px 10px;border-radius:99px;"
                         f"letter-spacing:0.6px;")
             ui.element("div").style(
                 f"height:3px;width:48px;background:{C['teal']};border-radius:2px;margin:2px 0 14px 0;")
@@ -52152,7 +52212,7 @@ def p_ai_settings(s, rf):
             with ui.element("div").style("display:flex;justify-content:space-between;gap:10px;"):
                 with ui.element("button").style(
                         f"padding:10px 22px;font-size:12px;background:transparent;"
-                        f"color:{C['danger']};border:1px solid {C['danger']}60;"
+                        f"color:{C['danger']};border:1px solid {_tint(C['danger'],'60')};"
                         f"border-radius:8px;cursor:pointer;font-family:inherit;"
                         ).on("click", _disconnect_ms):
                     ui.label("Disconnect")
@@ -52222,7 +52282,7 @@ def p_ai_settings(s, rf):
             with ui.element("div").style("display:flex;justify-content:space-between;gap:10px;"):
                 with ui.element("button").style(
                         f"padding:10px 22px;font-size:12px;background:transparent;"
-                        f"color:{C['danger']};border:1px solid {C['danger']}60;"
+                        f"color:{C['danger']};border:1px solid {_tint(C['danger'],'60')};"
                         f"border-radius:8px;cursor:pointer;font-family:inherit;"
                         ).on("click", _disconnect_google):
                     ui.label("Disconnect")
@@ -52569,7 +52629,7 @@ def p_ai_settings(s, rf):
                         if connected:
                             ui.label("CONNECTED").style(
                                 f"font-size:9px;font-weight:800;color:{C['good']};"
-                                f"background:{C['good']}22;padding:3px 9px;border-radius:99px;"
+                                f"background:{_tint(C['good'],'22')};padding:3px 9px;border-radius:99px;"
                                 f"letter-spacing:0.5px;")
                     ui.label(tagline).style(f"font-size:12px;color:{C['muted']};line-height:1.4;")
                 ui.label("→").style(
@@ -52624,7 +52684,7 @@ def p_ai_settings(s, rf):
                     if _ai_connected:
                         ui.label("CONNECTED").style(
                             f"font-size:9px;font-weight:800;color:{C['good']};"
-                            f"background:{C['good']}22;padding:3px 9px;border-radius:99px;"
+                            f"background:{_tint(C['good'],'22')};padding:3px 9px;border-radius:99px;"
                             f"letter-spacing:0.5px;")
                 ui.label(
                     "Anthropic API key and writing style guide. "
@@ -52766,7 +52826,7 @@ def p_ai_settings(s, rf):
                 # itself as "risky."
                 if _cur_limit > 400:
                     with ui.element("div").style(
-                            f"padding:8px 12px;background:{C['danger']}10;border:1px solid {C['danger']}30;"
+                            f"padding:8px 12px;background:{_tint(C['danger'],'10')};border:1px solid {_tint(C['danger'],'30')};"
                             f"border-radius:8px;margin-bottom:10px;display:flex;align-items:center;gap:8px;"):
                         ui.label("⚠").style("font-size:14px;")
                         ui.label(
@@ -52776,7 +52836,7 @@ def p_ai_settings(s, rf):
                         ).style(f"font-size:11px;color:{C['danger']};line-height:1.5;")
                 elif _cur_limit > 250:
                     with ui.element("div").style(
-                            f"padding:8px 12px;background:{C['warn']}10;border:1px solid {C['warn']}30;"
+                            f"padding:8px 12px;background:{_tint(C['warn'],'10')};border:1px solid {_tint(C['warn'],'30')};"
                             f"border-radius:8px;margin-bottom:10px;display:flex;align-items:center;gap:8px;"):
                         ui.label("⚠").style("font-size:14px;")
                         ui.label(
@@ -52784,7 +52844,7 @@ def p_ai_settings(s, rf):
                         ).style(f"font-size:11px;color:{C['warn']};line-height:1.5;")
                 else:
                     with ui.element("div").style(
-                            f"padding:8px 12px;background:{C['good']}10;border:1px solid {C['good']}30;"
+                            f"padding:8px 12px;background:{_tint(C['good'],'10')};border:1px solid {_tint(C['good'],'30')};"
                             f"border-radius:8px;margin-bottom:10px;display:flex;align-items:center;gap:8px;"):
                         ui.label("✓").style(f"font-size:14px;color:{C['good']};")
                         ui.label(
@@ -52820,7 +52880,7 @@ def p_ai_settings(s, rf):
 
     def _reveal_key_dialog(key: str):
         with ui.dialog() as _k_dlg, ui.card().style(
-                f"background:{C['card']};border:1px solid {C['teal']}60;"
+                f"background:{C['card']};border:1px solid {_tint(C['teal'],'60')};"
                 f"min-width:460px;padding:22px 26px;border-radius:14px;"):
             ui.label("🔑 Your API Key").style(
                 f"font-size:17px;font-weight:800;color:{C['text_l']};"
@@ -53125,7 +53185,7 @@ def p_tasks(s: AppState, rf):
                                         f"display:inline-flex;align-items:center;gap:5px;padding:5px 12px;"
                                         f"border-radius:99px;font-size:11px;font-weight:600;cursor:pointer;"
                                         f"background:{C['indigo_dim']};color:{C['indigo']};"
-                                        f"border:1px solid {C['indigo']}60;font-family:inherit;").on(
+                                        f"border:1px solid {_tint(C['indigo'],'60')};font-family:inherit;").on(
                                         "click", _open_batch2):
                                     ui.label(_btn_label2)
                             if _li_batch_idx2 > 0:
@@ -53139,7 +53199,7 @@ def p_tasks(s: AppState, rf):
                                     f"display:inline-flex;align-items:center;gap:5px;padding:5px 12px;"
                                     f"border-radius:99px;font-size:11px;font-weight:600;cursor:pointer;"
                                     f"background:{C['teal_dim']};color:{C['teal']};"
-                                    f"border:1px solid {C['teal']}40;font-family:inherit;").on("click", _mark_all_li_tasks):
+                                    f"border:1px solid {_tint(C['teal'],'40')};font-family:inherit;").on("click", _mark_all_li_tasks):
                                 ui.label(f"✓ Mark All {len(camp_li)} LinkedIn Done")
                         # Mark all tasks in this campaign done
                         def _mark_all_camp(tasks=camp_tasks):
@@ -53172,7 +53232,7 @@ def p_tasks(s: AppState, rf):
                             with ui.element("div").style("display:flex;align-items:center;gap:8px;flex-wrap:wrap;"):
                                 ui.label(t["name"]).style(f"font-size:13px;font-weight:600;color:{C['text_l']};")
                                 if od:
-                                    ui.label("OVERDUE").classes("fd-tag").style(f"background:{C['danger']}20;color:{C['danger']};")
+                                    ui.label("OVERDUE").classes("fd-tag").style(f"background:{_tint(C['danger'],'20')};color:{C['danger']};")
                             if t.get("role") or t.get("company"):
                                 ui.label(f"{t['role']} · {t['company']}").style(f"font-size:12px;color:{C['muted']};")
                             if ch == "li" and t.get("linkedin"):
@@ -58806,7 +58866,7 @@ def p_newsletter(s: AppState, rf):
                     _missing.append("Newsletter Personal Note (Profile \u2192 Newsletter Signature)")
                 if _missing:
                     with ui.dialog() as _gate_dlg, ui.card().style(
-                            f"background:{C['card']};border:1px solid {C['warn']}80;"
+                            f"background:{C['card']};border:1px solid {_tint(C['warn'],'80')};"
                             f"min-width:460px;padding:22px 26px;border-radius:14px;"):
                         ui.label("\u26A0 Finish your profile first").style(
                             f"font-size:16px;font-weight:800;color:{C['warn']};"
@@ -59415,7 +59475,7 @@ def p_market_intel(s: AppState, rf):
     if s.mi_tab == "watches":
         # Create new watch form
         with ui.element("div").style(
-                f"background:{C['card']};border:1px solid {C['teal']}40;"
+                f"background:{C['card']};border:1px solid {_tint(C['teal'],'40')};"
                 f"border-radius:12px;padding:24px;margin-bottom:20px;max-width:700px;"):
             ui.label("Create a Market Watch").style(
                 f"font-size:16px;font-weight:700;color:{C['teal']};"
@@ -59801,7 +59861,7 @@ def p_market_intel(s: AppState, rf):
                             if gap.lower() == "yes":
                                 ui.label("GAP  -  No staffing coverage").style(
                                     f"font-size:10px;padding:2px 8px;border-radius:99px;"
-                                    f"background:{C['good']}20;color:{C['good']};font-weight:700;")
+                                    f"background:{_tint(C['good'],'20')};color:{C['good']};font-weight:700;")
                         roles_hiring = item.get("roles_hiring", [])
                         if roles_hiring:
                             ui.label(f"Hiring: {', '.join(roles_hiring)}").style(
@@ -59865,8 +59925,8 @@ def p_market_intel(s: AppState, rf):
                         # Approach angle
                         if item.get("approach_angle"):
                             with ui.element("div").style(
-                                    f"margin-top:8px;padding:8px 12px;background:{C['teal']}08;"
-                                    f"border:1px solid {C['teal']}20;border-radius:6px;"):
+                                    f"margin-top:8px;padding:8px 12px;background:{_tint(C['teal'],'08')};"
+                                    f"border:1px solid {_tint(C['teal'],'20')};border-radius:6px;"):
                                 ui.label("Approach Angle").style(
                                     f"font-size:10px;font-weight:700;color:{C['teal']};"
                                     f"text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;")
@@ -59946,8 +60006,8 @@ def p_market_intel(s: AppState, rf):
                         # Campaign angle + hook
                         if item.get("campaign_angle"):
                             with ui.element("div").style(
-                                    f"margin-top:10px;padding:10px 14px;background:{C['teal']}08;"
-                                    f"border:1px solid {C['teal']}20;border-radius:8px;"):
+                                    f"margin-top:10px;padding:10px 14px;background:{_tint(C['teal'],'08')};"
+                                    f"border:1px solid {_tint(C['teal'],'20')};border-radius:8px;"):
                                 ui.label("Campaign Angle").style(
                                     f"font-size:10px;font-weight:700;color:{C['teal']};"
                                     f"text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;")
@@ -61122,7 +61182,7 @@ def _p_profile_body(s, rf):
                 # actively wants to change their password.
                 def _open_pw_dialog():
                     with ui.dialog() as _pw_dlg, ui.card().style(
-                            f"background:{C['card']};border:1px solid {C['teal']}60;"
+                            f"background:{C['card']};border:1px solid {_tint(C['teal'],'60')};"
                             f"min-width:420px;padding:22px 26px;border-radius:14px;"):
                         ui.label("🔒 Change Password").style(
                             f"font-size:17px;font-weight:800;color:{C['text_l']};"
@@ -61287,7 +61347,7 @@ def _p_profile_body(s, rf):
                         with ui.element("button").style(
                                 f"display:inline-flex;align-items:center;gap:6px;"
                                 f"padding:7px 14px;font-size:11px;font-weight:700;"
-                                f"background:{C['teal']}18;border:1px solid {C['teal']}70;"
+                                f"background:{_tint(C['teal'],'18')};border:1px solid {_tint(C['teal'],'70')};"
                                 f"border-radius:6px;cursor:pointer;color:{C['teal']};"
                                 f"font-family:inherit;"
                                 ).on("click", lambda: _nl_avatar_upload.run_method('pickFiles')):
@@ -61351,7 +61411,7 @@ def _p_profile_body(s, rf):
                                     "display:flex;justify-content:flex-end;margin-top:6px;"):
                                 with ui.element("button").style(
                                         f"padding:4px 12px;font-size:10px;font-weight:700;"
-                                        f"background:{C['teal']};color:#0D1520;border:none;"
+                                        f"background:{C['teal']};color:{C['on_teal']};border:none;"
                                         f"border-radius:6px;cursor:pointer;font-family:inherit;"
                                         ).on("click", _apply_crop):
                                     ui.label("Apply Crop")
@@ -61441,7 +61501,7 @@ def _p_profile_body(s, rf):
 
             with ui.element("div").style(
                     _hide_if("brand") +
-                    f"background:{C['card']};border:1px solid {C['teal']}40;"
+                    f"background:{C['card']};border:1px solid {_tint(C['teal'],'40')};"
                     f"border-left:4px solid {C['teal']};border-radius:0 10px 10px 0;"
                     f"padding:16px 20px;margin-bottom:20px;"):
                 with ui.element("div").style(
@@ -61491,7 +61551,7 @@ def _p_profile_body(s, rf):
                         "display:flex;align-items:center;gap:14px;flex-wrap:wrap;"):
                     with ui.element("label").style(
                             f"display:inline-flex;align-items:center;gap:8px;padding:8px 18px;"
-                            f"background:{C['teal']}18;border:1px solid {C['teal']}70;"
+                            f"background:{_tint(C['teal'],'18')};border:1px solid {_tint(C['teal'],'70')};"
                             f"border-radius:8px;cursor:pointer;font-size:12px;font-weight:700;"
                             f"color:{C['teal']};font-family:inherit;"):
                         ui.html(f'📁 {"Change Logo" if _logo_exists else "Upload Logo"}')
@@ -61526,7 +61586,7 @@ def _p_profile_body(s, rf):
                 pass  # In display mode we skip the whole block below
             with ui.element("div").style(
                     ("display:none;" if _skip_autofill else _hide_if("company")) +
-                    f"background:{C['card']};border:1px solid {C['teal']}40;"
+                    f"background:{C['card']};border:1px solid {_tint(C['teal'],'40')};"
                     f"border-left:4px solid {C['teal']};border-radius:0 10px 10px 0;"
                     f"padding:16px 20px;margin-bottom:20px;"):
                 with ui.element("div").style(
@@ -61789,7 +61849,7 @@ def _p_profile_body(s, rf):
                     def _go_timezone_from_profile():
                         s.sp = "timezone"; rf()
                     with ui.element("button").style(
-                            f"padding:5px 12px;background:transparent;border:1px solid {C['teal']}60;"
+                            f"padding:5px 12px;background:transparent;border:1px solid {_tint(C['teal'],'60')};"
                             f"color:{C['teal']};border-radius:6px;font-size:11px;font-weight:600;"
                             f"cursor:pointer;font-family:inherit;"
                             ).on("click", _go_timezone_from_profile):
@@ -62128,12 +62188,12 @@ def p_team_settings(s: AppState, rf):
         if _is_super_admin(_user_email):
             ui.label("SUPER ADMIN").style(
                 f"font-size:10px;font-weight:800;color:{C['warn']};"
-                f"background:{C['warn']}18;padding:4px 10px;border-radius:99px;"
+                f"background:{_tint(C['warn'],'18')};padding:4px 10px;border-radius:99px;"
                 f"text-transform:uppercase;letter-spacing:.06em;")
         elif _is_admin:
             ui.label("TENANT ADMIN").style(
                 f"font-size:10px;font-weight:800;color:{C['teal']};"
-                f"background:{C['teal']}18;padding:4px 10px;border-radius:99px;"
+                f"background:{_tint(C['teal'],'18')};padding:4px 10px;border-radius:99px;"
                 f"text-transform:uppercase;letter-spacing:.06em;")
 
     if not _SERVER_MODE:
@@ -62151,7 +62211,7 @@ def p_team_settings(s: AppState, rf):
     # ── Read-only banner for non-admins ───────────────────────────────
     if not _is_admin:
         with ui.element("div").style(
-                f"background:{C['warn']}10;border:1px solid {C['warn']}40;"
+                f"background:{_tint(C['warn'],'10')};border:1px solid {_tint(C['warn'],'40')};"
                 f"border-left:3px solid {C['warn']};border-radius:10px;"
                 f"padding:14px 18px;margin-top:18px;"):
             ui.label("You don't have permission to edit team settings.").style(
@@ -62175,7 +62235,7 @@ def p_team_settings(s: AppState, rf):
                 else:
                     for r in _admins:
                         with ui.element("div").style(
-                                f"padding:8px 0;border-bottom:1px solid {C['border']}30;"
+                                f"padding:8px 0;border-bottom:1px solid {_tint(C['border'],'30')};"
                                 f"display:flex;align-items:center;gap:10px;"):
                             ui.label(r["name"] or r["email"]).style(
                                 f"font-size:13px;color:{C['text_l']};font-weight:500;")
@@ -62280,7 +62340,7 @@ def p_team_settings(s: AppState, rf):
             s._team_edit_branding = False
             rf()
         with ui.element("button").style(
-                f"background:transparent;border:1px solid {C['warn']}55;"
+                f"background:transparent;border:1px solid {_tint(C['warn'],'55')};"
                 f"color:{C['warn']};border-radius:6px;padding:6px 14px;"
                 f"font-size:12px;font-weight:600;cursor:pointer;"
                 f"font-family:inherit;margin-top:14px;"
@@ -62322,7 +62382,7 @@ def p_team_settings(s: AppState, rf):
                     s._team_edit_branding = True
                     rf()
                 with ui.element("button").style(
-                        f"background:transparent;border:1px solid {C['teal']}55;"
+                        f"background:transparent;border:1px solid {_tint(C['teal'],'55')};"
                         f"color:{C['teal']};border-radius:6px;padding:6px 14px;"
                         f"font-size:12px;font-weight:600;cursor:pointer;"
                         f"font-family:inherit;").on("click", _edit_branding):
@@ -62579,8 +62639,8 @@ def p_team_settings(s: AppState, rf):
                     "display:flex;flex-direction:column;align-items:flex-end;gap:2px;"):
                 ui.label(_team_label or f"@{_focus_domain_pretty}").style(
                     f"font-size:11px;color:{C['text_l']};font-weight:700;"
-                    f"background:{C['teal']}18;padding:3px 10px;border-radius:99px;"
-                    f"border:1px solid {C['teal']}40;")
+                    f"background:{_tint(C['teal'],'18')};padding:3px 10px;border-radius:99px;"
+                    f"border:1px solid {_tint(C['teal'],'40')};")
                 if _team_label and _team_label != f"@{_focus_domain_pretty}":
                     ui.label(f"@{_focus_domain_pretty}").style(
                         f"font-size:9px;color:{C['muted']};font-family:monospace;")
@@ -62608,16 +62668,16 @@ def p_team_settings(s: AppState, rf):
                 with ui.element("div").style(
                         f"display:grid;grid-template-columns:60px 36px 1fr 1fr 110px;"
                         f"gap:8px;padding:9px 12px;align-items:center;"
-                        f"border-bottom:1px solid {C['border']}30;"):
+                        f"border-bottom:1px solid {_tint(C['border'],'30')};"):
                     if _is_super:
                         ui.label("SUPER").style(
                             f"font-size:9px;font-weight:800;color:{C['warn']};"
-                            f"background:{C['warn']}18;padding:2px 6px;border-radius:99px;"
+                            f"background:{_tint(C['warn'],'18')};padding:2px 6px;border-radius:99px;"
                             f"text-transform:uppercase;letter-spacing:.06em;text-align:center;")
                     elif r["is_tenant_admin"]:
                         ui.label("ADMIN").style(
                             f"font-size:9px;font-weight:800;color:{C['teal']};"
-                            f"background:{C['teal']}18;padding:2px 6px;border-radius:99px;"
+                            f"background:{_tint(C['teal'],'18')};padding:2px 6px;border-radius:99px;"
                             f"text-transform:uppercase;letter-spacing:.06em;text-align:center;")
                     else:
                         ui.label("USER").style(
@@ -62642,9 +62702,9 @@ def p_team_settings(s: AppState, rf):
                         with ui.element("button").style(
                                 f"padding:5px 12px;font-size:11px;border-radius:6px;"
                                 f"cursor:pointer;font-family:inherit;"
-                                f"background:{C['danger'] + '18' if r['is_tenant_admin'] else C['teal'] + '18'};"
+                                f"background:{_tint(C['danger'], '18') if r['is_tenant_admin'] else _tint(C['teal'], '18')};"
                                 f"color:{C['danger'] if r['is_tenant_admin'] else C['teal']};"
-                                f"border:1px solid {C['danger'] + '40' if r['is_tenant_admin'] else C['teal'] + '40'};"
+                                f"border:1px solid {_tint(C['danger'], '40') if r['is_tenant_admin'] else _tint(C['teal'], '40')};"
                                 ).on("click", _toggle_admin):
                             ui.label("Demote" if r["is_tenant_admin"] else "Promote")
                     else:
@@ -62998,7 +63058,7 @@ def p_recruiting_campaign(s: AppState, rf):
             with ui.element("div").style(
                     f"display:inline-flex;align-items:center;gap:6px;"
                     f"margin:-8px 0 6px;padding:5px 12px;"
-                    f"background:{C['teal']}15;border:1px dashed {C['teal']}80;"
+                    f"background:{_tint(C['teal'],'15')};border:1px dashed {_tint(C['teal'],'80')};"
                     f"border-radius:99px;cursor:pointer;font-size:11px;"
                     f"font-weight:700;color:{C['teal']};font-family:inherit;"
                     f"transition:all .15s;width:fit-content;"
@@ -63176,7 +63236,7 @@ def _show_delete_user_dialog(s, rf, user: dict):
     _is_target_admin = user.get("is_admin", False)
 
     with ui.dialog() as dlg, ui.card().style(
-            f"background:{C['card']};border:1px solid {C['danger']}60;"
+            f"background:{C['card']};border:1px solid {_tint(C['danger'],'60')};"
             f"min-width:500px;max-width:560px;padding:28px;"):
         # Header
         with ui.element("div").style("display:flex;align-items:center;gap:12px;margin-bottom:10px;"):
@@ -63398,7 +63458,7 @@ def p_admin(s: AppState, rf):
                             with ui.element("div").style(
                                     f"display:grid;grid-template-columns:60px 1fr 1fr 80px 80px;"
                                     f"gap:10px;padding:5px 0;align-items:center;"
-                                    f"border-bottom:1px solid {C['border']}30;"):
+                                    f"border-bottom:1px solid {_tint(C['border'],'30')};"):
                                 ui.label(_role).style(
                                     f"font-size:9px;font-weight:800;color:{_role_color};"
                                     f"background:{_role_color}18;padding:2px 6px;"
@@ -63551,7 +63611,7 @@ def p_admin(s: AppState, rf):
                     def _open_delete_dialog(user=u):
                         _show_delete_user_dialog(s, rf, user)
                     with ui.element("button").style(
-                            f"background:transparent;border:1px solid {C['danger']}40;"
+                            f"background:transparent;border:1px solid {_tint(C['danger'],'40')};"
                             f"color:{C['danger']};border-radius:6px;padding:4px 9px;"
                             f"font-size:13px;cursor:pointer;font-family:inherit;"
                             f"transition:all .15s;"
@@ -63631,6 +63691,12 @@ def render_page(s: AppState, rf):
                 and _loaded_view != "emails"
             )
             back_label = nav_back_label(s)
+            # Sidebar layout: a page the sidebar links to never gets the
+            # history Back. The sidebar is the way between them, and the
+            # label ("Dashboard", "Campaign Radar") named where you came
+            # from in the old nav, not anything on screen. Step Backs stay.
+            if _SIDEBAR_LAYOUT and page in SIDEBAR_PAGE_ROW:
+                back_label = ""
             _show_back = (_in_aicb_wizard or _in_loaded_camp_step or back_label) and page != "dashboard"
             if _show_back:
                 def _do_back():
