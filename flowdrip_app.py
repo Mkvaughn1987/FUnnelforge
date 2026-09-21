@@ -8611,7 +8611,7 @@ def _nl_campaign_dict(nl_name, sector_key, sector_label, niche, region,
                       start_from, time_str="9:00 AM", count=12,
                       style="full_send", spotlight_count=3, spotlight_recs="",
                       picked_cands=None, show_city_life=False, contacts=None,
-                      spun_from=""):
+                      spun_from="", topic=""):
     """A new newsletter campaign: one issue per month on the picked day.
     Shared by the Newsletters page and the connector so both build the same
     thing."""
@@ -8646,6 +8646,9 @@ def _nl_campaign_dict(nl_name, sector_key, sector_label, niche, region,
         market_region=region,
         newsletter_spotlight_count=spotlight_count,
         newsletter_spotlight_recommendations=spotlight_recs,
+        # What the user wants the issues to be about; blank = the standard
+        # monthly lineup.
+        newsletter_topic=(topic or "").strip(),
         newsletter_show_city_life=show_city_life,
         start_date=date.today().isoformat(),
         contacts=contacts,
@@ -8705,7 +8708,8 @@ async def api_tm_newsletters(request: Request):
 async def api_tm_newsletter_create(request: Request):
     """Create a monthly newsletter. Body: {"name", "sector" (a key from GET),
     "region", "niche", "start_date" YYYY-MM-DD, "time", "count" (months,
-    default 12), "style", "profiles": true}. The first issue is written in
+    default 12), "style", "profiles": true, "topic" (optional: what the
+    issues should be about)}. The first issue is written in
     the background, as on the page; nobody is enrolled yet."""
     from starlette.responses import JSONResponse
 
@@ -8747,7 +8751,8 @@ async def api_tm_newsletter_create(request: Request):
         str(body.get("niche") or "").strip(), region, start_from,
         time_str=str(body.get("time") or "9:00 AM").strip() or "9:00 AM",
         count=count, style=style,
-        spotlight_count=3 if body.get("profiles", True) else 0)
+        spotlight_count=3 if body.get("profiles", True) else 0,
+        topic=str(body.get("topic") or "")[:600])
     save_campaign(camp)
     _cache_campaigns.invalidate()
 
@@ -32288,6 +32293,14 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                 f"padding:8px 10px;color:{C['text_l']};font-size:12px;"
                 f"font-family:inherit;resize:vertical;margin-bottom:12px;")
 
+        # Sales instance: the recommendations box is replaced by "what should
+        # this newsletter be about?" (Mike, 2026-09-21). Blank keeps the
+        # standard monthly lineup; anything typed becomes every issue's topic.
+        _topic_box = ui.element("div")
+        with _topic_box:
+            topic_in = _nl_topic_field("")
+        _topic_box.set_visibility(_SALES_MODE)
+
         # ── Pipeline path ── search the candidate pool and add specific
         # people to "Top Talent Available". When this path is chosen the
         # selected people OVERRIDE the AI-generated spotlights for J's Way.
@@ -32358,8 +32371,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
         # for both.
         def _upd_spot_mode():
             _mode = (_spot_mode.value if _spot_mode is not None else "ai")
-            _ai_box.set_visibility(
-                _mode == "ai" and (not _SALES_MODE or bool(_tm_profiles_in.value)))
+            _ai_box.set_visibility(_mode == "ai" and not _SALES_MODE)
             _pipe_box.set_visibility(_mode == "pipeline")
         if _spot_mode is not None:
             _spot_mode.on_value_change(lambda _e=None: _upd_spot_mode())
@@ -32567,7 +32579,8 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                 _spotlight_recs = ""
                 _picked_cands = list(_sel_cands.values())
             else:
-                _spotlight_recs = (spotlight_recs_in.value or "").strip()
+                _spotlight_recs = ("" if _SALES_MODE
+                                   else (spotlight_recs_in.value or "").strip())
                 _picked_cands = []
             new_camp = _nl_campaign_dict(
                 nl_name, _sector_key, _sector_label, niche, region, start_from,
@@ -32576,6 +32589,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                 spotlight_count=_spotlight_count,
                 spotlight_recs=_spotlight_recs, picked_cands=_picked_cands,
                 show_city_life=_show_city_life,
+                topic=((topic_in.value or "").strip() if _SALES_MODE else ""),
                 # Pre-seeded when opened with a prefill ("Spin up Newsletter"
                 # from a campaign); empty otherwise.
                 contacts=_pre_contacts, spun_from=_pre_source)
@@ -32647,6 +32661,27 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
     dlg.open()
 
 
+def _nl_topic_field(value: str):
+    """The optional "what should this newsletter be about?" box (sales
+    instance). Returns the textarea."""
+    ui.label("What do you want this newsletter to be about? (optional)").classes("fd-fl")
+    ui.label(
+        "Leave blank and each issue covers a different offshore staffing "
+        "topic. Or tell us the subject you want, and every issue will be "
+        "written around it."
+    ).style(f"font-size:10px;color:{C['muted']};margin-bottom:4px;")
+    return ui.textarea(
+        value=value or "",
+        placeholder=("e.g. How AI is changing back-office work, and why "
+                     "Filipino professionals who already use AI tools are "
+                     "a smart hire."),
+    ).style(
+        f"width:100%;min-height:64px;background:{C['surface']};"
+        f"border:1px solid {C['border']};border-radius:6px;"
+        f"padding:8px 10px;color:{C['text_l']};font-size:12px;"
+        f"font-family:inherit;resize:vertical;margin-bottom:12px;")
+
+
 def _edit_newsletter_settings_dialog(camp: dict, s, rf) -> None:
     """Settings dialog for an existing newsletter. Lets users switch
     up the candidate-spotlight recipe without recreating the campaign.
@@ -32711,30 +32746,39 @@ def _edit_newsletter_settings_dialog(camp: dict, s, rf) -> None:
                 not in ("", "0"),
             ).style("font-size:12px;")
             _tm_prof_in.set_visibility(_SALES_MODE)
-            ui.label("Spotlight Recommendations (optional)").style(
-                f"font-size:10px;color:{C['muted']};margin-top:6px;display:block;"
-                f"text-transform:uppercase;letter-spacing:.06em;font-weight:700;")
-            ui.label(
-                "Tell AI which titles, seniority levels, or specialties to "
-                "feature in the candidate spotlights each issue. Leave blank "
-                "for AI's pick."
-            ).style(
-                f"font-size:10px;color:{C['muted']};margin-bottom:4px;")
-            _recs_in = ui.textarea(
-                value=_cur_recs,
-                placeholder=(
-                    "e.g. Track and trace, carrier sales support and freight "
-                    "billing roles."
-                    if _SALES_MODE else
-                    "e.g. Focus on Senior Project Managers, Estimators, and "
-                    "Superintendents with healthcare or OSHPD experience. "
-                    "Skip junior or field roles."
-                ),
-            ).style(
-                f"width:100%;min-height:80px;background:{C['surface']};"
-                f"border:1px solid {C['border']};border-radius:6px;"
-                f"padding:8px 10px;color:{C['text_l']};font-size:12px;"
-                f"font-family:inherit;resize:vertical;margin-bottom:12px;")
+            _recs_box = ui.element("div")
+            _recs_box.set_visibility(not _SALES_MODE)
+            with _recs_box:
+                ui.label("Spotlight Recommendations (optional)").style(
+                    f"font-size:10px;color:{C['muted']};margin-top:6px;display:block;"
+                    f"text-transform:uppercase;letter-spacing:.06em;font-weight:700;")
+                ui.label(
+                    "Tell AI which titles, seniority levels, or specialties to "
+                    "feature in the candidate spotlights each issue. Leave blank "
+                    "for AI's pick."
+                ).style(
+                    f"font-size:10px;color:{C['muted']};margin-bottom:4px;")
+                _recs_in = ui.textarea(
+                    value=_cur_recs,
+                    placeholder=(
+                        "e.g. Track and trace, carrier sales support and freight "
+                        "billing roles."
+                        if _SALES_MODE else
+                        "e.g. Focus on Senior Project Managers, Estimators, and "
+                        "Superintendents with healthcare or OSHPD experience. "
+                        "Skip junior or field roles."
+                    ),
+                ).style(
+                    f"width:100%;min-height:80px;background:{C['surface']};"
+                    f"border:1px solid {C['border']};border-radius:6px;"
+                    f"padding:8px 10px;color:{C['text_l']};font-size:12px;"
+                    f"font-family:inherit;resize:vertical;margin-bottom:12px;")
+            # Sales instance: "what should this newsletter be about?"
+            # in place of the recommendations (Mike, 2026-09-21).
+            _topic_box = ui.element("div")
+            _topic_box.set_visibility(_SALES_MODE)
+            with _topic_box:
+                _topic_in = _nl_topic_field(camp.get("newsletter_topic") or "")
 
             # Count dropdown — comes after recommendations.
             _count_box = ui.element("div")
@@ -32764,6 +32808,8 @@ def _edit_newsletter_settings_dialog(camp: dict, s, rf) -> None:
                 _new_count = 3 if _tm_prof_in.value else 0
             camp["newsletter_spotlight_count"] = _new_count
             camp["newsletter_spotlight_recommendations"] = (_recs_in.value or "").strip()
+            if _SALES_MODE:
+                camp["newsletter_topic"] = (_topic_in.value or "").strip()[:600]
             camp["newsletter_show_city_life"] = bool(_city_in.value)
             try:
                 save_campaign(camp)
@@ -58367,8 +58413,24 @@ def _tm_next_step(n_profiles: int) -> str:
 
 def _tm_newsletter_prompt(nl_name: str, company: str, niche: str, region: str,
                           month_year: str, plan: dict, spot_instruction: str,
-                          spot_schema: str, playbook: str, proof: str) -> str:
+                          spot_schema: str, playbook: str, proof: str,
+                          topic: str = "") -> str:
     _niche = niche or "small and mid-sized businesses"
+    topic = (topic or "").strip()
+    if topic:
+        # The user's own subject replaces the stock monthly article; the
+        # month's angle only keeps 12 issues on one subject from repeating.
+        _article = (
+            f"THIS ISSUE'S ARTICLE: the sender wants this newsletter to be "
+            f"about: \"{topic}\". Write the article on that subject for "
+            f"{_niche} readers and connect it to offshore staff augmentation "
+            f"where it fits naturally. Every issue shares this subject, so give "
+            f"this one a fresh slant, drawing on \"{plan['angle']}\" "
+            f"({plan['angle_brief']}) if it helps. The playbook and hard rules "
+            f"below still apply.\n")
+    else:
+        _article = (f"THIS ISSUE'S ARTICLE: \"{plan['angle']}\": {plan['angle_brief']}. "
+                    f"Adapt the headline to {_niche}.\n")
     _story_schema = ""
     _story_rule = ""
     if plan.get("story") and (proof or "").strip():
@@ -58397,8 +58459,7 @@ def _tm_newsletter_prompt(nl_name: str, company: str, niche: str, region: str,
         f"ISSUE MONTH: {month_year}. Tie the intro and the article to this "
         f"month and to where {_niche} is in its year (peak season, busy "
         f"season, year end, and so on).\n"
-        f"THIS ISSUE'S ARTICLE: \"{plan['angle']}\": {plan['angle_brief']}. "
-        f"Adapt the headline to {_niche}.\n"
+        + _article +
         f"QUESTION OF THE MONTH: \"{plan['objection']}\" Answer it plainly "
         f"and honestly within the playbook rules. "
         f"{_TM_NL_ANSWER_HINTS.get(plan['objection'], '')}\n"
@@ -58453,7 +58514,8 @@ def _tm_newsletter_prompt(nl_name: str, company: str, niche: str, region: str,
 
 def _jway_sales_prompt(sector: str, niche: str, region: str, month_year: str,
                        contact_name: str, company: str,
-                       n_profiles: int = 0, recommendations: str = "") -> str:
+                       n_profiles: int = 0, recommendations: str = "",
+                       topic: str = "") -> str:
     """The Organic (plain-text) newsletter prompt for a sales instance: same
     JSON shape _jway_render reads. `n_profiles` > 0 adds the sample talent
     profiles section; 0 leaves it out."""
@@ -58477,6 +58539,10 @@ def _jway_sales_prompt(sector: str, niche: str, region: str, month_year: str,
         f"fluff, NO emoji, NO markdown. Sector: {sector or 'the market'}. Niche: "
         f"{niche}. Region: {region}. Month: {month_year}.\n"
         + _nl_sales_audience(_s, region, company, n_profiles > 0) + "\n"
+        + (f"The sender wants this newsletter to be about: \"{topic.strip()}\". "
+           f"Build the intro and the takeaway bullets around that subject for "
+           f"{_s} owners, with a fresh slant each month.\n"
+           if (topic or "").strip() else "")
         + _cand_rule +
         f"Use web search to pull the most recent REAL U.S. BLS jobs-report figures "
         f"(total jobs added, unemployment rate, year-over-year wage growth, average "
@@ -58552,7 +58618,8 @@ def _generate_jway_newsletter(client, camp: dict, nl_name: str, company: str,
     if _SALES_MODE:
         prompt = _jway_sales_prompt(sector, niche, region, month_year,
                                     contact_name, company,
-                                    3 if spot_n > 0 else 0, spot_recs)
+                                    3 if spot_n > 0 else 0, spot_recs,
+                                    topic=camp.get("newsletter_topic") or "")
     try:
         msg = _claude_create_with_retry(
             client, model="claude-haiku-4-5-20251001", max_tokens=4000,
@@ -58776,6 +58843,7 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         f'"Below national average" in the value field. Better 2 real numbers than 5 with placeholders.'
     )
     _tm_plan = None
+    _nl_topic = (camp.get("newsletter_topic") or "").strip()
     if _SALES_MODE and _is_thrivemodal():
         _tm_plan = _tm_newsletter_plan(" ".join([sector, niche, nl_name]),
                                        _nl_year, _nl_month, step_idx)
@@ -58783,7 +58851,8 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
             nl_name, company, (niche or sector).strip(), region, month_year,
             _tm_plan, _spot_instruction, _spot_schema_block,
             _thrivemodal_playbook_text(),
-            _thrivemodal_context().get("tm_proof") or "")
+            _thrivemodal_context().get("tm_proof") or "",
+            topic=_nl_topic)
     if _tm_plan:
         # ThriveModal issues: one retry, and the JSON is read from the LAST
         # text block first. With web search on, the reply arrives in several
@@ -58893,7 +58962,8 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
             "around_town": [],
             "market_update": "",
             "top_news": [],
-            "feature": dict(_feat, label=f"This Month: {_tm_plan['angle']}"),
+            "feature": dict(_feat, label=("This Month's Article" if _nl_topic
+                                          else f"This Month: {_tm_plan['angle']}")),
             # Role of the Month + Cost Math removed (Mike 2026-09-19).
             "role_of_month": {},
             "cost_math": {},
