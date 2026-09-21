@@ -10917,6 +10917,26 @@ def _company_profile_from_website(url: str):
     return {k: v for k, v in staged.items() if str(v or "").strip()}
 
 
+def _tm_playbook_autofill_stage(s, cfg: dict = None) -> int:
+    """Website Auto-fill also brings up the ThriveModal playbook: every Sales
+    Playbook section that is currently empty is staged with its shipped
+    default, alongside the company fields, for review before Save. Sections
+    with text are left alone. Returns how many were staged; 0 off the
+    ThriveModal playbook."""
+    s._cp_autofill_pb_pending = {}
+    try:
+        cfg = load_config() if cfg is None else cfg
+    except Exception:
+        cfg = {}
+    if not _is_thrivemodal(cfg):
+        return 0
+    ctx = _thrivemodal_context(cfg)
+    staged = {k: d for k, _l, _h, d in THRIVEMODAL_PLAYBOOK_FIELDS
+              if not ctx.get(k) and (d or "").strip()}
+    s._cp_autofill_pb_pending = staged
+    return len(staged)
+
+
 def _save_profile_as_team_default():
     """Copy the saved company profile and logo to the team (email-domain)
     level. Returns (ok, message). The caller checks tenant-admin first."""
@@ -65543,6 +65563,9 @@ def _p_profile_body(s, rf):
             # The staged website import has now been reviewed and committed.
             s._cp_autofill_pending = {}
             _saved_parts.append("company")
+        # The playbook sections Auto-fill staged are now in the boxes and
+        # get written by the playbook pass below.
+        s._cp_autofill_pb_pending = {}
 
         # ── Sales Playbook: workspace choice + company context ─────
         # Written in ONE load/save pass so a playbook flip and a context
@@ -66232,7 +66255,7 @@ def _p_profile_body(s, rf):
                     ).classes("fd-input").style("flex:1;")
                     _autofill_status = {"msg": ""}
 
-                    def _do_autofill():
+                    async def _do_autofill():
                         url = _website_in.value.strip()
                         if not url:
                             ui.notify("Enter a website URL first.", type="warning")
@@ -66244,29 +66267,43 @@ def _p_profile_body(s, rf):
                             return
 
                         ui.notify("Scanning website... this takes 10-15 seconds.", type="info", timeout=5000)
+                        _owner = getattr(s, "_user_email", "") or ""
 
                         def _run():
-                            try:
-                                # STAGED, not saved. The imported values are
-                                # cleaned and whitelisted by the helper, then
-                                # shown in the form for review; nothing reaches
-                                # config until the user presses Save. The
-                                # connector's auto-fill calls the same helper.
-                                _staged = _company_profile_from_website(url)
-                                if _staged is not None:
-                                    s._cp_autofill_pending = _staged
-                                    s._cp_autofill_done = True
-                                    ui.notify(
-                                        f"Found {len(_staged)} field(s). Review them below, "
-                                        "then press Save. Nothing has been saved yet.",
-                                        type="positive", timeout=6000)
-                                else:
-                                    ui.notify("Could not parse website data. Fill in manually.", type="warning")
-                            except Exception as e:
-                                ui.notify(f"Auto-fill failed: {str(e)[:100]}", type="negative")
-                            rf()
+                            if _owner:
+                                _CURRENT_USER_EMAIL.set(_owner)
+                                try:
+                                    _switch_to_user_paths(_owner)
+                                except Exception:
+                                    pass
+                            return _company_profile_from_website(url)
 
-                        _run_as_user(getattr(s, "_user_email", "") or "", _run, name="company_autofill_worker")
+                        # Awaited in the click handler, not a bare thread:
+                        # ui.notify/rf need the page's slot context, and a
+                        # thread has none, so the old worker died on its
+                        # success notify and the form never showed the
+                        # import. STAGED, not saved: nothing reaches config
+                        # until the user presses Save. The connector's
+                        # auto-fill calls the same helper.
+                        try:
+                            _staged = await asyncio.get_event_loop().run_in_executor(None, _run)
+                        except Exception as e:
+                            ui.notify(f"Auto-fill failed: {str(e)[:100]}", type="negative")
+                            return
+                        if _staged is None:
+                            ui.notify("Could not parse website data. Fill in manually.", type="warning")
+                            return
+                        s._cp_autofill_pending = _staged
+                        s._cp_autofill_done = True
+                        _pb_loaded = _tm_playbook_autofill_stage(s)
+                        ui.notify(
+                            f"Found {len(_staged)} field(s)"
+                            + (f" and loaded the {PLAYBOOK_LABELS.get(PLAYBOOK_THRIVEMODAL, 'ThriveModal')} "
+                               f"playbook into {_pb_loaded} empty Sales Playbook section(s)"
+                               if _pb_loaded else "")
+                            + ". Review them, then press Save. Nothing has been saved yet.",
+                            type="positive", timeout=7000)
+                        rf()
 
                     with ui.element("button").classes("fd-pb").style(
                             "padding:8px 18px;font-size:12px;flex-shrink:0;").on("click", _do_autofill):
@@ -66302,10 +66339,15 @@ def _p_profile_body(s, rf):
                                 k.replace("company_", "").replace("_", " ")
                                 for k in _cp_pending)
                             + ". Edit anything that is wrong, then press Save."
+                            + (f" {len(getattr(s, '_cp_autofill_pb_pending', None) or {})} "
+                               "empty Sales Playbook section(s) were filled with the "
+                               "ThriveModal playbook too."
+                               if getattr(s, "_cp_autofill_pb_pending", None) else "")
                         ).style(f"font-size:12px;color:{C['muted']};line-height:1.5;")
 
                         def _discard_import():
                             s._cp_autofill_pending = {}
+                            s._cp_autofill_pb_pending = {}
                             ui.notify("Imported values discarded.", type="info")
                             rf()
 
@@ -66512,6 +66554,8 @@ def _p_profile_body(s, rf):
 
             _tm_saved = load_config()
             _pb_defaults = {k: d for k, _l, _h, d in THRIVEMODAL_PLAYBOOK_FIELDS}
+            _pb_autofill_staged = dict(
+                getattr(s, "_cp_autofill_pb_pending", None) or {})
 
             def _pb_empty_keys() -> list:
                 return [k for k, w in _refs["pb_fields"].items()
@@ -66553,6 +66597,10 @@ def _p_profile_body(s, rf):
                 # decision rather than an accident of an empty form.
                 _fval = (str(_tm_saved[_fk] or "") if _fk in _tm_saved
                          else _fdefault)
+                # Website Auto-fill staged the default into this empty
+                # section; shown for review, written only on Save.
+                if _fk in _pb_autofill_staged and not _fval.strip():
+                    _fval = _pb_autofill_staged[_fk]
                 ui.label(_flabel).classes("fd-fl")
                 ui.label(_fhelp).style(
                     f"font-size:10px;color:{C['muted']};margin-bottom:6px;"
