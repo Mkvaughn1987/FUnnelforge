@@ -266,7 +266,17 @@ def _build_one_page(doc, story, top_margin_inches=1.15, bottom_margin_inches=0.6
     KeepInFrame(mode='shrink') which scaled content down to force
     one page — that was causing tiny, hard-to-read text on dense
     PDFs. Function name kept for callsite stability across all 7
-    builders (build_market_pulse, build_salary_guide, etc.)."""
+    builders (build_market_pulse, build_salary_guide, etc.).
+
+    Also stamps the PDF Title/Author metadata (what the browser tab
+    shows). Left unset, ReportLab writes "untitled" / "anonymous"."""
+    if not doc.title:
+        heading = next((f for f in story if isinstance(f, Paragraph)
+                        and getattr(f.style, "name", "") == "t"), None)
+        doc.title = (heading.getPlainText().strip() if heading else "") \
+            or doc.badge_text.title()
+    if not doc.author:
+        doc.author = doc.prepared_by or doc.title
     doc.build(story)
 
 
