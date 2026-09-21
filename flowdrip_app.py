@@ -6996,7 +6996,9 @@ def _aicb_research_brief(client, *, camp_type="", company="", website="",
 # first email says "offshore staff augmentation" (and opens on his track
 # record, _tm_track_record_rule), the cost email states the "up to" saving
 # once, and the last email promises a monthly check-in. Dropped: that phrase
-# and the percentage in every email, and "plug-and-play".
+# and the percentage in every email, and "plug-and-play". Added 2026-09-21
+# at his ask: the cost email says every candidate holds an accredited degree
+# and communicates clearly in English, and invites a first low-cost role.
 # (name, subject, paragraphs); written for an operations coordinator, which
 # the model swaps for each campaign's target role.
 _TM_MODEL_EMAILS = [
@@ -7013,10 +7015,11 @@ _TM_MODEL_EMAILS = [
         "responsibilities, experience and hours you need covered.",
         "From there, we can price a dedicated Philippines-based role and "
         "compare it with the fully burdened cost of a comparable U.S. hire. "
-        "Depending on the role, it can cost up to 60 to 70 percent less. The "
-        "point is to understand what capacity you would gain alongside the "
-        "cost.",
-        "Would a comparison for one role be useful?")),
+        "Depending on the role, it can cost up to 60 to 70 percent less. "
+        "Every candidate we present holds an accredited degree and "
+        "communicates clearly in English.",
+        "If you have not tried a Philippines-based hire yet, one role is a "
+        "low-cost way to start. Would a comparison for one role be useful?")),
     ("Role scope", "A clearer scope for the role", (
         "For an operations coordinator, a starting scope could include "
         "following up on missing documents, updating records and keeping "
@@ -7098,6 +7101,12 @@ _TM_EMAIL_OPENER_RULE = (
     "percentage, and no email ever gives a dollar amount, a monthly rate or "
     "an annual figure. If that field states no savings figure, leave the "
     "number out.\n"
+    "- THE CANDIDATE STANDARD, in the cost email only (Model 2): say that "
+    "every candidate we present holds an accredited degree and communicates "
+    "clearly in English, and that if they have not tried a Philippines-based "
+    "hire yet, one role is a low-cost way to start. Say it about the "
+    "candidates ThriveModal presents, never about Filipinos as a group, and "
+    "never call it cheap.\n"
     "- THE LAST EMAIL of the campaign says plainly that this is your final "
     "note in this sequence, and that you will still check in about once a "
     "month with a short personal note, as Model 7 does. Never call it a "
