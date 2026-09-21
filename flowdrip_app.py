@@ -7233,9 +7233,11 @@ def _tm_track_record_rule(camp_type, role: str, industry: str) -> str:
         f"line, word for word: \"{line}\" Then ask: \"Have you ever "
         "considered offshore staff augmentation?\" Then say what we do (the "
         "offshore staff augmentation and plug-and-play lines above).\n"
-        f"- Exactly ONE later email (the second email is best) mentions it "
-        f"again in fresh words, keeping the figure {_TM_TRACK_RECORD_COUNT} "
-        "and the same role and industry. No other email uses the number.\n\n")
+        f"- The SECOND email must mention it again, in its first two "
+        f"sentences and in fresh words, keeping the figure "
+        f"{_TM_TRACK_RECORD_COUNT} and the same role and industry (for "
+        f"example 'Having placed {_TM_TRACK_RECORD_COUNT} of these roles "
+        "recently, ...'). No other email uses the number.\n\n")
 
 
 def _tm_ensure_track_record(camp_type, campaign_data, role: str,
@@ -12835,10 +12837,17 @@ def _tm_ensure_offshore_and_monthly(campaign_data) -> None:
     opening = " ".join(re.split(r"(?<=[.!?])\s+",
                                 re.sub(r"\s+", " ", _tm_scrub_line(body)))[:4])
     if not _TM_WE_DO_OFFSHORE_RE.search(opening):
-        m = re.match(r"(?is)\s*Hi \{FirstName\},?\s*(?:<br\s*/?>\s*)*", body)
-        cut = m.end() if m else 0
-        head = body[:cut] if m else "Hi {FirstName},<br><br>"
-        first["body"] = head + _TM_OFFSHORE_LINE + " " + body[cut:].lstrip()
+        # After the track-record opener's question when the model wrote it,
+        # so the email still opens on "I'm reaching out because...".
+        q = re.search(r"(?i)considered offshore staff augmentation\?", body)
+        if q:
+            first["body"] = (body[:q.end()] + " " + _TM_OFFSHORE_LINE + " "
+                             + body[q.end():].lstrip())
+        else:
+            m = re.match(r"(?is)\s*Hi \{FirstName\},?\s*(?:<br\s*/?>\s*)*", body)
+            cut = m.end() if m else 0
+            head = body[:cut] if m else "Hi {FirstName},<br><br>"
+            first["body"] = head + _TM_OFFSHORE_LINE + " " + body[cut:].lstrip()
     body = last.get("body") or ""
     # "month-to-month terms" is not a check-in promise.
     text = _tm_scrub_line(body).replace("month-to-month", "")
