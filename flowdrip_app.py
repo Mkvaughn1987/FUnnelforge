@@ -7162,7 +7162,7 @@ _TM_EMAIL_OPENER_RULE = (
     "- Keep the opener to about three sentences, then carry on with that "
     "step's own point and its one CTA.\n"
     "- SAY WHAT YOU DO, UP FRONT. The FIRST email states in the first person, "
-    "within its first two sentences, that we do offshore staff augmentation, using "
+    "within its first three sentences, that we do offshore staff augmentation, using "
     "those exact words (for example 'I do offshore staff augmentation: we place "
     "dedicated, plug-and-play professionals from the Philippines on U.S. "
     "teams'). Every "
@@ -7177,6 +7177,100 @@ _TM_EMAIL_OPENER_RULE = (
     "with a short personal note. Never call it a newsletter, a list or a "
     "subscription. This overrides any step line about stopping.\n\n"
 )
+
+
+# Mike, 2026-09-21: the first email opens on his own track record, and one
+# follow-up repeats it. This is his claim about his own placements, so it is
+# the one placement number the playbook's proof rule lets through.
+_TM_TRACK_RECORD_COUNT = "50+"
+_TM_ACRONYMS = {"ap", "ar", "cpa", "bim", "cad", "vdc", "hr", "it", "ea", "cs",
+                "tms", "erp", "qa", "ehs", "hvac", "rn", "ops"}
+
+
+def _tm_role_plural(role: str) -> str:
+    """'Track and Trace Specialist' -> 'track and trace specialists'."""
+    words = [w.upper() if w.lower() in _TM_ACRONYMS else w.lower()
+             for w in str(role or "").split()]
+    if not words:
+        return "roles"
+    last = words[-1]
+    if last.isupper():
+        words[-1] = last + "s"
+    elif last.endswith("y") and last[-2:-1] not in "aeiou":
+        words[-1] = last[:-1] + "ies"
+    elif last.endswith(("s", "x", "ch", "sh")):
+        words[-1] = last if last.endswith("s") else last + "es"
+    else:
+        words[-1] = last + "s"
+    return " ".join(words)
+
+
+def _tm_industry_phrase(industry: str) -> str:
+    ind = " ".join(str(industry or "").replace("&", " and ").split())
+    if not ind:
+        return ""
+    return " ".join(w if w.isupper() and len(w) > 1 else w.lower()
+                    for w in ind.split())
+
+
+def _tm_track_record_line(role: str, industry: str) -> str:
+    ind = _tm_industry_phrase(industry)
+    return (f"I'm reaching out because I've recently placed "
+            f"{_TM_TRACK_RECORD_COUNT} {_tm_role_plural(role)}"
+            + (f" in {ind}" if ind else "")
+            + ", and I thought I could be a resource for you.")
+
+
+def _tm_track_record_rule(camp_type, role: str, industry: str) -> str:
+    if (camp_type or "").strip() not in _TM_TYPE_KEYS:
+        return ""
+    line = _tm_track_record_line(role, industry)
+    return (
+        "SENDER TRACK RECORD (approved by the sender; this one placement "
+        "figure is exempt from the proof rule's ban on placement numbers, "
+        "and no other number may be added to it):\n"
+        f"- The FIRST email opens, right after 'Hi {{FirstName}},', with this "
+        f"line, word for word: \"{line}\" Then ask: \"Have you ever "
+        "considered offshore staff augmentation?\" Then say what we do (the "
+        "offshore staff augmentation and plug-and-play lines above).\n"
+        f"- Exactly ONE later email (the second email is best) mentions it "
+        f"again in fresh words, keeping the figure {_TM_TRACK_RECORD_COUNT} "
+        "and the same role and industry. No other email uses the number.\n\n")
+
+
+def _tm_ensure_track_record(camp_type, campaign_data, role: str,
+                            industry: str) -> None:
+    """Backstop for _tm_track_record_rule: first email opens on the line, and
+    one follow-up repeats the figure. Adds only what the model left out."""
+    if (camp_type or "").strip() not in _TM_TYPE_KEYS:
+        return
+    emails = [e for e in (campaign_data or {}).get("emails", []) or []
+              if e.get("step_type") in (None, "", ST.EMAIL_AUTO)]
+    if not emails:
+        return
+
+    def _after_greeting(body, text):
+        m = re.match(r"(?is)\s*Hi \{FirstName\},?\s*(?:<br\s*/?>\s*)*", body)
+        cut = m.end() if m else 0
+        head = body[:cut] if m else "Hi {FirstName},<br><br>"
+        return head + text + " " + body[cut:].lstrip()
+
+    fig = _TM_TRACK_RECORD_COUNT
+    first = emails[0]
+    if fig not in _tm_scrub_line(first.get("body") or ""):
+        text = _tm_track_record_line(role, industry)
+        if "considered offshore staff augmentation" not in _tm_scrub_line(
+                first.get("body") or ""):
+            text += " Have you ever considered offshore staff augmentation?"
+        first["body"] = _after_greeting(first.get("body") or "", text)
+    if len(emails) > 1 and not any(fig in _tm_scrub_line(e.get("body") or "")
+                                   for e in emails[1:]):
+        ind = _tm_industry_phrase(industry)
+        emails[1]["body"] = _after_greeting(
+            emails[1].get("body") or "",
+            f"Having placed {fig} {_tm_role_plural(role)}"
+            + (f" in {ind}" if ind else "") + " recently, I see this come up "
+            "a lot.")
 
 
 def _tm_opener_rule(camp_type) -> str:
@@ -7285,6 +7379,7 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
            f'- Never place LinkedIn before any email step.\n'
            f'- Never include more than one LinkedIn step.\n\n') +
         _tm_opener_rule(camp_type) +
+        _tm_track_record_rule(camp_type, _first_role, ind_label or niche_str) +
         f'For LinkedIn steps, put the connection/DM message in the "body" field.\n'
         f'For Call steps, put the call script in the "body" field.\n'
         f'For Task steps, put the task instructions in the "body" field.\n\n'
@@ -7347,6 +7442,8 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
     _apply_fivebyfive_overrides(camp_type, campaign_data)
     _apply_fivebythree_overrides(camp_type, campaign_data)
     _apply_thrivemodal_overrides(camp_type, campaign_data)
+    _tm_ensure_track_record(camp_type, campaign_data, _first_role,
+                            ind_label or niche_str)
     if _tm_profiles:
         try:
             _tm_add_campaign_profiles(
