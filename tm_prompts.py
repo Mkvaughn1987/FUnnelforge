@@ -753,7 +753,7 @@ ROUTINES = [
     },
     {
         "key": "other",
-        "name": "Something else",
+        "name": "Create your own",
         "blurb": "Describe it in your own words and the prompt is built "
                  "around that, with the ThriveModal rules attached.",
         "example": "Go through my Stay on Their Radar campaigns and tell me which "
@@ -866,8 +866,8 @@ STARTERS = [
     {
         "id": "other",
         "icon": "edit_note",
-        "label": "Something else",
-        "sub": "Say it in your own words.",
+        "label": "Create your own",
+        "sub": "Describe exactly what you want, in your own words.",
         "summary": "",
         "routine": "other",
         "vals": {},
