@@ -9156,6 +9156,25 @@ async def api_tm_dnc_update(request: Request):
     return JSONResponse(res)
 
 
+# ── connector group A (2026-09-21) begin ──
+# ── connector group A end ──
+
+
+
+# ── connector group B (2026-09-21) begin ──
+# ── connector group B end ──
+
+
+
+# ── connector group C (2026-09-21) begin ──
+# ── connector group C end ──
+
+
+
+# ── connector group D (2026-09-21) begin ──
+# ── connector group D end ──
+
+
 @app.get("/api/v1/campaigns")
 async def api_campaigns_list(request: Request):
     """List the calling account's own campaigns (tenant-scoped, same as

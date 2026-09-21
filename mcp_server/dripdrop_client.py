@@ -386,3 +386,18 @@ class DripDropClient:
         if not body:
             return await self._tm_get("dnc", {"q": q})
         return await self._tm_post("dnc", body, timeout=120.0)
+
+    # ── connector group A (2026-09-21) begin ──
+    # ── connector group A end ──
+
+
+    # ── connector group B (2026-09-21) begin ──
+    # ── connector group B end ──
+
+
+    # ── connector group C (2026-09-21) begin ──
+    # ── connector group C end ──
+
+
+    # ── connector group D (2026-09-21) begin ──
+    # ── connector group D end ──
