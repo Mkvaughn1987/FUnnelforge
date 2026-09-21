@@ -43,6 +43,7 @@ def test_tm_outline_prompt_carries_the_playbook(monkeypatch):
     fa._custom_pdf_outline(None, "Offshore Savings Snapshot", "Company: Acme\n")
     assert "PLAYBOOK-X" in seen[0] and "Philippines-based" in seen[0]
     assert 'starts with "ThriveModal"' in seen[0]
+    assert "No 'paragraph' sections" in seen[0]
 
 
 def test_arena_outline_prompt_has_no_playbook(monkeypatch):
@@ -73,5 +74,16 @@ def test_tm_build_prefixes_the_title_and_holds_the_rules(monkeypatch, tmp_path):
                                  "desc here", "Company: Acme\n",
                                  tmp_path, tmp_path / "cfg.json")
     assert built["title"] == "ThriveModal Offshore Savings Snapshot"
-    assert fname.startswith("ThriveModal_")
+    assert fname.startswith("ThriveModal ")
     assert "THRIVEMODAL RULES" in seen[0] and "PLAYBOOK-X" in seen[0]
+    # the short-bullets rule comes last, after the style guide
+    assert seen[0].rstrip().endswith(fa._PDF_LENGTH_RULES.rstrip())
+
+
+def test_tm_rich_pdf_prompts_end_with_the_length_rules(monkeypatch):
+    monkeypatch.setattr(fa, "_is_thrivemodal", lambda cfg=None: True)
+    for kind in sorted(fa._TM_PDF_KINDS):
+        prompt = fa._rich_pdf_prompt(kind, {"company": "Acme",
+                                            "positions": "AP Specialist",
+                                            "location": "Houston, TX"})
+        assert prompt.rstrip().endswith(fa._PDF_LENGTH_RULES.rstrip()), kind
