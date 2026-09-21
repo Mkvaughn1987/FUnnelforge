@@ -39171,6 +39171,73 @@ def _tm_match_benchmark(role_text: str) -> str:
     return best
 
 
+def _tm_offshore_roles_prompt(company: str, website: str = "",
+                              industry: str = "") -> str:
+    """Prompt for Autofill on ThriveModal: research the company and name
+    the roles it would most likely fill with offshore staff augmentation.
+    The catalog is a guide, not a whitelist; titles come back short and
+    plain because emails pluralise them ("50+ Dispatchers")."""
+    catalog = "; ".join(b["label"] for b in _TM_ROLE_BENCHMARKS)
+    who = _wrap_untrusted("company", " ".join(
+        x for x in (company, f"({website})" if website else "",
+                    f"- {industry}" if industry else "") if x), max_chars=300)
+    return (
+        f"Company:\n{who}\n\n"
+        "Research what this company does and what it is hiring for "
+        "(its careers page and current job postings). Pick the 3 to 5 roles "
+        "it would most likely fill with offshore staff augmentation: remote, "
+        "computer-based back-office, operations, support, finance, admin, "
+        "marketing or technical work. Skip anything hands-on, on-site, "
+        "driving, warehouse or field work, and anything needing a U.S. "
+        "license. Rank best fit first, favoring roles they are hiring for "
+        "now or that their business clearly runs on. If you find no job "
+        "postings, infer the roles from what the business does: missing "
+        "postings are never a reason to return an error.\n"
+        f"Roles known to work well offshore: {catalog}.\n"
+        "Write each role as a short, standard job title of 2 to 4 words "
+        "(e.g. \"Dispatcher\", \"AP/AR Specialist\", \"Logistics "
+        "Coordinator\"). One role per title, no seniority "
+        "words, no parentheses.\n\n"
+        "Return ONLY valid JSON, no commentary, no markdown:\n"
+        '{"roles":["Best-fit role","Next role"]}'
+    )
+
+
+def _tm_research_offshore_roles(client, company: str, website: str = "",
+                                industry: str = "") -> list:
+    """Up to 5 offshore-suitable Target Positions for a company, best fit
+    first. Returns [] on any failure: the caller still has the company
+    details, and the field stays editable."""
+    import time as _t
+    t0 = _t.time()
+    try:
+        msg = _claude_create_with_retry(client,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1200,
+            tools=[_safe_web_search_tool(max_uses=3)],
+            system=_injection_guarded_system(
+                "You research companies for an offshore staff augmentation "
+                "firm and pick the roles each would staff offshore."),
+            messages=[{"role": "user", "content": _tm_offshore_roles_prompt(
+                company, website, industry)}])
+        text = "".join(b.text for b in msg.content if hasattr(b, "text"))
+        m = re.search(r'\{.*\}', text.replace("```json", "").replace("```", ""),
+                      re.DOTALL)
+        roles = json.loads(re.sub(r',(\s*[}\]])', r'\1', m.group())).get(
+            "roles") if m else None
+        out = []
+        for r in roles if isinstance(roles, list) else []:
+            r = str(r or "").strip()
+            if r and r.lower() not in (x.lower() for x in out):
+                out.append(r)
+        print(f"[TM-roles] company='{str(company)[:60]}' roles={out} "
+              f"took={_t.time() - t0:.1f}s", flush=True)
+        return out[:5]
+    except Exception as e:
+        print(f"[TM-roles] company='{str(company)[:60]}' failed: {e}", flush=True)
+        return []
+
+
 # Automatic worksheet (the Sales Assets default since 2026-09-18). The seller
 # supplies only Target Role and Location. The local salary is looked up on
 # the web with a cited source; burden, workspace and recruiting come from the
@@ -43925,13 +43992,18 @@ def _aicb_ai_extract(s, user_text: str, mode: str, rf):
                     '"industry":"one of the valid industries",'
                     '"location":"City, ST"}\n\n'
                     f"VALID INDUSTRIES: {', '.join(AICB_INDUSTRIES.keys())}\n\n"
-                    "If the company can't be identified, return {\"error\":\"not found\"}. "
+                    "A website domain always identifies the company: if search "
+                    "finds little, still return the name the domain implies, "
+                    "the domain itself, and your best reading of the rest "
+                    "(empty string for anything unknown). Return "
+                    "{\"error\":\"not found\"} only for a name you cannot match "
+                    "to any company. "
                     "No commentary, no markdown."
                 )
                 msg = _claude_create_with_retry(client,
                     model="claude-haiku-4-5-20251001",
-                    max_tokens=400,
-                    tools=[_safe_web_search_tool(max_uses=1)],
+                    max_tokens=600,
+                    tools=[_safe_web_search_tool(max_uses=2)],
                     system=_injection_guarded_system(
                         "You research companies for B2B recruiters and extract hiring-relevant data."),
                     messages=[{"role": "user", "content": prompt}])
@@ -43977,9 +44049,26 @@ def _aicb_ai_extract(s, user_text: str, mode: str, rf):
             except Exception:
                 # Tolerant retry: strip trailing commas
                 data = json.loads(re.sub(r',(\s*[}\]])', r'\1', m.group()))
+            _dom = user_text.strip().lower()
+            _dom = re.sub(r"^https?://", "", _dom).split("/")[0].removeprefix("www.")
+            if (data.get("error") and mode == "company"
+                    and re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}", _dom)):
+                # A domain is a real company even when the lookup comes back
+                # empty; keep it and let the user pick the industry.
+                data = {"website": _dom}
             if data.get("error"):
                 s._aicb_qs_err = f"Could not find that: {data['error']}"
                 return
+
+            # ThriveModal: a second call researches the company and picks
+            # the roles it would most likely fill with offshore staff
+            # augmentation, so Target Positions arrives filled in. Kept
+            # separate from the lookup above so a failed role search never
+            # costs the user the company details.
+            if mode == "company" and not data.get("roles") and _tm_nationwide():
+                data["roles"] = _tm_research_offshore_roles(
+                    client, data.get("company") or user_text,
+                    data.get("website") or "", data.get("industry") or "")
 
             _aicb_apply_extracted(s, data)
             # Stash brief data (company summary + open jobs) for the live brief panel
@@ -46459,6 +46548,9 @@ def p_ai_campaign(s: AppState, rf):
                                         "display:flex;align-items:center;gap:8px;"):
                                     ui.spinner("dots", size="sm")
                                     ui.label(
+                                        "Researching the company — finding "
+                                        "industry and the best offshore roles…"
+                                        if _tm_nationwide() else
                                         "Looking up the company — finding "
                                         "industry and locations…"
                                     ).style(f"font-size:12px;color:{C['muted']};")
@@ -46497,7 +46589,8 @@ def p_ai_campaign(s: AppState, rf):
                                     ui.label(
                                         "Paste the company's website above, then "
                                         "click Autofill to populate industry and "
-                                        "locations."
+                                        + ("the best offshore target positions."
+                                           if _tm_nationwide() else "locations.")
                                     ).style(
                                         f"font-size:11px;color:{C['muted']};"
                                         f"margin-top:6px;display:block;line-height:1.4;")
