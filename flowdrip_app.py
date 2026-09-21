@@ -39544,7 +39544,7 @@ def _tm_auto_cost_pdf_data(company: str, role: str, location: str,
             f"Base salary is the {lookup['basis']} for "
             f"{lookup.get('occupation') or role}"
             + (f" in {lookup['area']}" if lookup.get("area") else "")
-            + f", from {lookup.get('source') or 'the source listed below'}.")
+            + f", from {lookup.get('source') or 'BLS'}.")
     elif bench:
         base = float(bench["base"])
         salary_note = (
@@ -39583,12 +39583,6 @@ def _tm_auto_cost_pdf_data(company: str, role: str, location: str,
         if row[0] == "ThriveModal monthly rate":
             row[0] = f"ThriveModal (estimated {pct} saving)"
 
-    sources = []
-    if lookup:
-        sources.append(f"Local salary: {lookup.get('source') or 'source'}: "
-                       f"{lookup['url']}")
-    sources += [f"{lbl}: {url}" for lbl, url in _TM_BENCH_SOURCES]
-
     where = f" in {location}" if location else ""
     howto = [
         f"Figures cover one {role}{where} over 12 months, in U.S. dollars.",
@@ -39605,20 +39599,54 @@ def _tm_auto_cost_pdf_data(company: str, role: str, location: str,
     return {
         "title": f"Staffing Cost Comparison - {company}",
         "badge": "STAFFING COST COMPARISON",
-        "intro": (f"What one {role}{where} costs {company} in-house for a "
-                  f"year, next to the estimated cost of the same role through "
-                  f"ThriveModal: about {_tm_money(ws['difference'])} "
-                  f"({pct}) less."),
+        "intro": (f"{_TM_COST_SNAPSHOT} What one {role}{where} costs "
+                  f"{company} in-house for a year, next to the estimated cost "
+                  f"of the same role with us: about "
+                  f"{_tm_money(ws['difference'])} ({pct}) less."),
         "sections": [
             {"heading": "Cost Comparison", "type": "table", "items": ws["rows"]},
+            *_tm_cost_extra_sections(),
             {"heading": "How This Was Calculated", "type": "bullets",
              "items": howto},
-            {"heading": "Sources", "type": "bullets", "items": sources},
         ],
         "cta": ("Send us your actual salary and benefits figures and we will "
                 "rerun this with your numbers."),
         "_worksheet": ws,
     }
+
+
+# Mike, 2026-09-21: no Sources list on the page; open with a snapshot line
+# and fill the page with what customers see and what the rate covers. Every
+# line below is copied from _TM_DEF_PROOF / _TM_DEF_PRICING (approved terms,
+# one customer quote word for word), so nothing new is claimed.
+_TM_COST_SNAPSHOT = ("Here's a snapshot of how we can help, and what our "
+                     "current customers are seeing.")
+
+
+def _tm_cost_extra_sections() -> list:
+    return [
+        {"heading": "What Our Customers Are Seeing", "type": "paragraph",
+         "items": ['"The team Thrivemodal placed with us has been a strong '
+                   "fit. We've seen good attendance, strong performance, and "
+                   "people who take ownership of their work. That consistency "
+                   "allows our leadership team to focus on strategy, "
+                   "customers, and relationships instead of constantly having "
+                   'to fill staffing gaps." - Kristy Knichel, CEO and '
+                   "President, Knichel Logistics"]},
+        {"heading": "What You Get With Us", "type": "bullets", "items": [
+            "One all-inclusive monthly rate per dedicated professional, "
+            "invoiced bi-weekly: compensation, benefits, HR, compliance, "
+            "payroll administration and ThriveCore support. We are the "
+            "employer of record; you manage the work, not the employment.",
+            "You choose the person from a shortlist of three or more vetted "
+            "candidates with video pre-screens. A typical start is about ten "
+            "days from your decision, with workstation and IT set up before "
+            "day one.",
+            "No upfront or placement fees, month-to-month terms, no "
+            "cancellation fee, and a lifetime free replacement if the person "
+            "does not work out.",
+        ]},
+    ]
 
 
 # The roles each vertical is sold on (the playbook's "Roles:" lists), in the
@@ -39729,58 +39757,40 @@ def _tm_multi_cost_pdf_data(client, company: str, role: str, location: str,
     if n > 1:
         rows.append([f"All {n} roles", "", _tm_money(tot_dom),
                      _tm_money(tot_tm), _tm_money(tot_dom - tot_tm)])
-    # One sentence naming where each base salary comes from, grouped by
-    # area so a metro shared by every role is said once.
-    by_area = {}
-    for p in priced:
-        by_area.setdefault(p["area"], []).append(
-            f"{p['role']} as {p['occupation']}")
-    salary_note = "Base salary is the BLS median for the closest occupation: " + (
-        "; ".join(f"{', '.join(v)} ({a})" for a, v in by_area.items()) + ".")
+    # Where the base salaries come from, each area said once. The
+    # role-to-occupation mapping stays off the page (it filled a second one).
+    areas = list(dict.fromkeys(p["area"] for p in priced))
+    salary_note = ("Base salary is the BLS median wage for each role's closest "
+                   "occupation (" + "; ".join(areas) + ").")
     where = (f" in {location}" if location
              and not _is_nationwide(location) else "")
     # A market campaign's subject is an industry, not a buyer.
     _mkt = str(industry or company)
     who = (f"{'an' if _mkt[:1].lower() in 'aeiou' else 'a'} {_mkt} business"
            if market_only else company)
-    whose = "your" if market_only else f"{company}'s"
     howto = [
         f"Each in-house figure is one full-time person{where} for 12 months, "
         f"in U.S. dollars: base salary, plus payroll taxes and benefits at "
-        f"{_TM_BENCH_BURDEN_PCT:.0f}% of wages (BLS), plus US-average "
+        f"{_TM_BENCH_BURDEN_PCT:.0f}% of wages, plus US-average "
         f"workspace ({_tm_money(_TM_BENCH_OVERHEAD)}) and recruiting "
-        f"({_tm_money(_TM_BENCH_HIRING)}).",
-        salary_note,
-        f"Our column is an estimate, {pct} below the in-house total (the "
-        f"middle of our published range of up to 60-70%, fully burdened); we "
-        f"confirm your quote separately. None of these are {whose} own "
-        f"payroll figures, so swap in yours for an exact comparison.",
+        f"({_tm_money(_TM_BENCH_HIRING)}). " + salary_note,
+        f"Our column is an estimate, {pct} below the in-house total, within "
+        f"our published range of up to 60-70% fully burdened. We confirm your "
+        f"quote separately. Swap in your own payroll figures for an exact "
+        f"comparison.",
     ]
-    # One line per distinct page; the Philippine rate cards only back the
-    # benchmark rate column, which this page does not use.
-    sources = list(dict.fromkeys(p["source"] for p in priced if p["source"]))
-    # "US median wages" backs only the national fallback.
-    national = any(not p["source"] for p in priced)
-    # Figures in brackets are already stated under How This Was Calculated.
-    sources += [f"{re.sub(r' *[(][^)]*[)]', '', lbl)}: {url}"
-                for lbl, url in _TM_BENCH_SOURCES
-                if not lbl.startswith("Philippine")
-                and (national or not lbl.startswith("US median"))]
     lead = ("Five roles" if n == 5 else f"{n} roles" if n > 1 else "One role")
     return {
         "title": f"Staffing Cost Comparison - {company}",
         "badge": "STAFFING COST COMPARISON",
-        "intro": (f"{lead} {who} would typically hire for, what each costs "
-                  f"in-house{where} for a year, and the estimated cost of the "
-                  f"same role with us. Across "
-                  + ("all of them" if n > 1 else "it")
-                  + f" that is about {_tm_money(tot_dom - tot_tm)} a year "
-                  f"({pct}) less."),
+        "intro": (f"{_TM_COST_SNAPSHOT} {lead} {who} would typically "
+                  f"hire for, in-house{where} versus with us: about "
+                  f"{_tm_money(tot_dom - tot_tm)} a year ({pct}) less."),
         "sections": [
             {"heading": "Cost Comparison by Role", "type": "table", "items": rows},
+            *_tm_cost_extra_sections(),
             {"heading": "How This Was Calculated", "type": "bullets",
              "items": howto},
-            {"heading": "Sources", "type": "bullets", "items": sources},
         ],
         "cta": ("Tell us which of these roles matters most and send your "
                 "actual salary figures. We'll rerun it with your numbers."),
@@ -40016,7 +40026,7 @@ def _tm_cost_pdf_data(company: str, inputs: dict, seats: int = 1,
             + f". Base salary is the US median wage for {bench['occupation']}"
             f" (BLS, {_TM_BENCH_AS_OF}); payroll taxes and benefits are "
             f"{_TM_BENCH_BURDEN_PCT:.0f}% of wages (BLS Employer Costs for "
-            f"Employee Compensation). Sources are listed at the end.")
+            f"Employee Compensation).")
         assumptions.append(
             "Replace any benchmark line with your own figure for an exact "
             "comparison.")
@@ -40052,11 +40062,6 @@ def _tm_cost_pdf_data(company: str, inputs: dict, seats: int = 1,
                          "monthly rate on our next call, so there are no "
                          "surprises.")},
     ]
-
-    if bkeys:
-        sections.append({
-            "heading": "Benchmark Sources", "type": "bullets",
-            "items": [f"{lbl}: {url}" for lbl, url in _TM_BENCH_SOURCES]})
 
     if ws["complete"]:
         _dom_src = ("uses published US market benchmarks" if dom_bench
@@ -40137,6 +40142,11 @@ def _tm_scrub_internal(val):
     return val
 
 
+# No ThriveModal PDF carries a sources list (Mike, 2026-09-21).
+_TM_SOURCES_HEADING_RE = re.compile(
+    r"^(?:benchmark |data )?(?:sources?|references|citations)\b", re.I)
+
+
 def _tm_fix_pdf_labels(kind: str, ctx: dict, data: dict) -> None:
     """Fixed title and badge for a model-written ThriveModal PDF (the model
     invented both: "White City Construction Offshore Role Blueprint",
@@ -40150,6 +40160,9 @@ def _tm_fix_pdf_labels(kind: str, ctx: dict, data: dict) -> None:
     for key in ("intro", "cta", "sections"):
         if key in data:
             data[key] = _tm_scrub_internal(data[key])
+    data["sections"] = [s for s in data.get("sections") or []
+                        if not _TM_SOURCES_HEADING_RE.match(
+                            str((s or {}).get("heading") or "").strip())]
 
 
 def _tm_rich_rules(cfg: dict = None) -> str:
@@ -49976,7 +49989,7 @@ def p_pdf_gen(s: AppState, rf):
                 "Nothing else to fill in. We look up the salary for the Target "
                 "Role in this Location, add standard benefits, workspace and "
                 "recruiting costs, and show ThriveModal at a "
-                f"{_TM_AUTO_SAVINGS:.0%} saving. Sources print on the PDF."
+                f"{_TM_AUTO_SAVINGS:.0%} saving."
             ).style(f"font-size:11px;color:{C['muted']};line-height:1.6;"
                     f"margin-bottom:6px;")
 

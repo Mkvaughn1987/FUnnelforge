@@ -105,7 +105,9 @@ def test_cost_comparison_names_five_roles_lead_role_first(monkeypatch):
     assert money(rows[-1][2]) == sum(money(r[2]) for r in rows[1:-1])
     assert money(rows[-1][4]) == money(rows[-1][2]) - money(rows[-1][3])
     assert d["badge"] == "STAFFING COST COMPARISON" and d["_worksheet"]
-    assert not any("Philippine" in s for s in d["sections"][2]["items"])
+    how = next(s for s in d["sections"] if s["heading"] == "How This Was Calculated")
+    assert not any("Philippine" in i for i in how["items"])
+    assert "Sources" not in [s["heading"] for s in d["sections"]]
 
 
 def test_cost_comparison_skips_duplicate_occupations(monkeypatch):
@@ -143,6 +145,7 @@ def test_market_campaign_reads_as_a_business_not_a_buyer(monkeypatch):
     d = fa._tm_multi_cost_pdf_data(None, "Accounting & Finance", "CPA",
                                    "United States", "Accounting & Finance",
                                    market_only=True)
-    assert d["intro"].startswith("Five roles an Accounting & Finance business")
+    assert d["intro"].startswith(fa._TM_COST_SNAPSHOT
+                                 + " Five roles an Accounting & Finance business")
     assert "in United States" not in d["intro"]
     assert "Accounting & Finance's" not in json.dumps(d)

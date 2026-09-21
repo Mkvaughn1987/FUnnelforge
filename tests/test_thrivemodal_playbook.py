@@ -990,7 +990,7 @@ def test_role_text_matches_only_known_positions():
     assert fa._tm_match_benchmark("") == ""
 
 
-def test_benchmark_pdf_labels_lines_and_lists_sources():
+def test_benchmark_pdf_labels_lines_without_a_sources_list():
     vals = fa._tm_benchmark_inputs("bookkeeper")
     data = fa._tm_cost_pdf_data("Acme", vals, benchmark_role="bookkeeper",
                                 cfg={"workspace_playbook": fa.PLAYBOOK_THRIVEMODAL})
@@ -999,7 +999,7 @@ def test_benchmark_pdf_labels_lines_and_lists_sources():
     labelled = [r[0] for r in table["items"][1:-1]]
     assert all(l.endswith("(benchmark)") for l in labelled), labelled
     headings = [s["heading"] for s in data["sections"]]
-    assert "Benchmark Sources" in headings
+    assert "Benchmark Sources" not in headings
     howto = " ".join(next(s for s in data["sections"]
                           if s["heading"] == "How to Read This Worksheet")["items"])
     assert "not our quote" in howto
@@ -1061,8 +1061,10 @@ def test_auto_worksheet_is_a_flat_65_percent_saving():
     assert abs(ws["tm_total"] - round(ws["domestic_total"] * 0.35, -2)) < 1
     assert abs(ws["difference"] / ws["domestic_total"] - 0.65) < 0.01
     assert d["badge"] == "STAFFING COST COMPARISON"
-    src = next(s for s in d["sections"] if s["heading"] == "Sources")
-    assert any(_LOOKUP["url"] in i for i in src["items"])
+    headings = [s["heading"] for s in d["sections"]]
+    assert "Sources" not in headings
+    assert "What Our Customers Are Seeing" in headings
+    assert d["intro"].startswith("Here's a snapshot of how we can help")
     how = " ".join(next(s for s in d["sections"]
                         if s["heading"] == "How This Was Calculated")["items"])
     assert "Houston metro, TX" in how and "estimate" in how
@@ -1072,7 +1074,8 @@ def test_auto_worksheet_is_a_flat_65_percent_saving():
 def test_auto_worksheet_falls_back_to_national_median():
     d = fa._tm_auto_cost_pdf_data("Acme", "Bookkeeper", "Nowhere, ZZ", None)
     assert d["_worksheet"]["domestic_total"] == 50500 + 21700 + 6000 + 5475
-    how = " ".join(d["sections"][1]["items"])
+    how = " ".join(next(s for s in d["sections"]
+                        if s["heading"] == "How This Was Calculated")["items"])
     assert "national median" in how
 
 
@@ -1120,4 +1123,24 @@ def test_bls_salary_falls_back_metro_to_state(monkeypatch):
     assert r["salary"] == 49000.0 and r["area"] == "Texas"
     assert r["url"].endswith("oes_tx.htm")
     d = fa._tm_auto_cost_pdf_data("Acme", "Bookkeeper", "Houston, TX", r)
-    assert "Texas" in " ".join(d["sections"][1]["items"])
+    how = next(s for s in d["sections"] if s["heading"] == "How This Was Calculated")
+    assert "Texas" in " ".join(how["items"])
+
+
+def test_tm_pdfs_never_carry_a_sources_section():
+    data = {"title": "x", "sections": [
+        {"heading": "Sources", "type": "bullets", "items": ["a"]},
+        {"heading": "References", "type": "bullets", "items": ["b"]},
+        {"heading": "Benchmark Sources", "type": "bullets", "items": ["c"]},
+        {"heading": "Your Role", "type": "bullets", "items": ["d"]}]}
+    fa._tm_fix_pdf_labels("tm_role_blueprint", {"company": "Acme"}, data)
+    assert [s["heading"] for s in data["sections"]] == ["Your Role"]
+
+
+def test_cost_extras_only_repeat_approved_playbook_lines():
+    secs = fa._tm_cost_extra_sections()
+    quote = secs[0]["items"][0]
+    assert "That consistency allows our leadership team" in quote
+    assert quote.split('" - ')[0].strip('"') in fa._TM_DEF_PROOF.replace("\n", " ")
+    for b in secs[1]["items"]:
+        assert not any(ch.isdigit() for ch in b), b
