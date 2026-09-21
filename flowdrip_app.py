@@ -5663,16 +5663,17 @@ AICB_CAMPAIGN_TYPES = [
      "have a job description you could use as a starting point.\n"
      "Step 10 - Follow-up Call 3 (delay_days:0, step_type:call) - SAME DAY as "
      "Step 9. Direct script: is there one role worth pricing out, yes or no. "
-     "Voicemail line under 20 seconds saying one more email is coming and then "
-     "you will stop.\n"
+     "Voicemail line under 20 seconds saying one more email is coming, then "
+     "a monthly check-in.\n"
      "Step 11 - Close the loop (delay_days:5, step_type:email_auto) - "
      "Subject in the shape 'Should I close the loop?'. Short and warm, no "
      "guilt, no urgency. Say plainly that this is the last note. One line on "
      "what the sender can help with if adding capacity becomes a priority. "
      "Then three options as a short list for them to pick from: they have a "
      "role in mind, it is something for later, it is not a priority. Say a "
-     "quick reply is plenty. Do NOT offer, promise or imply a newsletter, a "
-     "mailing list or any ongoing sends."),
+     "quick reply is plenty. Say that you will still check in about once a "
+     "month with a short personal note; never call it a newsletter or a "
+     "list."),
     ("tm_hiring_signal", "They're Hiring", "6 steps - 3 weeks", "#F97316",
      "They just posted a role, announced growth or opened a location. Reaches "
      "them while the need is live, with offshore support framed against the "
@@ -5712,7 +5713,8 @@ AICB_CAMPAIGN_TYPES = [
      "already wrote for the posting.\n"
      "Step 6 - Close the loop (delay_days:5, step_type:email_auto) - "
      "Short. Acknowledge the search may already be closed, leave the door open "
-     "for the next one, stop. No newsletter, no ongoing-send promise."),
+     "for the next one, and say you will check in about once a month. No "
+     "newsletter or list wording."),
     ("tm_meeting_followup", "After the Call", "6 steps - 3 weeks", "#8B5CF6",
      "For a prospect you have ACTUALLY spoken with. Recaps what was discussed, "
      "confirms the role shape, covers what happens once they choose someone, "
@@ -5783,7 +5785,8 @@ AICB_CAMPAIGN_TYPES = [
      "One question CTA: would one role be worth testing.\n"
      "Step 6 - Timing check (delay_days:7, step_type:email_auto) - "
      "Ask plainly whether this is a this-year or a next-year problem and say "
-     "either answer is useful. Close the loop if the answer is neither."),
+     "either answer is useful. Say this closes out the series and you will "
+     "check in about once a month."),
     ("tm_stay_in_touch", "Stay on Their Radar", "6 steps - 12 weeks", "#60A5FA",
      "For prospects who fit but are not ready, or who never replied. One "
      "useful touch every two to three weeks, each from a different angle - "
@@ -5822,8 +5825,9 @@ AICB_CAMPAIGN_TYPES = [
      "allows, adding no number, figure or date to it; if that field approves "
      "nothing, cite no customer at all. One soft question.\n"
      "Step 6 - Door open (delay_days:14, step_type:email_auto) - "
-     "Short, warm, and explicitly the last scheduled note. Do NOT promise a "
-     "newsletter or any further automatic sends."),
+     "Short, warm, and explicitly the last scheduled note. Say you will "
+     "still check in about once a month with a short personal note; never "
+     "call it a newsletter or a list."),
     ("tm_grow_client", "Grow an Existing Client", "6 steps - 4 weeks", "#10B981",
      "For companies already working with you. Focused on adding a seat or a "
      "second function, not on re-selling the company. Prices the next seat and "
@@ -5916,8 +5920,8 @@ AICB_CAMPAIGN_TYPES = [
      "Step 8 - Close the loop (delay_days:5, step_type:email_auto) - "
      "Short and warm, no guilt. Say plainly this is the last note. Three "
      "options to pick from: they have a role in mind, it is something for "
-     "later, it is not a priority. Do NOT offer a newsletter, a mailing list "
-     "or any ongoing sends."),
+     "later, it is not a priority. Say you will still check in about once a "
+     "month; never call it a newsletter or a list."),
     ("tm_threebythree", "Quick Intro", "3 steps - 2 weeks", "#EF4444",
      "Three short, direct emails over about a week and a half, email only. "
      "Names the work, makes the case, then asks for a straight answer. For "
@@ -5937,8 +5941,8 @@ AICB_CAMPAIGN_TYPES = [
      "words them. CTA: offer to price one named role.\n"
      "Step 3 - Straight answer (delay_days:4, step_type:email_auto) - UNDER 60 "
      "words. The last note, said plainly. Ask for a one-word reply: 'now', "
-     "'later' or 'no'. Any answer is useful. No newsletter, no ongoing-send "
-     "promise, no guilt."),
+     "'later' or 'no'. Any answer is useful. Say you will check in about "
+     "once a month. No newsletter wording, no guilt."),
     ("tm_fivethreeli", "5 Emails, 3 Calls + LinkedIn", "9 steps - 3 weeks", "#8B5CF6",
      "The full multichannel push: five emails, three calls and a LinkedIn "
      "connect over three weeks. Every call follows an email on the same "
@@ -5976,10 +5980,11 @@ AICB_CAMPAIGN_TYPES = [
      "terms field. CTA: ask for a job description to start from.\n"
      "Step 8 - Call 3 (delay_days:2, step_type:call) - Last call. Direct "
      "script: is there one role worth pricing out, yes or no. Voicemail line "
-     "saying one more email is coming and then you will stop.\n"
+     "saying one more email is coming, then a monthly check-in.\n"
      "Step 9 - Close the loop (delay_days:3, step_type:email_auto) - Short and "
      "warm, plainly the last note. Three options to pick from: a role in "
-     "mind, later, not a priority. No newsletter, no ongoing-send promise."),
+     "mind, later, not a priority. Say you will still check in about once a "
+     "month; no newsletter or list wording."),
     # The Arena Team West 12-week BD program (15 touchpoints), rewritten for
     # ThriveModal: the "market pulse" becomes a capacity-and-cost snapshot,
     # the candidate snapshot becomes the kind of professional ThriveModal
@@ -6058,10 +6063,10 @@ AICB_CAMPAIGN_TYPES = [
      "roles would transfer, what it would cost, and how the client "
      "interviews and chooses. Offer two days as options.\n"
      "Step 14 - Close the loop (delay_days:5, step_type:email_auto) - "
-     "Week 12. Short and warm. If adding capacity is not a priority, ask "
-     "them to reply 'pause' and say you will stop. If it is, ask them to "
-     "reply 'send' for a one-page breakdown of one role. No newsletter, no "
-     "ongoing-send promise.\n"
+     "Week 12. Short and warm. Say this closes out the series and you will "
+     "check in about once a month. If it is a priority now, ask them to "
+     "reply 'send' for a one-page breakdown of one role. No newsletter or "
+     "list wording.\n"
      "Step 15 - Final call + referral ask (delay_days:1, step_type:call) - "
      "Week 12. Script: if they are not the right person, who is the best "
      "contact for adding team capacity? Voicemail under 20 seconds with the "
@@ -7154,7 +7159,17 @@ _TM_EMAIL_OPENER_RULE = (
     "repeating the whole explanation, but still restate the question and "
     "the saving in a fresh way.\n"
     "- Keep the opener to about three sentences, then carry on with that "
-    "step's own point and its one CTA.\n\n"
+    "step's own point and its one CTA.\n"
+    "- SAY WHAT YOU DO, UP FRONT. The FIRST email states in the first person, "
+    "within its first two sentences, that we do offshore staffing, using "
+    "those exact words (for example 'I do offshore staffing: we place "
+    "dedicated professionals from the Philippines on U.S. teams'). Every "
+    "later email also says 'offshore staffing' in its first two sentences, "
+    "worded fresh, so a reader who opens only one email knows what we do.\n"
+    "- THE LAST EMAIL of the campaign says plainly that you are closing this "
+    "series out, and that you will still keep in touch about once a month "
+    "with a short personal note. Never call it a newsletter, a list or a "
+    "subscription. This overrides any step line about stopping.\n\n"
 )
 
 
@@ -12668,7 +12683,46 @@ def _apply_thrivemodal_overrides(camp_type, campaign_data):
             em["step_type"] = st
         has_att = bool(em.get("attachments"))
         em["body"] = _tm_drop_unbacked_lines(em.get("body") or "", has_att)
+    _tm_ensure_offshore_and_monthly(campaign_data)
     return campaign_data
+
+
+# Mike, 2026-09-21: every campaign says up front that we do offshore
+# staffing, and the last email promises a monthly check-in. The prompt asks
+# for both; these lines go in only when the model left them out.
+_TM_OFFSHORE_LINE = ("Quick background on me: I do offshore staffing, placing "
+                     "dedicated professionals from the Philippines on U.S. "
+                     "teams.")
+_TM_MONTHLY_LINE = ("I'll close this series out here, but I'll still check in "
+                    "about once a month in case timing changes.")
+_TM_WE_DO_OFFSHORE_RE = re.compile(
+    r"\b(?:i|we|i'm|we're|i am|we are)\b[^.?!]{0,80}\boffshore staffing\b", re.I)
+# "monthly rate" and "monthly check-ins" (ThriveCore) are not a promise.
+_TM_MONTHLY_RE = re.compile(
+    r"once a month|every month|(?:touch|check in|check-in) monthly", re.I)
+
+
+def _tm_ensure_offshore_and_monthly(campaign_data) -> None:
+    emails = [e for e in (campaign_data or {}).get("emails", []) or []
+              if e.get("step_type") in (None, "", ST.EMAIL_AUTO)]
+    if not emails:
+        return
+    first, last = emails[0], emails[-1]
+    body = first.get("body") or ""
+    # "Have you considered offshore staffing?" does not say we do it: need a
+    # first-person line saying so in the opening three sentences.
+    opening = " ".join(re.split(r"(?<=[.!?])\s+",
+                                re.sub(r"\s+", " ", _tm_scrub_line(body)))[:4])
+    if not _TM_WE_DO_OFFSHORE_RE.search(opening):
+        m = re.match(r"(?is)\s*Hi \{FirstName\},?\s*(?:<br\s*/?>\s*)*", body)
+        cut = m.end() if m else 0
+        head = body[:cut] if m else "Hi {FirstName},<br><br>"
+        first["body"] = head + _TM_OFFSHORE_LINE + " " + body[cut:].lstrip()
+    body = last.get("body") or ""
+    # "month-to-month terms" is not a check-in promise.
+    text = _tm_scrub_line(body).replace("month-to-month", "")
+    if not _TM_MONTHLY_RE.search(text):
+        last["body"] = body.rstrip() + "<br><br>" + _TM_MONTHLY_LINE
 
 
 def _resume_attach_indices(camp_type, n_emails):
