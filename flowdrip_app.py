@@ -7378,13 +7378,14 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
 def generate_aicb_campaign(client, *, camp_type, company="", website="",
                            niche="", industry="", roles=None, location="",
                            cand_block="", candidate_cards=None, byos_desc="",
-                           ai_profiles=None):
+                           ai_profiles=None, brief_prefix=""):
     """Headless AICB campaign generation — research then build — used by the
     API (and exercised in tests). Returns campaign_data with the brief stashed
     under "_brief". Raises RuntimeError on empty research / unparseable JSON.
 
     Candidate highlights: pass a pre-built `cand_block` OR `candidate_cards`
-    (the latter is formatted into the block)."""
+    (the latter is formatted into the block). `brief_prefix` goes in front of
+    the brief the build sees, as the wizard puts _tm_followon_note there."""
     brief = _aicb_research_brief(
         client, camp_type=camp_type, company=company, website=website,
         niche=niche, industry=industry, roles=roles, location=location)
@@ -7392,7 +7393,8 @@ def generate_aicb_campaign(client, *, camp_type, company="", website="",
     if not cand_block and candidate_cards:
         cand_block = _format_candidate_block(candidate_cards, camp_type)
     campaign_data = _aicb_build_campaign_from_brief(
-        client, brief=brief, camp_type=camp_type, company=company,
+        client, brief=(brief_prefix or "") + brief, camp_type=camp_type,
+        company=company,
         niche=niche, industry=industry, roles=roles, location=location,
         cand_block=cand_block, byos_desc=byos_desc, ai_profiles=ai_profiles)
     campaign_data["_brief"] = brief
@@ -7716,9 +7718,15 @@ def _api_create_campaign_blocking(client, spec, owner):
         tm_pdfs = {"kinds": _kinds, "pins": _pins, "build": _build_pdfs,
                    "future": _pool.submit(_build_pdfs, _first) if _first else None}
         _pool.shutdown(wait=False)
+    # Stay on Their Radar started from a finished campaign: the build is told
+    # these people already got that sequence (the wizard does the same).
+    _gen_extra = {}
+    if (spec.get("followon_from") or "").strip():
+        _gen_extra["brief_prefix"] = _tm_followon_note(spec["followon_from"].strip())
     try:
         campaign_data = generate_aicb_campaign(
             client,
+            **_gen_extra,
             camp_type=template,
             company=(spec.get("company") or "").strip(),
             website=(spec.get("website") or "").strip(),
@@ -8482,10 +8490,16 @@ async def api_tm_campaign_contacts(request: Request):
 
 @app.post("/api/v1/tm/campaigns/action")
 async def api_tm_campaign_action(request: Request):
-    """Body: {"campaign_id", "action": cancel|resume|retry_failed|delete,
-    "confirm": true for delete}. Cancel stops every pending email; resume
-    re-queues what has not been sent (nothing already sent goes twice);
-    delete removes the campaign and cancels its pending emails."""
+    """Body: {"campaign_id", "action": cancel|resume|retry_failed|delete|
+    duplicate|launch|followon|graduate_responders, "confirm": true for
+    delete and launch}. Cancel stops every pending email; resume re-queues
+    what has not been sent (nothing already sent goes twice); delete removes
+    the campaign and cancels its pending emails. duplicate copies it without
+    contacts (the campaign page's Duplicate); launch queues a saved draft
+    ("start_date", optional "name", "contacts"/"list", "active_clients":
+    skip|send_all, "enroll_newsletter"); followon writes a Stay on Their
+    Radar draft for a finished campaign's non-repliers; graduate_responders
+    enrols its repliers ("email" for just one) into "newsletter_id"."""
     from starlette.responses import JSONResponse
 
     owner = _tm_api_owner(request)
@@ -8532,9 +8546,32 @@ async def api_tm_campaign_action(request: Request):
                                 status_code=400)
         delete_campaign(camp.get("_path", ""))
         res = {"deleted": True}
+    elif action == "duplicate":
+        new = duplicate_campaign(camp)
+        res = {"duplicate": {
+            "campaign_id": Path(new.get("_path", "")).stem or new.get("name", ""),
+            "name": new.get("name", ""), "contacts": 0,
+            "steps": len(new.get("emails") or [])},
+            "next": ("The copy has no contacts and has not launched. Edit it "
+                     "with tm_campaign_edit, then launch it with action="
+                     "'launch'.")}
+    elif action in ("launch", "followon", "graduate_responders"):
+        handler = {"launch": _tm_action_launch, "followon": _tm_action_followon,
+                   "graduate_responders": _tm_action_graduate}[action]
+        try:
+            res = await handler(camp, body, owner)
+        except Exception as ex:
+            import traceback
+            traceback.print_exc()
+            return JSONResponse({"error": str(ex)}, status_code=500)
+        if not isinstance(res, dict):  # a refusal, already a response
+            return res
+        res.setdefault("campaign_id", Path(camp.get("_path", "")).stem or name)
+        name = camp.get("name", "") or name  # launch may rename it
     else:
         return JSONResponse({"error": "action must be cancel, resume, "
-                             "retry_failed or delete"}, status_code=400)
+                             "retry_failed, delete, duplicate, launch, "
+                             "followon or graduate_responders"}, status_code=400)
     _cache_campaigns.invalidate()
     _invalidate_queue_cache()
     res["campaign"] = name
@@ -9157,6 +9194,765 @@ async def api_tm_dnc_update(request: Request):
 
 
 # ── connector group A (2026-09-21) begin ──
+# Campaign editing: the campaign editor page (_sq_loaded_campaign) and the
+# campaign manager's Duplicate / Launch / Stay on Their Radar / Graduate
+# buttons. Same door as every /api/v1/tm route (owner from the key, then the
+# ThriveModal gate) and the same helpers the page calls.
+
+_TM_EDIT_STEP_TYPES = {  # what a caller says -> the app's step_type
+    "email": ST.EMAIL_AUTO, "call": ST.CALL, "linkedin": ST.LINKEDIN,
+    "task": ST.TASK, "sms": ST.SMS,
+}
+_TM_EDIT_STEP_LABEL = {ST.EMAIL_AUTO: "Email", ST.EMAIL_MANUAL: "Email",
+                       ST.CALL: "Call", ST.LINKEDIN: "LinkedIn",
+                       ST.SMS: "SMS", ST.TASK: "Task"}
+_TM_EDIT_CHANNEL = {ST.EMAIL_AUTO: "email", ST.EMAIL_MANUAL: "email",
+                    ST.CALL: "call", ST.LINKEDIN: "li", ST.SMS: "sms",
+                    ST.TASK: "task"}
+_TM_EDIT_ACTIONS = ("update_step", "add_step", "delete_step", "move_step",
+                    "rename", "ai_rewrite", "remember_style",
+                    "remove_attachment")
+
+
+def _tm_is_email_step(st) -> bool:
+    return (st.get("step_type") or "") in (ST.EMAIL_AUTO, ST.EMAIL_MANUAL, "")
+
+
+def _tm_renumber_steps(steps):
+    """Name steps by type and position, as the editor's tab bar does
+    ("Email 1", "Call 1", "Email 2"), and restamp touch_number."""
+    counts: dict = {}
+    for j, st in enumerate(steps):
+        label = _TM_EDIT_STEP_LABEL.get(st.get("step_type") or ST.EMAIL_AUTO, "Email")
+        counts[label] = counts.get(label, 0) + 1
+        st["name"] = f"{label} {counts[label]}"
+        st["touch_number"] = j + 1
+
+
+def _tm_strip_first_step_attachments(steps) -> list:
+    """The editor never lets the first email carry attachments (they trip
+    spam filters). Returns what it took off."""
+    if steps and steps[0].get("attachments"):
+        gone = list(steps[0]["attachments"])
+        steps[0]["attachments"] = []
+        return gone
+    return []
+
+
+def _tm_parse_send_time(raw):
+    """A send time in the editor's own spelling ("9:00 AM"), or None. The
+    picker offers quarter hours only."""
+    s = re.sub(r"\s+", " ", str(raw or "").strip().upper())
+    m = re.match(r"^0?(\d{1,2}):(\d{2}) ?(AM|PM)$", s)
+    if not m:
+        return None
+    t = f"{int(m.group(1))}:{m.group(2)} {m.group(3)}"
+    return t if t in TIME_OPTIONS else None
+
+
+def _tm_queue_counts(camp_name) -> dict:
+    out = {"pending": 0, "sent": 0, "failed": 0, "cancelled": 0}
+    for q in _load_queue():
+        if q.get("campaign") == camp_name and q.get("status") in out:
+            out[q["status"]] += 1
+    return out
+
+
+def _tm_steps_summary(steps) -> list:
+    return [{"step": i + 1, "name": st.get("name", ""),
+             "type": st.get("step_type") or ST.EMAIL_AUTO,
+             "subject": st.get("subject", ""),
+             "delay_days": st.get("delay_days", 0),
+             "time": st.get("time", "9:00 AM"),
+             "send_date": st.get("fixed_date", ""),
+             "attachments": list(st.get("attachments") or [])}
+            for i, st in enumerate(steps)]
+
+
+def _tm_edit_sync_queue(camp, step_idx=None, old_subject="") -> dict:
+    """After an edit is saved, make the campaign's pending emails match it,
+    the way the app does. A running campaign is re-queued from its current
+    definition (requeue_campaign, the campaign page's "Re-queue Now"), which
+    keeps sent history and never sends a step twice. A newsletter enrols
+    people one at a time, so re-queueing would restart them; its queued issue
+    gets the new copy instead (_tm_patch_pending, as a rewritten issue
+    does)."""
+    name = camp.get("name", "")
+    pending = _tm_queue_counts(name)["pending"]
+    if not pending:
+        return {"pending_emails": 0, "queue_items_changed": 0}
+    if _is_evergreen(camp):
+        if step_idx is None or not camp.get("market_analysis"):
+            return {"pending_emails": pending, "queue_items_changed": 0,
+                    "note": "emails already queued keep their old copy"}
+        st = camp["emails"][step_idx]
+        n = _tm_patch_pending(name, (st.get("name") or "").strip(), old_subject,
+                              st.get("subject", ""), st.get("body", ""))
+        return {"pending_emails": pending, "queue_items_changed": n}
+    # People taken out of the campaign stay out: queue_campaign_emails does
+    # not look at the removed flag, so hand it the live contacts only.
+    live = dict(camp, contacts=[c for c in camp.get("contacts") or []
+                                if not c.get("removed")])
+    res = requeue_campaign(live) or {}
+    if res.get("error"):
+        raise RuntimeError(res["error"])
+    return {"pending_emails": pending,
+            "queue_items_changed": res.get("queued", 0),
+            "requeue": {"cancelled": res.get("cancelled", 0),
+                        "queued": res.get("queued", 0),
+                        "skipped_already_sent": res.get("skipped_sent", 0)}}
+
+
+def _tm_unique_campaign_name(base) -> str:
+    taken = {(c.get("name") or "").strip().lower() for c in load_campaigns()}
+    if base.strip().lower() not in taken:
+        return base
+    n = 2
+    while f"{base} ({n})".lower() in taken:
+        n += 1
+    return f"{base} ({n})"
+
+
+def _api_campaign_record(spec, result, contacts, owner, start_date) -> dict:
+    """The campaign a create_campaign spec + its generated result saves as.
+    One builder for the launch path, the draft path and Stay on Their Radar,
+    so they cannot drift."""
+    template = result["template"]
+    campaign_data = result["campaign_data"]
+    return {
+        "name": (spec.get("name") or campaign_data.get("campaign_name")
+                 or f"{template} Campaign").strip(),
+        "emails": result["emails"],
+        "synopsis": campaign_data.get("synopsis", ""),
+        "contacts": contacts,
+        "start_date": start_date,
+        "aicb_camp_type": template,
+        "template_key": template,
+        "_chooser_origin": template,
+        "_owner_email": owner,
+        "variables": {
+            "CompanyName": (spec.get("company") or "").strip(),
+            "TargetRole": ", ".join(spec.get("roles") or []),
+            "Geography": (spec.get("location") or "").strip(),
+            "Industry": (spec.get("industry") or "").strip(),
+        },
+    }
+
+
+def _tm_edit_err(msg, code=400, **extra):
+    from starlette.responses import JSONResponse
+    return JSONResponse(dict({"error": msg}, **extra), status_code=code)
+
+
+@app.post("/api/v1/tm/campaigns/edit")
+async def api_tm_campaign_edit(request: Request):
+    """Edit a campaign the way its editor page does. Body: {"campaign_id",
+    "action", ...}; steps are 1-based, as campaign_get numbers them.
+
+      update_step        step + any of subject, body (email steps), note
+                         (call/LinkedIn/task script), delay_days, send_time
+                         ("9:00 AM"), send_date (YYYY-MM-DD, "" to clear;
+                         later dated steps move with it)
+      add_step           type email|call|linkedin|task|sms, position (where
+                         it lands, default last), optional subject/body/note/
+                         delay_days/send_time
+      delete_step        step
+      move_step          step, to_position
+      rename             name (only before launch)
+      ai_rewrite         step, instruction; apply=true saves the new body,
+                         remember=true adds the instruction to the style guide
+      remember_style     step, edited_body (+ original_body, default the
+                         saved body): the AI learns style rules from the edit;
+                         apply=true also saves edited_body
+      remove_attachment  step, attachment (file name)
+
+    Saving a running campaign re-queues its pending emails from the edited
+    definition (nothing already sent goes twice); the response says how many
+    queue items changed. Steps cannot be added, removed or reordered once a
+    campaign has sent email: the queue matches sends to steps by name."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await _tm_api_body(request)
+    if body is None:
+        return _tm_edit_err("body must be a JSON object")
+    camp = _tm_api_camp(body.get("campaign_id"))
+    if not camp:
+        return _tm_edit_err("no campaign found for that campaign_id", 404)
+    action = str(body.get("action") or "").strip().lower()
+    if action not in _TM_EDIT_ACTIONS:
+        return _tm_edit_err("action must be one of " + ", ".join(_TM_EDIT_ACTIONS))
+    steps = camp.get("emails")
+    if not isinstance(steps, list):
+        steps = camp["emails"] = []
+    name = camp.get("name", "")
+    evergreen = _is_evergreen(camp)
+
+    def _idx(key="step"):
+        try:
+            i = int(body.get(key)) - 1
+        except (TypeError, ValueError):
+            return None
+        return i if 0 <= i < len(steps) else None
+
+    def _bad_step(key="step"):
+        return _tm_edit_err(f"{key} must be a step number from 1 to {len(steps)}")
+
+    def _structural_guard():
+        if evergreen:
+            return _tm_edit_err("a newsletter's issues are managed from the "
+                                "newsletter tools, not step by step", 409)
+        if _tm_queue_counts(name)["sent"]:
+            return _tm_edit_err(
+                "this campaign has already sent email, so its steps cannot be "
+                "added, removed or reordered (the queue matches sends to steps "
+                "by name, so people could get a step twice or miss one). Edit "
+                "a step's text or timing instead, or duplicate the campaign "
+                "and change the copy.", 409)
+        return None
+
+    def _timing(src, st):
+        """Validate delay_days / send_time / send_date from `src`; returns
+        (changes, error)."""
+        ch = {}
+        if "delay_days" in src and src.get("delay_days") is not None:
+            try:
+                d = int(src.get("delay_days"))
+            except (TypeError, ValueError):
+                return None, "delay_days must be a whole number"
+            if not 0 <= d <= 365:
+                return None, "delay_days must be 0 to 365"
+            ch["delay_days"] = d
+        if src.get("send_time") not in (None, ""):
+            t = _tm_parse_send_time(src.get("send_time"))
+            if not t:
+                return None, ("send_time must be a quarter hour like "
+                              "'9:00 AM' or '2:30 PM'")
+            ch["time"] = t
+        if "send_date" in src and src.get("send_date") is not None:
+            sd = str(src.get("send_date") or "").strip()
+            if sd:
+                try:
+                    date.fromisoformat(sd)
+                except ValueError:
+                    return None, "send_date must be YYYY-MM-DD (or \"\" to clear)"
+            ch["fixed_date"] = sd
+        if ch and evergreen:
+            return None, "a newsletter's send dates are fixed per issue"
+        return ch, None
+
+    def _text(v):
+        return None if v is None else str(v)
+
+    idx = None
+    plan = {}
+    if action in ("update_step", "delete_step", "move_step", "ai_rewrite",
+                  "remember_style", "remove_attachment"):
+        idx = _idx()
+        if idx is None:
+            return _bad_step()
+
+    if action == "update_step":
+        st = steps[idx]
+        is_email = _tm_is_email_step(st)
+        ch, terr = _timing(body, st)
+        if terr:
+            return _tm_edit_err(terr, 409 if "newsletter" in terr else 400)
+        subj, html, note = (_text(body.get("subject")), _text(body.get("body")),
+                            _text(body.get("note")))
+        if is_email:
+            if note is not None:
+                return _tm_edit_err("note is for call, LinkedIn and task steps; "
+                                    "an email step takes subject and body")
+            if subj is not None:
+                ch["subject"] = subj
+            if html is not None:
+                ch["body"] = html
+        else:
+            if subj is not None:
+                return _tm_edit_err("that step is not an email, so it has no subject")
+            if note is not None or html is not None:
+                ch["script_notes"] = note if note is not None else html
+        if not ch:
+            return _tm_edit_err("nothing to change: pass subject, body, note, "
+                                "delay_days, send_time or send_date")
+        plan = ch
+    elif action == "add_step":
+        g = _structural_guard()
+        if g:
+            return g
+        stype = _TM_EDIT_STEP_TYPES.get(str(body.get("type") or "email").strip().lower())
+        if not stype:
+            return _tm_edit_err("type must be one of " + ", ".join(_TM_EDIT_STEP_TYPES))
+        try:
+            pos = int(body.get("position") or len(steps) + 1)
+        except (TypeError, ValueError):
+            return _tm_edit_err("position must be a number")
+        if not 1 <= pos <= len(steps) + 1:
+            return _tm_edit_err(f"position must be 1 to {len(steps) + 1}")
+        ch, terr = _timing(body, {})
+        if terr:
+            return _tm_edit_err(terr)
+        new_step = dict(name=f"Step {len(steps) + 1}", subject="", body="",
+                        step_type=stype, delay_days=1, time="9:00 AM",
+                        attachments=[], tags=[], script_notes="",
+                        touch_number=0, channel=_TM_EDIT_CHANNEL.get(stype, "email"))
+        new_step.update(ch)
+        if stype == ST.EMAIL_AUTO:
+            if body.get("note") is not None:
+                return _tm_edit_err("note is for call, LinkedIn and task steps")
+            new_step["subject"] = str(body.get("subject") or "")
+            new_step["body"] = str(body.get("body") or "")
+        else:
+            if body.get("subject"):
+                return _tm_edit_err("only an email step has a subject")
+            new_step["script_notes"] = str(body.get("note") or body.get("body") or "")
+        warnings = []
+        if stype == ST.LINKEDIN:  # the editor's soft warnings
+            if any(s.get("step_type") == ST.LINKEDIN for s in steps):
+                warnings.append("This campaign already has a LinkedIn touch; a "
+                                "second one may dilute response.")
+            if pos == 1 and any(_tm_is_email_step(s) for s in steps):
+                warnings.append("A LinkedIn touch before the first email is "
+                                "unusual; cold connects without context "
+                                "usually convert worse than after email 1.")
+        plan = {"step": new_step, "index": pos - 1, "warnings": warnings}
+    elif action == "delete_step":
+        g = _structural_guard()
+        if g:
+            return g
+        if len(steps) < 2:
+            return _tm_edit_err("a campaign keeps at least one step")
+    elif action == "move_step":
+        g = _structural_guard()
+        if g:
+            return g
+        to = _idx("to_position")
+        if to is None:
+            return _bad_step("to_position")
+        plan = {"to": to}
+    elif action == "rename":
+        new_name = str(body.get("name") or "").strip()
+        if not new_name:
+            return _tm_edit_err("name is required")
+        if new_name != name:
+            if any((c.get("name") or "").strip().lower() == new_name.lower()
+                   for c in load_campaigns() if c is not camp):
+                return _tm_edit_err(f"a campaign named {new_name!r} already exists", 409)
+            if any(_tm_queue_counts(name).values()):
+                return _tm_edit_err(
+                    "only a campaign that has not launched can be renamed: "
+                    "its queued and sent emails are filed under its name", 409)
+        plan = {"name": new_name}
+    elif action in ("ai_rewrite", "remember_style"):
+        st = steps[idx]
+        if not _tm_is_email_step(st):
+            return _tm_edit_err("that step is not an email")
+        if not ANTHROPIC_API_KEY:
+            return _tm_edit_err("AI not configured on server", 503)
+        current = _strip_signature_from_body(st.get("body", "") or "")
+        if action == "ai_rewrite":
+            instruction = str(body.get("instruction") or "").strip()
+            if not instruction:
+                return _tm_edit_err("instruction is required (what to change)")
+            low = instruction.lower()
+            if not current.strip() and "write" not in low and "create" not in low:
+                return _tm_edit_err("this step has no body yet; ask for it to "
+                                    "be written, e.g. 'Write this email'")
+            plan = {"instruction": instruction, "current": current}
+        else:
+            edited = _text(body.get("edited_body"))
+            if edited is None:
+                edited = _text(body.get("body"))
+            if edited is None:
+                return _tm_edit_err("edited_body is required")
+            original = _text(body.get("original_body"))
+            if original is None:
+                original = current
+            if original.strip() == edited.strip():
+                return _tm_edit_err("no changes detected to learn from: pass the "
+                                    "edited text as edited_body, and "
+                                    "original_body if the step already holds it")
+            plan = {"original": original, "edited": edited}
+    elif action == "remove_attachment":
+        want = str(body.get("attachment") or "").strip()
+        atts = list(steps[idx].get("attachments") or [])
+        hit = next((a for a in atts if a == want or os.path.basename(str(a)) == want),
+                   None)
+        if not want or hit is None:
+            return _tm_edit_err("that step has no attachment by that name", 404,
+                                attachments=[os.path.basename(str(a)) for a in atts])
+        plan = {"attachment": hit}
+
+    apply_ai = body.get("apply") is True
+
+    def _run():
+        _CURRENT_USER_EMAIL.set(owner)
+        try:
+            _switch_to_user_paths(owner)
+        except Exception:
+            pass
+        res = {}
+        sync_step, old_subject = None, ""
+        if action == "update_step":
+            st = steps[idx]
+            old_subject = (st.get("subject") or "").strip()
+            old_date = (st.get("fixed_date") or "").strip()
+            st.update(plan)
+            if "fixed_date" in plan:
+                _shift_subsequent_fixed_dates(steps, idx, old_date, plan["fixed_date"])
+            sync_step = idx
+            res["updated"] = sorted(plan)
+        elif action == "add_step":
+            steps.insert(plan["index"], plan["step"])
+            _tm_renumber_steps(steps)
+            res["added_step"] = plan["index"] + 1
+            if plan["warnings"]:
+                res["warnings"] = plan["warnings"]
+        elif action == "delete_step":
+            gone = steps.pop(idx)
+            _tm_renumber_steps(steps)
+            res["deleted"] = {"step": idx + 1, "subject": gone.get("subject", "")}
+        elif action == "move_step":
+            steps.insert(plan["to"], steps.pop(idx))
+            _tm_renumber_steps(steps)
+            res["moved"] = {"from": idx + 1, "to": plan["to"] + 1}
+        elif action == "rename":
+            old_path = camp.get("_path", "")
+            camp["name"] = plan["name"]
+            save_campaign(camp)
+            if old_path and camp.get("_path") and camp["_path"] != old_path:
+                delete_campaign(old_path)  # save_campaign wrote a new file
+            _cache_campaigns.invalidate()
+            return {"renamed": {"from": name, "to": camp["name"]}}
+        elif action == "ai_rewrite":
+            import anthropic
+            client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+            if body.get("remember") is True:  # the dialog's "Remember this" box
+                cfg = load_config()
+                existing = cfg.get("ai_style_guide", "").strip()
+                rule = f"Always: {plan['instruction']}"
+                if rule not in existing:
+                    cfg["ai_style_guide"] = (existing + "\n" + rule).strip()
+                    save_config(cfg)
+                res["remembered"] = rule
+            st = steps[idx]
+            new_body = _ai_rewrite_email_body(client, plan["instruction"],
+                                              plan["current"], st.get("subject", ""))
+            res.update({"subject": st.get("subject", ""), "body": new_body,
+                        "applied": apply_ai})
+            if not apply_ai:
+                return res
+            old_subject = (st.get("subject") or "").strip()
+            st["body"] = new_body
+            sync_step = idx
+        elif action == "remember_style":
+            import anthropic
+            client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+            text = _ai_style_rules_from_edit(client, plan["original"], plan["edited"])
+            if text.upper().startswith("NONE"):
+                res["learned_rules"] = []
+                res["note"] = ("the changes were content-specific; no new "
+                               "style rules")
+            else:
+                _append_ai_style_rules(text)
+                res["learned_rules"] = [l.strip() for l in text.split("\n") if l.strip()]
+            res["applied"] = apply_ai
+            if not apply_ai:
+                return res
+            st = steps[idx]
+            old_subject = (st.get("subject") or "").strip()
+            st["body"] = plan["edited"]
+            sync_step = idx
+        elif action == "remove_attachment":
+            st = steps[idx]
+            st["attachments"] = [a for a in st.get("attachments") or []
+                                 if a != plan["attachment"]]
+            save_campaign(camp)
+            _cache_campaigns.invalidate()
+            res["removed_attachment"] = os.path.basename(str(plan["attachment"]))
+            res["queue_items_changed"] = _tm_save_queue_sync(camp)
+            return res
+        stripped = _tm_strip_first_step_attachments(steps)
+        if stripped:
+            res["attachments_removed_from_first_step"] = [
+                os.path.basename(str(a)) for a in stripped]
+        save_campaign(camp)
+        _cache_campaigns.invalidate()
+        res["queue"] = _tm_edit_sync_queue(camp, sync_step, old_subject)
+        return res
+
+    try:
+        res = await asyncio.get_event_loop().run_in_executor(None, _run)
+    except ValueError as ex:  # the queue's unfilled-placeholder guard
+        return _tm_edit_err(str(ex), 422)
+    except Exception as ex:
+        import traceback
+        traceback.print_exc()
+        return _tm_edit_err(str(ex), 500)
+    _invalidate_queue_cache()
+    res.update({"campaign_id": Path(camp.get("_path", "")).stem or camp.get("name", ""),
+                "name": camp.get("name", ""), "action": action,
+                "steps": _tm_steps_summary(camp.get("emails") or [])})
+    return JSONResponse(res)
+
+
+def _tm_launch_contacts(body):
+    """(contacts, invalid, error) from a launch body's contacts or list."""
+    if not _is_thrivemodal():
+        return None, 0, "not available on this workspace"
+    raw = body.get("contacts")
+    if raw is None:
+        lname = str(body.get("list") or "").strip()
+        if not lname:
+            return None, 0, None
+        if lname not in list_saved_contact_lists():
+            return None, 0, f"no saved list named {lname!r}"
+        raw = _tm_zi_contacts_on_file(lname)
+    if not isinstance(raw, list):
+        return None, 0, "contacts must be a list"
+    if len(raw) > 5000:
+        return None, 0, "at most 5000 contacts per launch"
+    out, invalid, seen = [], 0, set()
+    for r in raw:
+        c = _tm_api_contact(r)
+        if c is None:
+            invalid += 1
+        elif c["email"] not in seen:
+            seen.add(c["email"])
+            out.append(c)
+    return out, invalid, None
+
+
+async def _tm_action_launch(camp, body, owner):
+    """Launch a saved draft, as the editor's Launch dialog does: name, start
+    date (today or later), the Active Clients gate, then queue."""
+    from starlette.responses import JSONResponse
+    if body.get("confirm") is not True:
+        return _tm_edit_err("launching sends real email; confirm with the user, "
+                            "then pass confirm: true")
+    if _is_evergreen(camp):
+        return _tm_edit_err("newsletters are not launched; add people with "
+                            "tm_campaign_contacts", 409)
+    name = camp.get("name", "")
+    if any(_tm_queue_counts(name).values()):
+        return _tm_edit_err("this campaign has already launched; use resume "
+                            "to restart it, or duplicate it", 409)
+    new_contacts, invalid, cerr = _tm_launch_contacts(body)
+    if cerr:
+        return _tm_edit_err(cerr, 404 if "no saved list" in cerr else 400)
+    contacts = new_contacts if new_contacts is not None else list(camp.get("contacts") or [])
+    if not contacts:
+        return _tm_edit_err("this campaign has no contacts; pass contacts or list")
+    raw_sd = str(body.get("start_date") or "").strip()
+    try:
+        start = date.fromisoformat(raw_sd) if raw_sd else date.today()
+    except ValueError:
+        return _tm_edit_err("start_date must be YYYY-MM-DD")
+    if start < date.today():
+        return _tm_edit_err(f"start_date {raw_sd} is in the past; pick today "
+                            "or a future date")
+    new_name = str(body.get("name") or "").strip() or name
+    if new_name != name and any(
+            (c.get("name") or "").strip().lower() == new_name.lower()
+            for c in load_campaigns() if c is not camp):
+        return _tm_edit_err(f"a campaign named {new_name!r} already exists", 409)
+    decision = str(body.get("active_clients") or "").strip().lower()
+    if decision and decision not in ("skip", "send_all"):
+        return _tm_edit_err("active_clients must be 'skip' or 'send_all'")
+    try:
+        _block = load_client_blocklist()
+        flagged = blocklisted_contacts(contacts, _block) if _block else []
+    except Exception:
+        flagged = []
+    if flagged and not decision and not (camp.get("_ac_decision") or "").strip():
+        by_dom: dict = {}
+        for _c, e in flagged:
+            d = _normalize_domain(e.get("domain", "")) or e.get("domain", "")
+            b = by_dom.setdefault(d, {"domain": d, "client": (e.get("client_name") or "").strip(),
+                                      "contacts": 0})
+            b["contacts"] += 1
+        return _tm_edit_err(
+            f"{len(flagged)} contact(s) work at your Active Clients. Ask the "
+            "user, then launch again with active_clients 'skip' (leave them "
+            "out) or 'send_all' (email them too).", 409,
+            active_client_contacts=len(flagged),
+            clients=sorted(by_dom.values(), key=lambda b: -b["contacts"]))
+    nl_name = str(body.get("enroll_newsletter") or "").strip()
+    prev_status = camp.get("status") or "draft"
+
+    def _run():
+        _CURRENT_USER_EMAIL.set(owner)
+        try:
+            _switch_to_user_paths(owner)
+        except Exception:
+            pass
+        if decision:
+            camp["_ac_decision"] = decision
+        camp["contacts"] = contacts
+        camp["contact_count"] = len(contacts)
+        old_path = camp.get("_path", "")
+        camp["name"] = new_name
+        camp["status"] = "active"
+        camp["start_date"] = start.isoformat()
+        camp["unsubscribe_email"] = camp.get("_owner_email") or None
+        save_campaign(camp)
+        if old_path and camp.get("_path") and camp["_path"] != old_path:
+            delete_campaign(old_path)  # renamed at launch: drop the old file
+        count = queue_campaign_emails(camp)
+        out = {"emails_queued": count}
+        if nl_name:
+            out["newsletter_enrollment"] = _api_enroll_newsletter(nl_name, contacts)
+        return out
+
+    try:
+        res = await asyncio.get_event_loop().run_in_executor(None, _run)
+    except ValueError as ex:  # unfilled [PLACEHOLDER]s in a step
+        camp["status"] = prev_status
+        try:
+            save_campaign(camp)
+        except Exception:
+            pass
+        return _tm_edit_err(str(ex), 422)
+    res.update({"launched": True, "start_date": start.isoformat(),
+                "contacts": len(contacts), "invalid_email": invalid,
+                "schedule": _schedule_from_steps(camp.get("emails") or [],
+                                                 start.isoformat())})
+    if flagged:
+        res["active_client_contacts"] = len(flagged)
+        res["active_clients"] = camp.get("_ac_decision") or "skip"
+    if not res["emails_queued"]:
+        res["warning"] = ("no emails queued (every contact was filtered: Do Not "
+                          "Contact, a past reply, an Active Client or no mail "
+                          "server)")
+    return res
+
+
+async def _tm_action_followon(camp, body, owner):
+    """Stay on Their Radar for a finished campaign's non-repliers, as the
+    campaign page's button does. The page loads them into the wizard and
+    nothing sends until the user launches; here the campaign is written and
+    saved as a draft, for campaign_get / tm_campaign_edit, then launch."""
+    ctype = _tm_camp_type(camp)
+    if not ctype or ctype == "tm_stay_in_touch":
+        return _tm_edit_err("Stay on Their Radar follows a finished ThriveModal "
+                            "campaign (not a Stay on Their Radar one)")
+    name = camp.get("name", "")
+    if camp.get("status") == "cancelled" or _tm_queue_counts(name)["pending"]:
+        return _tm_edit_err("this campaign is still running (or was "
+                            "cancelled); Stay on Their Radar follows one that "
+                            "has finished", 409)
+    rows = _tm_nonresponder_rows(
+        camp,
+        {str(x.get("email", "")).strip().lower()
+         for x in load_responded() if isinstance(x, dict)},
+        {str(d.get("email", "")).strip().lower()
+         for d in load_dnc() if isinstance(d, dict)})
+    contacts = [c for c in (_tm_api_contact(r) for r in rows) if c]
+    if not contacts:
+        return _tm_edit_err("everyone in this campaign replied or is on Do Not "
+                            "Contact; there is nobody to follow up", 409)
+    if not ANTHROPIC_API_KEY:
+        return _tm_edit_err("AI not configured on server", 503)
+    v = camp.get("variables") or {}
+    roles = [r.strip() for r in str(v.get("TargetRole") or "").split(",") if r.strip()]
+    spec = {"template": "tm_stay_in_touch",
+            "company": str(v.get("CompanyName") or "").strip(),
+            "niche": (roles[0] if roles else str(v.get("Industry") or "").strip())
+                     or name,
+            "roles": roles,
+            "location": str(v.get("Geography") or "").strip(),
+            "industry": str(v.get("Industry") or "").strip(),
+            "followon_from": name}
+    if body.get("pdfs") is not None:
+        spec["pdfs"] = body.get("pdfs")
+
+    def _run():
+        _CURRENT_USER_EMAIL.set(owner)
+        try:
+            _switch_to_user_paths(owner)
+        except Exception:
+            pass
+        import anthropic
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        result = _api_create_campaign_blocking(client, spec, owner)
+        if "error" in result or "skip" in result:
+            return result
+        new = _api_campaign_record(spec, result, contacts, owner,
+                                   date.today().isoformat())
+        new["name"] = _tm_unique_campaign_name(
+            str(body.get("name") or "").strip()
+            or f"{name} (Stay on Their Radar)")
+        new["status"] = "draft"
+        new["created"] = date.today().isoformat()
+        new["followon_from"] = name
+        save_campaign(new)
+        _cache_campaigns.invalidate()
+        out = {"draft": {"campaign_id": Path(new.get("_path", "")).stem or new["name"],
+                         "name": new["name"], "steps": len(new["emails"]),
+                         "contacts": len(contacts), "status": "draft"},
+               "non_responders": len(contacts)}
+        for k in ("pdfs", "pdf_notes"):
+            if k in result:
+                out[k] = result[k]
+        return out
+
+    res = await asyncio.get_event_loop().run_in_executor(None, _run)
+    if "skip" in res:
+        return _tm_edit_err(res["skip"], 409)
+    if "error" in res:
+        return _tm_edit_err(res["error"], res.get("status", 500))
+    res["next"] = ("Nothing sends yet. Review it with campaign_get, edit with "
+                   "tm_campaign_edit, then launch with tm_campaign_action "
+                   "action='launch' once the user agrees.")
+    return res
+
+
+async def _tm_action_graduate(camp, body, owner):
+    """Enrol a campaign's repliers into a newsletter (the Contacts tab's
+    Graduate button), or one contact by email (its per-row button)."""
+    target = _tm_api_camp(body.get("newsletter_id"))
+    if not target or not _is_evergreen(target):
+        return _tm_edit_err("newsletter_id must name a newsletter (see "
+                            "tm_newsletters)", 404)
+    email = str(body.get("email") or "").strip().lower()
+    contacts = [c for c in camp.get("contacts") or [] if isinstance(c, dict)]
+    if email:
+        picked = [c for c in contacts
+                  if str(c.get("email") or c.get("Email") or "").strip().lower() == email]
+        if not picked:
+            return _tm_edit_err(f"{email} is not in this campaign", 404)
+    else:
+        replied = {str(x.get("email", "")).lower() for x in load_responded()
+                   if isinstance(x, dict)}
+        picked = [c for c in contacts
+                  if str(c.get("email", "")).lower().strip() in replied
+                  or c.get("removed")]
+        if not picked:
+            return _tm_edit_err("nobody in this campaign has replied (or been "
+                                "removed) yet", 409)
+
+    def _run():
+        _CURRENT_USER_EMAIL.set(owner)
+        try:
+            _switch_to_user_paths(owner)
+        except Exception:
+            pass
+        tally: dict = {}
+        for c in picked:
+            ct = _tm_api_contact(c) or c
+            st = enroll_contact_in_evergreen(ct, target)
+            tally[st] = tally.get(st, 0) + 1
+        return tally
+
+    tally = await asyncio.get_event_loop().run_in_executor(None, _run)
+    return {"newsletter": target.get("name", ""), "enrolled": tally.get("enrolled", 0),
+            "statuses": tally}
 # ── connector group A end ──
 
 
@@ -9275,7 +10071,8 @@ async def api_campaign_get(campaign_id: str, request: Request):
 async def api_create_campaign(request: Request):
     """Create + launch an AICB campaign from a posted spec. Auth via a per-user
     API key (Authorization: Bearer <key>); the owner is taken from the key, so
-    a key can only ever write to its own account."""
+    a key can only ever write to its own account. With "draft": true the
+    campaign is generated and saved as a draft instead, nothing queued."""
     from starlette.responses import JSONResponse
 
     auth = request.headers.get("authorization", "")
@@ -9317,29 +10114,40 @@ async def api_create_campaign(request: Request):
         return JSONResponse({"skipped": True, "reason": result["skip"]}, status_code=200)
     if "error" in result:
         return JSONResponse({"error": result["error"]}, status_code=result["status"])
-    template = result["template"]
-    campaign_data = result["campaign_data"]
     emails = result["emails"]
     start_date = _resolve_start_date(spec.get("start_date"))
 
-    camp = {
-        "name": (spec.get("name") or campaign_data.get("campaign_name")
-                 or f"{template} Campaign").strip(),
-        "emails": emails,
-        "synopsis": campaign_data.get("synopsis", ""),
-        "contacts": contacts,
-        "start_date": start_date,
-        "aicb_camp_type": template,
-        "template_key": template,
-        "_chooser_origin": template,
-        "_owner_email": owner,
-        "variables": {
-            "CompanyName": (spec.get("company") or "").strip(),
-            "TargetRole": ", ".join(spec.get("roles") or []),
-            "Geography": (spec.get("location") or "").strip(),
-            "Industry": (spec.get("industry") or "").strip(),
-        },
-    }
+    camp = _api_campaign_record(spec, result, contacts, owner, start_date)
+
+    # Draft mode: generate and save for review, queue nothing. The campaign
+    # lands in Saved Campaigns exactly like a wizard-built draft; it is
+    # edited with tm_campaign_edit and launched with tm_campaign_action.
+    if spec.get("draft") is True:
+        camp["status"] = "draft"
+        camp["created"] = date.today().isoformat()
+        try:
+            save_campaign(camp)
+        except Exception as se:
+            return JSONResponse({"error": f"save failed: {se}"}, status_code=500)
+        resp = {
+            "campaign_id": Path(camp.get("_path", "")).stem or camp["name"],
+            "name": camp["name"],
+            "status": "draft",
+            "steps": len(emails),
+            "contacts": len(contacts) if isinstance(contacts, list) else 0,
+            "contacts_queued": 0,
+            "next": ("Nothing is queued. Review with campaign_get, change it "
+                     "with tm_campaign_edit, then launch with "
+                     "tm_campaign_action action='launch' (start_date, "
+                     "confirm) once the user agrees."),
+        }
+        if (spec.get("enroll_newsletter") or "").strip():
+            resp["newsletter_enrollment"] = ("not done for a draft; pass "
+                                             "enroll_newsletter to the launch")
+        for k in ("pdfs", "pdf_notes"):
+            if k in result:
+                resp[k] = result[k]
+        return JSONResponse(resp, status_code=200)
 
     try:
         save_campaign(camp)
@@ -14931,6 +15739,78 @@ def _setup_status() -> dict:
     }
 
 
+def _ai_style_rules_from_edit(client, original_body: str, edited_body: str) -> str:
+    """Ask the AI which writing rules an edit implies. Returns the rules, one
+    per line starting "- ", or text starting "NONE" when the edit was only
+    content. Shared by Remember Style and the connector."""
+    prompt = (
+        "I'm training you on my writing preferences. Compare the ORIGINAL AI-generated email "
+        "with my EDITED version. Identify the specific style changes I made.\n\n"
+        "ORIGINAL:\n" + _wrap_untrusted("original_email", original_body, max_chars=2000) + "\n\n"
+        "MY EDITED VERSION:\n" + _wrap_untrusted("edited_email", edited_body, max_chars=2000) + "\n\n"
+        "Extract 1-3 concise writing rules from my edits. Each rule should be a single line "
+        "starting with '- '. Focus on patterns, not one-off content changes.\n"
+        "Examples of good rules:\n"
+        "- Never use em dashes. Use commas or periods instead.\n"
+        "- Keep paragraphs to 2-3 sentences max.\n"
+        "- Don't start emails with 'I hope this finds you well'.\n\n"
+        "Return ONLY the rules, one per line, starting with '- '. "
+        "If the changes are just content-specific (different facts/names), return: NONE"
+    )
+    msg = _claude_create_with_retry(client,
+        model="claude-haiku-4-5-20251001",
+        max_tokens=300,
+        system=_INJECTION_GUARD,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return msg.content[0].text.strip()
+
+
+def _append_ai_style_rules(text: str) -> int:
+    """Add rules to the user's AI style guide; returns how many lines."""
+    cfg = load_config()
+    existing = cfg.get("ai_style_guide", "").strip()
+    new_rules = text.strip()
+    if existing:
+        cfg["ai_style_guide"] = existing + "\n" + new_rules
+    else:
+        cfg["ai_style_guide"] = new_rules
+    save_config(cfg)
+    return len([l for l in new_rules.split("\n") if l.strip()])
+
+
+def _ai_rewrite_email_body(client, instructions: str, body: str, subject: str = "") -> str:
+    """Rewrite an email body per the user's instruction (Rewrite with AI).
+    Returns the new body HTML. Shared by the editor dialog and the connector."""
+    prompt = (
+        "You are rewriting a sales email for a staffing/recruiting firm.\n\n"
+        + _DRIPDROP_PLAYBOOK + "\n"
+        + _style_guide_prompt() + "\n"
+        + "USER INSTRUCTION (follow this exactly):\n"
+        + _wrap_untrusted("user_instruction", instructions, max_chars=1000) + "\n\n"
+        + (("CURRENT SUBJECT:\n" + _wrap_untrusted("current_subject", subject, max_chars=300) + "\n\n") if subject else "")
+        + "CURRENT EMAIL BODY:\n" + _wrap_untrusted("current_body", body, max_chars=3000) + "\n\n"
+        + "RULES:\n"
+        + "- Follow the user's instruction exactly\n"
+        + "- Keep all merge variables like {FirstName}, {Company} exactly as-is\n"
+        + "- Return the updated email as clean HTML (use <br> for line breaks)\n"
+        + "- Use bullet character \u2022 for bullets, NOT <ul>/<li> or * or **\n"
+        + "- Do NOT use asterisks, markdown, or em dashes\n"
+        + "- Return ONLY the email body HTML, nothing else\n"
+    )
+    msg = _claude_create_with_retry(client,
+        model="claude-haiku-4-5-20251001", max_tokens=2000,
+        system=_INJECTION_GUARD,
+        messages=[{"role": "user", "content": prompt}])
+    result = msg.content[0].text.strip()
+    result = result.replace("```html", "").replace("```", "").strip()
+    # Post-process: strip markdown/em dashes
+    if "**" in result:
+        result = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', result)
+    result = result.replace("\u2014", ", ").replace("\u2013", " - ")
+    return result
+
+
 def _teach_ai_from_edit(original_body: str, edited_body: str, rf_func=None, s_email: str = ""):
     """Analyze what changed between original and edited email, then add a style rule."""
     if not ANTHROPIC_API_KEY:
@@ -14942,40 +15822,12 @@ def _teach_ai_from_edit(original_body: str, edited_body: str, rf_func=None, s_em
         try:
             import anthropic
             client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-            prompt = (
-                "I'm training you on my writing preferences. Compare the ORIGINAL AI-generated email "
-                "with my EDITED version. Identify the specific style changes I made.\n\n"
-                "ORIGINAL:\n" + _wrap_untrusted("original_email", original_body, max_chars=2000) + "\n\n"
-                "MY EDITED VERSION:\n" + _wrap_untrusted("edited_email", edited_body, max_chars=2000) + "\n\n"
-                "Extract 1-3 concise writing rules from my edits. Each rule should be a single line "
-                "starting with '- '. Focus on patterns, not one-off content changes.\n"
-                "Examples of good rules:\n"
-                "- Never use em dashes. Use commas or periods instead.\n"
-                "- Keep paragraphs to 2-3 sentences max.\n"
-                "- Don't start emails with 'I hope this finds you well'.\n\n"
-                "Return ONLY the rules, one per line, starting with '- '. "
-                "If the changes are just content-specific (different facts/names), return: NONE"
-            )
-            msg = _claude_create_with_retry(client,
-                model="claude-haiku-4-5-20251001",
-                max_tokens=300,
-                system=_INJECTION_GUARD,
-                messages=[{"role": "user", "content": prompt}],
-            )
-            text = msg.content[0].text.strip()
+            text = _ai_style_rules_from_edit(client, original_body, edited_body)
             if text.upper().startswith("NONE"):
                 ui.notify("Changes were content-specific, no new style rules detected.", type="info")
                 return
             # Append new rules to existing style guide
-            cfg = load_config()
-            existing = cfg.get("ai_style_guide", "").strip()
-            new_rules = text.strip()
-            if existing:
-                cfg["ai_style_guide"] = existing + "\n" + new_rules
-            else:
-                cfg["ai_style_guide"] = new_rules
-            save_config(cfg)
-            rule_count = len([l for l in new_rules.split("\n") if l.strip()])
+            rule_count = _append_ai_style_rules(text)
             ui.notify(
                 f"Learned {rule_count} new rule{'s' if rule_count != 1 else ''}! "
                 "AI will follow this in all future emails.",
@@ -15059,32 +15911,7 @@ def _ai_assist_email(body_area, subj_inp=None, rf_func=None):
                         import anthropic
                         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
                         _subj = subj_inp.value if subj_inp else ""
-                        prompt = (
-                            "You are rewriting a sales email for a staffing/recruiting firm.\n\n"
-                            + _DRIPDROP_PLAYBOOK + "\n"
-                            + _style_guide_prompt() + "\n"
-                            + "USER INSTRUCTION (follow this exactly):\n"
-                            + _wrap_untrusted("user_instruction", instructions, max_chars=1000) + "\n\n"
-                            + (("CURRENT SUBJECT:\n" + _wrap_untrusted("current_subject", _subj, max_chars=300) + "\n\n") if _subj else "")
-                            + "CURRENT EMAIL BODY:\n" + _wrap_untrusted("current_body", body, max_chars=3000) + "\n\n"
-                            + "RULES:\n"
-                            + "- Follow the user's instruction exactly\n"
-                            + "- Keep all merge variables like {FirstName}, {Company} exactly as-is\n"
-                            + "- Return the updated email as clean HTML (use <br> for line breaks)\n"
-                            + "- Use bullet character \u2022 for bullets, NOT <ul>/<li> or * or **\n"
-                            + "- Do NOT use asterisks, markdown, or em dashes\n"
-                            + "- Return ONLY the email body HTML, nothing else\n"
-                        )
-                        msg = _claude_create_with_retry(client,
-                            model="claude-haiku-4-5-20251001", max_tokens=2000,
-                            system=_INJECTION_GUARD,
-                            messages=[{"role": "user", "content": prompt}])
-                        result = msg.content[0].text.strip()
-                        result = result.replace("```html", "").replace("```", "").strip()
-                        # Post-process: strip markdown/em dashes
-                        if "**" in result:
-                            result = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', result)
-                        result = result.replace("\u2014", ", ").replace("\u2013", " - ")
+                        result = _ai_rewrite_email_body(client, instructions, body, _subj)
                         body_area.set_value(result)
                         ui.notify("Rewritten!", type="positive")
                     except Exception as e:
@@ -23464,6 +24291,33 @@ def _sq_launch_summary(s: AppState, rf):
 
 
 
+def _shift_subsequent_fixed_dates(steps, idx, old_iso, new_iso):
+    """Moving step `idx`'s date moves every later step's fixed_date by the
+    same delta, so the campaign keeps its spacing (steps that run on
+    delay_days are left alone). Shared by the sequence editor below and the
+    connector's tm_campaign_edit."""
+    try:
+        if not old_iso or not new_iso or old_iso == new_iso:
+            return
+        _old_d = date.fromisoformat(old_iso)
+        _new_d = date.fromisoformat(new_iso)
+        _delta = _new_d - _old_d
+        if not _delta:
+            return
+        for _j in range(idx + 1, len(steps)):
+            _f = (steps[_j].get("fixed_date") or "").strip()
+            if not _f:
+                continue
+            try:
+                _shifted = (date.fromisoformat(_f) + _delta).isoformat()
+                steps[_j]["fixed_date"] = _shifted
+            except Exception:
+                continue
+    except Exception as _ex:
+        print(f"[Sequence editor] shift-subsequent failed: {_ex}",
+              flush=True)
+
+
 def _sq_loaded_campaign(s: AppState, rf):
     """Edit a loaded saved/community/custom campaign  -  full email & sequence editors."""
     # Check for summary page first
@@ -24610,26 +25464,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                                 through every later step — what the user
                                 expects when they push the campaign back
                                 a week."""
-                                try:
-                                    if not old_iso or not new_iso or old_iso == new_iso:
-                                        return
-                                    _old_d = date.fromisoformat(old_iso)
-                                    _new_d = date.fromisoformat(new_iso)
-                                    _delta = _new_d - _old_d
-                                    if not _delta:
-                                        return
-                                    for _j in range(idx + 1, len(steps)):
-                                        _f = (steps[_j].get("fixed_date") or "").strip()
-                                        if not _f:
-                                            continue
-                                        try:
-                                            _shifted = (date.fromisoformat(_f) + _delta).isoformat()
-                                            steps[_j]["fixed_date"] = _shifted
-                                        except Exception:
-                                            continue
-                                except Exception as _ex:
-                                    print(f"[Sequence editor] shift-subsequent failed: {_ex}",
-                                          flush=True)
+                                _shift_subsequent_fixed_dates(steps, idx, old_iso, new_iso)
 
                             def _on_date_input(e, idx=i):
                                 # Capture both typed input AND clears (empty

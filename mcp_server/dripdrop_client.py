@@ -349,7 +349,8 @@ class DripDropClient:
         return await self._tm_post("campaigns/contacts", body, timeout=180.0)
 
     async def tm_campaign_action(self, body: dict) -> dict:
-        return await self._tm_post("campaigns/action", body, timeout=120.0)
+        # followon writes a whole campaign with AI; launch queues every email.
+        return await self._tm_post("campaigns/action", body, timeout=300.0)
 
     async def tm_send_preview(self, body: dict) -> dict:
         return await self._tm_post("send_preview", body, timeout=90.0)
@@ -388,6 +389,10 @@ class DripDropClient:
         return await self._tm_post("dnc", body, timeout=120.0)
 
     # ── connector group A (2026-09-21) begin ──
+    async def tm_campaign_edit(self, body: dict) -> dict:
+        # ai_rewrite / remember_style call the AI; a running campaign is
+        # re-queued after the save.
+        return await self._tm_post("campaigns/edit", body, timeout=180.0)
     # ── connector group A end ──
 
 

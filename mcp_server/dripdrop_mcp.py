@@ -215,7 +215,12 @@ _PDF_KINDS_DOC = (
         "location: pass spec.pdfs to choose which (1 or 2) and optionally the "
         "step each goes on, or leave it out for the type's default (usually "
         "Role Blueprint + Cost Comparison). "
-        "Kinds: " + _PDF_KINDS_DOC
+        "Kinds: " + _PDF_KINDS_DOC + " "
+        "Launching sends real email, so confirm with the user first. To let "
+        "the user review before anything is queued, pass spec.draft=true: "
+        "the campaign is written and saved as a draft (nothing sends); show "
+        "it with campaign_get, change it with tm_campaign_edit, and launch "
+        "it with tm_campaign_action action='launch' once the user agrees."
     )
 )
 async def create_campaign(spec: dict) -> dict:
@@ -227,7 +232,9 @@ async def create_campaign(spec: dict) -> dict:
         candidates (list of candidate cards, used by the fivebythree
         template), roles, location, industry, website, name, start_date
         (ISO date, or omitted/"auto" for the upcoming Monday),
-        enroll_newsletter (newsletter name to also enroll contacts into).
+        enroll_newsletter (newsletter name to also enroll contacts into),
+        draft (true = generate and save for review without queueing; the
+        response has "status": "draft" and the campaign_id to edit/launch).
 
         For template "findcandidates": pass job_description (str, the full
         JD text) instead of company/niche/roles, and contacts as the
@@ -726,16 +733,41 @@ async def tm_campaign_contacts(campaign_id: str, action: str = "add",
 
 
 @mcp.tool(description=(
-    "Stop, restart or delete a campaign. action: 'cancel' (stops every "
-    "pending email), 'resume' (re-queues everything not yet sent; nothing "
-    "already sent goes twice), 'retry_failed' (reschedules failed sends for "
-    "tomorrow 9am) or 'delete' (permanent; needs confirm=true, and ask the "
-    "user first)."
+    "Run a campaign-level action, as the campaign page's buttons do. action: "
+    "'cancel' (stops every pending email); 'resume' (re-queues everything "
+    "not yet sent; nothing already sent goes twice); 'retry_failed' "
+    "(reschedules failed sends for tomorrow 9am); 'delete' (permanent; needs "
+    "confirm=true, ask the user first); 'duplicate' (a copy with no contacts "
+    "that has not launched; returns its campaign_id); 'launch' (queues a "
+    "saved draft or duplicate and SENDS REAL EMAIL: ask the user first, then "
+    "pass confirm=true; start_date YYYY-MM-DD, today or later, default "
+    "today; optional name, contacts=[{email, first_name, ...}] or "
+    "list_name to set who it goes to, enroll_newsletter to also enrol them "
+    "in a newsletter. If some contacts work at the user's Active Clients the "
+    "launch is refused with the list; ask the user and pass active_clients="
+    "'skip' or 'send_all'); 'followon' (Stay on Their Radar: writes a "
+    "gentler follow-up campaign for the people in a FINISHED campaign who "
+    "never replied and saves it as a draft, nothing sends; takes a minute or "
+    "two); 'graduate_responders' (enrols the campaign's repliers into the "
+    "newsletter newsletter_id, or only the contact given as email)."
 ))
-async def tm_campaign_action(campaign_id: str, action: str, confirm: bool = False) -> dict:
-    return await _tm_call("tm_campaign_action",
-                          {"campaign_id": campaign_id, "action": action,
-                           "confirm": confirm})
+async def tm_campaign_action(campaign_id: str, action: str, confirm: bool = False,
+                             start_date: str = "", name: str = "",
+                             contacts: list | None = None, list_name: str = "",
+                             active_clients: str = "",
+                             enroll_newsletter: str = "",
+                             newsletter_id: str = "", email: str = "") -> dict:
+    body: dict = {"campaign_id": campaign_id, "action": action,
+                  "confirm": confirm}
+    for k, v in (("start_date", start_date), ("name", name),
+                 ("list", list_name), ("active_clients", active_clients),
+                 ("enroll_newsletter", enroll_newsletter),
+                 ("newsletter_id", newsletter_id), ("email", email)):
+        if v:
+            body[k] = v
+    if contacts is not None:
+        body["contacts"] = contacts
+    return await _tm_call("tm_campaign_action", body)
 
 
 @mcp.tool(description=(
@@ -851,6 +883,58 @@ async def tm_dnc(action: str = "list", email: str = "", domain: str = "",
 
 
 # ── connector group A (2026-09-21) begin ──
+@mcp.tool(description=(
+    "Edit a campaign's steps, as the campaign editor does. Steps are "
+    "1-based, as campaign_get numbers them. action: 'update_step' (step + "
+    "any of subject, body (HTML, email steps), note (the script of a call, "
+    "LinkedIn or task step), delay_days (days after the previous step), "
+    "send_time ('9:00 AM', quarter hours), send_date (YYYY-MM-DD, '' to "
+    "clear; later dated steps move with it)); 'add_step' (step_type email|"
+    "call|linkedin|task|sms, position = where it lands, default last, plus "
+    "optional subject/body/note/delay_days/send_time); 'delete_step' (step); "
+    "'move_step' (step, to_position); 'rename' (name; only before launch); "
+    "'ai_rewrite' (step + instruction such as 'make it shorter': returns the "
+    "rewritten body; apply=true saves it, remember=true also adds the "
+    "instruction to the user's AI style guide); 'remember_style' (step + "
+    "edited_body, and original_body if the step already holds the edit: the "
+    "AI learns writing rules from the user's edit for every future email; "
+    "apply=true also saves edited_body); 'remove_attachment' (step + "
+    "attachment file name). If the campaign is running, its pending emails "
+    "are re-queued to match the edit (nothing already sent goes twice) and "
+    "the result says how many changed. Steps cannot be added, removed or "
+    "reordered after a campaign has sent email: duplicate it instead. Confirm "
+    "edits to a running campaign with the user, since they change what goes "
+    "out."
+))
+async def tm_campaign_edit(campaign_id: str, action: str, step: int = 0,
+                           subject: str | None = None, body: str | None = None,
+                           note: str | None = None,
+                           delay_days: int | None = None, send_time: str = "",
+                           send_date: str | None = None,
+                           step_type: str = "email", position: int = 0,
+                           to_position: int = 0, name: str = "",
+                           instruction: str = "", apply: bool = False,
+                           remember: bool = False,
+                           original_body: str | None = None,
+                           edited_body: str | None = None,
+                           attachment: str = "") -> dict:
+    req: dict = {"campaign_id": campaign_id, "action": action,
+                 "apply": apply, "remember": remember}
+    for k, v in (("step", step), ("position", position),
+                 ("to_position", to_position), ("send_time", send_time),
+                 ("name", name), ("instruction", instruction),
+                 ("attachment", attachment)):
+        if v:
+            req[k] = v
+    for k, v in (("subject", subject), ("body", body), ("note", note),
+                 ("delay_days", delay_days), ("send_date", send_date),
+                 ("original_body", original_body),
+                 ("edited_body", edited_body)):
+        if v is not None:
+            req[k] = v
+    if action == "add_step":
+        req["type"] = step_type
+    return await _tm_call("tm_campaign_edit", req)
 # ── connector group A end ──
 
 
