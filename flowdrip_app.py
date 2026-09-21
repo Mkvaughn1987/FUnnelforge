@@ -11074,9 +11074,22 @@ def _custom_pdf_ctx_block(company, role, location, industry="", primary="",
 def _custom_pdf_outline(client, description, ctx) -> dict:
     """Create Your Own, stage 1: an outline for the described PDF.
     {"error": ...} when the reply cannot be read."""
+    if _is_thrivemodal():
+        _intro = (
+            "You are designing a one-page branded ThriveModal PDF that a rep "
+            "sends to US business owners. ThriveModal recruits and employs "
+            "dedicated Philippines-based professionals for US companies. Every "
+            "section must make the case for offshore Filipino staffing, within "
+            "the playbook below. The title starts with \"ThriveModal\" "
+            "(this overrides the title example further down), e.g. "
+            "\"ThriveModal Offshore Savings Snapshot\".\n\n"
+            + _thrivemodal_playbook_text()
+            + "\n\nThe rep described the PDF as:\n\n")
+    else:
+        _intro = ("You are designing a one-page branded PDF for a staffing "
+                  "recruiter's email outreach. The recruiter described it as:\n\n")
     prompt = (
-        f"You are designing a one-page branded PDF for a staffing "
-        f"recruiter's email outreach. The recruiter described it as:\n\n"
+        _intro
         + _wrap_untrusted("user_description", description, max_chars=600) + "\n\n"
         f"CONTEXT (use to ground the outline in this specific company / market / role):\n{ctx}\n"
         f"Propose an outline that fills a full page with rich content. Return ONLY valid JSON:\n"
@@ -11151,6 +11164,26 @@ def _custom_pdf_build(client, outline, description, ctx_block, pdf_dir,
         f"- Match the item_count from the outline (or one or two more is fine if the page benefits).\n"
         f"- No em dashes, no markdown, no asterisks. Plain text in JSON strings only.\n"
     )
+    if _is_thrivemodal():
+        # The generic "use REAL numbers" rule would invent rates and savings.
+        # A ThriveModal PDF sells offshore Filipino staffing and every claim
+        # about it comes from the playbook.
+        fill_prompt += (
+            "\nTHRIVEMODAL RULES (these override the rules above):\n"
+            "- This PDF sells ThriveModal's offshore Filipino staffing. Every "
+            "section should move the reader toward a call to price a role.\n"
+            "- The title starts with \"ThriveModal\" and the CTA names ThriveModal.\n"
+            "- ThriveModal facts come ONLY from the playbook below. Savings "
+            "are only ever \"up to 60-70%\" fully burdened, depending on the "
+            "role. Never state an offshore rate, a monthly or hourly cost, or "
+            "a dollar saving; offer to price the role instead.\n"
+            "- US-side numbers (wages, openings, turnover) must be real public "
+            "figures with the source named in the cell or sentence. If you do "
+            "not know a real figure, describe the item without a number.\n"
+            "- No retention rates, no nationality-based claims about English "
+            "or work ethic, no certifications, no invented customers.\n\n"
+            + _thrivemodal_playbook_text() + "\n"
+        )
     msg = _claude_create_with_retry(client,
         model="claude-haiku-4-5-20251001",
         max_tokens=2400,
@@ -11162,6 +11195,12 @@ def _custom_pdf_build(client, outline, description, ctx_block, pdf_dir,
     if not match:
         return ""
     data = json.loads(match.group())
+
+    # A ThriveModal PDF always leads with the brand, even if the model drops it.
+    if _is_thrivemodal():
+        _t = str(data.get("title") or "Offshore Staffing One-Pager").strip()
+        if not _t.lower().startswith("thrivemodal"):
+            data["title"] = f"ThriveModal {_t}"
 
     # Slug the title for the filename
     _title = data.get("title", "Custom_PDF")
@@ -52352,6 +52391,45 @@ _CUSTOM_PDF_GALLERY = [
 ]
 
 
+# ThriveModal workspaces sell offshore Filipino staffing, so the gallery is
+# rebuilt around that offer. Every idea stays inside the playbook: savings
+# are only "up to 60-70%" fully burdened, no rates or dollar savings, no
+# retention or nationality claims, one person is one schedule.
+_TM_CUSTOM_PDF_GALLERY = [
+    ("Offshore Savings Snapshot",
+     "The fully burdened cost of a US hire (salary, benefits, taxes, overhead) next to how offshore can come in at up to 60-70% less."),
+    ("Price It Both Ways",
+     "A worksheet for the client's top roles: what each costs to hire locally, fully burdened, and an offer to price it through us."),
+    ("How It Works in 5 Steps",
+     "From scoping the role to day one: shortlist of 3+ vetted candidates with video pre-screens, you interview and choose, start in about ten days."),
+    ("Roles That Work Offshore",
+     "Which roles move well to a dedicated Philippines-based professional (billing, bookkeeping, admin, support, dispatch) and which to keep on site."),
+    ("What If It Doesn't Work Out?",
+     "Plain answers on commitment: no upfront or placement fee, month-to-month, no cancellation fee, lifetime free replacement."),
+    ("We Handle the Employment",
+     "We are the employer of record: HR, payroll, benefits, and Philippine compliance. You manage the work, not the paperwork."),
+    ("Your Hours, Your Time Zone",
+     "Your professional works your schedule in any US time zone. How after-hours and overnight shifts work, and why one person is one shift."),
+    ("Offshore Myths vs Reality",
+     "The top objections (quality, communication, security, control) and the honest answer to each."),
+    ("Dedicated Hire vs Freelancers",
+     "Dedicated offshore professional vs freelance marketplaces vs local temps: control, reliability, management time, and cost."),
+    ("Cost of the Empty Seat",
+     "What an open or overloaded role costs every week: overtime, burnout, missed follow-ups, slower billing. And how fast offshore fills it."),
+    ("Security & Confidentiality",
+     "How client work is protected: NDAs, staff dedicated to one client, isolated workstations, and a secure VPN."),
+    ("A Day With Your Offshore Hire",
+     "Hour by hour: working in your systems, daily check-ins with your manager, and how work gets reported back."),
+    ("First 90 Days Plan",
+     "A 30/60/90-day onboarding plan for the client's first offshore hire, plus the support they get: account manager, monthly check-ins, reports."),
+    ("Start With One, Scale to a Team",
+     "How clients begin with one position, prove the model, and grow into an offshore team without adding office space or HR overhead."),
+    ("Industry Playbook",
+     "How a company in the client's industry puts a Philippines-based team to work: the roles, the handoffs, and what the local team gets back."),
+    ("Why Companies Go Offshore Now",
+     "Real US labor data for the client's industry (wage growth, open roles, hiring difficulty) and why offshore staffing is on the table."),
+]
+
 def _render_custom_pdf_modal(s: AppState, rf):
     """Modal for 'Create Your Own' PDFs. Two stages:
       - gallery: pick from 15 ideas OR type a free-form description
@@ -52384,9 +52462,12 @@ def _render_custom_pdf_modal(s: AppState, rf):
                             ).on("click", _close_modal):
                         ui.label("✕").style("pointer-events:none;")
 
+                _tm_gallery = _is_thrivemodal()
                 ui.label(
-                    "Describe any PDF you need for your clients or hiring managers. "
-                    "Free flow - type it in your own words. Or pick from the gallery below to get started."
+                    ("Describe any PDF you need to show a client what offshore Filipino staffing can do for them. "
+                     if _tm_gallery else
+                     "Describe any PDF you need for your clients or hiring managers. ")
+                    + "Free flow - type it in your own words. Or pick from the gallery below to get started."
                 ).style(f"font-size:12px;color:{C['muted']};margin-bottom:14px;display:block;line-height:1.5;")
 
                 # Free-form textarea
@@ -52396,6 +52477,9 @@ def _render_custom_pdf_modal(s: AppState, rf):
                 _prompt_in = ui.textarea(
                     value=s._pdf_custom_prompt,
                     placeholder=(
+                        "e.g. \"A one-pager for a dental group on moving front-desk scheduling "
+                        "and insurance billing to a dedicated Philippines-based team.\""
+                        if _tm_gallery else
                         "e.g. \"A one-pager showing why unionized HVAC candidates cost 30% "
                         "more but produce better quality work  -  for convincing skeptical GCs.\""
                     ),
@@ -52454,7 +52538,7 @@ def _render_custom_pdf_modal(s: AppState, rf):
 
                 with ui.element("div").style(
                         "display:grid;grid-template-columns:1fr 1fr;gap:8px;"):
-                    for _gt, _gd in _CUSTOM_PDF_GALLERY:
+                    for _gt, _gd in (_TM_CUSTOM_PDF_GALLERY if _tm_gallery else _CUSTOM_PDF_GALLERY):
                         def _pick(gt=_gt, gd=_gd):
                             _prompt_in.set_value(f"{gt}. {gd}")
                             # also persist to state in case they click Preview next
