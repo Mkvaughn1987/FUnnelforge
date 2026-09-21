@@ -4241,6 +4241,22 @@ def _tint(col, alpha_hex):
     pct = round(int(alpha_hex, 16) / 2.55)
     return f"color-mix(in srgb, {col} {pct}%, transparent)"
 
+def _step_bubbles(inp, lo=0, hi=365):
+    """Round -/+ buttons in a ui.number's append slot, standing in for the
+    browser spinner that .fd-input hides. Setting .value fires on_change."""
+    def _bump(d):
+        try:
+            cur = int(inp.value or 0)
+        except (TypeError, ValueError):
+            cur = 0
+        inp.value = max(lo, min(hi, cur + d))
+    with inp.add_slot("append"):
+        with ui.element("div").style("display:flex;gap:4px;align-items:center;"):
+            ui.label("−").classes("fd-step-btn").on("click.stop", lambda: _bump(-1))
+            ui.label("+").classes("fd-step-btn").on("click.stop", lambda: _bump(1))
+    return inp
+
+
 # ── Time options (15-min intervals, 24-hour schedule) ─────────────────────
 TIME_OPTIONS = []
 for _h in range(24):
@@ -19844,6 +19860,16 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
 .fd-input.q-field:not(.q-field--labeled) .q-field__marginal{{height:40px}}
 .fd-input.q-field:not(.q-field--labeled) .q-field__native{{min-height:40px;padding:0}}
 .fd-input.q-textarea:not(.q-field--labeled) .q-field__control{{min-height:88px}}
+/* Number fields drop the browser's grey spinner (it ignores the theme);
+   .fd-step-num adds round -/+ bubbles instead. Dropdown chevrons sit in a
+   round teal bubble so every field arrow reads the same. */
+.fd-input input[type=number]::-webkit-inner-spin-button,
+.fd-input input[type=number]::-webkit-outer-spin-button{{-webkit-appearance:none;margin:0}}
+.fd-input input[type=number]{{-moz-appearance:textfield;appearance:textfield}}
+.fd-input.q-select .q-select__dropdown-icon{{width:24px;height:24px;font-size:18px;border-radius:99px;background:{C['teal_dim']};color:{C['teal']};transition:background .15s}}
+.fd-input.q-select:hover .q-select__dropdown-icon{{background:{_tint(C['teal'], '33')}}}
+.fd-step-btn{{width:24px;height:24px;border-radius:99px;display:inline-flex;align-items:center;justify-content:center;background:{C['teal_dim']};color:{C['teal']};font-size:15px;font-weight:700;line-height:1;cursor:pointer;user-select:none;transition:background .15s}}
+.fd-step-btn:hover{{background:{_tint(C['teal'], '33')}}}
 .fd-input.q-textarea:not(.q-field--labeled) .q-field__native{{padding:10px 0;line-height:1.5}}
 /* Per-chip remove × inside .fd-input multi-selects. Quasar 2.x class
    is `q-chip__icon--remove` (double hyphen). An older one-hyphen
@@ -26359,7 +26385,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                         ui.label(step_display).style(
                             f"font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;"
                             f"background:{step_col}22;color:{step_col};text-transform:uppercase;letter-spacing:.05em;")
-                with ui.element("div").style("width:120px;"):
+                with ui.element("div").style("width:140px;"):
                     ui.label("Days after prev").classes("fd-fl")
                     def _save_delay(e, idx=active):
                         try:
@@ -26367,15 +26393,14 @@ def _sq_loaded_campaign(s: AppState, rf):
                         except (ValueError, TypeError):
                             steps[idx]["delay_days"] = 0
                     delay_inp = ui.number(value=em.get("delay_days", 0), min=0, max=365, step=1,
-                                          on_change=_save_delay).style(
-                        f"width:100%;background:{C['surface']};border:1px solid {C['border']};"
-                        f"border-radius:6px;color:{C['text_l']};")
+                                          on_change=_save_delay).classes("fd-input fd-step-num")
+                    _step_bubbles(delay_inp)
                 with ui.element("div").style("width:120px;"):
                     ui.label("Send Time").classes("fd-fl")
                     def _save_time(e, idx=active):
                         steps[idx]["time"] = e.value or "9:00 AM"
                     time_inp = ui.select(options=TIME_OPTIONS, value=em.get("time", "9:00 AM"),
-                                         on_change=_save_time).style("width:100%;")
+                                         on_change=_save_time).classes("fd-input")
 
             subj_inp = None
             body_area = None
@@ -30543,15 +30568,14 @@ def _sq_custom_builder(s, rf):
                         delay_inp = ui.number(
                             value=init_delay, min=0, max=365, step=1,
                             on_change=lambda e: _save_delay_direct(e.value),
-                        ).style(
-                            f"width:100%;background:{C['surface']};border:1px solid {C['border']};"
-                            f"border-radius:6px;color:{C['text_l']};")
+                        ).classes("fd-input fd-step-num")
+                        _step_bubbles(delay_inp)
                     with ui.element("div").style("width:160px;"):
                         ui.label("Send Time").classes("fd-fl")
                         time_inp = ui.select(
                             options=TIME_OPTIONS, value=init_time,
                             on_change=lambda e: _save_time_direct(e.value),
-                        ).style("width:100%;")
+                        ).classes("fd-input")
 
                 # initialise all inputs
                 subj_inp = None
@@ -30887,13 +30911,13 @@ def _sq_custom_editor(s, rf):
 
                     if not (is_first and is_immediate):
                         # Show delay + time only when NOT immediate
-                        with ui.element("div").style("width:120px;"):
+                        with ui.element("div").style("width:140px;"):
                             ui.label("Days after prev").classes("fd-fl")
-                            d_inp = ui.number(value=step.get("delay_days", 0), min=0, max=365).style(
-                                f"width:100%;background:{C['surface']};border:1px solid {C['border']};border-radius:6px;color:{C['text_l']};")
+                            d_inp = ui.number(value=step.get("delay_days", 0), min=0, max=365).classes("fd-input fd-step-num")
+                            _step_bubbles(d_inp)
                         with ui.element("div").style("width:120px;"):
                             ui.label("Send Time").classes("fd-fl")
-                            t_inp = ui.select(options=TIME_OPTIONS, value=step.get("time", "9:00 AM")).style("width:100%;")
+                            t_inp = ui.select(options=TIME_OPTIONS, value=step.get("time", "9:00 AM")).classes("fd-input")
                     else:
                         d_inp = None
                         t_inp = None
