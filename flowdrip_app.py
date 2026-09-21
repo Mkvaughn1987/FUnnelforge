@@ -550,8 +550,8 @@ the client's schedule in any U.S. time zone, and reports to the client's
 manager.
 
 The client controls priorities, workflow, KPIs and day-to-day work.
-ThriveModal stays in the relationship through ThriveCore, its ongoing
-support layer: a named account manager, monthly check-ins, quarterly
+ThriveModal stays in the relationship through its ongoing support
+team: a named account manager, monthly check-ins, quarterly
 reviews and monthly performance reports, plus a lifetime free replacement
 if the placement does not work out.
 
@@ -720,7 +720,7 @@ Plug and play, ready on day one. Workstation and IT are set up before the
 start date, so the professional works in the client's systems from day one,
 and a placement can typically start in about ten days from the decision.
 
-Ongoing support, not a handoff. ThriveCore gives every client a named
+Ongoing support, not a handoff. Our team gives every client a named
 account manager, monthly check-ins, quarterly reviews and monthly reports,
 so problems surface early and the relationship has an owner.
 
@@ -842,7 +842,7 @@ These terms are published by ThriveModal and may be stated plainly:
 - A lifetime free replacement if the placement does not work out.
 - One all-inclusive monthly rate per dedicated professional, invoiced
   bi-weekly, which covers the person's compensation, benefits, HR,
-  compliance, payroll administration and the ThriveCore support layer.
+  compliance, payroll administration and ongoing support from our team.
 - ThriveModal is the employer of record for the professional and handles
   Philippine employment compliance.
 - Workstation and IT set up before day one.
@@ -851,7 +851,7 @@ These terms are published by ThriveModal and may be stated plainly:
 - A shortlist of three or more vetted candidates with video pre-screens.
 - Coverage in any U.S. time zone.
 - A named account manager, monthly check-ins, quarterly reviews and monthly
-  performance reports (ThriveCore).
+  performance reports.
 - An account executive responds to a new inquiry within one business day.
 
 State them as written. Do not attach a number the list does not carry, a
@@ -7032,7 +7032,7 @@ _TM_MODEL_EMAILS = [
         "Choosing the person is one part of adding capacity. Getting them up "
         "to speed takes a clear handoff, access to the right systems and "
         "someone to set priorities.",
-        "ThriveModal coordinates setup and stays involved through ThriveCore, "
+        "We coordinate setup and stay involved afterwards, "
         "including monthly check-ins and quarterly reviews. Your team directs "
         "the day-to-day work.",
         "Would a short onboarding checklist be useful?")),
@@ -13788,7 +13788,7 @@ _TM_MONTHLY_LINE = ("I'll close this series out here, but I'll still check in "
                     "about once a month in case timing changes.")
 _TM_WE_DO_OFFSHORE_RE = re.compile(
     r"\b(?:i|we|i'm|we're|i am|we are)\b[^.?!]{0,80}\boffshore staff augmentation\b", re.I)
-# "monthly rate" and "monthly check-ins" (ThriveCore) are not a promise.
+# "monthly rate" and "monthly check-ins" are not a promise.
 _TM_MONTHLY_RE = re.compile(
     r"once a month|every month|(?:touch|check in|check-in) monthly", re.I)
 
@@ -40866,7 +40866,7 @@ def _tm_cost_extra_sections() -> list:
         {"heading": "What You Get With Us", "type": "bullets", "items": [
             "One all-inclusive monthly rate per dedicated professional, "
             "invoiced bi-weekly: compensation, benefits, HR, compliance, "
-            "payroll administration and ThriveCore support. We are the "
+            "payroll administration and ongoing support. We are the "
             "employer of record; you manage the work, not the employment.",
             "You choose the person from a shortlist of three or more vetted "
             "candidates with video pre-screens. They arrive plug-and-play, "
@@ -41428,6 +41428,8 @@ def _tm_rich_rules(cfg: dict = None) -> str:
         + _approved("tm_voice", "VOICE", "")
         + _approved("tm_forbidden", "CLAIMS YOU MUST NOT MAKE", "")
         + "\nHARD LIMITS FOR THIS DOCUMENT:\n"
+        "- Never write 'ThriveCore' anywhere, even if it appears in the "
+        "approved text above. Call it 'our support team' or 'our team'.\n"
         "- Invent NOTHING. No savings figures, no percentages, no cost "
         "comparisons, no headcount statistics, no 'companies typically save', "
         "no time-to-hire promises, no guarantee of any kind.\n"
@@ -41785,17 +41787,17 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"  1. heading 'The Short Version' — type 'paragraph' — 3-4 "
             f"sentences: we recruit in the Philippines against the client's "
             f"requirements, the client interviews and chooses, we handle "
-            f"onboarding, and ThriveCore supports the placement afterwards.\n"
+            f"onboarding, and our team supports the placement afterwards.\n"
             f"  2. heading 'The Process' — type 'table' — header + exactly 6 "
             f"rows, one per stage, in this order: Role discovery; Recruiting; "
             f"Candidate review; Client interviews; Onboarding; Ongoing "
-            f"ThriveCore support. Columns: ['Stage','What Happens','Who "
+            f"support from our team. Columns: ['Stage','What Happens','Who "
             f"Does It']. Do NOT add a duration column and do not state how "
             f"long any stage takes — no timeline has been approved.\n"
             f"  3. heading 'What You Decide' — type 'bullets' — 4 bullets on "
             f"the decisions that stay with the client, starting with which "
             f"candidate they hire.\n"
-            f"  4. heading 'What ThriveCore Covers' — type 'bullets' — 4 "
+            f"  4. heading 'Ongoing Support From Our Team' — type 'bullets' — 4 "
             f"bullets on ongoing support after the person starts. Describe "
             f"only support that appears in the approved services text above; "
             f"if it is not there, do not claim it.\n"
@@ -51034,7 +51036,7 @@ def p_pdf_gen(s: AppState, rf):
              C["warn"], "💰"),
             ("tm_how_it_works", "How We Work Together",
              "The engagement end to end: role discovery, recruiting, your interviews, "
-             "onboarding, and ongoing ThriveCore support.",
+             "onboarding, and ongoing support from our team.",
              C["indigo"], "🤝"),
             ("interview_guide", "Interview Guide",
              "For the shortlist stage: a structured framework for interviewing the "

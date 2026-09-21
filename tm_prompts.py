@@ -897,7 +897,7 @@ STANDING_RULES = [
     "invoiced every two weeks; three or more vetted candidates per role "
     "with video pre-screens; a start in about ten days; an account "
     "executive reply within a day; NDAs, isolated workstations and a secure "
-    "VPN; and the ThriveCore layer of an account manager, monthly "
+    "VPN; and ongoing support from an account manager, monthly "
     "check-ins, quarterly reviews and monthly reports.",
     "Savings are \"up to sixty to seventy percent, fully burdened\" and "
     "that is a ceiling, not a promise. Never quote a monthly, hourly or "
