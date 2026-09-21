@@ -252,7 +252,10 @@ class DripDropClient:
         await self._raise_for_error(resp)
         return resp.json()
 
-    async def tm_audiences(self) -> dict:
+    async def tm_audiences(self, body: dict | None = None) -> dict:
+        # No body lists them; a body saves or deletes one.
+        if body:
+            return await self._tm_post("audiences", body)
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.get(
                 f"{self.base_url}/api/v1/tm/audiences",
@@ -286,7 +289,10 @@ class DripDropClient:
         await self._raise_for_error(resp)
         return resp.json()
 
-    async def tm_mailboxes(self) -> dict:
+    async def tm_mailboxes(self, body: dict | None = None) -> dict:
+        # No body reads the registry; a body adds, pauses, resumes or removes.
+        if body:
+            return await self._tm_post("mailboxes", body)
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.get(
                 f"{self.base_url}/api/v1/tm/mailboxes",
@@ -392,6 +398,13 @@ class DripDropClient:
 
 
     # ── connector group B (2026-09-21) begin ──
+    async def tm_campaign_styles(self, body: dict | None = None) -> dict:
+        if not body:
+            return await self._tm_get("campaign_styles")
+        return await self._tm_post("campaign_styles", body)
+
+    async def tm_contact_lists(self, body: dict) -> dict:
+        return await self._tm_post("contact_lists", body)
     # ── connector group B end ──
 
 

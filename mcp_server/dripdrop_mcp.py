@@ -524,19 +524,24 @@ async def tm_import_contacts(records: list, list_name: str = "") -> dict:
 
 
 @mcp.tool(description=(
-    "List the saved audiences for this account, with the criteria each one "
-    "filters on. Use this before tm_audience_preview to find out what the "
-    "user has already defined instead of inventing criteria."
+    "Saved audiences (the Audience filter on the campaign contacts step). "
+    "action='list' (default) returns every saved audience with the criteria "
+    "it filters on; use it before tm_audience_preview instead of inventing "
+    "criteria. action='save' with name + criteria {industries, size_buckets, "
+    "job_functions, seniorities, signal_types (lists of strings), "
+    "include_unknown, require_complete_signal (true/false)} saves one; "
+    "saving over an existing name replaces it. action='delete' with name "
+    "removes one (ask the user first). An audience is criteria, never a list "
+    "of contacts."
 ))
-async def tm_audiences() -> dict:
-    email = _current_email()
-    try:
-        client = DripDropClient(DATA_DIR, email)
-        return await client.tm_audiences()
-    except NoApiKeyError as e:
-        return {"error": str(e)}
-    except DripDropApiError as e:
-        return {"error": str(e.body), "status_code": e.status_code}
+async def tm_audiences(action: str = "list", name: str = "",
+                       criteria: dict | None = None) -> dict:
+    if action == "list":
+        return await _tm_call("tm_audiences")
+    body: dict = {"action": action, "name": name}
+    if criteria is not None:
+        body["criteria"] = criteria
+    return await _tm_call("tm_audiences", body)
 
 
 @mcp.tool(description=(
@@ -578,20 +583,28 @@ async def tm_analytics(days: int = 0, campaign: str = "") -> dict:
 
 
 @mcp.tool(description=(
-    "The connected sending mailboxes and how many emails each may still send "
-    "TODAY. Check this before promising a send volume: a mailbox still in its "
-    "warmup ramp is allowed far less than its configured daily cap, and the "
-    "send loop enforces the ramp, not the cap."
+    "Sending mailboxes. action='list' (default) returns them and how many "
+    "emails each may still send TODAY; check this before promising a send "
+    "volume, because a mailbox still in its warmup ramp is allowed far less "
+    "than its configured daily cap, and the send loop enforces the ramp. "
+    "action='add' with email, provider ('microsoft' or 'google'), daily_cap "
+    "(5-500, default 250) and warmup_days (0-90, default 21) registers a new "
+    "mailbox, warming up from today. Adding does NOT connect it: signing the "
+    "mailbox in is an OAuth step the user does in the app in a browser "
+    "(Settings > Email & AI Setup > Sending Mailboxes > Connect); tell them "
+    "so. action='pause' / 'resume' / 'remove' with mailbox_id (or email) "
+    "stops, restarts or drops one from the rotation; ask before removing."
 ))
-async def tm_mailboxes() -> dict:
-    email = _current_email()
-    try:
-        client = DripDropClient(DATA_DIR, email)
-        return await client.tm_mailboxes()
-    except NoApiKeyError as e:
-        return {"error": str(e)}
-    except DripDropApiError as e:
-        return {"error": str(e.body), "status_code": e.status_code}
+async def tm_mailboxes(action: str = "list", email: str = "",
+                       provider: str = "microsoft", daily_cap: int = 250,
+                       warmup_days: int = 21, mailbox_id: str = "") -> dict:
+    if action == "list":
+        return await _tm_call("tm_mailboxes")
+    body: dict = {"action": action, "email": email, "id": mailbox_id}
+    if action == "add":
+        body.update({"provider": provider, "daily_cap": daily_cap,
+                     "warmup_days": warmup_days})
+    return await _tm_call("tm_mailboxes", body)
 
 
 @mcp.tool(description=(
@@ -812,16 +825,21 @@ async def tm_saved_prompts(prompt_id: str = "") -> dict:
 @mcp.tool(description=(
     "Clients: companies (by email domain) that outreach never emails. "
     "action='list' (default); action='add' with domain (+ name, location, "
-    "notes, website); action='remove' with client_id from the list."
+    "notes, website), or with clients=[domain or {domain, name, location, "
+    "notes, website}, ...] to add many at once, like the Clients page's file "
+    "upload (each row is reported added or skipped, e.g. already on the "
+    "list); action='remove' with client_id from the list."
 ))
 async def tm_clients(action: str = "list", domain: str = "", name: str = "",
                      location: str = "", notes: str = "", website: str = "",
-                     client_id: str = "") -> dict:
+                     client_id: str = "", clients: list | None = None) -> dict:
     body = None
     if action != "list":
         body = {"action": action, "domain": domain, "name": name,
                 "location": location, "notes": notes, "website": website,
                 "id": client_id}
+        if clients is not None:
+            body["clients"] = clients
     return await _tm_call("tm_clients", body)
 
 
@@ -855,6 +873,55 @@ async def tm_dnc(action: str = "list", email: str = "", domain: str = "",
 
 
 # ── connector group B (2026-09-21) begin ──
+@mcp.tool(description=(
+    "My Campaign Styles: reusable campaign shapes a new campaign can be "
+    "launched from (create_campaign with style_id). action='list' (default) "
+    "returns the styles plus the allowed step types and tones. "
+    "action='create' with name + steps, exactly what the app's Create a "
+    "Campaign Style builder captures: steps=[{type: 'email'|'call'|"
+    "'linkedin', delay_days: business days after the previous step (1-30; "
+    "ignored on step 1), content: what that step says or should do}], at "
+    "most 15, every step needs content; tone 'consultative' (default), "
+    "'direct', 'casual' or 'formal'. Or pass description instead of steps "
+    "for a free-form style. At launch the AI writes a fresh campaign from "
+    "the style; it does not replay the text word for word. action='delete' "
+    "with style_id removes one for good (ask the user first)."
+))
+async def tm_campaign_styles(action: str = "list", name: str = "",
+                             steps: list | None = None, tone: str = "consultative",
+                             description: str = "", style_id: str = "") -> dict:
+    if action == "list":
+        return await _tm_call("tm_campaign_styles")
+    body: dict = {"action": action, "name": name, "id": style_id, "tone": tone}
+    if steps is not None:
+        body["steps"] = steps
+    if description:
+        body["description"] = description
+    return await _tm_call("tm_campaign_styles", body)
+
+
+@mcp.tool(description=(
+    "Edit the contact lists on the Contacts page (tm_contacts reads them). "
+    "list_name is a saved list's name; blank means the active list the "
+    "Contacts page has open. action='add_contact' with contact={email, "
+    "first_name, last_name, company, title, phone_mobile, phone_office, "
+    "linkedin, city, state}; action='update_contact' with email (who) and "
+    "changes={field: new value} using those same fields; "
+    "action='delete_contact' with email; action='delete_list' deletes a "
+    "saved list for good and needs confirm=true (ask the user first). "
+    "Campaigns already running keep the contacts they were given."
+))
+async def tm_contact_lists(action: str, list_name: str = "", email: str = "",
+                           contact: dict | None = None,
+                           changes: dict | None = None,
+                           confirm: bool = False) -> dict:
+    body: dict = {"action": action, "list": list_name, "email": email,
+                  "confirm": confirm}
+    if contact is not None:
+        body["contact"] = contact
+    if changes is not None:
+        body["changes"] = changes
+    return await _tm_call("tm_contact_lists", body)
 # ── connector group B end ──
 
 
