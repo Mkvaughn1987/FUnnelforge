@@ -158,6 +158,10 @@ def test_first_gen_banner_renders_inline_preview():
     assert 'emails", []' in src or "emails" in src, (
         "banner must read the campaign's issue body to preview it"
     )
-    assert "ui.html(" in src, (
+    # The preview is an editable inline ui.editor (tweak + Save in place).
+    assert "ui.editor(value=_body0)" in src, (
         "banner must render the issue HTML inline as a preview"
+    )
+    assert "_register_qeditor(_inline_editor" in src, (
+        "inline editor must be registered so merge-field inserts work"
     )

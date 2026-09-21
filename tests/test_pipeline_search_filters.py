@@ -231,6 +231,8 @@ def test_jd_search_explicit_location_overrides_the_parsed_one(ats_mod, monkeypat
     monkeypatch.setattr(ats_mod, "jd_extract", lambda t: {
         "title": "Project Manager", "must_have_skills": ["OSHA"],
         "nice_to_have": [], "location": "", "seniority": "Senior"})
+    # us_geo.csv is server-only data; pin the origin like the other radius tests.
+    monkeypatch.setattr(ats_mod, "geocode_text", lambda s: _ORIGIN)
     _seed(ats_mod, "Near", "Santa Ana", "CA", _NEAR)
     _seed(ats_mod, "Far", "San Diego", "CA", _FAR)
 
@@ -245,6 +247,8 @@ def test_jd_search_falls_back_to_parsed_location(ats_mod, monkeypatch):
     monkeypatch.setattr(ats_mod, "jd_extract", lambda t: {
         "title": "Project Manager", "must_have_skills": ["OSHA"],
         "nice_to_have": [], "location": "Irvine, CA", "seniority": "Senior"})
+    # us_geo.csv is server-only data; pin the origin like the other radius tests.
+    monkeypatch.setattr(ats_mod, "geocode_text", lambda s: _ORIGIN)
     _seed(ats_mod, "Near", "Santa Ana", "CA", _NEAR)
     _seed(ats_mod, "Far", "San Diego", "CA", _FAR)
 

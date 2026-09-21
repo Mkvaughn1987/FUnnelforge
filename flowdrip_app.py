@@ -12591,6 +12591,16 @@ def _is_ndr_message(from_email: str, subject: str) -> bool:
 # (mailbox full, policy/reputation block, server timeout, transient) only
 # after they repeat, since a one-off outage shouldn't cost a real prospect.
 _SOFT_BOUNCE_THRESHOLD = 3
+# 5.7.x is a spam/policy rejection. Retrying it keeps hitting the same
+# filter and costs sender reputation, so suppress after two instead of three.
+_SOFT_BOUNCE_THRESHOLD_POLICY = 2
+
+
+def _soft_bounce_threshold_for(status: str) -> int:
+    """Distinct soft bounces before suppression, by NDR status code."""
+    if (status or "").strip().startswith("5.7."):
+        return _SOFT_BOUNCE_THRESHOLD_POLICY
+    return _SOFT_BOUNCE_THRESHOLD
 
 
 def _record_soft_bounce(tracker: dict, email: str, message_id: str,
@@ -34560,6 +34570,10 @@ def _render_nl_first_gen_status(s, rf) -> None:
                 ui.editor(value=_body0), _TOOLBAR_FULL).style(
                 "min-height:340px;max-height:52vh;overflow:auto;"
                 "border-radius:8px;background:#FFFFFF;")
+            try:
+                s._register_qeditor(_inline_editor, "nl_first_gen_inline")
+            except Exception:
+                pass
         else:
             ui.label(
                 "The issue generated but has no preview body yet — open it in "
@@ -60356,7 +60370,11 @@ def _jway_render(d: dict, contact_name: str) -> str:
     out.append(f"<p style='{P}margin-top:14px;'>"
                f"{_md(d.get('signoff') or 'Thank you, and I hope this was helpful!')}</p>")
     out.append(f"<p style='{P}margin-top:2px;'>Warm regards,</p>")
-    return _usd_to_dollar(_strip_dashes("".join(out)))
+    # White "paper" behind the hard-coded #222 text, or it renders
+    # dark-on-dark in the dark-theme editor canvas.
+    return _usd_to_dollar(_strip_dashes(
+        "<div style='background:#ffffff;color:#222;padding:12px 16px;'>"
+        + "".join(out) + "</div>"))
 
 
 def _nl_sales_audience(sector: str, region: str, company: str,
@@ -70864,7 +70882,7 @@ def _server_reply_monitor_tick(force_full_scan: bool = False):
         # HARD bounces (recipient doesn't exist) suppress on the first
         # bounce. SOFT bounces — mailbox full, policy/reputation blocks
         # (5.7.x), server timeouts (5.4.3xx), transient 4.x.x — only after
-        # they REPEAT (_SOFT_BOUNCE_THRESHOLD distinct NDRs), so a one-off
+        # they REPEAT (_soft_bounce_threshold_for: 2 for 5.7.x, else 3), so a one-off
         # outage never costs a real prospect. Soft-bounce counts persist in
         # soft_bounce_tracker.json, deduped by NDR message_id.
         _my_domain = ""
@@ -70906,7 +70924,8 @@ def _server_reply_monitor_tick(force_full_scan: bool = False):
             else:
                 # Soft: count distinct NDRs; suppress only at the threshold.
                 _reached = _record_soft_bounce(
-                    _soft_tracker, _bounced, msg.get("message_id", ""), _status)
+                    _soft_tracker, _bounced, msg.get("message_id", ""), _status,
+                    _soft_bounce_threshold_for(_status))
                 _tracker_dirty = True
                 if _reached:
                     _n = _soft_tracker.get(_bounced, {}).get("count", _SOFT_BOUNCE_THRESHOLD)

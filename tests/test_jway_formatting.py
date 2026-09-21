@@ -65,29 +65,10 @@ def test_no_sector_means_no_parenthetical():
     assert "(Manufacturing)" not in html
 
 
-def test_signature_name_rendered_under_warm_regards():
-    html = fa._jway_render(_doc(), "Mike Vaughn")
-    regards_idx = html.index("Warm regards,")
-    name_idx = html.index("Mike Vaughn")
-    assert name_idx > regards_idx
-
-
-def test_blank_contact_name_omits_signature_line():
-    html = fa._jway_render(_doc(), "")
-    assert html.rstrip().endswith("Warm regards,</p>")
-
-
-def test_signature_includes_phone_and_email_from_settings_and_user():
-    html = fa._jway_render(_doc(), "Mike Vaughn", "mike@example.com", "555-123-4567")
-    regards_idx = html.index("Warm regards,")
-    name_idx = html.index("Mike Vaughn")
-    phone_idx = html.index("555-123-4567")
-    email_idx = html.index("mike@example.com")
-    assert regards_idx < name_idx < phone_idx < email_idx
-    assert "mailto:mike@example.com" in html
-
-
-def test_blank_email_and_phone_omit_those_lines():
-    html = fa._jway_render(_doc(), "Mike Vaughn", "", "")
-    assert "mailto:" not in html
-    assert html.rstrip().endswith("Mike Vaughn</p>")
+def test_body_ends_at_warm_regards_signature_appended_at_send():
+    # No name/phone/email block in the body: the user's saved signature is
+    # auto-appended to every email at send time, so a block here would
+    # print the sender's details twice.
+    for name in ("", "Mike Vaughn"):
+        html = fa._jway_render(_doc(), name)
+        assert html.rstrip().endswith("Warm regards,</p></div>")

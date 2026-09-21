@@ -41,8 +41,9 @@ def test_4x4_emails_keep_their_cadence():
 
 
 # ── chip label ─────────────────────────────────────────────────────
-def test_4x4_label_reflects_five_steps():
-    assert _fourbyfour()[2] == "5 steps - 2 weeks"
+def test_4x4_label_reflects_six_steps():
+    # 4 emails + same-day call + same-day LinkedIn connect (10ce0da).
+    assert _fourbyfour()[2] == "6 steps - 2 weeks"
 
 
 def test_4x4_name_unchanged():
