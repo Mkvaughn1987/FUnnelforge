@@ -194,12 +194,17 @@ def _clean(text: str) -> str:
 def section_header(text):
     """Blue bold section header with thin gray line underneath.
     Font bumped +2 2026-05-02 per user readability request."""
+    # keepWithNext: never leave a heading stranded at the bottom of a page
+    # with its content starting on the next one.
+    rule = HRFlowable(width="100%", thickness=0.5, color=SILVER,
+                      spaceBefore=0, spaceAfter=4)
+    rule.keepWithNext = True
     return [
         Paragraph(f"<b>{_clean(text)}</b>",
                   S("sh", fontName="Helvetica-Bold", fontSize=13,
-                    textColor=BLUE, leading=16, spaceAfter=1)),
-        HRFlowable(width="100%", thickness=0.5, color=SILVER,
-                   spaceBefore=0, spaceAfter=4),
+                    textColor=BLUE, leading=16, spaceAfter=1,
+                    keepWithNext=1)),
+        rule,
     ]
 
 def bullet_item(text):
@@ -236,7 +241,9 @@ def div(before=8, after=8):
                       spaceBefore=before, spaceAfter=after)
 
 def alt_table(rows, widths, header=True):
-    t = Table(rows, colWidths=widths)
+    # repeatRows=1: a table that breaks across pages repeats its header, and
+    # ReportLab will not split it leaving only the header row behind.
+    t = Table(rows, colWidths=widths, repeatRows=1 if header else 0)
     base = [
         ("VALIGN",        (0,0),(-1,-1), "TOP"),
         ("TOPPADDING",    (0,0),(-1,-1), 5),
