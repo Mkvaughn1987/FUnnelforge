@@ -582,7 +582,7 @@ def test_complete_pdf_carries_the_computed_table():
     assert data["badge"] == "STAFFING COST COMPARISON"
     assert "Missing Inputs" not in [s["heading"] for s in data["sections"]]
     table = next(s for s in data["sections"] if s["type"] == "table")
-    assert table["items"][-1] == ["Total", "USD 121,000", "USD 38,400", "USD 82,600"]
+    assert table["items"][-1] == ["Total", "$121,000", "$38,400", "$82,600"]
     inc = next(s for s in data["sections"]
                if s["heading"] == "What Our Rate Covers")
     assert inc["items"] == ["Recruiting", "Payroll and benefits"]

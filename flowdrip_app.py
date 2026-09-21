@@ -7314,8 +7314,8 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
             _b = "Hi {FirstName},<br><br>" + _b
         _b = _strip_ai_signoff(_b)
         _s = _title_case_subject(_s)
-        _b = _humanize_email_text(_b)
-        _s = _humanize_email_text(_s)
+        _b = _usd_to_dollar(_humanize_email_text(_b))
+        _s = _usd_to_dollar(_humanize_email_text(_s))
         _b = _strip_dashes(_b)
         _s = _strip_dashes(_s)
         if _is_4x4_camp:
@@ -38909,10 +38909,10 @@ _TM_BENCH_SOURCES = [
     ("Payroll taxes and benefits (42.9% of wages): BLS Employer Costs for "
      "Employee Compensation, June 2026",
      "https://www.bls.gov/news.release/ecec.nr0.htm"),
-    ("Workspace (about 160 sq ft at USD 37.58/sq ft a year): CBRE US Office "
+    ("Workspace (about 160 sq ft at $37.58/sq ft a year): CBRE US Office "
      "Market Report Q2 2026",
      "https://www.cbre.com/insights/figures/q2-2026-us-office-market-report"),
-    ("Recruiting and onboarding (USD 5,475 average cost per non-executive "
+    ("Recruiting and onboarding ($5,475 average cost per non-executive "
      "hire): SHRM 2025 Benchmarking Report",
      "https://www.shrm.org/about/press-room/shrm-releases-2025-benchmarking-reports--how-does-your-organizat"),
     ("Philippine offshore rates: VA Masters rate guide",
@@ -39535,6 +39535,8 @@ def _tm_auto_cost_pdf_data(company: str, role: str, location: str,
     company = (str(company or "").strip() or "your team")
     role = str(role or "").strip() or "this role"
     location = str(location or "").strip()
+    if _is_nationwide(location):
+        location = ""
     bench = _tm_benchmark(_tm_match_benchmark(role))
     if lookup:
         base = lookup["salary"]
@@ -39546,9 +39548,10 @@ def _tm_auto_cost_pdf_data(company: str, role: str, location: str,
     elif bench:
         base = float(bench["base"])
         salary_note = (
-            f"No local salary figure was found for {location or 'this area'}, "
-            f"so base salary is the US national median for "
-            f"{bench['occupation']} (BLS, {_TM_BENCH_AS_OF}).")
+            (f"No local salary figure was found for {location}, so base "
+             f"salary is the US national median for " if location else
+             "Base salary is the US national median for ")
+            + f"{bench['occupation']} (BLS, {_TM_BENCH_AS_OF}).")
     else:
         base = None
 
@@ -39588,7 +39591,7 @@ def _tm_auto_cost_pdf_data(company: str, role: str, location: str,
 
     where = f" in {location}" if location else ""
     howto = [
-        f"Figures cover one {role}{where} over 12 months, in USD.",
+        f"Figures cover one {role}{where} over 12 months, in U.S. dollars.",
         salary_note,
         f"Payroll taxes and benefits are {_TM_BENCH_BURDEN_PCT:.0f}% of wages "
         f"(BLS). Workspace and recruiting are US averages. None of these are "
@@ -39735,7 +39738,7 @@ def _tm_multi_cost_pdf_data(client, company: str, role: str, location: str,
     salary_note = "Base salary is the BLS median for the closest occupation: " + (
         "; ".join(f"{', '.join(v)} ({a})" for a, v in by_area.items()) + ".")
     where = (f" in {location}" if location
-             and location.lower() not in ("united states", "usa", "us") else "")
+             and not _is_nationwide(location) else "")
     # A market campaign's subject is an industry, not a buyer.
     _mkt = str(industry or company)
     who = (f"{'an' if _mkt[:1].lower() in 'aeiou' else 'a'} {_mkt} business"
@@ -39743,7 +39746,7 @@ def _tm_multi_cost_pdf_data(client, company: str, role: str, location: str,
     whose = "your" if market_only else f"{company}'s"
     howto = [
         f"Each in-house figure is one full-time person{where} for 12 months, "
-        f"in USD: base salary, plus payroll taxes and benefits at "
+        f"in U.S. dollars: base salary, plus payroll taxes and benefits at "
         f"{_TM_BENCH_BURDEN_PCT:.0f}% of wages (BLS), plus US-average "
         f"workspace ({_tm_money(_TM_BENCH_OVERHEAD)}) and recruiting "
         f"({_tm_money(_TM_BENCH_HIRING)}).",
@@ -39834,10 +39837,28 @@ def _tm_parse_money(val):
 
 def _tm_money(amount, currency: str = "USD") -> str:
     """Render a computed figure. Whole units only — cents on a five-figure
-    annual comparison read as false precision."""
+    annual comparison read as false precision. U.S. dollars are written
+    "$40,000", never "USD 40,000" (Mike, 2026-09-21); another currency
+    keeps its code."""
     if amount is None:
         return "Not provided"
-    return f"{currency} {amount:,.0f}"
+    cur = (str(currency or "USD").strip() or "USD").upper()
+    if cur == "USD":
+        return f"-${abs(amount):,.0f}" if amount < 0 else f"${amount:,.0f}"
+    return f"{cur} {amount:,.0f}"
+
+
+_USD_BEFORE_RE = re.compile(r"\bUSD\s*\$?\s*(?=\d)")
+_USD_AFTER_RE = re.compile(r"(?<![\w$])(\d[\d,]*(?:\.\d+)?)\s*USD\b")
+
+
+def _usd_to_dollar(text):
+    """'USD 40,000' / 'USD $40,000' / '40,000 USD' -> '$40,000'. Leaves any
+    other use of 'USD' (e.g. 'in USD') alone."""
+    if not text or "USD" not in text:
+        return text
+    text = _USD_BEFORE_RE.sub("$", text)
+    return _USD_AFTER_RE.sub(r"$\1", text)
 
 
 def _tm_cost_worksheet(inputs: dict, seats: int = 1, period_months: int = 12,
@@ -40004,7 +40025,7 @@ def _tm_cost_pdf_data(company: str, inputs: dict, seats: int = 1,
             f"Our column uses the midpoint of published rates for "
             f"a full-time, dedicated Philippine offshore "
             f"{_role[_role.index(' ') + 1:]} "
-            f"(USD {bench['ph_low']:,}–{bench['ph_high']:,} a month). It is a "
+            f"(${bench['ph_low']:,}–${bench['ph_high']:,} a month). It is a "
             f"market benchmark, not our quote. We'll give you a firm number "
             f"once we understand the role together.")
     assumptions.append(
@@ -55748,7 +55769,7 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
 </body></html>'''
     # Final safety net  -  scrub em/en-dashes from any hardcoded strings that
     # slipped in (the data-dict scrub at the top only covers incoming data).
-    html = _strip_dashes(html)
+    html = _usd_to_dollar(_strip_dashes(html))
     return html
 
 
@@ -56549,7 +56570,7 @@ def _jway_render(d: dict, contact_name: str) -> str:
     out.append(f"<p style='{P}margin-top:14px;'>"
                f"{_md(d.get('signoff') or 'Thank you, and I hope this was helpful!')}</p>")
     out.append(f"<p style='{P}margin-top:2px;'>Warm regards,</p>")
-    return _strip_dashes("".join(out))
+    return _usd_to_dollar(_strip_dashes("".join(out)))
 
 
 def _nl_sales_audience(sector: str, region: str, company: str,
@@ -66354,8 +66375,8 @@ def _server_send_one(item: dict, config_path: Path, user_dir: Path = None) -> tu
     # Per-recipient merge tokens ({FirstName} etc.). No-op for campaign items
     # (already substituted at queue time); powers deferred newsletter bodies
     # and the auto "Hi {FirstName}," greeting.
-    subject = _apply_merge_tokens(subject, item)
-    body = _apply_merge_tokens(body, item)
+    subject = _usd_to_dollar(_apply_merge_tokens(subject, item))
+    body = _usd_to_dollar(_apply_merge_tokens(body, item))
 
     if not to or not subject:
         return False, "Missing recipient or subject"

@@ -192,3 +192,14 @@ def test_thrivemodal_swaps_calendar_for_signature(monkeypatch):
     assert "border-radius:12px" in html
     monkeypatch.setattr(fa, "_is_thrivemodal", lambda cfg=None: False)
     assert "border-radius:12px;padding:18px 14px" not in fa._render_newsletter_html(dict(data))
+
+
+def test_dollars_written_with_a_dollar_sign_not_usd():
+    assert fa._tm_money(40000) == "$40,000"
+    assert fa._tm_money(-1500) == "-$1,500"
+    assert fa._tm_money(1000, "PHP") == "PHP 1,000"
+    assert fa._usd_to_dollar("Saves USD 40,000 or USD $5,475, i.e. 12,000 USD a year") == \
+        "Saves $40,000 or $5,475, i.e. $12,000 a year"
+    assert fa._usd_to_dollar("figures in USD") == "figures in USD"
+    src = inspect.getsource(fa)
+    assert "USD 37.58" not in src and "(USD {bench" not in src

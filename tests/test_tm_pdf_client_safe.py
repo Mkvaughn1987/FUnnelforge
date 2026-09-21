@@ -101,7 +101,7 @@ def test_cost_comparison_names_five_roles_lead_role_first(monkeypatch):
     assert len(roles) == 5 and roles[0] == "Project Coordinator"
     assert "Estimator" in roles  # from the construction list
     assert rows[-1][0] == "All 5 roles"
-    money = lambda t: float(t.replace("USD", "").replace(",", ""))
+    money = lambda t: float(t.replace("USD", "").replace("$", "").replace(",", ""))
     assert money(rows[-1][2]) == sum(money(r[2]) for r in rows[1:-1])
     assert money(rows[-1][4]) == money(rows[-1][2]) - money(rows[-1][3])
     assert d["badge"] == "STAFFING COST COMPARISON" and d["_worksheet"]
