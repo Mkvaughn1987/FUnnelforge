@@ -56716,8 +56716,10 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
     # with them at the top of the issue.
     sections_html += _around_town_html
 
-    _qas = [o for o in (data.get("objection"), data.get("objection_2"))
-            if isinstance(o, dict) and (o.get("question") or "").strip()
+    _qas = [dict(o, answer=_TM_NL_FIXED_ANSWERS.get(o.get("question"), o.get("answer")))
+            for o in (data.get("objection"), data.get("objection_2"))
+            if isinstance(o, dict)]
+    _qas = [o for o in _qas if (o.get("question") or "").strip()
             and (o.get("answer") or "").strip()]
     if _qas:
         _inner = "".join(
@@ -58222,6 +58224,17 @@ _TM_NL_ANSWER_HINTS = {
         "stays on month-to-month terms with no cancellation fee. Word it as "
         "the playbook does; no replacement window, timeline or performance "
         "guarantee."),
+}
+
+# Answers Mike wrote himself (2026-09-21). They replace whatever the AI
+# wrote at render time, so issues generated earlier pick them up too.
+_TM_NL_FIXED_ANSWERS = {
+    "How is their English?": (
+        "Filipino professionals are consistently ranked among the strongest "
+        "English speakers of any major offshore market, and English is an "
+        "official language of Philippine schools and business. We also meet "
+        "with every candidate twice before you do, then you watch their video "
+        "pre-screen and interview them yourself. Communication is our forte."),
 }
 
 _TM_NL_ROLES = {
