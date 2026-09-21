@@ -633,6 +633,223 @@ async def tm_campaign_pdfs(campaign_id: str, pdfs: list, role: str = "",
         return {"error": str(e.body), "status_code": e.status_code}
 
 
+# -- ThriveModal: the rest of the app (2026-09-21) --------------------------
+# One tool per page, so everything the app does is reachable from Claude.
+# Each maps 1:1 to a client method (test_63 pairs them).
+
+# The app's own address, for links to PDFs. The bridge already knows it.
+_APP_AUTHORIZE = os.environ.get("DRIPDROP_MCP_APP_AUTHORIZE_URL", "")
+_APP_ORIGIN = ("{0.scheme}://{0.netloc}".format(urlparse(_APP_AUTHORIZE))
+               if _APP_AUTHORIZE else "")
+
+
+async def _tm_call(method: str, *args) -> dict:
+    try:
+        client = DripDropClient(DATA_DIR, _current_email())
+        return await getattr(client, method)(*args)
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
+def _link_pdfs(res: dict) -> dict:
+    """Turn the app's /pdfs/ paths into links the user can open (they open
+    in a browser where the user is signed in to the app)."""
+    rows = res.get("assets") if isinstance(res.get("assets"), list) else [res]
+    for r in rows:
+        if isinstance(r, dict) and str(r.get("path", "")).startswith("/pdfs/"):
+            r["url"] = _APP_ORIGIN + r["path"]
+    return res
+
+
+@mcp.tool(description=(
+    "My Day: today's calls, LinkedIn touches and manual tasks from active "
+    "campaigns (plus up to a week of overdue ones), with the contact's "
+    "phones, LinkedIn and the call script. Pass date=YYYY-MM-DD for another "
+    "day. Use tm_task_done to tick one off."
+))
+async def tm_my_day(date: str = "") -> dict:
+    return await _tm_call("tm_my_day", date)
+
+
+@mcp.tool(description=(
+    "Mark a My Day task done, exactly like its button in the app. result: "
+    "'done' (a task), 'connected' (spoke to them / LinkedIn sent), 'vm' "
+    "(left a voicemail) or 'skipped'. undo=true puts it back. Get task_id "
+    "from tm_my_day."
+))
+async def tm_task_done(task_id: str, result: str = "done", undo: bool = False) -> dict:
+    return await _tm_call("tm_task_done",
+                          {"task_id": task_id, "result": result, "undo": undo})
+
+
+@mcp.tool(description=(
+    "Replies: everyone who wrote back to a campaign, with their message. "
+    "action='list' (default) lists them; action='followed_up' marks one "
+    "handled; action='dismiss' removes it from the list. The last two need "
+    "the email."
+))
+async def tm_replies(action: str = "list", email: str = "") -> dict:
+    return await _tm_call("tm_replies", action, email)
+
+
+@mcp.tool(description=(
+    "Search the contacts on file: one saved list by name (blank = the active "
+    "list), filtered by q against name, email, company and title. Also "
+    "returns every saved list's name, for tm_campaign_contacts."
+))
+async def tm_contacts(list_name: str = "", q: str = "", limit: int = 50) -> dict:
+    return await _tm_call("tm_contacts", list_name, q, limit)
+
+
+@mcp.tool(description=(
+    "Add contacts to an EXISTING campaign or newsletter, or remove one. "
+    "action='add' with contacts=[{email, first_name, last_name, company, "
+    "title, ...}] or list_name='<saved list>' queues their emails starting "
+    "today; Do Not Contact, past repliers and Clients are skipped exactly as "
+    "in the app. action='remove' with email stops that person's pending "
+    "emails in this campaign. Adding sends real email, so confirm with the "
+    "user before adding a list."
+))
+async def tm_campaign_contacts(campaign_id: str, action: str = "add",
+                               contacts: list | None = None,
+                               list_name: str = "", email: str = "") -> dict:
+    body: dict = {"campaign_id": campaign_id, "action": action}
+    if contacts is not None:
+        body["contacts"] = contacts
+    if list_name:
+        body["list"] = list_name
+    if email:
+        body["email"] = email
+    return await _tm_call("tm_campaign_contacts", body)
+
+
+@mcp.tool(description=(
+    "Stop, restart or delete a campaign. action: 'cancel' (stops every "
+    "pending email), 'resume' (re-queues everything not yet sent; nothing "
+    "already sent goes twice), 'retry_failed' (reschedules failed sends for "
+    "tomorrow 9am) or 'delete' (permanent; needs confirm=true, and ask the "
+    "user first)."
+))
+async def tm_campaign_action(campaign_id: str, action: str, confirm: bool = False) -> dict:
+    return await _tm_call("tm_campaign_action",
+                          {"campaign_id": campaign_id, "action": action,
+                           "confirm": confirm})
+
+
+@mcp.tool(description=(
+    "Send one email step of a campaign to the user's own inbox as a "
+    "preview, merged with their own name and carrying its attachments. "
+    "step is 1-based, as campaign_get numbers the steps."
+))
+async def tm_send_preview(campaign_id: str, step: int = 1) -> dict:
+    return await _tm_call("tm_send_preview", {"campaign_id": campaign_id, "step": step})
+
+
+@mcp.tool(description=(
+    "List the monthly newsletters (contacts, next issue, whether it is "
+    "written yet) plus the sectors and styles a new one can use."
+))
+async def tm_newsletters() -> dict:
+    return await _tm_call("tm_newsletters")
+
+
+@mcp.tool(description=(
+    "Create a monthly newsletter. sector is a key from tm_newsletters "
+    "(e.g. 'logistics'); region defaults to Nationwide; start_date "
+    "YYYY-MM-DD (default today); count = months (default 12); style "
+    "'full_send' (with pictures) or 'j_way' (organic, text only); "
+    "profiles=true adds candidate profile cards. The first issue is written "
+    "in the background; enrol people afterwards with tm_campaign_contacts."
+))
+async def tm_newsletter_create(name: str, sector: str, region: str = "",
+                               niche: str = "", start_date: str = "",
+                               count: int = 12, time: str = "9:00 AM",
+                               style: str = "full_send",
+                               profiles: bool = True) -> dict:
+    return await _tm_call("tm_newsletter_create", {
+        "name": name, "sector": sector, "region": region, "niche": niche,
+        "start_date": start_date, "count": count, "time": time,
+        "style": style, "profiles": profiles})
+
+
+@mcp.tool(description=(
+    "Write a newsletter's next issue now and return its subject and text; "
+    "refresh=true rewrites an issue that is already written. Emails already "
+    "queued for that issue get the new copy. Takes a minute or two."
+))
+async def tm_newsletter_issue(campaign_id: str, refresh: bool = False) -> dict:
+    return await _tm_call("tm_newsletter_issue",
+                          {"campaign_id": campaign_id, "refresh": refresh})
+
+
+@mcp.tool(description=(
+    "Sales Assets PDFs. With no kind, lists the PDFs already in the library "
+    "(newest first, each with a link) and the kinds available. With kind + "
+    "role (+ company, location, industry), builds a new PDF and returns its "
+    "link. Kinds: " + _PDF_KINDS_DOC + " To attach PDFs to a campaign use "
+    "tm_campaign_pdfs instead."
+))
+async def tm_sales_assets(kind: str = "", role: str = "", company: str = "",
+                          location: str = "", industry: str = "") -> dict:
+    body = None
+    if kind:
+        body = {"kind": kind, "role": role, "company": company,
+                "location": location, "industry": industry}
+    return _link_pdfs(await _tm_call("tm_sales_assets", body))
+
+
+@mcp.tool(description=(
+    "The user's Saved Prompts from the AI Prompt page. With no prompt_id, "
+    "lists them; with one, returns that prompt's full text, rebuilt from its "
+    "saved answers, ready to follow."
+))
+async def tm_saved_prompts(prompt_id: str = "") -> dict:
+    return await _tm_call("tm_saved_prompts", prompt_id)
+
+
+@mcp.tool(description=(
+    "Clients: companies (by email domain) that outreach never emails. "
+    "action='list' (default); action='add' with domain (+ name, location, "
+    "notes, website); action='remove' with client_id from the list."
+))
+async def tm_clients(action: str = "list", domain: str = "", name: str = "",
+                     location: str = "", notes: str = "", website: str = "",
+                     client_id: str = "") -> dict:
+    body = None
+    if action != "list":
+        body = {"action": action, "domain": domain, "name": name,
+                "location": location, "notes": notes, "website": website,
+                "id": client_id}
+    return await _tm_call("tm_clients", body)
+
+
+@mcp.tool(description=(
+    "Settings: the company profile, email signature and timezone. With no "
+    "update, returns them. update may hold any of {'profile': {<field>: "
+    "value}, 'signature': '<text>', 'timezone': 'America/Chicago'}; the "
+    "allowed profile fields come back from the read. Emails already queued "
+    "keep their old signature and send times."
+))
+async def tm_settings(update: dict | None = None) -> dict:
+    return await _tm_call("tm_settings", update)
+
+
+@mcp.tool(description=(
+    "Do Not Contact. action='list' (default, optional q filter); "
+    "action='add' with email or domain (adding an email cancels its pending "
+    "sends and takes it out of every campaign; a domain blocks everyone "
+    "there); action='remove' with email or domain."
+))
+async def tm_dnc(action: str = "list", email: str = "", domain: str = "",
+                 reason: str = "", q: str = "") -> dict:
+    if action == "list":
+        return await _tm_call("tm_dnc", None, q)
+    return await _tm_call("tm_dnc", {"action": action, "email": email,
+                                     "domain": domain, "reason": reason})
+
+
 def main() -> None:
     transport = os.environ.get("DRIPDROP_MCP_TRANSPORT", "streamable-http")
     if transport == "stdio":

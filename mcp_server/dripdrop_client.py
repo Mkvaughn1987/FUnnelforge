@@ -305,3 +305,84 @@ class DripDropClient:
             )
         await self._raise_for_error(resp)
         return resp.json()
+
+    # -- ThriveModal: the rest of the app (2026-09-21) ---------------------
+
+    async def _tm_get(self, path: str, params: dict | None = None,
+                      timeout: float = 60.0) -> dict:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/tm/{path}",
+                params={k: v for k, v in (params or {}).items() if v not in ("", None)},
+                headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def _tm_post(self, path: str, body: dict, timeout: float = 60.0) -> dict:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(
+                f"{self.base_url}/api/v1/tm/{path}",
+                json=body,
+                headers={**self._headers(), "Content-Type": "application/json"},
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def tm_my_day(self, day: str = "") -> dict:
+        return await self._tm_get("tasks", {"date": day})
+
+    async def tm_task_done(self, body: dict) -> dict:
+        return await self._tm_post("tasks/done", body)
+
+    async def tm_replies(self, action: str = "list", email: str = "") -> dict:
+        if action == "list":
+            return await self._tm_get("replies")
+        return await self._tm_post("replies", {"action": action, "email": email})
+
+    async def tm_contacts(self, list_name: str = "", q: str = "", limit: int = 50) -> dict:
+        return await self._tm_get("contacts/search",
+                                  {"list": list_name, "q": q, "limit": limit})
+
+    async def tm_campaign_contacts(self, body: dict) -> dict:
+        # Adding queues every new contact's emails server-side.
+        return await self._tm_post("campaigns/contacts", body, timeout=180.0)
+
+    async def tm_campaign_action(self, body: dict) -> dict:
+        return await self._tm_post("campaigns/action", body, timeout=120.0)
+
+    async def tm_send_preview(self, body: dict) -> dict:
+        return await self._tm_post("send_preview", body, timeout=90.0)
+
+    async def tm_newsletters(self) -> dict:
+        return await self._tm_get("newsletters")
+
+    async def tm_newsletter_create(self, body: dict) -> dict:
+        return await self._tm_post("newsletters", body)
+
+    async def tm_newsletter_issue(self, body: dict) -> dict:
+        # One AI-written issue, with web research.
+        return await self._tm_post("newsletters/issue", body, timeout=300.0)
+
+    async def tm_sales_assets(self, body: dict | None = None) -> dict:
+        if not body:
+            return await self._tm_get("sales_assets")
+        return await self._tm_post("sales_assets", body, timeout=240.0)
+
+    async def tm_saved_prompts(self, prompt_id: str = "") -> dict:
+        return await self._tm_get("saved_prompts", {"id": prompt_id})
+
+    async def tm_clients(self, body: dict | None = None) -> dict:
+        if not body:
+            return await self._tm_get("clients")
+        return await self._tm_post("clients", body)
+
+    async def tm_settings(self, update: dict | None = None) -> dict:
+        if not update:
+            return await self._tm_get("settings")
+        return await self._tm_post("settings", update)
+
+    async def tm_dnc(self, body: dict | None = None, q: str = "") -> dict:
+        if not body:
+            return await self._tm_get("dnc", {"q": q})
+        return await self._tm_post("dnc", body, timeout=120.0)

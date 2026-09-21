@@ -8135,6 +8135,1022 @@ async def api_tm_campaign_pdfs(request: Request):
     return JSONResponse(res)
 
 
+# ── Connector: the rest of the app (2026-09-21) ────────────────────────────
+# One route per page action, each calling the SAME helper that page calls, so
+# the connector and the UI cannot disagree about what "add a contact" or
+# "block a domain" does. Same door as the routes above: owner from the key,
+# then the ThriveModal gate.
+
+def _tm_api_camp(cid):
+    """A campaign by file stem (the connector's campaign_id) or by name."""
+    cid = str(cid or "").strip()
+    if not cid:
+        return None
+    return next((c for c in load_campaigns()
+                 if Path(c.get("_path", "")).stem == cid or c.get("name") == cid),
+                None)
+
+
+async def _tm_api_body(request):
+    """The JSON object body, or None when it is missing or not an object."""
+    try:
+        body = await request.json()
+    except Exception:
+        return None
+    return body if isinstance(body, dict) else None
+
+
+def _tm_api_contact(raw):
+    """One contact from whatever casing the caller used, or None without an
+    email. The app's own contact keys are snake_case."""
+    if not isinstance(raw, dict):
+        return None
+
+    def g(*keys):
+        for k in keys:
+            v = raw.get(k)
+            if v not in (None, ""):
+                return str(v).strip()
+        return ""
+    email = g("email", "Email", "EmailAddress").lower()
+    if not email or not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        return None
+    return {
+        "email": email,
+        "first_name": g("first_name", "firstName", "FirstName"),
+        "last_name": g("last_name", "lastName", "LastName"),
+        "company": g("company", "Company", "companyName"),
+        "title": g("title", "job_title", "jobTitle", "JobTitle"),
+        "phone_mobile": g("phone_mobile", "mobile", "MobilePhone", "phone"),
+        "phone_office": g("phone_office", "WorkPhone", "office_phone"),
+        "linkedin": g("linkedin", "LinkedInPage", "linkedin_url"),
+    }
+
+
+def _tm_patch_pending(camp_name, step_name, old_subject, subject, body):
+    """Point pending queue items for one step at fresh copy, under the queue
+    lock. The queue froze subject and body at enrolment, so without this a
+    regenerated issue would go out as the old one."""
+    qp = _user_queue_path()
+    if not qp.exists():
+        return 0
+
+    def _apply(q):
+        n = 0
+        for it in q:
+            if it.get("campaign") != camp_name or it.get("status") != "pending":
+                continue
+            if ((step_name and (it.get("step_name") or "").strip() == step_name)
+                    or (old_subject and (it.get("subject") or "").strip() == old_subject)):
+                it["subject"] = subject
+                it["body"] = body
+                n += 1
+        return n
+    if _FUNNELFORGE_OK and _ffc is not None:
+        with _ffc._queue_lock:
+            q = _ffc._load_queue(qp)
+            n = _apply(q)
+            if n:
+                _ffc._save_queue(q, qp)
+    else:
+        q = json.loads(qp.read_text(encoding="utf-8"))
+        n = _apply(q) if isinstance(q, list) else 0
+        if n:
+            tmp = qp.with_suffix(".tmp")
+            tmp.write_text(json.dumps(q, indent=2, default=str), encoding="utf-8")
+            tmp.replace(qp)
+    if n:
+        _invalidate_queue_cache()
+    return n
+
+
+_TM_TASK_RESULTS = ("done", "connected", "vm", "skipped")
+
+
+@app.get("/api/v1/tm/tasks")
+async def api_tm_tasks(request: Request):
+    """My Day: the calls, LinkedIn touches and manual tasks due, from the
+    same builder the page uses. ?date=YYYY-MM-DD for another day; today
+    also carries the last week's overdue ones, as the page does."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    raw = (request.query_params.get("date") or "").strip()
+    target = None
+    if raw:
+        try:
+            target = date.fromisoformat(raw)
+        except ValueError:
+            return JSONResponse({"error": "date must be YYYY-MM-DD"}, status_code=400)
+    tasks = build_drip_tasks(target)
+    keep = ("id", "channel", "name", "role", "company", "email", "linkedin",
+            "phones", "script", "note", "touch", "overdue")
+    out = []
+    for t in tasks:
+        row = {k: t.get(k) for k in keep}
+        row["campaign"] = t.get("sequence", "")
+        out.append(row)
+    return JSONResponse({
+        "date": (target or date.today()).isoformat(),
+        "count": len(out),
+        "by_channel": {ch: sum(1 for t in out if t["channel"] == ch)
+                       for ch in ("call", "li", "task")},
+        "tasks": out,
+    })
+
+
+@app.post("/api/v1/tm/tasks/done")
+async def api_tm_task_done(request: Request):
+    """Mark a My Day task done (or undo that). Body: {"task_id", "result":
+    done|connected|vm|skipped, "undo": false}. Writes the same outcomes file
+    the page's buttons write, so the task leaves My Day in the app too."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await _tm_api_body(request)
+    if body is None:
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    tid = str(body.get("task_id") or "").strip()
+    if not tid:
+        return JSONResponse({"error": "task_id is required"}, status_code=400)
+    outcomes = load_outcomes()
+    if body.get("undo"):
+        if outcomes.pop(tid, None) is None:
+            return JSONResponse({"error": "that task is not marked done"},
+                                status_code=404)
+        save_outcomes(outcomes)
+        return JSONResponse({"task_id": tid, "undone": True})
+    result = str(body.get("result") or "done").strip().lower()
+    if result not in _TM_TASK_RESULTS:
+        return JSONResponse({"error": "result must be one of "
+                             + ", ".join(_TM_TASK_RESULTS)}, status_code=400)
+    if tid not in {t.get("id") for t in build_drip_tasks()}:
+        return JSONResponse({"error": "no open task with that id (use tm_my_day)"},
+                            status_code=404)
+    outcomes[tid] = {"result": result, "date": date.today().isoformat()}
+    save_outcomes(outcomes)
+    return JSONResponse({"task_id": tid, "result": result})
+
+
+@app.get("/api/v1/tm/replies")
+async def api_tm_replies(request: Request):
+    """Replies: everyone who wrote back, newest first, with their message."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    rows = load_responded()
+    return JSONResponse({
+        "count": len(rows),
+        "awaiting_follow_up": sum(1 for r in rows if not r.get("followed_up")),
+        "replies": rows,
+    })
+
+
+@app.post("/api/v1/tm/replies")
+async def api_tm_reply_update(request: Request):
+    """Body: {"email", "action": followed_up|dismiss}, the page's two
+    buttons. Dismiss removes the reply from the list; it does not put the
+    contact back into campaigns."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await _tm_api_body(request)
+    if body is None:
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    email = str(body.get("email") or "").strip().lower()
+    action = str(body.get("action") or "").strip().lower()
+    if action not in ("followed_up", "dismiss"):
+        return JSONResponse({"error": "action must be followed_up or dismiss"},
+                            status_code=400)
+    rows = load_responded()
+    hit = [r for r in rows if (r.get("email") or "").lower() == email]
+    if not hit:
+        return JSONResponse({"error": f"no reply from {email!r}"}, status_code=404)
+    if action == "dismiss":
+        rows = [r for r in rows if (r.get("email") or "").lower() != email]
+    else:
+        for r in hit:
+            r["followed_up"] = True
+    save_responded(rows)
+    return JSONResponse({"email": email, "action": action})
+
+
+@app.get("/api/v1/tm/contacts/search")
+async def api_tm_contacts_search(request: Request):
+    """Contacts: search one saved list (blank = the active list) by name,
+    email, company or title. Also names every saved list, so a caller can
+    pick one to enrol."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    name = (request.query_params.get("list") or "").strip()
+    q = (request.query_params.get("q") or "").strip().lower()
+    try:
+        limit = max(1, min(500, int(request.query_params.get("limit") or 50)))
+    except ValueError:
+        return JSONResponse({"error": "limit must be a whole number"}, status_code=400)
+    lists = sorted(list_saved_contact_lists())
+    if name and name not in lists:
+        return JSONResponse({"error": f"no saved list named {name!r}",
+                             "lists": lists}, status_code=404)
+    rows = _tm_zi_contacts_on_file(name)
+    if q:
+        rows = [r for r in rows if q in " ".join(
+            str(r.get(k, "")) for k in ("first_name", "last_name", "email",
+                                        "company", "title")).lower()]
+    return JSONResponse({"list": name or "(active list)", "lists": lists,
+                         "matched": len(rows), "contacts": rows[:limit]})
+
+
+@app.post("/api/v1/tm/campaigns/contacts")
+async def api_tm_campaign_contacts(request: Request):
+    """Add contacts to an existing campaign, or take one out.
+
+    Body: {"campaign_id", "action": "add", "contacts": [...]} or
+    {"campaign_id", "action": "add", "list": "<saved list>"} or
+    {"campaign_id", "action": "remove", "email"}. Adding queues their
+    emails from today through the page's own helpers, so Do Not Contact,
+    past repliers and Clients are all filtered exactly as in the app."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await _tm_api_body(request)
+    if body is None:
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    camp = _tm_api_camp(body.get("campaign_id"))
+    if not camp:
+        return JSONResponse({"error": "no campaign found for that campaign_id"},
+                            status_code=404)
+    action = str(body.get("action") or "add").strip().lower()
+    if action == "remove":
+        email = str(body.get("email") or "").strip().lower()
+        if not email:
+            return JSONResponse({"error": "email is required"}, status_code=400)
+        n = remove_contact_from_campaign(camp, email)
+        _cache_campaigns.invalidate()
+        if not n:
+            return JSONResponse({"error": f"{email} is not in this campaign"},
+                                status_code=404)
+        return JSONResponse({"removed": email, "campaign": camp.get("name", "")})
+    if action != "add":
+        return JSONResponse({"error": "action must be add or remove"}, status_code=400)
+    if camp.get("status", "active") != "active":
+        return JSONResponse({"error": "this campaign is %s; resume it first"
+                             % camp.get("status")}, status_code=409)
+    raw = body.get("contacts")
+    if not isinstance(raw, list):
+        lname = str(body.get("list") or "").strip()
+        if not lname:
+            return JSONResponse({"error": "pass contacts or list"}, status_code=400)
+        if lname not in list_saved_contact_lists():
+            return JSONResponse({"error": f"no saved list named {lname!r}"},
+                                status_code=404)
+        raw = _tm_zi_contacts_on_file(lname)
+    if len(raw) > 1000:
+        return JSONResponse({"error": "at most 1000 contacts per call"}, status_code=400)
+    contacts, invalid = [], 0
+    for r in raw:
+        c = _tm_api_contact(r)
+        if c is None:
+            invalid += 1
+        else:
+            contacts.append(c)
+    on_dnc = sum(1 for c in contacts if is_on_dnc(c["email"]))
+
+    def _run():
+        _CURRENT_USER_EMAIL.set(owner)
+        try:
+            _switch_to_user_paths(owner)
+        except Exception:
+            pass
+        if _is_evergreen(camp):
+            tally = {}
+            for c in contacts:
+                st = enroll_contact_in_evergreen(c, camp)
+                tally[st] = tally.get(st, 0) + 1
+            return {"added": tally.get("enrolled", 0), "statuses": tally}
+        before = len(camp.get("contacts", []))
+        added = add_contacts_to_campaign(camp, contacts)
+        return {"added": added,
+                "already_in_campaign_or_replied": len(contacts) - added,
+                "contacts_now": max(before + added, len(camp.get("contacts", [])))}
+
+    try:
+        res = await asyncio.get_event_loop().run_in_executor(None, _run)
+    except ValueError as ex:
+        return JSONResponse({"error": str(ex)}, status_code=422)
+    except Exception as ex:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(ex)}, status_code=500)
+    _cache_campaigns.invalidate()
+    _invalidate_queue_cache()
+    res.update({"campaign": camp.get("name", ""), "invalid_email": invalid,
+                "on_do_not_contact_not_queued": on_dnc})
+    return JSONResponse(res)
+
+
+@app.post("/api/v1/tm/campaigns/action")
+async def api_tm_campaign_action(request: Request):
+    """Body: {"campaign_id", "action": cancel|resume|retry_failed|delete,
+    "confirm": true for delete}. Cancel stops every pending email; resume
+    re-queues what has not been sent (nothing already sent goes twice);
+    delete removes the campaign and cancels its pending emails."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await _tm_api_body(request)
+    if body is None:
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    camp = _tm_api_camp(body.get("campaign_id"))
+    if not camp:
+        return JSONResponse({"error": "no campaign found for that campaign_id"},
+                            status_code=404)
+    action = str(body.get("action") or "").strip().lower()
+    name = camp.get("name", "")
+    if action == "cancel":
+        n = cancel_campaign_queue(name)
+        camp["status"] = "cancelled"
+        save_campaign(camp)
+        res = {"cancelled_emails": n, "status": "cancelled"}
+    elif action == "resume":
+        camp["status"] = "active"
+        save_campaign(camp)
+
+        def _rq():
+            _CURRENT_USER_EMAIL.set(owner)
+            try:
+                _switch_to_user_paths(owner)
+            except Exception:
+                pass
+            return requeue_campaign(camp)
+        try:
+            res = await asyncio.get_event_loop().run_in_executor(None, _rq)
+        except Exception as ex:
+            return JSONResponse({"error": str(ex)}, status_code=500)
+        res = dict(res or {}, status="active")
+    elif action == "retry_failed":
+        res = {"rescheduled": retry_failed_sends(name)}
+    elif action == "delete":
+        if body.get("confirm") is not True:
+            return JSONResponse({"error": "delete is permanent; pass confirm: true"},
+                                status_code=400)
+        delete_campaign(camp.get("_path", ""))
+        res = {"deleted": True}
+    else:
+        return JSONResponse({"error": "action must be cancel, resume, "
+                             "retry_failed or delete"}, status_code=400)
+    _cache_campaigns.invalidate()
+    _invalidate_queue_cache()
+    res["campaign"] = name
+    return JSONResponse(res)
+
+
+@app.post("/api/v1/tm/send_preview")
+async def api_tm_send_preview(request: Request):
+    """Send one email step of a campaign to the user's own inbox, merged
+    with their own name, attachments and all. Body: {"campaign_id",
+    "step": n} (1-based, as campaign_get numbers them)."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await _tm_api_body(request)
+    if body is None:
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    camp = _tm_api_camp(body.get("campaign_id"))
+    if not camp:
+        return JSONResponse({"error": "no campaign found for that campaign_id"},
+                            status_code=404)
+    steps = camp.get("emails") or []
+    try:
+        idx = int(body.get("step") or 1) - 1
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "step must be a number"}, status_code=400)
+    if not 0 <= idx < len(steps):
+        return JSONResponse({"error": f"step must be 1 to {len(steps)}"},
+                            status_code=400)
+    step = steps[idx]
+    if step.get("step_type", "email_auto") not in ("email_auto", "email_manual", ""):
+        return JSONResponse({"error": "that step is not an email"}, status_code=400)
+    subj = step.get("subject") or "(no subject)"
+    html = step.get("body") or ""
+    if not html.strip():
+        return JSONResponse({"error": "that step has no body yet"}, status_code=400)
+    pc = _preview_self_contact(None)
+    for k, v in (("{FirstName}", pc.get("first_name", "")),
+                 ("{LastName}", pc.get("last_name", "")),
+                 ("{Company}", pc.get("company", "")),
+                 ("{CompanyName}", pc.get("company", "")),
+                 ("{JobTitle}", pc.get("title", ""))):
+        subj = subj.replace(k, v)
+        html = html.replace(k, v)
+    to_addr = load_config().get("smtp_email", "") or owner
+    atts = [str(_user_pdf_dir() / a) if not os.path.isabs(a) else a
+            for a in step.get("attachments", [])]
+
+    def _send():
+        _CURRENT_USER_EMAIL.set(owner)
+        try:
+            _switch_to_user_paths(owner)
+        except Exception:
+            pass
+        return _send_email_universal(to=to_addr, subject=subj, html_body=html,
+                                     attachments=atts, is_preview=True,
+                                     _for_user_email=owner)
+    try:
+        ok, err = await asyncio.get_event_loop().run_in_executor(None, _send)
+    except Exception as ex:
+        return JSONResponse({"error": str(ex)}, status_code=500)
+    if not ok:
+        return JSONResponse({"error": f"the send failed: {err}"}, status_code=502)
+    return JSONResponse({"sent_to": to_addr, "subject": subj,
+                         "attachments": [os.path.basename(a) for a in atts]})
+
+
+def _nl_campaign_dict(nl_name, sector_key, sector_label, niche, region,
+                      start_from, time_str="9:00 AM", count=12,
+                      style="full_send", spotlight_count=3, spotlight_recs="",
+                      picked_cands=None, show_city_life=False, contacts=None,
+                      spun_from=""):
+    """A new newsletter campaign: one issue per month on the picked day.
+    Shared by the Newsletters page and the connector so both build the same
+    thing."""
+    sends = _monthly_same_day(max(1, min(60, int(count or 12))), start_from)
+    emails = []
+    for td in sends:
+        month_label = td.strftime("%B %Y")
+        emails.append({
+            "name": f"{month_label}  -  {nl_name}",
+            "subject": f"{nl_name}  -  {month_label}",
+            "body": "",  # empty; user refreshes with AI before send
+            "fixed_date": td.isoformat(),
+            "delay_days": 0,
+            "time": time_str,
+            "step_type": "email_auto",
+        })
+    contacts = list(contacts or [])
+    return dict(
+        schema=2,
+        name=nl_name,
+        template_key="evergreen",
+        template_name=f"{TERM_NURTURE}",
+        evergreen_only=True,
+        market_analysis=True,
+        newsletter_name=nl_name,
+        newsletter_style=style or "full_send",
+        newsletter_candidates=list(picked_cands or []),
+        # The most specific label: the niche when there is one.
+        market_sector=niche if niche else sector_label,
+        market_sector_key=sector_key,
+        market_niche=niche,
+        market_region=region,
+        newsletter_spotlight_count=spotlight_count,
+        newsletter_spotlight_recommendations=spotlight_recs,
+        newsletter_show_city_life=show_city_life,
+        start_date=date.today().isoformat(),
+        contacts=contacts,
+        contact_count=len(contacts),
+        emails=emails,
+        variables={},
+        status="active",
+        responders=[],
+        created_date=date.today().isoformat(),
+        spun_from_campaign=spun_from or "",
+    )
+
+
+def _tm_nl_summary(c):
+    steps = c.get("emails") or []
+    nxt = _find_next_evergreen_step(c)
+    st = steps[nxt] if 0 <= nxt < len(steps) else {}
+    return {
+        "campaign_id": Path(c.get("_path", "")).stem or c.get("name", ""),
+        "name": c.get("name", ""),
+        "sector": c.get("market_sector", ""),
+        "region": c.get("market_region", ""),
+        "style": c.get("newsletter_style", ""),
+        "status": c.get("status", "active"),
+        "contacts": len([x for x in c.get("contacts", []) if not x.get("removed")]),
+        "issues": len(steps),
+        "next_issue": ({"number": nxt + 1, "date": st.get("fixed_date", ""),
+                        "subject": st.get("subject", ""),
+                        "written": bool((st.get("body") or "").strip())
+                        and "[AI:" not in (st.get("body") or "")}
+                       if st else None),
+    }
+
+
+@app.get("/api/v1/tm/newsletters")
+async def api_tm_newsletters(request: Request):
+    """Newsletters, with the sectors a new one can be made for."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    nls = [c for c in load_campaigns() if _is_evergreen(c) and c.get("market_analysis")]
+    return JSONResponse({
+        "newsletters": [_tm_nl_summary(c) for c in nls],
+        "sectors": {k: {"label": v.get("label", ""), "niches": v.get("niches", [])}
+                    for k, v in _TM_NEWSLETTER_SECTORS.items()},
+        "styles": {"full_send": "Full, with pictures",
+                   "j_way": "Organic, text only"},
+    })
+
+
+@app.post("/api/v1/tm/newsletters")
+async def api_tm_newsletter_create(request: Request):
+    """Create a monthly newsletter. Body: {"name", "sector" (a key from GET),
+    "region", "niche", "start_date" YYYY-MM-DD, "time", "count" (months,
+    default 12), "style", "profiles": true}. The first issue is written in
+    the background, as on the page; nobody is enrolled yet."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await _tm_api_body(request)
+    if body is None:
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    nl_name = str(body.get("name") or "").strip()
+    skey = str(body.get("sector") or "").strip()
+    region = str(body.get("region") or "").strip() or "Nationwide"
+    if not nl_name:
+        return JSONResponse({"error": "name is required"}, status_code=400)
+    if skey not in _TM_NEWSLETTER_SECTORS:
+        return JSONResponse({"error": "sector must be one of: "
+                             + ", ".join(_TM_NEWSLETTER_SECTORS)}, status_code=400)
+    if nl_name in {c.get("name", "") for c in load_campaigns()}:
+        return JSONResponse({"error": f"a campaign named {nl_name!r} already exists"},
+                            status_code=409)
+    raw_start = str(body.get("start_date") or "").strip()
+    try:
+        start_from = date.fromisoformat(raw_start) if raw_start else date.today()
+    except ValueError:
+        return JSONResponse({"error": "start_date must be YYYY-MM-DD"}, status_code=400)
+    style = str(body.get("style") or "full_send").strip()
+    if style not in ("full_send", "j_way"):
+        return JSONResponse({"error": "style must be full_send or j_way"},
+                            status_code=400)
+    try:
+        count = int(body.get("count") or 12)
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "count must be a number"}, status_code=400)
+    camp = _nl_campaign_dict(
+        nl_name, skey, _TM_NEWSLETTER_SECTORS[skey].get("label", ""),
+        str(body.get("niche") or "").strip(), region, start_from,
+        time_str=str(body.get("time") or "9:00 AM").strip() or "9:00 AM",
+        count=count, style=style,
+        spotlight_count=3 if body.get("profiles", True) else 0)
+    save_campaign(camp)
+    _cache_campaigns.invalidate()
+
+    def _gen():
+        try:
+            _gen_one_issue_for_campaign(nl_name, 0)
+        except Exception as ex:
+            print(f"[NewsletterAPI] first-issue gen failed: {ex}", flush=True)
+        _cache_campaigns.invalidate()
+        try:
+            _gen_all_issues_for_campaign(nl_name)
+        except Exception as ex:
+            print(f"[NewsletterAPI] tail gen failed: {ex}", flush=True)
+    _run_as_user(owner, _gen, name="newsletter_api_first_issue")
+    return JSONResponse({"created": True, **_tm_nl_summary(camp),
+                         "note": "the first issue is being written now "
+                                 "(about a minute); enrol contacts with "
+                                 "tm_campaign_contacts"})
+
+
+@app.post("/api/v1/tm/newsletters/issue")
+async def api_tm_newsletter_issue(request: Request):
+    """Write the next issue of a newsletter now (or rewrite it with
+    "refresh": true) and return it. Emails already queued for that issue
+    get the new copy. Body: {"campaign_id", "refresh": false}."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await _tm_api_body(request)
+    if body is None:
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    camp = _tm_api_camp(body.get("campaign_id"))
+    if not camp or not (_is_evergreen(camp) and camp.get("market_analysis")):
+        return JSONResponse({"error": "no newsletter found for that campaign_id"},
+                            status_code=404)
+    if not ANTHROPIC_API_KEY:
+        return JSONResponse({"error": "AI not configured on server"}, status_code=503)
+    idx = _find_next_evergreen_step(camp)
+    steps = camp.get("emails") or []
+    if not 0 <= idx < len(steps):
+        return JSONResponse({"error": "this newsletter has no issues left"},
+                            status_code=409)
+    name = camp.get("name", "")
+    step_name = (steps[idx].get("name") or "").strip()
+    old_subject = (steps[idx].get("subject") or "").strip()
+    refresh = bool(body.get("refresh"))
+
+    def _run():
+        _CURRENT_USER_EMAIL.set(owner)
+        try:
+            _switch_to_user_paths(owner)
+        except Exception:
+            pass
+        if refresh:
+            subj, html = _generate_newsletter_content_for_step(camp, idx)
+            if not subj or not html:
+                return None
+            camp["emails"][idx]["subject"] = subj
+            camp["emails"][idx]["body"] = html
+            camp["emails"][idx]["_auto_refreshed_at"] = datetime.now().isoformat()
+            save_campaign(camp)
+        elif not _gen_one_issue_for_campaign(name, idx):
+            return None
+        _cache_campaigns.invalidate()
+        fresh = _tm_api_camp(name) or camp
+        st = (fresh.get("emails") or [])[idx]
+        n = _tm_patch_pending(name, step_name, old_subject,
+                              st.get("subject", ""), st.get("body", ""))
+        return st, n
+    try:
+        out = await asyncio.get_event_loop().run_in_executor(None, _run)
+    except Exception as ex:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(ex)}, status_code=500)
+    if not out:
+        return JSONResponse({"error": "the issue could not be written; try again"},
+                            status_code=502)
+    st, n = out
+    text = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", st.get("body", ""))).strip()
+    return JSONResponse({"newsletter": name, "issue": idx + 1,
+                         "date": st.get("fixed_date", ""),
+                         "subject": st.get("subject", ""),
+                         "text": text[:4000], "queued_emails_updated": n})
+
+
+def _tm_asset_row(p):
+    side = _load_pdf_sidecar(p.name) or {}
+    return {"file": p.name, "title": side.get("title", "") or p.stem.replace("_", " "),
+            "created": datetime.fromtimestamp(p.stat().st_mtime).isoformat(timespec="minutes"),
+            "path": f"/pdfs/{p.name}"}
+
+
+@app.get("/api/v1/tm/sales_assets")
+async def api_tm_sales_assets(request: Request):
+    """Every PDF in this account's library, newest first, plus the kinds a
+    new one can be built as."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    d = _user_pdf_dir()
+    files = sorted(d.glob("*.pdf"), key=lambda p: p.stat().st_mtime,
+                   reverse=True) if d.exists() else []
+    return JSONResponse({"assets": [_tm_asset_row(p) for p in files[:100]],
+                         "total": len(files), "kinds": _tm_pdf_menu()})
+
+
+@app.post("/api/v1/tm/sales_assets")
+async def api_tm_sales_asset_build(request: Request):
+    """Build one Sales Assets PDF for a company. Body: {"kind", "company",
+    "role", "location", "industry"}. A cost comparison that finds no wage
+    data comes back as How We Work Together instead, as in campaigns."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await _tm_api_body(request)
+    if body is None:
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    kind = str(body.get("kind") or "").strip()
+    if kind not in _TM_CAMPAIGN_PDF_OFFERED:
+        return JSONResponse({"error": "kind must be one of: "
+                             + ", ".join(_TM_CAMPAIGN_PDF_OFFERED),
+                             "choices": _tm_pdf_menu()}, status_code=400)
+    company = str(body.get("company") or "").strip()
+    role = str(body.get("role") or "").strip()
+    if not role:
+        return JSONResponse({"error": "role is required"}, status_code=400)
+    if not ANTHROPIC_API_KEY:
+        return JSONResponse({"error": "AI not configured on server"}, status_code=503)
+
+    def _run():
+        _CURRENT_USER_EMAIL.set(owner)
+        try:
+            _switch_to_user_paths(owner)
+        except Exception:
+            pass
+        import anthropic
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        return _tm_build_campaign_pdfs(
+            [kind], company, role, str(body.get("location") or "").strip(),
+            str(body.get("industry") or "").strip(), client=client)
+    try:
+        built = await asyncio.get_event_loop().run_in_executor(None, _run)
+    except Exception as ex:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({"error": str(ex)}, status_code=500)
+    if not built:
+        return JSONResponse({"error": "the PDF could not be built; try again"},
+                            status_code=502)
+    got_kind, fname = next(iter(built.items()))
+    res = _tm_asset_row(_user_pdf_dir() / fname)
+    res["kind"] = got_kind
+    if got_kind != kind:
+        res["note"] = ("no wage data was found for that role, so this is "
+                       "How We Work Together instead")
+    return JSONResponse(res)
+
+
+@app.get("/api/v1/tm/saved_prompts")
+async def api_tm_saved_prompts(request: Request):
+    """Saved Prompts. ?id=<id> also rebuilds that prompt's full text from
+    its saved answers, as opening it on the page does."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    import ai_prompts as _aip
+    import tm_prompts as _tmp
+    _aip._CAT = _tmp.TM
+    rows = _aip._load_setups()
+    pid = (request.query_params.get("id") or "").strip()
+    if not pid:
+        return JSONResponse({"prompts": [
+            {k: r.get(k, "") for k in ("id", "name", "summary", "saved_at")}
+            for r in rows]})
+    row = next((r for r in rows if r.get("id") == pid), None)
+    if row is None:
+        return JSONResponse({"error": "no saved prompt with that id"}, status_code=404)
+    cat = _tmp.TM
+    r = cat.routine_by_key.get(row.get("routine") or cat.default_routine,
+                               cat.routine_by_key[cat.default_routine])
+    vals = _aip.defaults_for(r)
+    for k, v in (row.get("vals") or {}).items():
+        if k in r["field_by_key"]:
+            vals[k] = v
+    req = {"raw": row.get("raw") or "", "routine": r["key"],
+           "title": row.get("name") or r["name"], "summary": row.get("summary") or "",
+           "vals": vals, "filled": list(vals.keys()),
+           "detail": list(row.get("detail") or [])}
+    return JSONResponse({"id": pid, "name": row.get("name", ""),
+                         "summary": row.get("summary", ""),
+                         "prompt": _tmp.build_prompt(req)})
+
+
+@app.get("/api/v1/tm/clients")
+async def api_tm_clients(request: Request):
+    """Clients: the companies (by domain) that outreach never emails."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return JSONResponse({"clients": load_client_blocklist(owner)})
+
+
+@app.post("/api/v1/tm/clients")
+async def api_tm_client_update(request: Request):
+    """Body: {"action": "add", "domain", "name", "location", "notes",
+    "website"} or {"action": "remove", "id"}. Adding a client stops future
+    emails to that domain; emails already queued still need cancelling."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await _tm_api_body(request)
+    if body is None:
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    action = str(body.get("action") or "").strip().lower()
+    if action == "add":
+        ok, msg = add_client_to_blocklist(
+            str(body.get("domain") or ""), client_name=str(body.get("name") or ""),
+            location=str(body.get("location") or ""),
+            notes=str(body.get("notes") or ""),
+            website=str(body.get("website") or ""), actor_email=owner)
+        if not ok:
+            return JSONResponse({"error": msg}, status_code=400)
+        return JSONResponse({"added": True, "message": msg})
+    if action == "remove":
+        if not delete_client_from_blocklist(str(body.get("id") or ""), actor_email=owner):
+            return JSONResponse({"error": "no client with that id"}, status_code=404)
+        return JSONResponse({"removed": True})
+    return JSONResponse({"error": "action must be add or remove"}, status_code=400)
+
+
+@app.get("/api/v1/tm/settings")
+async def api_tm_settings(request: Request):
+    """Company profile, signature and timezone."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    sp = _user_sig_path()
+    return JSONResponse({
+        "profile": _load_company_profile(),
+        "profile_fields": sorted(_COMPANY_PROFILE_FIELDS),
+        "signature": sp.read_text(encoding="utf-8") if sp.exists() else "",
+        "timezone": _user_tz_name(),
+    })
+
+
+@app.post("/api/v1/tm/settings")
+async def api_tm_settings_update(request: Request):
+    """Body: any of {"profile": {<company_* field>: value}, "signature":
+    "<text>", "timezone": "America/Chicago"}. Emails already queued keep the
+    signature and send times they were queued with."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await _tm_api_body(request)
+    if body is None:
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    changed = []
+    tz = body.get("timezone")
+    if tz is not None:
+        try:
+            from zoneinfo import ZoneInfo
+            ZoneInfo(str(tz))
+        except Exception:
+            return JSONResponse({"error": f"unknown timezone {tz!r}"}, status_code=400)
+    prof = body.get("profile")
+    if prof is not None:
+        if not isinstance(prof, dict):
+            return JSONResponse({"error": "profile must be an object"}, status_code=400)
+        unknown = sorted(set(prof) - set(_COMPANY_PROFILE_FIELDS))
+        if unknown:
+            return JSONResponse({"error": "unknown profile fields: " + ", ".join(unknown),
+                                 "profile_fields": sorted(_COMPANY_PROFILE_FIELDS)},
+                                status_code=400)
+        merged = dict(_load_company_profile())
+        merged.update(prof)
+        _save_company_profile(merged)
+        changed.append("profile")
+    sig = body.get("signature")
+    if sig is not None:
+        sp = _user_sig_path()
+        sp.parent.mkdir(parents=True, exist_ok=True)
+        sp.write_text(str(sig).strip(), encoding="utf-8")
+        changed.append("signature")
+    if tz is not None:
+        cfg = load_config()
+        cfg["user_timezone"] = str(tz)
+        save_config(cfg)
+        changed.append("timezone")
+    if not changed:
+        return JSONResponse({"error": "pass profile, signature or timezone"},
+                            status_code=400)
+    return JSONResponse({"updated": changed})
+
+
+@app.get("/api/v1/tm/dnc")
+async def api_tm_dnc(request: Request):
+    """Do Not Contact. ?q= filters by email, domain, name or company."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    rows = load_dnc()
+    q = (request.query_params.get("q") or "").strip().lower()
+    if q:
+        rows = [r for r in rows if q in " ".join(
+            str(r.get(k, "")) for k in ("email", "name", "company")).lower()]
+    return JSONResponse({"count": len(rows), "entries": rows[:500]})
+
+
+@app.post("/api/v1/tm/dnc")
+async def api_tm_dnc_update(request: Request):
+    """Body: {"action": "add"|"remove", "email"} or {"action", "domain"}.
+    Adding an email cancels its pending sends and takes it out of every
+    campaign; adding a domain blocks everyone there and cancels their
+    pending sends."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await _tm_api_body(request)
+    if body is None:
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    action = str(body.get("action") or "").strip().lower()
+    email = str(body.get("email") or "").strip().lower()
+    domain = str(body.get("domain") or "").strip().lower().lstrip("@")
+    if bool(email) == bool(domain):
+        return JSONResponse({"error": "pass exactly one of email or domain"},
+                            status_code=400)
+    reason = str(body.get("reason") or "").strip()
+    if action == "add":
+        if domain:
+            if "." not in domain or "@" in domain:
+                return JSONResponse({"error": "domain looks wrong (e.g. company.com)"},
+                                    status_code=400)
+            n = add_domain_to_dnc(domain, reason=reason or "Domain block")
+            res = {"blocked_domain": domain, "campaign_contacts_stopped": n}
+        else:
+            if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+                return JSONResponse({"error": "email looks wrong"}, status_code=400)
+            added = add_to_dnc(email, reason=reason or "Manual", source="connector")
+            res = {"blocked_email": email, "newly_added": bool(added)}
+    elif action == "remove":
+        key = f"@{domain}" if domain else email
+        if not remove_from_dnc(key):
+            return JSONResponse({"error": f"{key} is not on Do Not Contact"},
+                                status_code=404)
+        res = {"removed": key}
+    else:
+        return JSONResponse({"error": "action must be add or remove"}, status_code=400)
+    _cache_campaigns.invalidate()
+    _invalidate_queue_cache()
+    return JSONResponse(res)
+
+
 @app.get("/api/v1/campaigns")
 async def api_campaigns_list(request: Request):
     """List the calling account's own campaigns (tenant-scoped, same as
@@ -31497,13 +32513,6 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             _sector_key = (sector_in.value or "").strip()
             _sector_label = (_nl_sectors.get(_sector_key, {}) or {}).get("label", "") or ""
             niche = (niche_in.value or "").strip()
-            # Sector stored on the campaign combines industry + niche so
-            # downstream AI + PDF generation has the fuller context.
-            # Use the most specific label — niche when the user provided one,
-            # otherwise the broad sector. Avoids redundant taglines like
-            # "Construction — Healthcare Construction" where the niche
-            # already implies the sector.
-            sector = niche if niche else _sector_label
             region = (region_in.value or "").strip()
             start_str = (start_in.value or "").strip()
             time_str = (time_in.value or "9:00 AM").strip() or "9:00 AM"
@@ -31539,24 +32548,6 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                     f"exists. Pick a different name.",
                     type="negative", timeout=8000); return
 
-            # Build one step per month with exact fixed_date.
-            # 2026-05-25 — uses _monthly_same_day so every issue lands
-            # on the day the user picked (or the month's last day when
-            # the picked day doesn't exist that month).
-            sends = _monthly_same_day(count, start_from)
-            emails = []
-            for idx, td in enumerate(sends):
-                month_label = td.strftime("%B %Y")
-                emails.append({
-                    "name": f"{month_label}  -  {nl_name}",
-                    "subject": f"{nl_name}  -  {month_label}",
-                    "body": "",  # empty; user refreshes with AI before send
-                    "fixed_date": td.isoformat(),
-                    "delay_days": 0,
-                    "time": time_str,
-                    "step_type": "email_auto",
-                })
-
             try:
                 _spotlight_count = int(spotlight_in.value or 3)
             except Exception:
@@ -31578,39 +32569,16 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             else:
                 _spotlight_recs = (spotlight_recs_in.value or "").strip()
                 _picked_cands = []
-            new_camp = dict(
-                schema=2,
-                name=nl_name,
-                template_key="evergreen",
-                template_name=f"{TERM_NURTURE}",
-                evergreen_only=True,
-                market_analysis=True,
-                newsletter_name=nl_name,
-                newsletter_style=(_style_toggle.value or "full_send"),
-                newsletter_candidates=_picked_cands,
-                market_sector=sector,
-                market_sector_key=_sector_key,
-                market_niche=niche,
-                market_region=region,
-                newsletter_spotlight_count=_spotlight_count,
-                newsletter_spotlight_recommendations=_spotlight_recs,
-                newsletter_show_city_life=_show_city_life,
-                start_date=date.today().isoformat(),
-                # Pre-seed contacts when the dialog was opened with a
-                # prefill (e.g. "Spin up Newsletter" from a campaign).
-                # Empty list otherwise — the normal create-from-scratch
-                # flow asks the user to enroll later via the +Enroll pill.
-                contacts=list(_pre_contacts),
-                contact_count=len(_pre_contacts),
-                emails=emails,
-                variables={},
-                status="active",
-                responders=[],
-                created_date=date.today().isoformat(),
-                # Provenance tag when spun up from another campaign;
-                # nothing reads this yet, but it's cheap audit data.
-                spun_from_campaign=_pre_source or "",
-            )
+            new_camp = _nl_campaign_dict(
+                nl_name, _sector_key, _sector_label, niche, region, start_from,
+                time_str=time_str, count=count,
+                style=(_style_toggle.value or "full_send"),
+                spotlight_count=_spotlight_count,
+                spotlight_recs=_spotlight_recs, picked_cands=_picked_cands,
+                show_city_life=_show_city_life,
+                # Pre-seeded when opened with a prefill ("Spin up Newsletter"
+                # from a campaign); empty otherwise.
+                contacts=_pre_contacts, spun_from=_pre_source)
             try:
                 save_campaign(new_camp)
             except Exception as _save_ex:
