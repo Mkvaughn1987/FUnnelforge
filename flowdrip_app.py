@@ -39596,10 +39596,10 @@ _TM_VERTICAL_COST_ROLES = {
     "accounting": ["Staff Accountant", "Bookkeeper", "Payroll Specialist",
                    "Tax Preparer", "Billing Specialist",
                    "Accounts Payable Specialist"],
-    "property_management": ["Leasing Coordinator", "Maintenance Coordinator",
-                            "Property Accountant", "Accounts Payable Specialist",
+    "property_management": ["Leasing Coordinator", "Property Accountant",
+                            "Accounts Payable Specialist",
                             "Customer Service Representative",
-                            "Administrative Assistant"],
+                            "Marketing Coordinator", "Data Entry Specialist"],
     "healthcare_admin": ["Medical Biller", "Medical Coder",
                          "Insurance Verification Specialist", "Patient Scheduler",
                          "Credentialing Specialist", "Customer Service Representative"],
@@ -39620,8 +39620,9 @@ def _tm_cost_roles(role: str, industry: str, company: str) -> list:
     """Candidate titles for the comparison, best first: the campaign's own
     target role(s), then the vertical's roles. More than five, so a role BLS
     can't price is replaced by the next rather than leaving a gap."""
-    own = [r.strip() for r in re.split(r"[,;/]| and (?=[A-Z])", str(role or ""))
-           if r.strip()]
+    # Commas and semicolons separate roles; "and" never does ("Track and
+    # Trace Specialist", "CAD and BIM Drafter" are one title each).
+    own = [r.strip() for r in re.split(r"[,;]", str(role or "")) if r.strip()]
     # The vertical lists are ThriveModal playbook content; any other
     # workspace gets the general back-office list.
     vert = (_tm_vertical_for(" ".join([str(industry or ""), str(company or ""),
@@ -39637,7 +39638,7 @@ def _tm_cost_roles(role: str, industry: str, company: str) -> list:
 
 
 def _tm_multi_cost_pdf_data(client, company: str, role: str, location: str,
-                            industry: str = "") -> dict:
+                            industry: str = "", market_only: bool = False) -> dict:
     """Staffing Cost Comparison for the five roles the company would most
     likely hire for. One row per role: in-house total (local BLS median +
     burden + workspace + recruiting) against ThriveModal at the flat
@@ -39701,7 +39702,13 @@ def _tm_multi_cost_pdf_data(client, company: str, role: str, location: str,
             f"{p['role']} as {p['occupation']}")
     salary_note = "Base salary is the BLS median for the closest occupation: " + (
         "; ".join(f"{', '.join(v)} ({a})" for a, v in by_area.items()) + ".")
-    where = f" in {location}" if location else ""
+    where = (f" in {location}" if location
+             and location.lower() not in ("united states", "usa", "us") else "")
+    # A market campaign's subject is an industry, not a buyer.
+    _mkt = str(industry or company)
+    who = (f"{'an' if _mkt[:1].lower() in 'aeiou' else 'a'} {_mkt} business"
+           if market_only else company)
+    whose = "your" if market_only else f"{company}'s"
     howto = [
         f"Each in-house figure is one full-time person{where} for 12 months, "
         f"in USD: base salary, plus payroll taxes and benefits at "
@@ -39711,7 +39718,7 @@ def _tm_multi_cost_pdf_data(client, company: str, role: str, location: str,
         salary_note,
         f"Our column is an estimate, {pct} below the in-house total (the "
         f"middle of our published range of up to 60-70%, fully burdened); we "
-        f"confirm your quote separately. None of these are {company}'s own "
+        f"confirm your quote separately. None of these are {whose} own "
         f"payroll figures, so swap in yours for an exact comparison.",
     ]
     # One line per distinct page; the Philippine rate cards only back the
@@ -39728,7 +39735,7 @@ def _tm_multi_cost_pdf_data(client, company: str, role: str, location: str,
     return {
         "title": f"Staffing Cost Comparison - {company}",
         "badge": "STAFFING COST COMPARISON",
-        "intro": (f"{lead} {company} would typically hire for, what each costs "
+        "intro": (f"{lead} {who} would typically hire for, what each costs "
                   f"in-house{where} for a year, and the estimated cost of the "
                   f"same role with us. Across "
                   + ("all of them" if n > 1 else "it")
@@ -41157,7 +41164,8 @@ def _generate_rich_pdf_data(client, kind: str, ctx: dict, research_context: str 
             # each priced from BLS.
             return _tm_multi_cost_pdf_data(
                 client, ctx.get("company", ""), _role, _loc,
-                ctx.get("primary_industry", ""))
+                ctx.get("primary_industry", ""),
+                market_only=bool(ctx.get("market_only")))
         return _tm_cost_pdf_data(
             ctx.get("company", ""),
             ctx.get("tm_cost_inputs") or {},
@@ -42079,7 +42087,8 @@ def _tm_build_campaign_pdfs(kinds, company, role, location, industry="",
                or (role or "").strip())
     ctx = {"company": subject, "primary_industry": industry or "",
            "secondary_industries": [], "positions": role or "",
-           "location": location or "", "exp_level": ""}
+           "location": location or "", "exp_level": "",
+           "market_only": not (company or "").strip()}
     labels = {k: l for k, l, _ in _TM_CAMPAIGN_PDF_KINDS}
     style = _style_guide_prompt()
     user_email = _CURRENT_USER_EMAIL.get()

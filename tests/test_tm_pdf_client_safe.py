@@ -129,3 +129,20 @@ def test_cost_comparison_with_nothing_priced_is_the_seller_note(monkeypatch):
                         {k: ["Superintendent"] for k in fa._TM_VERTICAL_COST_ROLES})
     d = fa._tm_multi_cost_pdf_data(None, "Co", "Superintendent", "", "")
     assert d["badge"] == "INCOMPLETE WORKSHEET" and d["_worksheet"] is None
+
+
+def test_a_title_with_and_is_one_role(monkeypatch):
+    monkeypatch.setattr(fa, "_is_thrivemodal", lambda cfg=None: True)
+    roles = fa._tm_cost_roles("Track and Trace Specialist", "Logistics", "")
+    assert roles[0] == "Track and Trace Specialist" and "Track" not in roles
+
+
+def test_market_campaign_reads_as_a_business_not_a_buyer(monkeypatch):
+    monkeypatch.setattr(fa, "_tm_bls_local_salaries", _fake_local)
+    monkeypatch.setattr(fa, "_is_thrivemodal", lambda cfg=None: True)
+    d = fa._tm_multi_cost_pdf_data(None, "Accounting & Finance", "CPA",
+                                   "United States", "Accounting & Finance",
+                                   market_only=True)
+    assert d["intro"].startswith("Five roles an Accounting & Finance business")
+    assert "in United States" not in d["intro"]
+    assert "Accounting & Finance's" not in json.dumps(d)
