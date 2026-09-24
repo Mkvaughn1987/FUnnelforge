@@ -144,6 +144,12 @@ class Catalogue:
     # _derived and may add placeholders or fill blanks with recommended
     # values before the steps are formatted. None leaves the output alone.
     derive_extra: object = None
+    # Optional hook: recommend(routine, vals) -> ({field key: answer}, why).
+    # A routine that lists field keys under "recommend" gets a button on the
+    # questions screen which fills those boxes in for the run being set up.
+    # Blocking, so the page awaits it in an executor. None on a catalogue
+    # (Arena's) means no routine there shows the button at all.
+    recommend: object = None
 
 
 SEQUENCES = ["Arena 5x5", "Arena 5x3", "Arena 4x4", "One of my saved styles",
@@ -2439,6 +2445,67 @@ def _aip_save_setup(s, rf, C, req, label="Save these answers"):
     _btn("Cancel", _cancel)
 
 
+def _aip_recommend(s, rf, C, r, req, section):
+    """"Recommend these for me" for the questions in one section.
+
+    A routine names the field keys that can be worked out for it under
+    "recommend", and the catalogue's hook answers them for the run being set
+    up, plus one line saying why. The answers go straight into vals and the
+    boxes stay editable, so this is a faster way to fill the form in, not a
+    second kind of answer. A section with none of those keys shows nothing.
+
+    The handler is async and awaits the hook in an executor: the call takes
+    seconds, and ui.notify/rf from a bare thread have no slot to run in, so
+    a threaded worker dies on its own success notify (0f8b435).
+    """
+    if not getattr(_CAT, "recommend", None):
+        return
+    vals = req["vals"]
+    keys = [k for k in (r.get("recommend") or ())
+            if (r["field_by_key"].get(k) or {}).get("section") == section]
+    if not keys:
+        return
+
+    async def _go():
+        if req.get("rec_busy"):
+            return
+        req["rec_busy"] = True
+        ui.notify("Working out what to recommend...", type="info",
+                  timeout=4000)
+        try:
+            got, why = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: _CAT.recommend(r, dict(vals)))
+        except Exception as e:
+            req["rec_busy"] = False
+            ui.notify("Could not work that out: %s" % str(e)[:140],
+                      type="negative")
+            return
+        req["rec_busy"] = False
+        wrote = [k for k in keys if str((got or {}).get(k) or "").strip()]
+        # Nothing readable back leaves every box exactly as it was. A blank
+        # answer still picks up the catalogue's own recommendation when the
+        # prompt is built, so there is nothing here worth rescuing.
+        if not wrote:
+            ui.notify("Nothing came back, so the answers are unchanged.",
+                      type="warning")
+            return
+        for k in wrote:
+            vals[k] = str(got[k]).strip()
+        req["rec_why"] = str(why or "").strip()
+        ui.notify("Filled in %d answer%s. Change anything you like."
+                  % (len(wrote), "" if len(wrote) == 1 else "s"),
+                  type="positive")
+        rf()
+
+    with ui.element("div").style("margin-bottom:14px;"):
+        _btn("Recommend these for me", _go, lead="auto_awesome", small=True)
+        why = str(req.get("rec_why") or "")
+        if why:
+            ui.label("Why these: " + why).style(
+                f"font-size:11px;color:{C['muted']};line-height:1.5;"
+                f"display:block;margin-top:7px;")
+
+
 def _aip_confirm(s, rf, C):
     req = s._aip_req
     r = _CAT.routine_by_key.get(req.get("routine") or "",
@@ -2539,6 +2606,7 @@ def _aip_confirm(s, rf, C):
                     if key == "extra":
                         _aip_extra(s, rf, C, req)
                     else:
+                        _aip_recommend(s, rf, C, r, req, key)
                         with ui.element("div").classes("aip-grid"):
                             for f in rows:
                                 with ui.element("div"):

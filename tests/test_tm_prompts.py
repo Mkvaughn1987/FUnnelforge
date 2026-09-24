@@ -10,6 +10,7 @@ import pathlib
 import sys
 import types
 from contextvars import ContextVar
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -309,12 +310,153 @@ def test_arena_golden_is_untouched_by_the_hook(aip):
             case["name"]
 
 
-# ── Page render ──────────────────────────────────────────────────────────
+# ── Recommend these for me ────────────────────────
+#
+# The seasonal run is the one whose answers depend on the date, so it is
+# the one that can have them worked out. Everything below pins what the
+# model is told and what is done with what it says back.
+
 
 class _Colours(dict):
     def __missing__(self, k):
         return "#000000"
 
+
+class _Reply:
+    def __init__(self, text):
+        self.content = [types.SimpleNamespace(text=text)]
+
+
+def _fake_ff(reply, key="sk-ant-test"):
+    """flowdrip_app as recommend_tm needs it, recording the call."""
+    m = types.ModuleType("flowdrip_app")
+    m._BASE_DATA_DIR = pathlib.Path(".")
+    m.C = _Colours()
+    m.ANTHROPIC_API_KEY = key
+    m.sent = {}
+    m._injection_guarded_system = lambda base: "GUARD " + base
+
+    def _create(client, **kw):
+        m.sent.update(kw)
+        if isinstance(reply, Exception):
+            raise reply
+        return _Reply(reply)
+
+    m._claude_create_with_retry = _create
+    return m
+
+
+def _fake_anthropic():
+    a = types.ModuleType("anthropic")
+    a.Anthropic = lambda api_key=None: types.SimpleNamespace(key=api_key)
+    return a
+
+
+def _recommend(tm, monkeypatch, reply, vals=None, key="sk-ant-test"):
+    ff = _fake_ff(reply, key)
+    monkeypatch.setitem(sys.modules, "flowdrip_app", ff)
+    monkeypatch.setitem(sys.modules, "anthropic", _fake_anthropic())
+    r = tm.ROUTINE_BY_KEY["tm_seasonal"]
+    got = tm.recommend_tm(r, dict(vals or {"vertical": "Accounting / CAS firms"}))
+    return got, ff
+
+
+def test_only_the_seasonal_run_offers_a_recommendation(tm):
+    assert tm.ROUTINE_BY_KEY["tm_seasonal"]["recommend"] == [
+        "season_note", "company_size", "roles", "who_to_reach"]
+    for r in tm.ROUTINES:
+        if r["key"] != "tm_seasonal":
+            assert not r.get("recommend"), r["key"]
+    # Every key named is a real question on that run, or the button would
+    # fill a box the screen never renders.
+    r = tm.ROUTINE_BY_KEY["tm_seasonal"]
+    for k in r["recommend"]:
+        assert k in r["field_by_key"]
+        assert k in tm._RECOMMENDABLE
+
+
+def test_the_ask_carries_todays_date_and_the_vertical_row(tm, monkeypatch):
+    (out, why), ff = _recommend(
+        tm, monkeypatch,
+        '{"season_note": "s", "company_size": "c", "roles": "r", '
+        '"who_to_reach": "w", "why": "because"}',
+        {"vertical": "Accounting / CAS firms", "location": "Texas"})
+    sent = " ".join(ff.sent["messages"][0]["content"].split())
+    v = tm.VERTICAL_BY_LABEL["Accounting / CAS firms"]
+    assert date.today().strftime("%d %B %Y") in sent
+    assert v["label"] in sent and " ".join(v["season"].split()) in sent
+    assert " ".join(v["buyers"].split()) in sent
+    assert "<where>Texas</where>" in sent
+    # The row is the ground truth; the date is what it cannot know.
+    assert "ground truth" in sent and "cannot know is the date" in sent
+    # Claims discipline rides along, same as the standing rules.
+    assert "Never invent a client count" in sent
+    assert ff.sent["system"].startswith("GUARD ")
+    assert out == {"season_note": "s", "company_size": "c", "roles": "r",
+                   "who_to_reach": "w"}
+    assert why == "because"
+
+
+def test_an_exploratory_vertical_says_so(tm, monkeypatch):
+    expl = next(v for v in tm.VERTICALS if v["exploratory"])
+    _, ff = _recommend(tm, monkeypatch, '{"season_note": "s"}',
+                       {"vertical": expl["label"]})
+    assert "exploratory" in ff.sent["messages"][0]["content"]
+    _, ff = _recommend(tm, monkeypatch, '{"season_note": "s"}',
+                       {"vertical": "Accounting / CAS firms"})
+    assert "exploratory" not in ff.sent["messages"][0]["content"]
+
+
+def test_stray_keys_and_unusable_shapes_are_dropped(tm, monkeypatch):
+    (out, why), _ = _recommend(
+        tm, monkeypatch,
+        'here you go ```json\n{"season_note": "  a   b  ", '
+        '"roles": ["a", "b"], "company_size": null, "who_to_reach": true, '
+        '"newsletter": "hijacked", "why": "w"}\n``` hope that helps')
+    assert out == {"season_note": "a b"}
+    assert why == "w"
+
+
+def test_nothing_usable_comes_back_as_an_empty_answer(tm, monkeypatch):
+    (out, why), _ = _recommend(tm, monkeypatch, '{"why": "no idea"}')
+    assert out == {} and why == "no idea"
+    with pytest.raises(RuntimeError):
+        _recommend(tm, monkeypatch, "I could not work that out, sorry.")
+    with pytest.raises(RuntimeError):
+        _recommend(tm, monkeypatch, '{"season_note": "s"}', key="")
+
+
+def test_the_button_is_awaited_not_run_in_a_bare_thread(aip):
+    """ui.notify and rf() need the page's slot context, which a thread has
+    none of, so a threaded worker dies on its own success notify (0f8b435)."""
+    import inspect
+    block = inspect.getsource(aip._aip_recommend)
+    assert "async def _go" in block
+    assert "run_in_executor" in block
+    assert "threading" not in block and "Thread(" not in block
+
+
+def test_a_failed_recommendation_still_falls_back_to_the_table(tm, aip):
+    """The button is a shortcut, not a dependency: a blank box still picks
+    up the vertical's own recommendation when the prompt is built."""
+    r = tm.ROUTINE_BY_KEY["tm_seasonal"]
+    vals = aip.defaults_for(r)
+    vals["vertical"] = "Accounting / CAS firms"
+    for k in r["recommend"]:
+        vals[k] = ""
+    req = {"routine": r["key"], "vals": vals, "detail": [], "filled": []}
+    v = tm.VERTICAL_BY_LABEL["Accounting / CAS firms"]
+    assert _flat(v["season"]) in _flat(tm.build_prompt(req))
+
+
+def test_arena_has_no_recommend_hook(aip, tm):
+    assert aip.ARENA.recommend is None
+    assert tm.TM.recommend is tm.recommend_tm
+    for r in aip.ARENA.routines:
+        assert not r.get("recommend"), r["key"]
+
+
+# ── Page render ──────────────────────────────────────────────────────────
 
 def _fake_flowdrip(tmp_path):
     m = types.ModuleType("flowdrip_app")
