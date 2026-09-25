@@ -88,16 +88,22 @@ SECTION_NAME = {k: n for k, n, _ in SECTIONS}
 
 
 def F(key, label, section="details", type="text", default="", ask=False,
-      hint="", placeholder="", options=None):
+      hint="", placeholder="", options=None, refresh=False):
     """One question on the screen.
 
     ask=True means "only the user can answer this" — left blank it becomes a
     question in the prompt. ask=False means the default is good enough to
     write in without asking, which is what keeps the prompt short.
+
+    refresh=True re-renders the screen when the answer changes. Only worth
+    it for a question other questions are computed from — the vertical on
+    the ThriveModal page decides which signals are on offer below it, and a
+    stale menu under a changed vertical is worse than a flicker.
     """
     return {"key": key, "label": label, "section": section, "type": type,
             "default": default, "ask": ask, "hint": hint,
-            "placeholder": placeholder, "options": options or []}
+            "placeholder": placeholder, "options": options or [],
+            "refresh": bool(refresh)}
 
 
 def finalize_routines(routines):
@@ -152,6 +158,20 @@ class Catalogue:
     # Blocking, so the page awaits it in an executor. None on a catalogue
     # (Arena's) means no routine there shows the button at all.
     recommend: object = None
+    # Optional hook: checklist(routine, vals, key) -> [{"id", "label",
+    # "why"}], the whole menu for a "checks" question in display order. It
+    # is worked out from the answers so far rather than read off the field,
+    # because the menu depends on them — which signals are on offer follows
+    # from the vertical picked two boxes up. None means the catalogue never
+    # uses the type.
+    checklist: object = None
+    # Optional hook: prefill(routine, vals, written) -> {key: value}. Runs
+    # before the questions screen renders and writes the recommended answer
+    # into the box itself, so the user reads real text instead of a grey
+    # placeholder. `written` is what it wrote on the last render, which is
+    # how it tells a value it put there from one the user typed over. It
+    # returns the new record, which lives on the request and is never saved.
+    prefill: object = None
 
 
 SEQUENCES = ["Arena 5x5", "Arena 5x3", "Arena 4x4", "One of my saved styles",
@@ -853,6 +873,39 @@ def _flag(r, vals, key):
     return str(v).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _checks_items(r, vals, key, cat=None):
+    """The whole menu for a "checks" question. The catalogue works it out
+    from the answers so far, so there is nothing static on the field to
+    read: pick a different vertical and a different menu comes back."""
+    cat = cat or _CAT
+    hook = getattr(cat, "checklist", None)
+    if not hook:
+        return []
+    try:
+        return [i for i in (hook(r, vals, key) or []) if i.get("id")]
+    except Exception:
+        return []
+
+
+def _checks_ids(r, vals, key, cat=None, items=None):
+    """Which of the menu is ticked, in menu order. A stored id the menu no
+    longer offers is dropped rather than carried along invisibly — switch
+    vertical and the old vertical's signals go with it, which is the same
+    thing the screen shows."""
+    if items is None:
+        items = _checks_items(r, vals, key, cat)
+    on = {p.strip().lower()
+          for p in str(_val(r, vals, key) or "").split(",") if p.strip()}
+    return [i["id"] for i in items if str(i["id"]).lower() in on]
+
+
+def _checks_text(r, vals, key, cat=None):
+    """What the ticked boxes say, as the one sentence the prompt carries."""
+    items = _checks_items(r, vals, key, cat)
+    on = set(_checks_ids(r, vals, key, cat, items))
+    return ", ".join(str(i["label"]) for i in items if i["id"] in on)
+
+
 def _n(r, vals, key, fallback):
     try:
         return max(1, int(float(str(_val(r, vals, key)).strip() or fallback)))
@@ -936,9 +989,13 @@ def _derived(r, vals, cat=None):
     """Everything a step template can ask for: the raw answers by key, plus
     the sentences that only make sense once several answers are read
     together."""
+    cat = cat or _CAT
     d = _Fill()
     for f in r["fields"]:
-        d[f["key"]] = _txt(r, vals, f["key"])
+        # A checks answer is stored as ids; every step template wants the
+        # sentence, so it is resolved here and nowhere else.
+        d[f["key"]] = (_checks_text(r, vals, f["key"], cat)
+                       if f["type"] == "checks" else _txt(r, vals, f["key"]))
 
     unattended = _txt(r, vals, "unattended") or UNATTENDED[0]
     solo = unattended.startswith("Run it all")
@@ -1156,7 +1213,6 @@ def _derived(r, vals, cat=None):
     d["done_clause"] = ("I will know it worked when %s." % done if done
                         else "Tell me plainly whether it worked, and how you "
                              "know.")
-    cat = cat or _CAT
     if cat.derive_extra:
         cat.derive_extra(r, vals, d)
     return d
@@ -1400,7 +1456,9 @@ def build_prompt(req, cat=None):
     # The scannable table. Only the "details" answers go here: the numbers
     # live in the numbered steps that use them, so there is never a limit
     # stated twice with two different values.
-    rows = [(f["label"], str(_val(r, vals, f["key"]) or "").strip())
+    rows = [(f["label"],
+             str((d.get(f["key"]) if f["type"] == "checks"
+                  else _val(r, vals, f["key"])) or "").strip())
             for f in r["fields"]
             if f["section"] == "details" and f["type"] != "toggle"
             and f["key"] not in NEWSLETTER_KEYS]
@@ -1724,6 +1782,19 @@ def _aip_css():
         ".aip-wrap .aip-grid{display:grid;gap:14px;"
         "grid-template-columns:repeat(auto-fit,minmax(260px,1fr));}"
         ".aip-wrap{max-width:1080px;}"
+        # A tick list is a menu, not a form field: it runs the full width
+        # of the grid so the why-line under each row has somewhere to go.
+        ".aip-wrap .aip-wide{grid-column:1/-1;}"
+        ".aip-wrap .aip-checks{display:grid;gap:9px;margin-top:6px;"
+        "grid-template-columns:repeat(auto-fill,minmax(310px,1fr));}"
+        ".aip-wrap .aip-check{display:flex;gap:8px;align-items:flex-start;"
+        "padding:9px 12px 10px;border-radius:10px;"
+        "border:1px solid var(--dd-border);background:var(--dd-bg);"
+        "transition:border-color .15s,background .15s;}"
+        ".aip-wrap .aip-check:hover{border-color:var(--dd-teal);}"
+        ".aip-wrap .aip-check.on{border-color:var(--dd-teal);"
+        "background:var(--dd-teal_dim);}"
+        ".aip-wrap .aip-check .q-checkbox{margin:-3px 0 0 -6px;}"
         ".aip-wrap .aip-tiles{display:grid;gap:12px;"
         "grid-template-columns:repeat(auto-fill,minmax(240px,1fr));}"
         ".aip-wrap .aip-tile{position:relative;display:flex;gap:12px;"
@@ -2094,6 +2165,7 @@ def describe_runs(cat=None, newsletter_names=()):
     for st in cat.starters:
         req = _req_from_starter(st, cat)
         r = cat.routine_by_key[req["routine"]]
+        run_prefill(r, req, cat)
         must = set(req.get("ask_extra") or ())
         qs = []
         for f in r["fields"]:
@@ -2105,6 +2177,18 @@ def describe_runs(cat=None, newsletter_names=()):
                 q["type"] = "select"
                 q["options"] = [_NL_FIND] + list(newsletter_names) + [_NL_NONE]
                 q["default"] = _NL_FIND
+            elif f["type"] == "checks":
+                # Tick as many as you like: the answer is those ids, comma
+                # separated. The labels and the why-lines travel too, or a
+                # caller that never sees the page is picking blind.
+                items = _checks_items(r, req["vals"], f["key"], cat)
+                q["options"] = [i["id"] for i in items]
+                q["choices"] = [
+                    {"id": i["id"], "label": i["label"],
+                     "why": i.get("why", ""),
+                     "recommended": bool(i.get("rec"))} for i in items]
+                q["default"] = ", ".join(
+                    _checks_ids(r, req["vals"], f["key"], cat, items))
             elif f["options"]:
                 q["options"] = list(f["options"])
             for k in ("hint", "placeholder"):
@@ -2116,11 +2200,33 @@ def describe_runs(cat=None, newsletter_names=()):
     return out
 
 
-def apply_answers(r, vals, answers):
+def run_prefill(r, req, cat=None):
+    """Write the catalogue's recommended answers into a request's boxes.
+
+    Called before the questions are shown and again after a caller's own
+    answers land, so a run whose vertical changed picks up that vertical's
+    recommendations for everything the caller did not speak to. The record
+    of what it wrote is kept on the request — never in vals — so it dies
+    with the screen and cannot reach a saved setup."""
+    cat = cat or _CAT
+    hook = getattr(cat, "prefill", None)
+    if not hook:
+        return req
+    try:
+        req["prefilled"] = dict(
+            hook(r, req.setdefault("vals", {}),
+                 dict(req.get("prefilled") or {})) or {})
+    except Exception:
+        pass
+    return req
+
+
+def apply_answers(r, vals, answers, cat=None):
     """Write a caller's answers into vals the way the questions screen
     would, and return what was wrong with them (an empty list is success).
     A select only takes one of its own options, a toggle only a yes/no, and
     the newsletter answer sets the same pair the page's dropdown sets."""
+    cat = cat or _CAT
     errors = []
     for key, v in (answers or {}).items():
         f = r["field_by_key"].get(key)
@@ -2136,6 +2242,25 @@ def apply_answers(r, vals, answers):
                 vals[key] = False
             else:
                 errors.append("%s takes true or false" % key)
+            continue
+        if f["type"] == "checks":
+            # A list is the natural shape here, and so is one comma-joined
+            # string. Anything the menu does not offer is named back rather
+            # than dropped, because a silently ignored tick reads as one
+            # that took.
+            picked = v if isinstance(v, list) else str(v or "").split(",")
+            picked = [str(p).strip() for p in picked if str(p).strip()]
+            items = _checks_items(r, vals, key, cat)
+            by = {}
+            for i in items:
+                by[str(i["id"]).lower()] = i["id"]
+                by[str(i["label"]).lower()] = i["id"]
+            bad = [p for p in picked if p.lower() not in by]
+            if bad:
+                errors.append("%s does not offer: %s" % (key, "; ".join(bad)))
+                continue
+            want = {by[p.lower()] for p in picked}
+            vals[key] = ", ".join(i["id"] for i in items if i["id"] in want)
             continue
         if isinstance(v, (dict, list)):
             errors.append("%s takes text, not a list or object" % key)
@@ -2296,6 +2421,10 @@ def _aip_field(s, rf, C, r, vals, f):
                 f"line-height:1.45;margin:-2px 0 0 32px;")
         return
 
+    if f["type"] == "checks":
+        _aip_checks(s, rf, C, r, vals, f)
+        return
+
     ui.label(f["label"]).classes("fd-fl")
     if f["hint"]:
         ui.label(f["hint"]).style(
@@ -2313,8 +2442,15 @@ def _aip_field(s, rf, C, r, vals, f):
         opts = list(f["options"])
         if cur and cur not in opts:
             opts = [cur] + opts
+        def _set_sel(e):
+            _set(e)
+            # A question other questions are computed from redraws the
+            # screen: the menu below a changed vertical is the old
+            # vertical's until something asks for it again.
+            if f.get("refresh"):
+                rf()
         ui.select(options=opts, value=cur or (opts[0] if opts else None),
-                  on_change=_set).props("dense").classes("fd-input")
+                  on_change=_set_sel).props("dense").classes("fd-input")
     elif f["type"] == "textarea":
         ui.textarea(value=cur, placeholder=f["placeholder"],
                     on_change=_set).props("dense autogrow").classes(
@@ -2324,6 +2460,100 @@ def _aip_field(s, rf, C, r, vals, f):
                        on_change=_set).props("dense").classes("fd-input")
         if f["type"] == "number":
             inp.props("type=number")
+
+
+def _aip_checks(s, rf, C, r, vals, f):
+    """A menu of things to tick, each with the one line that says what it
+    tells you.
+
+    This is the answer to a question the user cannot be expected to already
+    know the answer to. A free-text box asking which signals count only
+    works for someone who could have written the list themselves; everyone
+    else leaves it blank. So the list is shown, the recommendation for what
+    they picked upstream is already ticked, and the line under each row is
+    what turns picking into deciding.
+
+    Ticking does not re-render. It writes the ids back and flips the row's
+    own class, because a full redraw on every tick would fight the mouse
+    and the "answered" count above cannot change anyway — a menu with
+    nothing ticked still answers the question.
+    """
+    key = f["key"]
+    items = _checks_items(r, vals, key)
+    ui.label(f["label"]).classes("fd-fl")
+    if f["hint"]:
+        ui.label(f["hint"]).style(
+            f"font-size:10px;color:{C['muted']};margin-top:-2px;"
+            f"display:block;line-height:1.5;")
+    if not items:
+        # No menu to show, so the question is still answerable by hand
+        # rather than silently disappearing.
+        cur = str(_val(r, vals, key) or "")
+        ui.input(value=cur, placeholder=f["placeholder"],
+                 on_change=lambda e: vals.__setitem__(key, e.value)).props(
+            "dense").classes("fd-input")
+        return
+
+    on = set(_checks_ids(r, vals, key, items=items))
+    rec = [i["id"] for i in items if i.get("rec")]
+
+    def _write():
+        vals[key] = ", ".join(i["id"] for i in items if i["id"] in on)
+
+    with ui.element("div").classes("aip-checks"):
+        for item in items:
+            row = ui.element("div").classes(
+                "aip-check" + (" on" if item["id"] in on else ""))
+
+            def _flip(e, _id=item["id"], _row=row):
+                if e.value:
+                    on.add(_id)
+                    _row.classes(add="on")
+                else:
+                    on.discard(_id)
+                    _row.classes(remove="on")
+                _write()
+
+            with row:
+                ui.checkbox(value=item["id"] in on, on_change=_flip)
+                with ui.element("div").style("flex:1;min-width:0;"):
+                    label = str(item["label"])
+                    with ui.element("div").style(
+                            "display:flex;align-items:baseline;gap:6px;"
+                            "flex-wrap:wrap;"):
+                        ui.label(label[:1].upper() + label[1:]).style(
+                            f"font-size:12.5px;font-weight:600;"
+                            f"color:{C['text_l']};line-height:1.4;")
+                        if item.get("rec"):
+                            ui.label("recommended").classes("aip-pill good")
+                    if item.get("why"):
+                        ui.label(str(item["why"])).style(
+                            f"font-size:10.5px;color:{C['muted']};"
+                            f"line-height:1.5;display:block;margin-top:2px;")
+
+    def _set_all(ids):
+        on.clear()
+        on.update(ids)
+        _write()
+        rf()
+
+    with ui.element("div").style(
+            "display:flex;gap:14px;margin-top:9px;flex-wrap:wrap;"):
+        if rec and on != set(rec):
+            with ui.element("button").classes("aip-link").on(
+                    "click", lambda: _set_all(rec)):
+                ui.icon("restart_alt").style("font-size:14px;")
+                ui.label("Back to the recommended ones")
+        if len(on) < len(items):
+            with ui.element("button").classes("aip-link").on(
+                    "click", lambda: _set_all([i["id"] for i in items])):
+                ui.icon("done_all").style("font-size:14px;")
+                ui.label("Tick everything")
+        if on:
+            with ui.element("button").classes("aip-link").on(
+                    "click", lambda: _set_all([])):
+                ui.icon("close").style("font-size:14px;")
+                ui.label("Clear them all")
 
 
 # Set by the host app for pages that use a "newsletter" field (ThriveModal):
@@ -2477,7 +2707,12 @@ def _aip_recommend(s, rf, C, r, req, section):
     def _untouched(k):
         cur = str(_val(r, vals, k) or "").strip()
         default = str((r["field_by_key"].get(k) or {}).get("default") or "")
+        # A value the prefill hook put there is the catalogue's own
+        # recommendation showing through, not an answer the user chose, so
+        # it is fair game. Only what they typed over it is protected.
+        prefilled = str((req.get("prefilled") or {}).get(k) or "").strip()
         return (not cur or cur == default.strip()
+                or (prefilled and cur == prefilled)
                 or k in set(req.get("rec_wrote") or ()))
 
     async def _go():
@@ -2489,8 +2724,9 @@ def _aip_recommend(s, rf, C, r, req, section):
                       "and press again to have it recommended.", type="info")
             return
         req["rec_busy"] = True
-        ui.notify("Working out what to recommend...", type="info",
-                  timeout=4000)
+        ui.notify("Working it out, and checking current sources where it "
+                  "matters. This takes a few seconds.", type="info",
+                  timeout=8000)
         try:
             got, why = await asyncio.get_event_loop().run_in_executor(
                 None, lambda: _CAT.recommend(r, dict(vals), list(fill)))
@@ -2535,6 +2771,12 @@ def _aip_confirm(s, rf, C):
     vals = req.setdefault("vals", defaults_for(r))
     for f in r["fields"]:
         vals.setdefault(f["key"], f["default"])
+    # Show the recommendation in the box rather than behind a placeholder.
+    # Every render, because the answer it recommends follows from another
+    # answer on the same screen: change the vertical and these follow it.
+    # The record of what it wrote lives on the request, so it dies with the
+    # screen and never reaches a saved setup.
+    run_prefill(r, req)
     opened = _aip_open_state(s, r, req)
 
     def _restart():
@@ -2631,7 +2873,9 @@ def _aip_confirm(s, rf, C):
                         _aip_recommend(s, rf, C, r, req, key)
                         with ui.element("div").classes("aip-grid"):
                             for f in rows:
-                                with ui.element("div"):
+                                with ui.element("div").classes(
+                                        "aip-wide" if f["type"] == "checks"
+                                        else ""):
                                     _aip_field(s, rf, C, r, vals, f)
 
     def _build():

@@ -10646,10 +10646,14 @@ async def api_tm_ai_prompt(request: Request):
                                 status_code=400)
         req = aip._req_from_starter(st, cat)
     r = cat.routine_by_key[req["routine"]]
+    aip.run_prefill(r, req, cat)
     answers = body.get("answers") or {}
     if not isinstance(answers, dict):
         return JSONResponse({"error": "answers must be an object"}, status_code=400)
-    errors = aip.apply_answers(r, req["vals"], answers)
+    errors = aip.apply_answers(r, req["vals"], answers, cat)
+    # Again, so a run whose vertical the caller just changed picks up that
+    # vertical's recommendations for everything they did not answer.
+    aip.run_prefill(r, req, cat)
     if errors:
         return JSONResponse({"error": "; ".join(errors)}, status_code=400)
     extra = body.get("instructions")
@@ -19128,16 +19132,34 @@ _WEB_SEARCH_DOMAINS = [
     "payscale.com",
 ]
 
-def _safe_web_search_tool(max_uses: int = 3) -> dict:
+# State labour departments, which is where WARN notices are published. Kept
+# apart from the list above because only a caller that actually needs layoff
+# notices should widen its own search surface - the allowlist is what stops
+# prompt injection in user content pivoting a search to attacker URLs.
+_WARN_SEARCH_DOMAINS = [
+    "dol.gov",
+    "edd.ca.gov", "twc.texas.gov", "dol.ny.gov", "labor.ny.gov",
+    "illinois.gov", "floridajobs.org", "dol.georgia.gov", "nj.gov",
+    "pa.gov", "ohio.gov", "michigan.gov", "colorado.gov", "esd.wa.gov",
+    "mass.gov", "virginia.gov", "in.gov", "tn.gov", "nc.gov", "az.gov",
+    "mn.gov", "wisconsin.gov", "mo.gov", "maryland.gov", "oregon.gov",
+    "ct.gov", "sc.gov", "ky.gov", "louisiana.gov", "oklahoma.gov",
+    "utah.gov", "nv.gov", "iowa.gov", "kansas.gov", "alabama.gov",
+    "arkansas.gov", "ms.gov", "nebraska.gov", "nm.gov", "idaho.gov",
+]
+
+
+def _safe_web_search_tool(max_uses: int = 3, extra_domains=()) -> dict:
     """Return a web_search tool config locked to the known-safe domain
     allowlist. Use this everywhere Claude calls need web search so that
     prompt injection in user content can't pivot the search to attacker
-    URLs."""
+    URLs. `extra_domains` widens the allowlist for one call only - pass a
+    fixed list defined in code, never anything a user typed."""
     return {
         "type": "web_search_20250305",
         "name": "web_search",
         "max_uses": max_uses,
-        "allowed_domains": list(_WEB_SEARCH_DOMAINS),
+        "allowed_domains": list(_WEB_SEARCH_DOMAINS) + list(extra_domains),
     }
 
 

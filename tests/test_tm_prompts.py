@@ -7,6 +7,7 @@ standing rules, and that the page renders under a stubbed nicegui.
 """
 import json
 import pathlib
+import re
 import sys
 import types
 from contextvars import ContextVar
@@ -322,6 +323,16 @@ class _Colours(dict):
         return "#000000"
 
 
+_CITE_RE = re.compile(r"[\(\[<]\s*/?\s*cite\b[^>\)\]\n]{0,300}?[>\)\]]",
+                      re.IGNORECASE)
+
+
+def _real_strip_cite_tags(text):
+    """What flowdrip_app._strip_cite_tags does, to the extent these tests
+    depend on it: the markup goes, the wrapped text stays."""
+    return _CITE_RE.sub("", text or "").strip()
+
+
 class _Reply:
     def __init__(self, text):
         self.content = [types.SimpleNamespace(text=text)]
@@ -335,6 +346,13 @@ def _fake_ff(reply, key="sk-ant-test"):
     m.ANTHROPIC_API_KEY = key
     m.sent = {}
     m._injection_guarded_system = lambda base: "GUARD " + base
+    m._WARN_SEARCH_DOMAINS = ["dol.gov", "edd.ca.gov"]
+    m._safe_web_search_tool = lambda max_uses=3, extra_domains=(): {
+        "type": "web_search_20250305", "name": "web_search",
+        "max_uses": max_uses,
+        "allowed_domains": ["indeed.com"] + list(extra_domains)}
+    # The real one off flowdrip_app; the leak it prevents is the point.
+    m._strip_cite_tags = _real_strip_cite_tags
 
     def _create(client, **kw):
         m.sent.update(kw)
@@ -519,6 +537,36 @@ def test_a_box_you_typed_in_yourself_is_never_overwritten(aip, tm):
     assert not _fill("location")
     req["rec_wrote"] = ["location"]                   # ...unless we wrote it
     assert _fill("location")
+
+
+def test_the_call_can_search_and_reaches_the_warn_sites(tm, monkeypatch):
+    """Picking which states' WARN notices to read is a question about what
+    has actually been filed, so the call gets search - widened to the
+    state labour departments, which the general allowlist has none of."""
+    _, ff = _recommend(tm, monkeypatch, "{}", routine="tm_cost_pressure")
+    tool = ff.sent["tools"][0]
+    assert tool["name"] == "web_search"
+    assert "dol.gov" in tool["allowed_domains"]
+    assert "indeed.com" in tool["allowed_domains"]   # the base list survives
+    sent = ff.sent["messages"][0]["content"]
+    assert "states is the one to search for" in sent
+    assert "could not see live notices" in sent      # and says so if blind
+    assert "No URLs, no source names" in sent
+    assert "web search" in ff.sent["system"]
+
+
+def test_citation_markup_never_reaches_a_form_box(tm, monkeypatch):
+    """Web-search citations leaked into newsletters as visible markup once.
+    These answers go straight into inputs, so they come off here."""
+    reply = json.dumps({
+        "season_note": '(cite index="4-1">Busy season starts in '
+                       'January(/cite)',
+        "why": '<cite index="2-1">peak</cite> is near',
+    })
+    (out, why), _ = _recommend(tm, monkeypatch, reply)
+    assert out["season_note"] == "Busy season starts in January"
+    assert why == "peak is near"
+    assert "cite" not in out["season_note"] and "cite" not in why
 
 
 def test_arena_has_no_recommend_hook(aip, tm):
