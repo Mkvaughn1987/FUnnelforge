@@ -352,27 +352,69 @@ def _fake_anthropic():
     return a
 
 
-def _recommend(tm, monkeypatch, reply, vals=None, key="sk-ant-test"):
+def _recommend(tm, monkeypatch, reply, vals=None, key="sk-ant-test",
+               routine="tm_seasonal", keys=None):
     ff = _fake_ff(reply, key)
     monkeypatch.setitem(sys.modules, "flowdrip_app", ff)
     monkeypatch.setitem(sys.modules, "anthropic", _fake_anthropic())
-    r = tm.ROUTINE_BY_KEY["tm_seasonal"]
-    got = tm.recommend_tm(r, dict(vals or {"vertical": "Accounting / CAS firms"}))
+    r = tm.ROUTINE_BY_KEY[routine]
+    got = tm.recommend_tm(
+        r, dict(vals or {"vertical": "Accounting / CAS firms"}), keys)
     return got, ff
 
 
-def test_only_the_seasonal_run_offers_a_recommendation(tm):
-    assert tm.ROUTINE_BY_KEY["tm_seasonal"]["recommend"] == [
-        "season_note", "company_size", "roles", "who_to_reach"]
+def test_every_run_that_can_be_recommended_for_declares_its_keys(tm):
+    got = {r["key"]: list(r.get("recommend") or ()) for r in tm.ROUTINES}
+    assert got == {
+        "tm_signal_hunt": ["location", "company_size", "roles",
+                           "who_to_reach", "triggers"],
+        "tm_lookalikes": ["location", "company_size", "roles",
+                          "who_to_reach"],
+        "tm_displacement": ["location", "company_size", "roles",
+                            "who_to_reach", "search_terms"],
+        "tm_cost_pressure": ["states", "lookback", "location",
+                             "company_size", "roles", "who_to_reach"],
+        "tm_seasonal": ["season_note", "location", "company_size", "roles",
+                        "who_to_reach"],
+        # Nothing to recommend: the audience is the name of the user's own
+        # saved list, the account run starts from a company they name, and
+        # "other" is them describing a job in their own words.
+        "tm_audience": [],
+        "tm_account": ["who_to_reach"],
+        "other": [],
+    }
     for r in tm.ROUTINES:
-        if r["key"] != "tm_seasonal":
-            assert not r.get("recommend"), r["key"]
-    # Every key named is a real question on that run, or the button would
-    # fill a box the screen never renders.
-    r = tm.ROUTINE_BY_KEY["tm_seasonal"]
-    for k in r["recommend"]:
-        assert k in r["field_by_key"]
-        assert k in tm._RECOMMENDABLE
+        for k in r.get("recommend") or ():
+            # Every key named is a real question on that run, or the button
+            # would fill a box the screen never renders.
+            assert k in r["field_by_key"], (r["key"], k)
+            assert k in tm._RECOMMENDABLE, (r["key"], k)
+
+
+def test_each_run_is_asked_only_for_its_own_keys(tm, monkeypatch):
+    for r in tm.ROUTINES:
+        want = list(r.get("recommend") or ())
+        if not want:
+            continue
+        _, ff = _recommend(tm, monkeypatch, "{}", routine=r["key"])
+        sent = ff.sent["messages"][0]["content"]
+        for k in tm._RECOMMENDABLE:
+            assert (("%s:" % k) in sent) == (k in want), (r["key"], k)
+        # The run says which run it is, so the answers fit it.
+        assert r["name"] in sent
+
+
+def test_what_they_already_answered_goes_in_as_context(tm, monkeypatch):
+    _, ff = _recommend(
+        tm, monkeypatch, "{}", routine="tm_lookalikes",
+        vals={"vertical": "Accounting / CAS firms",
+              "seed": "Knichel Logistics", "location": "Texas"},
+        keys=["company_size", "roles", "who_to_reach"])
+    sent = ff.sent["messages"][0]["content"]
+    # location was not asked for this time, so it is context, not a question.
+    assert "<already_answered>" in sent
+    assert "Texas" in sent and "Knichel Logistics" in sent
+    assert "location: where" not in sent
 
 
 def test_the_ask_carries_todays_date_and_the_vertical_row(tm, monkeypatch):
@@ -386,14 +428,18 @@ def test_the_ask_carries_todays_date_and_the_vertical_row(tm, monkeypatch):
     assert date.today().strftime("%d %B %Y") in sent
     assert v["label"] in sent and " ".join(v["season"].split()) in sent
     assert " ".join(v["buyers"].split()) in sent
-    assert "<where>Texas</where>" in sent
+    # location is one of the answers this run asks for now, so it is a
+    # question here rather than context.
+    assert "location: where in the United States to work" in sent
     # The row is the ground truth; the date is what it cannot know.
-    assert "ground truth" in sent and "cannot know is the date" in sent
+    assert "ground truth" in sent
+    assert "cannot know is today's date or which run this is" in sent
     # Claims discipline rides along, same as the standing rules.
     assert "Never invent a client count" in sent
     assert ff.sent["system"].startswith("GUARD ")
     assert out == {"season_note": "s", "company_size": "c", "roles": "r",
                    "who_to_reach": "w"}
+    assert "Run a seasonal push" in sent
     assert why == "because"
 
 
@@ -447,6 +493,32 @@ def test_a_failed_recommendation_still_falls_back_to_the_table(tm, aip):
     req = {"routine": r["key"], "vals": vals, "detail": [], "filled": []}
     v = tm.VERTICAL_BY_LABEL["Accounting / CAS firms"]
     assert _flat(v["season"]) in _flat(tm.build_prompt(req))
+
+
+def test_a_box_you_typed_in_yourself_is_never_overwritten(aip, tm):
+    """Pressing the button must not quietly replace an answer someone
+    chose. Boxes it filled itself are fair game again, so pressing twice
+    re-recommends rather than doing nothing."""
+    import inspect
+    block = inspect.getsource(aip._aip_recommend)
+    assert "_untouched" in block and "rec_wrote" in block
+
+    r = tm.ROUTINE_BY_KEY["tm_seasonal"]
+    vals = aip.defaults_for(r)
+    req = {"routine": r["key"], "vals": vals, "detail": [], "filled": []}
+
+    def _fill(k):
+        cur = str(vals.get(k) or "").strip()
+        default = str(r["field_by_key"][k].get("default") or "").strip()
+        return (not cur or cur == default
+                or k in set(req.get("rec_wrote") or ()))
+
+    # Untouched to start: blank season_note, default location.
+    assert _fill("season_note") and _fill("location")
+    vals["location"] = "Texas and the Southeast"      # their own answer
+    assert not _fill("location")
+    req["rec_wrote"] = ["location"]                   # ...unless we wrote it
+    assert _fill("location")
 
 
 def test_arena_has_no_recommend_hook(aip, tm):

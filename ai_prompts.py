@@ -144,9 +144,11 @@ class Catalogue:
     # _derived and may add placeholders or fill blanks with recommended
     # values before the steps are formatted. None leaves the output alone.
     derive_extra: object = None
-    # Optional hook: recommend(routine, vals) -> ({field key: answer}, why).
+    # Optional hook: recommend(routine, vals, keys) -> ({key: answer}, why).
     # A routine that lists field keys under "recommend" gets a button on the
     # questions screen which fills those boxes in for the run being set up.
+    # `keys` is the subset still worth answering - a box the user typed in
+    # themselves is passed as context instead, never asked for again.
     # Blocking, so the page awaits it in an executor. None on a catalogue
     # (Arena's) means no routine there shows the button at all.
     recommend: object = None
@@ -2449,10 +2451,16 @@ def _aip_recommend(s, rf, C, r, req, section):
     """"Recommend these for me" for the questions in one section.
 
     A routine names the field keys that can be worked out for it under
-    "recommend", and the catalogue's hook answers them for the run being set
-    up, plus one line saying why. The answers go straight into vals and the
-    boxes stay editable, so this is a faster way to fill the form in, not a
-    second kind of answer. A section with none of those keys shows nothing.
+    "recommend", and the catalogue's hook answers them for the run being
+    set up, plus one line saying why. The answers go straight into vals and
+    the boxes stay editable, so this is a faster way to fill the form in,
+    not a second kind of answer. A section with none of those keys shows
+    nothing.
+
+    A box the user has typed in themselves is left alone and handed to the
+    hook as context instead: pressing this must never quietly overwrite an
+    answer someone chose. Boxes this button filled last time are fair game
+    again, so pressing it twice re-recommends rather than doing nothing.
 
     The handler is async and awaits the hook in an executor: the call takes
     seconds, and ui.notify/rf from a bare thread have no slot to run in, so
@@ -2466,22 +2474,33 @@ def _aip_recommend(s, rf, C, r, req, section):
     if not keys:
         return
 
+    def _untouched(k):
+        cur = str(_val(r, vals, k) or "").strip()
+        default = str((r["field_by_key"].get(k) or {}).get("default") or "")
+        return (not cur or cur == default.strip()
+                or k in set(req.get("rec_wrote") or ()))
+
     async def _go():
         if req.get("rec_busy"):
+            return
+        fill = [k for k in keys if _untouched(k)]
+        if not fill:
+            ui.notify("These all have your own answers in them. Clear one "
+                      "and press again to have it recommended.", type="info")
             return
         req["rec_busy"] = True
         ui.notify("Working out what to recommend...", type="info",
                   timeout=4000)
         try:
             got, why = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: _CAT.recommend(r, dict(vals)))
+                None, lambda: _CAT.recommend(r, dict(vals), list(fill)))
         except Exception as e:
             req["rec_busy"] = False
             ui.notify("Could not work that out: %s" % str(e)[:140],
                       type="negative")
             return
         req["rec_busy"] = False
-        wrote = [k for k in keys if str((got or {}).get(k) or "").strip()]
+        wrote = [k for k in fill if str((got or {}).get(k) or "").strip()]
         # Nothing readable back leaves every box exactly as it was. A blank
         # answer still picks up the catalogue's own recommendation when the
         # prompt is built, so there is nothing here worth rescuing.
@@ -2491,9 +2510,12 @@ def _aip_recommend(s, rf, C, r, req, section):
             return
         for k in wrote:
             vals[k] = str(got[k]).strip()
+        req["rec_wrote"] = sorted(set(req.get("rec_wrote") or ()) | set(wrote))
         req["rec_why"] = str(why or "").strip()
-        ui.notify("Filled in %d answer%s. Change anything you like."
-                  % (len(wrote), "" if len(wrote) == 1 else "s"),
+        kept = len(keys) - len(fill)
+        ui.notify("Filled in %d answer%s%s. Change anything you like."
+                  % (len(wrote), "" if len(wrote) == 1 else "s",
+                     ", kept the %d you wrote" % kept if kept else ""),
                   type="positive")
         rf()
 

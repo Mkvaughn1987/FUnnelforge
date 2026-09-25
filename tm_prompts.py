@@ -499,6 +499,8 @@ ROUTINES = [
     {
         "key": "tm_signal_hunt",
         "name": "Find companies showing a hiring signal",
+        "recommend": ["location", "company_size", "roles", "who_to_reach",
+                      "triggers"],
         "blurb": "Search the job boards for companies in one vertical that "
                  "are hiring the roles ThriveModal places, pull the buyer, "
                  "and build a new-business campaign for each.",
@@ -536,6 +538,7 @@ ROUTINES = [
     {
         "key": "tm_lookalikes",
         "name": "Find companies like a customer",
+        "recommend": ["location", "company_size", "roles", "who_to_reach"],
         "blurb": "Start from a company ThriveModal already serves, find the "
                  "ones that look like it through ZoomInfo, and open a "
                  "conversation with the owners.",
@@ -575,6 +578,8 @@ ROUTINES = [
     {
         "key": "tm_displacement",
         "name": "Find companies already using offshore staff",
+        "recommend": ["location", "company_size", "roles", "who_to_reach",
+                      "search_terms"],
         "blurb": "Companies that already run offshore staff have proven the "
                  "model. Find the ones in one vertical whose postings or "
                  "pages say so, and pitch the better-run version.",
@@ -615,6 +620,8 @@ ROUTINES = [
     {
         "key": "tm_cost_pressure",
         "name": "Scan for cost pressure",
+        "recommend": ["states", "lookback", "location", "company_size",
+                      "roles", "who_to_reach"],
         "blurb": "Layoff notices, private-equity roll-ups and office "
                  "closures in one vertical: companies under pressure to do "
                  "the same work with fewer people onshore.",
@@ -654,10 +661,7 @@ ROUTINES = [
     {
         "key": "tm_seasonal",
         "name": "Run a seasonal push for one vertical",
-        # The whole point of this run is the calendar, and the verticals
-        # table cannot know today's date. These four are the ones the
-        # "Recommend these for me" button works out against it.
-        "recommend": ["season_note", "company_size", "roles",
+        "recommend": ["season_note", "location", "company_size", "roles",
                       "who_to_reach"],
         "blurb": "Time a push to the season one vertical plans its staffing "
                  "in: accounting before busy season, logistics before "
@@ -730,6 +734,7 @@ ROUTINES = [
     {
         "key": "tm_account",
         "name": "Research one account before I reach out",
+        "recommend": ["who_to_reach"],
         "blurb": "Everything worth knowing about one company before a call "
                  "or a hand-written email: what they do, who buys, what "
                  "they are hiring, and the talk track. No emails are sent.",
@@ -934,11 +939,56 @@ UNATTENDED_RULE = _e.UNATTENDED_RULE
 
 # ── Recommending the targeting ─────────────────────────
 
+# What can be worked out for a run, and the rule for each. The ask only
+# ever carries the keys the routine listed, so a run is never asked for an
+# answer it has no box for.
 _RECOMMENDABLE = {
-    "season_note": "season_note: why now, in one or two sentences",
-    "company_size": "company_size: how big a company to go after",
-    "roles": "roles: which roles they are hiring for",
-    "who_to_reach": "who_to_reach: who to reach, in the order to try them",
+    "season_note": (
+        "season_note: why now, in one or two sentences",
+        "season_note is the one that matters on this run. Say where today "
+        "sits relative to the stretch of the year this market plans its "
+        "staffing in, how far off that is, and what it means for a push "
+        "starting now. Name the months. If today is already inside that "
+        "window, or past it, say so plainly and say what to lead with "
+        "instead of pretending the timing is ideal."),
+    "location": (
+        "location: where in the United States to work",
+        "location is where this market actually concentrates - ports, "
+        "freight corridors, metros, whatever genuinely clusters it - named "
+        "as states or metro areas. If nothing about this market "
+        "concentrates it geographically, say \"anywhere in the United "
+        "States\" and do not invent a reason."),
+    "company_size": (
+        "company_size: how big a company to go after",
+        "company_size is a band, in employees or whatever unit the row "
+        "above uses."),
+    "roles": (
+        "roles: which roles they are hiring for",
+        "roles starts from the row above and moves only where this "
+        "particular run moves it."),
+    "who_to_reach": (
+        "who_to_reach: who to reach, in the order to try them",
+        "who_to_reach is titles in the order to try them, best first."),
+    "triggers": (
+        "triggers: which signals count as worth acting on",
+        "triggers are things you could actually see from outside the "
+        "company - a posting, a repost, an announcement, a review, a "
+        "piece of software named in a job ad. Not moods, not guesses."),
+    "search_terms": (
+        "search_terms: the phrases to search for",
+        "search_terms is a comma-separated list of the exact phrases "
+        "worth searching, including the software names from the row above "
+        "where they help."),
+    "states": (
+        "states: which states' WARN notices to read",
+        "states is about where this market concentrates and which states "
+        "publish usable WARN notices. You cannot see any layoff data, so "
+        "never imply you know what is in those notices."),
+    "lookback": (
+        "lookback: how far back to read",
+        "lookback is a phrase like \"the last 90 days\". A vacancy is "
+        "worth acting on under thirty days old and an announcement under "
+        "ninety, so do not reach back so far that the signal is stale."),
 }
 
 RECOMMEND_SYSTEM = (
@@ -950,17 +1000,19 @@ RECOMMEND_SYSTEM = (
 )
 
 
-def recommend_tm(r, vals):
-    """Answer this run's recommendable questions against today's date.
+def recommend_tm(r, vals, keys=None):
+    """Answer whatever this run can have worked out for it, for today.
 
-    The verticals table is proven ground truth and the market itself does
-    not change between runs. What the table cannot know is the date, which
-    is the whole subject of a seasonal push: a fixed line like "the buying
-    window is November to January" is worth nothing when read in March. So
-    the job here is to place today against that market's year and say what
-    that means for a push starting now, not to invent a different market.
+    The verticals table is proven ground truth and the market does not
+    change between runs. What the table cannot know is the date, which is
+    the whole subject of a seasonal push - a fixed line like "the buying
+    window is November to January" is worth nothing read in March - and it
+    does not know which of the eight runs is being set up either. So the
+    ask carries the row, today's date, the run's own description and
+    whatever the user has already typed, and asks only for the keys that
+    run actually has boxes for.
 
-    Blocking ─ the page awaits it in an executor. Returns
+    Blocking - the page awaits it in an executor. Returns
     ({field key: answer}, why); an empty dict means nothing usable came
     back, which the caller reports while leaving every box alone.
     """
@@ -973,14 +1025,31 @@ def recommend_tm(r, vals):
     client = anthropic.Anthropic(api_key=ff.ANTHROPIC_API_KEY)
 
     v = vertical_for(vals.get("vertical"))
-    keys = [k for k in (r.get("recommend") or ()) if k in _RECOMMENDABLE]
+    want = keys if keys is not None else (r.get("recommend") or ())
+    keys = [k for k in (r.get("recommend") or ())
+            if k in _RECOMMENDABLE and k in want]
     if not keys:
         return {}, ""
-    asked = "\n".join("- " + _RECOMMENDABLE[k] for k in keys)
+    asked = "\n".join("- " + _RECOMMENDABLE[k][0] for k in keys)
+    rules = "\n".join("- " + _RECOMMENDABLE[k][1] for k in keys)
     shape = ", ".join('"%s": "..."' % k for k in keys)
+
+    # What they have already said, so a recommendation for one box is not
+    # written against the answer sitting in another. Their own words, so
+    # capped and marked as description rather than instruction.
+    said = []
+    for f in r["fields"]:
+        if f["section"] != "details" or f["key"] in keys:
+            continue
+        if f["key"] in ("vertical", "newsletter"):
+            continue
+        got = " ".join(str(vals.get(f["key"]) or "").split())[:200]
+        if got:
+            said.append("%s: %s" % (f["label"], got))
 
     prompt = (
         "Today is %s.\n\n"
+        "The run being set up is \"%s\" - %s\n\n"
         "<vertical>\n"
         "Market: %s\n"
         "%s"
@@ -989,49 +1058,42 @@ def recommend_tm(r, vals):
         "Roles ThriveModal routinely places here: %s\n"
         "Signals worth acting on: %s\n"
         "The first workload to lead with: %s\n"
+        "Software that tells you it is the right kind of company: %s\n"
         "What their year looks like: %s\n"
         "</vertical>\n\n"
-        "<where>%s</where>\n\n"
+        "%s"
         "That row is proven and is your ground truth about the market. "
-        "What it cannot know is the date. Work out where today sits "
-        "against this market's year, then answer:\n%s\n\n"
-        "Rules:\n"
-        "- season_note is the one that matters. Say where today sits "
-        "relative to the stretch of the year this market plans its "
-        "staffing in, how far off that is, and what it means for a push "
-        "starting now. Name the months. If today is already inside that "
-        "window, or past it, say so plainly and say what to lead with "
-        "instead of pretending the timing is ideal.\n"
-        "- The other answers start from the row above and move only where "
-        "the season genuinely moves them. Temporary and seasonal openings "
-        "count for more inside the run-up: name the roles that actually "
-        "shift with the season.\n"
-        "- who_to_reach is titles in the order to try them. company_size "
-        "is a band. Keep each answer under about forty words.\n"
+        "What it cannot know is today's date or which run this is. Work "
+        "out where today sits against this market's year, fit the answers "
+        "to the run described above, and answer:\n%s\n\n"
+        "Rules:\n%s\n"
+        "- Keep each answer under about forty words, and make it the "
+        "answer itself: no restating the question, no hedging.\n"
         "- Plain sentences a recruiter would say out loud. No bullets, no "
         "headings, no markdown, no preamble.\n"
         "- Never invent a client count, a retention figure, a saving, a "
-        "certification or a result, and say nothing about offshore workers "
-        "as a group. Nothing that is not in the row above or in the "
-        "calendar.\n"
-        "- why: one sentence under thirty words on what about today's date "
-        "drove these answers.\n\n"
+        "certification or a result, and say nothing about offshore "
+        "workers as a group. Nothing that is not in the row above, in "
+        "what they have already said, or in the calendar.\n"
+        "- why: one sentence under thirty words on what drove these "
+        "answers, today's date included where it mattered.\n\n"
         "Return ONLY this JSON, no prose:\n"
         "{%s, \"why\": \"...\"}"
-        % (date.today().strftime("%d %B %Y"), v["label"],
+        % (date.today().strftime("%d %B %Y"), r["name"], r["blurb"],
+           v["label"],
            ("This market is exploratory for ThriveModal: the research "
             "thought it plausible, it is not proven. Treat it as a small "
             "test.\n" if v["exploratory"] else ""),
            v["band"], v["buyers"], v["roles"], v["triggers"], v["workload"],
-           v["season"],
-           str(vals.get("location") or "").strip()
-           or "anywhere in the United States",
-           asked, shape))
+           v["tells"], v["season"],
+           ("<already_answered>\n%s\n</already_answered>\n\n"
+            % "\n".join(said)) if said else "",
+           asked, rules, shape))
 
     msg = ff._claude_create_with_retry(
         client,
         model=_e.MODEL,
-        max_tokens=900,
+        max_tokens=1200,
         system=ff._injection_guarded_system(RECOMMEND_SYSTEM),
         messages=[{"role": "user", "content": prompt}],
     )
