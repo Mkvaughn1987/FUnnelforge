@@ -1,4 +1,5 @@
-"""Companies and Pipeline: the two roll-up pages in the sidebar's SALES section.
+"""Companies, Pipeline and the Sales Dashboard: the roll-up pages in the
+sidebar's SALES and PERFORMANCE sections.
 
 Neither page owns a record type. A company is whatever `_company_index`
 makes of the user's contacts (company_id, then a verified CompanyDomain,
@@ -13,10 +14,11 @@ blocklist in the team's shared dir, because a company won or lost is a team
 fact, not a per-user one.
 
 Design: docs/superpowers/specs/2026-09-24-sales-companies-pipeline-design.md
+and docs/superpowers/specs/2026-09-25-sales-dashboard-design.md.
 """
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from nicegui import ui
 
@@ -56,6 +58,14 @@ STAGE_KEYS = [k for k, _l in STAGES]
 
 # Record fields a rep may set. Anything else in a POST body is dropped.
 RECORD_FIELDS = ("stage", "next_step", "note")
+# Stage moves kept per record ({"stage", "at", "by"}, oldest dropped).
+HISTORY_CAP = 50
+# Stages only a rep can set. The dashboard dates a move by the record's
+# history, or by its updated_at for a record written before history existed.
+MANUAL_STAGES = ("meeting", "proposal", "lost")
+# Sales Dashboard thresholds (days).
+STALE_NEXT_STEP_DAYS = 14
+QUIET_DAYS = 30
 
 
 # ── Pure helpers ─────────────────────────────────────────────────────────
@@ -85,6 +95,18 @@ def _domain_is_client(domain: str, client_domains) -> bool:
         if cd and (d == cd or d.endswith("." + cd)):
             return True
     return False
+
+
+def _client_since(domains, client_entries) -> str:
+    """The earliest added_at among the active Clients entries any of the
+    company's domains match; "" when none matches or none is dated."""
+    stamps = []
+    for ent in client_entries:
+        cd = str(ent.get("domain") or "")
+        if any(_domain_is_client(d, [cd]) for d in domains if d):
+            stamps.append(_norm_ts(ent.get("added_at")))
+    stamps = [t for t in stamps if t]
+    return min(stamps) if stamps else ""
 
 
 def derived_stage(sent: int, replies: int) -> str:
@@ -156,8 +178,12 @@ def company_rollup(contacts, campaigns, queue, responded, clients, records):
                 email_key[em] = key
 
     stats = {key: {"sent": 0, "pending": 0, "failed": 0, "last": "",
+                   "first_sent": "", "first_reply": "",
                    "campaigns": set(), "replies": [], "replied_emails": set()}
              for key in companies}
+
+    def _first(cur: str, ts: str) -> str:
+        return ts if ts and (not cur or ts < cur) else cur
 
     for item in (queue or []):
         key = email_key.get(str(item.get("to") or "").strip().lower())
@@ -171,6 +197,7 @@ def company_rollup(contacts, campaigns, queue, responded, clients, records):
         if status == "sent":
             st["sent"] += 1
             st["last"] = max(st["last"], _norm_ts(item.get("sent_at")))
+            st["first_sent"] = _first(st["first_sent"], _norm_ts(item.get("sent_at")))
         elif status == "failed":
             st["failed"] += 1
             st["last"] = max(st["last"], _norm_ts(item.get("failed_at")))
@@ -199,9 +226,11 @@ def company_rollup(contacts, campaigns, queue, responded, clients, records):
         st["replies"].append(rec)
         st["replied_emails"].add(em)
         st["last"] = max(st["last"], _norm_ts(rec.get("replied_at")))
+        st["first_reply"] = _first(st["first_reply"], _norm_ts(rec.get("replied_at")))
 
-    client_domains = [str(e.get("domain") or "") for e in (clients or [])
+    client_entries = [e for e in (clients or [])
                       if isinstance(e, dict) and e.get("active", True)]
+    client_domains = [str(e.get("domain") or "") for e in client_entries]
     records = records if isinstance(records, dict) else {}
 
     rows = []
@@ -228,7 +257,9 @@ def company_rollup(contacts, campaigns, queue, responded, clients, records):
             "replies": replies, "reply_count": len(replies),
             "replied_emails": st["replied_emails"],
             "last_activity": st["last"],
+            "first_sent": st["first_sent"], "first_reply": st["first_reply"],
             "is_client": is_client,
+            "client_since": _client_since(doms, client_entries) if is_client else "",
             "stage": stage, "stage_basis": basis, "derived_stage": derived,
             "next_step": str(rec.get("next_step") or ""),
             "note": str(rec.get("note") or ""),
@@ -293,6 +324,124 @@ def public_row(r: dict) -> dict:
     }
 
 
+# ── Sales Dashboard numbers ──────────────────────────────────────────────
+
+FUNNEL_KEYS = [k for k in STAGE_KEYS if k != "lost"]
+WINDOW_TILES = [
+    ("contacted", "Newly contacted"),
+    ("replied",   "New replies"),
+    ("moved",     "Moved to Meeting / Proposal"),
+    ("won",       "Won"),
+    ("lost",      "Lost"),
+]
+ATTENTION_LISTS = [
+    ("replies_waiting", "Replies waiting",
+     "Someone answered and nobody has set a stage or a next step."),
+    ("stale_next_steps", "Stale next steps",
+     f"A next step nobody has touched in {STALE_NEXT_STEP_DAYS} days."),
+    ("going_quiet", "Going quiet",
+     f"At Meeting or Proposal with nothing sent or received in {QUIET_DAYS} days."),
+]
+
+
+def _cutoff(now: datetime, days) -> str:
+    """ISO cutoff for a window of `days`; "" means no cutoff (all time)."""
+    if not days:
+        return ""
+    return (now - timedelta(days=int(days))).isoformat(timespec="seconds")
+
+
+def _in_window(ts: str, cutoff: str) -> bool:
+    """Undated records are inside every window, the rule the analytics page
+    uses: a row that silently vanishes is one nobody notices is missing."""
+    if not cutoff:
+        return True
+    ts = _norm_ts(ts)
+    return not ts or ts >= cutoff
+
+
+def _moves(r: dict):
+    """(stage, at) for every stage move recorded on the company. A record
+    written before history existed yields its current manual stage once,
+    dated by updated_at, so a company moved back then still shows."""
+    rec = r.get("record") or {}
+    hist = [h for h in (rec.get("history") or []) if isinstance(h, dict)]
+    if hist:
+        return [(str(h.get("stage") or ""), _norm_ts(h.get("at"))) for h in hist]
+    st = str(rec.get("stage") or "").strip().lower()
+    if st in MANUAL_STAGES:
+        return [(st, _norm_ts(rec.get("updated_at")))]
+    return []
+
+
+def dashboard_stats(rollup, days, now=None) -> dict:
+    """Everything the Sales Dashboard shows, from the roll-up alone.
+
+    funnel: companies at each stage or beyond (Lost excluded), with each
+    step's share of the previous one. Not windowed: it is the book as it
+    stands. window: the five tiles for the last `days` days (None = all
+    time). attention: the three "needs a hand" lists, also not windowed."""
+    now = now or datetime.now()
+    cutoff = _cutoff(now, days)
+    board = board_companies(rollup)
+
+    live = [r for r in board if r["stage"] != "lost"]
+    funnel, prev = [], None
+    for k in FUNNEL_KEYS:
+        n = sum(1 for r in live if STAGE_ORDER[r["stage"]] >= STAGE_ORDER[k])
+        rate = (n / prev) if prev else None
+        funnel.append({"key": k, "label": STAGE_LABEL[k], "count": n, "rate": rate})
+        prev = n
+    lost = sum(1 for r in board if r["stage"] == "lost")
+    won = funnel[-1]["count"]
+    win_rate = (won / (won + lost)) if (won + lost) else None
+
+    window = {k: [] for k, _l in WINDOW_TILES}
+    for r in board:
+        if r["first_sent"] and _in_window(r["first_sent"], cutoff):
+            window["contacted"].append(r)
+        if r["first_reply"] and _in_window(r["first_reply"], cutoff):
+            window["replied"].append(r)
+        moves = _moves(r)
+        if any(st in ("meeting", "proposal") and _in_window(at, cutoff) for st, at in moves):
+            window["moved"].append(r)
+        if any(st == "lost" and _in_window(at, cutoff) for st, at in moves):
+            window["lost"].append(r)
+        if r["is_client"] and _in_window(r.get("client_since", ""), cutoff):
+            window["won"].append(r)
+
+    stale_before = _cutoff(now, STALE_NEXT_STEP_DAYS)
+    quiet_before = _cutoff(now, QUIET_DAYS)
+    attention = {k: [] for k, _l, _d in ATTENTION_LISTS}
+    for r in board:
+        rec = r.get("record") or {}
+        if r["stage"] == "replied" and r["stage_basis"] == "derived" and not r["next_step"]:
+            attention["replies_waiting"].append(r)
+        if r["next_step"]:
+            touched = _norm_ts(rec.get("updated_at"))
+            if touched and touched < stale_before:
+                attention["stale_next_steps"].append(r)
+        if r["stage"] in ("meeting", "proposal"):
+            last = _norm_ts(r["last_activity"])
+            if not last or last < quiet_before:
+                attention["going_quiet"].append(r)
+
+    return {"days": days, "funnel": funnel, "lost": lost, "win_rate": win_rate,
+            "window": window, "attention": attention}
+
+
+def public_dashboard(stats: dict) -> dict:
+    """The connector's view: the same numbers, rows through public_row."""
+    return {
+        "days": stats["days"],
+        "funnel": stats["funnel"], "lost": stats["lost"], "win_rate": stats["win_rate"],
+        "window": {k: [public_row(r) for r in v] for k, v in stats["window"].items()},
+        "attention": {k: [public_row(r) for r in v] for k, v in stats["attention"].items()},
+        "thresholds": {"stale_next_step_days": STALE_NEXT_STEP_DAYS,
+                       "quiet_days": QUIET_DAYS},
+    }
+
+
 # ── Pipeline records (team-scoped) ───────────────────────────────────────
 
 def _pipeline_path(email=None):
@@ -321,6 +470,7 @@ def save_pipeline_record(key: str, fields: dict, actor: str, email=None,
     email = email or actor
     data = load_pipeline(email)
     rec = dict(data.get(key) or {})
+    stage_before = str(rec.get("stage") or "")
     for f in RECORD_FIELDS:
         if f not in (fields or {}):
             continue
@@ -335,8 +485,16 @@ def save_pipeline_record(key: str, fields: dict, actor: str, email=None,
             rec.pop(f, None)
     if name:
         rec["name"] = name
+    now_ts = datetime.now().isoformat(timespec="seconds")
+    if "stage" in (fields or {}) and str(rec.get("stage") or "") != stage_before:
+        # A move, including back to auto (""). The dashboard's "moved" and
+        # "lost" tiles are dated from these; a note edit is not a move.
+        hist = [h for h in (rec.get("history") or []) if isinstance(h, dict)]
+        hist.append({"stage": str(rec.get("stage") or ""), "at": now_ts,
+                     "by": actor or ""})
+        rec["history"] = hist[-HISTORY_CAP:]
     if any(rec.get(f) for f in RECORD_FIELDS):
-        rec["updated_at"] = datetime.now().isoformat(timespec="seconds")
+        rec["updated_at"] = now_ts
         rec["updated_by"] = actor or ""
         data[key] = rec
     else:
@@ -757,3 +915,203 @@ def p_pipeline(s, rf):
                 if col["total"] > len(col["rows"]):
                     ui.label(f"+{col['total'] - len(col['rows'])} more on Companies").style(
                         f"font-size:11px;color:{C['muted']};text-align:center;padding:4px 0;")
+
+
+# ── Sales Dashboard page ─────────────────────────────────────────────────
+
+def _company_link(s, rf, C, r, meta: str = ""):
+    """One clickable company line: name, muted meta, stage badge."""
+    def _open():
+        s._co_open = r["key"]
+        s._co_q = ""
+        s._co_stage = ""
+        _go(s, rf, "companies")
+    with ui.element("div").style(
+            f"display:flex;align-items:center;gap:10px;padding:8px 0;"
+            f"border-bottom:1px solid {C['border']};"):
+        with ui.element("div").style("flex:1;min-width:0;cursor:pointer;").on("click", _open):
+            ui.label(r["name"]).style(
+                f"font-size:13px;font-weight:600;color:{C['text_l']};"
+                f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
+            if meta:
+                ui.label(meta).style(f"font-size:11px;color:{C['muted']};")
+        _stage_badge(C, r)
+
+
+def _section_title(C, text, top=20):
+    ui.label(text).style(
+        f"font-size:14px;font-weight:700;color:{C['text_l']};"
+        f"font-family:'Nunito',sans-serif;margin:{top}px 0 8px;")
+
+
+def _row_meta(r) -> str:
+    bits = [f"{r['contact_count']} contact{'s' if r['contact_count'] != 1 else ''}"]
+    if r["reply_count"]:
+        bits.append(f"{r['reply_count']} repl{'ies' if r['reply_count'] != 1 else 'y'}")
+    if r["last_activity"]:
+        bits.append("last " + _fmt_when(r["last_activity"]))
+    return " · ".join(bits)
+
+
+def p_sales_dashboard(s, rf):
+    ff = _ff()
+    C = ff.C
+    actor = (getattr(s, "_user_email", "") or "").strip().lower()
+    days = getattr(s, "_sd_days", 30)
+    if days not in (7, 30, None):
+        days = 30
+    pick = getattr(s, "_sd_pick", "") or ""
+    stats = dashboard_stats(rollup_for_user(actor), days)
+
+    # ── Header + window picker ──
+    with ui.element("div").style(
+            "display:flex;align-items:flex-start;justify-content:space-between;"
+            "gap:16px;margin-bottom:6px;"):
+        with ui.element("div").style("flex:1;min-width:0;"):
+            with ui.element("div").style("display:flex;align-items:center;"):
+                ui.label("Sales Dashboard").classes("fd-h1")
+                ff._show_page_help(s, rf, "sales_dashboard")
+            ui.label("Where the business stands, by company: how the funnel "
+                     "converts, what moved recently and who is waiting on you. "
+                     "Counted from the same lists, sends and replies as "
+                     "Companies and Pipeline.").classes("fd-sub")
+        with ui.element("div").style("display:flex;gap:8px;flex-shrink:0;"):
+            for _win, _wlbl in [(7, "7 days"), (30, "30 days"), (None, "All time")]:
+                def _pick_win(win=_win):
+                    s._sd_days = win
+                    rf()
+                with ui.element("button").classes(
+                        "fd-pb" if _win == days else "fd-gb").style(
+                        "padding:9px 14px;font-size:12px;").on("click", _pick_win):
+                    ui.label(_wlbl)
+
+    if not stats["funnel"][0]["count"] and not stats["lost"]:
+        _empty_card(C, "Nothing to report yet",
+                    "Companies show up here once a campaign has touched them. "
+                    "Launch one, or set a stage by hand on Companies.",
+                    "Go to Companies", lambda: _go(s, rf, "companies"))
+        return
+
+    # ── Funnel ──
+    _section_title(C, "Funnel", top=16)
+    top = max(stats["funnel"][0]["count"], 1)
+    with ui.element("div").style(
+            "display:grid;grid-template-columns:minmax(0,1fr) 220px;gap:16px;"
+            "align-items:start;"):
+        with ui.element("div").style(
+                f"background:{C['card']};border:1px solid {C['border']};"
+                f"border-radius:10px;padding:14px 18px;"):
+            for i, f in enumerate(stats["funnel"]):
+                col = C["good"] if f["key"] == "client" else C["teal"]
+                pct = int(round(100 * f["count"] / top))
+                width = (max(pct, 2) if f["count"] else 0)
+                with ui.element("div").style(
+                        "display:grid;grid-template-columns:90px minmax(0,1fr) 44px;"
+                        "gap:12px;align-items:center;padding:6px 0;"):
+                    ui.label(f["label"]).style(
+                        f"font-size:12px;font-weight:600;color:{C['text_l']};")
+                    with ui.element("div").style(
+                            f"height:18px;background:{C['surface']};border-radius:4px;"
+                            f"overflow:hidden;"):
+                        ui.element("div").style(
+                            f"height:100%;width:{width}%;background:{col};border-radius:4px;")
+                    ui.label(str(f["count"])).style(
+                        f"font-size:13px;font-weight:700;text-align:right;"
+                        f"color:{C['text_l'] if f['count'] else C['muted']};")
+                if f["rate"] is not None:
+                    prev = stats["funnel"][i - 1]["label"]
+                    ui.label(f"{f['rate'] * 100:.0f}% of {prev}").style(
+                        f"font-size:11px;color:{C['muted']};margin:-4px 0 2px 102px;")
+        with ui.element("div").style(
+                f"background:{C['card']};border:1px solid {C['border']};"
+                f"border-radius:10px;padding:14px 18px;"):
+            wr = stats["win_rate"]
+            for val, lbl, col in [
+                (str(stats["lost"]), "Lost", C["warn"] if stats["lost"] else C["muted"]),
+                ("—" if wr is None else f"{wr * 100:.0f}%", "Win rate",
+                 C["good"] if wr else C["muted"]),
+            ]:
+                ui.label(val).classes("fd-sn").style(f"color:{col};")
+                ui.label(lbl).classes("fd-sl").style("margin-bottom:12px;")
+            ui.label("Win rate is Client over Client plus Lost. Each funnel step "
+                     "counts every company at that stage or beyond it; Lost is "
+                     "left out of every step.").style(
+                f"font-size:11px;color:{C['muted']};line-height:1.4;")
+
+    # ── This window ──
+    _wl = "all time" if days is None else f"the last {days} days"
+    _section_title(C, f"Over {_wl}")
+    with ui.element("div").classes("fd-stat-strip").style("margin:0 0 4px;"):
+        for k, lbl in WINDOW_TILES:
+            n = len(stats["window"][k])
+            on = (pick == k)
+            col = {"replied": C["good"], "won": C["good"],
+                   "lost": C["warn"]}.get(k, C["teal"])
+
+            def _pick_tile(key=k, is_on=on):
+                s._sd_pick = "" if is_on else key
+                rf()
+            with ui.element("div").classes("fd-stat-cell").style(
+                    "cursor:pointer;" + (
+                        f"background:{C['card_h']};box-shadow:inset 0 -3px 0 {C['teal']};"
+                        if on else "")).on("click", _pick_tile):
+                ui.label(str(n)).classes("fd-sn").style(
+                    f"color:{col if n else C['muted']};")
+                ui.label(lbl).classes("fd-sl")
+    ui.label("Newly contacted and new replies are dated by the first send and "
+             "the first reply. Moved and Lost are dated by when a stage was "
+             "set. Won is dated by the Clients list. Click a tile to see the "
+             "companies.").style(
+        f"font-size:11px;color:{C['muted']};margin-bottom:10px;")
+    if pick in stats["window"]:
+        rows = stats["window"][pick]
+        lbl = dict(WINDOW_TILES)[pick]
+        with ui.element("div").style(
+                f"background:{C['card']};border:1px solid {C['border']};"
+                f"border-radius:10px;padding:6px 18px 2px;margin-bottom:8px;"):
+            ui.label(f"{lbl}: {len(rows)}").style(
+                f"font-size:12px;font-weight:700;color:{C['text_l']};padding:6px 0;")
+            if not rows:
+                ui.label("None in this window.").style(
+                    f"font-size:12px;color:{C['muted']};padding-bottom:8px;")
+            for r in rows[:40]:
+                _company_link(s, rf, C, r, _row_meta(r))
+            if len(rows) > 40:
+                ui.label(f"+{len(rows) - 40} more on Companies").style(
+                    f"font-size:11px;color:{C['muted']};padding:6px 0;")
+
+    # ── Needs a hand ──
+    _section_title(C, "Needs a hand")
+    with ui.element("div").style(
+            "display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));"
+            "gap:12px;"):
+        for k, lbl, desc in ATTENTION_LISTS:
+            rows = stats["attention"][k]
+            with ui.element("div").style(
+                    f"background:{C['card']};border:1px solid {C['border']};"
+                    f"border-radius:10px;padding:12px 18px;min-width:0;"):
+                with ui.element("div").style(
+                        "display:flex;align-items:baseline;justify-content:space-between;gap:8px;"):
+                    ui.label(lbl).style(
+                        f"font-size:13px;font-weight:700;color:{C['text_l']};")
+                    ui.label(str(len(rows))).style(
+                        f"font-size:13px;font-weight:700;"
+                        f"color:{C['warn'] if rows else C['muted']};")
+                ui.label(desc).style(
+                    f"font-size:11px;color:{C['muted']};margin:2px 0 6px;line-height:1.4;")
+                if not rows:
+                    ui.label("Nothing here. Good.").style(
+                        f"font-size:12px;color:{C['muted']};padding:6px 0;")
+                for r in rows[:8]:
+                    if k == "stale_next_steps":
+                        meta = "Next: " + r["next_step"]
+                    elif k == "going_quiet":
+                        meta = ("last " + _fmt_when(r["last_activity"])
+                                if r["last_activity"] else "no sends or replies yet")
+                    else:
+                        meta = ((r["replies"][0].get("reply_body") or "").strip()[:80]
+                                if r["replies"] else "")
+                    _company_link(s, rf, C, r, meta)
+                if len(rows) > 8:
+                    ui.label(f"+{len(rows) - 8} more on Companies").style(
+                        f"font-size:11px;color:{C['muted']};padding:6px 0 0;")

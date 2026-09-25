@@ -937,6 +937,22 @@ async def tm_pipeline(key: str = "", stage: str | None = None,
 
 
 @mcp.tool(description=(
+    "Sales Dashboard: where the business stands, by company. funnel is "
+    "how many companies are at each stage or beyond (Lost excluded) with "
+    "each step's share of the previous one; lost and win_rate (Client over "
+    "Client plus Lost) sit beside it. window has the companies newly "
+    "contacted, newly replied, moved to Meeting/Proposal, won and lost "
+    "inside the last `days` days (7, 30 or 'all'; default 30). attention "
+    "has the lists that need a rep: replies_waiting (replied, no stage or "
+    "next step set), stale_next_steps (untouched 14 days) and going_quiet "
+    "(Meeting/Proposal with no activity in 30 days). The funnel and "
+    "attention ignore days. Read-only; use tm_pipeline to act on a company."
+))
+async def tm_sales_dashboard(days: str = "30") -> dict:
+    return await _tm_call("tm_sales_dashboard", days)
+
+
+@mcp.tool(description=(
     "Settings (Company Profile + Email & AI Setup). With no update, returns "
     "the company profile, email signature, timezone, the user's own name "
     "and phone, the newsletter personal note, the AI writing style guide, "

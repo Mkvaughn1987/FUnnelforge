@@ -213,7 +213,7 @@ def test_record_rejects_bad_input(team_dir):
 
 def test_pages_are_routed_titled_and_helped():
     router = inspect.getsource(fa.render_page)
-    assert 'elif page in ("companies", "pipeline"):' in router
+    assert 'elif page in ("companies", "pipeline", "sales_dashboard"):' in router
     for k in ("companies", "pipeline"):
         assert fa.SIDEBAR_PAGE_ROW[k] == k
         assert fa.SIDEBAR_TITLES[k]

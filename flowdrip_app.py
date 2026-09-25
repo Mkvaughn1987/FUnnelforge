@@ -9303,6 +9303,31 @@ async def api_tm_pipeline(request: Request):
     })
 
 
+@app.get("/api/v1/tm/sales_dashboard")
+async def api_tm_sales_dashboard(request: Request):
+    """Sales Dashboard: the funnel, the window tiles and the "needs a hand"
+    lists. ?days=7|30|all (default 30) sets the window; the funnel and the
+    attention lists ignore it."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    import sales_pages as _spg
+    raw = (request.query_params.get("days") or "30").strip().lower()
+    if raw in ("all", "0", ""):
+        days = None
+    elif raw in ("7", "30"):
+        days = int(raw)
+    else:
+        return JSONResponse({"error": "days must be 7, 30 or all"}, status_code=400)
+    stats = _spg.dashboard_stats(_spg.rollup_for_user(owner), days)
+    return JSONResponse(_spg.public_dashboard(stats))
+
+
 @app.post("/api/v1/tm/pipeline")
 async def api_tm_pipeline_update(request: Request):
     """Body: {"key": <company key from the list>, "stage": one of the
@@ -20858,7 +20883,7 @@ SIDEBAR_NAV = [
         ("saved_prompts", "Saved Prompts",   None),   # ThriveModal only: _tm_nav_page_key
     ]),
     ("PERFORMANCE", [
-        ("sales_dash", "Sales Dashboard",    None),   # no sales reporting page yet
+        ("sales_dash", "Sales Dashboard",    "sales_dashboard"),  # sales_pages.p_sales_dashboard
         ("analytics",  "Outreach Analytics", None),   # ThriveModal only:
                                                       # _tm_nav_page_key
     ]),
@@ -20892,7 +20917,7 @@ SIDEBAR_PAGE_ROW = {
     "responses": "replies", "e_responses": "replies",
     "contacts": "contacts", "e_contacts": "contacts",
     "active_clients": "clients",
-    "companies": "companies", "pipeline": "pipeline",
+    "companies": "companies", "pipeline": "pipeline", "sales_dashboard": "sales_dash",
     "seq_mgr": "campaigns", "active_camps": "campaigns", "queue": "campaigns",
     "evergreen": "campaigns", "evergreen_create": "campaigns", "e_evergreen": "campaigns",
     "newsletters": "newsletters", "pdf_gen": "assets", "tm_prompts": "ai_prompt",
@@ -20907,7 +20932,7 @@ SIDEBAR_TITLES = {
     "dashboard": "Overview", "market_intel": "Market Intel",
     "drip": "My Day", "tasks": "Tasks", "responses": "Replies", "e_responses": "Replies",
     "contacts": "Contacts", "e_contacts": "Contacts", "active_clients": "Clients",
-    "companies": "Companies", "pipeline": "Pipeline",
+    "companies": "Companies", "pipeline": "Pipeline", "sales_dashboard": "Sales Dashboard",
     "seq_mgr": "Campaigns", "active_camps": "Campaigns", "queue": "Email Queue",
     "evergreen": "Nurture Campaigns", "evergreen_create": "New Nurture Campaign",
     "newsletters": "Newsletters", "pdf_gen": "Sales Assets",
@@ -21762,6 +21787,17 @@ PAGE_HELP = {
             ("Stages", "Prospect: in a campaign, nothing sent yet.\nContacted: at least one email sent.\nReplied: someone there replied.\nMeeting / Proposal / Lost: set by you.\nClient: on the Clients list."),
             ("Moving a card", "Pick a stage on the card. 'Auto' clears your choice so the stage follows the data again. Stages are shared with your team."),
             ("Next step", "Set it from the company's card on the Companies page; it shows on the board."),
+        ]
+    },
+    "sales_dashboard": {
+        "title": "Sales Dashboard",
+        "summary": "Where the business stands, by company: the funnel, what moved recently, and who is waiting on you.",
+        "next_action": "Work the 'Needs a hand' lists first: each row opens the company on Companies, where you can set a stage or a next step.",
+        "sections": [
+            ("What is this?", "A reporting view of the same companies Companies and Pipeline show. Nothing is stored; every number is a count over rows you can open. Outreach Analytics covers the emails themselves."),
+            ("Funnel", "How many companies are at each stage or beyond it, and each step's share of the one before. Lost is left out of every step; the win rate beside it is Client over Client plus Lost. The funnel is the book as it stands, whatever window is picked."),
+            ("Over the window", "Newly contacted and new replies are dated by the first send and the first reply. Moved and Lost are dated by when a stage was set. Won is dated by the Clients list. Click a tile to list its companies."),
+            ("Needs a hand", "Replies waiting: someone answered and no stage or next step is set. Stale next steps: a next step untouched for 14 days. Going quiet: Meeting or Proposal with no send or reply in 30 days."),
         ]
     },
     "dashboard": {
@@ -68781,12 +68817,14 @@ def render_page(s: AppState, rf):
             # newsletters are created via the Slow Drip → Create
             # Newsletter dialog (_create_newsletter_dialog) instead.
             elif page == "admin":        p_admin(s, rf)
-            elif page in ("companies", "pipeline"):
-                # The Sales section's roll-up pages. Lazy like ai_prompts:
-                # a broken module takes out two pages, not the app.
+            elif page in ("companies", "pipeline", "sales_dashboard"):
+                # The Sales roll-up pages. Lazy like ai_prompts: a broken
+                # module takes out three pages, not the app.
                 try:
                     import sales_pages as _spg
-                    (_spg.p_pipeline if page == "pipeline" else _spg.p_companies)(s, rf)
+                    {"pipeline": _spg.p_pipeline,
+                     "sales_dashboard": _spg.p_sales_dashboard}.get(
+                        page, _spg.p_companies)(s, rf)
                 except Exception as _spg_ex:
                     print(f"[SalesPages] {page} failed: {_spg_ex}", flush=True)
                     ui.label(f"{page.title()} is unavailable: {_spg_ex}").style(

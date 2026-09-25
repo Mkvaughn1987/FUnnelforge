@@ -395,6 +395,9 @@ class DripDropClient:
             return await self._tm_get("pipeline")
         return await self._tm_post("pipeline", body)
 
+    async def tm_sales_dashboard(self, days: str = "30") -> dict:
+        return await self._tm_get("sales_dashboard", {"days": str(days or "30")})
+
     async def tm_settings(self, update: dict | None = None) -> dict:
         if not update:
             return await self._tm_get("settings")

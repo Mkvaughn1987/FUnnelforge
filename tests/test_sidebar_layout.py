@@ -17,17 +17,17 @@ def test_default_layout_is_classic():
 
 
 def test_unbuilt_destinations_have_no_page_and_are_skipped():
-    """Sales Dashboard has no page and stays hidden. Outreach Analytics,
-    AI Prompt and Saved Prompts are ThriveModal-only: None in the model,
-    resolved by _tm_nav_page_key on that playbook. Everything else is a
-    built page. The renderer still filters None rows (no empty pages)."""
+    """Outreach Analytics, AI Prompt and Saved Prompts are ThriveModal-only:
+    None in the model, resolved by _tm_nav_page_key on that playbook.
+    Everything else, Sales Dashboard included since 2026-09-25, is a built
+    page. The renderer still filters None rows (no empty pages)."""
     import flowdrip_app as fa
     by_label = {lbl: key for _sec, rows in fa.SIDEBAR_NAV for _ik, lbl, key in rows}
-    for lbl in ("Sales Dashboard", "Outreach Analytics", "AI Prompt", "Saved Prompts"):
+    for lbl in ("Outreach Analytics", "AI Prompt", "Saved Prompts"):
         assert lbl in by_label, f"{lbl} missing from SIDEBAR_NAV"
         assert by_label[lbl] is None, f"{lbl} must not be wired directly"
     for lbl in ("Overview", "My Day", "Replies", "Companies", "Contacts", "Pipeline",
-                "Clients", "Campaigns", "Newsletters", "Sales Assets"):
+                "Clients", "Campaigns", "Newsletters", "Sales Assets", "Sales Dashboard"):
         assert by_label.get(lbl), f"{lbl} must map to an existing page key"
     assert "Content Library" not in by_label, "Content Library is no longer a row"
     src = inspect.getsource(fa._sidebar_v2)
@@ -56,11 +56,11 @@ def test_wired_page_keys_exist_in_router():
     known |= {"admin", "start_seq", "create_camp", "drip", "dashboard",
               "signature", "timezone"}
     # Sidebar-only pages (no classic nav row) routed through sales_pages.
-    known |= {"companies", "pipeline"}
+    known |= {"companies", "pipeline", "sales_dashboard"}
     router = inspect.getsource(fa.render_page)
     for k in ("signature", "timezone"):
         assert f'elif page == "{k}":' in router
-    assert 'elif page in ("companies", "pipeline"):' in router
+    assert 'elif page in ("companies", "pipeline", "sales_dashboard"):' in router
     assert "import sales_pages as _spg" in router
     wired = {key for _sec, rows in fa.SIDEBAR_NAV for _ik, _lbl, key in rows if key}
     wired |= {key for _ik, _lbl, key in fa.SIDEBAR_SETTINGS}
