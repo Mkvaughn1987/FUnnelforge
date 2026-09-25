@@ -213,13 +213,19 @@ def test_record_rejects_bad_input(team_dir):
 
 def test_pages_are_routed_titled_and_helped():
     router = inspect.getsource(fa.render_page)
-    assert 'elif page in ("companies", "pipeline", "sales_dashboard"):' in router
-    for k in ("companies", "pipeline"):
+    assert 'elif page in ("companies", "sales_dashboard"):' in router
+    for k in ("companies",):
         assert fa.SIDEBAR_PAGE_ROW[k] == k
         assert fa.SIDEBAR_TITLES[k]
         assert fa.PAGE_HELP[k]["summary"] and fa.PAGE_HELP[k]["next_action"]
     by_label = {lbl: key for _sec, rows in fa.SIDEBAR_NAV for _ik, lbl, key in rows}
-    assert by_label["Companies"] == "companies" and by_label["Pipeline"] == "pipeline"
+    assert by_label["Companies"] == "companies"
+    # The board is a view on Companies since 2026-09-25, not a page.
+    assert "Pipeline" not in by_label
+    assert "pipeline" not in fa.SIDEBAR_PAGE_ROW and "pipeline" not in fa.PAGE_HELP
+    assert not hasattr(sp, "p_pipeline")
+    src = inspect.getsource(sp.p_companies)
+    assert '"board"' in src and "_board(" in src and "_stage_select(" in src
     # Arena's classic nav is untouched: no row, so no route to reach it from.
     assert "companies" not in {k for _i, _l, k in fa.SALES_NAV}
     assert "pipeline" not in {k for _i, _l, k in fa.SALES_NAV}

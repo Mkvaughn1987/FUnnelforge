@@ -1,5 +1,5 @@
-"""Companies, Pipeline and the Sales Dashboard: the roll-up pages in the
-sidebar's SALES and PERFORMANCE sections.
+"""Companies (Table | Board) and the Sales Dashboard: the roll-up pages in
+the sidebar's CRM and PERFORMANCE sections.
 
 Neither page owns a record type. A company is whatever `_company_index`
 makes of the user's contacts (company_id, then a verified CompanyDomain,
@@ -13,8 +13,10 @@ chose for a company, the next step and a note. That lives with the Clients
 blocklist in the team's shared dir, because a company won or lost is a team
 fact, not a per-user one.
 
-Design: docs/superpowers/specs/2026-09-24-sales-companies-pipeline-design.md
-and docs/superpowers/specs/2026-09-25-sales-dashboard-design.md.
+Design: docs/superpowers/specs/2026-09-24-sales-companies-pipeline-design.md,
+docs/superpowers/specs/2026-09-25-sales-dashboard-design.md and
+docs/superpowers/specs/2026-09-25-crm-section-and-board-view-design.md (the
+Pipeline page folded into Companies as a view).
 """
 import json
 import sys
@@ -626,11 +628,13 @@ def p_companies(s, rf):
     q = getattr(s, "_co_q", "") or ""
     stage = getattr(s, "_co_stage", "") or ""
     open_key = getattr(s, "_co_open", "") or ""
+    view = "board" if getattr(s, "_co_view", "") == "board" else "table"
 
     _page_head(s, rf, C, "Companies", "companies",
                "Every company you have a contact at, with what your campaigns "
                "have done there. Counted from your lists, the send queue and "
-               "your replies.")
+               "your replies. Table lists them all; Board lays the ones a "
+               "campaign has touched out by stage.")
 
     if not rollup:
         _empty_card(C, "No companies yet",
@@ -668,12 +672,25 @@ def p_companies(s, rf):
         def _on_stage(e):
             s._co_stage = e.value or ""
             rf()
-        ui.select(options=stage_opts, value=stage, on_change=_on_stage).classes(
-            "fd-input").props("dense").style("min-width:160px;font-size:12px;")
-        with ui.element("button").classes("fd-gb").style(
-                "padding:8px 14px;font-size:12px;").on(
-                "click", lambda: _go(s, rf, "pipeline")):
-            ui.label("Open the Pipeline board")
+        if view == "table":
+            ui.select(options=stage_opts, value=stage, on_change=_on_stage).classes(
+                "fd-input").props("dense").style("min-width:160px;font-size:12px;")
+        # Table | Board toggle. The board used to be its own Pipeline page;
+        # every CRM the market uses (Apollo, Close, Pipedrive) makes it a
+        # view of the one list instead, so it lives here now.
+        with ui.element("div").style("display:flex;gap:4px;margin-left:auto;"):
+            for _v, _vl in (("table", "Table"), ("board", "Board")):
+                def _pick_view(v=_v):
+                    s._co_view = v
+                    rf()
+                with ui.element("button").classes(
+                        "fd-pb" if _v == view else "fd-gb").style(
+                        "padding:8px 14px;font-size:12px;").on("click", _pick_view):
+                    ui.label(_vl)
+
+    if view == "board":
+        _board(s, rf, C, filter_rollup(rollup, q, ""), actor)
+        return
 
     rows = filter_rollup(rollup, q, stage)
     if not rows:
@@ -726,7 +743,13 @@ def p_companies(s, rf):
                         with ui.element("td"):
                             ui.label(_fmt_when(r["last_activity"]))
                         with ui.element("td"):
-                            _stage_badge(C, r)
+                            # The picker sits in the row so a move is one
+                            # click, the convenience the board had.
+                            _stage_select(s, rf, r, actor)
+                            if r["stage_basis"] == "manual" and r["derived_stage"] != r["stage"] \
+                                    and STAGE_ORDER[r["derived_stage"]] > STAGE_ORDER[r["stage"]]:
+                                ui.label(f"data says {STAGE_LABEL[r['derived_stage']].lower()}").style(
+                                    f"font-size:10px;color:{C['muted']};margin-top:2px;")
                     if is_open:
                         with ui.element("tr"):
                             with ui.element("td").props('colspan="7"').style(
@@ -814,9 +837,12 @@ def _company_detail(s, rf, C, r, actor):
                 with ui.element("button").classes("fd-pb").style(
                         "padding:8px 14px;font-size:12px;").on("click", _save):
                     ui.label("Save")
+                def _see_board():
+                    s._co_view = "board"
+                    s._co_open = ""
+                    rf()
                 with ui.element("button").classes("fd-gb").style(
-                        "padding:8px 14px;font-size:12px;").on(
-                        "click", lambda: _go(s, rf, "pipeline")):
+                        "padding:8px 14px;font-size:12px;").on("click", _see_board):
                     ui.label("See on the board")
             rec = r["record"]
             if rec.get("updated_at"):
@@ -825,43 +851,25 @@ def _company_detail(s, rf, C, r, actor):
                          ).style(f"font-size:11px;color:{C['muted']};margin-top:8px;")
 
 
-def p_pipeline(s, rf):
-    ff = _ff()
-    C = ff.C
-    actor = (getattr(s, "_user_email", "") or "").strip().lower()
-    rollup = rollup_for_user(actor)
+def _board(s, rf, C, rollup, actor):
+    """The Board view of Companies: the companies a campaign has touched,
+    one column per stage. Was the Pipeline page until 2026-09-25."""
     cols = board_columns(rollup)
     show_lost = bool(getattr(s, "_pl_show_lost", False))
-
-    _page_head(s, rf, C, "Pipeline", "pipeline",
-               "Every company a campaign has touched, by stage. Prospect, "
-               "Contacted and Replied come from what was sent; move a card to "
-               "record a meeting, a proposal or a loss. Clients come from the "
-               "Clients list.")
 
     total = sum(c["total"] for c in cols.values())
     if not total:
         _empty_card(C, "Nothing on the board yet",
                     "Companies land here once they are in a campaign. Launch "
-                    "one, or open a company and set a stage by hand.",
-                    "Go to Companies", lambda: _go(s, rf, "companies"))
+                    "one, or switch to Table and set a stage by hand.")
         return
-
-    with ui.element("div").classes("fd-stat-strip").style("margin:14px 0 14px;"):
-        for k, lbl in STAGES:
-            n = cols[k]["total"]
-            col = {"client": C["good"], "replied": C["good"],
-                   "lost": C["muted"], "prospect": C["muted"]}.get(k, C["teal"])
-            with ui.element("div").classes("fd-stat-cell"):
-                ui.label(str(n)).classes("fd-sn").style(
-                    f"color:{col if n else C['muted']};")
-                ui.label(lbl).classes("fd-sl")
 
     def _open_company(r):
         s._co_open = r["key"]
         s._co_q = ""
         s._co_stage = ""
-        _go(s, rf, "companies")
+        s._co_view = "table"
+        rf()
 
     with ui.element("div").style(
             "display:flex;gap:12px;align-items:flex-start;overflow-x:auto;"
@@ -913,8 +921,13 @@ def p_pipeline(s, rf):
                                 f"font-size:11px;color:{C['teal']};margin-bottom:6px;")
                         _stage_select(s, rf, r, actor)
                 if col["total"] > len(col["rows"]):
-                    ui.label(f"+{col['total'] - len(col['rows'])} more on Companies").style(
-                        f"font-size:11px;color:{C['muted']};text-align:center;padding:4px 0;")
+                    def _see_rest(stage=k):
+                        s._co_stage = stage
+                        s._co_view = "table"
+                        rf()
+                    ui.label(f"+{col['total'] - len(col['rows'])} more in the table").style(
+                        f"font-size:11px;color:{C['teal']};text-align:center;"
+                        f"padding:4px 0;cursor:pointer;").on("click", _see_rest)
 
 
 # ── Sales Dashboard page ─────────────────────────────────────────────────
@@ -974,7 +987,7 @@ def p_sales_dashboard(s, rf):
             ui.label("Where the business stands, by company: how the funnel "
                      "converts, what moved recently and who is waiting on you. "
                      "Counted from the same lists, sends and replies as "
-                     "Companies and Pipeline.").classes("fd-sub")
+                     "Companies.").classes("fd-sub")
         with ui.element("div").style("display:flex;gap:8px;flex-shrink:0;"):
             for _win, _wlbl in [(7, "7 days"), (30, "30 days"), (None, "All time")]:
                 def _pick_win(win=_win):
@@ -995,6 +1008,15 @@ def p_sales_dashboard(s, rf):
     # ── Funnel ──
     _section_title(C, "Funnel", top=16)
     top = max(stats["funnel"][0]["count"], 1)
+
+    def _open_stage(stage):
+        # A bar opens Companies filtered to exactly that stage.
+        s._co_stage = stage
+        s._co_view = "table"
+        s._co_open = ""
+        s._co_q = ""
+        _go(s, rf, "companies")
+
     with ui.element("div").style(
             "display:grid;grid-template-columns:minmax(0,1fr) 220px;gap:16px;"
             "align-items:start;"):
@@ -1007,7 +1029,8 @@ def p_sales_dashboard(s, rf):
                 width = (max(pct, 2) if f["count"] else 0)
                 with ui.element("div").style(
                         "display:grid;grid-template-columns:90px minmax(0,1fr) 44px;"
-                        "gap:12px;align-items:center;padding:6px 0;"):
+                        "gap:12px;align-items:center;padding:6px 0;cursor:pointer;"
+                        ).on("click", lambda _k=f["key"]: _open_stage(_k)):
                     ui.label(f["label"]).style(
                         f"font-size:12px;font-weight:600;color:{C['text_l']};")
                     with ui.element("div").style(

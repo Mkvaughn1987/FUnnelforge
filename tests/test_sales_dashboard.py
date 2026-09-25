@@ -222,8 +222,11 @@ def test_history_goes_with_a_deleted_record(team_dir):
 
 def test_page_is_routed_titled_and_helped():
     router = inspect.getsource(fa.render_page)
-    assert 'elif page in ("companies", "pipeline", "sales_dashboard"):' in router
+    assert 'elif page in ("companies", "sales_dashboard"):' in router
     assert "p_sales_dashboard" in router
+    # Funnel bars click through to Companies filtered to that stage.
+    src = inspect.getsource(sp.p_sales_dashboard)
+    assert "_open_stage(" in src and "_co_stage" in src
     assert fa.SIDEBAR_PAGE_ROW["sales_dashboard"] == "sales_dash"
     assert fa.SIDEBAR_TITLES["sales_dashboard"] == "Sales Dashboard"
     h = fa.PAGE_HELP["sales_dashboard"]

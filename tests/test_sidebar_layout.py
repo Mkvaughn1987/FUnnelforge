@@ -26,21 +26,25 @@ def test_unbuilt_destinations_have_no_page_and_are_skipped():
     for lbl in ("Outreach Analytics", "AI Prompt", "Saved Prompts"):
         assert lbl in by_label, f"{lbl} missing from SIDEBAR_NAV"
         assert by_label[lbl] is None, f"{lbl} must not be wired directly"
-    for lbl in ("Overview", "My Day", "Replies", "Companies", "Contacts", "Pipeline",
+    for lbl in ("Overview", "My Day", "Replies", "Companies", "Contacts",
                 "Clients", "Campaigns", "Newsletters", "Sales Assets", "Sales Dashboard"):
         assert by_label.get(lbl), f"{lbl} must map to an existing page key"
+    assert "Pipeline" not in by_label, "the board is a view on Companies, not a row"
     assert "Content Library" not in by_label, "Content Library is no longer a row"
     src = inspect.getsource(fa._sidebar_v2)
     assert "rows = [r for r in rows if r[2]]" in src
     assert "if not rows:" in src
 
 
-def test_sections_are_home_sales_campaigns_content_performance():
+def test_sections_are_home_campaigns_content_crm_performance():
+    """CRM (the label HubSpot, Instantly and Smartlead use) sits below
+    CONTENT the way campaign-first tools order it; Pipeline is a view on
+    Companies, not a row."""
     import flowdrip_app as fa
     assert [sec for sec, _rows in fa.SIDEBAR_NAV] == [
-        "HOME", "SALES", "CAMPAIGNS", "CONTENT", "PERFORMANCE"]
+        "HOME", "CAMPAIGNS", "CONTENT", "CRM", "PERFORMANCE"]
     rows = dict(fa.SIDEBAR_NAV)
-    assert [r[1] for r in rows["SALES"]] == ["Companies", "Contacts", "Pipeline", "Clients"]
+    assert [r[1] for r in rows["CRM"]] == ["Companies", "Contacts", "Clients"]
     assert [r[1] for r in rows["CAMPAIGNS"]] == ["Campaigns", "Newsletters"]
     assert [r[1] for r in rows["CONTENT"]] == ["Sales Assets", "AI Prompt", "Saved Prompts"]
 
@@ -56,11 +60,11 @@ def test_wired_page_keys_exist_in_router():
     known |= {"admin", "start_seq", "create_camp", "drip", "dashboard",
               "signature", "timezone"}
     # Sidebar-only pages (no classic nav row) routed through sales_pages.
-    known |= {"companies", "pipeline", "sales_dashboard"}
+    known |= {"companies", "sales_dashboard"}
     router = inspect.getsource(fa.render_page)
     for k in ("signature", "timezone"):
         assert f'elif page == "{k}":' in router
-    assert 'elif page in ("companies", "pipeline", "sales_dashboard"):' in router
+    assert 'elif page in ("companies", "sales_dashboard"):' in router
     assert "import sales_pages as _spg" in router
     wired = {key for _sec, rows in fa.SIDEBAR_NAV for _ik, _lbl, key in rows if key}
     wired |= {key for _ik, _lbl, key in fa.SIDEBAR_SETTINGS}
@@ -128,7 +132,7 @@ def test_active_row_mapping_for_consolidated_pages():
     m = fa.SIDEBAR_PAGE_ROW
     assert m["seq_mgr"] == "campaigns"
     assert m["newsletters"] == "newsletters" and m["pdf_gen"] == "assets"
-    assert m["companies"] == "companies" and m["pipeline"] == "pipeline"
+    assert m["companies"] == "companies" and "pipeline" not in m
     for k in ("ai_settings", "company_profile", "team_settings", "signature",
               "timezone", "dnc"):
         assert m[k] == "settings", k

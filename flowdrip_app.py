@@ -20867,12 +20867,12 @@ SIDEBAR_NAV = [
         ("myday",      "My Day",             "drip"),
         ("replies",    "Replies",            "responses"),
     ]),
-    ("SALES", [
-        ("companies",  "Companies",          "companies"),   # sales_pages.p_companies
-        ("contacts",   "Contacts",           "contacts"),
-        ("pipeline",   "Pipeline",           "pipeline"),    # sales_pages.p_pipeline
-        ("clients",    "Clients",            "active_clients"),
-    ]),
+    # 2026-09-25: SALES became CRM (the label HubSpot, Instantly and
+    # Smartlead use for this group) and moved below CONTENT, the way the
+    # campaign-first tools order theirs. The Pipeline row went: the board is
+    # now a view toggle on Companies, like Deals in Apollo, Close and
+    # Pipedrive (docs/superpowers/specs/2026-09-25-crm-section-and-board-
+    # view-design.md).
     ("CAMPAIGNS", [
         ("campaigns",  "Campaigns",          "seq_mgr"),
         ("newsletters", "Newsletters",       "newsletters"),
@@ -20881,6 +20881,11 @@ SIDEBAR_NAV = [
         ("assets",       "Sales Assets",     "pdf_gen"),
         ("ai_prompt",    "AI Prompt",        None),   # ThriveModal only: _tm_nav_page_key
         ("saved_prompts", "Saved Prompts",   None),   # ThriveModal only: _tm_nav_page_key
+    ]),
+    ("CRM", [
+        ("companies",  "Companies",          "companies"),   # sales_pages.p_companies (Table | Board)
+        ("contacts",   "Contacts",           "contacts"),
+        ("clients",    "Clients",            "active_clients"),
     ]),
     ("PERFORMANCE", [
         ("sales_dash", "Sales Dashboard",    "sales_dashboard"),  # sales_pages.p_sales_dashboard
@@ -20917,7 +20922,7 @@ SIDEBAR_PAGE_ROW = {
     "responses": "replies", "e_responses": "replies",
     "contacts": "contacts", "e_contacts": "contacts",
     "active_clients": "clients",
-    "companies": "companies", "pipeline": "pipeline", "sales_dashboard": "sales_dash",
+    "companies": "companies", "sales_dashboard": "sales_dash",
     "seq_mgr": "campaigns", "active_camps": "campaigns", "queue": "campaigns",
     "evergreen": "campaigns", "evergreen_create": "campaigns", "e_evergreen": "campaigns",
     "newsletters": "newsletters", "pdf_gen": "assets", "tm_prompts": "ai_prompt",
@@ -20932,7 +20937,7 @@ SIDEBAR_TITLES = {
     "dashboard": "Overview", "market_intel": "Market Intel",
     "drip": "My Day", "tasks": "Tasks", "responses": "Replies", "e_responses": "Replies",
     "contacts": "Contacts", "e_contacts": "Contacts", "active_clients": "Clients",
-    "companies": "Companies", "pipeline": "Pipeline", "sales_dashboard": "Sales Dashboard",
+    "companies": "Companies", "sales_dashboard": "Sales Dashboard",
     "seq_mgr": "Campaigns", "active_camps": "Campaigns", "queue": "Email Queue",
     "evergreen": "Nurture Campaigns", "evergreen_create": "New Nurture Campaign",
     "newsletters": "Newsletters", "pdf_gen": "Sales Assets",
@@ -21770,23 +21775,13 @@ PAGE_HELP = {
     "companies": {
         "title": "Companies",
         "summary": "Every company you have a contact at, with what your campaigns have done there.",
-        "next_action": "Click a company to see its people, the campaigns that touched them and the latest reply, and to set a stage or a next step.",
+        "next_action": "Pick a stage straight from the row, or click a company to see its people, the campaigns that touched them and the latest reply, and to set a next step. Switch to Board to see every stage side by side.",
         "sections": [
             ("What is this?", "A roll-up of your contact lists by employer. Nothing is stored separately: it is counted each time from your lists, the send queue, your replies and the Clients list."),
+            ("Table or Board", "Table lists every company. Board shows the companies a campaign has touched, one column per stage; companies that are only rows in an uploaded list stay in the table until a campaign touches them."),
             ("Where the numbers come from", "Contacts: people at that company across all your lists.\nCampaigns: campaigns that enrolled anyone there.\nSent / Replies: from the send queue and the responded log.\nLast activity: the latest send or reply."),
-            ("Stage", "Prospect, Contacted and Replied are worked out from what was sent. Meeting, Proposal and Lost are yours to set. Client comes from the Clients list and always wins."),
+            ("Stage", "Prospect, Contacted and Replied are worked out from what was sent. Meeting, Proposal and Lost are yours to set; 'Auto' clears your choice so the stage follows the data again. Client comes from the Clients list and always wins. Stages are shared with your team."),
             ("Grouping", "Companies are matched by company ID, then a verified company domain, then the company name. Email domains are never guessed at. Contacts with no company are counted but not shown."),
-        ]
-    },
-    "pipeline": {
-        "title": "Pipeline",
-        "summary": "Every company a campaign has touched, laid out by stage.",
-        "next_action": "Move a card with its stage picker to record a meeting, a proposal or a loss. Click a name to open it on Companies.",
-        "sections": [
-            ("What is this?", "A board of the companies your campaigns have reached. Companies that are only rows in an uploaded list stay on the Companies page until a campaign touches them."),
-            ("Stages", "Prospect: in a campaign, nothing sent yet.\nContacted: at least one email sent.\nReplied: someone there replied.\nMeeting / Proposal / Lost: set by you.\nClient: on the Clients list."),
-            ("Moving a card", "Pick a stage on the card. 'Auto' clears your choice so the stage follows the data again. Stages are shared with your team."),
-            ("Next step", "Set it from the company's card on the Companies page; it shows on the board."),
         ]
     },
     "sales_dashboard": {
@@ -68817,14 +68812,13 @@ def render_page(s: AppState, rf):
             # newsletters are created via the Slow Drip → Create
             # Newsletter dialog (_create_newsletter_dialog) instead.
             elif page == "admin":        p_admin(s, rf)
-            elif page in ("companies", "pipeline", "sales_dashboard"):
-                # The Sales roll-up pages. Lazy like ai_prompts: a broken
-                # module takes out three pages, not the app.
+            elif page in ("companies", "sales_dashboard"):
+                # The CRM roll-up pages. Lazy like ai_prompts: a broken
+                # module takes out two pages, not the app.
                 try:
                     import sales_pages as _spg
-                    {"pipeline": _spg.p_pipeline,
-                     "sales_dashboard": _spg.p_sales_dashboard}.get(
-                        page, _spg.p_companies)(s, rf)
+                    (_spg.p_sales_dashboard if page == "sales_dashboard"
+                     else _spg.p_companies)(s, rf)
                 except Exception as _spg_ex:
                     print(f"[SalesPages] {page} failed: {_spg_ex}", flush=True)
                     ui.label(f"{page.title()} is unavailable: {_spg_ex}").style(
