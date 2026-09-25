@@ -1148,10 +1148,9 @@ async def tm_call_briefing(task_id: str = "", campaign_id: str = "",
     "saves it, stops auto-refresh overwriting it and updates emails already "
     "queued for it; issues already sent cannot be edited. 'settings' with no "
     "settings returns them; with settings={...} saves them and rewrites the "
-    "next issue in the background. Settings keys: city_life (bool) plus, "
-    "for ThriveModal, profiles (bool: 3 sample talent profiles per issue) "
-    "and topic (what the issues are about); other workspaces use "
-    "spotlights_per_issue (3 or 6) and spotlight_guidance. To have the AI "
+    "next issue in the background. Settings keys: profiles (bool: 3 sample "
+    "talent profiles per issue) and topic (what the issues are about); "
+    "there is no City Life section (newsletters are nationwide). To have the AI "
     "rewrite an issue instead, use tm_newsletter_issue with refresh=true."
 ))
 async def tm_newsletter_edit(campaign_id: str, action: str = "issues",

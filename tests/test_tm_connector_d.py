@@ -394,17 +394,22 @@ def test_settings_save_and_rewrite_the_next_issue(nl, monkeypatch):
     c = nl["call"]
     r = c("post", "/api/v1/tm/newsletters/edit",
           {"campaign_id": "Freight_Notes", "action": "settings"})
-    assert r.json()["settings"] == {"city_life": True, "profiles": True, "topic": ""}
+    # Nationwide: no City Life section, so no city_life setting.
+    assert r.json()["settings"] == {"profiles": True, "topic": ""}
     assert nl["saved"] == []
     r = c("post", "/api/v1/tm/newsletters/edit", {
         "campaign_id": "Freight_Notes", "action": "settings",
-        "profiles": False, "topic": "Hiring offshore AP clerks",
         "city_life": False})
+    assert r.status_code == 400
+    assert "City Life" in r.json()["error"]
+    assert nl["saved"] == []
+    r = c("post", "/api/v1/tm/newsletters/edit", {
+        "campaign_id": "Freight_Notes", "action": "settings",
+        "profiles": False, "topic": "Hiring offshore AP clerks"})
     assert r.status_code == 200, r.text
     camp = nl["saved"][-1]
     assert camp["newsletter_spotlight_count"] == 0
     assert camp["newsletter_topic"] == "Hiring offshore AP clerks"
-    assert camp["newsletter_show_city_life"] is False
     assert [e for e, _ in ran] == [_OWNER]
     # The background rewrite updates the step and the queued emails.
     monkeypatch.setattr(fa, "_generate_newsletter_content_for_step",

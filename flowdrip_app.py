@@ -11395,11 +11395,13 @@ def _tm_nl_settings(camp):
         count = int(camp.get("newsletter_spotlight_count", 3) or 0)
     except Exception:
         count = 3
-    out = {"city_life": bool(camp.get("newsletter_show_city_life", True))}
+    out = {}
     if _SALES_MODE:
+        # Nationwide: no City Life section, so no setting for it.
         out["profiles"] = count != 0
         out["topic"] = camp.get("newsletter_topic") or ""
     else:
+        out["city_life"] = bool(camp.get("newsletter_show_city_life", True))
         out["spotlights_per_issue"] = count if count in (3, 6) else 3
         out["spotlight_guidance"] = (camp.get("newsletter_spotlight_recommendations")
                                      or "").strip()
@@ -11494,7 +11496,7 @@ async def api_tm_newsletter_edit(request: Request):
                   page's Save does (auto-refresh then leaves it alone) and
                   points emails already queued for it at the new copy.
       settings    no other keys: the current settings. With any of
-                  "city_life", "profiles"/"topic" (ThriveModal) or
+                  "profiles"/"topic" (sales instances) or "city_life"/
                   "spotlights_per_issue"/"spotlight_guidance": saves them and,
                   as the page does, rewrites the next issue in the background."""
     from starlette.responses import JSONResponse
@@ -11576,9 +11578,11 @@ async def api_tm_newsletter_edit(request: Request):
     if not any(k in body for k in keys):
         return JSONResponse({"newsletter": name, "settings": _tm_nl_settings(camp)})
     if _SALES_MODE:
-        if "spotlights_per_issue" in body or "spotlight_guidance" in body:
+        if ("spotlights_per_issue" in body or "spotlight_guidance" in body
+                or "city_life" in body):
             return JSONResponse({"error": "this workspace sets profiles "
-                                 "(true/false) and topic instead"}, status_code=400)
+                                 "(true/false) and topic instead; it has no "
+                                 "City Life section"}, status_code=400)
         if "profiles" in body:
             camp["newsletter_spotlight_count"] = 3 if body.get("profiles") else 0
         if "topic" in body:
@@ -35176,7 +35180,10 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
         # candidate spotlights. Off-by-default users still get a tight
         # market-only newsletter. Locked at campaign creation; not
         # editable per-issue.
-        with ui.element("div").style("display:flex;align-items:center;gap:8px;margin-bottom:14px;"):
+        # Sales instances (inboxslide) are nationwide, so there is no
+        # city to write about: no toggle, and the section never renders
+        # (Mike 2026-09-24).
+        with ui.element("div").style("display:flex;align-items:center;gap:8px;margin-bottom:14px;") as _city_row:
             city_life_in = ui.checkbox("Include City Life section", value=True).style("font-size:12px;")
             with ui.element("span").style(
                     f"display:inline-flex;align-items:center;justify-content:center;"
@@ -35187,13 +35194,11 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                 ui.label("?").style("line-height:1;")
                 ui.tooltip(
                     "Adds 2 local city blurbs (events, food, neighborhood, "
-                    "development) to each issue. Turn off for a market-only "
-                    "newsletter."
-                    if _SALES_MODE else
-                    "Adds 2 local city blurbs (events, food, neighborhood, "
                     "development) under the candidate spotlights. Turn off "
                     "for a market-only newsletter."
                 )
+        if _SALES_MODE:
+            _city_row.set_visibility(False)
 
         # Start date + count on one row.
         # 2026-05-25 — switched from "Start Month" YYYY-MM to a full
@@ -35344,7 +35349,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                 _spotlight_count = 3
             if _SALES_MODE:
                 _spotlight_count = 3 if _tm_profiles_in.value else 0
-            _show_city_life = bool(city_life_in.value)
+            _show_city_life = (not _SALES_MODE) and bool(city_life_in.value)
             # AI and Pipeline paths are mutually exclusive — save only the
             # active fork's data so a candidate picked then switched away from
             # doesn't silently override the AI spotlights (and vice-versa).
@@ -35567,9 +35572,12 @@ def _edit_newsletter_settings_dialog(camp: dict, s, rf) -> None:
         if _SALES_MODE:
             _count_box.set_visibility(False)
 
-        # City Life toggle
-        with ui.element("div").style("display:flex;align-items:center;gap:8px;margin-bottom:18px;"):
+        # City Life toggle (never shown on sales instances: nationwide,
+        # no city, see _generate_newsletter_content_for_step)
+        with ui.element("div").style("display:flex;align-items:center;gap:8px;margin-bottom:18px;") as _city_row:
             _city_in = ui.checkbox("Include City Life section", value=_cur_city).style("font-size:12px;")
+        if _SALES_MODE:
+            _city_row.set_visibility(False)
 
         def _save():
             try:
@@ -35584,7 +35592,7 @@ def _edit_newsletter_settings_dialog(camp: dict, s, rf) -> None:
             camp["newsletter_spotlight_recommendations"] = (_recs_in.value or "").strip()
             if _SALES_MODE:
                 camp["newsletter_topic"] = (_topic_in.value or "").strip()[:600]
-            camp["newsletter_show_city_life"] = bool(_city_in.value)
+            camp["newsletter_show_city_life"] = (not _SALES_MODE) and bool(_city_in.value)
             try:
                 save_campaign(camp)
                 _cache_campaigns.invalidate()
@@ -37599,6 +37607,9 @@ def p_newsletters(s, rf):
                             ).on("click", _open_settings):
                         ui.label("⚙").style("pointer-events:none;")
                         ui.tooltip(
+                            "Settings — edit the profiles and topic. "
+                            "Saving regenerates the next upcoming issue."
+                            if _SALES_MODE else
                             "Settings — edit spotlight recommendations, "
                             "candidate count, and City Life toggle. "
                             "Saving regenerates the next upcoming issue.")
@@ -61972,7 +61983,9 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
     # City Life toggle: defaults to True for legacy campaigns that
     # predate the field. Off only when the user explicitly unchecked
     # "Include City Life section" in the create dialog.
-    _show_city_life = bool(camp.get("newsletter_show_city_life", True))
+    # Sales instances are nationwide: no city, so never a City Life
+    # section, whatever an older campaign's flag says.
+    _show_city_life = (not _SALES_MODE) and bool(camp.get("newsletter_show_city_life", True))
     if _tm_plan:
         _show_city_life = False
         _why = result.get("why_now") if isinstance(result.get("why_now"), dict) else {}
