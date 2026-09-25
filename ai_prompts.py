@@ -88,7 +88,8 @@ SECTION_NAME = {k: n for k, n, _ in SECTIONS}
 
 
 def F(key, label, section="details", type="text", default="", ask=False,
-      hint="", placeholder="", options=None, refresh=False):
+      hint="", placeholder="", options=None, refresh=False, source="",
+      pick_first=False, chips=None):
     """One question on the screen.
 
     ask=True means "only the user can answer this" — left blank it becomes a
@@ -99,11 +100,18 @@ def F(key, label, section="details", type="text", default="", ask=False,
     it for a question other questions are computed from — the vertical on
     the ThriveModal page decides which signals are on offer below it, and a
     stale menu under a changed vertical is worse than a flicker.
+
+    type="pick" is a dropdown of the host's own data (source names which:
+    the user's saved audiences, the companies in their contacts) that also
+    takes anything typed. pick_first opens it on the first entry. chips are
+    ready-made answers shown above the box: one click writes the wording
+    in, and it stays editable.
     """
     return {"key": key, "label": label, "section": section, "type": type,
             "default": default, "ask": ask, "hint": hint,
             "placeholder": placeholder, "options": options or [],
-            "refresh": bool(refresh)}
+            "refresh": bool(refresh), "source": source or "",
+            "pick_first": bool(pick_first), "chips": list(chips or [])}
 
 
 def finalize_routines(routines):
@@ -1871,6 +1879,16 @@ def _aip_css():
         "color:var(--dd-muted);display:inline-flex;align-items:center;"
         "gap:4px;}"
         ".aip-wrap .aip-link:hover{color:var(--dd-teal);}"
+        # Ready-made answers above a box.
+        ".aip-wrap .aip-chips{display:flex;flex-wrap:wrap;gap:6px;"
+        "margin:2px 0 8px;}"
+        ".aip-wrap .aip-chip{background:var(--dd-bg);cursor:pointer;"
+        "border:1px solid var(--dd-border);border-radius:999px;"
+        "padding:4px 11px;font-family:inherit;font-size:11.5px;"
+        "color:var(--dd-text_l);transition:border-color .15s,"
+        "background .15s;}"
+        ".aip-wrap .aip-chip:hover{border-color:var(--dd-teal);"
+        "background:var(--dd-teal_dim);}"
         # The finished prompt.
         ".aip-wrap .aip-prompt{position:relative;background:var(--dd-bg);"
         "border:1px solid var(--dd-border);border-radius:10px;"
@@ -2189,6 +2207,14 @@ def describe_runs(cat=None, newsletter_names=()):
                      "recommended": bool(i.get("rec"))} for i in items]
                 q["default"] = ", ".join(
                     _checks_ids(r, req["vals"], f["key"], cat, items))
+            elif f["type"] == "pick":
+                # A dropdown off the user's own data that also takes
+                # anything typed: the list is a suggestion, not a rule.
+                q["type"] = "text"
+                names = _pick_names(f.get("source", ""))
+                if names:
+                    q["options"] = names
+                    q["any_text"] = True
             elif f["options"]:
                 q["options"] = list(f["options"])
             for k in ("hint", "placeholder"):
@@ -2218,6 +2244,16 @@ def run_prefill(r, req, cat=None):
                  dict(req.get("prefilled") or {})) or {})
     except Exception:
         pass
+    vals = req.setdefault("vals", {})
+    for f in r["fields"]:
+        if f["type"] != "pick" or not f.get("pick_first"):
+            continue
+        if str(vals.get(f["key"]) or "").strip():
+            continue
+        names = _pick_names(f.get("source", ""))
+        if names:
+            vals[f["key"]] = names[0]
+            req.setdefault("prefilled", {})[f["key"]] = names[0]
     return req
 
 
@@ -2435,8 +2471,13 @@ def _aip_field(s, rf, C, r, vals, f):
     # "You didn't say" only told the user off for a box they hadn't reached yet.
 
     cur = str(_val(r, vals, key) or "")
+    if f.get("chips"):
+        _aip_chips(rf, C, vals, f)
     if f["type"] == "newsletter":
         _newsletter_picker(s, rf, C, vals)
+        return
+    if f["type"] == "pick":
+        _pick_widget(C, vals, f, cur)
         return
     if f["type"] == "select":
         opts = list(f["options"])
@@ -2460,6 +2501,44 @@ def _aip_field(s, rf, C, r, vals, f):
                        on_change=_set).props("dense").classes("fd-input")
         if f["type"] == "number":
             inp.props("type=number")
+
+
+def _aip_chips(rf, C, vals, f):
+    """Ready-made answers above a box. One click writes the wording in,
+    and anything the chip also fills (a second box) goes with it; all of
+    it stays editable, so this is a faster way to type, not a different
+    kind of answer."""
+    with ui.element("div").classes("aip-chips"):
+        for chip in f["chips"]:
+            def _pick(_chip=chip):
+                vals[f["key"]] = str(_chip.get("value") or "")
+                for k, v in (_chip.get("also") or {}).items():
+                    vals[k] = v
+                rf()
+            with ui.element("button").classes("aip-chip").on("click", _pick):
+                ui.label(str(chip.get("label") or ""))
+
+
+def _pick_widget(C, vals, f, cur):
+    """A dropdown of the host's own data that also takes anything typed.
+    With nothing to offer it is a plain box, so the question never
+    disappears just because the list behind it is empty."""
+    key = f["key"]
+
+    def _set(e):
+        vals[key] = str(e.value or "")
+
+    names = _pick_names(f.get("source", ""))
+    if not names:
+        ui.input(value=cur, placeholder=f["placeholder"],
+                 on_change=_set).props("dense").classes("fd-input")
+        return
+    opts = list(names)
+    if cur and cur not in opts:
+        opts = [cur] + opts
+    ui.select(options=opts, value=cur or None, with_input=True,
+              new_value_mode="add-unique", clearable=True,
+              on_change=_set).props("dense").classes("fd-input")
 
 
 def _aip_checks(s, rf, C, r, vals, f):
@@ -2556,6 +2635,19 @@ def _aip_checks(s, rf, C, r, vals, f):
 # opens the app's own Create Newsletter dialog. Arena never uses the type.
 NEWSLETTER_NAMES = None
 NEWSLETTER_CREATE = None
+# Set by the host app for "pick" fields: PICK_OPTIONS[source]() -> the names
+# to offer for that source. Unset, or a source it does not know, renders
+# the question as a plain box. Arena declares no pick fields.
+PICK_OPTIONS = None
+
+
+def _pick_names(source):
+    try:
+        fn = (PICK_OPTIONS or {}).get(source)
+        return [str(x).strip() for x in (fn() if fn else [])
+                if str(x or "").strip()]
+    except Exception:
+        return []
 _NL_FIND, _NL_NONE = "Claude picks the one that fits", "No newsletter"
 
 

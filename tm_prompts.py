@@ -69,6 +69,35 @@ UNIVERSAL_SIGNALS = [
 ]
 
 
+# Offshore tells on every displacement menu. All ticked: they are the point
+# of that run, and a vertical only adds the software and the desk that
+# narrow the search to its own market.
+UNIVERSAL_TERMS = [
+    S("philippines",
+      "Philippines, Manila or Cebu",
+      "A US company naming a Philippine city in a posting is hiring there "
+      "already, directly or through someone who does."),
+    S("offshore",
+      "offshore team, offshore operations or offshore staff",
+      "The model in use, in their own words."),
+    S("us_hours",
+      "night shift, overnight team or US hours",
+      "\"US hours\" in a posting means the person reading it is not in "
+      "the US."),
+    S("va",
+      "virtual assistant or VA",
+      "The label a company uses when it has one person offshore and no "
+      "programme yet."),
+    S("bpo",
+      "BPO, outsourced team or outsourcing partner",
+      "They buy through a provider today, which is the set-up this pitch "
+      "improves on."),
+    S("open_abroad",
+      "remote role open to applicants outside the United States",
+      "They have already decided location does not matter for the work."),
+]
+
+
 VERTICALS = [
     {
         "key": "logistics",
@@ -102,6 +131,40 @@ VERTICALS = [
         "season": "peak runs August to October, so the pitch lands best in "
                   "June and July",
         "exploratory": False,
+        "location": "Texas, Illinois, Georgia, New Jersey, Ohio and California "
+                    "(the brokerage hubs and port metros)",
+        "seed": "knichellogistics.com",
+        "terms": [
+            S("tnt_ph",
+              "track and trace or carrier sales support with a Philippines "
+              "location",
+              "The exact desk, already offshore, and the easiest "
+              "comparison to draw."),
+            S("tms",
+              "McLeod, Aljex, Turvo, MercuryGate or Tai",
+              "The systems an offshore desk logs into; a posting naming one "
+              "is describing the work, not the office."),
+        ],
+        "states": [
+            S("tx", "Texas",
+              "Dallas and Houston brokerage plus the Gulf ports: the "
+              "busiest notice feed in freight."),
+            S("ca", "California",
+              "Los Angeles and Long Beach port volume and the largest 3PL "
+              "headcount in the country."),
+            S("il", "Illinois",
+              "Chicago is the rail and brokerage hub, and Illinois "
+              "publishes notices promptly."),
+            S("nj", "New Jersey",
+              "Port Newark and the Northeast warehousing belt."),
+            S("ga", "Georgia",
+              "Savannah and the Atlanta distribution ring."),
+            S("oh", "Ohio",
+              "The I-70 and I-75 warehousing corridor, thick with mid-size "
+              "carriers and 3PLs."),
+            S("pa", "Pennsylvania",
+              "The Lehigh Valley and Harrisburg distribution belt."),
+        ],
     },
     {
         "key": "freight_forwarding",
@@ -133,6 +196,40 @@ VERTICALS = [
         "season": "steady through the year with a lift ahead of peak "
                   "import season in late summer",
         "exploratory": False,
+        "location": "Los Angeles and Long Beach, New York and New Jersey, "
+                    "Houston, Miami, Chicago, Savannah and Seattle (the "
+                    "port and airport gateways)",
+        "seed": "shapiro.com",
+        "terms": [
+            S("docs_ph",
+              "documentation, customs entry or shipment coordinator with a "
+              "Philippines location",
+              "Paperwork already moved offshore by someone, and the seat "
+              "this pitch fills."),
+            S("cargowise",
+              "CargoWise or Magaya",
+              "The two systems an offshore documentation desk works in."),
+        ],
+        "states": [
+            S("ca", "California",
+              "The largest gateway in the country and the most forwarders "
+              "in one place."),
+            S("ny", "New York",
+              "JFK air freight and the New York side of the port."),
+            S("nj", "New Jersey",
+              "Port Newark and the forwarders clustered around it."),
+            S("tx", "Texas",
+              "Houston and the Gulf, plus Dallas air cargo."),
+            S("fl", "Florida",
+              "Miami is the Latin America gateway, dense with small "
+              "forwarders."),
+            S("il", "Illinois",
+              "O'Hare air cargo and the Chicago customs brokers."),
+            S("wa", "Washington",
+              "Seattle and Tacoma, the Asia gateway."),
+            S("ga", "Georgia",
+              "Savannah, the fastest-growing container port."),
+        ],
     },
     {
         "key": "accounting",
@@ -168,6 +265,34 @@ VERTICALS = [
         "season": "busy season is January to April and the buying window is "
                   "November to January, when they plan for it",
         "exploratory": False,
+        "location": "anywhere in the United States",
+        "seed": "kruzeconsulting.com",
+        "terms": [
+            S("bookkeeper_ph",
+              "bookkeeper or staff accountant with a Philippines location",
+              "The seat CAS firms move first, and the one they post "
+              "overseas by name."),
+            S("cas_stack",
+              "Karbon, Canopy, TaxDome or QuickBooks Online",
+              "Cloud tools an offshore bookkeeper is trained on; named in "
+              "a posting, they mark a firm whose work already travels."),
+        ],
+        "states": [
+            S("ny", "New York",
+              "The most firms and the most private-equity roll-ups."),
+            S("ca", "California",
+              "The largest small-business base and a fast notice feed."),
+            S("tx", "Texas",
+              "Where firms are growing and merging fastest."),
+            S("fl", "Florida",
+              "Roll-up activity and firms staffing for snowbird season."),
+            S("il", "Illinois",
+              "Chicago's mid-market firms, a roll-up target list."),
+            S("pa", "Pennsylvania",
+              "Philadelphia and Pittsburgh regional firms."),
+            S("ga", "Georgia",
+              "Atlanta's regional firms and the Southeast consolidators."),
+        ],
     },
     {
         "key": "property_management",
@@ -201,6 +326,40 @@ VERTICALS = [
         "season": "year-round, with leasing season in spring and summer "
                   "adding pressure",
         "exploratory": False,
+        "location": "Texas, Florida, Arizona, Georgia, North Carolina, "
+                    "Tennessee and Colorado (where doors are being added "
+                    "fastest)",
+        "seed": "evernest.co",
+        "terms": [
+            S("coord_ph",
+              "maintenance coordinator or leasing assistant with a "
+              "Philippines location",
+              "The two seats that turn over most, already offshore."),
+            S("pm_stack",
+              "AppFolio, Buildium, Yardi, RentManager or Propertyware",
+              "The platforms an offshore coordinator works in all day."),
+        ],
+        "states": [
+            S("tx", "Texas",
+              "The most doors under management and the most new "
+              "portfolios."),
+            S("fl", "Florida",
+              "Fast portfolio growth and heavy seasonal turnover."),
+            S("az", "Arizona",
+              "Phoenix is one of the largest single-family rental "
+              "markets."),
+            S("ga", "Georgia",
+              "Atlanta's build-to-rent and single-family managers."),
+            S("nc", "North Carolina",
+              "Charlotte and Raleigh growth managers."),
+            S("co", "Colorado",
+              "Denver managers under rent-control-adjacent cost "
+              "pressure."),
+            S("tn", "Tennessee",
+              "Nashville's portfolio growth."),
+            S("ca", "California",
+              "The largest managers and the most public notices."),
+        ],
     },
     {
         "key": "healthcare_admin",
@@ -233,6 +392,39 @@ VERTICALS = [
         "season": "year-round, with open enrollment in the autumn adding "
                   "verification work",
         "exploratory": False,
+        "location": "Texas, Florida, California, Arizona, Georgia and the "
+                    "Carolinas (where independent practices and billing "
+                    "companies cluster)",
+        "seed": "practicemax.com",
+        "terms": [
+            S("biller_ph",
+              "medical biller, coder or prior authorisation with a "
+              "Philippines location",
+              "Revenue cycle work already offshore, by title."),
+            S("ehr",
+              "Epic, Athenahealth, eClinicalWorks, Kareo or AdvancedMD",
+              "The systems a remote biller works in; named in a posting, "
+              "they say the work is system-based and movable."),
+        ],
+        "states": [
+            S("tx", "Texas",
+              "The most independent practices and the largest billing "
+              "companies."),
+            S("fl", "Florida",
+              "Dense with practices and practice-management groups."),
+            S("ca", "California",
+              "The largest medical group base and a fast notice feed."),
+            S("ny", "New York",
+              "Practice consolidation and hospital-system cuts."),
+            S("pa", "Pennsylvania",
+              "Health-system back-office consolidations."),
+            S("oh", "Ohio",
+              "Regional systems trimming admin headcount."),
+            S("ga", "Georgia",
+              "Atlanta practice groups and RCM firms."),
+            S("az", "Arizona",
+              "Phoenix billing companies and multi-site practices."),
+        ],
     },
     {
         "key": "home_care",
@@ -262,6 +454,37 @@ VERTICALS = [
         "tells": "WellSky, AxisCare, AlayaCare or ClearCare in a posting",
         "season": "year-round",
         "exploratory": False,
+        "location": "Florida, Arizona, Texas, the Carolinas, Pennsylvania and "
+                    "Ohio (where the population being cared for is)",
+        "seed": "familyresourcehomecare.com",
+        "terms": [
+            S("sched_ph",
+              "scheduler or intake coordinator with a Philippines location",
+              "The shift-covering desk, already offshore."),
+            S("hc_stack",
+              "WellSky, AxisCare, AlayaCare or ClearCare",
+              "The scheduling platforms a remote coordinator works in."),
+        ],
+        "states": [
+            S("fl", "Florida",
+              "The largest home care market and the most agencies."),
+            S("pa", "Pennsylvania",
+              "A large waiver-funded market with agency closures on "
+              "record."),
+            S("oh", "Ohio",
+              "Many mid-size agencies under Medicaid rate pressure."),
+            S("ny", "New York",
+              "Agency consolidation under the state's managed care "
+              "changes."),
+            S("tx", "Texas",
+              "Large agencies and thin margins."),
+            S("az", "Arizona",
+              "A retiree market with agencies growing fast."),
+            S("nc", "North Carolina",
+              "Growing agencies in Charlotte and the Triangle."),
+            S("mi", "Michigan",
+              "Mid-size agencies with public rate fights."),
+        ],
     },
     {
         "key": "general",
@@ -292,6 +515,31 @@ VERTICALS = [
         "tells": "none in particular; read the posting",
         "season": "year-round",
         "exploratory": False,
+        "location": "anywhere in the United States",
+        "seed": "",
+        "terms": [
+            S("support_ph",
+              "customer support, data entry or order processing with a "
+              "Philippines location",
+              "Repeatable desk work already placed offshore, by title."),
+        ],
+        "states": [
+            S("ca", "California",
+              "The most notices filed of any state."),
+            S("tx", "Texas",
+              "The second-largest notice feed and the widest mix of "
+              "companies."),
+            S("ny", "New York",
+              "Back-office consolidations across every industry."),
+            S("fl", "Florida",
+              "A broad small and mid-size company base."),
+            S("il", "Illinois",
+              "Chicago's mid-market and a prompt notice feed."),
+            S("pa", "Pennsylvania",
+              "Mid-size companies across manufacturing and services."),
+            S("oh", "Ohio",
+              "Mid-market companies trimming admin roles."),
+        ],
     },
     {
         "key": "construction_aec",
@@ -322,6 +570,36 @@ VERTICALS = [
         "tells": "Procore, Bluebeam, Sage or Viewpoint in a posting",
         "season": "bid season is winter and early spring",
         "exploratory": True,
+        "location": "Texas, Florida, Arizona, the Carolinas, Georgia, "
+                    "Tennessee and Colorado (where commercial building "
+                    "volume is)",
+        "seed": "tellepsen.com",
+        "terms": [
+            S("takeoff_ph",
+              "estimator, takeoff, drafting or BIM support with a "
+              "Philippines location",
+              "Preconstruction work already offshore, by title."),
+            S("aec_stack",
+              "Procore, Bluebeam, Sage or Viewpoint",
+              "The platforms a remote takeoff or submittal desk works in."),
+        ],
+        "states": [
+            S("tx", "Texas",
+              "The largest commercial building market and the most "
+              "contractors."),
+            S("fl", "Florida",
+              "High building volume and rate-sensitive contractors."),
+            S("ca", "California",
+              "The most contractors and the most notices."),
+            S("az", "Arizona",
+              "Phoenix's commercial and industrial boom."),
+            S("ga", "Georgia",
+              "Atlanta's contractors and engineering firms."),
+            S("nc", "North Carolina",
+              "Charlotte and Raleigh growth contractors."),
+            S("co", "Colorado",
+              "Denver contractors and AEC firms."),
+        ],
     },
     {
         "key": "agencies",
@@ -350,6 +628,35 @@ VERTICALS = [
         "tells": "HubSpot, Asana, Monday or ClickUp in a posting",
         "season": "year-round, with planning in the fourth quarter",
         "exploratory": True,
+        "location": "New York, Los Angeles, Chicago, Austin, Denver, Atlanta, "
+                    "Miami and Salt Lake City (the agency metros)",
+        "seed": "singlegrain.com",
+        "terms": [
+            S("coord_ph",
+              "account coordinator, ad operations or design production "
+              "with a Philippines location",
+              "The work behind account managers, already offshore."),
+            S("agency_stack",
+              "HubSpot, Asana, Monday or ClickUp",
+              "The tools an offshore coordinator lives in; named in a "
+              "posting, they say the work is trackable and movable."),
+        ],
+        "states": [
+            S("ny", "New York",
+              "The most agencies and the most agency layoffs."),
+            S("ca", "California",
+              "Los Angeles and the Bay Area agency base."),
+            S("il", "Illinois",
+              "Chicago's mid-size agencies."),
+            S("tx", "Texas",
+              "Austin and Dallas agencies growing fast."),
+            S("co", "Colorado",
+              "Denver's agency cluster."),
+            S("ga", "Georgia",
+              "Atlanta agencies."),
+            S("fl", "Florida",
+              "Miami agencies serving Latin America."),
+        ],
     },
     {
         "key": "travel",
@@ -378,6 +685,33 @@ VERTICALS = [
         "tells": "Sabre, Amadeus or Travefy in a posting",
         "season": "booking season is January to March",
         "exploratory": True,
+        "location": "anywhere in the United States",
+        "seed": "zicasso.com",
+        "terms": [
+            S("booking_ph",
+              "booking support or travel coordinator with a Philippines "
+              "location",
+              "Desk work tied to a clock, already covered from another "
+              "time zone."),
+            S("gds",
+              "Sabre, Amadeus or Travefy",
+              "The booking systems a remote coordinator works in."),
+        ],
+        "states": [
+            S("fl", "Florida",
+              "The most agencies and tour operators, cruise included."),
+            S("ca", "California",
+              "Large agencies and tour operators, with a fast notice "
+              "feed."),
+            S("ny", "New York",
+              "Corporate and luxury agencies."),
+            S("tx", "Texas",
+              "Growing agencies in Dallas and Houston."),
+            S("co", "Colorado",
+              "Adventure and ski tour operators."),
+            S("nv", "Nevada",
+              "Las Vegas tour and group operators."),
+        ],
     },
     {
         "key": "ecommerce",
@@ -407,6 +741,34 @@ VERTICALS = [
         "tells": "Shopify, Gorgias, Zendesk or ShipStation in a posting",
         "season": "the fourth quarter is peak, so the pitch lands in summer",
         "exploratory": True,
+        "location": "anywhere in the United States",
+        "seed": "chubbiesshorts.com",
+        "terms": [
+            S("support_ph",
+              "customer support or order processing with a Philippines "
+              "location",
+              "Queue work already offshore, by title."),
+            S("ecom_stack",
+              "Shopify, Gorgias, Zendesk or ShipStation",
+              "The stack a remote support desk works in; named in a "
+              "posting, they say the work is ticket-based and movable."),
+        ],
+        "states": [
+            S("ca", "California",
+              "The most brands and the most brand layoffs."),
+            S("ny", "New York",
+              "Brand headquarters and the second-largest notice feed."),
+            S("tx", "Texas",
+              "Austin and Dallas brands."),
+            S("ut", "Utah",
+              "The Salt Lake City direct-to-consumer cluster."),
+            S("fl", "Florida",
+              "Miami brands."),
+            S("il", "Illinois",
+              "Chicago brands and fulfilment."),
+            S("pa", "Pennsylvania",
+              "Fulfilment-heavy brands in the Northeast corridor."),
+        ],
     },
     {
         "key": "home_services",
@@ -438,6 +800,35 @@ VERTICALS = [
         "season": "summer for cooling, winter for heating; pitch in the "
                   "shoulder months",
         "exploratory": True,
+        "location": "Texas, Arizona, Florida, Georgia, Nevada, the Carolinas "
+                    "and the Midwest (the hot and cold markets where the "
+                    "phones ring most)",
+        "seed": "hobaica.com",
+        "terms": [
+            S("csr_ph",
+              "dispatcher or customer service rep with a Philippines "
+              "location",
+              "The phone seat, already answered from offshore."),
+            S("fsm",
+              "ServiceTitan, Housecall Pro or FieldEdge",
+              "The dispatch platforms a remote CSR books into."),
+        ],
+        "states": [
+            S("tx", "Texas",
+              "The largest HVAC market and the most roll-ups."),
+            S("fl", "Florida",
+              "Year-round cooling demand and private-equity platforms."),
+            S("az", "Arizona",
+              "Phoenix, the highest summer call volume in the country."),
+            S("ga", "Georgia",
+              "Atlanta's roll-up platforms."),
+            S("ca", "California",
+              "The most contractors and the most notices."),
+            S("nv", "Nevada",
+              "Las Vegas summer demand."),
+            S("nc", "North Carolina",
+              "Fast-growing shops in Charlotte and the Triangle."),
+        ],
     },
     {
         "key": "distributors",
@@ -466,6 +857,37 @@ VERTICALS = [
                  "posting",
         "season": "year-round",
         "exploratory": True,
+        "location": "Illinois, Ohio, Texas, Pennsylvania, Georgia, Indiana, "
+                    "Wisconsin, California and New Jersey (the Midwest and "
+                    "the South)",
+        "seed": "rshughes.com",
+        "terms": [
+            S("order_ph",
+              "order entry or inside sales support with a Philippines "
+              "location",
+              "Keyed work already moved to a dedicated person offshore."),
+            S("erp",
+              "NetSuite, Epicor, SAP Business One or Acumatica",
+              "The ERPs a remote order-entry desk works in."),
+        ],
+        "states": [
+            S("il", "Illinois",
+              "Chicago is the distribution capital of the Midwest."),
+            S("oh", "Ohio",
+              "Dense with mid-size industrial distributors."),
+            S("tx", "Texas",
+              "Industrial and building-products distributors."),
+            S("pa", "Pennsylvania",
+              "Northeast corridor distribution."),
+            S("ca", "California",
+              "The most distributors and the most notices."),
+            S("nj", "New Jersey",
+              "Port-adjacent importers and distributors."),
+            S("ga", "Georgia",
+              "Atlanta's distribution ring."),
+            S("in", "Indiana",
+              "The crossroads warehousing belt."),
+        ],
     },
     {
         "key": "professional_services",
@@ -493,6 +915,34 @@ VERTICALS = [
         "tells": "Clio, MyCase or PracticePanther in a posting",
         "season": "year-round",
         "exploratory": True,
+        "location": "New York, Texas, Florida, California, Illinois, Georgia "
+                    "and Arizona (the legal and advisory metros)",
+        "seed": "jaburgwilk.com",
+        "terms": [
+            S("intake_ph",
+              "intake, paralegal or legal assistant with a Philippines "
+              "location",
+              "Intake and document work already offshore, by title."),
+            S("legal_stack",
+              "Clio, MyCase or PracticePanther",
+              "The practice platforms a remote assistant works in."),
+        ],
+        "states": [
+            S("ny", "New York",
+              "The most firms and the most firm consolidations."),
+            S("ca", "California",
+              "The largest firm base and a fast notice feed."),
+            S("tx", "Texas",
+              "Firms growing and merging in Dallas, Houston and Austin."),
+            S("fl", "Florida",
+              "Plaintiff and real-estate firms with high volume."),
+            S("il", "Illinois",
+              "Chicago's mid-size firms."),
+            S("ga", "Georgia",
+              "Atlanta's regional firms."),
+            S("az", "Arizona",
+              "Phoenix firms growing with the metro."),
+        ],
     },
 ]
 def signal_menu(v):
@@ -519,11 +969,64 @@ def signal_prose(v, ids=None):
     return ", ".join(s["label"] for s in signal_menu(v) if s["id"] in want)
 
 
+def term_menu(v):
+    """The displacement run's search terms for a vertical: its own desk
+    and software first, then the offshore tells every market shares. All
+    of it starts ticked - finding any one of these is the whole run."""
+    return ([dict(s, rec=True) for s in v["terms"]]
+            + [dict(s, rec=True) for s in UNIVERSAL_TERMS])
+
+
+def term_ids(v, recommended_only=True):
+    return [s["id"] for s in term_menu(v) if s["rec"] or not recommended_only]
+
+
+def term_prose(v, ids=None):
+    want = set(term_ids(v) if ids is None else ids)
+    return ", ".join(s["label"] for s in term_menu(v) if s["id"] in want)
+
+
+def state_menu(v):
+    """The cost-pressure run's states for a vertical, each with why that
+    state's WARN feed matters for this market. All ticked to start."""
+    return [dict(s, rec=True) for s in v["states"]]
+
+
+def state_ids(v, recommended_only=True):
+    return [s["id"] for s in state_menu(v) if s["rec"] or not recommended_only]
+
+
+def state_prose(v, ids=None):
+    want = set(state_ids(v) if ids is None else ids)
+    return ", ".join(s["label"] for s in state_menu(v) if s["id"] in want)
+
+
+# Every tick-list question, with the three things the hooks need for it:
+# the menu, the recommended ids, and the sentence the prompt carries.
+CHECKS = {
+    "signals": (signal_menu, signal_ids, signal_prose),
+    "search_terms": (term_menu, term_ids, term_prose),
+    "states": (state_menu, state_ids, state_prose),
+}
+
+# What the prompt says when someone opened a tick list and cleared it.
+# Restoring the recommendation on empty would make the clear link a lie.
+_CHECKS_EMPTY = {
+    "search_terms": "any wording that says the work is done from outside "
+                    "the United States",
+    "states": "every state that publishes WARN notices, the ones where "
+              "this market concentrates first",
+}
+
+
 for _v in VERTICALS:
     # Generated, not authored. The vertical guide and the recommendation
     # ask both want this sentence, and deriving it from the same menu the
     # screen shows is what stops the two saying different things.
     _v["triggers"] = signal_prose(_v)
+    # Every row authors every menu, or a vertical would open with an empty
+    # tick list on one run and a full one on the next.
+    assert _v["terms"] and _v["states"], _v["key"]
 
 
 VERTICAL_BY_LABEL = {v["label"]: v for v in VERTICALS}
@@ -581,7 +1084,8 @@ def _derive_tm(r, vals, d):
     d["vertical_guide"] = _vertical_guide(
         v, own_signals="signals" in r["field_by_key"])
     for key, attr in _FROM_VERTICAL:
-        if key in r["field_by_key"] and not d.get(key):
+        if (key in r["field_by_key"] and v.get(attr)
+                and not str(vals.get(key) or "").strip()):
             d[key] = v[attr]
             # Into the answers too, so THE DETAILS table shows the value the
             # steps were written with rather than a blank.
@@ -607,21 +1111,38 @@ def _derive_tm(r, vals, d):
             "I have not narrowed this down to particular signals: any live "
             "hiring of these roles counts, and for each company say what "
             "you actually saw.%s" % extra)
+    for key, (_menu, ids_of, prose) in CHECKS.items():
+        if key == "signals" or key not in r["field_by_key"]:
+            continue
+        # Same two answers as signals: no key is a request that never saw
+        # the screen and gets the recommendation; an empty one was cleared
+        # on purpose and widens the search instead of being ignored.
+        if key not in vals:
+            vals[key] = ", ".join(ids_of(v))
+            d[key] = prose(v)
+        elif not d.get(key):
+            d[key] = _CHECKS_EMPTY[key]
+    extra_terms = " ".join(str(vals.get("search_terms_extra") or "").split())
+    if extra_terms and "search_terms" in r["field_by_key"]:
+        d["search_terms"] = "%s, and also %s" % (
+            d["search_terms"], extra_terms.rstrip("."))
 
 
 # The targeting answers the vertical is the one to recommend, and where on
 # its row each of them comes from.
 _FROM_VERTICAL = (("company_size", "band"), ("who_to_reach", "buyers"),
-                  ("roles", "roles"), ("season_note", "season"))
+                  ("roles", "roles"), ("season_note", "season"),
+                  ("location", "location"), ("seed", "seed"))
 
 
 def checklist_tm(r, vals, key):
     """Engine hook. The menu behind a "checks" question. Only the signals
     question has one, and what is on it follows from the vertical picked
     two boxes above it."""
-    if key != "signals":
+    spec = CHECKS.get(key)
+    if not spec or key not in r["field_by_key"]:
         return []
-    return signal_menu(vertical_for(vals.get("vertical")))
+    return spec[0](vertical_for(vals.get("vertical")))
 
 
 def prefill_tm(r, vals, written=None):
@@ -655,18 +1176,20 @@ def prefill_tm(r, vals, written=None):
             continue
         vals[key] = out[key] = v[attr]
 
-    if "signals" in r["field_by_key"]:
-        cur = str(vals.get("signals") or "").strip()
+    for key, (menu_of, ids_of, _prose) in CHECKS.items():
+        if key not in r["field_by_key"]:
+            continue
+        cur = str(vals.get(key) or "").strip()
         ids = {p.strip() for p in cur.split(",") if p.strip()}
-        menu = {s["id"] for s in signal_menu(v)}
+        menu = {s["id"] for s in menu_of(v)}
         # The universal signals are on every menu, so "does this overlap the
         # menu" cannot tell a deliberate pick from the last vertical's
         # leftovers. What can: whether it is still exactly what this wrote,
         # or exactly what some vertical recommends. Either is untouched.
-        stale = any(cur == ", ".join(signal_ids(other)) for other in VERTICALS)
-        mine = cur == str(written.get("signals") or "").strip()
+        stale = any(cur == ", ".join(ids_of(other)) for other in VERTICALS)
+        mine = cur == str(written.get(key) or "").strip()
         if not ids & menu or mine or stale:
-            vals["signals"] = out["signals"] = ", ".join(signal_ids(v))
+            vals[key] = out[key] = ", ".join(ids_of(v))
     return out
 
 
@@ -714,6 +1237,18 @@ _SIGNAL_INTRO = (
     "anything you would rather leave alone.")
 
 
+_TERMS_INTRO = (
+    "Each of these, found in a posting or on a careers page, says the "
+    "company already runs staff outside the United States. The ones for "
+    "the vertical you picked are ticked - untick anything you would rather "
+    "not search for.")
+
+_STATES_INTRO = (
+    "Every state publishes its WARN notices. These are the ones where the "
+    "vertical you picked concentrates, each with the reason - untick any "
+    "you would rather skip.")
+
+
 def _vertical_field(default=DEFAULT_VERTICAL):
     # refresh=True: the signals below and the targeting beside it are the
     # picked vertical's, so the screen has to be redrawn when it changes.
@@ -725,9 +1260,8 @@ def _vertical_field(default=DEFAULT_VERTICAL):
 
 def _targeting_fields():
     return [
-        F("location", "Where", "details",
-          default="anywhere in the United States",
-          placeholder="e.g. Texas and the Southeast"),
+        F("location", "Where", "details", "textarea", hint=_REC,
+          placeholder="Recommended area for the vertical"),
         F("company_size", "How big a company", "details", hint=_REC,
           placeholder="Recommended band for the vertical"),
         F("roles", "Which roles they are hiring for", "details",
@@ -816,6 +1350,54 @@ _CAMPAIGN_TOOLS = ["campaign_types", "my_campaign_styles", "tm_mailboxes",
                    "campaigns_list", "create_campaign"]
 
 
+# Ready-made jobs for "Create your own". Clicking one drops its wording
+# into the box, where it can be changed like anything typed. Each names
+# only surfaces the connector actually has.
+OWN_JOBS = [
+    {"label": "Who replied this week",
+     "value": "Go through every one of my campaigns and tell me which "
+              "contacts have replied in the last seven days, what each one "
+              "said in a line, and which ones need an answer from me today.",
+     "also": {"done_when": "A list of replies grouped by campaign, with a "
+                           "suggested next step for each."}},
+    {"label": "Companies with no campaign yet",
+     "value": "Look at the companies in my contacts and tell me which ones "
+              "have never been put into a campaign. For the ones in a "
+              "vertical ThriveModal works in, build a Quick Intro campaign "
+              "for each.",
+     "also": {"done_when": "Every company in my contacts is either in a "
+                           "campaign or on a list with the reason it was "
+                           "left out."}},
+    {"label": "Tomorrow's call list",
+     "value": "Read my pending tasks and my replies and build me a call "
+              "list for tomorrow: who to call, why, the one thing to ask "
+              "them, and the order to work it in.",
+     "also": {"done_when": "A call list of no more than ten people, in the "
+                           "order to work them."}},
+    {"label": "Revive finished campaigns",
+     "value": "Find every campaign that finished more than sixty days ago, "
+              "list the contacts who never replied and are not on the "
+              "do-not-contact list, and set up a Revive Old Leads campaign "
+              "for them.",
+     "also": {"done_when": "One Revive Old Leads campaign per finished "
+                           "campaign, with the contact count read back."}},
+    {"label": "Draft this month's newsletter",
+     "value": "Draft this month's issue of my newsletter for the vertical "
+              "I sell into most, on a topic that is current for that "
+              "market, in the voice of my saved playbook.",
+     "also": {"done_when": "A draft issue I can read, edit and approve "
+                           "before anything goes out."}},
+    {"label": "Clean my contact list",
+     "value": "Go through my contacts and flag anyone at a staffing firm, "
+              "a job board or a government body, anyone at a company "
+              "already on my client list, and anyone with no work email. "
+              "Tell me what you would remove and why before removing "
+              "anything.",
+     "also": {"done_when": "A removal list with a reason on every row, and "
+                           "nothing removed until I say so."}},
+]
+
+
 # ── Routines ─────────────────────────────────────────────────────────────
 
 ROUTINES = [
@@ -876,10 +1458,11 @@ ROUTINES = [
                    "start conversations with the top ten",
         "tools": _CAMPAIGN_TOOLS,
         "fields": [
-            F("seed", "Which company to start from", "details",
-              default="knichellogistics.com",
-              hint="A reference customer's website. It shapes the search "
-                   "and is never named in the emails."),
+            F("seed", "Which company to start from", "details", ask=True,
+              hint="A customer, or any company that looks like the one you "
+                   "want more of. Its website shapes the search and is "
+                   "never named in the emails.",
+              placeholder="A website, e.g. knichellogistics.com"),
             _vertical_field(),
         ] + _targeting_fields() + _newsletter_fields() + _email_fields(
             DEFAULT_SEQUENCE) + [
@@ -919,10 +1502,11 @@ ROUTINES = [
         "fields": [
             _vertical_field("Accounting / CAS firms"),
         ] + _targeting_fields() + [
-            F("search_terms", "What to search for", "details",
-              default="Manila, Cebu, Philippines, offshore team, offshore "
-                      "operations, night shift, overnight team, virtual "
-                      "assistant"),
+            F("search_terms", "What to search for", "details", "checks",
+              hint=_TERMS_INTRO),
+            F("search_terms_extra", "Anything else to search for",
+              "details",
+              placeholder="Optional - e.g. the name of a provider they use"),
         ] + _newsletter_fields() + _email_fields(DEFAULT_SEQUENCE) + \
             _size_fields("5", "4", "120") + _TM_SKIP_FIELDS,
         "steps": [
@@ -961,8 +1545,7 @@ ROUTINES = [
         "fields": [
             _vertical_field(),
             F("states", "Which states' WARN notices to read", "details",
-              default="California, New York, Texas, Florida, Georgia, "
-                      "Illinois and Pennsylvania"),
+              "checks", hint=_STATES_INTRO),
             F("lookback", "How far back to look", "details",
               default="the last 90 days"),
         ] + _targeting_fields() + _newsletter_fields() + _email_fields(
@@ -1031,8 +1614,11 @@ ROUTINES = [
                   "my_campaign_styles", "tm_mailboxes", "campaigns_list",
                   "create_campaign"],
         "fields": [
-            F("audience", "Which saved audience", "details", ask=True,
-              placeholder="The name it has under Audiences"),
+            F("audience", "Which saved audience", "details", "pick",
+              ask=True, source="audiences", pick_first=True,
+              placeholder="The name it has under Audiences",
+              hint="Your saved audiences, from the Audiences page. The "
+                   "first one is filled in; pick another or type a name."),
             _vertical_field("General back office"),
         ] + _newsletter_fields() + _email_fields(
             DEFAULT_SEQUENCE, "the audience name") + [
@@ -1071,11 +1657,15 @@ ROUTINES = [
         "example": "Research Acme Freight in Dallas before I call the COO",
         "tools": [],
         "fields": [
-            F("company", "Which company", "details", ask=True,
-              placeholder="Name, and the website if you have it"),
+            F("company", "Which company", "details", "pick", ask=True,
+              source="companies",
+              placeholder="Name, and the website if you have it",
+              hint="The companies from your contacts are in the list. Any "
+                   "other company: type its name, and the website if you "
+                   "have it."),
             _vertical_field(),
-            F("who_to_reach", "Who to find there", "details", hint=_REC,
-              placeholder="Recommended buyers for the vertical"),
+            F("who_to_reach", "Who to find there", "details", "textarea",
+              hint=_REC, placeholder="Recommended buyers for the vertical"),
         ],
         "steps": [
             "{vertical_guide}",
@@ -1106,7 +1696,8 @@ ROUTINES = [
         "tools": [],
         "fields": [
             F("what", "What you want done", "details", "textarea", ask=True,
-              placeholder="Say it the way you'd say it to a colleague."),
+              placeholder="Say it the way you'd say it to a colleague.",
+              chips=OWN_JOBS),
             F("done_when", "How you'll know it worked", "details",
               placeholder="Optional"),
         ],
@@ -1310,18 +1901,21 @@ _RECOMMENDABLE = {
         "today would actually turn up, and leave out the ones that would "
         "waste the search."),
     "search_terms": (
-        "search_terms: the phrases to search for",
-        "search_terms is a comma-separated list of the exact phrases "
-        "worth searching, including the software names from the row above "
-        "where they help."),
+        "search_terms: which of the search terms on the menu below are "
+        "worth searching for in this market today, as a comma separated "
+        "list of their ids",
+        "search_terms is a pick from the menu below and nothing else - ids "
+        "only, never a term of your own. Keep the ones a search today would "
+        "actually turn up in this market."),
     "states": (
-        "states: which states' WARN notices to read",
+        "states: which of the states on the menu below to read WARN "
+        "notices for, as a comma separated list of their ids",
         "states is the one to search for. Look at what has actually been "
-        "filed recently - name the states with real, recent WARN activity "
-        "touching this market, busiest first, not simply the biggest "
-        "states. If a search turns up nothing usable, fall back to where "
-        "this market concentrates and say in `why` that you could not see "
-        "live notices."),
+        "filed recently and keep the states on the menu with real, recent "
+        "WARN activity touching this market - ids only, never a state that "
+        "is not on the menu. If a search turns up nothing usable, keep the "
+        "whole menu and say in `why` that you could not see live "
+        "notices."),
     "lookback": (
         "lookback: how far back to read",
         "lookback is a phrase like \"the last 90 days\". A vacancy is "
@@ -1373,13 +1967,15 @@ def recommend_tm(r, vals, keys=None):
         return {}, ""
     asked = "\n".join("- " + _RECOMMENDABLE[k][0] for k in keys)
     rules = "\n".join("- " + _RECOMMENDABLE[k][1] for k in keys)
-    if "signals" in keys:
+    for k in keys:
+        if k not in CHECKS:
+            continue
         # The menu travels with the ask, or "pick from the menu" is an
         # instruction with nothing to pick from.
-        rules += ("\n- The signal menu, and the only ids you may answer "
-                  "with:\n" + "\n".join(
+        rules += ("\n- The %s menu, and the only ids you may answer "
+                  "with:\n" % k + "\n".join(
                       "    %s: %s" % (s["id"], s["label"])
-                      for s in signal_menu(v)))
+                      for s in CHECKS[k][0](v)))
     shape = ", ".join('"%s": "..."' % k for k in keys)
 
     # What they have already said, so a recommendation for one box is not
@@ -1467,21 +2063,22 @@ def recommend_tm(r, vals, keys=None):
     # stray key would otherwise be written into a box the screen never
     # renders, and a list would reach the prompt looking like Python.
     out = {}
-    if "signals" in keys:
+    for k in keys:
+        if k not in CHECKS:
+            continue
         # Ids, checked against the menu and put back in menu order. Junk is
         # dropped rather than written into the box, and if nothing survives
         # the box is left alone for the recommendation already in it.
-        menu = signal_menu(v)
+        menu = CHECKS[k][0](v)
         by = {s["id"].lower(): s["id"] for s in menu}
-        raw = data.get("signals")
+        raw = data.get(k)
         picked = raw if isinstance(raw, list) else str(raw or "").split(",")
         want = {by[p] for p in
                 (str(x).strip().lower() for x in picked) if p in by}
         if want:
-            out["signals"] = ", ".join(s["id"] for s in menu
-                                       if s["id"] in want)
+            out[k] = ", ".join(s["id"] for s in menu if s["id"] in want)
     for k in keys:
-        if k == "signals":
+        if k in CHECKS:
             continue
         got = data.get(k)
         if got is None or isinstance(got, (dict, list, bool)):

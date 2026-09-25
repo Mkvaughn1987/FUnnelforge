@@ -279,7 +279,9 @@ def test_prefill_puts_the_recommendation_in_the_boxes(tm, aip):
     assert vals["who_to_reach"] == acc["buyers"]
     assert vals["roles"] == acc["roles"]
     assert vals["signals"] == ", ".join(tm.signal_ids(acc))
-    assert set(wrote) == {"company_size", "who_to_reach", "roles", "signals"}
+    assert vals["location"] == acc["location"]
+    assert set(wrote) == {"company_size", "who_to_reach", "roles", "signals",
+                          "location"}
 
 
 def test_changing_the_vertical_refills_what_prefill_wrote(tm, aip):
@@ -818,7 +820,7 @@ def test_p_tm_prompts_renders_ask_confirm_and_result(aip, tm, tmp_path,
     assert s._aip_req["vals"]["who_to_reach"] == log["buyers"]
     assert s._aip_req["vals"]["signals"] == ", ".join(tm.signal_ids(log))
     assert set(s._aip_req["prefilled"]) == {"company_size", "who_to_reach",
-                                            "roles", "signals"}
+                                            "roles", "signals", "location"}
     assert "inboxslide" in s._aip_prompt and "DripDrop" not in s._aip_prompt
     aip._CAT = aip.ARENA
 
@@ -856,3 +858,257 @@ def test_saved_prompt_opens_straight_on_the_built_prompt():
     e._open_setup(s, row)
     assert s._aip_prompt is None
     assert hasattr(t, "p_tm_saved_prompts")
+
+
+# ── Every run opens filled in (2026-09-25) ───────────────────────────────
+#
+# The hiring-signal run was the only one whose every box was written for
+# the vertical picked. Now each vertical row also authors where it
+# concentrates, a lookalike seed, the offshore tells the displacement run
+# searches for and the states the cost-pressure run reads, and the two new
+# menus are tick lists off the same engine as the signals one.
+
+def test_every_vertical_authors_location_seed_terms_and_states(tm):
+    for v in tm.VERTICALS:
+        assert v["location"].strip(), v["key"]
+        assert 1 <= len(v["terms"]) <= 3, v["key"]
+        assert 6 <= len(v["states"]) <= 8, v["key"]
+        for item in v["terms"] + v["states"]:
+            assert item["id"] and item["label"] and item["why"], (v["key"], item)
+        # Ids are unique on each menu, universals included.
+        ids = [t["id"] for t in tm.term_menu(v)]
+        assert len(ids) == len(set(ids)), v["key"]
+        ids = [t["id"] for t in tm.state_menu(v)]
+        assert len(ids) == len(set(ids)), v["key"]
+        # A seed is a website or, for the one market with no archetype,
+        # nothing at all - never prose.
+        assert v["seed"] == "" or re.fullmatch(r"[a-z0-9.-]+\.[a-z]+", v["seed"]), v["key"]
+    assert [v["key"] for v in tm.VERTICALS if not v["seed"]] == ["general"]
+    # Knichel stays the logistics seed: the one real reference customer.
+    assert tm.vertical_for("Logistics / 3PL")["seed"] == "knichellogistics.com"
+
+
+def test_the_universal_offshore_tells_sit_on_every_terms_menu(tm):
+    uni = [t["id"] for t in tm.UNIVERSAL_TERMS]
+    assert "philippines" in uni and "offshore" in uni
+    for v in tm.VERTICALS:
+        menu = tm.term_menu(v)
+        assert [t["id"] for t in menu][-len(uni):] == uni
+        assert all(t["rec"] for t in menu)      # all ticked: they are the run
+        assert tm.term_prose(v).startswith(v["terms"][0]["label"])
+    assert all(t["rec"] for t in tm.state_menu(tm.VERTICALS[0]))
+
+
+def test_search_terms_and_states_are_tick_lists_off_the_picked_vertical(tm):
+    disp = tm.ROUTINE_BY_KEY["tm_displacement"]
+    cost = tm.ROUTINE_BY_KEY["tm_cost_pressure"]
+    assert disp["field_by_key"]["search_terms"]["type"] == "checks"
+    assert cost["field_by_key"]["states"]["type"] == "checks"
+    assert "search_terms_extra" in disp["field_by_key"]
+    for label in ("Logistics / 3PL", "Home care agencies"):
+        v = tm.vertical_for(label)
+        assert tm.checklist_tm(disp, {"vertical": label}, "search_terms") == tm.term_menu(v)
+        assert tm.checklist_tm(cost, {"vertical": label}, "states") == tm.state_menu(v)
+    # A menu only exists on the run that asks the question.
+    assert tm.checklist_tm(disp, {"vertical": "Logistics / 3PL"}, "states") == []
+    assert tm.checklist_tm(tm.ROUTINE_BY_KEY["tm_signal_hunt"],
+                           {"vertical": "Logistics / 3PL"}, "search_terms") == []
+    assert set(tm.CHECKS) == {"signals", "search_terms", "states"}
+
+
+def test_prefill_fills_location_seed_terms_and_states(tm, aip):
+    disp = tm.ROUTINE_BY_KEY["tm_displacement"]
+    vals = _defaults(aip, disp)
+    vals["vertical"] = "Home care agencies"
+    wrote = tm.prefill_tm(disp, vals, {})
+    hc = tm.vertical_for("Home care agencies")
+    assert vals["search_terms"] == ", ".join(tm.term_ids(hc))
+    assert vals["location"] == hc["location"]
+    assert "search_terms" in wrote and "location" in wrote
+
+    cost = tm.ROUTINE_BY_KEY["tm_cost_pressure"]
+    vals = _defaults(aip, cost)
+    vals["vertical"] = "Logistics / 3PL"
+    tm.prefill_tm(cost, vals, {})
+    assert vals["states"] == ", ".join(tm.state_ids(tm.VERTICALS[0]))
+
+    look = tm.ROUTINE_BY_KEY["tm_lookalikes"]
+    vals = _defaults(aip, look)
+    vals["vertical"] = "Accounting / CAS firms"
+    wrote = tm.prefill_tm(look, vals, {})
+    assert vals["seed"] == tm.vertical_for("Accounting / CAS firms")["seed"]
+    # Change the vertical: what prefill wrote follows it, what they typed
+    # does not.
+    vals["vertical"] = "Home care agencies"
+    tm.prefill_tm(look, vals, wrote)
+    assert vals["seed"] == hc["seed"] and vals["location"] == hc["location"]
+    vals["seed"] = "mycustomer.com"
+    vals["location"] = "Texas"
+    vals["vertical"] = "Logistics / 3PL"
+    tm.prefill_tm(look, vals, wrote)
+    assert vals["seed"] == "mycustomer.com" and vals["location"] == "Texas"
+
+
+def test_ticked_terms_and_states_reach_the_prompt_as_the_menu_labels(tm, aip):
+    disp = tm.ROUTINE_BY_KEY["tm_displacement"]
+    vals = _defaults(aip, disp)
+    vals["vertical"] = "Accounting / CAS firms"
+    vals["search_terms"] = "cas_stack, philippines"
+    vals["search_terms_extra"] = "Bookkeeper360"
+    p = _flat(tm.build_prompt({"routine": "tm_displacement", "vals": vals,
+                               "summary": "x"}))
+    assert ("mention Karbon, Canopy, TaxDome or QuickBooks Online, "
+            "Philippines, Manila or Cebu, and also Bookkeeper360." in p)
+
+    cost = tm.ROUTINE_BY_KEY["tm_cost_pressure"]
+    vals = _defaults(aip, cost)
+    vals["vertical"] = "Logistics / 3PL"
+    vals["states"] = "il, tx"
+    p = _flat(tm.build_prompt({"routine": "tm_cost_pressure", "vals": vals,
+                               "summary": "x"}))
+    assert "WARN notice pages for Texas, Illinois over the last 90 days" in p
+
+
+def test_missing_and_empty_are_different_for_the_new_lists_too(tm, aip):
+    disp = tm.ROUTINE_BY_KEY["tm_displacement"]
+    # Never saw the screen: the recommendation.
+    vals = _defaults(aip, disp)
+    vals["vertical"] = "Accounting / CAS firms"
+    del vals["search_terms"]
+    p = _flat(tm.build_prompt({"routine": "tm_displacement", "vals": vals,
+                               "summary": "x"}))
+    assert "mention " + tm.term_prose(tm.vertical_for("Accounting / CAS firms")) in p
+    # Cleared on purpose: the net widens, and the prompt says so.
+    vals["search_terms"] = ""
+    p = _flat(tm.build_prompt({"routine": "tm_displacement", "vals": vals,
+                               "summary": "x"}))
+    assert "mention any wording that says the work is done from outside the United States" in p
+
+    cost = tm.ROUTINE_BY_KEY["tm_cost_pressure"]
+    vals = _defaults(aip, cost)
+    del vals["states"]
+    p = _flat(tm.build_prompt({"routine": "tm_cost_pressure", "vals": vals,
+                               "summary": "x"}))
+    assert "pages for " + tm.state_prose(tm.VERTICALS[0]) in p
+    vals["states"] = ""
+    p = _flat(tm.build_prompt({"routine": "tm_cost_pressure", "vals": vals,
+                               "summary": "x"}))
+    assert "pages for every state that publishes WARN notices" in p
+
+
+def test_location_and_seed_come_off_the_row_at_build_time_too(tm, aip):
+    """A caller that never ran prefill (an old saved setup) still gets the
+    vertical's answers, and general - which has no seed - leaves the seed
+    as the open question it is."""
+    look = tm.ROUTINE_BY_KEY["tm_lookalikes"]
+    vals = _defaults(aip, look)
+    vals["vertical"] = "Home care agencies"
+    p = _flat(tm.build_prompt({"routine": "tm_lookalikes", "vals": vals,
+                               "summary": "x"}))
+    hc = tm.vertical_for("Home care agencies")
+    assert "find_similar_companies with %s as the seed" % hc["seed"] in p
+    assert "companies in %s of about" % hc["location"] in p
+    vals["vertical"] = "General back office"
+    p = tm.build_prompt({"routine": "tm_lookalikes", "vals": vals,
+                         "summary": "x"})
+    assert "with <which company to start from> as the seed" in _flat(p)
+    assert "Which company to start from" in p     # asked, not invented
+
+
+def test_the_new_menus_travel_with_the_recommendation_and_come_back_as_ids(
+        tm, monkeypatch):
+    _, ff = _recommend(tm, monkeypatch, "{}", routine="tm_displacement",
+                       vals={"vertical": "Accounting / CAS firms"},
+                       keys=["search_terms"])
+    sent = ff.sent["messages"][0]["content"]
+    assert "The search_terms menu, and the only ids you may answer with" in sent
+    assert "cas_stack: Karbon" in sent and "philippines: Philippines" in sent
+    got, _ = _recommend(
+        tm, monkeypatch, '{"states": "tx, NOPE, il", "why": "w"}',
+        routine="tm_cost_pressure", vals={"vertical": "Logistics / 3PL"},
+        keys=["states"])
+    assert got[0] == {"states": "tx, il"}       # menu order, junk dropped
+    _, ff = _recommend(tm, monkeypatch, "{}", routine="tm_cost_pressure")
+    sent = ff.sent["messages"][0]["content"]
+    assert "The states menu" in sent and "never a state that is not on the menu" in sent
+
+
+def test_audience_and_company_are_picks_off_the_users_own_data(tm, aip,
+                                                                monkeypatch):
+    aud = tm.ROUTINE_BY_KEY["tm_audience"]["field_by_key"]["audience"]
+    comp = tm.ROUTINE_BY_KEY["tm_account"]["field_by_key"]["company"]
+    assert aud["type"] == "pick" and aud["source"] == "audiences"
+    assert aud["pick_first"] and aud["ask"]
+    assert comp["type"] == "pick" and comp["source"] == "companies"
+    assert not comp["pick_first"] and comp["ask"]
+
+    monkeypatch.setattr(aip, "PICK_OPTIONS", {
+        "audiences": lambda: ["Denver ops", "Texas brokers"],
+        "companies": lambda: ["Acme Freight", "Zed Logistics"]})
+    # The audience opens on the first saved one; a company is chosen, not
+    # assumed.
+    st = tm.STARTER_BY_ID["audience"]
+    req = aip._req_from_starter(st, tm.TM)
+    aip.run_prefill(tm.ROUTINE_BY_KEY["tm_audience"], req, tm.TM)
+    assert req["vals"]["audience"] == "Denver ops"
+    assert req["prefilled"]["audience"] == "Denver ops"
+    req["vals"]["audience"] = "Texas brokers"
+    aip.run_prefill(tm.ROUTINE_BY_KEY["tm_audience"], req, tm.TM)
+    assert req["vals"]["audience"] == "Texas brokers"
+    st = tm.STARTER_BY_ID["account"]
+    req = aip._req_from_starter(st, tm.TM)
+    aip.run_prefill(tm.ROUTINE_BY_KEY["tm_account"], req, tm.TM)
+    assert not req["vals"]["company"]
+    # The connector sees the list as a suggestion, not a rule.
+    runs = {r["run"]: r for r in aip.describe_runs(tm.TM)}
+    q = next(q for q in runs["account"]["questions"] if q["key"] == "company")
+    assert q["type"] == "text" and q["options"] == ["Acme Freight", "Zed Logistics"]
+    assert q["any_text"] is True
+    q = next(q for q in runs["audience"]["questions"] if q["key"] == "audience")
+    assert q["default"] == "Denver ops"
+    r = tm.ROUTINE_BY_KEY["tm_account"]
+    vals = _defaults(aip, r)
+    assert aip.apply_answers(r, vals, {"company": "Nobody Inc"}, tm.TM) == []
+    assert vals["company"] == "Nobody Inc"
+    # No data behind the list: a plain box, the question still there.
+    monkeypatch.setattr(aip, "PICK_OPTIONS", None)
+    assert aip._pick_names("audiences") == []
+    req = aip._req_from_starter(tm.STARTER_BY_ID["audience"], tm.TM)
+    aip.run_prefill(tm.ROUTINE_BY_KEY["tm_audience"], req, tm.TM)
+    assert not req["vals"]["audience"]
+
+
+def test_create_your_own_offers_ready_made_jobs(tm, aip):
+    f = tm.ROUTINE_BY_KEY["other"]["field_by_key"]["what"]
+    assert len(f["chips"]) >= 6
+    for chip in f["chips"]:
+        assert chip["label"] and chip["value"]
+        assert chip["also"]["done_when"]
+    chip = f["chips"][0]
+    r = tm.ROUTINE_BY_KEY["other"]
+    vals = _defaults(aip, r)
+    vals["what"] = chip["value"]
+    vals.update(chip["also"])
+    p = _flat(tm.build_prompt({"routine": "other", "vals": vals, "summary": ""}))
+    assert _flat(chip["value"]) in p
+    assert _flat(chip["also"]["done_when"]) in p
+    # Chips and picks are inboxslide's; Arena's page has none.
+    for r in aip.ARENA.routines:
+        for g in r["fields"]:
+            assert g["type"] != "pick" and not g["chips"] and not g["source"]
+
+
+def test_the_pick_widget_and_chips_render_under_the_stub(aip, tm, monkeypatch):
+    import inspect
+    block = inspect.getsource(aip._pick_widget)
+    assert "with_input=True" in block and "new_value_mode" in block
+    assert "ui.input(" in block          # the no-data fallback
+    block = inspect.getsource(aip._aip_field)
+    assert "_aip_chips(" in block and "_pick_widget(" in block
+    assert ".aip-chip{" in inspect.getsource(aip._aip_css)
+    monkeypatch.setattr(aip, "PICK_OPTIONS", {"audiences": lambda: ["A"]})
+    vals = {"audience": ""}
+    f = tm.ROUTINE_BY_KEY["tm_audience"]["field_by_key"]["audience"]
+    aip._pick_widget(_Colours(), vals, f, "")
+    chips = tm.ROUTINE_BY_KEY["other"]["field_by_key"]["what"]
+    aip._aip_chips(lambda: None, _Colours(), {}, chips)

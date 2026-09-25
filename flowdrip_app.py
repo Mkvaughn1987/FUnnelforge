@@ -10677,6 +10677,32 @@ async def api_tm_contact_list_update(request: Request):
 # default) and the Email & AI Setup settings. tm_settings (above) carries the
 # plain values; these carry the page actions.
 
+def _tm_company_names():
+    """Company names off the user's contacts, for the account run's
+    dropdown on the AI Prompt page: the same roll-up the Companies page
+    shows, name-sorted. Cannot raise - it runs on a render path."""
+    if not _is_thrivemodal():
+        return []
+    try:
+        idx = _company_index(load_contacts())
+        names = {str(e.get("name") or "").strip()
+                 for e in idx["companies"].values()}
+    except Exception:
+        return []
+    return sorted((n for n in names if n), key=str.lower)
+
+
+def _tm_pick_options():
+    """What the AI Prompt page's pick dropdowns offer, by source. Each
+    entry resolves the user at call time, so one binding serves everyone."""
+    if not _is_thrivemodal():
+        return {}
+    return {
+        "audiences": lambda: [a["name"] for a in load_saved_audiences()],
+        "companies": _tm_company_names,
+    }
+
+
 def _tm_api_prompt_engine():
     """The AI Prompt engine bound to the inboxslide catalogue, as the page
     binds it, and the user's newsletter names for its newsletter question."""
@@ -10684,6 +10710,7 @@ def _tm_api_prompt_engine():
     import tm_prompts as _tmp
     names = [c.get("name") for c in load_campaigns()
              if c.get("evergreen_only") and c.get("name")]
+    _aip.PICK_OPTIONS = _tm_pick_options()
     return _aip, _tmp.TM, names
 
 
@@ -69018,6 +69045,8 @@ def render_page(s: AppState, rf):
                         lambda _s, _rf: _create_newsletter_dialog(_s, _rf))
                     # Saved Prompts "Open" jumps back to the AI Prompt page.
                     _aip_nl.NAVIGATE = lambda _k: _sidebar_nav(s, rf, _k, {})
+                    # The audience and company dropdowns, off their data.
+                    _aip_nl.PICK_OPTIONS = _tm_pick_options()
                     if page == "tm_saved_prompts":
                         _tmp.p_tm_saved_prompts(s, rf)
                     else:
