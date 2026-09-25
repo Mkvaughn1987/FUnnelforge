@@ -29255,6 +29255,9 @@ def _tm_start_objective(s, k):
     s.aicb_wizard_step = 1
     s.aicb_type_picked = True
     s.aicb_contacts = []
+    s._tm_upload_err = ""
+    s._tm_upload_name = ""
+    s._tm_open_roles = []
 
 
 _TM_STEP_ICON = {ST.EMAIL_AUTO: "✉", ST.CALL: "☎", ST.LINKEDIN: "in"}
@@ -43323,6 +43326,37 @@ def _tm_offshore_roles_prompt(company: str, website: str = "",
     The catalog is a guide, not a whitelist; titles come back short and
     plain because emails pluralise them ("50+ Dispatchers")."""
     catalog = "; ".join(b["label"] for b in _TM_ROLE_BENCHMARKS)
+    if not (str(company or "").strip() or str(website or "").strip()):
+        # No single company (an uploaded list that spans several): research
+        # the industry instead.
+        ind = _wrap_untrusted("industry", str(industry or "").strip(),
+                              max_chars=200)
+        return (
+            f"Industry:\n{ind}\n\n"
+            "Research what companies in this industry are hiring for RIGHT "
+            "NOW: current postings on LinkedIn Jobs, Indeed or ZipRecruiter "
+            "and the roles that keep showing up across employers this "
+            "month. List up to 10 of the most commonly posted job titles "
+            "that could be done remotely by an offshore team member as "
+            "open_roles: computer-based back-office, operations, "
+            "scheduling, support, finance, admin, marketing, design or "
+            "technical work. Leave out every role that must be done in "
+            "person: hands-on, on-site, driving, warehouse, field, trade or "
+            "clinical work, and anything needing a U.S. license. Then "
+            "choose the 3 to 5 of them these companies would most likely "
+            "fill with offshore staff augmentation as offshore_pick, ranked "
+            "best fit first. If the search finds nothing, infer both lists "
+            "from what businesses in this industry run on: never return an "
+            "error.\n"
+            f"Roles known to work well offshore: {catalog}.\n"
+            "Write every title as a short, standard job title of 2 to 4 words "
+            "(e.g. \"Dispatcher\", \"AP/AR Specialist\", \"Logistics "
+            "Coordinator\"). One role per title, no seniority words, no "
+            "parentheses, no location.\n\n"
+            "Return ONLY valid JSON, no commentary, no markdown:\n"
+            '{"open_roles":["Posted title","Posted title"],'
+            '"offshore_pick":["Best-fit role","Next role"]}'
+        )
     who = _wrap_untrusted("company", " ".join(
         x for x in (company, f"({website})" if website else "",
                     f"- {industry}" if industry else "") if x), max_chars=300)
@@ -43458,6 +43492,229 @@ def _tm_toggle_role(selected, role, cap: int = _TM_ROLE_MAX):
     if len(cur) >= cap:
         return cur, f"Cap is {cap} positions. Untick one first."
     return cur + [role], None
+
+
+_TM_LIST_ONE_COMPANY_SHARE = 0.6
+
+
+def _tm_best_company_name(names) -> str:
+    """The spelling to show for one employer: the most common name once
+    case, punctuation and legal suffixes are folded ("Acme Inc" and
+    "Acme, Inc." count together), written the way most rows wrote it."""
+    folded = {}
+    for raw in names or []:
+        raw = str(raw or "").strip()
+        nm = _norm_company_name(raw)
+        if nm:
+            folded.setdefault(nm, []).append(raw)
+    if not folded:
+        return ""
+    best = sorted(folded.items(), key=lambda kv: (-len(kv[1]), kv[0]))[0][1]
+    return _pick_consensus(best)
+
+
+def _tm_contacts_target(rows) -> dict:
+    """Who an uploaded contact list is about.
+
+    {"mode": "company" | "market" | "", "company": name, "website": domain,
+     "companies": how many employers were told apart}
+
+    A row's employer is its CompanyDomain, else the domain of its work
+    email (mailbox providers such as gmail.com count for nothing), else
+    its Company name. A row with no usable domain still joins a domain
+    group when the company names match. One employer, or one that holds
+    60% or more of the identified rows, makes the list a company; more
+    makes it a market. mode "" means no row said who they work for."""
+    groups = {}
+    for r in rows or []:
+        r = r or {}
+        dom = _clean_company_domain(
+            r.get("CompanyDomain") or r.get("company_domain") or "")
+        if not dom:
+            dom = _clean_company_domain(r.get("Email") or r.get("email") or "")
+        name = str(r.get("Company") or r.get("company") or "").strip()
+        norm = _norm_company_name(name)
+        key = ("dom:" + dom) if dom else (("name:" + norm) if norm else "")
+        if not key:
+            continue
+        g = groups.setdefault(key, {"names": [], "domain": dom, "n": 0})
+        g["n"] += 1
+        if name:
+            g["names"].append(name)
+    by_name = {}
+    for k, g in groups.items():
+        if k.startswith("dom:"):
+            for nm in {_norm_company_name(x) for x in g["names"]}:
+                if nm:
+                    by_name.setdefault(nm, k)
+    for k in [k for k in groups if k.startswith("name:")]:
+        home = by_name.get(k[5:])
+        if home:
+            groups[home]["n"] += groups[k]["n"]
+            groups[home]["names"] += groups[k]["names"]
+            del groups[k]
+    if not groups:
+        return {"mode": "", "company": "", "website": "", "companies": 0}
+    total = sum(g["n"] for g in groups.values())
+    _key, top = sorted(groups.items(), key=lambda kv: (-kv[1]["n"], kv[0]))[0]
+    if len(groups) == 1 or top["n"] / total >= _TM_LIST_ONE_COMPANY_SHARE:
+        return {"mode": "company", "company": _tm_best_company_name(top["names"]),
+                "website": top["domain"], "companies": len(groups)}
+    return {"mode": "market", "company": "", "website": "",
+            "companies": len(groups)}
+
+
+def _tm_upload_contacts_apply(s, rows, rf):
+    """An uploaded contact list on inboxslide Target details: the rows
+    become the campaign's contacts, and the target is worked out and
+    researched the same way Autofill does. One company: the company
+    lookup plus its open positions (`_aicb_ai_extract`). Several: the
+    list is analysed for industry and region, then positions are
+    researched for that industry. The list's own job titles are the
+    people being emailed, never the positions to pitch."""
+    s._tm_upload_err = ""
+    if not rows:
+        s.aicb_contacts = []
+        s._tm_upload_err = ("No contacts found in that file. It needs a "
+                            "header row with an Email column.")
+        return
+    s.aicb_contacts = list(rows)
+    s.aicb_sel_roles = []
+    s._tm_open_roles = []
+    t = _tm_contacts_target(rows)
+    if not t["mode"]:
+        s._tm_upload_err = ("Loaded the contacts, but no Company or "
+                            "work-email column says who they work for. "
+                            "Paste the website below, or pick the industry "
+                            "by hand.")
+        return
+    s.aicb_target_mode = t["mode"]
+    s.aicb_company = t["company"]
+    s.aicb_website = t["website"]
+    if not ANTHROPIC_API_KEY:
+        return
+    if t["mode"] == "company":
+        _aicb_ai_extract(s, t["website"] or t["company"], "company", rf)
+        return
+
+    import threading as _thr
+
+    def _run():
+        try:
+            _analyze_contacts_with_ai(s, rows)
+            industry = ((getattr(s, "aicb_primary_industry", "") or "").strip()
+                        or _industry_label_for_key(
+                            (getattr(s, "aicb_industry", "") or "").strip()))
+            picks, open_roles = [], []
+            if industry:
+                import anthropic as _anth
+                client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
+                found = _tm_research_offshore_roles(client, "", "", industry)
+                picks = list(found.get("picks") or [])
+                open_roles = list(found.get("open") or [])
+            s.aicb_sel_roles = picks[:5]
+            s._tm_open_roles = open_roles
+        except Exception as e:
+            s._tm_upload_err = f"{_friendly_ai_error(e)}"
+        finally:
+            s._aicb_qs_running = False
+
+    s._aicb_qs_running = True
+    _thr.Thread(target=_run, daemon=True).start()
+
+
+def _render_tm_contacts_upload(s, rf):
+    """inboxslide Target details: start from a contact list instead of a
+    website. Sits above the Company / Market choice. The CSV's contacts
+    are the people the campaign goes to; the company or market, the
+    industry and the positions are read from the list and researched."""
+    n = len(getattr(s, "aicb_contacts", []) or [])
+    fname = (getattr(s, "_tm_upload_name", "") or "").strip()
+    busy = bool(getattr(s, "_aicb_qs_running", False))
+    mode = getattr(s, "aicb_target_mode", "company") or "company"
+
+    async def _on_upload(e):
+        try:
+            content = await e.file.read()
+        except Exception:
+            ui.notify("Upload failed.", type="negative"); return
+        if not content:
+            ui.notify("That file is empty.", type="warning"); return
+        if len(content) > _MAX_CSV_BYTES:
+            ui.notify("CSV too large (50 MB max).", type="negative"); return
+        tmp = _safe_attachment_path(
+            f"_tm_upload_{e.file.name or 'contacts.csv'}",
+            _user_pdf_dir(), _ALLOWED_CSV_EXTS, fallback="contacts")
+        if tmp is None:
+            ui.notify("Upload must be a .csv, .tsv, or .txt file.",
+                      type="negative")
+            return
+        try:
+            tmp.write_bytes(content)
+            raw_rows, _w = safe_read_csv_rows(str(tmp))
+        finally:
+            try: tmp.unlink()
+            except Exception: pass
+        rows = _normalize_rows(raw_rows) if raw_rows else []
+        s._tm_upload_name = Path(e.file.name or "contacts.csv").name
+        _tm_upload_contacts_apply(s, rows, rf)
+        rf()
+
+    # The real file input stays hidden; the button below clicks it.
+    ui.upload(on_upload=_on_upload, auto_upload=True).classes(
+        "dd-tm-uploader").style(
+        "display:none;position:absolute;visibility:hidden;")
+
+    def _pick():
+        ui.run_javascript(
+            "const el = document.querySelector('.dd-tm-uploader input[type=file]'); "
+            "if (el) el.click();")
+
+    with ui.element("div").style(
+            "display:flex;align-items:center;gap:12px;flex-wrap:wrap;"
+            f"padding:12px 14px;margin-bottom:14px;"
+            f"background:{_tint(C['teal'], '10')};border:1px dashed {C['teal']};"
+            "border-radius:10px;"):
+        ui.label("📤").style("font-size:22px;line-height:1;")
+        with ui.element("div").style("flex:1;min-width:220px;"):
+            ui.label(
+                (f"{n} contacts loaded" + (f" from {fname}" if fname else ""))
+                if n else "Start from a contact list"
+            ).style(
+                f"font-size:13px;font-weight:700;color:{C['text_l']};"
+                "font-family:'Nunito',sans-serif;")
+            ui.label(
+                ("These are the people this campaign goes to. Upload a "
+                 "different list to replace them.")
+                if n else
+                ("Upload a CSV and we work out the company, its industry and "
+                 "the positions it is hiring for. The contacts ride along as "
+                 "the people this campaign goes to.")
+            ).style(f"font-size:11px;color:{C['muted']};line-height:1.45;")
+        with ui.element("button").classes("fd-pb").style(
+                "padding:8px 14px;font-size:12px;border-radius:6px;"
+                f"background:{C['teal']};color:{C['on_teal']};border:none;"
+                "font-weight:700;font-family:inherit;cursor:pointer;"
+                "white-space:nowrap;").on("click", _pick):
+            ui.label("Replace list" if n else "Upload CSV").style(
+                "pointer-events:none;")
+    if busy and mode != "company":
+        # Company mode has its own spinner under Autofill.
+        with ui.element("div").style(
+                "display:flex;align-items:center;gap:8px;margin:-6px 0 12px;"):
+            ui.spinner("dots", size="sm")
+            ui.label("Reading your list: industry, region and the positions "
+                     "these companies are hiring for…").style(
+                f"font-size:12px;color:{C['muted']};")
+
+        def _up_poll():
+            if not getattr(s, "_aicb_qs_running", False):
+                try: rf()
+                except Exception: pass
+        ui.timer(1.5, _up_poll)
+    if getattr(s, "_tm_upload_err", ""):
+        ui.label(f"⚠ {s._tm_upload_err}").style(
+            f"font-size:11px;color:{C['warn']};margin:-6px 0 12px;display:block;")
 
 
 def _render_tm_positions_picker(s, rf):
@@ -50528,7 +50785,10 @@ def p_ai_campaign(s: AppState, rf):
         if s.aicb_contacts and not s.aicb_company and not s.aicb_niche:
             if len(_cos) == 1: s.aicb_company = list(_cos)[0]
             elif _cos: s.aicb_niche = ", ".join(list(_cos)[:3])
-        if s.aicb_contacts and not s.aicb_sel_roles and _tis:
+        # On the sales instance the list's titles are the people being
+        # emailed (owners, controllers), not positions to pitch: those
+        # come from the offshore-roles research instead.
+        if s.aicb_contacts and not s.aicb_sel_roles and _tis and not _SALES_MODE:
             s.aicb_sel_roles = list(_tis)[:5]
 
         # ── Contact list preview ──
@@ -50743,6 +51003,10 @@ def p_ai_campaign(s: AppState, rf):
                             # (no Confirm, no candidate picker).
                             _guide_title = "Fill in the details"
                             _guide_bullets = [
+                                ("Have a contact list?",
+                                 "Upload it at the top. We read the company, "
+                                 "its industry and the positions it is hiring "
+                                 "for, and the contacts ride along to the send."),
                                 ("Paste the website, click Autofill",
                                  "AI fills in the company, industry, "
                                  "locations and the positions they are "
@@ -50928,6 +51192,10 @@ def p_ai_campaign(s: AppState, rf):
                             ui.label("auto-detected").style(
                                 f"font-size:10px;color:{C['teal']};font-weight:600;padding:2px 8px;"
                                 f"background:{_tint(C['teal'],'15')};border-radius:99px;")
+
+                    if _SALES_MODE:
+                        # inboxslide: a contact list can start the campaign.
+                        _render_tm_contacts_upload(s, rf)
 
                     # ── Mode toggle: Company vs Market/Niche ─────────────────
                     # Mutually exclusive targets. Only the active mode's field
