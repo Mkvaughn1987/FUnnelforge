@@ -43323,36 +43323,6 @@ def _tm_offshore_roles_prompt(company: str, website: str = "",
     The catalog is a guide, not a whitelist; titles come back short and
     plain because emails pluralise them ("50+ Dispatchers")."""
     catalog = "; ".join(b["label"] for b in _TM_ROLE_BENCHMARKS)
-    if not (str(company or "").strip() or str(website or "").strip()):
-        # No company yet: the Target Positions "Autofill with AI" button
-        # researches the industry instead.
-        ind = _wrap_untrusted("industry", str(industry or "").strip(),
-                              max_chars=200)
-        return (
-            f"Industry:\n{ind}\n\n"
-            "Research what companies in this industry are hiring for RIGHT "
-            "NOW: current postings on LinkedIn Jobs, Indeed or ZipRecruiter "
-            "and the roles that keep showing up across employers this "
-            "month. List up to 10 of the most commonly posted job titles as "
-            "open_roles. Then choose the 3 to 5 of them that these "
-            "companies would most likely fill with offshore staff "
-            "augmentation as offshore_pick: remote, computer-based "
-            "back-office, operations, support, finance, admin, marketing or "
-            "technical work. Skip anything hands-on, on-site, driving, "
-            "warehouse or field work, and anything needing a U.S. license. "
-            "Rank best fit first, and prefer roles that are both in demand "
-            "today and a proven offshore fit. If the search finds nothing, "
-            "infer both lists from what businesses in this industry run "
-            "on: never return an error.\n"
-            f"Roles known to work well offshore: {catalog}.\n"
-            "Write every title as a short, standard job title of 2 to 4 words "
-            "(e.g. \"Dispatcher\", \"AP/AR Specialist\", \"Logistics "
-            "Coordinator\"). One role per title, no seniority words, no "
-            "parentheses, no location.\n\n"
-            "Return ONLY valid JSON, no commentary, no markdown:\n"
-            '{"open_roles":["Posted title","Posted title"],'
-            '"offshore_pick":["Best-fit role","Next role"]}'
-        )
     who = _wrap_untrusted("company", " ".join(
         x for x in (company, f"({website})" if website else "",
                     f"- {industry}" if industry else "") if x), max_chars=300)
@@ -43458,137 +43428,18 @@ def _tm_toggle_role(selected, role, cap: int = _TM_ROLE_MAX):
     return cur + [role], None
 
 
-def _tm_merge_role_picks(selected, picks, cap: int = _TM_ROLE_MAX) -> list:
-    """Ticked positions after the Target Positions Autofill: whatever the
-    user already ticked or typed stays, in place and first (the first
-    tick sets the wage on the PDFs), then the AI's picks best fit first
-    until the cap. Case-insensitive de-dupe."""
-    out = [str(x).strip() for x in (selected or []) if str(x).strip()]
-    seen = {x.lower() for x in out}
-    for r in picks or []:
-        r = str(r or "").strip()
-        if len(out) >= cap:
-            break
-        if r and r.lower() not in seen:
-            seen.add(r.lower())
-            out.append(r)
-    return out
-
-
-def _tm_positions_autofill_target(s) -> dict:
-    """What the Target Positions Autofill researches: the company when
-    one is filled in (the Company box is read live, its blur may not have
-    fired), otherwise the industry picked. Empty dict when neither is
-    set."""
-    company = ""
-    try:
-        ref = (getattr(s, "_aicb_step2_refs", {}) or {}).get("company")
-        company = (getattr(ref, "value", None) or "").strip()
-    except Exception:
-        company = ""
-    if not company:
-        company = (getattr(s, "aicb_company", "") or "").strip()
-    website = (getattr(s, "aicb_website", "") or "").strip()
-    industry = (getattr(s, "aicb_primary_industry", "") or "").strip()
-    if not industry:
-        key = (getattr(s, "aicb_industry", "") or "").strip()
-        try:
-            industry = (AICB_INDUSTRIES.get(key, {}) or {}).get("label", "") or key
-        except Exception:
-            industry = key
-    if not (company or website or industry):
-        return {}
-    return {"company": company, "website": website, "industry": industry}
-
-
-def _tm_autofill_positions(s, rf):
-    """The "Autofill with AI" button on Target Positions: research the
-    positions this company, or failing that this industry, is hiring for
-    right now that fit offshore, in a background thread. Posted titles
-    become the chips; offshore picks are ticked after anything the user
-    already chose. Own running/error flags so the company Autofill's
-    spinner is untouched."""
-    import threading as _thr
-    target = _tm_positions_autofill_target(s)
-    if not target:
-        ui.notify("Add the company's website or pick an industry first, "
-                  "so the AI knows what to search.", type="warning",
-                  timeout=3500)
-        return
-    if not ANTHROPIC_API_KEY:
-        ui.notify("Anthropic API key missing — see Email & AI Setup.",
-                  type="warning")
-        return
-    if target["company"]:
-        s.aicb_company = target["company"]
-
-    def _run():
-        try:
-            import anthropic as _anth
-            client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
-            found = _tm_research_offshore_roles(
-                client, target["company"], target["website"],
-                target["industry"])
-            picks = list(found.get("picks") or [])
-            open_roles = list(found.get("open") or [])
-            if not (picks or open_roles):
-                s._tm_roles_err = ("No positions found. Try adding the "
-                                   "website, or type a title and press Enter.")
-                return
-            if open_roles:
-                s._tm_open_roles = open_roles
-            s.aicb_sel_roles = _tm_merge_role_picks(
-                getattr(s, "aicb_sel_roles", []) or [], picks)
-            s._tm_roles_err = ""
-        except Exception as e:
-            s._tm_roles_err = f"{_friendly_ai_error(e)}"
-        finally:
-            s._tm_roles_running = False
-
-    s._tm_roles_running = True
-    s._tm_roles_err = ""
-    rf()
-    _thr.Thread(target=_run, daemon=True).start()
-
-
 def _render_tm_positions_picker(s, rf):
     """Target Positions on the merged inboxslide Target details step.
     Autofill's open postings arrive as chips; the ticked ones are the
     campaign's Target Positions. Typing a title and pressing Enter adds
-    one that is not posted. The row's own "Autofill with AI" button
-    researches positions from the company, or the industry alone."""
+    one that is not posted."""
     selected = [str(x).strip() for x in (getattr(s, "aicb_sel_roles", []) or [])
                 if str(x).strip()]
     open_roles = list(getattr(s, "_tm_open_roles", []) or [])
     choices = _tm_role_choices(open_roles, selected)
     sel_lower = {x.lower() for x in selected}
-    _running = bool(getattr(s, "_tm_roles_running", False))
     with ui.element("div").style("margin-bottom:12px;"):
-        with ui.element("div").style(
-                "display:flex;align-items:center;justify-content:space-between;"
-                "gap:8px;flex-wrap:wrap;margin-bottom:4px;"):
-            ui.label("Target Positions").classes("fd-fl").style("margin-bottom:0;")
-            if _running:
-                with ui.element("div").style(
-                        "display:flex;align-items:center;gap:8px;"):
-                    ui.spinner("dots", size="sm")
-                    ui.label("Searching for positions hiring now that fit "
-                             "offshore…").style(
-                        f"font-size:12px;color:{C['muted']};")
-
-                def _pos_poll():
-                    if not getattr(s, "_tm_roles_running", False):
-                        try: rf()
-                        except Exception: pass
-                ui.timer(1.5, _pos_poll)
-            else:
-                with ui.element("button").classes("fd-pb").style(
-                        "padding:6px 12px;font-size:12px;border-radius:6px;"
-                        f"background:{C['teal']};color:{C['on_teal']};"
-                        "border:none;font-weight:700;font-family:inherit;"
-                        "cursor:pointer;"
-                        ).on("click", lambda: _tm_autofill_positions(s, rf)):
-                    ui.label("✨ Autofill with AI").style("pointer-events:none;")
+        ui.label("Target Positions").classes("fd-fl")
         if open_roles:
             hint = ("Positions they are hiring for right now. Tick the ones to "
                     f"pitch, up to {_TM_ROLE_MAX}. The first tick sets the wage "
@@ -43598,15 +43449,12 @@ def _render_tm_positions_picker(s, rf):
                     "would most likely staff offshore. Tick the ones to pitch; "
                     "the first tick sets the wage on the PDFs.")
         else:
-            hint = ("Autofill with AI finds the positions this company, or "
-                    "its industry, is hiring for right now that fit offshore. "
-                    "You can also type a title and press Enter.")
+            hint = ("Autofill with AI above pulls in the positions they are "
+                    "hiring for right now that fit offshore. You can also "
+                    "type a title and press Enter.")
         ui.label(hint).style(
             f"font-size:10px;color:{C['muted']};margin-bottom:6px;"
             f"display:block;line-height:1.4;")
-        if getattr(s, "_tm_roles_err", ""):
-            ui.label(f"⚠ {s._tm_roles_err}").style(
-                f"font-size:11px;color:{C['warn']};margin-bottom:6px;display:block;")
         if choices:
             with ui.element("div").style(
                     "display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;"):
