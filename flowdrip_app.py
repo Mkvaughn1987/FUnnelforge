@@ -48654,6 +48654,71 @@ def _aicb_apply_extracted(s, data: dict):
         s.aicb_target_mode = "market"
 
 
+def _aicb_domain_of(user_text: str) -> str:
+    """The bare domain when `user_text` is a website (with or without a
+    scheme or www.), else ""."""
+    dom = str(user_text or "").strip().lower()
+    dom = re.sub(r"^https?://", "", dom).split("/")[0].removeprefix("www.")
+    if re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}", dom):
+        return dom
+    return ""
+
+
+def _aicb_parse_extracted(text: str):
+    """The JSON object in a model reply, tolerant of code fences and
+    trailing commas. None when there is no object to read."""
+    clean = str(text or "").replace("```json", "").replace("```", "").strip()
+    m = re.search(r'\{.*\}', clean, re.DOTALL)
+    if not m:
+        return None
+    try:
+        data = json.loads(m.group())
+    except Exception:
+        data = json.loads(re.sub(r',(\s*[}\]])', r'\1', m.group()))
+    return data if isinstance(data, dict) else None
+
+
+def _aicb_lookup_company(client, user_text: str) -> str:
+    """One Haiku call that identifies a company from its name or website:
+    official name, domain, HQ city/state and industry key. Returns the raw
+    reply text; the caller parses it. Shared by the New Campaign Target
+    details Autofill and the Sales Assets Autofill.
+
+    Trimmed prompt 2026-05-20: previously asked for summary + open_jobs +
+    3 target roles + web_search up to 3 times, which routinely ran 20-40s
+    on well-known companies. Autofill only needs website / industry /
+    location, so the heavy fields are dropped."""
+    import time as _time_for_log
+    _t0 = _time_for_log.time()
+    prompt = (
+        f"Identify '{user_text.strip()}': official website domain, "
+        f"headquarters city/state, and industry.\n"
+        f"Return ONLY valid JSON:\n"
+        '{"company":"Official name","website":"domain.com",'
+        '"industry":"one of the valid industries",'
+        '"location":"City, ST"}\n\n'
+        f"VALID INDUSTRIES: {', '.join(AICB_INDUSTRIES.keys())}\n\n"
+        "A website domain always identifies the company: if search "
+        "finds little, still return the name the domain implies, "
+        "the domain itself, and your best reading of the rest "
+        "(empty string for anything unknown). Return "
+        "{\"error\":\"not found\"} only for a name you cannot match "
+        "to any company. "
+        "No commentary, no markdown."
+    )
+    msg = _claude_create_with_retry(client,
+        model="claude-haiku-4-5-20251001",
+        max_tokens=600,
+        tools=[_safe_web_search_tool(max_uses=2)],
+        system=_injection_guarded_system(
+            "You research companies for B2B recruiters and extract hiring-relevant data."),
+        messages=[{"role": "user", "content": prompt}])
+    text = "".join(b.text for b in msg.content if hasattr(b, "text"))
+    print(f"[AICB-extract] company='{user_text.strip()[:60]}' "
+          f"took={_time_for_log.time() - _t0:.1f}s", flush=True)
+    return text
+
+
 def _aicb_ai_extract(s, user_text: str, mode: str, rf):
     """Run a Claude extraction in a background thread. mode: describe|company|job."""
     import threading as _thr
@@ -48684,41 +48749,8 @@ def _aicb_ai_extract(s, user_text: str, mode: str, rf):
                     messages=[{"role": "user", "content": prompt}])
                 text = msg.content[0].text
             elif mode == "company":
-                # Trimmed prompt 2026-05-20 — previously asked for summary
-                # + open_jobs + 3 target roles + web_search up to 3 times,
-                # which routinely ran 20-40s on well-known companies. The
-                # Target Details autofill only needs website / industry /
-                # location, so the heavy fields are dropped. Recruiters
-                # who want the company brief can use the dedicated Quick
-                # Start flow which still asks for the full payload.
-                import time as _time_for_log
-                _t0 = _time_for_log.time()
-                prompt = (
-                    f"Identify '{user_text.strip()}': official website domain, "
-                    f"headquarters city/state, and industry.\n"
-                    f"Return ONLY valid JSON:\n"
-                    '{"company":"Official name","website":"domain.com",'
-                    '"industry":"one of the valid industries",'
-                    '"location":"City, ST"}\n\n'
-                    f"VALID INDUSTRIES: {', '.join(AICB_INDUSTRIES.keys())}\n\n"
-                    "A website domain always identifies the company: if search "
-                    "finds little, still return the name the domain implies, "
-                    "the domain itself, and your best reading of the rest "
-                    "(empty string for anything unknown). Return "
-                    "{\"error\":\"not found\"} only for a name you cannot match "
-                    "to any company. "
-                    "No commentary, no markdown."
-                )
-                msg = _claude_create_with_retry(client,
-                    model="claude-haiku-4-5-20251001",
-                    max_tokens=600,
-                    tools=[_safe_web_search_tool(max_uses=2)],
-                    system=_injection_guarded_system(
-                        "You research companies for B2B recruiters and extract hiring-relevant data."),
-                    messages=[{"role": "user", "content": prompt}])
-                text = "".join(b.text for b in msg.content if hasattr(b, "text"))
-                print(f"[AICB-extract] company='{user_text.strip()[:60]}' "
-                      f"took={_time_for_log.time() - _t0:.1f}s", flush=True)
+                # Shared with the Sales Assets Autofill (_pdf_ai_autofill).
+                text = _aicb_lookup_company(client, user_text)
             elif mode == "job":
                 # If user_text looks like a URL, web search can fetch it; otherwise treat as pasted text.
                 _is_url = user_text.strip().startswith("http")
@@ -48748,23 +48780,14 @@ def _aicb_ai_extract(s, user_text: str, mode: str, rf):
             else:
                 s._aicb_qs_err = "Unknown mode"; return
 
-            clean = text.replace("```json", "").replace("```", "").strip()
-            m = re.search(r'\{.*\}', clean, re.DOTALL)
-            if not m:
+            data = _aicb_parse_extracted(text)
+            if data is None:
                 s._aicb_qs_err = "Could not parse AI response. Try again."
                 return
-            try:
-                data = json.loads(m.group())
-            except Exception:
-                # Tolerant retry: strip trailing commas
-                data = json.loads(re.sub(r',(\s*[}\]])', r'\1', m.group()))
-            _dom = user_text.strip().lower()
-            _dom = re.sub(r"^https?://", "", _dom).split("/")[0].removeprefix("www.")
-            if (data.get("error") and mode == "company"
-                    and re.fullmatch(r"[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}", _dom)):
+            if data.get("error") and mode == "company" and _aicb_domain_of(user_text):
                 # A domain is a real company even when the lookup comes back
                 # empty; keep it and let the user pick the industry.
-                data = {"website": _dom}
+                data = {"website": _aicb_domain_of(user_text)}
             if data.get("error"):
                 s._aicb_qs_err = f"Could not find that: {data['error']}"
                 return
@@ -54662,6 +54685,120 @@ def _tc_render_step_generate(s: AppState, rf):
             ui.label("Generate Sequence ->").style("pointer-events:none;")
 
 
+def _pdf_role_titles(text) -> list:
+    """The comma-separated Target Role box as a list of titles."""
+    return [t.strip() for t in str(text or "").split(",") if t.strip()]
+
+
+def _pdf_toggle_role_text(text, title) -> str:
+    """Add `title` to the Target Role box, or take it out when it is
+    already there (case-insensitive). Order is kept: the first role sets
+    the wage on the Blueprint and Cost PDFs."""
+    title = str(title or "").strip()
+    cur = _pdf_role_titles(text)
+    if title:
+        if any(t.lower() == title.lower() for t in cur):
+            cur = [t for t in cur if t.lower() != title.lower()]
+        else:
+            cur.append(title)
+    return ", ".join(cur)
+
+
+def _pdf_autofill_fields(current: dict, data: dict, picks) -> dict:
+    """What the Sales Assets Autofill writes into the form: only fields
+    left blank, so nothing the user typed is overwritten. The one
+    exception is a company typed as a domain, which becomes the official
+    name. Location follows _default_locations (Nationwide on ThriveModal).
+    Returns {field: value} for company / website / industry / location /
+    role, without the fields left alone."""
+    cur = {k: str((current or {}).get(k) or "").strip()
+           for k in ("company", "website", "industry", "location", "role")}
+    data = data if isinstance(data, dict) else {}
+    out = {}
+    co = str(data.get("company") or "").strip()
+    if co and co != cur["company"] and (
+            not cur["company"] or _aicb_domain_of(cur["company"])):
+        out["company"] = co
+    web = (str(data.get("website") or "").strip()
+           .replace("https://", "").replace("http://", "").strip("/"))
+    if web and not cur["website"]:
+        out["website"] = web
+    ind = str(data.get("industry") or "").strip()
+    if ind and not cur["industry"]:
+        out["industry"] = _industry_label_for_key(ind)
+    loc = data.get("location") or ""
+    if isinstance(loc, list):
+        loc = ", ".join(str(x).strip() for x in loc if str(x).strip())
+    loc = str(loc).strip()
+    locs = _default_locations([loc] if loc else [])
+    if locs and not cur["location"]:
+        out["location"] = ", ".join(locs)
+    picks = [str(x).strip() for x in (picks or []) if str(x).strip()]
+    if picks and not cur["role"]:
+        out["role"] = ", ".join(picks)
+    return out
+
+
+def _pdf_ai_autofill(s, rf):
+    """Sales Assets Autofill with AI, in a background thread. Looks the
+    company up from its website (preferred) or name with the same call
+    the New Campaign Autofill uses, fills the blank form fields, and on
+    ThriveModal researches the remote-capable positions it is hiring for
+    right now: the best offshore fits go into Target Role when it is
+    blank, and every posting becomes a chip under it. Errors land in
+    s._pdf_af_err; the form is never cleared."""
+    import threading as _thr
+    _ensure_pdf_state(s)
+    query = (s._pdf_website or "").strip() or (s._pdf_company or "").strip()
+    if len(query) < 2:
+        s._pdf_af_err = "Type the company name or paste its website first."
+        s._pdf_af_running = False
+        return
+
+    def _run():
+        try:
+            import anthropic as _anth
+            client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
+            data = _aicb_parse_extracted(_aicb_lookup_company(client, query))
+            if data is None:
+                s._pdf_af_err = "Could not parse AI response. Try again."
+                return
+            if data.get("error") and _aicb_domain_of(query):
+                # A domain is a real company even when the lookup comes
+                # back empty; keep it and let the user fill the rest.
+                data = {"website": _aicb_domain_of(query)}
+            if data.get("error"):
+                s._pdf_af_err = f"Could not find that: {data['error']}"
+                return
+            picks, open_roles = [], []
+            if _tm_nationwide():
+                found = _tm_research_offshore_roles(
+                    client,
+                    data.get("company") or (s._pdf_company or "").strip() or query,
+                    data.get("website") or (s._pdf_website or "").strip(),
+                    data.get("industry") or "")
+                picks = list(found.get("picks") or [])
+                open_roles = list(found.get("open") or [])
+            current = {"company": s._pdf_company, "website": s._pdf_website,
+                       "industry": s._pdf_industry, "location": s._pdf_location,
+                       "role": s._pdf_role}
+            for k, v in _pdf_autofill_fields(current, data, picks).items():
+                setattr(s, f"_pdf_{k}", v)
+            s._pdf_open_roles = open_roles
+            s._pdf_af_picks = picks
+            s._pdf_af_err = ""
+        except Exception as e:
+            s._pdf_af_err = f"{_friendly_ai_error(e)}"
+        finally:
+            s._pdf_af_running = False
+            # The page polls _pdf_af_running and re-renders when it clears.
+
+    s._pdf_af_running = True
+    s._pdf_af_err = ""
+    rf()
+    _thr.Thread(target=_run, daemon=True).start()
+
+
 def _ensure_pdf_state(s):
     """Initialize the PDF-generator scalars on `s`, each independently.
 
@@ -54676,9 +54813,14 @@ def _ensure_pdf_state(s):
         ("_pdf_company", ""), ("_pdf_role", ""), ("_pdf_location", ""),
         ("_pdf_industry", ""), ("_pdf_website", ""), ("_pdf_exp_level", ""),
         ("_pdf_generating", False), ("_pdf_result", ""),
+        ("_pdf_af_running", False), ("_pdf_af_err", ""),
     ):
         if not hasattr(s, _attr):
             setattr(s, _attr, _default)
+    # Autofill's chips (posted titles) and its picks: fresh lists per state.
+    for _attr in ("_pdf_open_roles", "_pdf_af_picks"):
+        if not isinstance(getattr(s, _attr, None), list):
+            setattr(s, _attr, [])
 
 
 def p_pdf_gen(s: AppState, rf):
@@ -54751,6 +54893,7 @@ def p_pdf_gen(s: AppState, rf):
         s._pdf_company = ""; s._pdf_role = ""; s._pdf_location = ""
         s._pdf_industry = ""; s._pdf_website = ""; s._pdf_exp_level = ""
         s._pdf_tm_cost = {}
+        s._pdf_open_roles = []; s._pdf_af_picks = []; s._pdf_af_err = ""
         s._pdf_result = ""; s._pdf_generating = False
         s._pdf_custom_prompt = ""; s._pdf_custom_outline = None
         s._pdf_custom_previewing = False; s._pdf_custom_stage = "closed"
@@ -55018,8 +55161,120 @@ def p_pdf_gen(s: AppState, rf):
             with ui.element("div"):
                 ui.label("Location *").classes("fd-fl")
                 pdf_loc = ui.input(value=s._pdf_location, placeholder="City, State").classes("fd-input")
+
+        def _commit_pdf_form():
+            """Copy what is typed into state, so a re-render keeps it.
+            The optional widgets are created further down; by the time a
+            click lands they exist."""
+            for _get, _k in (
+                    (lambda: pdf_co.value, "_pdf_company"),
+                    (lambda: pdf_loc.value, "_pdf_location"),
+                    (lambda: pdf_role.value, "_pdf_role"),
+                    (lambda: pdf_industry.value, "_pdf_industry"),
+                    (lambda: pdf_website.value, "_pdf_website"),
+                    (lambda: pdf_exp.value, "_pdf_exp_level")):
+                try:
+                    setattr(s, _k, (_get() or "").strip())
+                except Exception:
+                    pass
+
+        # inboxslide: Autofill with AI, the same one the New Campaign
+        # Target details step has. Name or website in, the rest filled.
+        if _SALES_MODE:
+            def _pdf_af_click():
+                _commit_pdf_form()
+                if not ((s._pdf_website or "").strip()
+                        or (s._pdf_company or "").strip()):
+                    ui.notify("Type the company name or paste its website first.",
+                              type="warning")
+                    return
+                if not ANTHROPIC_API_KEY:
+                    ui.notify("Anthropic API key missing  -  see Email & AI Setup.",
+                              type="warning")
+                    return
+                _pdf_ai_autofill(s, rf)
+
+            with ui.element("div").style("margin:0 0 14px;"):
+                if s._pdf_af_running:
+                    with ui.element("div").style(
+                            "display:flex;align-items:center;gap:8px;"):
+                        ui.spinner("dots", size="sm")
+                        ui.label(
+                            "Researching the company: industry, location and "
+                            "the positions they are hiring for…"
+                            if _tm_nationwide() else
+                            "Looking up the company: industry and location…"
+                        ).style(f"font-size:12px;color:{C['muted']};")
+
+                    def _pdf_af_poll():
+                        if not getattr(s, "_pdf_af_running", False):
+                            try: rf()
+                            except Exception: pass
+                    ui.timer(1.5, _pdf_af_poll)
+                else:
+                    with ui.element("button").classes("fd-pb").style(
+                            "padding:8px 16px;font-size:13px;border-radius:6px;"
+                            f"background:{C['teal']};color:{C['on_teal']};"
+                            f"border:none;font-weight:700;font-family:inherit;"
+                            f"cursor:pointer;"
+                            ).on("click", _pdf_af_click):
+                        ui.label("✨ Autofill with AI").style("pointer-events:none;")
+                    ui.label(
+                        "Type the company name above or paste its website "
+                        "below, then click Autofill to fill in the industry, "
+                        "location"
+                        + (" and the positions they are hiring for that fit "
+                           "offshore." if _tm_nationwide() else
+                           " and website.")
+                        + " Anything you already typed stays as it is."
+                    ).style(f"font-size:11px;color:{C['muted']};"
+                            f"margin-top:6px;display:block;line-height:1.4;")
+                    if s._pdf_af_err:
+                        ui.label(f"⚠ {s._pdf_af_err}").style(
+                            f"font-size:11px;color:{C['warn']};margin-top:4px;"
+                            f"display:block;")
+
         ui.label("Target Role *").classes("fd-fl")
         pdf_role = ui.input(value=s._pdf_role, placeholder="Superintendent, Project Manager").classes("fd-input").style("margin-bottom:14px;")
+
+        # Autofill's findings as chips: click to add a title to Target
+        # Role, click again to take it out.
+        _chip_src = list(s._pdf_open_roles or []) or list(s._pdf_af_picks or [])
+        if _SALES_MODE and _chip_src:
+            _on_titles = {t.lower() for t in _pdf_role_titles(s._pdf_role)}
+            with ui.element("div").style("margin:-6px 0 14px;"):
+                ui.label(
+                    "Positions they are hiring for right now that can be done "
+                    "remotely. Click one to add it to Target Role; the first "
+                    "role sets the wage on the Blueprint and Cost PDFs."
+                    if s._pdf_open_roles else
+                    "No current postings found, so these are the roles they "
+                    "would most likely staff offshore. Click one to add it to "
+                    "Target Role."
+                ).style(f"font-size:10px;color:{C['muted']};margin-bottom:6px;"
+                        f"display:block;line-height:1.4;")
+                with ui.element("div").style(
+                        "display:flex;flex-wrap:wrap;gap:6px;"):
+                    for _r in _tm_role_choices(_chip_src, []):
+                        _on = _r.lower() in _on_titles
+
+                        def _pdf_chip_tap(r=_r):
+                            _commit_pdf_form()
+                            s._pdf_role = _pdf_toggle_role_text(s._pdf_role, r)
+                            rf()
+                        _look = (
+                            f"background:{C['teal']};color:{C['on_teal']};"
+                            f"border:1px solid {C['teal']};"
+                            if _on else
+                            f"background:{C['surface']};color:{C['text_l']};"
+                            f"border:1px solid {C['border']};")
+                        with ui.element("div").style(
+                                "display:inline-flex;align-items:center;gap:6px;"
+                                "padding:5px 12px;border-radius:99px;cursor:pointer;"
+                                "font-size:12px;font-weight:600;user-select:none;"
+                                + _look).on("click", _pdf_chip_tap):
+                            ui.label(("✓ " if _on else "+ ") + _r).style(
+                                "pointer-events:none;")
 
         # Optional fields
         with ui.element("div").style("display:flex;align-items:center;gap:6px;margin-bottom:8px;"):
