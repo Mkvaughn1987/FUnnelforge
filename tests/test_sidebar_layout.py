@@ -17,20 +17,32 @@ def test_default_layout_is_classic():
 
 
 def test_unbuilt_destinations_have_no_page_and_are_skipped():
-    """Companies, sales Pipeline, Sales Dashboard and Outreach Analytics
-    were requested but have no page. They stay in the nav model with a
-    None page key and the renderer filters them out (no empty pages)."""
+    """Sales Dashboard has no page and stays hidden. Outreach Analytics,
+    AI Prompt and Saved Prompts are ThriveModal-only: None in the model,
+    resolved by _tm_nav_page_key on that playbook. Everything else is a
+    built page. The renderer still filters None rows (no empty pages)."""
     import flowdrip_app as fa
     by_label = {lbl: key for _sec, rows in fa.SIDEBAR_NAV for _ik, lbl, key in rows}
-    for lbl in ("Companies", "Pipeline", "Sales Dashboard", "Outreach Analytics"):
+    for lbl in ("Sales Dashboard", "Outreach Analytics", "AI Prompt", "Saved Prompts"):
         assert lbl in by_label, f"{lbl} missing from SIDEBAR_NAV"
-        assert by_label[lbl] is None, f"{lbl} must not be wired until a page exists"
-    for lbl in ("Overview", "My Day", "Replies", "Contacts", "Clients",
-                "Campaigns", "Content Library"):
+        assert by_label[lbl] is None, f"{lbl} must not be wired directly"
+    for lbl in ("Overview", "My Day", "Replies", "Companies", "Contacts", "Pipeline",
+                "Clients", "Campaigns", "Newsletters", "Sales Assets"):
         assert by_label.get(lbl), f"{lbl} must map to an existing page key"
+    assert "Content Library" not in by_label, "Content Library is no longer a row"
     src = inspect.getsource(fa._sidebar_v2)
     assert "rows = [r for r in rows if r[2]]" in src
     assert "if not rows:" in src
+
+
+def test_sections_are_home_sales_campaigns_content_performance():
+    import flowdrip_app as fa
+    assert [sec for sec, _rows in fa.SIDEBAR_NAV] == [
+        "HOME", "SALES", "CAMPAIGNS", "CONTENT", "PERFORMANCE"]
+    rows = dict(fa.SIDEBAR_NAV)
+    assert [r[1] for r in rows["SALES"]] == ["Companies", "Contacts", "Pipeline", "Clients"]
+    assert [r[1] for r in rows["CAMPAIGNS"]] == ["Campaigns", "Newsletters"]
+    assert [r[1] for r in rows["CONTENT"]] == ["Sales Assets", "AI Prompt", "Saved Prompts"]
 
 
 def test_wired_page_keys_exist_in_router():
@@ -43,9 +55,13 @@ def test_wired_page_keys_exist_in_router():
     # than a SALES_NAV tuple; all are routed in render_page.
     known |= {"admin", "start_seq", "create_camp", "drip", "dashboard",
               "signature", "timezone"}
+    # Sidebar-only pages (no classic nav row) routed through sales_pages.
+    known |= {"companies", "pipeline"}
     router = inspect.getsource(fa.render_page)
     for k in ("signature", "timezone"):
         assert f'elif page == "{k}":' in router
+    assert 'elif page in ("companies", "pipeline"):' in router
+    assert "import sales_pages as _spg" in router
     wired = {key for _sec, rows in fa.SIDEBAR_NAV for _ik, _lbl, key in rows if key}
     wired |= {key for _ik, _lbl, key in fa.SIDEBAR_SETTINGS}
     unknown = wired - known
@@ -111,7 +127,8 @@ def test_active_row_mapping_for_consolidated_pages():
     import flowdrip_app as fa
     m = fa.SIDEBAR_PAGE_ROW
     assert m["seq_mgr"] == "campaigns"
-    assert m["newsletters"] == "library" and m["pdf_gen"] == "library"
+    assert m["newsletters"] == "newsletters" and m["pdf_gen"] == "assets"
+    assert m["companies"] == "companies" and m["pipeline"] == "pipeline"
     for k in ("ai_settings", "company_profile", "team_settings", "signature",
               "timezone", "dnc"):
         assert m[k] == "settings", k
@@ -189,21 +206,25 @@ def test_inboxslide_env_example_enables_sidebar():
     assert "DRIPDROP_WORKSPACE_NAME=ThriveModal" in text
 
 
-def test_content_library_pages_are_sidebar_subrows():
+def test_content_pages_are_top_level_rows():
+    """Content Library's sub-rows became rows of their own (2026-09-24).
+    Every row key has an icon, every page lights its own row, and the two
+    ThriveModal-only prompt rows resolve through the additive table so
+    Arena's sidebar never shows them."""
     import flowdrip_app as fa
-    assert [r[2] for r in fa.SIDEBAR_LIBRARY] == ["newsletters", "pdf_gen", "tm_prompts",
-                                                  "tm_saved_prompts"]
-    for ik, _lbl, key in fa.SIDEBAR_LIBRARY:
-        assert ik in fa._SIDEBAR_ICONS, f"missing icon {ik}"
-        assert fa.SIDEBAR_PAGE_ROW.get(key) == "library"
-    assert fa.SIDEBAR_TITLES.get("tm_prompts") == "Content Library"
+    for _sec, rows in fa.SIDEBAR_NAV:
+        for ik, _lbl, _key in rows:
+            assert ik in fa._SIDEBAR_ICONS, f"missing icon {ik}"
+    assert fa.SIDEBAR_PAGE_ROW.get("tm_prompts") == "ai_prompt"
+    assert fa.SIDEBAR_PAGE_ROW.get("tm_saved_prompts") == "saved_prompts"
+    assert fa.SIDEBAR_TITLES.get("tm_prompts") == "AI Prompt"
+    assert fa.SIDEBAR_TITLES.get("newsletters") == "Newsletters"
+    assert fa.SIDEBAR_TITLES.get("pdf_gen") == "Sales Assets"
+    assert fa._TM_NAV_PAGES["ai_prompt"] == "tm_prompts"
+    assert fa._TM_NAV_PAGES["saved_prompts"] == "tm_saved_prompts"
+    assert not hasattr(fa, "SIDEBAR_LIBRARY")
     src = inspect.getsource(fa._sidebar_v2)
-    assert '_lib_open = ik == "library" and active == "library"' in src
-    assert "SIDEBAR_LIBRARY" in src
-    # The AI Prompt row is ThriveModal-only: Arena's sidebar skips it.
-    # Both ThriveModal-only prompt rows are hidden on other instances.
-    assert 'if (skey in ("tm_prompts", "tm_saved_prompts")' in src
-    assert "and not _is_thrivemodal()):" in src
+    assert "SIDEBAR_LIBRARY" not in src and "_lib_open" not in src
 
 
 def test_roundup_hidden_on_sales_instances():

@@ -902,6 +902,41 @@ async def tm_clients(action: str = "list", domain: str = "", name: str = "",
 
 
 @mcp.tool(description=(
+    "Companies: every company the user has a contact at, rolled up from "
+    "their contact lists with what the campaigns have done there: contacts, "
+    "campaigns, emails sent and scheduled, replies, last activity, and the "
+    "sales stage (prospect / contacted / replied / meeting / proposal / "
+    "client / lost). q filters on name or domain, stage on one stage. Each "
+    "row's key is what tm_pipeline takes to move it. Read-only."
+))
+async def tm_companies(q: str = "", stage: str = "") -> dict:
+    return await _tm_call("tm_companies", q, stage)
+
+
+@mcp.tool(description=(
+    "Pipeline: the sales board, companies by stage, for those a campaign "
+    "has touched. With no key, returns the board and the counts per stage. "
+    "With key (from tm_companies or the board) it updates that company's "
+    "record: stage (one of prospect, contacted, replied, meeting, proposal, "
+    "lost, or '' to go back to the stage the data implies), next_step and "
+    "note; only the fields given change. Client is not settable here: add "
+    "the company with tm_clients instead. Stages are shared with the team."
+))
+async def tm_pipeline(key: str = "", stage: str | None = None,
+                      next_step: str | None = None, note: str | None = None) -> dict:
+    if not key:
+        return await _tm_call("tm_pipeline")
+    body = {"key": key}
+    if stage is not None:
+        body["stage"] = stage
+    if next_step is not None:
+        body["next_step"] = next_step
+    if note is not None:
+        body["note"] = note
+    return await _tm_call("tm_pipeline", body)
+
+
+@mcp.tool(description=(
     "Settings (Company Profile + Email & AI Setup). With no update, returns "
     "the company profile, email signature, timezone, the user's own name "
     "and phone, the newsletter personal note, the AI writing style guide, "

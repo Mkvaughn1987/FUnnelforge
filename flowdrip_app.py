@@ -9260,6 +9260,87 @@ async def api_tm_client_update(request: Request):
     return JSONResponse({"error": "action must be add or remove"}, status_code=400)
 
 
+@app.get("/api/v1/tm/companies")
+async def api_tm_companies(request: Request):
+    """Companies: the roll-up the Companies page shows. ?q= filters on name
+    or domain, ?stage= on one stage."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    import sales_pages as _spg
+    q = (request.query_params.get("q") or "").strip()
+    stage = (request.query_params.get("stage") or "").strip().lower()
+    if stage and stage not in _spg.STAGE_LABEL:
+        return JSONResponse({"error": f"unknown stage; one of {', '.join(_spg.STAGE_KEYS)}"},
+                            status_code=400)
+    rows = _spg.filter_rollup(_spg.rollup_for_user(owner), q, stage)
+    return JSONResponse({"companies": [_spg.public_row(r) for r in rows[:500]],
+                         "total": len(rows), "stages": _spg.STAGE_KEYS})
+
+
+@app.get("/api/v1/tm/pipeline")
+async def api_tm_pipeline(request: Request):
+    """Pipeline: the board, {stage: [company, ...]} in stage order."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    import sales_pages as _spg
+    cols = _spg.board_columns(_spg.rollup_for_user(owner), cap=500)
+    return JSONResponse({
+        "stages": [{"key": k, "label": l} for k, l in _spg.STAGES],
+        "board": {k: [_spg.public_row(r) for r in v["rows"]] for k, v in cols.items()},
+        "counts": {k: v["total"] for k, v in cols.items()},
+    })
+
+
+@app.post("/api/v1/tm/pipeline")
+async def api_tm_pipeline_update(request: Request):
+    """Body: {"key": <company key from the list>, "stage": one of the
+    stages or "" for auto, "next_step": str, "note": str}. Only the fields
+    present change. A company on the Clients list stays Client whatever
+    stage is sent; remove it from Clients first."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    if not isinstance(body, dict) or not str(body.get("key") or "").strip():
+        return JSONResponse({"error": "body must be an object with a company key"},
+                            status_code=400)
+    import sales_pages as _spg
+    key = str(body["key"]).strip()
+    rows = {r["key"]: r for r in _spg.rollup_for_user(owner)}
+    if key not in rows:
+        return JSONResponse({"error": "no company with that key"}, status_code=404)
+    if str(body.get("stage") or "").strip().lower() == "client":
+        return JSONResponse({"error": "Client comes from the Clients list; add the "
+                                      "company there (tm_clients) instead"},
+                            status_code=400)
+    try:
+        _spg.save_pipeline_record(key, body, owner, name=rows[key]["name"])
+    except ValueError as ex:
+        return JSONResponse({"error": str(ex)}, status_code=400)
+    fresh = {r["key"]: r for r in _spg.rollup_for_user(owner)}.get(key)
+    return JSONResponse({"ok": True, "company": _spg.public_row(fresh) if fresh else None})
+
+
 @app.get("/api/v1/tm/settings")
 async def api_tm_settings(request: Request):
     """Company profile, signature, timezone, the user's own name and phone,
@@ -14952,7 +15033,8 @@ def _tm_analytics_sources():
 # Sidebar destinations that exist only under a playbook. The row itself ships
 # to everyone with page_key None, so Arena keeps rendering exactly what it
 # rendered before this file changed.
-_TM_NAV_PAGES = {"analytics": "tm_analytics"}
+_TM_NAV_PAGES = {"analytics": "tm_analytics",
+                 "ai_prompt": "tm_prompts", "saved_prompts": "tm_saved_prompts"}
 
 
 def _tm_nav_page_key(row_key, page_key):
@@ -20750,20 +20832,30 @@ EMAILS_NAV = [
 # architecture lives in one place when Companies / Pipeline / reporting are
 # built (see docs/superpowers/specs/2026-09-16-inboxslide-sidebar-redesign-design.md).
 SIDEBAR_NAV = [
-    ("WORKSPACE", [
+    # Regrouped 2026-09-24 (docs/superpowers/specs/2026-09-24-sales-companies-
+    # pipeline-design.md): HOME not WORKSPACE (the workspace selector sits
+    # right above it), Companies + Pipeline built, Newsletters moved next to
+    # Campaigns because it is a running send, and the Content Library parent
+    # row replaced by its pages as top-level rows.
+    ("HOME", [
         ("overview",   "Overview",           "dashboard"),
         ("myday",      "My Day",             "drip"),
         ("replies",    "Replies",            "responses"),
     ]),
     ("SALES", [
-        ("companies",  "Companies",          None),   # no company records or page yet
+        ("companies",  "Companies",          "companies"),   # sales_pages.p_companies
         ("contacts",   "Contacts",           "contacts"),
-        ("pipeline",   "Pipeline",           None),   # a *sales* pipeline; the ATS is not one
+        ("pipeline",   "Pipeline",           "pipeline"),    # sales_pages.p_pipeline
         ("clients",    "Clients",            "active_clients"),
     ]),
-    ("OUTREACH", [
+    ("CAMPAIGNS", [
         ("campaigns",  "Campaigns",          "seq_mgr"),
-        ("library",    "Content Library",    "newsletters"),
+        ("newsletters", "Newsletters",       "newsletters"),
+    ]),
+    ("CONTENT", [
+        ("assets",       "Sales Assets",     "pdf_gen"),
+        ("ai_prompt",    "AI Prompt",        None),   # ThriveModal only: _tm_nav_page_key
+        ("saved_prompts", "Saved Prompts",   None),   # ThriveModal only: _tm_nav_page_key
     ]),
     ("PERFORMANCE", [
         ("sales_dash", "Sales Dashboard",    None),   # no sales reporting page yet
@@ -20784,15 +20876,6 @@ SIDEBAR_CAMPAIGNS = [
     ("c_saved",  "Drafts",    "saved"),
     ("c_tpl",    "Templates", "templates"),
 ]
-# Content Library's pages, rendered as sub-rows under the Content Library row
-# while either is open (same pattern as the Settings sub-rows below).
-SIDEBAR_LIBRARY = [
-    ("newspaper", "Newsletters",  "newsletters"),
-    ("present",   "Sales Assets", "pdf_gen"),
-    # ThriveModal only: the render loop skips this row unless _is_thrivemodal().
-    ("sparkle",   "AI Prompt",    "tm_prompts"),
-    ("c_saved",   "Saved Prompts", "tm_saved_prompts"),
-]
 SIDEBAR_SETTINGS = [
     ("mail",     "Email & AI Setup", "ai_settings"),
     ("building", "Company Profile",  "company_profile"),
@@ -20809,10 +20892,11 @@ SIDEBAR_PAGE_ROW = {
     "responses": "replies", "e_responses": "replies",
     "contacts": "contacts", "e_contacts": "contacts",
     "active_clients": "clients",
+    "companies": "companies", "pipeline": "pipeline",
     "seq_mgr": "campaigns", "active_camps": "campaigns", "queue": "campaigns",
     "evergreen": "campaigns", "evergreen_create": "campaigns", "e_evergreen": "campaigns",
-    "newsletters": "library", "pdf_gen": "library", "tm_prompts": "library",
-    "tm_saved_prompts": "library",
+    "newsletters": "newsletters", "pdf_gen": "assets", "tm_prompts": "ai_prompt",
+    "tm_saved_prompts": "saved_prompts",
     "ai_settings": "settings", "company_profile": "settings", "team_settings": "settings",
     "signature": "settings", "e_signature": "settings", "timezone": "settings", "dnc": "settings",
     "tm_analytics": "analytics",
@@ -20823,10 +20907,11 @@ SIDEBAR_TITLES = {
     "dashboard": "Overview", "market_intel": "Market Intel",
     "drip": "My Day", "tasks": "Tasks", "responses": "Replies", "e_responses": "Replies",
     "contacts": "Contacts", "e_contacts": "Contacts", "active_clients": "Clients",
+    "companies": "Companies", "pipeline": "Pipeline",
     "seq_mgr": "Campaigns", "active_camps": "Campaigns", "queue": "Email Queue",
     "evergreen": "Nurture Campaigns", "evergreen_create": "New Nurture Campaign",
-    "newsletters": "Content Library", "pdf_gen": "Content Library",
-    "tm_prompts": "Content Library", "tm_saved_prompts": "Content Library",
+    "newsletters": "Newsletters", "pdf_gen": "Sales Assets",
+    "tm_prompts": "AI Prompt", "tm_saved_prompts": "Saved Prompts",
     "ai_settings": "Email & AI Setup", "company_profile": "Company Profile",
     "team_settings": "Team", "signature": "Signature", "e_signature": "Signature",
     "timezone": "Timezone", "dnc": "Do Not Contact", "admin": "Admin",
@@ -21657,6 +21742,28 @@ def _seq_wizard_footer(s: AppState, rf, current_page: str, can_advance: bool = T
 # ═══════════════════════════════════════════════════════════════════════════
 
 PAGE_HELP = {
+    "companies": {
+        "title": "Companies",
+        "summary": "Every company you have a contact at, with what your campaigns have done there.",
+        "next_action": "Click a company to see its people, the campaigns that touched them and the latest reply, and to set a stage or a next step.",
+        "sections": [
+            ("What is this?", "A roll-up of your contact lists by employer. Nothing is stored separately: it is counted each time from your lists, the send queue, your replies and the Clients list."),
+            ("Where the numbers come from", "Contacts: people at that company across all your lists.\nCampaigns: campaigns that enrolled anyone there.\nSent / Replies: from the send queue and the responded log.\nLast activity: the latest send or reply."),
+            ("Stage", "Prospect, Contacted and Replied are worked out from what was sent. Meeting, Proposal and Lost are yours to set. Client comes from the Clients list and always wins."),
+            ("Grouping", "Companies are matched by company ID, then a verified company domain, then the company name. Email domains are never guessed at. Contacts with no company are counted but not shown."),
+        ]
+    },
+    "pipeline": {
+        "title": "Pipeline",
+        "summary": "Every company a campaign has touched, laid out by stage.",
+        "next_action": "Move a card with its stage picker to record a meeting, a proposal or a loss. Click a name to open it on Companies.",
+        "sections": [
+            ("What is this?", "A board of the companies your campaigns have reached. Companies that are only rows in an uploaded list stay on the Companies page until a campaign touches them."),
+            ("Stages", "Prospect: in a campaign, nothing sent yet.\nContacted: at least one email sent.\nReplied: someone there replied.\nMeeting / Proposal / Lost: set by you.\nClient: on the Clients list."),
+            ("Moving a card", "Pick a stage on the card. 'Auto' clears your choice so the stage follows the data again. Stages are shared with your team."),
+            ("Next step", "Set it from the company's card on the Companies page; it shows on the board."),
+        ]
+    },
     "dashboard": {
         "title": "Home",
         "summary": "Your daily command center — overdue tasks, emails sending today, active campaigns, and recent replies, all on one screen.",
@@ -22386,6 +22493,14 @@ _SIDEBAR_ICONS = {
     "logout":     '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
     "dot":        '<circle cx="12" cy="12" r="3"/>',
 }
+# The sidebar looks icons up by ROW key. These rows were Content Library
+# sub-rows with their own icon names until 2026-09-24; keep the shapes.
+_SIDEBAR_ICONS.update({
+    "newsletters":   _SIDEBAR_ICONS["newspaper"],
+    "assets":        _SIDEBAR_ICONS["present"],
+    "ai_prompt":     _SIDEBAR_ICONS["sparkle"],
+    "saved_prompts": _SIDEBAR_ICONS["c_saved"],
+})
 
 
 def _svg_icon(key: str, size: int = 18) -> str:
@@ -22443,7 +22558,7 @@ def _sidebar_page_title(s) -> tuple:
     """(section crumb, page title) for the compact header."""
     page = _sidebar_current_page(s)
     row = _sidebar_active(s)
-    crumb = {"new": "Outreach", "settings": "Settings", "admin": "Admin"}.get(row, "")
+    crumb = {"new": "Campaigns", "settings": "Settings", "admin": "Admin"}.get(row, "")
     if not crumb:
         for sec, rows in SIDEBAR_NAV:
             if any(r[0] == row for r in rows):
@@ -22615,10 +22730,8 @@ def _sidebar_v2(s: AppState, rf):
                         badge = _due if _due < 100 else "99+"
                         badge_cls = "hot" if _overdue else ""
                     tour = {"overview": "nav-dashboard", "contacts": "nav-contacts"}.get(ik, "")
-                    _lib_open = ik == "library" and active == "library"
                     _camp_open = ik == "campaigns" and active == "campaigns"
-                    _open = _lib_open or _camp_open
-                    _row(ik, lbl, key, on=(active == ik and not _open), open_=_open,
+                    _row(ik, lbl, key, on=(active == ik and not _camp_open), open_=_camp_open,
                          badge=badge, badge_cls=badge_cls, tour=tour)
                     if _camp_open:
                         _view = _sidebar_campaign_view(s)
@@ -22626,13 +22739,6 @@ def _sidebar_v2(s: AppState, rf):
                             for sik, slbl, view in SIDEBAR_CAMPAIGNS:
                                 _row(sik, slbl, "", on=(_view == view), sub=True,
                                      click=lambda v=view: _go_campaign_view(v))
-                    if _lib_open:
-                        with ui.element("div").classes("fd-side-subgroup"):
-                            for sik, slbl, skey in SIDEBAR_LIBRARY:
-                                if (skey in ("tm_prompts", "tm_saved_prompts")
-                                        and not _is_thrivemodal()):
-                                    continue
-                                _row(sik, slbl, skey, on=(page == skey), sub=True)
 
         # ── Bottom: Admin, Settings (+ sub-rows), profile ──
         with ui.element("div").classes("fd-side-bottom"):
@@ -68675,6 +68781,16 @@ def render_page(s: AppState, rf):
             # newsletters are created via the Slow Drip → Create
             # Newsletter dialog (_create_newsletter_dialog) instead.
             elif page == "admin":        p_admin(s, rf)
+            elif page in ("companies", "pipeline"):
+                # The Sales section's roll-up pages. Lazy like ai_prompts:
+                # a broken module takes out two pages, not the app.
+                try:
+                    import sales_pages as _spg
+                    (_spg.p_pipeline if page == "pipeline" else _spg.p_companies)(s, rf)
+                except Exception as _spg_ex:
+                    print(f"[SalesPages] {page} failed: {_spg_ex}", flush=True)
+                    ui.label(f"{page.title()} is unavailable: {_spg_ex}").style(
+                        f"font-size:14px;color:{C['warn']};padding:20px 0;")
             elif page == "ai_prompts":
                 # Same lazy-import pattern as sales_campaign / ats: one bad
                 # module takes out one page, not the whole app.
