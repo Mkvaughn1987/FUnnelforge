@@ -43301,33 +43301,40 @@ def _tm_offshore_roles_prompt(company: str, website: str = "",
                     f"- {industry}" if industry else "") if x), max_chars=300)
     return (
         f"Company:\n{who}\n\n"
-        "Research what this company does and what it is hiring for "
-        "(its careers page and current job postings). Pick the 3 to 5 roles "
-        "it would most likely fill with offshore staff augmentation: remote, "
-        "computer-based back-office, operations, support, finance, admin, "
-        "marketing or technical work. Skip anything hands-on, on-site, "
-        "driving, warehouse or field work, and anything needing a U.S. "
-        "license. Rank best fit first, favoring roles they are hiring for "
-        "now or that their business clearly runs on. If you find no job "
-        "postings, infer the roles from what the business does: missing "
-        "postings are never a reason to return an error.\n"
+        "Research what this company does and what it is hiring for RIGHT "
+        "NOW: its careers page and its current postings on LinkedIn Jobs, "
+        "Indeed or ZipRecruiter. List up to 10 of the job titles it has "
+        "open today as open_roles. Then choose the 3 to 5 roles it would "
+        "most likely fill with offshore staff augmentation as offshore_pick: "
+        "remote, computer-based back-office, operations, support, finance, "
+        "admin, marketing or technical work. Skip anything hands-on, "
+        "on-site, driving, warehouse or field work, and anything needing a "
+        "U.S. license. Rank best fit first. Prefer titles from open_roles; "
+        "when too few open postings fit, add roles inferred from what the "
+        "business runs on. If you find no postings at all, open_roles is an "
+        "empty list and offshore_pick is inferred: missing postings are "
+        "never a reason to return an error.\n"
         f"Roles known to work well offshore: {catalog}.\n"
-        "Write each role as a short, standard job title of 2 to 4 words "
+        "Write every title as a short, standard job title of 2 to 4 words "
         "(e.g. \"Dispatcher\", \"AP/AR Specialist\", \"Logistics "
-        "Coordinator\"). One role per title, no seniority "
-        "words, no parentheses.\n\n"
+        "Coordinator\"). One role per title, no seniority words, no "
+        "parentheses, no location.\n\n"
         "Return ONLY valid JSON, no commentary, no markdown:\n"
-        '{"roles":["Best-fit role","Next role"]}'
+        '{"open_roles":["Posted title","Posted title"],'
+        '"offshore_pick":["Best-fit role","Next role"]}'
     )
 
 
 def _tm_research_offshore_roles(client, company: str, website: str = "",
-                                industry: str = "") -> list:
-    """Up to 5 offshore-suitable Target Positions for a company, best fit
-    first. Returns [] on any failure: the caller still has the company
-    details, and the field stays editable."""
+                                industry: str = "") -> dict:
+    """{"picks": [...], "open": [...]}: up to 5 offshore-suitable Target
+    Positions best fit first, plus up to 10 titles the company has posted
+    right now (the chips the user chooses from). Both empty on any
+    failure: the caller still has the company details, and the field
+    stays editable."""
     import time as _t
     t0 = _t.time()
+    empty = {"picks": [], "open": []}
     try:
         msg = _claude_create_with_retry(client,
             model="claude-haiku-4-5-20251001",
@@ -43341,19 +43348,137 @@ def _tm_research_offshore_roles(client, company: str, website: str = "",
         text = "".join(b.text for b in msg.content if hasattr(b, "text"))
         m = re.search(r'\{.*\}', text.replace("```json", "").replace("```", ""),
                       re.DOTALL)
-        roles = json.loads(re.sub(r',(\s*[}\]])', r'\1', m.group())).get(
-            "roles") if m else None
-        out = []
-        for r in roles if isinstance(roles, list) else []:
-            r = str(r or "").strip()
-            if r and r.lower() not in (x.lower() for x in out):
-                out.append(r)
-        print(f"[TM-roles] company='{str(company)[:60]}' roles={out} "
-              f"took={_t.time() - t0:.1f}s", flush=True)
-        return out[:5]
+        obj = json.loads(re.sub(r',(\s*[}\]])', r'\1', m.group())) if m else {}
+        if not isinstance(obj, dict):
+            obj = {}
+
+        def _titles(val, cap):
+            out = []
+            for r in val if isinstance(val, list) else []:
+                r = str(r or "").strip()
+                if r and r.lower() not in (x.lower() for x in out):
+                    out.append(r)
+            return out[:cap]
+        # "roles" is the pre-2026-09-25 reply shape; still honoured.
+        picks = _titles(obj.get("offshore_pick") or obj.get("roles"), 5)
+        open_roles = _titles(obj.get("open_roles"), 10)
+        print(f"[TM-roles] company='{str(company)[:60]}' picks={picks} "
+              f"open={open_roles} took={_t.time() - t0:.1f}s", flush=True)
+        return {"picks": picks, "open": open_roles}
     except Exception as e:
         print(f"[TM-roles] company='{str(company)[:60]}' failed: {e}", flush=True)
-        return []
+        return empty
+
+
+_TM_ROLE_MAX = 6
+
+
+def _tm_role_choices(open_roles, selected) -> list:
+    """Chips for Target Positions on the merged inboxslide Target details
+    step: every title Autofill found posted, then anything already ticked
+    that is not among them. No duplicates (case-insensitive)."""
+    out, seen = [], set()
+    for r in list(open_roles or []) + list(selected or []):
+        r = str(r or "").strip()
+        if r and r.lower() not in seen:
+            seen.add(r.lower())
+            out.append(r)
+    return out
+
+
+def _tm_toggle_role(selected, role, cap: int = _TM_ROLE_MAX):
+    """Tick or untick one chip. Returns (new_selected, message_or_None).
+    Ticked roles keep their order: the first one sets the wage on the
+    Blueprint and Cost PDFs."""
+    role = str(role or "").strip()
+    cur = [str(x).strip() for x in (selected or []) if str(x).strip()]
+    if not role:
+        return cur, None
+    if any(x.lower() == role.lower() for x in cur):
+        return [x for x in cur if x.lower() != role.lower()], None
+    if len(cur) >= cap:
+        return cur, f"Cap is {cap} positions. Untick one first."
+    return cur + [role], None
+
+
+def _render_tm_positions_picker(s, rf):
+    """Target Positions on the merged inboxslide Target details step.
+    Autofill's open postings arrive as chips; the ticked ones are the
+    campaign's Target Positions. Typing a title and pressing Enter adds
+    one that is not posted."""
+    selected = [str(x).strip() for x in (getattr(s, "aicb_sel_roles", []) or [])
+                if str(x).strip()]
+    open_roles = list(getattr(s, "_tm_open_roles", []) or [])
+    choices = _tm_role_choices(open_roles, selected)
+    sel_lower = {x.lower() for x in selected}
+    with ui.element("div").style("margin-bottom:12px;"):
+        ui.label("Target Positions").classes("fd-fl")
+        if open_roles:
+            hint = ("Positions they are hiring for right now. Tick the ones to "
+                    f"pitch, up to {_TM_ROLE_MAX}. The first tick sets the wage "
+                    "on the Blueprint and Cost PDFs.")
+        elif choices:
+            hint = ("No current postings found, so these are the roles they "
+                    "would most likely staff offshore. Tick the ones to pitch; "
+                    "the first tick sets the wage on the PDFs.")
+        else:
+            hint = ("Autofill pulls their open positions in here. You can also "
+                    "type a title and press Enter.")
+        ui.label(hint).style(
+            f"font-size:10px;color:{C['muted']};margin-bottom:6px;"
+            f"display:block;line-height:1.4;")
+        if choices:
+            with ui.element("div").style(
+                    "display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;"):
+                for _r in choices:
+                    _on = _r.lower() in sel_lower
+
+                    def _tap(r=_r):
+                        new, msg = _tm_toggle_role(
+                            getattr(s, "aicb_sel_roles", []) or [], r)
+                        if msg:
+                            ui.notify(msg, type="warning", timeout=2500)
+                            return
+                        s.aicb_sel_roles = new
+                        rf()
+                    _look = (
+                        f"background:{C['teal']};color:{C['on_teal']};"
+                        f"border:1px solid {C['teal']};"
+                        if _on else
+                        f"background:{C['surface']};color:{C['text_l']};"
+                        f"border:1px solid {C['border']};")
+                    with ui.element("div").style(
+                            "display:inline-flex;align-items:center;gap:6px;"
+                            "padding:5px 12px;border-radius:99px;cursor:pointer;"
+                            "font-size:12px;font-weight:600;user-select:none;"
+                            + _look).on("click", _tap):
+                        ui.label(("✓ " if _on else "+ ") + _r).style(
+                            "pointer-events:none;")
+
+        def _add():
+            v = (_custom.value or "").strip()
+            if not v:
+                ui.notify("Type a position first.", type="warning")
+                return
+            cur = getattr(s, "aicb_sel_roles", []) or []
+            if any(str(x).strip().lower() == v.lower() for x in cur):
+                ui.notify(f"'{v}' is already ticked.", type="info", timeout=2000)
+                return
+            new, msg = _tm_toggle_role(cur, v)
+            if msg:
+                ui.notify(msg, type="warning", timeout=2500)
+                return
+            s.aicb_sel_roles = new
+            _custom.set_value("")
+            rf()
+        with ui.element("div").style("display:flex;gap:8px;align-items:center;"):
+            _custom = ui.input(
+                placeholder="Add a position, then press Enter",
+            ).classes("fd-input").style("flex:1;min-width:200px;")
+            _custom.on("keydown.enter", lambda e=None: _add())
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:6px 12px;font-size:11px;").on("click", _add):
+                ui.label("Add")
 
 
 # Automatic worksheet (the Sales Assets default since 2026-09-18). The seller
@@ -48332,9 +48457,12 @@ def _aicb_ai_extract(s, user_text: str, mode: str, rf):
             # separate from the lookup above so a failed role search never
             # costs the user the company details.
             if mode == "company" and not data.get("roles") and _tm_nationwide():
-                data["roles"] = _tm_research_offshore_roles(
+                _found = _tm_research_offshore_roles(
                     client, data.get("company") or user_text,
                     data.get("website") or "", data.get("industry") or "")
+                data["roles"] = list(_found.get("picks") or [])
+                # The posted titles become the chips on Target details.
+                s._tm_open_roles = list(_found.get("open") or [])
 
             _aicb_apply_extracted(s, data)
             # Stash brief data (company summary + open jobs) for the live brief panel
@@ -50027,10 +50155,13 @@ def p_ai_campaign(s: AppState, rf):
         )
         # A sales instance has no candidate pipeline, so the Candidates
         # step (4) has nothing to collect and is dropped from the flow the
-        # same way a locked style drops step 5. Runs BEFORE the locked-style
-        # guard below so a stale step 4 walks 4 -> 5 -> 6 correctly. Arena
-        # keeps ATS on, so _SALES_MODE is False and none of this fires.
-        if _SALES_MODE and _wiz_step == 4:
+        # same way a locked style drops step 5. Since 2026-09-25 the Confirm
+        # step (3) is gone there too: Target details shows company, website,
+        # industry, locations and Target Positions in place once Autofill
+        # runs, so Confirm only repeated them. Runs BEFORE the locked-style
+        # guard below so a stale step 3/4 walks on to 5 -> 6 correctly.
+        # Arena keeps ATS on, so _SALES_MODE is False and none of this fires.
+        if _SALES_MODE and _wiz_step in (3, 4):
             _wiz_step = 5
             s.aicb_wizard_step = 5
 
@@ -50115,6 +50246,9 @@ def p_ai_campaign(s: AppState, rf):
             if _wiz_step == 1:
                 pass  # always valid
             elif _wiz_step == 2:
+                _refs2 = getattr(s, "_aicb_step2_refs", {}) or {}
+                if "company" in _refs2:
+                    s.aicb_company = (_refs2["company"].value or "").strip()
                 if not _step2_target_filled():
                     _m = getattr(s, "aicb_target_mode", "company") or "company"
                     if not _step2_primary_industry_filled():
@@ -50166,7 +50300,7 @@ def p_ai_campaign(s: AppState, rf):
                     ui.notify("Pick a sequence style.", type="warning")
                     return
             _nxt = min(6, _wiz_step + 1)
-            if _SALES_MODE and _nxt == 4:  # skip Candidates step
+            if _SALES_MODE and _nxt in (3, 4):  # skip Confirm + Candidates steps
                 _nxt = 5
             if _style_locked and _nxt == 5:  # skip Campaign Style step
                 _nxt = 6
@@ -50259,9 +50393,10 @@ def p_ai_campaign(s: AppState, rf):
                 (5, "Campaign style"),
                 (6, "Review & generate"),
             ]
-            # No candidate pipeline on a sales instance -> no Candidates pill.
+            # No candidate pipeline on a sales instance -> no Candidates
+            # pill, and Target details carries its own review -> no Confirm.
             if _SALES_MODE:
-                _steps = [st for st in _steps if st[0] != 4]
+                _steps = [st for st in _steps if st[0] not in (3, 4)]
             # When the style is locked by the entry tile (Arena 4×4), the
             # Campaign Style step is removed from the flow entirely.
             if _style_locked:
@@ -50543,20 +50678,24 @@ def p_ai_campaign(s: AppState, rf):
                     # Arena (_SALES_MODE False) is untouched.
                     if _SALES_MODE:
                         if _wiz_step == 2:
-                            # Drop the "roles live with the candidate
-                            # picker" bullet; there is no picker here.
+                            # Target details is the whole target step here
+                            # (no Confirm, no candidate picker).
+                            _guide_title = "Fill in the details"
                             _guide_bullets = [
-                                b for b in _guide_bullets
-                                if b[0] != "Roles come next"]
-                        elif _wiz_step == 3:
-                            _guide_title = "Check the details"
-                            _guide_bullets = [
-                                ("Confirm what we filled in",
-                                 "Company, website, industry and locations "
-                                 "feed every email and every PDF you attach."),
+                                ("Paste the website, click Autofill",
+                                 "AI fills in the company, industry, "
+                                 "locations and the positions they are "
+                                 "hiring for right now."),
+                                ("Tick the positions to pitch",
+                                 "Open roles come in as chips. Keep the ones "
+                                 "that suit offshore staffing, add your own, "
+                                 "untick the rest. The first tick sets the "
+                                 "wage on the Blueprint and Cost PDFs."),
                                 ("Edit anything that looks off",
-                                 "Your changes stay put when you go back "
-                                 "or forward a step."),
+                                 "Company, industry and locations feed every "
+                                 "email and every PDF you attach. Your "
+                                 "changes stay put when you go back or "
+                                 "forward a step."),
                             ]
                         elif _wiz_step == 5:
                             _guide_title = "Pick a cadence"
@@ -50710,6 +50849,8 @@ def p_ai_campaign(s: AppState, rf):
                 _mode = getattr(s, "aicb_target_mode", "company") or "company"
                 web_inp = None
                 niche_inp = None
+                co_inp = None
+                s._aicb_step2_refs = {}
                 _step2_mode = getattr(s, "aicb_step2_mode", "manual") or "manual"
                 if _step2_mode == "upload":
                     _render_step2_upload(s, rf)
@@ -50803,7 +50944,10 @@ def p_ai_campaign(s: AppState, rf):
                         ui.label("Website").classes("fd-fl")
                         ui.label(
                             "Paste the target company's website. AI uses it to "
-                            "look up the company name, industry, and locations."
+                            + ("look up the company name, industry, locations "
+                               "and the positions they are hiring for now."
+                               if _SALES_MODE else
+                               "look up the company name, industry, and locations.")
                         ).style(
                             f"font-size:10px;color:{C['muted']};margin-bottom:4px;margin-top:-2px;")
                         web_inp = ui.input(value=s.aicb_website, placeholder="e.g. acmecorp.com").classes("fd-input").style("margin-bottom:10px;width:100%;")
@@ -50843,8 +50987,8 @@ def p_ai_campaign(s: AppState, rf):
                                         "display:flex;align-items:center;gap:8px;"):
                                     ui.spinner("dots", size="sm")
                                     ui.label(
-                                        "Researching the company — finding "
-                                        "industry and the best offshore roles…"
+                                        "Researching the company: industry, "
+                                        "locations and open positions…"
                                         if _tm_nationwide() else
                                         "Looking up the company — finding "
                                         "industry and locations…"
@@ -50884,7 +51028,7 @@ def p_ai_campaign(s: AppState, rf):
                                     ui.label(
                                         "Paste the company's website above, then "
                                         "click Autofill to populate industry and "
-                                        + ("the best offshore target positions."
+                                        + ("locations and the positions they are hiring for."
                                            if _tm_nationwide() else "locations.")
                                     ).style(
                                         f"font-size:11px;color:{C['muted']};"
@@ -50907,6 +51051,18 @@ def p_ai_campaign(s: AppState, rf):
                         or bool(list(getattr(s, "aicb_sel_locations", []) or []))
                     )
                     _show_below_autofill = (_mode != "company") or _t2_filled
+
+                    # inboxslide: the Confirm step is gone, so the company
+                    # name Autofill found is edited right here.
+                    if _SALES_MODE and _mode == "company" and _show_below_autofill:
+                        ui.label("Company").classes("fd-fl")
+                        co_inp = ui.input(
+                            value=s.aicb_company or "",
+                            placeholder="e.g. Acme Corp",
+                        ).classes("fd-input").style("margin-bottom:12px;width:100%;")
+                        co_inp.on("blur", lambda: setattr(
+                            s, "aicb_company", (co_inp.value or "").strip()))
+                        s._aicb_step2_refs["company"] = co_inp
 
                     # ── Industry picker (Primary + Secondary) ────────────
                     # Replaces the legacy single-Industry dropdown. Primary
@@ -51025,7 +51181,12 @@ def p_ai_campaign(s: AppState, rf):
                     # None so any downstream `getattr` checks degrade gracefully.
                     roles_inp = None
                     cand_inp = None
-                    if _show_below_autofill:
+                    if _show_below_autofill and _SALES_MODE:
+                        # inboxslide: Target Positions live here (chips from
+                        # Autofill's open postings); there is no next step
+                        # for them.
+                        _render_tm_positions_picker(s, rf)
+                    elif _show_below_autofill:
                         ui.label(
                             "Target roles and candidates are picked on the next step."
                         ).classes("fd-sub").style(f"color:{C['muted']};margin-bottom:8px;")
@@ -52464,13 +52625,21 @@ def p_ai_campaign(s: AppState, rf):
                     # no widget refs to read for those.
                     try:
                         if _wiz_step == 2:
+                            _ok2 = _step2_ok
                             if _mode == "company" and web_inp is not None:
                                 s.aicb_website = (web_inp.value or "").strip()
                             elif _mode == "market" and niche_inp is not None:
                                 s.aicb_niche = (niche_inp.value or "").strip()
-                            if not _step2_ok:
+                            if _mode == "company" and co_inp is not None:
+                                # The merged sales step edits the name here.
+                                s.aicb_company = (co_inp.value or "").strip()
+                                _ok2 = _primary_filled and bool(s.aicb_company)
+                            if not _ok2:
                                 if not _primary_filled:
                                     ui.notify("Pick a Primary Industry.",
+                                              type="warning"); return
+                                if _mode == "company" and co_inp is not None:
+                                    ui.notify("Enter the company name.",
                                               type="warning"); return
                                 if _mode == "company":
                                     ui.notify(
@@ -52526,7 +52695,7 @@ def p_ai_campaign(s: AppState, rf):
                     except Exception as ex:
                         print(f"[AICBWizard] next error: {ex}", flush=True)
                     _nxt = min(6, _wiz_step + 1)
-                    if _SALES_MODE and _nxt == 4:  # skip Candidates step
+                    if _SALES_MODE and _nxt in (3, 4):  # skip Confirm + Candidates steps
                         _nxt = 5
                     if _style_locked and _nxt == 5:  # skip Campaign Style step
                         _nxt = 6
@@ -52545,8 +52714,8 @@ def p_ai_campaign(s: AppState, rf):
                     _prev = max(1, _wiz_step - 1)
                     if _style_locked and _prev == 5:  # skip Campaign Style step
                         _prev = 4
-                    if _SALES_MODE and _prev == 4:  # skip Candidates step
-                        _prev = 3
+                    if _SALES_MODE and _prev in (3, 4):  # Confirm + Candidates are not in the flow
+                        _prev = 2
                     s.aicb_wizard_step = _prev; rf()
 
                 with ui.element("div").style(

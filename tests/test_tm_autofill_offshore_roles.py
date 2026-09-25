@@ -1,7 +1,9 @@
 """Autofill (company mode) on ThriveModal also researches the company and
-fills Target Positions with the roles it would most likely staff offshore.
-The role research is a second call, so a failed role search never costs
-the company details. Arena's company lookup is unchanged."""
+fills Target Positions: the roles it is hiring for right now come back as
+chips (`_tm_open_roles`), and the offshore-suitable ones arrive ticked
+(`aicb_sel_roles`). The role research is a second call, so a failed role
+search never costs the company details. Arena's company lookup is
+unchanged."""
 import threading
 from unittest.mock import MagicMock
 
@@ -49,15 +51,25 @@ def _run_extract(monkeypatch, tm: bool, replies: list):
     return s, calls
 
 
-def test_thrivemodal_autofill_fills_offshore_roles(monkeypatch):
-    roles = ('{"roles":["Dispatcher","Logistics Coordinator","dispatcher",'
+def test_thrivemodal_autofill_fills_open_roles_and_ticks_offshore_fit(monkeypatch):
+    roles = ('{"open_roles":["CDL Driver","Dispatcher","Logistics Coordinator",'
+             '"dispatcher","AP/AR Specialist","Warehouse Associate",'
+             '"Customer Service Representative","Data Entry Specialist"],'
+             '"offshore_pick":["Dispatcher","Logistics Coordinator","dispatcher",'
              '"AP/AR Specialist","Customer Service Representative",'
              '"Data Entry Specialist","Extra"]}')
     s, calls = _run_extract(monkeypatch, True, [LOOKUP, roles])
     assert s._aicb_qs_err == ""
     assert s.aicb_company == "Yellow Diamond Logistics"
+    # Ticked = offshore picks, deduped, capped at 5, best fit first.
     assert s.aicb_sel_roles == ["Dispatcher", "Logistics Coordinator",
                                 "AP/AR Specialist",
+                                "Customer Service Representative",
+                                "Data Entry Specialist"]
+    # Chips = everything posted, deduped, in posted order.
+    assert s._tm_open_roles == ["CDL Driver", "Dispatcher",
+                                "Logistics Coordinator", "AP/AR Specialist",
+                                "Warehouse Associate",
                                 "Customer Service Representative",
                                 "Data Entry Specialist"]
     assert s.aicb_sel_locations == ["Nationwide"]
@@ -66,8 +78,25 @@ def test_thrivemodal_autofill_fills_offshore_roles(monkeypatch):
     prompt = calls[1]["messages"][0]["content"]
     assert "Yellow Diamond Logistics" in prompt
     assert "offshore staff augmentation" in prompt
+    assert "open_roles" in prompt and "offshore_pick" in prompt
+    assert "careers page" in prompt
     assert "Dispatcher / freight operations support" in prompt  # catalog
     assert calls[1]["tools"][0]["max_uses"] == 3
+
+
+def test_legacy_roles_reply_still_fills_positions(monkeypatch):
+    # The older reply shape (a single "roles" list) keeps working.
+    s, _ = _run_extract(monkeypatch, True, [
+        LOOKUP, '{"roles":["Dispatcher","AP/AR Specialist"]}'])
+    assert s.aicb_sel_roles == ["Dispatcher", "AP/AR Specialist"]
+    assert s._tm_open_roles == []
+
+
+def test_no_postings_means_inferred_picks_and_no_chips(monkeypatch):
+    s, _ = _run_extract(monkeypatch, True, [
+        LOOKUP, '{"open_roles":[],"offshore_pick":["Dispatcher"]}'])
+    assert s.aicb_sel_roles == ["Dispatcher"]
+    assert s._tm_open_roles == []
 
 
 def test_failed_role_search_keeps_company_details(monkeypatch):
@@ -75,6 +104,7 @@ def test_failed_role_search_keeps_company_details(monkeypatch):
     assert s._aicb_qs_err == ""
     assert s.aicb_company == "Yellow Diamond Logistics"
     assert s.aicb_sel_roles == []
+    assert s._tm_open_roles == []
 
 
 def test_arena_autofill_unchanged(monkeypatch):
@@ -84,6 +114,7 @@ def test_arena_autofill_unchanged(monkeypatch):
     assert calls[0]["max_tokens"] == 600
     assert calls[0]["tools"][0]["max_uses"] == 2
     assert s.aicb_sel_roles == []
+    assert not hasattr(s, "_tm_open_roles")
 
 
 def test_catalog_titles_still_match_benchmarks():
