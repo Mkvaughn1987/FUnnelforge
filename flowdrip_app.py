@@ -35076,7 +35076,16 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
         # standard monthly lineup; anything typed becomes every issue's topic.
         _topic_box = ui.element("div")
         with _topic_box:
-            topic_in = _nl_topic_field("")
+            def _topic_ctx():
+                _k = (sector_in.value or "").strip()
+                return {"name": (nl_name_in.value or "").strip(),
+                        "sector_label": (_nl_sectors.get(_k, {}) or {}).get(
+                            "label", "") or "",
+                        "niche": (niche_in.value or "").strip(),
+                        "region": (region_in.value or "").strip()}
+            topic_in = _nl_topic_field(
+                "", ctx_fn=(_topic_ctx if _SALES_MODE else None),
+                watch=(sector_in, niche_in, nl_name_in))
         _topic_box.set_visibility(_SALES_MODE)
 
         # ── Pipeline path ── search the candidate pool and add specific
@@ -35440,16 +35449,126 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
     dlg.open()
 
 
-def _nl_topic_field(value: str):
-    """The optional "what should this newsletter be about?" box (sales
-    instance). Returns the textarea."""
-    ui.label("What do you want this newsletter to be about? (optional)").classes("fd-fl")
+def _tm_topic_brief_prompt(nl_name: str, sector_label: str, niche: str,
+                           region: str) -> str:
+    """Ask for the brief the topic box is filled with: what a seller would
+    type to steer twelve issues at one kind of reader."""
+    who = _wrap_untrusted("newsletter", "\n".join(x for x in (
+        f"Newsletter name: {nl_name}" if nl_name else "",
+        f"Market sector: {sector_label}" if sector_label else "",
+        f"Niche: {niche}" if niche else "",
+        f"Region: {region}" if region else "") if x), max_chars=600)
+    return (
+        "You write briefs for a monthly email newsletter sent by an offshore "
+        "staff augmentation firm. The firm places dedicated, full-time "
+        "professionals based in the Philippines who work the client's U.S. "
+        "hours inside the client's own systems, usually alongside AI tools.\n\n"
+        f"{who}\n\n"
+        "Write the brief the sender would give the writer, in the sender's "
+        "own voice, telling the writer what to show the reader. If the "
+        "newsletter name states a theme, build the brief around it. Follow "
+        "this shape exactly (an example for CPA firms):\n"
+        "CPA firms win. Show managing partners how an offshore team, working "
+        "alongside AI, takes over the production work (bookkeeping, "
+        "reconciliations, tax prep) so their onshore staff can spend more "
+        "time with clients and on advisory work. Each issue should cover a "
+        "different angle: the talent shortage, busy season capacity, growing "
+        "advisory revenue, what AI can and can't do in a firm, client "
+        "retention, and how to run an offshore team securely. Practical and "
+        "peer-to-peer, not salesy.\n\n"
+        "Rules: open with the niche and \"win.\"; name the reader's job "
+        "title and 3 recurring, computer-based tasks specific to this niche; "
+        "one sentence starting \"Each issue should cover a different angle:\" "
+        "with 5-6 angles; end with \"Practical and peer-to-peer, not salesy.\" "
+        "At most 75 words, one paragraph, no bullets, no headings, no quotes, "
+        "no dashes, no prices or percentages. Reply with the brief only."
+    )
+
+
+def _tm_stock_topic_brief(sector_label: str, niche: str) -> str:
+    """The brief the box gets when the model cannot be reached: written
+    from the sector's own role list, so it is never left empty."""
+    who = (niche or sector_label or "small and mid-sized businesses").strip()
+    # The vertical layer stays behind the ThriveModal gate (phase 4, test 36).
+    vertical = (_tm_vertical_for(" ".join((sector_label or "", niche or "")))
+                if _is_thrivemodal() else _TM_VERTICAL_GENERAL)
+    roles = _TM_NL_ROLES.get(vertical) or _TM_NL_ROLES[_TM_VERTICAL_GENERAL]
+    work = ", ".join(r.lower() for r in roles[:3])
+    return (
+        f"{who} win. Show owners and managers how a dedicated offshore team, "
+        f"working alongside AI, takes over the recurring work ({work}) so "
+        f"their onshore staff can spend more time with customers and on the "
+        f"work that grows the business. Each issue should cover a different "
+        f"angle: the talent shortage, busy season capacity, what AI can and "
+        f"can't do in a business like theirs, keeping customers close, and "
+        f"how to run an offshore team securely. Practical and peer-to-peer, "
+        f"not salesy."
+    )[:600]
+
+
+def _tm_draft_topic_brief(nl_name: str, sector_label: str, niche: str,
+                          region: str) -> str:
+    """The brief for the topic box, from the model; the stock brief when
+    there is no key or the call fails. Blocking: callers await it in an
+    executor. Capped at the 600 characters the field stores."""
+    import time as _t
+    fallback = _tm_stock_topic_brief(sector_label, niche)
+    if not ANTHROPIC_API_KEY:
+        return fallback
+    t0 = _t.time()
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        msg = _claude_create_with_retry(client,
+            model="claude-haiku-4-5-20251001",
+            max_tokens=400,
+            system=_injection_guarded_system(
+                "You write short, plain newsletter briefs for an offshore "
+                "staff augmentation firm."),
+            messages=[{"role": "user", "content": _tm_topic_brief_prompt(
+                nl_name, sector_label, niche, region)}])
+        text = " ".join("".join(
+            b.text for b in msg.content if hasattr(b, "text")).split())
+        text = text.replace("\u2014", ",").replace(" ,", ",").replace(
+            "\u2013", "-").strip().strip('"').strip()
+        if len(text) > 600:
+            cut = text[:600]
+            text = cut[:cut.rfind(". ") + 1] if ". " in cut[300:] else cut
+        print(f"[TM-topic] sector={sector_label!r} niche={niche!r} "
+              f"chars={len(text)} took={_t.time() - t0:.1f}s", flush=True)
+        return text or fallback
+    except Exception as e:
+        print(f"[TM-topic] sector={sector_label!r} niche={niche!r} "
+              f"failed: {e}", flush=True)
+        return fallback
+
+
+def _nl_topic_field(value: str, ctx_fn=None, watch=()):
+    """The "what should this newsletter be about?" box (sales instance).
+    Returns the textarea.
+
+    With `ctx_fn` (-> {name, sector_label, niche, region}) the box is
+    drafted for the user (Mike, 2026-09-24: fill it in, leave it to them
+    to edit): once on open when it is empty, and again whenever one of the
+    `watch` inputs changes, as long as the box still holds only what this
+    drafted. Text the user typed is never replaced; "Redraft" is the way
+    to ask again after editing. The call runs in an executor, never a bare
+    thread, so the notify/update afterwards has a slot to run in (0f8b435).
+    """
+    with ui.element("div").style(
+            "display:flex;align-items:center;gap:10px;margin-bottom:0;"):
+        ui.label("What do you want this newsletter to be about?").classes(
+            "fd-fl").style("margin:0;")
+        _redraft = ui.label("✨ Redraft").style(
+            f"font-size:11px;color:{C['teal']};cursor:pointer;"
+            f"font-weight:700;margin-left:auto;")
+        _redraft.set_visibility(ctx_fn is not None)
     ui.label(
-        "Leave blank and each issue covers a different offshore staffing "
-        "topic. Or tell us the subject you want, and every issue will be "
+        "We draft this from the sector and niche you picked. Change any of "
+        "it, or tell us the subject you want, and every issue will be "
         "written around it."
     ).style(f"font-size:10px;color:{C['muted']};margin-bottom:4px;")
-    return ui.textarea(
+    box = ui.textarea(
         value=value or "",
         placeholder=("e.g. How AI is changing back-office work, and why "
                      "Filipino professionals who already use AI tools are "
@@ -35458,7 +35577,63 @@ def _nl_topic_field(value: str):
         f"width:100%;min-height:64px;background:{C['surface']};"
         f"border:1px solid {C['border']};border-radius:6px;"
         f"padding:8px 10px;color:{C['text_l']};font-size:12px;"
-        f"font-family:inherit;resize:vertical;margin-bottom:12px;")
+        f"font-family:inherit;resize:vertical;margin-bottom:4px;")
+    status = ui.label("").style(
+        f"font-size:10px;color:{C['muted']};margin-bottom:12px;display:block;"
+        f"min-height:12px;")
+    if ctx_fn is None:
+        return box
+
+    # A value already in the box (a saved topic) is the user's own, so
+    # "mine" starts empty and the on-open draft leaves it alone.
+    state = {"busy": False, "again": False, "mine": "", "ctx": None}
+
+    def _untouched() -> bool:
+        cur = (box.value or "").strip()
+        return not cur or cur == state["mine"]
+
+    async def _draft(force: bool = False):
+        ctx = ctx_fn() or {}
+        if not (ctx.get("sector_label") or ctx.get("niche")):
+            return
+        if not force and not _untouched():
+            return
+        # Tabbing through a field without changing it is not a new ask.
+        if not force and ctx == state["ctx"]:
+            return
+        if state["busy"]:
+            state["again"] = True
+            return
+        state["busy"] = True
+        state["ctx"] = dict(ctx)
+        status.set_text("Drafting a subject for you…")
+        try:
+            text = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: _tm_draft_topic_brief(
+                    ctx.get("name") or "", ctx.get("sector_label") or "",
+                    ctx.get("niche") or "", ctx.get("region") or ""))
+        except Exception as e:
+            print(f"[TM-topic] draft failed: {e}", flush=True)
+            text = ""
+        state["busy"] = False
+        status.set_text("")
+        if text and (force or _untouched()):
+            state["mine"] = text
+            box.set_value(text)
+        if state["again"]:
+            state["again"] = False
+            await _draft()
+
+    for w in watch:
+        # A select changes once; a text box changes on every keystroke, so
+        # it is read when the user leaves it.
+        if isinstance(w, ui.select):
+            w.on_value_change(lambda _e=None: _draft())
+        else:
+            w.on("blur", lambda _e=None: _draft())
+    _redraft.on("click", lambda _e=None: _draft(force=True))
+    ui.timer(0.2, lambda: _draft(), once=True)
+    return box
 
 
 def _edit_newsletter_settings_dialog(camp: dict, s, rf) -> None:
@@ -35557,7 +35732,14 @@ def _edit_newsletter_settings_dialog(camp: dict, s, rf) -> None:
             _topic_box = ui.element("div")
             _topic_box.set_visibility(_SALES_MODE)
             with _topic_box:
-                _topic_in = _nl_topic_field(camp.get("newsletter_topic") or "")
+                _topic_in = _nl_topic_field(
+                    camp.get("newsletter_topic") or "",
+                    ctx_fn=((lambda: {
+                        "name": camp.get("newsletter_name") or camp.get("name") or "",
+                        "sector_label": camp.get("market_sector") or "",
+                        "niche": camp.get("market_niche") or "",
+                        "region": camp.get("market_region") or ""})
+                            if _SALES_MODE else None))
 
             # Count dropdown — comes after recommendations.
             _count_box = ui.element("div")
