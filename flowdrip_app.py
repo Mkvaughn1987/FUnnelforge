@@ -10646,10 +10646,14 @@ async def api_tm_ai_prompt(request: Request):
                                 status_code=400)
         req = aip._req_from_starter(st, cat)
     r = cat.routine_by_key[req["routine"]]
+    aip.run_prefill(r, req, cat)
     answers = body.get("answers") or {}
     if not isinstance(answers, dict):
         return JSONResponse({"error": "answers must be an object"}, status_code=400)
-    errors = aip.apply_answers(r, req["vals"], answers)
+    errors = aip.apply_answers(r, req["vals"], answers, cat)
+    # Again, so a run whose vertical the caller just changed picks up that
+    # vertical's recommendations for everything they did not answer.
+    aip.run_prefill(r, req, cat)
     if errors:
         return JSONResponse({"error": "; ".join(errors)}, status_code=400)
     extra = body.get("instructions")

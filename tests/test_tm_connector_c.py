@@ -165,12 +165,50 @@ def test_build_writes_the_same_prompt_the_page_builds(api):
         "instructions": ["Skip anyone in Austin."]})
     assert r.status_code == 200, r.text
     req = aip._req_from_starter(tmp_mod.TM.starter_by_id["signal"], tmp_mod.TM)
+    rt = tmp_mod.ROUTINE_BY_KEY[req["routine"]]
+    # The page fills the recommended boxes in before it renders them, so a
+    # connector build that skipped that would not be the same prompt.
+    aip.run_prefill(rt, req, tmp_mod.TM)
     req["vals"].update({"vertical": "Accounting / CAS firms", "location": "Texas",
                         "newsletter_mode": aip.NEWSLETTER_MODES[1],
                         "newsletter": "Freight Notes"})
+    aip.run_prefill(rt, req, tmp_mod.TM)
     req["detail"] = ["Skip anyone in Austin."]
     assert r.json()["prompt"] == tmp_mod.build_prompt(req)
     assert '"Freight Notes" newsletter' in r.json()["prompt"]
+    acc = tmp_mod.vertical_for("Accounting / CAS firms")
+    # Changing the vertical in the answers moved the targeting with it.
+    assert acc["band"] in r.json()["prompt"]
+    assert acc["triggers"] in " ".join(r.json()["prompt"].split())
+
+
+def test_the_signal_menu_reaches_a_caller_that_never_sees_the_page(api):
+    r = api["call"]("get", "/api/v1/tm/ai_prompt")
+    runs = {x["run"]: x for x in r.json()["runs"]}
+    qs = {q["key"]: q for q in runs["signal"]["questions"]}
+    sig = qs["signals"]
+    log = tmp_mod.vertical_for("Logistics / 3PL")
+    assert sig["type"] == "checks"
+    assert sig["options"] == [x["id"] for x in tmp_mod.signal_menu(log)]
+    assert sig["default"] == ", ".join(tmp_mod.signal_ids(log))
+    first = sig["choices"][0]
+    assert first["label"] == log["signals"][0]["label"] and first["why"]
+    assert first["recommended"] is True
+
+
+def test_a_caller_can_tick_signals_and_is_told_when_it_cannot(api):
+    c = api["call"]
+    r = c("post", "/api/v1/tm/ai_prompt", {
+        "action": "build", "run": "signal",
+        "answers": {"signals": ["reposted", "tnt"]}})
+    assert r.status_code == 200, r.text
+    flat = " ".join(r.json()["prompt"].split())
+    log = tmp_mod.vertical_for("Logistics / 3PL")
+    assert tmp_mod.signal_prose(log, ["tnt", "reposted"]) in flat
+    assert log["signals"][1]["label"] not in flat
+    bad = c("post", "/api/v1/tm/ai_prompt", {
+        "action": "build", "run": "signal", "answers": {"signals": "bookkeeper"}})
+    assert bad.status_code == 400 and "bookkeeper" in bad.text
 
 
 def test_build_refuses_what_the_page_could_not_hold(api):

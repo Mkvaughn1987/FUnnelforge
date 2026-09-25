@@ -29,6 +29,46 @@ from ai_prompts import (Catalogue, F,
 # build time (see _derive_tm), which is how "recommend, but let them decide"
 # works without a second set of fields.
 
+def S(id, label, why):
+    """One hiring signal: what you would see from outside the company, and
+    what seeing it tells you.
+
+    Signals are data rather than the one prose line they used to be. The
+    whole run turns on them, and a free-text box asking "which signals
+    count" only ever worked for someone who could have written the list
+    themselves. Everyone else left it blank. So the list is shown, the
+    reason each one matters is shown with it, and the sentence the prompt
+    carries is joined back together from whatever is ticked."""
+    return {"id": id, "label": label, "why": why}
+
+
+# Offered on every vertical. A row names the ones that belong to its own
+# market under "also" and those start ticked; the rest are there to be
+# picked up when someone wants a wider net.
+UNIVERSAL_SIGNALS = [
+    S("reposted",
+      "an opening that has sat for two months, or been reposted",
+      "They cannot fill it on the terms they are offering, which is the "
+      "whole opening for this conversation."),
+    S("stack",
+      "several of the same junior posting open at once",
+      "Repeatable work they need more hands on, not one hard to find "
+      "specialist."),
+    S("afterhours",
+      "a posting asking for evening, overnight or weekend cover",
+      "Hours their own staff do not want, and the easiest first seat to "
+      "fill from another time zone."),
+    S("reviews",
+      "reviews or staff posts that say understaffed or overworked",
+      "The pain is public, so the first email does not have to guess at "
+      "it."),
+    S("software",
+      "one of the platforms this market runs on named in a job ad",
+      "Confirms it is the right kind of company before you spend a contact "
+      "on it."),
+]
+
+
 VERTICALS = [
     {
         "key": "logistics",
@@ -40,11 +80,21 @@ VERTICALS = [
         "roles": "track and trace, carrier sales support, load building, "
                  "dispatch support, freight billing, claims and back-office "
                  "data entry",
-        "triggers": "night-shift or after-hours postings, a track-and-trace "
-                    "or carrier-rep opening that has sat or been reposted, "
-                    "several of the same entry-level posting at once, a new "
-                    "lane or office, and margin language in what they "
-                    "publish",
+        "signals": [
+            S("tnt",
+              "a track and trace, check calls or carrier sales support "
+              "opening",
+              "The exact desk ThriveModal fills first here, so one posting "
+              "is enough to open the conversation."),
+            S("lane",
+              "a new lane, terminal or carrier programme announced",
+              "The volume lands before the desks to cover it do."),
+            S("margin",
+              "margin or cost per load language in what they publish",
+              "They are already talking about the number this pitch turns "
+              "on."),
+        ],
+        "also": ["reposted", "stack", "afterhours", "software"],
         "workload": "overnight track and trace and carrier sales support",
         "question": "How are you covering loads after six and on weekends "
                     "today, and who is doing the check calls?",
@@ -61,9 +111,21 @@ VERTICALS = [
                   "Operations and the Import or Export Manager",
         "roles": "shipment coordination, documentation, customs data entry, "
                  "milestone updates and freight billing",
-        "triggers": "documentation or coordinator postings that repeat, "
-                    "overnight or weekend coverage postings, a new trade "
-                    "lane, and reviews that mention missed updates",
+        "signals": [
+            S("docs",
+              "a documentation, coordinator or customs entry opening",
+              "Paperwork that runs to a clock, and the first desk to hand "
+              "over."),
+            S("lane",
+              "a new trade lane, port or overseas agent announced",
+              "New shipments arriving with nobody added to track them."),
+            S("overtime",
+              "entry or milestone work advertised as overtime or temporary "
+              "cover",
+              "They are patching a permanent gap with hours they cannot keep "
+              "buying."),
+        ],
+        "also": ["reposted", "afterhours", "reviews", "software"],
         "workload": "documentation and milestone updates on live shipments",
         "question": "Who keeps the shipment updates moving when the US "
                     "office is closed?",
@@ -82,10 +144,22 @@ VERTICALS = [
         "roles": "bookkeeping, bank reconciliations, accounts payable and "
                  "receivable, payroll processing, tax return preparation "
                  "and workpaper support",
-        "triggers": "a bookkeeper or staff accountant posting open past a "
-                    "month, several junior postings at once, a merger or "
-                    "acquisition of another firm, and partners posting about "
-                    "being slammed or short-staffed",
+        "signals": [
+            S("bookkeeper",
+              "a bookkeeper, staff accountant or accounts payable opening",
+              "The work ThriveModal picks up first, and the hardest seat for "
+              "a small firm to fill."),
+            S("merger",
+              "a merger with, or the acquisition of, another firm",
+              "Two sets of books, one back office, and no plan yet for the "
+              "overlap."),
+            S("slammed",
+              "partners posting about capacity, busy season or being short "
+              "staffed",
+              "Said out loud, usually within weeks of the season that caused "
+              "it."),
+        ],
+        "also": ["reposted", "stack", "software"],
         "workload": "bookkeeping and reconciliations on the client "
                     "accounting side",
         "question": "How did the last busy season go for capacity, and what "
@@ -105,9 +179,19 @@ VERTICALS = [
         "roles": "maintenance coordination, leasing assistance, tenant "
                  "communication, accounts payable, rent collection follow-up "
                  "and after-hours phones",
-        "triggers": "maintenance coordinator or leasing assistant postings "
-                    "that repeat, a new portfolio or market, reviews about "
-                    "unanswered calls, and after-hours coverage postings",
+        "signals": [
+            S("coord",
+              "a maintenance coordinator or leasing assistant opening",
+              "The two seats that turn over most and cost the most while "
+              "empty."),
+            S("portfolio",
+              "a new portfolio, community or market taken on",
+              "Doors added without office staff added."),
+            S("calls",
+              "reviews about unanswered calls or slow maintenance response",
+              "Residents describing an understaffed phone, in public."),
+        ],
+        "also": ["reposted", "afterhours", "software"],
         "workload": "maintenance coordination and after-hours tenant "
                     "communication",
         "question": "How many maintenance requests come in after hours, and "
@@ -127,9 +211,20 @@ VERTICALS = [
         "roles": "medical billing, coding support, claims follow-up, prior "
                  "authorisation, patient intake, scheduling and insurance "
                  "verification",
-        "triggers": "biller, coder, intake or prior-authorisation postings "
-                    "that repeat, complaints about denials or aging AR, a "
-                    "new location, and a practice acquisition",
+        "signals": [
+            S("rcm",
+              "a biller, coder, intake or prior authorisation opening",
+              "Revenue cycle seats, where an empty chair shows up in the "
+              "aging within weeks."),
+            S("denials",
+              "anything public about denials, aging receivables or claim "
+              "backlogs",
+              "The cost of the gap, already counted by them."),
+            S("newloc",
+              "a new location, or a practice they have just acquired",
+              "Patient volume up, admin headcount flat."),
+        ],
+        "also": ["reposted", "stack", "software"],
         "workload": "claims follow-up and prior authorisations",
         "question": "Where is the AR aging today, and how many people are "
                     "working denials?",
@@ -148,9 +243,19 @@ VERTICALS = [
         "roles": "scheduling, client intake, caregiver recruiting "
                  "coordination, on-call phones, billing and authorisation "
                  "tracking",
-        "triggers": "scheduler, intake or on-call postings that repeat, "
-                    "overnight or weekend coverage postings, reviews about "
-                    "missed shifts or unanswered phones, and a new office",
+        "signals": [
+            S("sched",
+              "a scheduler, intake coordinator or on call opening",
+              "The desk that keeps shifts covered, and the first one to fill "
+              "here."),
+            S("shifts",
+              "reviews or posts about missed shifts and unanswered phones",
+              "Families saying publicly that nobody picked up."),
+            S("office",
+              "a new office, territory or payer contract",
+              "More clients to schedule with the same office staff."),
+        ],
+        "also": ["reposted", "afterhours", "software"],
         "workload": "scheduling and on-call coverage",
         "question": "Who fills a shift that falls through at nine at night, "
                     "and how long does it take?",
@@ -166,10 +271,20 @@ VERTICALS = [
                   "Operations and the Controller",
         "roles": "customer support, data entry, bookkeeping, order "
                  "processing, scheduling and executive assistance",
-        "triggers": "an entry-level office posting open or reposted past "
-                    "two months, several of the same posting at once, "
-                    "after-hours coverage postings, fast-growth lists, and "
-                    "reviews that say understaffed or overworked",
+        "signals": [
+            S("entry",
+              "an entry level office opening such as support, data entry or "
+              "order processing",
+              "Repeatable desk work, which is exactly what transfers."),
+            S("twice",
+              "the same role advertised more than once this year",
+              "They are refilling, not growing, and paying for the turnover "
+              "twice."),
+            S("growth",
+              "funding, an acquisition, or a place on a fast growth list",
+              "Money to spend and a headcount plan already behind."),
+        ],
+        "also": ["reposted", "stack", "afterhours", "reviews"],
         "workload": "whichever repeatable back-office task they keep "
                     "reposting",
         "question": "Which role have you hired for more than once this year, "
@@ -187,8 +302,20 @@ VERTICALS = [
         "roles": "estimating support, takeoffs, submittal tracking, RFI "
                  "logging, accounts payable, job costing and drafting "
                  "support",
-        "triggers": "estimator or project coordinator postings that repeat, "
-                    "a backlog announcement, and a new office or region",
+        "signals": [
+            S("estimating",
+              "an estimating support, takeoff or project coordinator opening",
+              "Work that keeps estimators off pricing, and the first thing "
+              "to hand over."),
+            S("backlog",
+              "a backlog, a project award or a new region announced",
+              "Work won before the admin to carry it was hired."),
+            S("jobcost",
+              "an accounts payable or job costing opening",
+              "Project accounting, steady and repeatable, and rarely why "
+              "they hire locally."),
+        ],
+        "also": ["reposted", "software"],
         "workload": "takeoffs and submittal tracking",
         "question": "How much of your estimators' week is takeoffs and "
                     "tracking rather than pricing?",
@@ -204,9 +331,19 @@ VERTICALS = [
                   "Operations",
         "roles": "campaign reporting, ad operations, design production, "
                  "content scheduling, account coordination and bookkeeping",
-        "triggers": "coordinator or production postings that repeat, a new "
-                    "client win announced, and founders posting about "
-                    "capacity",
+        "signals": [
+            S("coord",
+              "an account coordinator, ad operations or production opening",
+              "The work behind account managers, which is what transfers "
+              "first."),
+            S("clientwin",
+              "a new client win or retainer announced",
+              "Scope added before anyone was hired to deliver it."),
+            S("capacity",
+              "founders posting about capacity, bandwidth or a hiring freeze",
+              "They have already decided they cannot add a full salary."),
+        ],
+        "also": ["reposted", "stack", "software"],
         "workload": "reporting and production work behind account managers",
         "question": "How much of your account managers' week is reporting "
                     "and production rather than clients?",
@@ -222,8 +359,19 @@ VERTICALS = [
                   "Operations",
         "roles": "booking support, itinerary changes, supplier follow-up, "
                  "after-hours traveller support and invoicing",
-        "triggers": "after-hours support postings, seasonal hiring, and "
-                    "reviews about slow responses",
+        "signals": [
+            S("booking",
+              "a booking support, itinerary or supplier follow up opening",
+              "Desk work tied to a clock, and easy to cover from another "
+              "time zone."),
+            S("seasonal",
+              "seasonal hiring ahead of their booking season",
+              "A gap they treat as temporary and refill every year."),
+            S("slow",
+              "reviews about slow responses or unanswered changes",
+              "Travellers describing a desk nobody is sitting at."),
+        ],
+        "also": ["reposted", "afterhours", "software"],
         "workload": "after-hours traveller support and itinerary changes",
         "question": "Who answers a traveller whose flight cancels at "
                     "midnight?",
@@ -239,8 +387,20 @@ VERTICALS = [
                   "the Head of Customer Experience",
         "roles": "customer support, order and returns processing, catalog "
                  "data entry, marketplace listing management and bookkeeping",
-        "triggers": "support or fulfilment postings that repeat, a new "
-                    "marketplace launch, and holiday season hiring",
+        "signals": [
+            S("support",
+              "a customer support, returns or order processing opening",
+              "Queue work that grows with promotions rather than with "
+              "headcount."),
+            S("market",
+              "a new marketplace, sales channel or region launched",
+              "Listings and orders added to the same team."),
+            S("peak",
+              "holiday or peak season hiring",
+              "A spike they cover with temporary staff every year and could "
+              "cover with the same trained person twice."),
+        ],
+        "also": ["reposted", "stack", "afterhours", "reviews"],
         "workload": "customer support and order processing",
         "question": "What does your support queue look like the week after a "
                     "big promotion?",
@@ -256,9 +416,21 @@ VERTICALS = [
                   "Manager and the Office Manager",
         "roles": "dispatch support, call handling, appointment booking, "
                  "invoicing and permit paperwork",
-        "triggers": "dispatcher or CSR postings that repeat, after-hours "
-                    "phone postings, private-equity roll-ups, and reviews "
-                    "about unanswered calls",
+        "signals": [
+            S("csr",
+              "a dispatcher, customer service rep or appointment booking "
+              "opening",
+              "The phone seat. Every missed call is a job that went "
+              "somewhere else."),
+            S("rollup",
+              "a private equity acquisition, or a roll up of local shops",
+              "New owners with a cost target and several back offices to "
+              "merge."),
+            S("voicemail",
+              "reviews about unanswered calls or missed appointments",
+              "Customers describing the phone nobody picked up."),
+        ],
+        "also": ["reposted", "afterhours", "software"],
         "workload": "call handling and appointment booking",
         "question": "How many calls go to voicemail during a summer heat "
                     "wave?",
@@ -275,8 +447,18 @@ VERTICALS = [
                   "and the Controller",
         "roles": "order entry, inside sales support, purchasing support, "
                  "accounts receivable and inventory data",
-        "triggers": "order entry or inside sales postings that repeat, a "
-                    "new warehouse, and an ERP migration",
+        "signals": [
+            S("orderentry",
+              "an order entry, inside sales support or receivables opening",
+              "Keyed work that moves cleanly to a dedicated person."),
+            S("erp",
+              "an ERP migration, or a new warehouse",
+              "Double entry and data clean up that nobody was hired for."),
+            S("manual",
+              "postings that describe orders arriving by email, fax or phone",
+              "The work is manual by their own description."),
+        ],
+        "also": ["reposted", "stack", "software"],
         "workload": "order entry and accounts receivable follow-up",
         "question": "How many orders still come in by email or phone and get "
                     "keyed by hand?",
@@ -293,8 +475,18 @@ VERTICALS = [
                   "Administrator and the COO",
         "roles": "intake, scheduling, document preparation, billing, "
                  "research support and executive assistance",
-        "triggers": "paralegal, intake or assistant postings that repeat, a "
-                    "merger, and partners posting about workload",
+        "signals": [
+            S("intake",
+              "a paralegal, intake coordinator or legal assistant opening",
+              "Intake and document preparation, the first work to hand off."),
+            S("merger",
+              "a merger, a new practice group, or an office opening",
+              "Matters added before the support to carry them."),
+            S("workload",
+              "partners posting about workload or time lost to administration",
+              "They are already counting the hours this would give back."),
+        ],
+        "also": ["reposted", "stack", "software"],
         "workload": "intake and document preparation",
         "question": "How much partner time goes to work a trained assistant "
                     "could do?",
@@ -303,6 +495,37 @@ VERTICALS = [
         "exploratory": True,
     },
 ]
+def signal_menu(v):
+    """Everything on offer for a vertical, in the order it is shown: the
+    market's own signals first, then the ones every market shares. `rec` is
+    what starts ticked — the row's own, plus the universals it named."""
+    also = set(v.get("also") or ())
+    return ([dict(s, rec=True) for s in v["signals"]]
+            + [dict(s, rec=s["id"] in also) for s in UNIVERSAL_SIGNALS])
+
+
+def signal_ids(v, recommended_only=True):
+    """The ids on a vertical's menu, or just the recommended ones."""
+    return [s["id"] for s in signal_menu(v)
+            if s["rec"] or not recommended_only]
+
+
+def signal_prose(v, ids=None):
+    """The ticked signals as the one sentence the prompt carries. An id the
+    vertical does not offer is dropped rather than carried: switching
+    vertical must not leave the last one's signals in the prompt where
+    nobody can see them."""
+    want = set(signal_ids(v) if ids is None else ids)
+    return ", ".join(s["label"] for s in signal_menu(v) if s["id"] in want)
+
+
+for _v in VERTICALS:
+    # Generated, not authored. The vertical guide and the recommendation
+    # ask both want this sentence, and deriving it from the same menu the
+    # screen shows is what stops the two saying different things.
+    _v["triggers"] = signal_prose(_v)
+
+
 VERTICAL_BY_LABEL = {v["label"]: v for v in VERTICALS}
 VERTICAL_LABELS = [v["label"] for v in VERTICALS]
 DEFAULT_VERTICAL = VERTICALS[0]["label"]
@@ -321,19 +544,27 @@ def vertical_for(label):
     return VERTICALS[0]
 
 
-def _vertical_guide(v):
+def _vertical_guide(v, own_signals=False):
+    """The market briefing the prompt opens with.
+
+    own_signals=True leaves the signals sentence out. A run whose own
+    question decides which signals to chase states them in its search step,
+    and a guide reciting the full list two lines above would read as a
+    contradiction of the narrower list the user actually picked."""
     tier = ("This vertical is exploratory: the research thought it "
             "plausible but ThriveModal has not proven it. Treat the run as a "
             "test of ten to fifteen companies, not a full push, and tell me "
             "whether the signals actually showed up. "
             if v["exploratory"] else "")
+    signals = ("" if own_signals
+               else "Signals worth acting on: %s. " % v["triggers"])
     return (
         "Vertical guide for %s, so you know what to look for. %s"
         "Who buys: %s. Roles ThriveModal routinely places here: %s. "
-        "Signals worth acting on: %s. The first workload to lead with: %s. "
+        "%sThe first workload to lead with: %s. "
         "Software that tells you they are the right kind of company: %s. "
         "Timing: %s. Open the conversation with this question: \"%s\""
-        % (v["label"], tier, v["buyers"], v["roles"], v["triggers"],
+        % (v["label"], tier, v["buyers"], v["roles"], signals,
            v["workload"], v["tells"], v["season"], v["question"]))
 
 
@@ -347,15 +578,96 @@ def _derive_tm(r, vals, d):
     v = vertical_for(d.get("vertical"))
     d["vertical"] = v["label"]
     d["vertical_label"] = v["label"]
-    d["vertical_guide"] = _vertical_guide(v)
-    for key, attr in (("company_size", "band"), ("who_to_reach", "buyers"),
-                      ("roles", "roles"), ("triggers", "triggers"),
-                      ("season_note", "season")):
+    d["vertical_guide"] = _vertical_guide(
+        v, own_signals="signals" in r["field_by_key"])
+    for key, attr in _FROM_VERTICAL:
         if key in r["field_by_key"] and not d.get(key):
             d[key] = v[attr]
             # Into the answers too, so THE DETAILS table shows the value the
             # steps were written with rather than a blank.
             vals[key] = v[attr]
+    if "signals" in r["field_by_key"]:
+        # Missing and empty are different answers here, the way _val already
+        # treats them everywhere else. NO KEY is a request that never went
+        # through the screen — the connector, or a setup saved before
+        # signals were pickable — and it gets the recommendation. An EMPTY
+        # key is someone who opened the list and cleared it, and clearing it
+        # has to mean something or the tick list is decoration.
+        if "signals" not in vals:
+            vals["signals"] = ", ".join(signal_ids(v))
+            d["signals"] = signal_prose(v)
+        extra = " ".join(str(vals.get("signals_extra") or "").split())
+        extra = (" Count this as a signal too: %s." % extra.rstrip(".")
+                 if extra else "")
+        d["signals_extra_clause"] = extra
+        d["signals_clause"] = (
+            "A company only counts if you can actually see at least one of "
+            "these, and say for each one which it was: %s.%s"
+            % (d["signals"], extra) if d.get("signals") else
+            "I have not narrowed this down to particular signals: any live "
+            "hiring of these roles counts, and for each company say what "
+            "you actually saw.%s" % extra)
+
+
+# The targeting answers the vertical is the one to recommend, and where on
+# its row each of them comes from.
+_FROM_VERTICAL = (("company_size", "band"), ("who_to_reach", "buyers"),
+                  ("roles", "roles"), ("season_note", "season"))
+
+
+def checklist_tm(r, vals, key):
+    """Engine hook. The menu behind a "checks" question. Only the signals
+    question has one, and what is on it follows from the vertical picked
+    two boxes above it."""
+    if key != "signals":
+        return []
+    return signal_menu(vertical_for(vals.get("vertical")))
+
+
+def prefill_tm(r, vals, written=None):
+    """Engine hook. Put the recommendation in the box instead of behind a
+    grey placeholder.
+
+    A blank box was defensible while the fallback happened at build time,
+    but it left the user reading placeholder text and guessing whether
+    anything would come of it. Now the real answer is there from the first
+    render and changing it is an edit, not an act of faith.
+
+    A box is refilled only when it is empty, when it still holds what this
+    wrote on the last render, or when it holds some OTHER vertical's
+    recommendation for the same question — which is exactly what someone
+    changing the vertical leaves behind. Anything typed by hand survives.
+    Returns what it wrote, which the engine keeps on the request.
+    """
+    out = {}
+    if "vertical" not in r["field_by_key"]:
+        return out
+    v = vertical_for(vals.get("vertical"))
+    written = written or {}
+
+    for key, attr in _FROM_VERTICAL:
+        if key not in r["field_by_key"]:
+            continue
+        cur = str(vals.get(key) or "").strip()
+        stale = any(cur == other[a] for other in VERTICALS
+                    for k, a in _FROM_VERTICAL if k == key)
+        if cur and cur != str(written.get(key) or "").strip() and not stale:
+            continue
+        vals[key] = out[key] = v[attr]
+
+    if "signals" in r["field_by_key"]:
+        cur = str(vals.get("signals") or "").strip()
+        ids = {p.strip() for p in cur.split(",") if p.strip()}
+        menu = {s["id"] for s in signal_menu(v)}
+        # The universal signals are on every menu, so "does this overlap the
+        # menu" cannot tell a deliberate pick from the last vertical's
+        # leftovers. What can: whether it is still exactly what this wrote,
+        # or exactly what some vertical recommends. Either is untouched.
+        stale = any(cur == ", ".join(signal_ids(other)) for other in VERTICALS)
+        mine = cur == str(written.get("signals") or "").strip()
+        if not ids & menu or mine or stale:
+            vals["signals"] = out["signals"] = ", ".join(signal_ids(v))
+    return out
 
 
 # ── Sequences: the ThriveModal campaign types ─────────────────────────────
@@ -391,12 +703,22 @@ DEFAULT_TEMPLATE = TEMPLATE_KEY[DEFAULT_SEQUENCE]
 
 # ── Shared field groups ───────────────────────────────────────────────────
 
-_REC = "Leave blank and the recommendation for the vertical you picked is used."
+_REC = ("What we'd recommend for the vertical you picked. Change it to "
+        "anything you like.")
+
+
+_SIGNAL_INTRO = (
+    "A hiring signal is something you can see from outside a company that "
+    "says it is short-handed on work someone else could do. The ones worth "
+    "chasing in the vertical you picked are already ticked - untick "
+    "anything you would rather leave alone.")
 
 
 def _vertical_field(default=DEFAULT_VERTICAL):
+    # refresh=True: the signals below and the targeting beside it are the
+    # picked vertical's, so the screen has to be redrawn when it changes.
     return F("vertical", "Which vertical", "details", "select",
-             default=default, options=VERTICAL_LABELS,
+             default=default, options=VERTICAL_LABELS, refresh=True,
              hint="The core five are proven. The rest are worth a small "
                   "test, and the prompt says so.")
 
@@ -408,9 +730,10 @@ def _targeting_fields():
           placeholder="e.g. Texas and the Southeast"),
         F("company_size", "How big a company", "details", hint=_REC,
           placeholder="Recommended band for the vertical"),
-        F("roles", "Which roles they are hiring for", "details", hint=_REC,
+        F("roles", "Which roles they are hiring for", "details",
+          "textarea", hint=_REC,
           placeholder="Recommended roles for the vertical"),
-        F("who_to_reach", "Who to reach", "details", hint=_REC,
+        F("who_to_reach", "Who to reach", "details", "textarea", hint=_REC,
           placeholder="Recommended buyers for the vertical"),
     ]
 
@@ -500,18 +823,26 @@ ROUTINES = [
         "key": "tm_signal_hunt",
         "name": "Find companies showing a hiring signal",
         "recommend": ["location", "company_size", "roles", "who_to_reach",
-                      "triggers"],
-        "blurb": "Search the job boards for companies in one vertical that "
-                 "are hiring the roles ThriveModal places, pull the buyer, "
-                 "and build a new-business campaign for each.",
+                      "signals"],
+        "blurb": "A hiring signal is a company telling you from the outside "
+                 "that it is short-handed - a posting that keeps coming "
+                 "back, a night shift nobody wants, three of the same "
+                 "junior role. Tick the ones worth chasing and this searches "
+                 "the job boards for companies in one vertical showing them, "
+                 "pulls the buyer at each, and builds a new-business "
+                 "campaign for every one.",
         "example": "Find freight brokerages in Texas hiring overnight track "
                    "and trace reps and set up outreach to the owners",
         "tools": _CAMPAIGN_TOOLS,
         "fields": [
             _vertical_field(),
         ] + _targeting_fields() + [
-            F("triggers", "Which signals count", "details", hint=_REC,
-              placeholder="Recommended signals for the vertical"),
+            F("signals", "Which hiring signals to go after", "details",
+              "checks", hint=_SIGNAL_INTRO),
+            F("signals_extra", "Anything else that counts as a signal",
+              "details",
+              placeholder="Optional - e.g. they just lost their office "
+                          "manager"),
         ] + _newsletter_fields() + _email_fields("They're Hiring") + _size_fields() + [
             F("posting_age", "How recent the job postings have to be", "size",
               "select", default="Posted in the last 30 days",
@@ -523,11 +854,10 @@ ROUTINES = [
         "steps": [
             "{vertical_guide}",
             "Search the job boards for {vertical_label} companies in "
-            "{location} hiring {roles}, {posting_age_lc}. {boards}. Read "
-            "each posting for the signals that count here: {triggers}. If "
-            "Google shows a bot check, do not try to solve it: drop to "
-            "ZipRecruiter and tell me Google was skipped. Run ZipRecruiter "
-            "either way.",
+            "{location} hiring {roles}, {posting_age_lc}. {boards}. "
+            "{signals_clause} If Google shows a bot check, do not try to "
+            "solve it: drop to ZipRecruiter and tell me Google was skipped. "
+            "Run ZipRecruiter either way.",
             "{skip_clause}",
             _SCORE_STEP,
             _CONTACTS_STEP,
@@ -770,7 +1100,8 @@ ROUTINES = [
         "name": "Create your own",
         "blurb": "Describe it in your own words and the prompt is built "
                  "around that, with the ThriveModal rules attached.",
-        "example": "Go through my Stay on Their Radar campaigns and tell me which "
+        "example": "Go through my Stay on Their Radar campaigns and tell me "
+        "which "
                    "contacts have replied",
         "tools": [],
         "fields": [
@@ -803,10 +1134,12 @@ STARTERS = [
         "id": "signal",
         "icon": "trending_up",
         "label": "Find companies showing a hiring signal",
-        "sub": "Job boards, one vertical, the buyer at each company, and a "
-               "new-business campaign for every one.",
-        "summary": "Find companies in one vertical hiring the roles "
-                   "ThriveModal places, pull the buyer at each, and build a "
+        "sub": "A signal is a company showing from the outside that it is "
+               "short-handed: a posting that keeps coming back, a night "
+               "shift, three of the same junior role. Tick which ones to "
+               "chase - everything else is filled in.",
+        "summary": "Find companies in one vertical showing the hiring "
+                   "signals I picked, pull the buyer at each, and build a "
                    "new-business campaign for each one.",
         "routine": "tm_signal_hunt",
         "vals": {"vertical": "Logistics / 3PL"},
@@ -969,11 +1302,13 @@ _RECOMMENDABLE = {
     "who_to_reach": (
         "who_to_reach: who to reach, in the order to try them",
         "who_to_reach is titles in the order to try them, best first."),
-    "triggers": (
-        "triggers: which signals count as worth acting on",
-        "triggers are things you could actually see from outside the "
-        "company - a posting, a repost, an announcement, a review, a "
-        "piece of software named in a job ad. Not moods, not guesses."),
+    "signals": (
+        "signals: which of the signals on the menu below are worth chasing "
+        "in this market today, as a comma separated list of their ids",
+        "signals is a pick from the menu below and nothing else - ids "
+        "only, never a signal of your own. Choose the ones a run starting "
+        "today would actually turn up, and leave out the ones that would "
+        "waste the search."),
     "search_terms": (
         "search_terms: the phrases to search for",
         "search_terms is a comma-separated list of the exact phrases "
@@ -1038,6 +1373,13 @@ def recommend_tm(r, vals, keys=None):
         return {}, ""
     asked = "\n".join("- " + _RECOMMENDABLE[k][0] for k in keys)
     rules = "\n".join("- " + _RECOMMENDABLE[k][1] for k in keys)
+    if "signals" in keys:
+        # The menu travels with the ask, or "pick from the menu" is an
+        # instruction with nothing to pick from.
+        rules += ("\n- The signal menu, and the only ids you may answer "
+                  "with:\n" + "\n".join(
+                      "    %s: %s" % (s["id"], s["label"])
+                      for s in signal_menu(v)))
     shape = ", ".join('"%s": "..."' % k for k in keys)
 
     # What they have already said, so a recommendation for one box is not
@@ -1125,7 +1467,22 @@ def recommend_tm(r, vals, keys=None):
     # stray key would otherwise be written into a box the screen never
     # renders, and a list would reach the prompt looking like Python.
     out = {}
+    if "signals" in keys:
+        # Ids, checked against the menu and put back in menu order. Junk is
+        # dropped rather than written into the box, and if nothing survives
+        # the box is left alone for the recommendation already in it.
+        menu = signal_menu(v)
+        by = {s["id"].lower(): s["id"] for s in menu}
+        raw = data.get("signals")
+        picked = raw if isinstance(raw, list) else str(raw or "").split(",")
+        want = {by[p] for p in
+                (str(x).strip().lower() for x in picked) if p in by}
+        if want:
+            out["signals"] = ", ".join(s["id"] for s in menu
+                                       if s["id"] in want)
     for k in keys:
+        if k == "signals":
+            continue
         got = data.get(k)
         if got is None or isinstance(got, (dict, list, bool)):
             continue
@@ -1168,6 +1525,8 @@ TM = Catalogue(
     result_extra=None,
     derive_extra=_derive_tm,
     recommend=recommend_tm,
+    checklist=checklist_tm,
+    prefill=prefill_tm,
 )
 
 

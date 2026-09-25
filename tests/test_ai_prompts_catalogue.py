@@ -151,3 +151,137 @@ def test_a_second_catalogue_changes_only_product_facing_text(aip):
     assert "DripDrop" not in p
     # And the default binding is untouched.
     assert aip._CAT is aip.ARENA
+
+
+# ── The "checks" question type ───────────────────────────────────────────
+#
+# A tick list with a why-line under each row. The engine renders it and
+# resolves it; the menu itself comes from the catalogue, because what is on
+# offer depends on answers the engine knows nothing about.
+
+MENU = [
+    {"id": "a", "label": "the first thing", "why": "because of this", "rec": True},
+    {"id": "b", "label": "the second thing", "why": "and this", "rec": True},
+    {"id": "c", "label": "the third thing", "why": "and this too"},
+]
+
+
+def _checks_cat(aip, **kw):
+    r = {"key": "other", "name": "Other", "blurb": "Do the thing",
+         "example": "",
+         "fields": [aip.F("picked", "Which ones", "details", "checks"),
+                    aip.F("where", "Where", "details", default="anywhere")],
+         "steps": ["Go after: {picked}."], "tools": []}
+    by = aip.finalize_routines([r])
+    cat = aip.Catalogue(
+        routines=[r], routine_by_key=by, default_routine="other",
+        standing_rules=["Only rule."], unattended_rule="Go alone.",
+        starters=[{"id": "run", "label": "Run", "sub": "s", "summary": "s",
+                   "routine": "other", "vals": {}}],
+        starter_by_id={}, sequences=["Sig"], template_key={"Sig": "tm_sig"},
+        default_sequence="Sig", default_template="tm_sig",
+        setups_file="x.json", product="p", connector="p connector",
+        assistant="Claude", page_title="t", page_sub="sub",
+        result_copy="copy", checklist=lambda _r, _v, key:
+            MENU if key == "picked" else [], **kw)
+    cat.starter_by_id = {s["id"]: s for s in cat.starters}
+    return r, cat
+
+
+def test_a_checks_answer_reaches_the_prompt_as_the_labels(aip):
+    r, cat = _checks_cat(aip)
+    p = aip.build_prompt(
+        {"routine": "other", "vals": {"picked": "c, a"}}, cat)
+    # Menu order, not the order they were stored in.
+    assert "Go after: the first thing, the third thing." in p
+    # And the details table reads the same, never the raw ids.
+    assert "Which ones: the first thing, the third thing" in p
+    assert "picked" not in p
+
+
+def test_a_checks_id_the_menu_no_longer_offers_is_dropped(aip):
+    r, cat = _checks_cat(aip)
+    p = aip.build_prompt(
+        {"routine": "other", "vals": {"picked": "a, gone"}}, cat)
+    assert "Go after: the first thing." in p
+    assert "gone" not in p
+
+
+def test_nothing_ticked_resolves_to_nothing(aip):
+    """Cleared is an answer, not a missing one: the placeholder comes out
+    empty and it is the catalogue's job to word the step around that."""
+    r, cat = _checks_cat(aip)
+    assert aip._checks_text(r, {"picked": ""}, "picked", cat) == ""
+    assert aip._checks_ids(r, {"picked": ""}, "picked", cat) == []
+    p = aip.build_prompt({"routine": "other", "vals": {"picked": ""}}, cat)
+    assert "Go after: ." in p
+    # And the details table leaves the row out rather than printing a blank.
+    assert "Which ones:" not in p
+
+
+def test_a_caller_can_answer_a_checks_question_either_shape(aip):
+    r, cat = _checks_cat(aip)
+    for answer in ("b, a", ["a", "b"], ["the first thing", "b"]):
+        vals = {}
+        assert aip.apply_answers(r, vals, {"picked": answer}, cat) == []
+        assert vals["picked"] == "a, b"
+    vals = {}
+    errs = aip.apply_answers(r, vals, {"picked": "a, nope"}, cat)
+    assert errs and "nope" in errs[0]
+    assert "picked" not in vals
+
+
+def test_the_connector_listing_carries_the_menu_and_the_why_lines(aip):
+    r, cat = _checks_cat(aip)
+    q = [q for q in aip.describe_runs(cat)[0]["questions"]
+         if q["key"] == "picked"][0]
+    assert q["type"] == "checks"
+    assert q["options"] == ["a", "b", "c"]
+    assert q["choices"][0] == {"id": "a", "label": "the first thing",
+                               "why": "because of this", "recommended": True}
+    assert q["choices"][2]["recommended"] is False
+
+
+def test_the_prefill_hook_fills_boxes_and_reports_what_it_wrote(aip):
+    def prefill(_r, vals, written):
+        if vals.get("where") in ("", None, "anywhere", written.get("where")):
+            vals["where"] = "Texas"
+            return {"where": "Texas"}
+        return {}
+
+    r, cat = _checks_cat(aip, prefill=prefill)
+    req = {"routine": "other", "vals": {"where": "anywhere"}}
+    aip.run_prefill(r, req, cat)
+    assert req["vals"]["where"] == "Texas"
+    assert req["prefilled"] == {"where": "Texas"}
+    # What they typed over it survives the next render.
+    req["vals"]["where"] = "Ohio"
+    aip.run_prefill(r, req, cat)
+    assert req["vals"]["where"] == "Ohio"
+
+
+def test_a_broken_hook_never_takes_the_page_down(aip):
+    def boom(*_a, **_k):
+        raise RuntimeError("no")
+
+    r, cat = _checks_cat(aip, prefill=boom)
+    cat.checklist = boom
+    req = {"routine": "other", "vals": {"picked": "a"}}
+    aip.run_prefill(r, req, cat)          # swallowed
+    assert req.get("prefilled") in (None, {})
+    p = aip.build_prompt(req, cat)        # no menu, so nothing resolves
+    assert "Go after: ." in p
+
+
+def test_arena_declares_neither_hook_and_never_uses_checks(aip):
+    assert aip.ARENA.checklist is None and aip.ARENA.prefill is None
+    for r in aip.ARENA.routines:
+        for f in r["fields"]:
+            assert f["type"] != "checks", (r["key"], f["key"])
+            assert f["refresh"] is False, (r["key"], f["key"])
+    # With no hook the engine has no menu, so a checks field falls back to
+    # a plain box rather than disappearing.
+    r, cat = _checks_cat(aip)
+    cat.checklist = None
+    assert aip._checks_items(r, {}, "picked", cat) == []
+    assert aip._checks_text(r, {"picked": "a"}, "picked", cat) == ""

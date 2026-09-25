@@ -138,10 +138,11 @@ def test_verticals_are_ordered_core_first_then_exploratory(tm):
     assert tm.VERTICALS.index(expl[0]) > tm.VERTICALS.index(core[-1])
     assert "construction_aec" in {v["key"] for v in expl}
     need = {"key", "label", "band", "buyers", "roles", "triggers",
-            "workload", "question", "tells", "season", "exploratory"}
+            "signals", "also", "workload", "question", "tells", "season",
+            "exploratory"}
     for v in tm.VERTICALS:
         assert need <= set(v), v["key"]
-        assert all(v[k] for k in need - {"exploratory"}), v["key"]
+        assert all(v[k] for k in need - {"exploratory", "also"}), v["key"]
 
 
 def test_vertical_lookup_tolerates_keys_and_loose_labels(tm):
@@ -150,6 +151,175 @@ def test_vertical_lookup_tolerates_keys_and_loose_labels(tm):
     assert tm.vertical_for("home care")["key"] == "home_care"
     assert tm.vertical_for("")["key"] == "logistics"
     assert tm.vertical_for("Nothing like this")["key"] == "logistics"
+
+
+def test_every_vertical_offers_its_own_signals_plus_the_universal_ones(tm):
+    universal = [s["id"] for s in tm.UNIVERSAL_SIGNALS]
+    for v in tm.VERTICALS:
+        menu = tm.signal_menu(v)
+        ids = [s["id"] for s in menu]
+        assert len(ids) == len(set(ids)), v["key"]
+        # The market's own first, then the shared ones, in a fixed order.
+        assert ids[-len(universal):] == universal, v["key"]
+        assert len(v["signals"]) >= 3, v["key"]
+        for s in menu:
+            assert s["label"] and s["why"], (v["key"], s["id"])
+            # The why-line is the whole point: it has to say something the
+            # label does not already say.
+            assert s["why"] != s["label"], (v["key"], s["id"])
+            assert "$" not in s["why"] and "%" not in s["why"]
+        # A row's own signals are the recommendation, and so is anything it
+        # named under "also". Nothing else starts ticked.
+        rec = {s["id"] for s in menu if s["rec"]}
+        assert rec == {s["id"] for s in v["signals"]} | set(v["also"])
+        assert set(v["also"]) <= set(universal), v["key"]
+
+
+def test_the_trigger_sentence_is_joined_from_the_ticked_signals(tm):
+    for v in tm.VERTICALS:
+        assert v["triggers"] == tm.signal_prose(v)
+        for s in tm.signal_menu(v):
+            assert (s["label"] in v["triggers"]) == s["rec"], (v["key"],
+                                                               s["id"])
+    log = tm.vertical_for("Logistics / 3PL")
+    # A pick narrows the sentence, and an id this vertical does not offer
+    # is dropped rather than carried into the prompt unseen.
+    assert tm.signal_prose(log, ["tnt", "bookkeeper"]) == log["signals"][0][
+        "label"]
+    assert tm.signal_prose(log, []) == ""
+
+
+def test_the_signals_question_is_a_tick_list_off_the_picked_vertical(tm):
+    r = tm.ROUTINE_BY_KEY["tm_signal_hunt"]
+    f = r["field_by_key"]["signals"]
+    assert f["type"] == "checks" and not f["ask"]
+    assert "hiring signal is" in f["hint"]
+    for label in ("Logistics / 3PL", "Home care agencies"):
+        menu = tm.checklist_tm(r, {"vertical": label}, "signals")
+        assert menu == tm.signal_menu(tm.vertical_for(label))
+    # Only that one question has a menu.
+    assert tm.checklist_tm(r, {"vertical": "Logistics / 3PL"}, "roles") == []
+
+
+def test_only_the_signal_hunt_asks_which_signals_to_go_after(tm):
+    with_it = [r["key"] for r in tm.ROUTINES if "signals" in r["field_by_key"]]
+    assert with_it == ["tm_signal_hunt"]
+    # The runs that did not get the picker still read the sentence off the
+    # row, through the vertical guide.
+    other = tm.ROUTINE_BY_KEY["tm_lookalikes"]
+    assert "Signals worth acting on" in tm._vertical_guide(
+        tm.VERTICALS[0], own_signals="signals" in other["field_by_key"])
+
+
+def test_the_guide_drops_the_signal_list_when_the_run_picks_its_own(tm, aip):
+    v = tm.vertical_for("Logistics / 3PL")
+    assert "Signals worth acting on" not in tm._vertical_guide(
+        v, own_signals=True)
+    r = tm.ROUTINE_BY_KEY["tm_signal_hunt"]
+    vals = _defaults(aip, r)
+    vals["signals"] = "tnt"
+    p = _flat(tm.build_prompt({"routine": r["key"], "vals": vals,
+                               "summary": "x"}))
+    label = v["signals"][0]["label"]
+    # Once in the details table, once in the step that searches, and not a
+    # third time in the guide contradicting the narrower pick.
+    assert p.count(label) == 2
+    assert "Signals worth acting on" not in p
+    assert v["signals"][1]["label"] not in p
+
+
+def test_a_request_that_never_saw_the_screen_gets_the_recommendation(tm, aip):
+    """No signals key at all - the connector, or a setup saved before they
+    were pickable. The vertical's recommendation stands in."""
+    r = tm.ROUTINE_BY_KEY["tm_signal_hunt"]
+    vals = _defaults(aip, r)
+    vals.pop("signals")
+    vals["vertical"] = "Home care agencies"
+    p = _flat(tm.build_prompt({"routine": r["key"], "vals": vals,
+                               "summary": "x"}))
+    hc = tm.vertical_for("Home care agencies")
+    assert hc["triggers"] in p
+    # And what was never on that vertical's menu is nowhere in the prompt.
+    assert "track and trace, check calls" not in p
+
+
+def test_clearing_every_signal_opens_the_net_instead_of_being_ignored(tm, aip):
+    """Present but empty is someone who opened the list and cleared it.
+    Quietly restoring the recommendation would make the tick list a lie."""
+    r = tm.ROUTINE_BY_KEY["tm_signal_hunt"]
+    vals = _defaults(aip, r)
+    vals["signals"] = ""
+    p = _flat(tm.build_prompt({"routine": r["key"], "vals": vals,
+                               "summary": "x"}))
+    assert "I have not narrowed this down to particular signals" in p
+    assert tm.VERTICALS[0]["triggers"] not in p
+    # Still no dangling colon where the list would have been.
+    assert ": ." not in p and ":." not in p
+
+
+def test_an_extra_signal_of_their_own_reaches_the_prompt(tm, aip):
+    r = tm.ROUTINE_BY_KEY["tm_signal_hunt"]
+    vals = _defaults(aip, r)
+    vals["signals_extra"] = "they just lost their office manager."
+    p = _flat(tm.build_prompt({"routine": r["key"], "vals": vals,
+                               "summary": "x"}))
+    assert ("Count this as a signal too: they just lost their office "
+            "manager.") in p
+
+
+# ── Prefill ──────────────────────────────────────────────────────────────
+
+def test_prefill_puts_the_recommendation_in_the_boxes(tm, aip):
+    r = tm.ROUTINE_BY_KEY["tm_signal_hunt"]
+    vals = _defaults(aip, r)
+    vals["vertical"] = "Accounting / CAS firms"
+    wrote = tm.prefill_tm(r, vals, {})
+    acc = tm.vertical_for("Accounting / CAS firms")
+    assert vals["company_size"] == acc["band"]
+    assert vals["who_to_reach"] == acc["buyers"]
+    assert vals["roles"] == acc["roles"]
+    assert vals["signals"] == ", ".join(tm.signal_ids(acc))
+    assert set(wrote) == {"company_size", "who_to_reach", "roles", "signals"}
+
+
+def test_changing_the_vertical_refills_what_prefill_wrote(tm, aip):
+    r = tm.ROUTINE_BY_KEY["tm_signal_hunt"]
+    vals = _defaults(aip, r)
+    vals["vertical"] = "Accounting / CAS firms"
+    wrote = tm.prefill_tm(r, vals, {})
+    vals["vertical"] = "Home care agencies"
+    tm.prefill_tm(r, vals, wrote)
+    hc = tm.vertical_for("Home care agencies")
+    assert vals["company_size"] == hc["band"]
+    assert vals["roles"] == hc["roles"]
+    assert vals["signals"] == ", ".join(tm.signal_ids(hc))
+
+
+def test_prefill_never_overwrites_what_they_typed(tm, aip):
+    r = tm.ROUTINE_BY_KEY["tm_signal_hunt"]
+    vals = _defaults(aip, r)
+    vals["vertical"] = "Accounting / CAS firms"
+    wrote = tm.prefill_tm(r, vals, {})
+    vals["company_size"] = "fifty to eighty people"
+    vals["signals"] = "bookkeeper"
+    vals["vertical"] = "Home care agencies"
+    tm.prefill_tm(r, vals, wrote)
+    assert vals["company_size"] == "fifty to eighty people"
+    # A pick that the new vertical does not offer is a pick from the old
+    # one, so it is replaced; one it does offer is left exactly alone.
+    assert vals["signals"] == ", ".join(tm.signal_ids(
+        tm.vertical_for("Home care agencies")))
+    vals["signals"] = "sched"
+    tm.prefill_tm(r, vals, wrote)
+    assert vals["signals"] == "sched"
+
+
+def test_prefill_leaves_a_run_without_a_vertical_alone(tm, aip):
+    r = tm.ROUTINE_BY_KEY["other"]
+    vals = _defaults(aip, r)
+    before = dict(vals)
+    assert tm.prefill_tm(r, vals, {}) == {}
+    assert vals == before
 
 
 # ── Prompts ──────────────────────────────────────────────────────────────
@@ -385,7 +555,7 @@ def test_every_run_that_can_be_recommended_for_declares_its_keys(tm):
     got = {r["key"]: list(r.get("recommend") or ()) for r in tm.ROUTINES}
     assert got == {
         "tm_signal_hunt": ["location", "company_size", "roles",
-                           "who_to_reach", "triggers"],
+                           "who_to_reach", "signals"],
         "tm_lookalikes": ["location", "company_size", "roles",
                           "who_to_reach"],
         "tm_displacement": ["location", "company_size", "roles",
@@ -420,6 +590,35 @@ def test_each_run_is_asked_only_for_its_own_keys(tm, monkeypatch):
             assert (("%s:" % k) in sent) == (k in want), (r["key"], k)
         # The run says which run it is, so the answers fit it.
         assert r["name"] in sent
+
+
+def test_the_signal_menu_travels_with_the_recommendation_ask(tm, monkeypatch):
+    _, ff = _recommend(tm, monkeypatch, "{}", routine="tm_signal_hunt",
+                       vals={"vertical": "Home care agencies"},
+                       keys=["signals"])
+    sent = ff.sent["messages"][0]["content"]
+    assert "the only ids you may answer with" in sent
+    for sig in tm.signal_menu(tm.vertical_for("Home care agencies")):
+        assert "%s: %s" % (sig["id"], sig["label"]) in sent
+    # Another vertical's ids are not on offer.
+    assert "tnt:" not in sent
+
+
+def test_recommended_signals_come_back_as_ids_in_menu_order(tm, monkeypatch):
+    got, _ = _recommend(
+        tm, monkeypatch, '{"signals": "afterhours, sched, NOPE", "why": "w"}',
+        routine="tm_signal_hunt", vals={"vertical": "Home care agencies"},
+        keys=["signals"])
+    assert got[0] == {"signals": "sched, afterhours"}
+
+
+def test_a_recommendation_with_no_usable_id_leaves_the_ticks_alone(tm,
+                                                                   monkeypatch):
+    got, _ = _recommend(
+        tm, monkeypatch, '{"signals": "whatever I felt like", "why": "w"}',
+        routine="tm_signal_hunt", vals={"vertical": "Home care agencies"},
+        keys=["signals"])
+    assert "signals" not in got[0]
 
 
 def test_what_they_already_answered_goes_in_as_context(tm, monkeypatch):
@@ -561,7 +760,7 @@ def test_citation_markup_never_reaches_a_form_box(tm, monkeypatch):
     reply = json.dumps({
         "season_note": '(cite index="4-1">Busy season starts in '
                        'January(/cite)',
-        "why": '(cite index="2-1">peak</cite> is near',
+        "why": '<cite index="2-1">peak</cite> is near',
     })
     (out, why), _ = _recommend(tm, monkeypatch, reply)
     assert out["season_note"] == "Busy season starts in January"
@@ -612,6 +811,14 @@ def test_p_tm_prompts_renders_ask_confirm_and_result(aip, tm, tmp_path,
                           "signal")
     assert s._aip_req["routine"] == "tm_signal_hunt"
     assert s._aip_req["vals"]["vertical"] == "Logistics / 3PL"
+    # Rendering the questions screen leaves every recommended box holding
+    # real text, not a placeholder, and the signals already ticked.
+    log = tm.vertical_for("Logistics / 3PL")
+    assert s._aip_req["vals"]["company_size"] == log["band"]
+    assert s._aip_req["vals"]["who_to_reach"] == log["buyers"]
+    assert s._aip_req["vals"]["signals"] == ", ".join(tm.signal_ids(log))
+    assert set(s._aip_req["prefilled"]) == {"company_size", "who_to_reach",
+                                            "roles", "signals"}
     assert "inboxslide" in s._aip_prompt and "DripDrop" not in s._aip_prompt
     aip._CAT = aip.ARENA
 
