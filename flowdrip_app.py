@@ -43331,16 +43331,20 @@ def _tm_offshore_roles_prompt(company: str, website: str = "",
         "Research what this company does and what it is hiring for RIGHT "
         "NOW: its careers page and its current postings on LinkedIn Jobs, "
         "Indeed or ZipRecruiter. List up to 10 of the job titles it has "
-        "open today as open_roles. Then choose the 3 to 5 roles it would "
-        "most likely fill with offshore staff augmentation as offshore_pick: "
-        "remote, computer-based back-office, operations, support, finance, "
-        "admin, marketing or technical work. Skip anything hands-on, "
-        "on-site, driving, warehouse or field work, and anything needing a "
-        "U.S. license. Rank best fit first. Prefer titles from open_roles; "
-        "when too few open postings fit, add roles inferred from what the "
-        "business runs on. If you find no postings at all, open_roles is an "
-        "empty list and offshore_pick is inferred: missing postings are "
-        "never a reason to return an error.\n"
+        "open today that could be done remotely by an offshore team member "
+        "as open_roles: computer-based back-office, operations, "
+        "scheduling, support, finance, admin, marketing, design or "
+        "technical work. Leave out every posting that must be done in "
+        "person: hands-on, on-site, driving, warehouse, field, trade or "
+        "clinical work, and anything needing a U.S. license. Then choose "
+        "the 3 to 5 of them the company would most likely fill with "
+        "offshore staff augmentation as offshore_pick, ranked best fit "
+        "first. Prefer titles from open_roles; when too few remote-capable "
+        "postings exist, add roles inferred from what the business runs on "
+        "that an offshore team could do fully remotely. If you find no "
+        "postings at all, open_roles is an empty list and offshore_pick is "
+        "inferred: missing postings are never a reason to return an "
+        "error.\n"
         f"Roles known to work well offshore: {catalog}.\n"
         "Write every title as a short, standard job title of 2 to 4 words "
         "(e.g. \"Dispatcher\", \"AP/AR Specialist\", \"Logistics "
@@ -43352,13 +43356,40 @@ def _tm_offshore_roles_prompt(company: str, website: str = "",
     )
 
 
+# Titles that cannot be done from an offshore desk. Word-level match so
+# "IT Support Technician" survives but "Service Technician" does not. The
+# model is told the same rule; this is the backstop when it slips.
+_TM_ONSITE_WORDS = (
+    "driver", "cdl", "mechanic", "welder", "warehouse", "forklift",
+    "laborer", "labourer", "installer", "plumber", "electrician", "hvac",
+    "carpenter", "machinist", "janitor", "custodian", "cook", "chef",
+    "nurse", "cna", "guard", "foreman", "superintendent", "field",
+    "delivery", "mover", "painter", "roofer", "mason", "fabricator",
+    "assembler", "lineman", "pipefitter", "millwright", "housekeeper",
+    "groundskeeper", "landscaper", "surveyor", "site", "shop", "plant",
+    "service technician", "maintenance technician", "lab technician",
+    "automotive technician", "diesel technician", "machine operator",
+    "equipment operator", "crane operator", "press operator",
+)
+
+
+def _tm_remote_capable(title: str) -> bool:
+    """False when a job title names in-person work (driving, trades,
+    warehouse, field, clinical). Blank titles are not remote-capable."""
+    txt = " " + re.sub(r"[^a-z0-9]+", " ", str(title or "").lower()) + " "
+    if not txt.strip():
+        return False
+    return not any(f" {w} " in txt for w in _TM_ONSITE_WORDS)
+
+
 def _tm_research_offshore_roles(client, company: str, website: str = "",
                                 industry: str = "") -> dict:
     """{"picks": [...], "open": [...]}: up to 5 offshore-suitable Target
-    Positions best fit first, plus up to 10 titles the company has posted
-    right now (the chips the user chooses from). Both empty on any
-    failure: the caller still has the company details, and the field
-    stays editable."""
+    Positions best fit first, plus up to 10 remote-capable titles the
+    company has posted right now (the chips the user chooses from).
+    On-site titles are dropped from both lists by _tm_remote_capable.
+    Both empty on any failure: the caller still has the company details,
+    and the field stays editable."""
     import time as _t
     t0 = _t.time()
     empty = {"picks": [], "open": []}
@@ -43383,7 +43414,8 @@ def _tm_research_offshore_roles(client, company: str, website: str = "",
             out = []
             for r in val if isinstance(val, list) else []:
                 r = str(r or "").strip()
-                if r and r.lower() not in (x.lower() for x in out):
+                if (r and _tm_remote_capable(r)
+                        and r.lower() not in (x.lower() for x in out)):
                     out.append(r)
             return out[:cap]
         # "roles" is the pre-2026-09-25 reply shape; still honoured.
@@ -43441,9 +43473,10 @@ def _render_tm_positions_picker(s, rf):
     with ui.element("div").style("margin-bottom:12px;"):
         ui.label("Target Positions").classes("fd-fl")
         if open_roles:
-            hint = ("Positions they are hiring for right now. Tick the ones to "
-                    f"pitch, up to {_TM_ROLE_MAX}. The first tick sets the wage "
-                    "on the Blueprint and Cost PDFs.")
+            hint = ("Positions they are hiring for right now that can be done "
+                    f"remotely. Tick the ones to pitch, up to {_TM_ROLE_MAX}. "
+                    "The first tick sets the wage on the Blueprint and Cost "
+                    "PDFs.")
         elif choices:
             hint = ("No current postings found, so these are the roles they "
                     "would most likely staff offshore. Tick the ones to pitch; "

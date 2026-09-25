@@ -66,10 +66,11 @@ def test_thrivemodal_autofill_fills_open_roles_and_ticks_offshore_fit(monkeypatc
                                 "AP/AR Specialist",
                                 "Customer Service Representative",
                                 "Data Entry Specialist"]
-    # Chips = everything posted, deduped, in posted order.
-    assert s._tm_open_roles == ["CDL Driver", "Dispatcher",
-                                "Logistics Coordinator", "AP/AR Specialist",
-                                "Warehouse Associate",
+    # Chips = every remote-capable posting, deduped, in posted order.
+    # CDL Driver and Warehouse Associate are in-person work, so they are
+    # dropped by _tm_remote_capable before they can become chips.
+    assert s._tm_open_roles == ["Dispatcher", "Logistics Coordinator",
+                                "AP/AR Specialist",
                                 "Customer Service Representative",
                                 "Data Entry Specialist"]
     assert s.aicb_sel_locations == ["Nationwide"]
