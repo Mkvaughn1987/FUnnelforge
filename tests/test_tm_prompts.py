@@ -561,7 +561,7 @@ def test_citation_markup_never_reaches_a_form_box(tm, monkeypatch):
     reply = json.dumps({
         "season_note": '(cite index="4-1">Busy season starts in '
                        'January(/cite)',
-        "why": '<cite index="2-1">peak</cite> is near',
+        "why": '(cite index="2-1">peak</cite> is near',
     })
     (out, why), _ = _recommend(tm, monkeypatch, reply)
     assert out["season_note"] == "Busy season starts in January"
