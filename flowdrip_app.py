@@ -8079,10 +8079,18 @@ async def api_tm_mailboxes(request: Request):
     _tm_api_bind(owner)
     if not _is_thrivemodal():
         return JSONResponse({"error": "not found"}, status_code=404)
-    boxes = _tm_load_mailboxes()
+    sender = _tm_primary_sender(load_config())
+    boxes = _tm_load_mailboxes() or [_tm_primary_row(sender)]
+    for box in boxes:
+        if box.get("id") == _TM_PRIMARY_MAILBOX_ID:
+            box["connected"] = sender["connected"]
+            box["provider"] = box.get("provider") or sender["provider"]
+            if not sender["connected"]:
+                box["paused"] = True
     budgets = _tm_mailbox_budgets(boxes, _tm_analytics_sources()["queue"],
                                   datetime.now().date())
     return JSONResponse({
+        "sender": sender,
         "mailboxes": boxes,
         "remaining_today": budgets,
         "remaining_total": sum(budgets.values()),
@@ -14386,6 +14394,46 @@ def _tm_normalise_mailbox(row):
         "warmup_days": max(0, min(365, days)),
         "paused": bool(row.get("paused", False)),
     }
+
+
+def _tm_primary_sender(cfg) -> dict:
+    """The user's own connected inbox, as the connector should describe it.
+
+    The registry below only holds rows once a SECOND mailbox is added, so a
+    single-inbox user has an empty registry while their Gmail sends fine.
+    An agent reading that empty list as "no sender" then stalls the user
+    with a Connect step they already did, which is exactly what happened.
+    Tokens live in the config file, never here; this reports only whether
+    they exist, which address they are for and which provider. The test for
+    "connected" is the one the setup gate uses, so the two agree."""
+    cfg = cfg if isinstance(cfg, dict) else {}
+    gmail = bool(cfg.get("gmail_access_token") or cfg.get("gmail_refresh_token"))
+    ms = bool(cfg.get("ms_access_token") or cfg.get("ms_refresh_token"))
+    smtp = bool(cfg.get("smtp_email") and cfg.get("smtp_password"))
+    provider = "google" if gmail else "microsoft" if ms else "smtp" if smtp else ""
+    email = (cfg.get("gmail_email") if gmail else
+             cfg.get("ms_email") if ms else
+             cfg.get("smtp_email") if smtp else "") or ""
+    return {"email": str(email).strip(), "provider": provider,
+            "connected": bool(provider)}
+
+
+def _tm_primary_row(sender) -> dict:
+    """The primary inbox as a registry-shaped row, for a registry with no
+    rows yet: already warmed up, capped at the user's daily send limit, and
+    paused only in the sense that a disconnected inbox can send nothing."""
+    sender = sender if isinstance(sender, dict) else {}
+    try:
+        cap = int(load_config().get("daily_send_limit", _TM_MAILBOX_DEFAULT_CAP))
+    except (TypeError, ValueError):
+        cap = _TM_MAILBOX_DEFAULT_CAP
+    email = sender.get("email") or "Your connected inbox"
+    return {"id": _TM_PRIMARY_MAILBOX_ID, "email": email, "label": email,
+            "provider": sender.get("provider") or "",
+            "daily_cap": max(0, min(_TM_MAILBOX_MAX_CAP, cap)),
+            "warmup_start": "", "warmup_days": 0,
+            "paused": not sender.get("connected"),
+            "connected": bool(sender.get("connected"))}
 
 
 def _tm_mailboxes_path(user_dir=None):

@@ -287,9 +287,58 @@ def test_pause_resume_and_remove(api, monkeypatch):
 
 
 def test_mailbox_list_still_reports_budgets(api, monkeypatch):
+    """Nothing connected: the primary row is there, but it can send nothing."""
     monkeypatch.setattr(fa, "_tm_analytics_sources", lambda: {"queue": []})
     r = api["call"]("get", "/api/v1/tm/mailboxes")
-    assert r.status_code == 200 and r.json()["remaining_total"] == 0
+    body = r.json()
+    assert r.status_code == 200 and body["remaining_total"] == 0
+    assert body["sender"] == {"email": "", "provider": "", "connected": False}
+    assert [b["id"] for b in body["mailboxes"]] == ["primary"]
+    assert body["mailboxes"][0]["connected"] is False
+
+
+def test_mailbox_list_shows_the_connected_gmail_with_no_registry(api, monkeypatch):
+    """The bug from the field: Gmail connected, registry empty, and the tool
+    said "mailboxes: []" so the agent asked the user to connect an inbox."""
+    monkeypatch.setattr(fa, "_tm_analytics_sources", lambda: {"queue": [
+        {"status": "sent", "sent_at": f"{date.today().isoformat()}T09:00:00"}]})
+    fa.save_config({"gmail_refresh_token": "r", "gmail_access_token": "a",
+                    "gmail_email": "mike@inboxslide.ai", "daily_send_limit": 100})
+    assert fa._tm_load_mailboxes() == []
+    body = api["call"]("get", "/api/v1/tm/mailboxes").json()
+    assert body["sender"] == {"email": "mike@inboxslide.ai", "provider": "google",
+                              "connected": True}
+    (row,) = body["mailboxes"]
+    assert row["id"] == "primary" and row["email"] == "mike@inboxslide.ai"
+    assert row["connected"] is True and row["provider"] == "google"
+    assert row["daily_cap"] == 100 and row["warmup_days"] == 0
+    assert body["remaining_today"] == {"primary": 99}
+    assert body["remaining_total"] == 99
+
+
+def test_mailbox_list_stamps_connected_on_a_registered_primary(api, monkeypatch):
+    monkeypatch.setattr(fa, "_tm_analytics_sources", lambda: {"queue": []})
+    fa.save_config({"gmail_refresh_token": "r", "gmail_email": "mike@inboxslide.ai"})
+    api["call"]("post", "/api/v1/tm/mailboxes", {"action": "add", "email": "b@tm.com"})
+    rows = {b["id"]: b for b in
+            api["call"]("get", "/api/v1/tm/mailboxes").json()["mailboxes"]}
+    assert rows["primary"]["connected"] is True
+    assert rows["primary"]["provider"] == "google"
+    assert "connected" not in rows[fa._tm_mailbox_id("b@tm.com")]
+
+
+@pytest.mark.parametrize("cfg,want", [
+    ({}, {"email": "", "provider": "", "connected": False}),
+    ({"gmail_refresh_token": "r", "gmail_email": "g@x.com"},
+     {"email": "g@x.com", "provider": "google", "connected": True}),
+    ({"ms_access_token": "t", "ms_email": "m@x.com"},
+     {"email": "m@x.com", "provider": "microsoft", "connected": True}),
+    ({"smtp_email": "s@x.com", "smtp_password": "p"},
+     {"email": "s@x.com", "provider": "smtp", "connected": True}),
+    ({"smtp_email": "s@x.com"}, {"email": "", "provider": "", "connected": False}),
+])
+def test_primary_sender_matches_the_setup_gate(cfg, want):
+    assert fa._tm_primary_sender(cfg) == want
 
 
 # ── contact lists ──────────────────────────────────────────────────────────

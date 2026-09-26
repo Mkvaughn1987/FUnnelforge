@@ -593,9 +593,13 @@ async def tm_analytics(days: int = 0, campaign: str = "") -> dict:
 
 @mcp.tool(description=(
     "Sending mailboxes. action='list' (default) returns them and how many "
-    "emails each may still send TODAY; check this before promising a send "
-    "volume, because a mailbox still in its warmup ramp is allowed far less "
-    "than its configured daily cap, and the send loop enforces the ramp. "
+    "emails each may still send TODAY, plus 'sender': the user's own "
+    "connected inbox (email, provider, connected). A single-inbox user has "
+    "just the 'primary' row; that is a working sender, not a missing one, "
+    "so only ask the user to connect an inbox when sender.connected is "
+    "false. Check remaining_today before promising a send volume, because "
+    "a mailbox still in its warmup ramp is allowed far less than its "
+    "configured daily cap, and the send loop enforces the ramp. "
     "action='add' with email, provider ('microsoft' or 'google'), daily_cap "
     "(5-500, default 250) and warmup_days (0-90, default 21) registers a new "
     "mailbox, warming up from today. Adding does NOT connect it: signing the "
