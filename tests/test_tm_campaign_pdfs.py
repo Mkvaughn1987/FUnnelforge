@@ -335,7 +335,8 @@ def test_opener_keeps_the_savings_claim_inside_the_rules():
     assert "only the cost email states the saving" in r
     assert "up to sixty to seventy percent" in r
     assert "depending on the role" in r
-    assert "no email ever gives a dollar amount" in r
+    # Dollar figures are allowed as labelled estimates since 2026-09-26.
+    assert "never present it as a quote or a guarantee" in r
     assert "$" not in r
 
 

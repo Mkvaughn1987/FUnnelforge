@@ -803,9 +803,11 @@ by position, experience, technical requirements, software, schedule and
 talent availability.
 
 There is no universal ThriveModal price. Pricing is one all-inclusive
-monthly rate per professional, quoted for the specific position. Never
-quote, estimate or imply a monthly rate, an annual cost or a dollar saving
-in outreach; offer to price the role instead. When comparing against U.S.
+monthly rate per professional, quoted for the specific position. Dollar
+figures (an hourly, monthly or annual estimate, or a U.S. salary for the
+role) may be used in outreach as estimates for that role: say "estimated"
+or "about", never present one as a quote or a guarantee, and offer to price
+the role exactly. When comparing against U.S.
 hiring costs, compare fully burdened equivalents (salary, benefits, payroll
 taxes, overhead) and say what is being compared.
 
@@ -1024,8 +1026,9 @@ Never claim guaranteed savings. Never state that every position will cost a
 fixed percentage less than a U.S. employee. "Up to sixty to seventy percent,
 fully burdened" is a ceiling that depends on the role, never a quote.
 
-Never quote or estimate a monthly rate, an annual cost, an hourly rate or a
-dollar saving. Offer to price the role.
+Never present a dollar figure as a fixed quote or a guaranteed saving. An
+estimated hourly, monthly or annual figure for the role is fine when it is
+labelled "estimated" or "about"; offer to price the role exactly.
 
 Never claim that offshore talent is automatically equal to or better than
 U.S. talent.
@@ -5753,9 +5756,10 @@ AICB_CAMPAIGN_TYPES = [
      "it: an all-inclusive monthly rate for a professional dedicated "
      "exclusively to their company, working their U.S. business hours. Do NOT "
      "describe the sender as the legal employer, Employer of Record, payroll "
-     "provider or benefits administrator. Do NOT name a dollar figure, a "
-     "monthly rate or a percentage unless the approved pricing and service "
-     "terms field supplies it verbatim. CTA: offer to price the second seat.\n"
+     "provider or benefits administrator. A dollar figure for the seat is "
+     "fine as an estimate labelled 'estimated' or 'about', never as a quote "
+     "or a guarantee; a percentage only as the approved pricing and service "
+     "terms field words it. CTA: offer to price the second seat.\n"
      "Step 5 - Less lift the second time (delay_days:5, step_type:email_auto) - "
      "Short. The requirements process, the interviews and the onboarding are "
      "already familiar to them, so the second seat takes less of their time "
@@ -7115,9 +7119,10 @@ _TM_EMAIL_OPENER_RULE = (
     "does, and only in the words the approved pricing and service terms "
     "field allows: up to sixty to seventy percent below a comparable U.S. "
     "hire, depending on the role. Always 'up to'. No other email gives a "
-    "percentage, and no email ever gives a dollar amount, a monthly rate or "
-    "an annual figure. If that field states no savings figure, leave the "
-    "number out.\n"
+    "percentage. A dollar figure (an hourly, monthly or annual estimate, or "
+    "a U.S. salary for the role) is allowed as an estimate: say 'estimated' "
+    "or 'about', never present it as a quote or a guarantee. If that field "
+    "states no savings figure, leave the percentage out.\n"
     "- THE CANDIDATE STANDARD, in the cost email only (Model 2): say that "
     "every candidate we present holds an accredited degree and communicates "
     "clearly in English, and that if they have not tried a Philippines-based "
@@ -11387,8 +11392,9 @@ def _custom_pdf_build(client, outline, description, ctx_block, pdf_dir,
             "- The title starts with \"ThriveModal\" and the CTA names ThriveModal.\n"
             "- ThriveModal facts come ONLY from the playbook below. Savings "
             "are only ever \"up to 60-70%\" fully burdened, depending on the "
-            "role. Never state an offshore rate, a monthly or hourly cost, or "
-            "a dollar saving; offer to price the role instead.\n"
+            "role. An offshore rate or a monthly or hourly cost may appear as "
+            "an estimate labelled 'estimated' or 'about', never as a quote or "
+            "a guaranteed saving; offer to price the role exactly.\n"
             "- US-side numbers (wages, openings, turnover) must be real public "
             "figures with the source named in the cell or sentence. If you do "
             "not know a real figure, describe the item without a number.\n"
@@ -62631,11 +62637,13 @@ def _tm_newsletter_prompt(nl_name: str, company: str, niche: str, region: str,
         f"Follow the playbook below for every claim. In particular: savings "
         f"are only ever \"up to 60-70%\", one person is never round-the-clock "
         f"coverage, no certifications, no guarantees, no invented customers or "
-        f"statistics about {company}, never frame it as cheap labor. Do not "
-        f"quote a price or rate.\n"
+        f"statistics about {company}, never frame it as cheap labor. A price "
+        f"or rate appears only as an estimate labelled \"estimated\" or "
+        f"\"about\", never as a quote.\n"
         f"HARD RULES (a draft that breaks one is rejected):\n"
-        f"- No dollar amounts, percentages or statistics anywhere except the "
-        f"WHY NOW stats and the phrase \"up to 60-70%\".\n"
+        f"- No percentages or statistics anywhere except the WHY NOW stats "
+        f"and the phrase \"up to 60-70%\". A dollar figure is allowed only as "
+        f"a labelled estimate for a role, never a quote or a guarantee.\n"
         f"- No claims about retention, turnover, tenure or how long people stay.\n"
         f"- No notice periods, contract lengths, guarantees or replacement "
         f"promises beyond the playbook's approved terms, worded as it words them.\n"
