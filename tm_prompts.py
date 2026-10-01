@@ -102,7 +102,7 @@ VERTICALS = [
     {
         "key": "logistics",
         "label": "Logistics / 3PL",
-        "band": "20 to 500 people",
+        "band": "25 to 1000 people",
         "buyers": "the Owner, President, COO or VP of Operations first, then "
                   "the Director of Operations and the Head of Carrier Sales, "
                   "with the CFO second",
@@ -169,7 +169,7 @@ VERTICALS = [
     {
         "key": "freight_forwarding",
         "label": "Freight forwarding / customs",
-        "band": "20 to 300 people",
+        "band": "25 to 1000 people",
         "buyers": "the Owner, President or COO first, then the Director of "
                   "Operations and the Import or Export Manager",
         "roles": "shipment coordination, documentation, customs data entry, "
@@ -234,7 +234,7 @@ VERTICALS = [
     {
         "key": "accounting",
         "label": "Accounting / CAS firms",
-        "band": "10 to 200 people",
+        "band": "25 to 1000 people",
         "buyers": "the Managing Partner or Owner first, then the Firm "
                   "Administrator, the COO and the Director of Client "
                   "Accounting Services",
@@ -364,7 +364,7 @@ VERTICALS = [
     {
         "key": "healthcare_admin",
         "label": "Healthcare administration / RCM",
-        "band": "20 to 300 people",
+        "band": "25 to 1000 people",
         "buyers": "the Practice Administrator or CEO first, then the COO, the "
                   "Director of Revenue Cycle and the CFO",
         "roles": "medical billing, coding support, claims follow-up, prior "
@@ -489,7 +489,7 @@ VERTICALS = [
     {
         "key": "general",
         "label": "General back office",
-        "band": "10 to 300 people",
+        "band": "25 to 1000 people",
         "buyers": "the Owner, President or COO first, then the Director of "
                   "Operations and the Controller",
         "roles": "customer support, data entry, bookkeeping, order "
@@ -544,7 +544,7 @@ VERTICALS = [
     {
         "key": "construction_aec",
         "label": "Construction / AEC",
-        "band": "50 to 500 people",
+        "band": "25 to 1000 people",
         "buyers": "the Owner or President first, then the Controller, the "
                   "Director of Preconstruction and the Operations Manager",
         "roles": "estimating support, takeoffs, submittal tracking, RFI "
@@ -604,7 +604,7 @@ VERTICALS = [
     {
         "key": "agencies",
         "label": "Marketing agencies",
-        "band": "10 to 100 people",
+        "band": "25 to 1000 people",
         "buyers": "the Founder or CEO first, then the COO and the Director of "
                   "Operations",
         "roles": "campaign reporting, ad operations, design production, "
@@ -661,7 +661,7 @@ VERTICALS = [
     {
         "key": "travel",
         "label": "Travel agencies and tour operators",
-        "band": "10 to 100 people",
+        "band": "25 to 1000 people",
         "buyers": "the Owner or Founder first, then the Director of "
                   "Operations",
         "roles": "booking support, itinerary changes, supplier follow-up, "
@@ -716,7 +716,7 @@ VERTICALS = [
     {
         "key": "ecommerce",
         "label": "E-commerce brands",
-        "band": "10 to 150 people",
+        "band": "25 to 1000 people",
         "buyers": "the Founder or CEO first, then the Head of Operations and "
                   "the Head of Customer Experience",
         "roles": "customer support, order and returns processing, catalog "
@@ -773,7 +773,7 @@ VERTICALS = [
     {
         "key": "home_services",
         "label": "HVAC and home services",
-        "band": "20 to 200 people",
+        "band": "25 to 1000 people",
         "buyers": "the Owner or General Manager first, then the Operations "
                   "Manager and the Office Manager",
         "roles": "dispatch support, call handling, appointment booking, "
@@ -833,7 +833,7 @@ VERTICALS = [
     {
         "key": "distributors",
         "label": "Wholesale distributors",
-        "band": "20 to 250 people",
+        "band": "25 to 1000 people",
         "buyers": "the Owner or President first, then the VP of Operations "
                   "and the Controller",
         "roles": "order entry, inside sales support, purchasing support, "
@@ -892,7 +892,7 @@ VERTICALS = [
     {
         "key": "professional_services",
         "label": "Professional services firms",
-        "band": "10 to 150 people",
+        "band": "25 to 1000 people",
         "buyers": "the Managing Partner or Founder first, then the Firm "
                   "Administrator and the COO",
         "roles": "intake, scheduling, document preparation, billing, "

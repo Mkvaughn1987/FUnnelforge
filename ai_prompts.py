@@ -298,7 +298,7 @@ ROUTINES = [
             F("anonymise", "Hide their names and current employers", "details",
               "toggle", default=True),
             F("company_size", "How big a company", "details",
-              default="50 to 1000 people"),
+              default="25 to 1000 people"),
             F("who_to_reach", "Who to reach", "details",
               default="owners and C-level first, then VPs, then directors, "
                       "then managers, with HR and talent acquisition last",
@@ -378,7 +378,7 @@ ROUTINES = [
                  "the people who own the hiring decision, turn them into "
                  "outreach campaigns.",
         "example": "Find commercial construction companies in Colorado hiring "
-                   "project managers and superintendents, 50 to 1000 people, "
+                   "project managers and superintendents, 25 to 1000 people, "
                    "and set up outreach",
         "tools": ["campaign_types", "my_campaign_styles", "candidates_search",
                   "campaigns_list", "create_campaign"],
@@ -390,7 +390,7 @@ ROUTINES = [
             F("roles", "What jobs they're hiring for", "details", ask=True,
               placeholder="e.g. plant managers and maintenance techs"),
             F("company_size", "How big a company", "details",
-              default="50 to 1000 people"),
+              default="25 to 1000 people"),
             F("who_to_reach", "Who to reach", "details",
               default="owners and C-level first, then VPs, then directors, "
                       "then managers, with HR and talent acquisition last",

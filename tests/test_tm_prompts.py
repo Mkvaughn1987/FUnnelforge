@@ -382,7 +382,7 @@ def test_blank_targeting_is_filled_from_the_picked_vertical(tm, aip):
     assert acc["question"] in flat
     assert "Karbon" in p
     # The details table shows the recommendation the steps were written with.
-    assert "How big a company:" in p and "10 to 200 people" in p
+    assert "How big a company:" in p and "25 to 1000 people" in p
     assert "Managing Partner" in p
     assert "exploratory" not in p.lower()
 
@@ -396,7 +396,7 @@ def test_typed_targeting_beats_the_recommendation(tm, aip):
                          "summary": "x"})
     assert "fifty to eighty people" in p
     assert "the CFO only" in p
-    assert "20 to 500 people" not in p
+    assert "25 to 1000 people" not in p
 
 
 def test_exploratory_vertical_is_flagged_as_a_test(tm, aip):
