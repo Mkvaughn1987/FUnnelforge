@@ -826,7 +826,9 @@ def test_p_tm_prompts_renders_ask_confirm_and_result(aip, tm, tmp_path,
 
 
 def test_p_ai_prompts_still_renders_arena(aip, tmp_path, monkeypatch):
-    s = _render_all_views(aip, aip.p_ai_prompts, aip.ARENA, tmp_path,
+    # DripDrop's page renders STAFFING: ARENA's runs plus the staffing ones.
+    import staffing_prompts as sp
+    s = _render_all_views(aip, aip.p_ai_prompts, sp.STAFFING, tmp_path,
                           monkeypatch, aip.ARENA.starters[0]["id"])
     assert "DripDrop" in s._aip_prompt
     assert aip._setups_path().name == "ai_prompt_setups.json"
@@ -837,7 +839,8 @@ def test_page_binding_is_the_catalogue_passed(aip, tm, tmp_path, monkeypatch):
     tm.p_tm_prompts(_Session(), lambda: None)
     assert aip._CAT is tm.TM
     aip.p_ai_prompts(_Session(), lambda: None)
-    assert aip._CAT is aip.ARENA
+    import staffing_prompts as sp
+    assert aip._CAT is sp.STAFFING
 
 
 def test_saved_prompt_opens_straight_on_the_built_prompt():

@@ -278,7 +278,10 @@ def test_arena_declares_neither_hook_and_never_uses_checks(aip):
     for r in aip.ARENA.routines:
         for f in r["fields"]:
             assert f["type"] != "checks", (r["key"], f["key"])
-            assert f["refresh"] is False, (r["key"], f["key"])
+            # The schedule questions redraw the screen (v10: a settled
+            # question disappears); nothing else on Arena does.
+            assert f["refresh"] is (f["key"] in ("repeat_on",
+                                                 "repeat_every")),                 (r["key"], f["key"])
     # With no hook the engine has no menu, so a checks field falls back to
     # a plain box rather than disappearing.
     r, cat = _checks_cat(aip)

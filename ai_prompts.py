@@ -82,14 +82,14 @@ SECTIONS = [
     ("size", "How big this run is", False),
     ("skip", "Leave these out", False),
     ("repeat", "Repeat it", False),
-    ("extra", "Anything else Claude should know", False),
+    ("extra", "Anything else the AI should know", False),
 ]
 SECTION_NAME = {k: n for k, n, _ in SECTIONS}
 
 
 def F(key, label, section="details", type="text", default="", ask=False,
       hint="", placeholder="", options=None, refresh=False, source="",
-      pick_first=False, chips=None):
+      pick_first=False, chips=None, show_if=None):
     """One question on the screen.
 
     ask=True means "only the user can answer this" — left blank it becomes a
@@ -106,12 +106,23 @@ def F(key, label, section="details", type="text", default="", ask=False,
     takes anything typed. pick_first opens it on the first entry. chips are
     ready-made answers shown above the box: one click writes the wording
     in, and it stays editable.
+
+    show_if is `(routine, vals) -> bool`. A question that an earlier answer
+    has already settled is not asked: a run that repeats every day has no
+    day to pick, so the day question is not shown rather than shown and
+    ignored.
     """
     return {"key": key, "label": label, "section": section, "type": type,
             "default": default, "ask": ask, "hint": hint,
             "placeholder": placeholder, "options": options or [],
             "refresh": bool(refresh), "source": source or "",
-            "pick_first": bool(pick_first), "chips": list(chips or [])}
+            "pick_first": bool(pick_first), "chips": list(chips or []),
+            "show_if": show_if}
+
+
+def _visible(r, vals, f):
+    fn = f.get("show_if")
+    return True if not fn else bool(fn(r, vals))
 
 
 def finalize_routines(routines):
@@ -183,7 +194,7 @@ class Catalogue:
 
 
 SEQUENCES = ["Arena 5x5", "Arena 5x3", "Arena 4x4", "One of my saved styles",
-             "Let Claude choose"]
+             "Let the AI choose"]
 
 # Which create_campaign template each sequence name means. The prompt names
 # the template key outright rather than describing the sequence, so Claude
@@ -195,34 +206,69 @@ TEMPLATE_KEY = {
 }
 
 WHEN_OPTIONS = ["Next Monday", "The Monday after next", "As soon as it's built",
-                "A date I'll give Claude"]
+                "A date I'll give the AI"]
 
 POSTING_AGE = ["Posted in the last 7 days", "Posted in the last 14 days",
                "Posted in the last 30 days", "Posted in the last 60 days"]
 
-CADENCE = ["Every weekday", "Every day", "Every week", "Every two weeks",
-           "Every month"]
+CADENCE = ["Every day", "Every other day", "Once a week"]
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 TIMES = ["7:00am", "8:00am", "9:00am", "10:00am", "1:00pm", "3:00pm"]
 ZONES = ["Mountain", "Central", "Eastern", "Pacific"]
 UNATTENDED = ["Stop and check with me first", "Run it all the way through"]
 
+# Cadences saved before the three-option list above. Kept readable rather
+# than dropped: a setup saved months ago still opens with its schedule
+# intact instead of silently resetting to daily.
+CADENCE_LEGACY = {"every week": "Once a week", "weekly": "Once a week",
+                  "daily": "Every day", "every weekday": "Every day"}
+
+
+def _cadence_of(r, vals):
+    return (str(_val(r, vals, "repeat_every") or "").strip().lower()
+            or "once a week")
+
+
+def _if_repeat(r, vals):
+    """Nothing about the schedule is asked until there is a schedule."""
+    return _flag(r, vals, "repeat_on")
+
+
+def _if_many_days(r, vals):
+    return _if_repeat(r, vals) and _cadence_of(r, vals) == "every other day"
+
+
+def _if_one_day(r, vals):
+    # Every day lands on all of them, every other day picks its own set -
+    # everything else (including a legacy fortnightly or monthly setup)
+    # runs on one named day.
+    return (_if_repeat(r, vals)
+            and _cadence_of(r, vals) not in ("every day", "every other day"))
+
 # Asked on every job, whatever it is. Appended to each routine's own list.
 COMMON_FIELDS = [
+    # repeat_on and repeat_every decide which other questions exist, so
+    # changing either redraws the screen and a settled question disappears
+    # straight away instead of sitting there waiting to be ignored.
     F("repeat_on", "Run this again on a schedule", "repeat", "toggle",
-      default=False),
-    F("repeat_every", "How often", "repeat", "select", default="Every week",
-      options=CADENCE),
+      default=False, refresh=True),
+    F("repeat_every", "How often", "repeat", "select", default="Once a week",
+      options=CADENCE, show_if=_if_repeat, refresh=True),
+    F("repeat_days", "Which days", "repeat", "days",
+      default="Monday, Wednesday, Friday", options=DAYS,
+      show_if=_if_many_days,
+      hint="The days it lands on. Three across the week is the usual shape."),
     F("repeat_day", "Which day", "repeat", "select", default="Monday",
-      options=DAYS),
+      options=DAYS, show_if=_if_one_day),
     F("repeat_time", "What time", "repeat", "select", default="8:00am",
-      options=TIMES),
+      options=TIMES, show_if=_if_repeat),
     F("repeat_tz", "Your timezone", "repeat", "select", default="Mountain",
-      options=ZONES),
-    F("unattended", "When it runs on its own, should Claude stop and check "
+      options=ZONES, show_if=_if_repeat),
+    F("unattended", "When it runs on its own, should the AI stop and check "
       "with you, or finish it?", "repeat", "select",
       default="Stop and check with me first", options=UNATTENDED,
-      hint="Nobody is in the chair on a scheduled run. If Claude stops and "
+      show_if=_if_repeat,
+      hint="Nobody is in the chair on a scheduled run. If the AI stops and "
            "waits, the run just sits there until you find it."),
 ]
 
@@ -307,7 +353,7 @@ ROUTINES = [
               "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
             F("newsletter", "Which newsletter", "details",
               placeholder="Only if you're naming one above",
-              hint="Leave this blank and Claude picks whichever of your "
+              hint="Leave this blank and the AI picks whichever of your "
                    "newsletters is in the same line of work."),
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES),
@@ -399,7 +445,7 @@ ROUTINES = [
               "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
             F("newsletter", "Which newsletter", "details",
               placeholder="Only if you're naming one above",
-              hint="Leave this blank and Claude picks whichever of your "
+              hint="Leave this blank and the AI picks whichever of your "
                    "newsletters is in the same line of work."),
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES),
@@ -479,7 +525,7 @@ ROUTINES = [
               "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
             F("newsletter", "Which newsletter", "details",
               placeholder="Only if you're naming one above",
-              hint="Leave this blank and Claude picks whichever of your "
+              hint="Leave this blank and the AI picks whichever of your "
                    "newsletters is in the same line of work."),
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES),
@@ -670,7 +716,7 @@ ROUTINES = [
                   "create_campaign"],
         "fields": [
             F("who", "Who you're sending to", "details", "textarea", ask=True,
-              placeholder="The list, the file, or where Claude will find it"),
+              placeholder="The list, the file, or where the AI will find it"),
             F("company_niche", "Which company or niche", "details", ask=True,
               placeholder="What the emails are about"),
             F("jd", "If you're emailing candidates, paste the job "
@@ -685,7 +731,7 @@ ROUTINES = [
               "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
             F("newsletter", "Which newsletter", "details",
               placeholder="Only if you're naming one above",
-              hint="Leave this blank and Claude picks whichever of your "
+              hint="Leave this blank and the AI picks whichever of your "
                    "newsletters is in the same line of work."),
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES),
@@ -796,7 +842,7 @@ ROUTINES = [
               "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
             F("newsletter", "Which newsletter", "details",
               placeholder="Only if you're naming one above",
-              hint="Leave this blank and Claude picks whichever of your "
+              hint="Leave this blank and the AI picks whichever of your "
                    "newsletters is in the same line of work."),
         ],
         "steps": [
@@ -949,7 +995,7 @@ def _start_date(r, vals):
 def _template_clause(r, vals, cat=None):
     cat = cat or _CAT
     seq = _txt(r, vals, "sequence") or cat.default_sequence
-    if seq.startswith("Let Claude"):
+    if seq.startswith(("Let Claude", "Let the AI")):
         return ("whichever template campaign_types shows is the best fit for "
                 "this, and tell me which one you picked and why")
     if seq.startswith("One of my saved"):
@@ -1226,6 +1272,43 @@ def _derived(r, vals, cat=None):
     return d
 
 
+def _days_list(v):
+    """A multi-day answer as a list. Stored as a comma-joined string so it
+    saves, counts and reads back exactly like every other answer."""
+    parts = list(v) if isinstance(v, (list, tuple)) else str(v or "").split(",")
+    return [p.strip() for p in parts if str(p).strip()]
+
+
+def _and_list(items):
+    items = list(items)
+    if len(items) < 2:
+        return items[0] if items else ""
+    return "%s and %s" % (", ".join(items[:-1]), items[-1])
+
+
+def _migrate_cadence(vals):
+    """A setup saved under the old cadence list opens on the new one."""
+    hit = CADENCE_LEGACY.get(str(vals.get("repeat_every") or "").strip().lower())
+    if hit:
+        vals["repeat_every"] = hit
+
+
+def _repeat_when(r, vals):
+    """The schedule in words. Every day has no day to name, every other day
+    names the days it lands on, and anything else names the single day. A
+    legacy cadence is read through CADENCE_LEGACY so a request that never
+    went through the screen says the same thing the screen would."""
+    cad = _cadence_of(r, vals)
+    cad = CADENCE_LEGACY.get(cad, cad).lower()
+    if cad == "every day":
+        return "every day"
+    if cad == "every other day":
+        days = _days_list(_val(r, vals, "repeat_days")) or \
+            ["Monday", "Wednesday", "Friday"]
+        return "every other day (%s)" % _and_list(days)
+    return "%s on %s" % (cad, _txt(r, vals, "repeat_day") or "Monday")
+
+
 def _open_questions(r, vals, extra=()):
     """The blanks worth stopping for. Only fields marked ask=True qualify —
     everything else carries a default that is written straight into the
@@ -1240,6 +1323,8 @@ def _open_questions(r, vals, extra=()):
     qs = []
     for f in r["fields"]:
         if not (f.get("ask") or f["key"] in extra):
+            continue
+        if not _visible(r, vals, f):
             continue
         if not str(_val(r, vals, f["key"]) or "").strip():
             qs.append(f["label"])
@@ -1358,7 +1443,7 @@ def normalise(data, raw):
         for k, v in given.items():
             k = str(k or "").strip()
             f = r["field_by_key"].get(k)
-            if not f or k in ("repeat_on", "unattended"):
+            if not f or k in ("repeat_on", "repeat_days", "unattended"):
                 continue
             if f["type"] == "toggle":
                 vals[k] = str(v).strip().lower() in ("1", "true", "yes", "on")
@@ -1508,17 +1593,10 @@ def build_prompt(req, cat=None):
         L += _bullet(cat.unattended_rule if (i == 0 and solo) else rule)
 
     if _flag(r, vals, "repeat_on"):
-        every = (_txt(r, vals, "repeat_every") or "every week").lower()
-        # A daily cadence has no weekday to name - "every weekday on Monday"
-        # reads as a contradiction and leaves Claude to pick which half of it
-        # to believe.
-        when = ("" if every.startswith("every day")
-                or every.startswith("every weekday")
-                else " on %s" % (_txt(r, vals, "repeat_day") or "Monday"))
         L += ["", "THEN MAKE IT REPEAT"]
-        L += _wrap("Run this again %s%s at %s %s time, and keep running "
+        L += _wrap("Run this again %s at %s %s time, and keep running "
                    "it on that schedule."
-                   % (every, when,
+                   % (_repeat_when(r, vals),
                       _txt(r, vals, "repeat_time") or "8:00am",
                       _txt(r, vals, "repeat_tz") or "Mountain"))
         L += _wrap(
@@ -1590,9 +1668,10 @@ def _save_setups(rows, cat=None):
 STARTERS = [
     {
         "id": "slate",
+        "icon": "groups",
         "label": "Find companies hiring in a market and put candidates in "
                  "front of them",
-        "sub": "You give an industry and an area. Claude finds the companies "
+        "sub": "You give an industry and an area. The AI finds the companies "
                "with live openings, pulls three people out of your DripDrop "
                "Pipeline for each of them - and has DripDrop's AI build the "
                "rest of the slate if the bench comes up short - then runs the "
@@ -1604,9 +1683,10 @@ STARTERS = [
     },
     {
         "id": "market",
+        "icon": "send",
         "label": "Take candidates from my Pipeline out to companies hiring "
                  "them",
-        "sub": "You name the people. Claude pulls them out of the DripDrop "
+        "sub": "You name the people. The AI pulls them out of the DripDrop "
                "Pipeline, finds companies with openings they genuinely fit, "
                "pulls the contacts, and runs the Arena 5x5.",
         "summary": "Market named candidates out to companies hiring for what "
@@ -1616,8 +1696,9 @@ STARTERS = [
     },
     {
         "id": "sweep",
+        "icon": "travel_explore",
         "label": "Take one candidate out to every company with a job for them",
-        "sub": "One person, nothing narrowed down. Claude sweeps for every "
+        "sub": "One person, nothing narrowed down. The AI sweeps for every "
                "live opening that genuinely fits them, however wide that "
                "goes, and runs the Arena 5x5 at all of it.",
         "summary": "Sweep for every live opening one candidate fits, and run "
@@ -1632,8 +1713,9 @@ STARTERS = [
     },
     {
         "id": "linkedin",
+        "icon": "person_add",
         "label": "Send today's LinkedIn connection requests",
-        "sub": "Claude opens Today's Tasks, reads every LinkedIn card on it, "
+        "sub": "The AI opens Today's Tasks, reads every LinkedIn card on it, "
                "sends each person the connection request with the note "
                "DripDrop already wrote for that campaign, and marks the task "
                "done on the way back. Needs a browser it can drive and you "
@@ -1650,14 +1732,15 @@ STARTERS = [
         # What review would have caught is handled in the steps instead:
         # the cap stops it at 25, a card it cannot read is skipped rather
         # than guessed at, and any LinkedIn warning stops the run outright.
-        "vals": {"repeat_on": True, "repeat_every": "Every weekday",
+        "vals": {"repeat_on": True, "repeat_every": "Every day",
                  "unattended": "Run it all the way through"},
     },
     {
         "id": "other",
+        "icon": "edit_note",
         "label": "Something else - I'll describe it",
-        "sub": "Anything the four above do not cover. You write the job in "
-               "your own words on the next screen and Claude turns it into "
+        "sub": "Anything the jobs above do not cover. You write the job in "
+               "your own words on the next screen and the AI turns it into "
                "the same kind of prompt, with the same rules on it.",
         # Non-empty on purpose: with the "in one line" box gone this is the
         # only thing left to open WHAT I WANT with. The job itself is the
@@ -1681,7 +1764,7 @@ def _arena_result_extra(s, rf, C, r):
         _text("DripDrop can also run this one for you", C, 13, 700,
               C["text_l"], 4)
         _text("The Sales Campaign page queues the same run, writes the "
-              "campaigns here and stops at a review screen. Claude still "
+              "campaigns here and stops at a review screen. The AI still "
               "does the sourcing — it just hands the result back to "
               "DripDrop instead of back to you.",
               C, 12, colour=C["muted"], mb=12)
@@ -1718,14 +1801,15 @@ ARENA = Catalogue(
     setups_file="ai_prompt_setups.json",
     product="DripDrop",
     connector="DripDrop connector",
-    assistant="Claude",
+    assistant="the AI",
     page_title="AI Prompts",
     page_sub=("Pick what you want done. DripDrop asks you the questions "
-              "worth asking and writes the message to paste into Claude "
-              "— with everything Claude needs to do it properly already "
-              "in it."),
-    result_copy=("Copy it, open Claude with your DripDrop connector switched "
-                 "on, and paste it as your first message."),
+              "worth asking and writes the message to paste into your AI "
+              "(Claude or ChatGPT) — with everything it needs to do the job "
+              "properly already in it."),
+    result_copy=("Copy it, open Claude or ChatGPT with your DripDrop "
+                 "connector switched on, and paste it as your first "
+                 "message."),
     result_extra=_arena_result_extra,
 )
 
@@ -1997,8 +2081,11 @@ def _saved_card(C, row, actions):
 
 def p_ai_prompts(s, rf):
     """AI Prompts — DripDrop's page: pick a job, get the prompt to hand
-    Claude."""
-    render_page(s, rf, ARENA)
+    your AI. Renders STAFFING (staffing_prompts.py): ARENA's runs plus the
+    vertical-driven staffing runs. Imported here, not at the top, because
+    staffing_prompts imports this module."""
+    import staffing_prompts
+    render_page(s, rf, staffing_prompts.STAFFING)
 
 
 def render_page(s, rf, cat):
@@ -2304,7 +2391,7 @@ def apply_answers(r, vals, answers, cat=None):
         v = "" if v is None else str(v).strip()
         if f["type"] == "newsletter":
             low = v.lower()
-            if not v or low == _NL_FIND.lower():
+            if not v or low in (_NL_FIND.lower(), _NL_FIND_OLD):
                 vals["newsletter_mode"], vals["newsletter"] = NEWSLETTER_MODES[0], ""
             elif low in (_NL_NONE.lower(), "none", "no"):
                 vals["newsletter_mode"], vals["newsletter"] = NEWSLETTER_MODES[2], ""
@@ -2448,8 +2535,12 @@ def _aip_field(s, rf, C, r, vals, f):
         vals[key] = e.value
 
     if f["type"] == "toggle":
+        def _set_tog(e):
+            _set(e)
+            if f.get("refresh"):
+                rf()
         cb = ui.checkbox(f["label"], value=_flag(r, vals, key),
-                         on_change=_set)
+                         on_change=_set_tog)
         cb.style(f"color:{C['text_l']};font-size:12px;")
         if f["hint"]:
             ui.label(f["hint"]).style(
@@ -2478,6 +2569,26 @@ def _aip_field(s, rf, C, r, vals, f):
         return
     if f["type"] == "pick":
         _pick_widget(C, vals, f, cur)
+        return
+    if f["type"] == "days":
+        picked = _days_list(cur)
+
+        def _tick(e, _d=""):
+            sel = set(_days_list(vals.get(key, cur)))
+            if e.value:
+                sel.add(_d)
+            else:
+                sel.discard(_d)
+            # Written back in weekday order, never in click order, so the
+            # prompt reads "Monday, Wednesday and Friday" either way.
+            vals[key] = ", ".join([d for d in f["options"] if d in sel])
+
+        with ui.element("div").style(
+                "display:flex;flex-wrap:wrap;gap:2px 16px;"):
+            for d in f["options"]:
+                ui.checkbox(d, value=(d in picked),
+                            on_change=lambda e, _d=d: _tick(e, _d)).style(
+                    f"color:{C['text_l']};font-size:12px;")
         return
     if f["type"] == "select":
         opts = list(f["options"])
@@ -2648,7 +2759,8 @@ def _pick_names(source):
                 if str(x or "").strip()]
     except Exception:
         return []
-_NL_FIND, _NL_NONE = "Claude picks the one that fits", "No newsletter"
+_NL_FIND, _NL_NONE = "The AI picks the one that fits", "No newsletter"
+_NL_FIND_OLD = "claude picks the one that fits"
 
 
 def _newsletter_picker(s, rf, C, vals):
@@ -2858,6 +2970,7 @@ def _aip_confirm(s, rf, C):
     vals = req.setdefault("vals", defaults_for(r))
     for f in r["fields"]:
         vals.setdefault(f["key"], f["default"])
+    _migrate_cadence(vals)
     # Show the recommendation in the box rather than behind a placeholder.
     # Every render, because the answer it recommends follows from another
     # answer on the same screen: change the vertical and these follow it.
@@ -2911,7 +3024,8 @@ def _aip_confirm(s, rf, C):
                         "display:flex;align-items:center;gap:8px;"
                         "flex-wrap:wrap;"):
                     if unanswered:
-                        ui.label(_CAT.assistant + " will ask for: "
+                        ui.label(_CAT.assistant[:1].upper()
+                                 + _CAT.assistant[1:] + " will ask for: "
                                  + ", ".join(unanswered)).classes(
                             "aip-pill warn").style("white-space:normal;")
                     else:
@@ -2926,7 +3040,8 @@ def _aip_confirm(s, rf, C):
     with ui.element("div").classes("aip-acc"):
         for key, name in _aip_sections_for(r):
             is_open = bool(opened.get(key))
-            rows = [f for f in r["fields"] if f["section"] == key]
+            rows = [f for f in r["fields"]
+                    if f["section"] == key and _visible(r, vals, f)]
             count = len([f for f in rows
                          if str(_val(r, vals, f["key"]) or "").strip()])
 
@@ -2942,7 +3057,9 @@ def _aip_confirm(s, rf, C):
                     "aip-acc-row" + (" open" if is_open else "")):
                 with ui.element("button").classes("aip-acc-head").on(
                         "click", _toggle):
-                    ui.label(name[:1].upper() + name[1:].lower()).style(
+                    # Names are already sentence case; lowering the rest
+                    # would turn "the AI" into "the ai".
+                    ui.label(name[:1].upper() + name[1:]).style(
                         f"font-size:14px;font-weight:700;"
                         f"color:{C['text_l']};flex:1;")
                     ui.label("%d answered" % count if rows
