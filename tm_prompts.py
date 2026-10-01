@@ -1198,6 +1198,12 @@ def prefill_tm(r, vals, written=None):
 # client and the old 5 Emails, 3 Calls + LinkedIn stay registered in the app
 # but are not offered.
 
+# A hiring signal can be an opening that has sat for two months, so the
+# posting window has to reach past that. Mike 2026-10-01.
+TM_POSTING_AGE = POSTING_AGE + ["Posted in the last 90 days",
+                               "Posted in the last 6 months"]
+
+
 SEQUENCES = [
     "Standard Outreach",
     "Quick Intro",
@@ -1293,8 +1299,6 @@ def _email_fields(sequence=DEFAULT_SEQUENCE, name_default="the company name"):
     return [
         F("sequence", "Which campaign type", "emails", "select",
           default=sequence, options=SEQUENCES),
-        F("saved_style", "Which saved style", "emails",
-          hint="Only if you picked one of your saved styles above."),
         F("start_when", "When the first email goes out", "emails", "select",
           default="Next Monday", options=WHEN_OPTIONS),
         F("campaign_name", "What to call the campaigns", "emails",
@@ -1428,7 +1432,7 @@ ROUTINES = [
         ] + _newsletter_fields() + _email_fields("They're Hiring") + _size_fields() + [
             F("posting_age", "How recent the job postings have to be", "size",
               "select", default="Posted in the last 30 days",
-              options=POSTING_AGE),
+              options=TM_POSTING_AGE),
             F("boards", "Where to look for the jobs", "size",
               default="Google Jobs first, then ZipRecruiter, then LinkedIn, "
                       "then Indeed"),
