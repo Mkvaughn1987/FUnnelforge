@@ -94,7 +94,7 @@ VERTICALS = [
     {
         "key": "construction",
         "label": "Construction",
-        "band": "50 to 1000 people",
+        "band": "25 to 1000 people",
         "buyers": "the President, VP of Operations or Director of "
                   "Construction first, then the Senior Project Manager or "
                   "General Superintendent the role reports to, with HR and "
@@ -136,7 +136,7 @@ VERTICALS = [
     {
         "key": "manufacturing",
         "label": "Manufacturing",
-        "band": "50 to 1000 people",
+        "band": "25 to 1000 people",
         "buyers": "the Plant Manager or VP of Operations first, then the "
                   "Director of Manufacturing, Engineering or Maintenance the "
                   "role reports to, with HR and talent acquisition last",
@@ -178,7 +178,7 @@ VERTICALS = [
     {
         "key": "trades",
         "label": "Trades & building services",
-        "band": "25 to 500 people",
+        "band": "25 to 1000 people",
         "buyers": "the Owner or President first, then the General Manager, "
                   "Service Manager or Operations Manager, with HR last",
         "roles": "service technicians, service and operations managers, "
@@ -217,7 +217,7 @@ VERTICALS = [
     {
         "key": "aec",
         "label": "Engineering / AEC",
-        "band": "25 to 500 people",
+        "band": "25 to 1000 people",
         "buyers": "the Principal or Managing Principal first, then the "
                   "Office Leader or Department Manager the role reports to, "
                   "with HR last",
