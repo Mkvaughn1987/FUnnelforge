@@ -39474,7 +39474,7 @@ def p_dashboard(s: AppState, rf):
                     for camp in _regular:
                         _render_camp_card(camp, C["teal"])
                 if _slow_drip:
-                    _group_header(f"{TERM_NURTURE_COMPACT} Sequence", len(_slow_drip), C["indigo"])
+                    _group_header("Newsletter Sequence", len(_slow_drip), C["indigo"])
                     for camp in _slow_drip:
                         _render_camp_card(camp, C["indigo"])
 
