@@ -1591,7 +1591,13 @@ ROUTINES = [
             _vertical_field(),
             F("states", "Which states' WARN notices to read", "details",
               "checks", hint=_STATES_INTRO,
-              find="Find the states with the most WARN filings"),
+              find="Find the states with the most WARN filings",
+              find_note="Claude reads recent WARN notices and ticks the "
+                        "states with the most filings from this industry. "
+                        "Most notices don't name the industry, so Claude "
+                        "judges it from the company, and it checks a few "
+                        "states rather than all of them. Treat it as a "
+                        "good estimate. The why-line says what it found."),
             F("lookback", "How far back to look", "details",
               default="the last 90 days"),
         ] + _targeting_fields() + _newsletter_fields() + _email_fields(

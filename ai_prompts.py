@@ -89,7 +89,7 @@ SECTION_NAME = {k: n for k, n, _ in SECTIONS}
 
 def F(key, label, section="details", type="text", default="", ask=False,
       hint="", placeholder="", options=None, refresh=False, source="",
-      pick_first=False, chips=None, show_if=None, find=""):
+      pick_first=False, chips=None, show_if=None, find="", find_note=""):
     """One question on the screen.
 
     ask=True means "only the user can answer this" — left blank it becomes a
@@ -113,13 +113,16 @@ def F(key, label, section="details", type="text", default="", ask=False,
     find is a button label on a tick list: pressing it has the catalogue's
     recommend hook work out this one list afresh (it can search), replacing
     the ticks. Only shown when the catalogue has a recommend hook.
+    find_note is one small line under that button saying what it can and
+    cannot tell you.
     """
     return {"key": key, "label": label, "section": section, "type": type,
             "default": default, "ask": ask, "hint": hint,
             "placeholder": placeholder, "options": options or [],
             "refresh": bool(refresh), "source": source or "",
             "pick_first": bool(pick_first), "chips": list(chips or []),
-            "show_if": show_if, "find": find or ""}
+            "show_if": show_if, "find": find or "",
+            "find_note": find_note or ""}
 
 
 def _visible(r, vals, f):
@@ -2783,6 +2786,10 @@ def _aip_find(s, rf, C, r, vals, f):
 
     with ui.element("div").style("margin:8px 0 4px;"):
         _btn(f["find"], _go, lead="travel_explore", small=True)
+        if f.get("find_note"):
+            ui.label(f["find_note"]).style(
+                f"font-size:10px;color:{C['muted']};line-height:1.5;"
+                f"display:block;margin-top:5px;")
         why = str(found.get(key) or "")
         if why:
             ui.label("Why these: " + why).style(

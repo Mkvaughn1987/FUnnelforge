@@ -1140,6 +1140,8 @@ def test_the_states_list_has_its_own_find_button(tm, aip):
     r = tm.ROUTINE_BY_KEY["tm_cost_pressure"]
     f = r["field_by_key"]["states"]
     assert f["find"] and "WARN" in f["find"]
+    # It says plainly that this is an estimate, not a count.
+    assert "estimate" in f["find_note"]
     assert "states" in r["recommend"]
     # No other field anywhere grows the button by accident, and Arena's
     # fields carry an empty one.
