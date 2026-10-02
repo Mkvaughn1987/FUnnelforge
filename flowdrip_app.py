@@ -10553,6 +10553,9 @@ def _sidebar_layout_css() -> str:
 .fd-side-word{{display:flex;align-items:center;gap:3px}}
 .fd-side-stack{{display:flex;flex-direction:column;font-size:.92em;line-height:.8}}
 .fd-side-stack i{{font-style:normal}}
+/* The drop mark doubles as the "D" of "Drop". */
+.fd-side-dropd{{display:flex;align-items:flex-end;margin-left:2px}}
+.fd-side-dropd svg{{display:block;width:21px;height:27px;margin:0 0 -1px -1px}}
 .fd-side-stack b{{margin:-3px 0 0 6px;text-shadow:0 0 3px {C['surface']}}}
 .fd-side-trail{{display:flex;color:{C['muted']};opacity:.7;margin-left:auto}}
 .fd-ws{{display:flex;align-items:center;gap:10px;width:100%;padding:8px 8px;border-radius:10px;
@@ -13649,9 +13652,9 @@ def _sidebar_v2(s: AppState, rf):
             with ui.element("div").classes("fd-side-logo dd").props(
                     'role="button" tabindex="0" aria-label="Home"').on(
                     "click", lambda: _go("dashboard")):
-                ui.html(f'<span class="fd-side-drop">{_DD_DROP_SVG}</span>'
-                        '<span class="fd-side-word" aria-label="DripDripDrop">'
-                        '<span class="fd-side-stack"><i>Drip</i><b>Drip</b></span>Drop</span>')
+                ui.html('<span class="fd-side-word" aria-label="DripDripDrop">'
+                        '<span class="fd-side-stack"><i>Drip</i><b>Drip</b></span>'
+                        f'<span class="fd-side-dropd">{_DD_DROP_SVG}<span>rop</span></span></span>')
             _ws = _sidebar_workspace_name(s)
             _ws_menu = {"m": None}
             def _open_ws():
