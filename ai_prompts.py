@@ -200,10 +200,6 @@ class Catalogue:
     # (inboxslide's) adds nothing: its runs must never fall back onto an
     # Arena ZoomInfo seat.
     zi_rule: str = ""
-    # True shows "Send to my AI" on the result screen and the "Your AI"
-    # panel on step 1: the job is queued in ai_jobs.py for the user's hourly
-    # worker instead of being pasted.
-    queue_jobs: bool = False
     # True writes every prompt to run start to finish: no "say go" review
     # points, no questions before it starts, and the "stop and check with
     # you, or finish it?" question is not asked. DripDrop's users want the
@@ -224,7 +220,7 @@ TEMPLATE_KEY = {
 }
 
 WHEN_OPTIONS = ["Next Monday", "The Monday after next", "8am tomorrow",
-                "As soon as it's built", "A date I'll give the AI"]
+                "As soon as it's built", "Pick a date and time"]
 
 POSTING_AGE = ["Posted in the last 7 days", "Posted in the last 14 days",
                "Posted in the last 30 days", "Posted in the last 60 days"]
@@ -250,6 +246,36 @@ def _cadence_of(r, vals):
 def _if_repeat(r, vals):
     """Nothing about the schedule is asked until there is a schedule."""
     return _flag(r, vals, "repeat_on")
+
+
+def _if_pick_date(r, vals):
+    return str(_val(r, vals, "start_when") or "").startswith("Pick a date")
+
+
+def start_fields():
+    """"When the first email goes out", plus the date and time boxes that
+    only show once "Pick a date and time" is chosen. Every run type uses
+    this one set, so the choices cannot drift between them."""
+    return [
+        F("start_when", "When the first email goes out", "emails", "select",
+          default="Next Monday", options=WHEN_OPTIONS, refresh=True),
+        F("start_on", "Date", "emails", "date", show_if=_if_pick_date,
+          hint="A Saturday or Sunday moves to Monday."),
+        F("start_at", "Time", "emails", "select", default="8:00am",
+          options=TIMES, show_if=_if_pick_date),
+    ]
+
+
+def _weekday_on_or_after(d):
+    while d.weekday() >= 5:
+        d += timedelta(days=1)
+    return d
+
+
+def _clock(t):
+    """"8:00am" (the TIMES spelling) -> "8:00 AM" (create_campaign's)."""
+    t = str(t or "").strip().lower().replace(" ", "")
+    return (t[:-2] + " " + t[-2:].upper()) if t[-2:] in ("am", "pm") else t
 
 
 def _if_many_days(r, vals):
@@ -379,8 +405,7 @@ ROUTINES = [
               default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
               hint="Only if you picked one of your saved styles above."),
-            F("start_when", "When the first email goes out", "emails",
-              "select", default="Next Monday", options=WHEN_OPTIONS),
+            *start_fields(),
             F("campaign_name", "What to call the campaigns", "emails",
               default="the company name"),
             F("companies", "How many companies you want to end up with",
@@ -389,7 +414,7 @@ ROUTINES = [
               "number", default="7",
               hint="3 is the fewest worth doing, 15 the most."),
             F("email_cap", "Most emails this run should send", "size",
-              "number", default="175"),
+              "number", default="250"),
             F("posting_age", "How recent the job postings have to be", "size",
               "select", default="Posted in the last 30 days",
               options=POSTING_AGE),
@@ -469,8 +494,7 @@ ROUTINES = [
               default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
               hint="Only if you picked one of your saved styles above."),
-            F("start_when", "When the first email goes out", "emails",
-              "select", default="Next Monday", options=WHEN_OPTIONS),
+            *start_fields(),
             F("campaign_name", "What to call the campaigns", "emails",
               default="the company name"),
             F("companies", "How many companies you want to end up with",
@@ -479,7 +503,7 @@ ROUTINES = [
               "number", default="7",
               hint="3 is the fewest worth doing, 15 the most."),
             F("email_cap", "Most emails this run should send", "size",
-              "number", default="175"),
+              "number", default="250"),
             F("posting_age", "How recent the job postings have to be", "size",
               "select", default="Posted in the last 30 days",
               options=POSTING_AGE),
@@ -536,7 +560,8 @@ ROUTINES = [
             F("anonymise", "Hide their names and current employers", "details",
               "toggle", default=True),
             F("who_to_reach", "Who to reach", "details",
-              default="owners and C-level first, then VPs, then directors"),
+              default="owners and C-level first, then VPs, then directors, "
+                      "then HR and talent acquisition"),
             F("newsletter_mode", "Add them to a newsletter", "details",
               "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
             F("newsletter", "Which newsletter", "details",
@@ -551,15 +576,14 @@ ROUTINES = [
               "emails", "select", default="Send these exact people",
               options=["Send these exact people",
                        "Let DripDrop pick the best match"]),
-            F("start_when", "When the first email goes out", "emails",
-              "select", default="Next Monday", options=WHEN_OPTIONS),
+            *start_fields(),
             F("companies_each", "How many companies each", "size", "number",
               default="3"),
             F("contacts_each", "How many people at each company", "size",
               "number", default="7",
               hint="3 is the fewest worth doing, 15 the most."),
             F("email_cap", "Most emails this run should send", "size",
-              "number", default="175"),
+              "number", default="250"),
         ] + SKIP_FIELDS,
         "steps": [
             "Pull each of these people out of DripDrop with "
@@ -587,90 +611,80 @@ ROUTINES = [
         ],
     },
     {
-        "key": "sc_worker",
-        "name": "Let my AI work my DripDrop jobs automatically",
-        # It builds its own hourly schedule, so the common repeat questions
-        # would only contradict it.
-        "no_repeat": True,
-        # Nobody is in the chair when the task fires, so it takes the
-        # unattended rule instead of "wait for me to say go".
-        "solo": True,
-        "blurb": "Set up an hourly check on this computer that picks up "
-                 "every job I send it from DripDrop - AI Prompts jobs and "
-                 "Sales Campaign runs - works each one with nobody watching, "
-                 "and posts the result back to DripDrop.",
-        "example": "Check DripDrop for jobs I sent my AI every hour on "
-                   "weekdays",
-        "tools": ["sales_runs_pending", "sales_run_update"],
+        # The page's own version of the app's "Start with an MPC" tile. The
+        # people are picked off the Pipeline on the page rather than typed,
+        # so each one reaches the prompt with its Ref # and the AI looks them
+        # up by that, never by a name it might match to the wrong person.
+        # The in-app MPC sequence is not a create_campaign template, so this
+        # runs the Arena 5x3 - the template that pins an exact slate.
+        "key": "mpc_campaign",
+        "name": "Start with an MPC",
+        "blurb": "Pick your Most Placeable Candidates from the Pipeline, find "
+                 "companies hiring for what they do, and pitch them in.",
+        "example": "Start an MPC for my senior estimator, pitched to general "
+                   "contractors in the Denver metro",
+        "tools": ["candidates_search", "campaigns_list", "create_campaign"],
         "fields": [
-            F("worker_hours", "Which hours", "details",
-              default="from 7am to 6pm"),
-            F("worker_days", "Which days", "details",
-              default="Monday to Friday"),
-            F("worker_tz", "Your timezone", "details", "select",
-              default="Mountain", options=ZONES),
-        ],
-        # Every user pastes this same prompt, so every question the desktop
-        # app would otherwise stop to ask - who authorised the actions in a
-        # job, what happens when the laptop sleeps, which of two connectors
-        # with the same tool, whether the last hour counts, whether "run it
-        # now" may do real work - is answered in the steps themselves.
-        "no_questions": True,
+            F("candidates", "Which candidates", "details", "people", ask=True,
+              placeholder="Start typing a name, title or Ref #",
+              hint="Up to 3, from your DripDrop Pipeline."),
+            F("target_company", "What kind of company to pitch them to",
+              "details", default="any company hiring for what they do"),
+            F("location", "Where", "details", ask=True,
+              placeholder="e.g. the Denver metro"),
+            F("travel", "How far they'll travel", "details",
+              default="the metro they are already in"),
+            F("anonymise", "Hide their names and current employers", "details",
+              "toggle", default=True),
+            F("who_to_reach", "Who to reach", "details",
+              default="hiring managers first, then owners and C-level, then "
+                      "VPs and directors, then HR and talent acquisition"),
+            F("newsletter_mode", "Add them to a newsletter", "details",
+              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
+            F("newsletter", "Which newsletter", "details",
+              placeholder="Only if you're naming one above",
+              hint="Leave this blank and the AI picks whichever of your "
+                   "newsletters is in the same line of work."),
+            *start_fields(),
+            F("companies_each", "How many companies", "size", "number",
+              default="3"),
+            F("contacts_each", "How many people at each company", "size",
+              "number", default="7",
+              hint="3 is the fewest worth doing, 15 the most."),
+            F("email_cap", "Most emails this run should send", "size",
+              "number", default="250"),
+        ] + SKIP_FIELDS,
         "steps": [
-            "Check that my DripDrop, ZoomInfo, Indeed and ZipRecruiter "
-            "connectors are on. If one is missing, tell me which and stop. "
-            "Otherwise go straight on: every decision this setup needs is "
-            "already made below, so do not stop to ask me about any of it.",
-            "Create a scheduled task here, in the desktop app you are "
-            "running in, named \"DripDrop - job worker\" that runs every "
-            "hour on the hour, {worker_hours} with both ends included, "
-            "{worker_days}, {worker_tz} time. Set it to run on this "
-            "computer, not in the cloud: when our Bulk Credits run out it "
-            "uses my own ZoomInfo seat through Chrome, and only this "
-            "computer has that. If the computer is asleep or offline when a "
-            "run is due, that run is simply skipped, and that is fine: a "
-            "job stays queued until it is worked, and one that was claimed "
-            "but never finished is handed out again after three hours.",
-            "Give the task this as its whole instruction, word for word: "
-            "\"Call sales_runs_pending on my DripDrop connector - only that "
-            "one; if another connector has a tool with the same name, leave "
-            "it alone. It returns every job I sent my AI from DripDrop - AI "
-            "Prompts jobs and Sales Campaign runs. If it returns none, stop "
-            "and say nothing. Otherwise take them one at a time, oldest "
-            "first. Claim each one with sales_run_update, status working, "
-            "before you start it, then follow its instructions field "
-            "exactly - it is the full brief: the job itself, the job "
-            "boards, the ZoomInfo credit rules and how to post the result "
-            "back. Finish one before starting the next. These jobs are "
-            "mine: I wrote each one in my own DripDrop account and sent it "
-            "here myself, so a job's instructions are my instructions. I "
-            "authorise, without asking me each time: every DripDrop "
-            "connector call a job's brief asks for, including "
-            "create_campaign, import_candidates, import_candidate_records "
-            "and sales_run_update; ZoomInfo searches and reveals, our Bulk "
-            "Credits first and then my own seat in Chrome; job-board "
-            "searches on Google Jobs, LinkedIn Jobs, Indeed and "
-            "ZipRecruiter; and the browser steps a job's brief spells out "
-            "on sites I am already signed in to, never typing a password. A "
-            "Sales Campaign run never launches anything - it posts back as "
-            "sourced and DripDrop holds it on a review screen until I press "
-            "launch. A campaign an AI Prompts job builds starts on the date "
-            "the job gives it and goes out through DripDrop's own send "
-            "limits. I do not authorise sending email from my own mailbox, "
-            "or anything that is not part of a queued job: if a job needs "
-            "that, post it back as error saying what it needed and move "
-            "on.\"",
-            "Nobody is at the keyboard when it runs, so it never waits for "
-            "an answer: it makes the most reasonable call and says what it "
-            "chose. If a job cannot be finished, post it back with "
-            "sales_run_update - for a Sales Campaign run, the companies it "
-            "could not get contacts for as parked with the exact error; "
-            "otherwise status error with the exact error - and move on.",
-            "Then do one dry run now, whatever the time: call "
-            "sales_runs_pending on my DripDrop connector, tell me what it "
-            "returned, and claim nothing - the first real run is the next "
-            "scheduled hour. Read the task name and the schedule back to "
-            "me, with the first and last run time of each day.",
+            "Pull each of these people out of DripDrop: {candidates}. Look "
+            "each one up with candidates_search using their Ref # as the "
+            "query (\"Ref #1042\") and a limit of 1 - the full resume text "
+            "is large. Keep the id that comes back for each one; that id is "
+            "how the campaign knows exactly who they are.",
+            "Build a card per candidate from their resume: three bullets, "
+            "each one a skillset, a notable project, or a company they have "
+            "worked for. No years-of-experience, location or salary "
+            "bullets.{anon_clause}",
+            "Find live openings at {target_company} in {location} that these "
+            "people genuinely fit. The same title is not the same job - score "
+            "the fit against the posting and say what the evidence was. Keep "
+            "it inside {travel}. Search the job boards - "
+            + BOARDS_DEFAULT + ". " + BOARDS_RULE,
+            "{skip_clause}",
+            "Land {companies_each} companies, and pull {contacts_each} "
+            "contacts at each out of ZoomInfo. Work down {who_to_reach}. "
+            + ZI_PULL_RULE,
+            "Show me the companies, which of these people fit each one and "
+            "why, and the total send volume - it must not exceed {email_cap} "
+            "emails - and {gate}.",
+            "{go_prefix} build one campaign per company with create_campaign "
+            "using template \"fivebythree\", start_date {start_date}. Pass "
+            "the people who fit that company in the candidates argument, "
+            "one card each, shaped {{\"_pool_id\": the id from "
+            "candidates_search, \"label\": \"Candidate A\", \"role\": a real "
+            "job title, \"bullets\": the three bullets}}, so DripDrop sends "
+            "these exact people and nobody else.{newsletter_clause} Read "
+            "back the campaign id and the queued-contact count for every "
+            "one.",
         ],
     },
     {
@@ -841,11 +855,10 @@ ROUTINES = [
               default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
               hint="Only if you picked one of your saved styles above."),
-            F("start_when", "When the first email goes out", "emails",
-              "select", default="Next Monday", options=WHEN_OPTIONS),
+            *start_fields(),
             F("campaign_name", "What to call it", "emails"),
             F("email_cap", "Most emails this run should send", "size",
-              "number", default="175"),
+              "number", default="250"),
         ],
         "steps": [
             "Call campaign_types - and my_campaign_styles if I named a saved "
@@ -933,6 +946,200 @@ ROUTINES = [
         ],
     },
     {
+        "key": "zi_seat",
+        "name": "Pull ZoomInfo contacts with my own seat",
+        "blurb": "When the shared Bulk Credits run out, switch to your own "
+                 "ZoomInfo login in Chrome, and say exactly what to fix if "
+                 "something stops it.",
+        "example": "Pull the hiring managers at Summit Mechanical and "
+                   "Front Range Fab, in Colorado",
+        # Bulk Credits are one small pool the whole team shares; each seat
+        # has its own monthly view/export credits, so a "Limit exceeded"
+        # from enrich_contacts says nothing about the seat. Users kept
+        # stopping at that error, or at the browser half, with no idea why.
+        # The troubleshooting step is the point: the run names the cause
+        # and the fix instead of just stopping. ZoomInfo is not a DripDrop
+        # tool, so this declares none.
+        "tools": [],
+        "no_repeat": True,
+        "fields": [
+            F("companies", "Companies to pull contacts for", "details",
+              "textarea",
+              placeholder="Separate them with commas. Leave blank to make "
+                          "this the rule for every job in this chat."),
+            F("who_to_reach", "Who to pull", "details", "textarea",
+              default="C-Level, VP, Director and Manager - the people who "
+                      "own the hiring"),
+            F("zi_state", "Only people in", "details",
+              placeholder="A state, e.g. Colorado. Blank for anywhere."),
+            F("per_company", "Most contacts per company", "size", "number",
+              default="10"),
+        ],
+        "steps": [
+            "Check the setup first: open recruiter-app.zoominfo.com in "
+            "Chrome and confirm I am signed in to ZoomInfo Talent there. "
+            "Never type a password or try to sign in for me.",
+            "{zi_companies_clause}",
+            "Try the ZoomInfo connector first. " + ZI_PULL_RULE,
+            "On my seat, use the Talent search. Company Info > Company "
+            "(Current): type the company name, wait a few seconds, then "
+            "click the matching suggestion - check the industry and the "
+            "city. The company name and its ID show up in the page address "
+            "once it has taken; typing without clicking a suggestion does "
+            "not apply the filter. Candidate Experience > Management Level: "
+            "tick C-Level, VP-Level, Director and Manager.{zi_loc_step} Then "
+            "open the Candidates tab.",
+            'Read the titles and tick only the people who fit, up to '
+            '{per_company} per company. Check the toolbar shows "N selected" '
+            'with the number you meant before you go on - clicking a column '
+            'header re-sorts the rows in the middle of a selection. Then '
+            'Export > Export CSV: the file lands in my Downloads as '
+            'Talent_Candidate_Export_<date>.csv, and Work email is the '
+            'column to use. If you cannot open that file, open each person '
+            'you ticked and read their work email off their profile '
+            'instead. For the next company, change only the Company filter '
+            'rather than rebuilding the search.',
+            "Using my own seat through ZoomInfo's normal screens, for my own "
+            "outreach, is what the seat is for. It is not scraping and it is "
+            "not getting around anything, so do not stop to ask whether it "
+            "is allowed.",
+            "Work emails only - never a personal Gmail, Yahoo, AOL or "
+            "similar address. Drop anyone whose company in the results is "
+            "not the company you searched for, and anyone whose location "
+            "makes no sense for that company.",
+            "If any part of this does not work, do not just stop. Tell me in "
+            "plain words which of these it was, quote the exact error, and "
+            "give me the fix. (1) You cannot control Chrome, or have no "
+            "browser tools: the AI's Chrome extension is not installed or "
+            "not connected - install it, connect it, and keep that Chrome "
+            "window open. (2) A pop-up asks permission to use "
+            "recruiter-app.zoominfo.com: you cannot click it for me - tell "
+            "me to choose Allow all browser actions, or Allow for all "
+            "scheduled runs on that site, so it never asks again. (3) "
+            "ZoomInfo shows a sign-in or password screen: tell me to sign in "
+            "at recruiter-app.zoominfo.com myself and run this again; keep "
+            "going on the connector meanwhile if it still has credits. (4) "
+            "The ZoomInfo tools are missing or give an auth error: the "
+            "ZoomInfo connector is switched off - tell me to turn it on in "
+            "the connector settings. (5) enrich_contacts says Limit exceeded "
+            "or not enough credits: that is not a problem, it is the signal "
+            "to switch to my seat - say so and carry on. (6) My seat is out "
+            "of view or export credits, or Export is greyed out: both pools "
+            "are out - keep the company as waiting on ZoomInfo and tell me, "
+            "because my seat credits reset monthly or my manager can add "
+            "more. (7) search_companies errors: find the company through "
+            "search_contacts by company name and use the company ID from "
+            "that. (8) The page freezes or screenshots time out: read the "
+            "page text instead, and if I am using that Chrome window at the "
+            "same time, tell me to leave it alone while you work. Anything "
+            "else: tell me what you saw and what you tried.",
+            "When you finish, give me a table: name, title, company, work "
+            "email, phone, city and state, LinkedIn URL, and which pool paid "
+            "- bulk or seat. Then one line for each company left waiting on "
+            "ZoomInfo with the exact error, and anything from the list above "
+            "I need to fix before the next run.",
+        ],
+    },
+    {
+        "key": "resume_sweep",
+        "name": "Load new resumes into DripDrop and Talent Trekker",
+        "blurb": "Find the resumes downloaded since the last run and add the "
+                 "new people to the DripDrop Pipeline and Talent Trekker.",
+        "example": "Load this week's downloaded resumes into DripDrop and TT",
+        # The resume-sweep (TT) and dripdrop-resume-load (DD) skills folded
+        # into one run with one ledger. DripDrop goes first because the
+        # connector needs no browser; Talent Trekker is Chrome work and the
+        # half most likely to stall, so the ledger records each place
+        # separately and a person who only made it into one is retried for
+        # the other next time instead of being pushed twice.
+        "tools": ["candidates_count", "candidates_search",
+                  "import_candidates"],
+        "fields": [
+            F("where", "Where your resumes download to", "details",
+              default="my Downloads folder"),
+            F("since", "Which files", "details", "select",
+              default="Anything new since the last run",
+              options=["Anything new since the last run",
+                       "Only the last 7 days",
+                       "Everything in the folder"],
+              hint="The first run has no last run to go by, so it takes "
+                   "the last 7 days."),
+            F("to_tt", "Add them to Talent Trekker as well", "details",
+              "toggle", default=True),
+        ],
+        "steps": [
+            "First make sure you can see {where}: list the five newest "
+            "files in it. If it looks empty or missing, check once more "
+            "before you decide. If you really cannot see it, stop and give "
+            "me these directions: (1) Use the AI's desktop app on your "
+            "computer - this job reads files on your computer, which a "
+            "browser tab cannot do. (2) Add the Downloads folder as a "
+            "folder the AI can work in (on Windows it is C:\\Users\\<your name>\\Downloads, "
+            "on a Mac it is Downloads in your home folder), and when it "
+            "asks, choose to always allow it rather than allow once. (3) "
+            "Check Downloads now shows in the app's list of connected "
+            "folders. (4) Start a new chat - a chat that was already open "
+            "does not see a folder added after it started - and paste this "
+            "prompt again.",
+            "Then check the rest of the setup: take a candidates_count so "
+            "there is a before number{tt_setup_clause} Never type a "
+            "password or try to sign in for me.",
+            "Keep a ledger file called .resume_sweep_ledger.json in that "
+            "folder: the time of the last run, and one entry per person with "
+            "name, email, phone, the file's sha256, and whether they are in "
+            "DripDrop and in Talent Trekker. Create it if it is not there. "
+            "{since_clause}",
+            "Look at .pdf, .doc and .docx files only. Skip anything under "
+            "3KB but list every one you skipped by name - a short text-only "
+            "resume can be 4KB. The same person often downloads several "
+            "times (Jane Doe resume.pdf, Jane Doe resume (1).pdf, "
+            "Jane-Doe-resume-2.pdf): keep the newest, and the largest if "
+            "two are the same age. Match any filename filter on whole words, "
+            "never part of a word.",
+            "Open each one and pull the candidate's own email and 10-digit "
+            "phone - not a recruiter, job board or no-reply address, and "
+            "not a reference's. Leave out anything that is not a person's "
+            "resume: client submittal copies, fit summaries, job "
+            "descriptions, position packets, interview guides, agreements, "
+            "and anonymised Candidate A/B/C cards. Never open anything "
+            "personal or medical that happens to be in the folder. A resume "
+            "with no email and no phone cannot be checked for duplicates, "
+            "so hold it and list it for me.",
+            "A PDF with pages but almost no text is usually an Indeed or "
+            "LinkedIn profile saved as images - it is a real resume. Read "
+            "the text with OCR, but look at the name, phone and email at "
+            "the top of page 1 yourself rather than trusting the OCR, "
+            "because that line is exactly what the duplicate check runs on. "
+            "If you cannot confirm it by eye, hold that person and tell me.",
+            "Check each person against the ledger by email, phone or file "
+            "sha256 - never by name. Someone already in both places is "
+            "done; someone in only one still needs the other.",
+            "DripDrop: before importing anyone, run candidates_search on "
+            "their email, then their phone, and skip them if they are "
+            "already in the Pipeline. Import the rest with import_candidates "
+            "- each file as filename and content_base64, about 10 files a "
+            "call, each under 10MB - and read the status it gives back for "
+            "every file. Take a candidates_count afterwards and tell me if "
+            "the difference does not match what the imports said.",
+            "{tt_step}",
+            "Only mark a person as in DripDrop or Talent Trekker in the "
+            "ledger once you have seen them land there. If something failed, "
+            "leave it unmarked so the next run picks it up. Never move, "
+            "rename or delete anything in the folder.",
+            "This job reads files on this computer and uses my Chrome, so "
+            "when you make it repeat, make it a scheduled task that runs on "
+            "this computer, not one that runs in the cloud - a cloud run "
+            "cannot see my Downloads folder. Make sure the scheduled task "
+            "has the Downloads folder connected too.",
+            "When you finish, give me: who went into DripDrop, who went "
+            "into Talent Trekker, who was skipped as already there and on "
+            "which match, copies collapsed, files left out and why, files "
+            "under 3KB, anyone held for a contact line you could not "
+            "confirm, and any failures with the exact error. Put anything I "
+            "need to deal with under ACTION FOR ME at the end.",
+        ],
+    },
+    {
         "key": "other",
         "name": "Something else",
         "blurb": "Anything that is not one of the above.",
@@ -955,8 +1162,7 @@ ROUTINES = [
             "{what}",
             "{done_clause}",
             "{newsletter_step}",
-            "Show me the result before acting on anything that leaves this "
-            "machine.",
+            "{result_step}",
         ],
     },
 ]
@@ -1080,7 +1286,7 @@ class _Fill(dict):
         return ""
 
 
-def _start_date(r, vals):
+def _start_date(r, vals, cat=None):
     """create_campaign takes an ISO date or the literal "auto", which the
     server resolves to the upcoming Monday. Say which one and why, so the
     date in the prompt cannot be read as a typo for another week."""
@@ -1092,10 +1298,26 @@ def _start_date(r, vals):
     if when.startswith("As soon"):
         return '"%s" (today)' % today.isoformat()
     if when.startswith("8am tomorrow"):
-        return ('"%s" (tomorrow; if you run this on a later day, use the day '
-                'after that) and start_time "8:00 AM"'
-                % (today + timedelta(days=1)).isoformat())
-    if when.startswith("A date"):
+        nxt = _weekday_on_or_after(today + timedelta(days=1))
+        return ('"%s" (the next weekday; if you run this on a later day, use '
+                'the next weekday after that) and start_time "8:00 AM"'
+                % nxt.isoformat())
+    if when.startswith("Pick a date"):
+        try:
+            day = date.fromisoformat(_txt(r, vals, "start_on"))
+        except ValueError:
+            # A run-through catalogue never stops to ask: no date picked
+            # falls back to the upcoming Monday.
+            if (cat or _CAT).run_through:
+                return '"auto", which the server resolves to the upcoming Monday'
+            return ("the date I give you — ask me for it before you build "
+                    "anything")
+        return '"%s" and start_time "%s"' % (
+            _weekday_on_or_after(day).isoformat(),
+            _clock(_txt(r, vals, "start_at") or "8:00am"))
+    # "A date I'll give ..." is no longer offered; answers saved with it
+    # still open and still ask.
+    if when.startswith("A date") and not (cat or _CAT).run_through:
         return "the date I give you — ask me for it before you build anything"
     return '"auto", which the server resolves to the upcoming Monday'
 
@@ -1167,9 +1389,14 @@ def _derived(r, vals, cat=None):
                         "that looks wrong as you go"
                         if solo else "stop and wait for me to say go")
     d["go_prefix"] = "Then" if solo else "Once I say go,"
+    d["result_step"] = ("Before anything leaves this machine, say in one "
+                        "line what is going out, then carry on."
+                        if solo else
+                        "Show me the result before acting on anything that "
+                        "leaves this machine.")
 
     d["template_clause"] = _template_clause(r, vals, cat)
-    d["start_date"] = _start_date(r, vals)
+    d["start_date"] = _start_date(r, vals, cat)
     d["skip_clause"] = _skip_clause(r, vals)
     d["posting_age_lc"] = (d.get("posting_age") or "").lower()
 
@@ -1371,6 +1598,62 @@ def _derived(r, vals, cat=None):
         "give me the list of who the requests went to so I can tick them "
         "off myself.")
 
+    # ── My own ZoomInfo seat ──────────────────────────────────────────────
+    zi_state = d.get("zi_state") or ""
+    d["zi_loc_step"] = (" Candidate Info > Location: %s." % zi_state
+                        if zi_state else "")
+    zi_who = "up to %s per company: %s.%s" % (
+        d.get("per_company") or "10", d.get("who_to_reach") or "",
+        " Only people in %s." % zi_state if zi_state else "")
+    if d.get("companies"):
+        d["zi_companies_clause"] = (
+            "Pull contacts at each company in THE DETAILS, " + zi_who)
+    else:
+        d["zi_companies_clause"] = (
+            "I have not listed companies, so treat everything below as a "
+            "standing rule for the rest of this chat: whenever a job I give "
+            "you needs contacts from ZoomInfo, pull them this way, " + zi_who
+            + " Do the setup check now, tell me it is ready, and use this "
+            "for every job after it.")
+
+    # ── Resumes into DripDrop and Talent Trekker ──────────────────────────
+    since = d.get("since") or ""
+    if since.startswith("Only the last 7"):
+        d["since_clause"] = ("Take files downloaded in the last 7 days.")
+    elif since.startswith("Everything"):
+        d["since_clause"] = (
+            "Take every file in the folder, whatever its age. Tell me how "
+            "many that is before you start pushing.")
+    else:
+        d["since_clause"] = (
+            "Take files downloaded since the last run in the ledger. With "
+            "no ledger yet, take the last 7 days and say so.")
+    if _flag(r, vals, "to_tt"):
+        d["tt_setup_clause"] = (
+            ", and open arena.talent-trekker.com in Chrome to confirm I am "
+            "signed in. If Talent Trekker is not reachable, do the DripDrop "
+            "half anyway and list everyone as waiting on Talent Trekker.")
+        d["tt_step"] = (
+            "Talent Trekker, one person at a time: search the email in the "
+            "search box at the top, then the phone as 10 digits and as "
+            "(NNN) NNN-NNNN. A Talent match means they are already there - "
+            "skip them. A Customer Representative match is not a duplicate, "
+            "but tell me about it. For each new person go to Talents, click "
+            "Create Talent, attach their resume file and wait for it to "
+            "read the resume. Then set Talent Status Type to Direct Hire, "
+            "Talent Status to Applicant, Source to Resume Upload and Talent "
+            "Rank to 3 yourself - Create does nothing if Source or Talent "
+            "Rank is empty, without saying so - check the name, email and "
+            "phone match the resume, "
+            "and click Create. If the file will not attach, type the fields "
+            "in and tell me which records have no resume file on them. "
+            "\"Phone number already linked to another Talent\" means they "
+            "are already there. Search their email afterwards to confirm "
+            "the record exists before you count it.")
+    else:
+        d["tt_setup_clause"] = "."
+        d["tt_step"] = ""
+
     done = d.get("done_when") or ""
     d["done_clause"] = ("I will know it worked when %s." % done if done
                         else "Tell me plainly whether it worked, and how you "
@@ -1436,7 +1719,10 @@ def _open_questions(r, vals, extra=()):
             continue
         if not str(_val(r, vals, f["key"]) or "").strip():
             qs.append(f["label"])
-    if str(_val(r, vals, "start_when") or "").startswith("A date"):
+    when = str(_val(r, vals, "start_when") or "")
+    if when.startswith("A date") or (
+            when.startswith("Pick a date")
+            and not str(_val(r, vals, "start_on") or "").strip()):
         qs.append("What date the first email should go out")
     return qs
 
@@ -1630,20 +1916,13 @@ def build_prompt(req, cat=None):
     r = cat.routine_by_key.get(req.get("routine") or "",
                            cat.routine_by_key[cat.default_routine])
     vals = dict(req.get("vals") or {})
-    # Queued with "Send to my AI": the user's hourly worker runs it with
-    # nobody at the keyboard, so it can never wait for an answer, and
-    # DripDrop queues any repeat itself (ai_jobs.py) instead of the AI
-    # making a scheduled task of its own.
-    queued = bool(req.get("queued"))
-    if queued:
-        vals["unattended"] = UNATTENDED[1]
     d = _derived(r, vals, cat)
-    solo = (queued or cat.run_through or bool(r.get("solo"))
+    solo = (cat.run_through or bool(r.get("solo"))
             or (_txt(r, vals, "unattended") or "").startswith("Run it all"))
-    # Settle anything left open itself instead of asking. Queued jobs have
-    # nobody to ask; a run-through catalogue and a no_questions routine
-    # have a user who said not to be asked.
-    decide = queued or cat.run_through or bool(r.get("no_questions"))
+    # Settle anything left open itself instead of asking. A run-through
+    # catalogue and a no_questions routine have a user who said not to be
+    # asked.
+    decide = cat.run_through or bool(r.get("no_questions"))
     # A routine can declare no tools and still be sent to the connector by
     # the newsletter answer - "Something else" is exactly that. Name the
     # tool the steps tell it to call, or the prompt asks for something it
@@ -1722,7 +2001,7 @@ def build_prompt(req, cat=None):
     for i, rule in enumerate(cat.standing_rules):
         L += _bullet(cat.unattended_rule if (i == 0 and solo) else rule)
 
-    if _flag(r, vals, "repeat_on") and not queued:
+    if _flag(r, vals, "repeat_on"):
         L += ["", "THEN MAKE IT REPEAT"]
         L += _wrap("Run this again %s at %s %s time, and keep running "
                    "it on that schedule."
@@ -1800,10 +2079,23 @@ def _save_setups(rows, cat=None):
 # are just not what this dropdown is for. Add one here when it earns a slot.
 STARTERS = [
     {
+        "id": "mpc",
+        "icon": "star",
+        "label": "Start with an MPC (Most Placeable Candidate)",
+        "sub": "Pick up to three people from your DripDrop Pipeline. The AI "
+               "finds companies with openings they genuinely fit, pulls the "
+               "hiring managers, and runs the Arena 5x3 with those exact "
+               "people on it.",
+        "summary": "Take the Most Placeable Candidates I picked from my "
+                   "Pipeline to companies hiring for what they do, and run "
+                   "the Arena 5x3 with them on it.",
+        "routine": "mpc_campaign",
+        "vals": {},
+    },
+    {
         "id": "slate",
         "icon": "groups",
-        "label": "Find companies hiring in a market and put candidates in "
-                 "front of them",
+        "label": "Present Candidates to Companies Hiring in a Market",
         "sub": "You give an industry and an area. The AI finds the companies "
                "with live openings, pulls three people out of your DripDrop "
                "Pipeline for each of them - and has DripDrop's AI build the "
@@ -1815,39 +2107,9 @@ STARTERS = [
         "vals": {},
     },
     {
-        "id": "market",
-        "icon": "send",
-        "label": "Take candidates from my Pipeline out to companies hiring "
-                 "them",
-        "sub": "You name the people. The AI pulls them out of the DripDrop "
-               "Pipeline, finds companies with openings they genuinely fit, "
-               "pulls the contacts, and runs the Arena 5x5.",
-        "summary": "Market named candidates out to companies hiring for what "
-                   "they do.",
-        "routine": "market_candidates",
-        "vals": {},
-    },
-    {
-        "id": "sweep",
-        "icon": "travel_explore",
-        "label": "Take one candidate out to every company with a job for them",
-        "sub": "One person, nothing narrowed down. The AI sweeps for every "
-               "live opening that genuinely fits them, however wide that "
-               "goes, and runs the Arena 5x5 at all of it.",
-        "summary": "Sweep for every live opening one candidate fits, and run "
-                   "the Arena 5x5 at all of them.",
-        "routine": "market_candidates",
-        "vals": {
-            "target_company": "any company at all",
-            "breadth": "Every live opening they genuinely fit, however many "
-                       "that is",
-            "companies_each": "10",
-        },
-    },
-    {
         "id": "linkedin",
         "icon": "person_add",
-        "label": "Send today's LinkedIn connection requests",
+        "label": "Send Today's LinkedIn Connection Requests",
         "sub": "The AI opens Today's Tasks, reads every LinkedIn card on it, "
                "sends each person the connection request with the note "
                "DripDrop already wrote for that campaign, and marks the task "
@@ -1869,9 +2131,48 @@ STARTERS = [
                  "unattended": "Run it all the way through"},
     },
     {
+        "id": "resume_sweep",
+        "icon": "upload_file",
+        "label": "Upload New Resumes to DD & TT (Wednesday and Friday)",
+        "sub": "Every Wednesday and Friday the AI finds the resumes you "
+               "downloaded since the last run, skips anyone already in, and "
+               "adds the new people to your DripDrop Pipeline and to Talent "
+               "Trekker. Runs on your computer, so it needs your Downloads "
+               "folder connected in the AI's desktop app, the AI's Chrome "
+               "extension, and you signed in to Talent Trekker - if "
+               "anything is missing, it tells you how to set it up.",
+        "summary": "Find the resumes I downloaded since the last run and add "
+                   "the new people to my DripDrop Pipeline and to Talent "
+                   "Trekker, skipping anyone already in either one.",
+        "routine": "resume_sweep",
+        # Opens with the schedule on: Wednesday and Friday is the job. Runs
+        # unattended for the same reason as the LinkedIn card - the safety
+        # net is the email/phone check against each system, not a person
+        # saying go.
+        "vals": {"repeat_on": True, "repeat_every": "Every other day",
+                 "repeat_days": "Wednesday, Friday", "repeat_time": "3:00pm",
+                 "unattended": "Run it all the way through"},
+    },
+    {
+        "id": "zi_seat",
+        "icon": "contact_mail",
+        "label": "Teach Claude to Use ZoomInfo",
+        "sub": "When the shared Bulk Credits say Limit exceeded, the AI "
+               "switches to your own ZoomInfo login in Chrome. List the "
+               "companies, or leave it blank to make it the rule for the "
+               "rest of the chat. Needs the AI's Chrome extension and you "
+               "signed in to recruiter-app.zoominfo.com - if something is "
+               "missing, it tells you what and how to fix it.",
+        "summary": "Pull ZoomInfo contacts - the shared Bulk Credits first, "
+                   "then my own ZoomInfo seat in Chrome when they run out - "
+                   "and tell me exactly what to fix if anything stops it.",
+        "routine": "zi_seat",
+        "vals": {},
+    },
+    {
         "id": "other",
         "icon": "edit_note",
-        "label": "Something else - I'll describe it",
+        "label": "Something Else - Describe Your Own Task",
         "sub": "Anything the jobs above do not cover. You write the job in "
                "your own words on the next screen and the AI turns it into "
                "the same kind of prompt, with the same rules on it.",
@@ -1890,23 +2191,7 @@ STARTER_BY_ID = {x["id"]: x for x in STARTERS}
 
 def _arena_result_extra(s, rf, C, r):
     """The one routine DripDrop can also run itself. Said on the result
-    screen because the page that does it no longer has its own nav row.
-
-    The worker setup gets the one-time ZoomInfo checklist instead, and the
-    pop-up until the user ticks it off."""
-    if r["key"] == "sc_worker":
-        import sales_campaign as sc
-        with _card(C):
-            _text("Before you paste it - one-time setup", C, 13, 700,
-                  C["text_l"], 8)
-            sc.zi_setup_steps(C)
-        try:
-            sc._sc_owner(s)
-            if not sc.sc_settings().get("zi_setup_ack"):
-                sc.zi_setup_dialog(s)
-        except Exception as ex:
-            print("[AIPrompts] setup pop-up failed: %s" % ex, flush=True)
-        return
+    screen because the page that does it no longer has its own nav row."""
     if r["key"] != "sales_campaign":
         return
     with _card(C):
@@ -1961,7 +2246,6 @@ ARENA = Catalogue(
                  "message."),
     result_extra=_arena_result_extra,
     zi_rule=ZI_PULL_RULE,
-    queue_jobs=True,
     run_through=True,
 )
 
@@ -2115,6 +2399,17 @@ def _aip_css():
         "color:var(--dd-muted);display:inline-flex;align-items:center;"
         "gap:4px;}"
         ".aip-wrap .aip-link:hover{color:var(--dd-teal);}"
+        # Back on the answers and prompt screens: a highlighted pill, so the
+        # way out is the first thing you see, not a muted text link.
+        ".aip-wrap .aip-back{display:inline-flex;align-items:center;gap:6px;"
+        "cursor:pointer;font-family:inherit;font-size:13px;font-weight:700;"
+        "color:var(--dd-teal);border-radius:999px;padding:6px 14px 6px 10px;"
+        "background:color-mix(in srgb,var(--dd-teal) 14%,transparent);"
+        "border:1px solid color-mix(in srgb,var(--dd-teal) 45%,transparent);"
+        "transition:background .15s;}"
+        ".aip-wrap .aip-back:hover{"
+        "background:color-mix(in srgb,var(--dd-teal) 24%,transparent);}"
+        ".aip-wrap .aip-back .q-icon{font-size:16px;}"
         # Ready-made answers above a box.
         ".aip-wrap .aip-chips{display:flex;flex-wrap:wrap;gap:6px;"
         "margin:2px 0 8px;}"
@@ -2185,8 +2480,7 @@ def _steps(at):
     """Pick → Answer → Copy, with the current one lit."""
     with ui.element("div").classes("aip-steps"):
         for i, name in enumerate(("Pick a job", "Answer the questions",
-                                  "Send it to your AI" if _CAT.queue_jobs
-                                  else "Copy your prompt"), 1):
+                                  "Copy your prompt"), 1):
             if i > 1:
                 ui.element("div").classes("aip-step-line")
             state = " on" if i == at else (" done" if i < at else "")
@@ -2264,8 +2558,6 @@ def render_page(s, rf, cat):
             _aip_confirm(s, rf, C)
         else:
             _steps(1)
-            if cat.queue_jobs:
-                _aip_jobs_panel(s, rf, C)
             _aip_ask(s, rf, C)
 
 
@@ -2337,16 +2629,11 @@ def _aip_ask(s, rf, C):
                 f"border-top:1px solid {C['border']};flex-wrap:wrap;"):
             with ui.element("div").style("min-width:0;flex:1 1 280px;"):
                 _text(st["label"], C, 13, 700, C["text_l"], 2)
-                _text(("%d question%s next%s. Nothing runs yet: at the end "
-                       "you send the job to your AI or copy the prompt."
-                       % (main, "" if main == 1 else "s",
-                          ", %d more optional" % rest if rest else ""))
-                      if _CAT.queue_jobs else
-                      ("%d question%s next%s. Nothing runs or sends here: "
-                       "you're writing the message to paste into %s."
-                       % (main, "" if main == 1 else "s",
-                          ", %d more optional" % rest if rest else "",
-                          _CAT.assistant)),
+                _text("%d question%s next%s. Nothing runs or sends here: "
+                      "you're writing the message to paste into %s."
+                      % (main, "" if main == 1 else "s",
+                         ", %d more optional" % rest if rest else "",
+                         _CAT.assistant),
                       C, 11, colour=C["muted"])
             with ui.element("button").classes("fd-pb").style(
                     "padding:11px 26px;font-size:13px;flex-shrink:0;"
@@ -2462,6 +2749,9 @@ def describe_runs(cat=None, newsletter_names=()):
                 if names:
                     q["options"] = names
                     q["any_text"] = True
+            elif f["type"] == "people":
+                # Names or Ref #s, separated by semicolons.
+                q["type"] = "text"
             elif f["options"]:
                 q["options"] = list(f["options"])
             for k in ("hint", "placeholder"):
@@ -2727,8 +3017,14 @@ def _aip_field(s, rf, C, r, vals, f):
     if f["type"] == "newsletter":
         _newsletter_picker(s, rf, C, vals)
         return
+    if key == "newsletter" and "newsletter_mode" in r["field_by_key"]:
+        _newsletter_name_select(rf, vals, cur)
+        return
     if f["type"] == "pick":
         _pick_widget(C, vals, f, cur)
+        return
+    if f["type"] == "people":
+        _people_widget(s, vals, f, cur)
         return
     if f["type"] == "days":
         picked = _days_list(cur)
@@ -2772,6 +3068,9 @@ def _aip_field(s, rf, C, r, vals, f):
                        on_change=_set).props("dense").classes("fd-input")
         if f["type"] == "number":
             inp.props("type=number")
+        elif f["type"] == "date":
+            # The browser's own date picker; the value is YYYY-MM-DD.
+            inp.props("type=date min=%s" % date.today().isoformat())
 
 
 def _aip_chips(rf, C, vals, f):
@@ -2810,6 +3109,90 @@ def _pick_widget(C, vals, f, cur):
     ui.select(options=opts, value=cur or None, with_input=True,
               new_value_mode="add-unique", clearable=True,
               on_change=_set).props("dense").classes("fd-input")
+
+
+PEOPLE_MAX = 3
+PEOPLE_SEP = "; "
+
+
+def _people_list(cur):
+    return [p.strip() for p in str(cur or "").split(";") if p.strip()]
+
+
+def _person_line(row):
+    """'Jane Doe - Senior Estimator, Denver CO (Ref #1042)'. The Ref # is
+    what the AI looks the person up by, so it is always on the end."""
+    name = " ".join(p for p in ((row.get("first_name") or "").strip(),
+                                (row.get("last_name") or "").strip()) if p)
+    title = (row.get("current_title") or "").strip()
+    place = " ".join(p for p in ((row.get("city") or "").strip(),
+                                 (row.get("state") or "").strip()) if p)
+    about = ", ".join(p for p in (title, place) if p)
+    line = name or "No name"
+    if about:
+        line += " - " + about
+    return (line + " (Ref #%s)" % row.get("id")).replace(";", ",")
+
+
+def _pipeline_people(owner, limit=1500):
+    """The Pipeline as picker lines: this user's own people first, newest
+    first, then the rest of the shared Pipeline the connector also searches.
+    Empty when there is no Pipeline to read, and the question falls back to
+    a plain box."""
+    # Only the columns the line shows - ats.recent() is SELECT *, and the
+    # resume text on a thousand rows is megabytes for a dropdown.
+    try:
+        # Same gate as the Pipeline page: nobody sees a list they could not
+        # open there.
+        allowed = getattr(_ff(), "_ats_allowed", None)
+        if not owner or (allowed and not allowed(owner)):
+            return []
+        import ats
+        con = ats._con()
+        try:
+            rows = con.execute(
+                "SELECT id, first_name, last_name, current_title, city, state "
+                "FROM talents ORDER BY (lower(owner_email)=?) DESC, id DESC LIMIT ?",
+                ((owner or "").lower(), int(limit))).fetchall()
+        finally:
+            con.close()
+        return [_person_line(dict(r)) for r in rows]
+    except Exception:
+        return []
+
+
+def _people_widget(s, vals, f, cur):
+    """Pick up to PEOPLE_MAX people off the Pipeline; type to filter. Stored
+    as one string so it saves and reads back like every other answer."""
+    key = f["key"]
+    picked = _people_list(cur)
+    names = _pipeline_people(_aip_owner(s))
+    if not names:
+        def _set_txt(e):
+            vals[key] = str(e.value or "")
+        ui.input(value=cur, placeholder="Names, or Ref #s",
+                 on_change=_set_txt).props("dense").classes("fd-input")
+        return
+    opts = list(dict.fromkeys(picked + names))
+
+    sel = None
+
+    def _set(e):
+        v = [str(x) for x in (e.value or []) if str(x or "").strip()]
+        if len(v) > PEOPLE_MAX:
+            v = v[:PEOPLE_MAX]
+            ui.notify("Up to %d people per MPC." % PEOPLE_MAX)
+            sel.value = v
+        vals[key] = PEOPLE_SEP.join(v)
+
+    # Pick-only: typing filters the list, it never becomes an answer of its
+    # own - with free text on, Enter saved the half-typed filter instead of
+    # the person it had narrowed down to.
+    sel = ui.select(options=opts, value=picked, multiple=True,
+                    with_input=True, on_change=_set).props(
+        'dense use-chips clearable input-debounce=150 '
+        'placeholder="%s"' % f["placeholder"]).classes("fd-input").style(
+        "width:100%;")
 
 
 def _aip_checks(s, rf, C, r, vals, f):
@@ -2956,6 +3339,48 @@ def _newsletter_picker(s, rf, C, vals):
                       on_click=lambda: NEWSLETTER_CREATE(s, rf)).props(
                 "flat dense no-caps").style(
                 f"color:{C['teal']};font-size:12px;white-space:nowrap;")
+
+
+def _newsletter_names():
+    """The current user's newsletters (evergreen campaigns) - the same list
+    create_campaign's enroll_newsletter matches against, so a picked name
+    always lands."""
+    try:
+        if NEWSLETTER_NAMES:
+            names = NEWSLETTER_NAMES()
+        else:
+            names = [c.get("name") for c in _ff().load_campaigns()
+                     if c.get("evergreen_only")]
+        out = []
+        for n in names:
+            n = str(n or "").strip()
+            if n and n not in out:
+                out.append(n)
+        return sorted(out, key=str.lower)
+    except Exception:
+        return []
+
+
+def _newsletter_name_select(rf, vals, cur):
+    """"Which newsletter" as a dropdown of their newsletters. Typing still
+    works (a name not in the list is kept), and picking one switches "Add
+    them to a newsletter" to the named answer so the two never disagree."""
+    names = _newsletter_names()
+    if cur and cur not in names:
+        names = [cur] + names
+
+    def _set(e):
+        v = str(e.value or "").strip()
+        vals["newsletter"] = v
+        if v and vals.get("newsletter_mode") != NEWSLETTER_MODES[1]:
+            vals["newsletter_mode"] = NEWSLETTER_MODES[1]
+            rf()
+
+    ui.select(options=names, value=cur or None, with_input=True,
+              new_value_mode="add-unique", clearable=True,
+              on_change=_set).props(
+        'dense placeholder="Pick one of your newsletters"').classes(
+        "fd-input")
 
 
 def _aip_extra(s, rf, C, req):
@@ -3139,13 +3564,14 @@ def _aip_confirm(s, rf, C):
     run_prefill(r, req)
     opened = _aip_open_state(s, r, req)
 
-    def _restart():
-        # Defined up here because the header card renders before the button
-        # row and needs to be able to reach it.
+    def _back():
+        # Back, not "start over" - the answers are kept, so going out to
+        # read what the other jobs do costs nothing. They come back when
+        # you re-pick the same job. Defined up here because the header card
+        # renders before the button row and both use it.
+        s._aip_back = s._aip_req
         s._aip_req = None
-        s._aip_back = None
         s._aip_prompt = None
-        s._aip_open = None
         s._aip_saving = False
         s._aip_err = ""
         rf()
@@ -3165,12 +3591,10 @@ def _aip_confirm(s, rf, C):
                     _text("Here's what I understood" if heard
                           else req.get("title") or "Set this up",
                           C, 17, 700, C["text_l"], 2)
-                    # Up here rather than beside "Write my prompt": throwing
-                    # the answers away is not a step in filling them in.
-                    with ui.element("button").classes("aip-link").on(
-                            "click", _restart):
-                        ui.icon("restart_alt").style("font-size:15px;")
-                        ui.label("Start over")
+                    with ui.element("button").classes("aip-back").on(
+                            "click", _back):
+                        ui.icon("arrow_back")
+                        ui.label("Back")
                 # No job picker here. The job was chosen on the screen before
                 # this one; repeating the choice next to the answers it decides
                 # only invited a change that silently reset them.
@@ -3196,6 +3620,13 @@ def _aip_confirm(s, rf, C):
                             ui.label("Ready to go")
                     _text("Everything is pre-filled. Change anything you like.",
                           C, 11, colour=C["muted"])
+                # Said up front so nobody has to open "Leave these out" to
+                # learn who the run skips. Follows the toggles, so unticking
+                # both drops the line.
+                if any(k in r["field_by_key"] and _flag(r, vals, k)
+                       for k in ("skip_customers", "skip_recruiters")):
+                    _text("Current companies and recruitment firms will not "
+                          "be included.", C, 11, colour=C["muted"])
 
     with ui.element("div").classes("aip-acc"):
         for key, name in _aip_sections_for(r):
@@ -3247,18 +3678,6 @@ def _aip_confirm(s, rf, C):
         s._aip_saving = False
         rf()
 
-    def _back():
-        # Back, not "start over" - the answers are kept, so going out to
-        # read what the other jobs do costs nothing. They come back when
-        # you re-pick the same job. Start over, in the header, is the one
-        # that discards.
-        s._aip_back = s._aip_req
-        s._aip_req = None
-        s._aip_prompt = None
-        s._aip_saving = False
-        s._aip_err = ""
-        rf()
-
     with ui.element("div").classes("aip-bar"):
         with ui.element("div").classes("aip-bar-side"):
             _btn("Back", _back, lead="arrow_back")
@@ -3275,9 +3694,6 @@ def _aip_result(s, rf, C):
     req = s._aip_req or {}
     r = _CAT.routine_by_key.get(req.get("routine") or "",
                            _CAT.routine_by_key[_CAT.default_routine])
-    # The worker's own setup is the one prompt that has to be pasted: it is
-    # what creates the worker a queued job would be waiting for.
-    sendable = _CAT.queue_jobs and r["key"] != "sc_worker"
 
     def _copy():
         ui.run_javascript("navigator.clipboard.writeText(%s)"
@@ -3312,14 +3728,16 @@ def _aip_result(s, rf, C):
                         "display:flex;align-items:baseline;gap:12px;"
                         "flex-wrap:wrap;justify-content:space-between;"):
                     _text("Your prompt is ready", C, 17, 700, C["text_l"], 2)
-                    ui.label(r["name"]).classes("aip-pill good")
+                    with ui.element("div").style(
+                            "display:flex;align-items:center;gap:12px;"):
+                        ui.label(r["name"]).classes("aip-pill good")
+                        # Back sits up here too: the prompt is long, so the
+                        # button row below is off screen when you land.
+                        with ui.element("button").classes("aip-back").on(
+                                "click", _back):
+                            ui.icon("arrow_back")
+                            ui.label("Back")
                 _text(_CAT.result_copy, C, 12, colour=C["muted"])
-                if sendable:
-                    _text("Or skip the pasting: Send to my AI queues it in "
-                          "DripDrop. Your AI picks it up on its next hourly "
-                          "check, runs it with nobody watching and posts the "
-                          "result back under Your AI on the first screen.",
-                          C, 12, colour=C["muted"])
 
         with ui.element("div").style("position:relative;"):
             ui.label(prompt).classes("aip-prompt")
@@ -3329,243 +3747,11 @@ def _aip_result(s, rf, C):
 
     with ui.element("div").classes("aip-bar"):
         with ui.element("div").classes("aip-bar-side"):
-            _btn("Change my answers", _back, lead="arrow_back")
+            _btn("Back", _back, lead="arrow_back")
             _btn("Start a new prompt", _restart, lead="add")
         with ui.element("div").classes("aip-bar-side"):
             _aip_save_setup(s, rf, C, req, label="Save prompt")
-            _btn("Copy the prompt", _copy, primary=not sendable,
-                 lead="content_copy")
-            if sendable:
-                _btn("Send to my AI", lambda: _aip_send(s, rf, req),
-                     primary=True, lead="send")
+            _btn("Copy prompt", _copy, primary=True, lead="content_copy")
 
     if _CAT.result_extra:
         _CAT.result_extra(s, rf, C, r)
-
-
-# ── Send to my AI ─────────────────────────────────────────────────────────
-#
-# A catalogue with queue_jobs set (DripDrop's) can hand a job straight to
-# the user's own AI instead of asking them to paste it. The job is queued
-# in ai_jobs.py; the hourly worker the user set up once with the sc_worker
-# routine picks it up through sales_runs_pending, runs it unattended and
-# posts the result back, which the "Your AI" panel on step 1 shows.
-
-WORKER_SUMMARY = ("Set up an hourly scheduled task on this computer that "
-                  "works every job I send my AI from DripDrop.")
-
-# The worker counts as set up if it has checked in this recently. It runs
-# hourly on working days, so a long weekend is the longest honest gap.
-WORKER_FRESH = timedelta(days=3)
-
-
-def worker_prompt(cat=None):
-    """The one-time setup prompt for the hourly worker, with its default
-    hours, days and timezone. The setup pop-up copies it."""
-    cat = cat or _CAT
-    r = cat.routine_by_key["sc_worker"]
-    return build_prompt({"routine": "sc_worker", "summary": WORKER_SUMMARY,
-                         "vals": defaults_for(r)}, cat)
-
-
-def _repeat_spec(r, vals):
-    """The schedule answers as the repeat ai_jobs.py keeps, or None for a
-    one-off. DripDrop queues each repeat itself, so this replaces the
-    THEN MAKE IT REPEAT section a pasted prompt would carry."""
-    if not _flag(r, vals, "repeat_on"):
-        return None
-    cad = _txt(r, vals, "repeat_every") or "Once a week"
-    cad = CADENCE_LEGACY.get(cad.strip().lower(), cad)
-    return {"every": cad,
-            "days": ", ".join(_days_list(_val(r, vals, "repeat_days"))),
-            "day": _txt(r, vals, "repeat_day") or "Monday",
-            "time": _txt(r, vals, "repeat_time") or "8:00am",
-            "tz": _txt(r, vals, "repeat_tz") or "Mountain"}
-
-
-def _job_title(r, vals):
-    for key in ("location", "company", "target_company", "topic"):
-        v = str(vals.get(key) or "").strip()
-        if v and not v.startswith("<"):
-            return "%s - %s" % (r["name"], v)
-    return r["name"]
-
-
-def _since(iso):
-    """Seconds since an ISO timestamp, or None if it does not parse."""
-    try:
-        from datetime import datetime
-        return (datetime.now() - datetime.fromisoformat(iso)).total_seconds()
-    except Exception:
-        return None
-
-
-def _worker_fresh(seen):
-    secs = _since(seen) if seen else None
-    return secs is not None and secs < WORKER_FRESH.total_seconds()
-
-
-def _ago(iso):
-    secs = _since(iso)
-    if secs is None:
-        return ""
-    if secs < 90:
-        return "just now"
-    if secs < 3600:
-        return "%d min ago" % (secs // 60)
-    if secs < 2 * 86400:
-        h = int(secs // 3600)
-        return "%d hour%s ago" % (h, "" if h == 1 else "s")
-    return "%d days ago" % (secs // 86400)
-
-
-def _aip_send(s, rf, req):
-    """Queue the job for the user's AI and go back to step 1, where the
-    Your AI panel shows it waiting."""
-    import ai_jobs
-    owner = _aip_owner(s)
-    if not owner:
-        ui.notify("Sign in again to send jobs to your AI.", type="warning")
-        return
-    r = _CAT.routine_by_key.get(req.get("routine") or "",
-                                _CAT.routine_by_key[_CAT.default_routine])
-    vals = dict(req.get("vals") or {})
-    try:
-        ai_jobs.queue_job(owner, _job_title(r, vals),
-                          build_prompt(dict(req, queued=True)),
-                          r["key"], _repeat_spec(r, vals))
-        seen = ai_jobs.worker_last_seen(owner)
-    except Exception as ex:
-        print("[AIPrompts] queue failed: %s" % ex, flush=True)
-        ui.notify("Could not send it: %s" % ex, type="negative")
-        return
-    ui.notify("Sent. Your AI picks it up on its next hourly check.",
-              type="positive")
-    s._aip_req = None
-    s._aip_back = None
-    s._aip_prompt = None
-    s._aip_raw = ""
-    s._aip_pick = ""
-    s._aip_open = None
-    s._aip_saving = False
-    s._aip_err = ""
-    # Opened by the panel on the next render, not from this handler: the
-    # re-render below deletes the button this handler's context belongs to.
-    s._aip_setup_popup = not _worker_fresh(seen)
-    rf()
-
-
-_JOB_PILL = {"queued": ("Waiting for your AI", ""),
-             "working": ("Working", " good"),
-             "done": ("Done", " good"),
-             "error": ("Failed", " warn"),
-             "cancelled": ("Cancelled", "")}
-
-
-def _aip_jobs_panel(s, rf, C):
-    """Step 1's "Your AI": whether the worker is checking in, and the last
-    jobs sent to it with their results."""
-    import ai_jobs
-    import sales_campaign as sc
-    owner = _aip_owner(s)
-    if not owner:
-        return
-    try:
-        seen = ai_jobs.worker_last_seen(owner)
-        jobs = ai_jobs.list_jobs(owner, limit=8)
-    except Exception as ex:
-        print("[AIPrompts] jobs panel failed: %s" % ex, flush=True)
-        return
-
-    if getattr(s, "_aip_setup_popup", False):
-        s._aip_setup_popup = False
-        try:
-            sc.zi_setup_dialog(s)
-        except Exception as ex:
-            print("[AIPrompts] setup pop-up failed: %s" % ex, flush=True)
-
-    def _setup():
-        try:
-            sc.zi_setup_dialog(s)
-        except Exception as ex:
-            ui.notify("Could not open the setup: %s" % ex, type="negative")
-
-    def _cancel(jid):
-        try:
-            ai_jobs.cancel_job(_aip_owner(s), jid)
-        except Exception as ex:
-            ui.notify("Could not cancel it: %s" % ex, type="negative")
-            return
-        rf()
-
-    def _toggle(jid):
-        s._aip_job_open = (None if getattr(s, "_aip_job_open", None) == jid
-                           else jid)
-        rf()
-
-    fresh = _worker_fresh(seen)
-    with _card(C):
-        with ui.element("div").style(
-                "display:flex;align-items:flex-start;gap:14px;"
-                "justify-content:space-between;flex-wrap:wrap;"):
-            with ui.element("div").style("min-width:0;flex:1 1 280px;"):
-                _text("Your AI", C, 15, 700, C["text_l"], 2)
-                if fresh:
-                    status = ("Checking in every hour - last seen %s."
-                              % _ago(seen))
-                elif seen:
-                    status = ("Last seen %s. It has stopped checking in, so "
-                              "jobs you send will wait until it does."
-                              % _ago(seen))
-                else:
-                    status = ("Not set up yet. Jobs you send wait here until "
-                              "your AI is set up to check in.")
-                _text(status, C, 12, colour=C["muted"])
-            if not fresh:
-                _btn("Set it up", _setup, primary=not seen, lead="settings",
-                     small=True)
-
-        if not jobs:
-            _text("Nothing sent yet. Pick a job below, answer the questions "
-                  "and choose Send to my AI.", C, 12, colour=C["muted"])
-            return
-
-        open_id = getattr(s, "_aip_job_open", None)
-        with ui.element("div").style("margin-top:12px;"):
-            for job in jobs:
-                jid = job.get("job_id") or ""
-                st = job.get("status") or "queued"
-                label, tone = _JOB_PILL.get(st, (st.title(), ""))
-                rep = ai_jobs.repeat_text(job.get("repeat"))
-                body = job.get("result") or job.get("error") or ""
-                with ui.element("div").style(
-                        f"border-top:1px solid {C['border']};padding:10px 0;"):
-                    with ui.element("div").style(
-                            "display:flex;align-items:center;gap:10px;"
-                            "flex-wrap:wrap;"):
-                        ui.label(label).classes("aip-pill" + tone)
-                        with ui.element("div").style("min-width:0;flex:1;"):
-                            _text(job.get("title") or "AI job", C, 12.5, 700,
-                                  C["text_l"])
-                            _text(" · ".join(x for x in (
-                                "sent " + _ago(job.get("created_at") or ""),
-                                rep) if x), C, 11, colour=C["muted"])
-                        if body:
-                            _btn("Hide" if open_id == jid
-                                 else ("Show error" if st == "error"
-                                       else "Show result"),
-                                 lambda _e=None, j=jid: _toggle(j),
-                                 small=True)
-                        # A repeat that already queued its next copy hands
-                        # the schedule to that copy, which is where it stops.
-                        if st in ai_jobs.OPEN_STATUSES or (
-                                job.get("repeat") and not job.get("next_job")):
-                            _btn("Cancel" if st in ai_jobs.OPEN_STATUSES
-                                 else "Stop repeating",
-                                 lambda _e=None, j=jid: _cancel(j),
-                                 small=True)
-                    if body and open_id == jid:
-                        ui.label(body).style(
-                            f"white-space:pre-wrap;font-size:12px;"
-                            f"color:{C['text_l']};line-height:1.55;"
-                            f"margin-top:8px;display:block;")

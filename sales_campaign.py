@@ -1199,16 +1199,9 @@ def _run_summary(rec):
 
 
 def pending_runs(owner, limit=5):
-    """Every run of this user's still waiting on Claude, newest first, then
-    the AI Prompts jobs queued with "Send to my AI" (ai_jobs.py), oldest
-    first. Each carries "kind" and its own "instructions". Calling this is
-    also the worker's check-in, which the AI Prompts page reads."""
-    import ai_jobs
+    """Every run of this user's still waiting on Claude, newest first. Each
+    carries "kind" and its own "instructions"."""
     _bind_user(owner)
-    try:
-        ai_jobs.touch_worker(owner)
-    except Exception as ex:
-        print("[SalesCampaign] worker check-in failed: %s" % ex, flush=True)
     try:
         _spawn_retries(owner)
     except Exception as ex:
@@ -1219,10 +1212,6 @@ def pending_runs(owner, limit=5):
             out.append(_run_summary(rec))
             if len(out) >= limit:
                 break
-    try:
-        out += ai_jobs.pending(owner)[:10]
-    except Exception as ex:
-        print("[SalesCampaign] AI jobs failed: %s" % ex, flush=True)
     return out
 
 
@@ -1231,9 +1220,6 @@ def claim_run(owner, run_id=None):
     already in progress returns it rather than failing, because a dropped
     Claude session retrying is the normal case, not an error."""
     _bind_user(owner)
-    if run_id and str(run_id).startswith("job_"):
-        import ai_jobs
-        return ai_jobs.update_job(owner, run_id, {"status": "working"})
     if not run_id:
         pend = [r for r in list_runs(owner, limit=25)
                 if r.get("status") == "handoff"]
@@ -1408,10 +1394,6 @@ def update_run(owner, run_id, patch):
     it."""
     _bind_user(owner)
     patch = dict(patch or {})
-    if str(run_id).startswith("job_"):
-        # An AI Prompts job, sharing this tool so the worker needs only one.
-        import ai_jobs
-        return ai_jobs.update_job(owner, run_id, patch)
     rec = load_run(run_id, owner)
     if not rec:
         raise RuntimeError("run %s not found" % run_id)
@@ -3082,8 +3064,8 @@ def _sc_parked(s, rf, owner, rec):
             rid = retry_now(owner, rec["run_id"])
         except Exception as ex:
             ui.notify(str(ex), type="negative"); return
-        ui.notify("Queued retry run %s - Claude picks it up on its next "
-                  "check." % rid, type="positive")
+        ui.notify("Queued retry run %s. Open it and copy the phrase for "
+                  "Claude." % rid, type="positive")
         rf()
     with ui.element("button").classes("fd-gb").style(
             "padding:6px 12px;font-size:11px;margin:8px 0 4px;"
@@ -3092,14 +3074,14 @@ def _sc_parked(s, rf, owner, rec):
 
 
 # -- One-time ZoomInfo setup ------------------------------------------------
-# Shown on Start and on the AI Prompts worker run until the user ticks
+# Shown on Start until the user ticks
 # "I've done this". Unattended runs have stalled before on Claude in
 # Chrome's per-site permission prompt, so the sites are listed by name.
 ZI_SETUP_SITES = ("recruiter-app.zoominfo.com", "google.com", "linkedin.com")
 
 
 def zi_setup_steps(C):
-    """The four steps, rendered into whatever container is open."""
+    """The three steps, rendered into whatever container is open."""
     def _copy(text):
         ui.run_javascript("navigator.clipboard.writeText(%s)"
                           % json.dumps(text))
@@ -3113,18 +3095,8 @@ def zi_setup_steps(C):
         "when the shared Bulk Credits run out.",
         "In Claude in Chrome, set these sites to Always allow, or a run with "
         "nobody watching stops at the permission prompt:",
-        "Copy the setup prompt and paste it into Claude desktop once. It "
-        "sets up the hourly check that works every job you send your AI - "
-        "AI Prompts jobs and Sales Campaign runs.",
     ]
 
-    def _copy_setup():
-        import ai_prompts
-        import staffing_prompts
-        ui.run_javascript("navigator.clipboard.writeText(%s)" % json.dumps(
-            ai_prompts.worker_prompt(staffing_prompts.STAFFING)))
-        ui.notify("Setup prompt copied. Paste it into Claude desktop.",
-                  type="positive")
     for i, text in enumerate(steps, 1):
         ui.label("%d. %s" % (i, text)).style(
             f"font-size:12px;color:{C['text_l']};line-height:1.6;"
@@ -3143,11 +3115,6 @@ def zi_setup_steps(C):
                             "padding:5px 10px;font-size:11px;"
                             ).on("click", lambda x=site: _copy(x)):
                         ui.label(site)
-        if i == 4:
-            with ui.element("button").classes("fd-gb").style(
-                    "padding:6px 12px;font-size:11px;margin:0 0 8px 16px;"
-                    ).on("click", _copy_setup):
-                ui.label("Copy the setup prompt")
 
 
 def zi_setup_dialog(s):
@@ -3156,7 +3123,7 @@ def zi_setup_dialog(s):
     with ui.dialog() as dlg, ui.card().style(
             f"background:{C['card']};border:1px solid {C['border']};"
             f"border-radius:12px;padding:22px 24px;max-width:560px;"):
-        ui.label("One-time setup so your AI can work DripDrop jobs").style(
+        ui.label("One-time setup so Claude can work your Sales Campaigns").style(
             f"font-size:15px;font-weight:700;color:{C['text_l']};"
             f"font-family:'Nunito',sans-serif;display:block;"
             f"margin-bottom:10px;")

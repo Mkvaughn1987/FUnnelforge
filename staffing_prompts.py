@@ -24,7 +24,7 @@ from datetime import date
 import ai_prompts as _e
 from zoominfo_pull import BOARDS_DEFAULT, BOARDS_RULE, ZI_PULL_RULE
 from ai_prompts import (ARENA, F, NEWSLETTER_DEFAULT, NEWSLETTER_MODES,
-                        POSTING_AGE, SEQUENCES, SKIP_FIELDS, WHEN_OPTIONS,
+                        POSTING_AGE, SEQUENCES, SKIP_FIELDS, start_fields,
                         finalize_routines)
 
 
@@ -351,6 +351,22 @@ def _vertical_guide(v, own_signals=False):
 _FROM_VERTICAL = (("company_size", "band"), ("who_to_reach", "buyers"),
                   ("roles", "roles"))
 
+ANY_SIZE = "Any size"
+
+
+def _rec_for(r, v, key, attr):
+    """The recommendation for one targeting box. A routine can override the
+    market's own under "defaults": the agency run takes any size, because a
+    company already paying an agency is a lead whatever its headcount."""
+    return (r.get("defaults") or {}).get(key) or v[attr]
+
+
+def _size_clause(size):
+    if " ".join(str(size or "").split()).lower() == ANY_SIZE.lower():
+        return ("of any size - never drop a company for being too big or "
+                "too small")
+    return "of about %s" % size
+
 
 def _derive_staffing(r, vals, d):
     """Engine hook. A blank targeting answer means "use the recommendation
@@ -366,8 +382,8 @@ def _derive_staffing(r, vals, d):
     for key, attr in _FROM_VERTICAL:
         if (key in r["field_by_key"] and v.get(attr)
                 and not str(vals.get(key) or "").strip()):
-            d[key] = v[attr]
-            vals[key] = v[attr]
+            d[key] = vals[key] = _rec_for(r, v, key, attr)
+    d["size_clause"] = _size_clause(d.get("company_size"))
     if "signals" in r["field_by_key"]:
         # No key = a request that never saw the screen, which gets the
         # recommendation. An EMPTY key = someone cleared the list on
@@ -423,10 +439,11 @@ def prefill_staffing(r, vals, written=None):
         if key not in r["field_by_key"]:
             continue
         cur = str(vals.get(key) or "").strip()
-        stale = any(cur == other[attr] for other in VERTICALS)
+        stale = any(cur == _rec_for(r, other, key, attr)
+                    or cur == other[attr] for other in VERTICALS)
         if cur and cur != str(written.get(key) or "").strip() and not stale:
             continue
-        vals[key] = out[key] = v[attr]
+        vals[key] = out[key] = _rec_for(r, v, key, attr)
 
     for key, (menu_of, ids_of, _prose) in CHECKS.items():
         if key not in r["field_by_key"]:
@@ -503,8 +520,7 @@ def _email_fields(name_default="the company name"):
           default="Arena 5x5", options=SEQUENCES),
         F("saved_style", "Which saved style", "emails",
           hint="Only if you picked one of your saved styles above."),
-        F("start_when", "When the first email goes out", "emails", "select",
-          default="Next Monday", options=WHEN_OPTIONS),
+        *start_fields(),
         F("campaign_name", "What to call the campaigns", "emails",
           default=name_default),
     ]
@@ -518,7 +534,7 @@ def _size_fields(companies="5"):
           "number", default="7",
           hint="3 is the fewest worth doing, 15 the most."),
         F("email_cap", "Most emails this run should send", "size", "number",
-          default="175"),
+          default="250"),
     ]
 
 
@@ -562,7 +578,7 @@ _CAMPAIGN_TOOLS = ["campaign_types", "my_campaign_styles", "campaigns_list",
 ROUTINES = [
     {
         "key": "staff_signal_hunt",
-        "name": "Find companies showing a hiring signal",
+        "name": "Find Companies Showing a Hiring Signal",
         "recommend": ["company_size", "roles", "who_to_reach", "signals"],
         "blurb": "A hiring signal is a company telling you from the outside "
                  "that it needs help hiring - a role that keeps getting "
@@ -606,7 +622,7 @@ ROUTINES = [
     },
     {
         "key": "staff_lookalikes",
-        "name": "Find companies like a client",
+        "name": "Find Companies Similar to a Client",
         "recommend": ["company_size", "roles", "who_to_reach"],
         "blurb": "Start from a company you have placed with, or one you "
                  "want more of, find the companies that look like it, check "
@@ -648,9 +664,9 @@ ROUTINES = [
     },
     {
         "key": "staff_agency_displace",
-        "name": "Win business from other agencies",
-        "recommend": ["company_size", "roles", "who_to_reach",
-                      "search_terms"],
+        "name": "Win Business from Competing Agencies",
+        "recommend": ["roles", "who_to_reach", "search_terms"],
+        "defaults": {"company_size": ANY_SIZE},
         "blurb": "A company already paying an agency has decided to use a "
                  "recruiter. Find the roles in your market that other "
                  "staffing and search firms are working, work out who the "
@@ -685,8 +701,8 @@ ROUTINES = [
             "Only keep a company you can name with a reason; never guess. "
             "Drop the agencies themselves.",
             "{skip_clause}",
-            "Land {companies} companies of about {company_size}, the "
-            "longest-open and most-reposted roles first. For each pick say "
+            "Land {companies} companies {size_clause}. Longest-open and "
+            "most-reposted roles first. For each pick say "
             "which role, where you saw it, how long it has been open and how "
             "you identified the employer. The first email never names the "
             "other agency and never runs it down: it offers to get the role "
@@ -739,7 +755,7 @@ STARTERS = [
     {
         "id": "staff_signal",
         "icon": "trending_up",
-        "label": "Find companies showing a hiring signal",
+        "label": "Find Companies Showing a Hiring Signal",
         "sub": "A role that keeps getting reposted, a superintendent seat "
                "open, a new plant line. Pick the market and your territory "
                "- the signals and everything else are filled in.",
@@ -752,7 +768,7 @@ STARTERS = [
     {
         "id": "staff_lookalike",
         "icon": "content_copy",
-        "label": "Find companies like a client",
+        "label": "Find Companies Similar to a Client",
         "sub": "Start from a company you have placed with and find the ones "
                "that look like it.",
         "summary": "Find companies that look like a client of mine, check "
@@ -764,7 +780,7 @@ STARTERS = [
     {
         "id": "staff_agency",
         "icon": "swap_horiz",
-        "label": "Win business from other agencies",
+        "label": "Win Business from Competing Agencies",
         "sub": "Roles another staffing firm is already working. They have "
                "decided to pay a recruiter - offer to get it filled.",
         "summary": "Find roles in my market that other staffing and search "
@@ -773,17 +789,8 @@ STARTERS = [
         "routine": "staff_agency_displace",
         "vals": {},
     },
-    {
-        "id": "staff_account",
-        "icon": "search",
-        "label": "Research one account",
-        "sub": "Everything worth knowing before a call. Nothing is sent.",
-        "summary": "Research one company before I reach out: what they do, "
-                   "who owns the hire, what they are hiring for, and the "
-                   "talk track.",
-        "routine": "staff_account",
-        "vals": {},
-    },
+    # "Research one account" (staff_account) came off the picker 2026-10-02.
+    # Its routine stays, so a setup saved against it still opens.
 ]
 
 

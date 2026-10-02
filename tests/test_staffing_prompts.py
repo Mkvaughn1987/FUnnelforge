@@ -107,9 +107,12 @@ def test_new_runs_come_first_then_every_arena_run(aip, sp):
     assert keys[:4] == NEW
     assert keys[4:] == [r["key"] for r in aip.ARENA.routines]
     starters = [st["id"] for st in sp.STAFFING.starters]
+    # "Research one account" came off the picker (Mike 2026-10-02); its
+    # routine stays so saved setups still open. MPC leads the Arena cards.
     assert starters[:4] == ["staff_signal", "staff_lookalike",
-                            "staff_agency", "staff_account"]
-    assert starters[4:] == [st["id"] for st in aip.ARENA.starters]
+                            "staff_agency", "mpc"]
+    assert "staff_account" not in starters
+    assert starters[3:] == [st["id"] for st in aip.ARENA.starters]
     for st in sp.STAFFING.starters:
         assert st.get("icon"), st["id"]
         assert st["routine"] in sp.STAFFING.routine_by_key
@@ -135,7 +138,9 @@ def test_every_run_builds_for_every_market(aip, sp, key, vertical):
     v = sp.vertical_for(vertical)
     assert v["buyers"] in flat
     if key != "staff_account":
-        assert v["roles"] in flat and v["band"] in flat
+        band = sp._rec_for(sp.STAFFING.routine_by_key[key], v,
+                           "company_size", "band")
+        assert v["roles"] in flat and band in flat
         assert "my DripDrop connector" in flat
 
 
@@ -174,6 +179,27 @@ def test_agency_run_searches_agency_terms(aip, sp):
     req["vals"]["search_terms"] = ""
     flat = _flat(aip.build_prompt(req, sp.STAFFING))
     assert sp._CHECKS_EMPTY["search_terms"] in flat
+
+
+def test_agency_run_takes_any_size(aip, sp):
+    r, req = _req(aip, sp, "staff_agency_displace",
+                  vertical="Construction", location="Charlotte")
+    assert req["vals"]["company_size"] == sp.ANY_SIZE
+    flat = _flat(aip.build_prompt(req, sp.STAFFING))
+    assert "never drop a company for being too big" in flat
+    assert "25 to 1000 people" not in flat
+    # A saved setup still holding the market's band is moved off it.
+    req["vals"]["company_size"] = "25 to 1000 people"
+    aip.run_prefill(r, req, sp.STAFFING)
+    assert req["vals"]["company_size"] == sp.ANY_SIZE
+    # A band someone typed is kept and honoured.
+    req["vals"]["company_size"] = "50 to 300 people"
+    aip.run_prefill(r, req, sp.STAFFING)
+    flat = _flat(aip.build_prompt(req, sp.STAFFING))
+    assert "of about 50 to 300 people" in flat
+    # The other runs keep the market's band.
+    _r, sig = _req(aip, sp, "staff_signal_hunt", vertical="Construction")
+    assert sig["vals"]["company_size"] == "25 to 1000 people"
 
 
 def test_location_is_asked_not_invented(aip, sp):

@@ -378,12 +378,7 @@ async def campaign_get(campaign_id: str) -> dict:
         "'instructions' field that is the literal brief: follow it. Calling "
         "it also queues retry runs for companies an earlier run parked while "
         "ZoomInfo was out of credits, once their two-day wait is up; a retry "
-        "run's brief says so and only asks for contacts. The list also holds "
-        "the jobs the user sent with 'Send to my AI' on the AI Prompts page: "
-        "those have kind 'ai_job' (Sales Campaign runs have kind "
-        "'sales_campaign'), a run_id starting 'job_', a title, and an "
-        "'instructions' field that is the whole job, written to run with "
-        "nobody watching. Work every entry, oldest first."
+        "run's brief says so and only asks for contacts."
     )
 )
 async def sales_runs_pending() -> dict:
