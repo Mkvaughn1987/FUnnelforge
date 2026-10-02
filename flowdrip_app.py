@@ -22144,7 +22144,7 @@ PAGE_HELP = {
         ]
     },
     "evergreen": {
-        "title": f"{TERM_NURTURE_COMPACT} Sequence",
+        "title": "Newsletter Sequence",
         "summary": "Always-on campaigns contacts join anytime, perfect for long-term nurture (months, not weeks).",
         "next_action": "Click + Enroll on any campaign to add contacts from a saved list.",
         "sections": [
@@ -24971,7 +24971,7 @@ def p_today_combined(s: AppState, rf):
                             ui.label(camp_name).style(
                                 f"font-size:14px;font-weight:600;color:{C['text_l']};font-family:'Nunito',sans-serif;")
                             if _any_eg:
-                                ui.label(f"{TERM_NURTURE_COMPACT} Sequence").style(
+                                ui.label("Newsletter Sequence").style(
                                     f"font-size:9px;padding:2px 8px;border-radius:99px;font-weight:700;"
                                     f"background:{_tint(C['indigo'],'15')};color:{C['indigo']};"
                                     f"text-transform:uppercase;letter-spacing:.05em;")
