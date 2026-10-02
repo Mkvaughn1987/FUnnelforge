@@ -19962,6 +19962,18 @@ button:focus-visible,[role="button"]:focus-visible,a:focus-visible,
 .q-menu{{border-radius:var(--dd-r-md);box-shadow:var(--dd-shadow-2)}}
 .q-notification{{border-radius:var(--dd-r-md) !important;box-shadow:var(--dd-shadow-2) !important}}
 
+/* ── My Day overdue banner ── */
+.fd-overdue-banner{{display:flex;align-items:center;gap:14px;padding:14px 18px;margin:0 0 16px;cursor:pointer;
+  background:{_tint(C['danger'], '12')};border:1px solid {_tint(C['danger'], '45')};border-radius:var(--dd-r-lg);
+  transition:background-color .15s var(--dd-ease)}}
+.fd-overdue-banner:hover{{background:{_tint(C['danger'], '1C')}}}
+.fd-overdue-banner *{{pointer-events:none}}
+.fd-overdue-dot{{width:32px;height:32px;border-radius:50%;flex:0 0 auto;display:flex;align-items:center;
+  justify-content:center;background:{C['danger']};color:#fff;font-weight:800;font-size:16px}}
+.fd-overdue-title{{font-size:14px;font-weight:700;color:{C['text_l']}}}
+.fd-overdue-sub{{font-size:12px;color:{C['muted']};margin-top:2px}}
+@media (max-width:768px){{.fd-overdue-banner{{flex-wrap:wrap}}.fd-overdue-banner .fd-pb{{margin-left:46px}}}}
+
 /* ── Filter toolbar: fields keep their widths on one wrapping line ── */
 .fd-filters{{display:flex;gap:10px;align-items:center;flex-wrap:wrap}}
 .fd-pi .fd-filters .q-field{{width:auto !important;flex:0 1 280px;min-width:160px}}
@@ -20080,6 +20092,8 @@ button:focus-visible,[role="button"]:focus-visible,a:focus-visible,
   .fd-es{{padding:28px 18px}}
   .fd-seg-btn{{padding:8px 12px}}
   /* Setup checklist: the CTA drops under its text instead of squeezing it. */
+  .fd-myday-split{{flex-direction:column;align-items:stretch !important}}
+  .fd-myday-side{{width:100% !important}}
   .fd-setup-step{{flex-wrap:wrap;row-gap:8px !important}}
   .fd-setup-step > div:nth-child(2){{flex:1 1 200px !important}}
   .fd-setup-step > button{{margin-left:42px}}
@@ -24788,6 +24802,25 @@ def p_today_combined(s: AppState, rf):
                         ).on("click", _bulk_mark_overdue_done):
                     ui.label(f"✓ Mark all {len(pending)} overdue as done")
 
+        # Today leaves overdue tasks out of its list (they live on the
+        # Overdue tab), but the sidebar badge counts them. Without this the
+        # badge said 9 and the page showed nothing to act on.
+        if drip_day == "today" and overdue_count:
+            def _show_overdue():
+                s.drip_day = "overdue"; rf()
+            with ui.element("div").classes("fd-overdue-banner").props(
+                    'role="button" tabindex="0"').on("click", _show_overdue).on(
+                    "keydown.enter", _show_overdue):
+                ui.label("!").classes("fd-overdue-dot")
+                with ui.element("div").style("flex:1;min-width:0;"):
+                    ui.label(f"{overdue_count} overdue task{'s' if overdue_count != 1 else ''} "
+                             f"waiting on you").classes("fd-overdue-title")
+                    ui.label("Calls, LinkedIn touches and tasks from earlier days that "
+                             "haven't been marked done.").classes("fd-overdue-sub")
+                with ui.element("button").classes("fd-pb").style(
+                        f"background:{C['danger']};color:#fff;padding:8px 16px;font-size:13px;"):
+                    ui.label("Show overdue →")
+
         if not tasks:
             # On the Today tab, show the full empty state with a CTA to
             # peek at Tomorrow's drip. On other tabs (Tomorrow / +N days /
@@ -25060,7 +25093,19 @@ def p_today_combined(s: AppState, rf):
       auto_camps = {k: v for k, v in auto_camps.items()
                     if k in _camps_with_today_sends}
 
-      with ui.element("div").style("display:flex;gap:16px;margin-top:24px;align-items:flex-start;"):
+      def _myday_empty(icon, title, body):
+          with ui.element("div").classes("fd-es wide compact"):
+              ui.label(icon).classes("fd-es-icon")
+              ui.label(title).classes("fd-es-title").style("font-size:14px;")
+              ui.label(body).classes("fd-es-body")
+
+      # Campaigns with no contacts and nothing queued are skipped below, so
+      # decide emptiness on what will actually render.
+      _visible_auto = {k: v for k, v in auto_camps.items()
+                       if v["contact_count"] or queue_by_camp.get(k, 0)}
+
+      with ui.element("div").classes("fd-myday-split").style(
+              "display:flex;gap:16px;margin-top:24px;align-items:flex-start;"):
 
           # ── LEFT: Sending Today list (filtered to today's queue) ──────────
           with ui.element("div").style("flex:1;min-width:0;"):
@@ -25072,9 +25117,10 @@ def p_today_combined(s: AppState, rf):
                       ui.label(f"{_today_count} email{'s' if _today_count != 1 else ''} today").style(
                           f"font-size:11px;color:{C['muted']};")
 
-              if not auto_camps:
-                  ui.label("No campaigns sending today. All caught up.").style(
-                      f"font-size:12px;color:{C['muted']};padding:12px 0;")
+              if not _visible_auto:
+                  _myday_empty("📤", "Nothing sending today",
+                               "Campaigns with emails going out today show up here "
+                               "with their progress and next send time.")
               else:
                   shown_camps = set()
                   # Most-recently-added first so new sequences surface at
@@ -25171,7 +25217,7 @@ def p_today_combined(s: AppState, rf):
                   # Orphaned queue entries (campaign deleted/renamed)  -  hidden
 
           # ── RIGHT: Today's Schedule ───────────────────────────────────────
-          with ui.element("div").style("width:360px;flex-shrink:0;"):
+          with ui.element("div").classes("fd-myday-side").style("width:360px;flex-shrink:0;"):
               with ui.element("div").style(
                       "display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;"):
                   ui.label("Today's Schedule").classes("fd-sec").style("margin:0;")
@@ -25180,11 +25226,8 @@ def p_today_combined(s: AppState, rf):
                           f"font-size:11px;color:{C['muted']};")
 
               if not today_scheduled:
-                  with ui.element("div").style(
-                          f"background:{C['surface']};border:1px solid {C['border']};"
-                          f"border-radius:10px;padding:24px 16px;text-align:center;"):
-                      ui.label("No emails scheduled for today").style(
-                          f"font-size:12px;color:{C['muted']};")
+                  _myday_empty("🗓️", "No emails scheduled",
+                               "Each email due today will be listed here by send time.")
               else:
                   with ui.element("div").style(
                           f"background:{C['surface']};border:1px solid {C['border']};"
