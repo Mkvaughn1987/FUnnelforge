@@ -1883,6 +1883,10 @@ def _aip_css():
         "color:var(--dd-muted);display:inline-flex;align-items:center;"
         "gap:4px;}"
         ".aip-wrap .aip-link:hover{color:var(--dd-teal);}"
+        ".aip-wrap .aip-link.back{font-weight:600;color:var(--dd-teal);"
+        "background:var(--dd-teal_dim);padding:4px 12px;"
+        "border-radius:999px;}"
+        ".aip-wrap .aip-link.back:hover{filter:brightness(1.15);}"
         # Ready-made answers above a box.
         ".aip-wrap .aip-chips{display:flex;flex-wrap:wrap;gap:6px;"
         "margin:2px 0 8px;}"
@@ -2870,13 +2874,14 @@ def _aip_confirm(s, rf, C):
     run_prefill(r, req)
     opened = _aip_open_state(s, r, req)
 
-    def _restart():
-        # Defined up here because the header card renders before the button
-        # row and needs to be able to reach it.
+    def _back():
+        # Back, not "start over" - the answers are kept, so going out to
+        # read what the other jobs do costs nothing. They come back when
+        # you re-pick the same job. Defined up here because the header card
+        # renders before the button row and both use it.
+        s._aip_back = s._aip_req
         s._aip_req = None
-        s._aip_back = None
         s._aip_prompt = None
-        s._aip_open = None
         s._aip_saving = False
         s._aip_err = ""
         rf()
@@ -2896,12 +2901,10 @@ def _aip_confirm(s, rf, C):
                     _text("Here's what I understood" if heard
                           else req.get("title") or "Set this up",
                           C, 17, 700, C["text_l"], 2)
-                    # Up here rather than beside "Write my prompt": throwing
-                    # the answers away is not a step in filling them in.
-                    with ui.element("button").classes("aip-link").on(
-                            "click", _restart):
-                        ui.icon("restart_alt").style("font-size:15px;")
-                        ui.label("Start over")
+                    with ui.element("button").classes("aip-link back").on(
+                            "click", _back):
+                        ui.icon("arrow_back").style("font-size:15px;")
+                        ui.label("Back")
                 # No job picker here. The job was chosen on the screen before
                 # this one; repeating the choice next to the answers it decides
                 # only invited a change that silently reset them.
@@ -2972,18 +2975,6 @@ def _aip_confirm(s, rf, C):
     def _build():
         s._aip_prompt = build_prompt(req)
         s._aip_saving = False
-        rf()
-
-    def _back():
-        # Back, not "start over" - the answers are kept, so going out to
-        # read what the other jobs do costs nothing. They come back when
-        # you re-pick the same job. Start over, in the header, is the one
-        # that discards.
-        s._aip_back = s._aip_req
-        s._aip_req = None
-        s._aip_prompt = None
-        s._aip_saving = False
-        s._aip_err = ""
         rf()
 
     with ui.element("div").classes("aip-bar"):
