@@ -10504,8 +10504,8 @@ def _tint(col, alpha_hex):
     return f"color-mix(in srgb, {col} {pct}%, transparent)"
 
 
-# The DripDrop mark: one blue-to-teal drop with three D's (Drip, Drip, Drop)
-# nested inside each other, big to small, on a pale circle.
+# The DripDrop drop mark (blue-to-teal drop, pale circle, "D"), matching
+# dripdrop_logo.png without its baked-in wordmark.
 _DD_DROP_SVG = (
     '<svg viewBox="0 0 26 34" aria-hidden="true">'
     '<defs><linearGradient id="ddDropG" x1="0" y1="0" x2="0" y2="1">'
@@ -10513,10 +10513,9 @@ _DD_DROP_SVG = (
     '</linearGradient></defs>'
     '<path d="M13 .8C10.6 4.6 1.6 15.2 1.6 21.6a11.4 11.4 0 0 0 22.8 0C24.4 15.2 15.4 4.6 13 .8z" '
     'fill="url(#ddDropG)"/>'
-    '<circle cx="13" cy="21.6" r="9" fill="#E8FFFD"/>'
-    '<path d="M9.2 15.7h3.0a5.9 5.9 0 0 1 0 11.8h-3.0z" fill="none" stroke="#5B6CE8" stroke-width="1.4" stroke-linejoin="round"/>'
-    '<path d="M11.1 17.6h1.4a4.0 4.0 0 0 1 0 8.0h-1.4z" fill="none" stroke="#5B6CE8" stroke-width="1.3" stroke-linejoin="round"/>'
-    '<path d="M12.9 19.5h0.3a2.1 2.1 0 0 1 0 4.2h-0.3z" fill="none" stroke="#5B6CE8" stroke-width="1.2" stroke-linejoin="round"/>'
+    '<circle cx="13" cy="21.8" r="7.6" fill="#E8FFFD"/>'
+    '<path d="M10.3 17.6h2.6a4.2 4.2 0 0 1 0 8.4h-2.6z" fill="none" stroke="#5B6CE8" '
+    'stroke-width="2.1" stroke-linejoin="round"/>'
     '</svg>'
 )
 
@@ -10539,12 +10538,13 @@ def _sidebar_layout_css() -> str:
 .fd-side .fd-ico{{flex:0 0 auto;opacity:.85}}
 .fd-side-top{{padding:22px 12px 18px;display:flex;flex-direction:column;gap:16px}}
 .fd-side-logo{{display:flex;align-items:center;height:28px;padding:0 6px;cursor:pointer}}
-/* DripDrop mark: the set wordmark with the drop mark (drawn as SVG; the PNG
-   has its wordmark baked in) on its right. */
-.fd-side-logo.dd{{height:60px}}
-.fd-side-logo.dd > div{{display:flex;align-items:center;gap:6px}}
-.fd-side-drop{{display:block;width:41px;height:54px;flex:0 0 auto}}
-.fd-side-drop svg{{display:block;width:41px;height:54px}}
+/* DripDrop mark: the logo's drop drawn as SVG (the PNG has the wordmark
+   baked in under it, and cropping it with CSS clipped the drop's edge)
+   next to a set wordmark, so it reads at sidebar size. */
+.fd-side-logo.dd{{height:38px}}
+.fd-side-logo.dd > div{{display:flex;align-items:center;gap:8px}}
+.fd-side-drop{{display:block;width:26px;height:34px;flex:0 0 auto}}
+.fd-side-drop svg{{display:block;width:26px;height:34px}}
 .fd-side-word{{font-family:'Nunito','DM Sans',sans-serif;font-weight:900;font-size:19px;letter-spacing:-.3px;
   color:{C['text_l']};white-space:nowrap;line-height:1}}
 .fd-side-word b{{color:{C['teal']};font-weight:900}}
@@ -13643,8 +13643,8 @@ def _sidebar_v2(s: AppState, rf):
             with ui.element("div").classes("fd-side-logo dd").props(
                     'role="button" tabindex="0" aria-label="Home"').on(
                     "click", lambda: _go("dashboard")):
-                ui.html('<span class="fd-side-word">Drip<b>Drip</b>Drop</span>'
-                        f'<span class="fd-side-drop">{_DD_DROP_SVG}</span>')
+                ui.html(f'<span class="fd-side-drop">{_DD_DROP_SVG}</span>'
+                        '<span class="fd-side-word">Drip<b>Drip</b>Drop</span>')
             _ws = _sidebar_workspace_name(s)
             _ws_menu = {"m": None}
             def _open_ws():
