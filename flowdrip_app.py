@@ -7045,61 +7045,62 @@ def _aicb_research_brief(client, *, camp_type="", company="", website="",
 # the model swaps for each campaign's target role.
 _TM_MODEL_EMAILS = [
     ("Capacity", "More room for the work that matters", (
-        "Document follow-up, record updates and routine coordination can "
-        "take time away from the work your experienced people need to own.",
-        "We do offshore staff augmentation: ThriveModal recruits dedicated "
-        "professionals in the Philippines around a specific role. You "
-        "interview and choose the person who joins your team and works your "
-        "agreed hours.",
-        "Would dedicated support for that work be useful to your team?")),
+        "You might not need anyone right now, and that's fine. I thought it "
+        "was worth connecting anyway, so you have someone to call when the "
+        "work starts piling up.",
+        "We do offshore staff augmentation. ThriveModal recruits dedicated "
+        "professionals in the Philippines around a specific role, things "
+        "like document follow-up, record updates and routine coordination. "
+        "You interview and choose the person, and they work your hours.",
+        "Would it be worth a quick conversation, even just to network?")),
     ("Economics", "What would the role actually cost?", (
-        "A useful staffing comparison starts with the work: the "
-        "responsibilities, experience and hours you need covered.",
-        "From there, we can price a dedicated Philippines-based role and "
-        "compare it with the fully burdened cost of a comparable U.S. hire. "
-        "Depending on the role, it can cost up to 60 to 70 percent less. "
-        "Every candidate we present holds an accredited degree and "
-        "communicates clearly in English.",
-        "If you have not tried a Philippines-based hire yet, one role is a "
-        "low-cost way to start. Would a comparison for one role be useful?")),
+        "Touching base again, this time with something more concrete.",
+        "We can price a dedicated Philippines-based role and put it next to "
+        "the fully burdened cost of a comparable U.S. hire. Depending on the "
+        "role, it can cost up to 60 to 70 percent less. Every candidate we "
+        "present holds an accredited degree and communicates clearly in "
+        "English.",
+        "If you haven't tried a Philippines-based hire yet, one role is a "
+        "low-cost way to start. Want me to run the numbers on one?")),
     ("Role scope", "A clearer scope for the role", (
-        "For an operations coordinator, a starting scope could include "
-        "following up on missing documents, updating records and keeping "
-        "routine requests moving.",
-        "Your team would define the process, retain approval decisions and "
-        "handle exceptions outside the coordinator's authority. That gives "
-        "the person clear ownership without leaving responsibilities vague.",
-        "Would a one-page outline of that role help?")),
+        "I've been thinking about what this could look like on your team.",
+        "For an operations coordinator, a starting scope might be chasing "
+        "missing documents, updating records and keeping routine requests "
+        "moving. Your team still sets the process, makes the approval calls "
+        "and handles the exceptions.",
+        "Does that sound close to the work you're carrying today?")),
     ("After the candidate joins", "After the candidate joins", (
-        "Choosing the candidate is one part of adding capacity. Getting them up "
+        "Honestly, choosing the candidate is the easy part. Getting them up "
         "to speed takes a clear handoff, access to the right systems and "
-        "someone to set priorities.",
-        "We coordinate setup and stay involved afterwards, "
-        "including monthly check-ins and quarterly reviews. Your team directs "
-        "the day-to-day work.",
+        "someone to set priorities for the first few weeks.",
+        "We help set that up before day one and stay involved afterwards, "
+        "with monthly check-ins and quarterly reviews. Your team directs the "
+        "day-to-day work.",
         "Would a short onboarding checklist be useful?")),
     ("Quality and control", "What you would assess before hiring", (
-        "For a coordination role, the hiring brief should go beyond a job "
-        "title. Relevant systems experience, written communication and "
-        "knowing when to escalate all matter.",
-        "We recruit against your requirements, and you interview the "
-        "candidates before choosing who joins. Once hired, the person works "
-        "within the processes and expectations your team sets.",
-        "Which skill would matter most for this role?")),
+        "Hope your week's going well. I wanted to follow up with something "
+        "I'd want to know if I were in your seat.",
+        "For a coordination role, the hiring brief should go past the job "
+        "title: the systems they've used, how they write, and whether they "
+        "know when to escalate. We recruit against your requirements, and "
+        "you interview everyone before choosing.",
+        "Which of those would matter most to you?")),
     ("Commitment", "Start with the role requirements", (
-        "You can evaluate one role without deciding what a larger offshore "
-        "team would look like.",
-        "A useful starting point is an existing job description. We can use "
-        "it to discuss the experience, hours and responsibilities you need, "
-        "then put the scope and current commercial terms in front of you for "
-        "review.",
-        "Do you have a job description we could start from?")),
+        "No pressure on this one. You can look at one role without deciding "
+        "anything bigger.",
+        "If you have a job description lying around, that's a good place to "
+        "start. We can talk through the experience, hours and "
+        "responsibilities, then put the scope and current commercial terms "
+        "in front of you to review.",
+        "Is there one you could send over?")),
     ("Close", "Leaving this with you", (
-        "This is my final note in this sequence. If dedicated operations "
-        "support becomes useful, we can revisit a role around your team's "
-        "requirements. I'll still check in about once a month with a short "
-        "note.",
-        "Would you like the role outline before I close this out?")),
+        "I don't want to keep filling your inbox, so this is my last note "
+        "for now. I'll still check in about once a month with a short, "
+        "personal note.",
+        "If you've never tried someone overseas, I get the hesitation. One "
+        "role is an easy way to find out, and it can cost a lot less than a "
+        "local hire.",
+        "Would you be open to taking a chance on one?")),
 ]
 
 
@@ -7115,17 +7116,35 @@ _TM_EMAIL_OPENER_RULE = (
     "THRIVEMODAL HOUSE STYLE (applies to EVERY email step; LinkedIn and call "
     "steps are exempt). The model emails below are the standard every email "
     "is held to:\n"
-    "- LENGTH AND SHAPE: 50 to 90 words after the greeting, in three short "
-    "paragraphs: (1) one plain, specific point about the work or the "
-    "decision; (2) one or two sentences on how ThriveModal handles it; (3) "
-    "ONE question, usually offering something small and concrete (a "
-    "comparison for one role, a one-page outline, a checklist, a look at "
-    "their job description).\n"
-    "- VOICE: calm, plain and specific. No hype, no exclamation marks, no "
-    "'I hope this finds you well', no 'just following up', no 'circling "
-    "back', and no bullet lists unless a step asks for them.\n"
-    "- A step tagged (model: <name>) follows that model closely: its subject "
-    "line word for word, its paragraph order and the job its question does. "
+    "- LENGTH AND SHAPE: 50 to 110 words after the greeting, usually two "
+    "to four short paragraphs, ending on ONE question that offers something "
+    "small and concrete or simply asks to talk. Do not give every email the "
+    "same shape.\n"
+    "- SOUND LIKE A PERSON, NOT AI (Mike 2026-10-02): write as the sender "
+    "typing a note to one person. First person, contractions, slightly "
+    "casual, a little unsure rather than assertive ('might', 'not sure if "
+    "this is on your radar'). Mix short and longer sentences. Several "
+    "emails open with a short personal line the way the models do: an "
+    "introduction in the first, 'touching base again' or 'hope your week's "
+    "going well' style openers on some follow-ups, a candid line in the "
+    "last. Never send a note that is ONLY a check-in: every personal line "
+    "is followed by something new. Do not reuse the same opener twice in "
+    "a campaign.\n"
+    "- ONE REAL DETAIL: where the BRIEF allows, mention one specific thing "
+    "about this company and what it likely means for their work, the kind "
+    "of line that would read oddly if sent to anyone else. Never pad with "
+    "generic facts about them.\n"
+    "- AI TELLS ARE BANNED: no em dashes; no 'I hope this email finds you "
+    "well'; no 'just following up', 'circling back' or 'just checking in' "
+    "on their own; no 'Additionally', 'leverage', 'streamline', "
+    "'seamless', 'robust', 'elevate', 'unlock', 'delve', 'game-changer', "
+    "'empower', 'ensure', 'crucial'; no 'not only ... but also' or 'it's "
+    "not just X, it's Y'; no lists of three adjectives; no colon-led "
+    "lists; no bullet lists unless a step asks for them; no exclamation "
+    "marks; no hype.\n"
+    "- A step tagged (model: <name>) follows that model: its subject line "
+    "word for word, its point and the job its question does, in your own "
+    "words rather than copied. "
     "Swap the example work and role (an operations coordinator) for this "
     "company's target role and the work in the BRIEF, and never write about "
     "an operations coordinator unless that is the target role. A step's own "
@@ -7161,7 +7180,7 @@ _TM_EMAIL_OPENER_RULE = (
 # Mike, 2026-09-21: the first email opens on his own track record (the
 # follow-up repeat went with the model-email rewrite the same day). This is his claim about his own placements, so it is
 # the one placement number the playbook's proof rule lets through.
-_TM_TRACK_RECORD_COUNT = "50+"
+_TM_TRACK_RECORD_COUNT = "100+"
 _TM_ACRONYMS = {"ap", "ar", "cpa", "bim", "cad", "vdc", "hr", "it", "ea", "cs",
                 "tms", "erp", "qa", "ehs", "hvac", "rn", "ops"}
 
@@ -7194,10 +7213,9 @@ def _tm_industry_phrase(industry: str) -> str:
 
 def _tm_track_record_line(role: str, industry: str) -> str:
     ind = _tm_industry_phrase(industry)
-    return (f"I'm reaching out because I've recently placed "
-            f"{_TM_TRACK_RECORD_COUNT} {_tm_role_plural(role)}"
-            + (f" in {ind}" if ind else "")
-            + ", and I thought I could be a resource for you.")
+    return (f"I've placed {_TM_TRACK_RECORD_COUNT} offshore Filipino "
+            f"candidates" + (f" in the {ind} space" if ind else "")
+            + " and thought I could be a resource, so I'm reaching out.")
 
 
 def _tm_track_record_rule(camp_type, role: str, industry: str) -> str:
@@ -7210,7 +7228,8 @@ def _tm_track_record_rule(camp_type, role: str, industry: str) -> str:
         "and no other number may be added to it):\n"
         f"- The FIRST email opens, right after 'Hi {{FirstName}},', with this "
         f"line, word for word: \"{line}\" Then it carries on as Model 1 "
-        "does: the point about the work, what we do, one question.\n"
+        "does: you may not need anyone now but it's worth connecting, what "
+        "we do, one question.\n"
         "- No other email uses the number.\n\n")
 
 

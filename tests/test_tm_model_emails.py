@@ -124,3 +124,21 @@ def test_tm_subjects_are_not_title_cased():
     src = open(fa.__file__, encoding="utf-8").read()
     i = src.index("ThriveModal subjects stay in the sentence case")
     assert "not in _TM_TYPE_KEYS" in src[i:i + 300]
+
+
+def test_models_sound_like_a_person_not_ai():
+    """Mike 2026-10-02: personal notes on several emails, no AI tells."""
+    text = {n: " ".join(p) for n, _s, p in fa._TM_MODEL_EMAILS}
+    assert "You might not need anyone right now" in text["Capacity"]
+    assert text["Economics"].startswith("Touching base again")
+    assert "taking a chance" in text["Close"]
+    banned = ("—", "leverage", "streamline", "seamless", "robust", "elevate",
+              "unlock", "delve", "Additionally", "I hope this", "just checking")
+    for n, t in text.items():
+        for w in banned:
+            assert w.lower() not in t.lower(), (n, w)
+        assert "!" not in t, n
+    rule = fa._TM_EMAIL_OPENER_RULE
+    assert "SOUND LIKE A PERSON, NOT AI" in rule
+    assert "Never send a note that is ONLY a check-in" in rule
+    assert "AI TELLS ARE BANNED" in rule
