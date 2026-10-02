@@ -534,7 +534,7 @@ def _size_fields(companies="5"):
           "number", default="7",
           hint="3 is the fewest worth doing, 15 the most."),
         F("email_cap", "Most emails this run should send", "size", "number",
-          default="175"),
+          default="250"),
     ]
 
 

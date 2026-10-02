@@ -414,7 +414,7 @@ ROUTINES = [
               "number", default="7",
               hint="3 is the fewest worth doing, 15 the most."),
             F("email_cap", "Most emails this run should send", "size",
-              "number", default="175"),
+              "number", default="250"),
             F("posting_age", "How recent the job postings have to be", "size",
               "select", default="Posted in the last 30 days",
               options=POSTING_AGE),
@@ -503,7 +503,7 @@ ROUTINES = [
               "number", default="7",
               hint="3 is the fewest worth doing, 15 the most."),
             F("email_cap", "Most emails this run should send", "size",
-              "number", default="175"),
+              "number", default="250"),
             F("posting_age", "How recent the job postings have to be", "size",
               "select", default="Posted in the last 30 days",
               options=POSTING_AGE),
@@ -560,7 +560,8 @@ ROUTINES = [
             F("anonymise", "Hide their names and current employers", "details",
               "toggle", default=True),
             F("who_to_reach", "Who to reach", "details",
-              default="owners and C-level first, then VPs, then directors"),
+              default="owners and C-level first, then VPs, then directors, "
+                      "then HR and talent acquisition"),
             F("newsletter_mode", "Add them to a newsletter", "details",
               "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
             F("newsletter", "Which newsletter", "details",
@@ -582,7 +583,7 @@ ROUTINES = [
               "number", default="7",
               hint="3 is the fewest worth doing, 15 the most."),
             F("email_cap", "Most emails this run should send", "size",
-              "number", default="175"),
+              "number", default="250"),
         ] + SKIP_FIELDS,
         "steps": [
             "Pull each of these people out of DripDrop with "
@@ -637,7 +638,7 @@ ROUTINES = [
               "toggle", default=True),
             F("who_to_reach", "Who to reach", "details",
               default="hiring managers first, then owners and C-level, then "
-                      "VPs and directors"),
+                      "VPs and directors, then HR and talent acquisition"),
             F("newsletter_mode", "Add them to a newsletter", "details",
               "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
             F("newsletter", "Which newsletter", "details",
@@ -651,7 +652,7 @@ ROUTINES = [
               "number", default="7",
               hint="3 is the fewest worth doing, 15 the most."),
             F("email_cap", "Most emails this run should send", "size",
-              "number", default="175"),
+              "number", default="250"),
         ] + SKIP_FIELDS,
         "steps": [
             "Pull each of these people out of DripDrop: {candidates}. Look "
@@ -857,7 +858,7 @@ ROUTINES = [
             *start_fields(),
             F("campaign_name", "What to call it", "emails"),
             F("email_cap", "Most emails this run should send", "size",
-              "number", default="175"),
+              "number", default="250"),
         ],
         "steps": [
             "Call campaign_types - and my_campaign_styles if I named a saved "
@@ -3016,6 +3017,9 @@ def _aip_field(s, rf, C, r, vals, f):
     if f["type"] == "newsletter":
         _newsletter_picker(s, rf, C, vals)
         return
+    if key == "newsletter" and "newsletter_mode" in r["field_by_key"]:
+        _newsletter_name_select(rf, vals, cur)
+        return
     if f["type"] == "pick":
         _pick_widget(C, vals, f, cur)
         return
@@ -3335,6 +3339,48 @@ def _newsletter_picker(s, rf, C, vals):
                       on_click=lambda: NEWSLETTER_CREATE(s, rf)).props(
                 "flat dense no-caps").style(
                 f"color:{C['teal']};font-size:12px;white-space:nowrap;")
+
+
+def _newsletter_names():
+    """The current user's newsletters (evergreen campaigns) - the same list
+    create_campaign's enroll_newsletter matches against, so a picked name
+    always lands."""
+    try:
+        if NEWSLETTER_NAMES:
+            names = NEWSLETTER_NAMES()
+        else:
+            names = [c.get("name") for c in _ff().load_campaigns()
+                     if c.get("evergreen_only")]
+        out = []
+        for n in names:
+            n = str(n or "").strip()
+            if n and n not in out:
+                out.append(n)
+        return sorted(out, key=str.lower)
+    except Exception:
+        return []
+
+
+def _newsletter_name_select(rf, vals, cur):
+    """"Which newsletter" as a dropdown of their newsletters. Typing still
+    works (a name not in the list is kept), and picking one switches "Add
+    them to a newsletter" to the named answer so the two never disagree."""
+    names = _newsletter_names()
+    if cur and cur not in names:
+        names = [cur] + names
+
+    def _set(e):
+        v = str(e.value or "").strip()
+        vals["newsletter"] = v
+        if v and vals.get("newsletter_mode") != NEWSLETTER_MODES[1]:
+            vals["newsletter_mode"] = NEWSLETTER_MODES[1]
+            rf()
+
+    ui.select(options=names, value=cur or None, with_input=True,
+              new_value_mode="add-unique", clearable=True,
+              on_change=_set).props(
+        'dense placeholder="Pick one of your newsletters"').classes(
+        "fd-input")
 
 
 def _aip_extra(s, rf, C, req):
