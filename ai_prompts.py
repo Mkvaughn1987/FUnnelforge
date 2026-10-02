@@ -2041,6 +2041,17 @@ def _aip_css():
         "color:var(--dd-muted);display:inline-flex;align-items:center;"
         "gap:4px;}"
         ".aip-wrap .aip-link:hover{color:var(--dd-teal);}"
+        # Back on the answers and prompt screens: a highlighted pill, so the
+        # way out is the first thing you see, not a muted text link.
+        ".aip-wrap .aip-back{display:inline-flex;align-items:center;gap:6px;"
+        "cursor:pointer;font-family:inherit;font-size:13px;font-weight:700;"
+        "color:var(--dd-teal);border-radius:999px;padding:6px 14px 6px 10px;"
+        "background:color-mix(in srgb,var(--dd-teal) 14%,transparent);"
+        "border:1px solid color-mix(in srgb,var(--dd-teal) 45%,transparent);"
+        "transition:background .15s;}"
+        ".aip-wrap .aip-back:hover{"
+        "background:color-mix(in srgb,var(--dd-teal) 24%,transparent);}"
+        ".aip-wrap .aip-back .q-icon{font-size:16px;}"
         # Ready-made answers above a box.
         ".aip-wrap .aip-chips{display:flex;flex-wrap:wrap;gap:6px;"
         "margin:2px 0 8px;}"
@@ -3060,13 +3071,14 @@ def _aip_confirm(s, rf, C):
     run_prefill(r, req)
     opened = _aip_open_state(s, r, req)
 
-    def _restart():
-        # Defined up here because the header card renders before the button
-        # row and needs to be able to reach it.
+    def _back():
+        # Back, not "start over" - the answers are kept, so going out to
+        # read what the other jobs do costs nothing. They come back when
+        # you re-pick the same job. Defined up here because the header card
+        # renders before the button row and both use it.
+        s._aip_back = s._aip_req
         s._aip_req = None
-        s._aip_back = None
         s._aip_prompt = None
-        s._aip_open = None
         s._aip_saving = False
         s._aip_err = ""
         rf()
@@ -3086,12 +3098,10 @@ def _aip_confirm(s, rf, C):
                     _text("Here's what I understood" if heard
                           else req.get("title") or "Set this up",
                           C, 17, 700, C["text_l"], 2)
-                    # Up here rather than beside "Write my prompt": throwing
-                    # the answers away is not a step in filling them in.
-                    with ui.element("button").classes("aip-link").on(
-                            "click", _restart):
-                        ui.icon("restart_alt").style("font-size:15px;")
-                        ui.label("Start over")
+                    with ui.element("button").classes("aip-back").on(
+                            "click", _back):
+                        ui.icon("arrow_back")
+                        ui.label("Back")
                 # No job picker here. The job was chosen on the screen before
                 # this one; repeating the choice next to the answers it decides
                 # only invited a change that silently reset them.
@@ -3175,18 +3185,6 @@ def _aip_confirm(s, rf, C):
         s._aip_saving = False
         rf()
 
-    def _back():
-        # Back, not "start over" - the answers are kept, so going out to
-        # read what the other jobs do costs nothing. They come back when
-        # you re-pick the same job. Start over, in the header, is the one
-        # that discards.
-        s._aip_back = s._aip_req
-        s._aip_req = None
-        s._aip_prompt = None
-        s._aip_saving = False
-        s._aip_err = ""
-        rf()
-
     with ui.element("div").classes("aip-bar"):
         with ui.element("div").classes("aip-bar-side"):
             _btn("Back", _back, lead="arrow_back")
@@ -3237,7 +3235,15 @@ def _aip_result(s, rf, C):
                         "display:flex;align-items:baseline;gap:12px;"
                         "flex-wrap:wrap;justify-content:space-between;"):
                     _text("Your prompt is ready", C, 17, 700, C["text_l"], 2)
-                    ui.label(r["name"]).classes("aip-pill good")
+                    with ui.element("div").style(
+                            "display:flex;align-items:center;gap:12px;"):
+                        ui.label(r["name"]).classes("aip-pill good")
+                        # Back sits up here too: the prompt is long, so the
+                        # button row below is off screen when you land.
+                        with ui.element("button").classes("aip-back").on(
+                                "click", _back):
+                            ui.icon("arrow_back")
+                            ui.label("Back")
                 _text(_CAT.result_copy, C, 12, colour=C["muted"])
 
         with ui.element("div").style("position:relative;"):
@@ -3248,7 +3254,7 @@ def _aip_result(s, rf, C):
 
     with ui.element("div").classes("aip-bar"):
         with ui.element("div").classes("aip-bar-side"):
-            _btn("Change my answers", _back, lead="arrow_back")
+            _btn("Back", _back, lead="arrow_back")
             _btn("Start a new prompt", _restart, lead="add")
         with ui.element("div").classes("aip-bar-side"):
             _aip_save_setup(s, rf, C, req, label="Save prompt")
