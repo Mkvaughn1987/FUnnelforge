@@ -204,9 +204,14 @@ class Catalogue:
     # panel on step 1: the job is queued in ai_jobs.py for the user's hourly
     # worker instead of being pasted.
     queue_jobs: bool = False
+    # True writes every prompt to run start to finish: no "say go" review
+    # points, no questions before it starts, and the "stop and check with
+    # you, or finish it?" question is not asked. DripDrop's users want the
+    # job done, not a conversation about it.
+    run_through: bool = False
 
 
-SEQUENCES =["Arena 5x5", "Arena 5x3", "Arena 4x4", "One of my saved styles",
+SEQUENCES = ["Arena 5x5", "Arena 5x3", "Arena 4x4", "One of my saved styles",
              "Let the AI choose"]
 
 # Which create_campaign template each sequence name means. The prompt names
@@ -280,7 +285,9 @@ COMMON_FIELDS = [
     F("unattended", "When it runs on its own, should the AI stop and check "
       "with you, or finish it?", "repeat", "select",
       default="Stop and check with me first", options=UNATTENDED,
-      show_if=_if_repeat,
+      # A run-through catalogue never stops, so there is nothing to choose.
+      show_if=lambda r, vals: (_if_repeat(r, vals)
+                               and not _CAT.run_through),
       hint="Nobody is in the chair on a scheduled run. If the AI stops and "
            "waits, the run just sits there until you find it."),
 ]
@@ -1148,7 +1155,7 @@ def _derived(r, vals, cat=None):
                        if f["type"] == "checks" else _txt(r, vals, f["key"]))
 
     unattended = _txt(r, vals, "unattended") or UNATTENDED[0]
-    solo = unattended.startswith("Run it all")
+    solo = cat.run_through or unattended.startswith("Run it all")
     d["gate"] = ("note anything that looks wrong, say so, and keep going"
                  if solo else "stop and wait for me to say go")
     d["report_gate"] = ("carry on without waiting for me - flag anything "
@@ -1626,8 +1633,12 @@ def build_prompt(req, cat=None):
     if queued:
         vals["unattended"] = UNATTENDED[1]
     d = _derived(r, vals, cat)
-    solo = (queued or bool(r.get("solo"))
+    solo = (queued or cat.run_through or bool(r.get("solo"))
             or (_txt(r, vals, "unattended") or "").startswith("Run it all"))
+    # Settle anything left open itself instead of asking. Queued jobs have
+    # nobody to ask; a run-through catalogue and a no_questions routine
+    # have a user who said not to be asked.
+    decide = queued or cat.run_through or bool(r.get("no_questions"))
     # A routine can declare no tools and still be sent to the connector by
     # the newsletter answer - "Something else" is exactly that. Name the
     # tool the steps tell it to call, or the prompt asks for something it
@@ -1670,9 +1681,9 @@ def build_prompt(req, cat=None):
     if open_qs:
         L += ["", "I HAVEN'T DECIDED THESE"]
         L += ["  " + q for q in open_qs]
-        L += _wrap("Nobody is here to answer, so make the most reasonable "
-                   "call on each one and say what you chose."
-                   if queued else
+        L += _wrap("Do not stop to ask me: make the most reasonable call on "
+                   "each one and say what you chose."
+                   if decide else
                    "Ask me about all of them in one go before you start, not "
                    "one at a time as you hit them.")
 
@@ -1727,7 +1738,7 @@ def build_prompt(req, cat=None):
     L += ["", ""]
     L += _wrap("If any of this is ambiguous, make the most reasonable call "
                "and say what you chose."
-               if queued or r.get("no_questions") else
+               if decide else
                "If any of this is ambiguous, ask me before you start rather "
                "than after.", indent="")
     return "\n".join(L)
@@ -1946,6 +1957,7 @@ ARENA = Catalogue(
     result_extra=_arena_result_extra,
     zi_rule=ZI_PULL_RULE,
     queue_jobs=True,
+    run_through=True,
 )
 
 # The catalogue the page is currently rendering. render_page() binds it; an

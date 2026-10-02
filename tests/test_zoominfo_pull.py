@@ -286,14 +286,41 @@ def test_queued_open_questions_are_decided_not_asked():
     assert "say what you chose" in text
 
 
-def test_pasted_prompt_still_repeats_and_waits():
+@pytest.mark.parametrize("key", [r["key"] for r in sp.STAFFING.routines])
+def test_pasted_dripdrop_prompt_runs_straight_through(key):
+    """DripDrop prompts never park at a "say go" review point, repeating or
+    not; a pasted one still makes its own schedule."""
+    r = sp.STAFFING.routine_by_key[key]
+    for rep in (False, True):
+        v = aip.defaults_for(r)
+        v.update(repeat_on=rep)
+        text = " ".join(aip.build_prompt({"routine": key, "vals": v},
+                                         sp.STAFFING).split())
+        assert "say go" not in text, (key, rep)
+        assert "wait for me" not in text.lower(), (key, rep)
+        assert "ask me before you start" not in text, (key, rep)
+        if rep and not r.get("no_repeat"):
+            assert "THEN MAKE IT REPEAT" in text, key
+
+
+def test_dripdrop_hides_the_stop_or_finish_question():
     r = sp.STAFFING.routine_by_key["staff_account"]
-    v = aip.defaults_for(r)
-    v.update(repeat_on=True)
-    text = aip.build_prompt({"routine": "staff_account", "vals": v},
-                            sp.STAFFING)
-    assert "THEN MAKE IT REPEAT" in text
-    assert "wait for me to say go" in text
+    f = r["field_by_key"]["unattended"]
+    vals = {"repeat_on": True}
+    old = aip._CAT
+    try:
+        aip._CAT = sp.STAFFING
+        assert not aip._visible(r, vals, f)
+    finally:
+        aip._CAT = old
+
+
+def test_inboxslide_still_stops_for_review():
+    import tm_prompts as tm
+    assert not tm.TM.run_through
+    hits = [r["key"] for r in tm.TM.routines
+            if "wait for me to say go" in _prompt(tm.TM, r["key"])]
+    assert hits
 
 
 def test_worker_tile_is_gone_but_the_routine_stays():
