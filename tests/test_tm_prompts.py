@@ -984,7 +984,7 @@ def test_ticked_terms_and_states_reach_the_prompt_as_the_menu_labels(tm, aip):
     vals["states"] = "il, tx"
     p = _flat(tm.build_prompt({"routine": "tm_cost_pressure", "vals": vals,
                                "summary": "x"}))
-    assert "WARN notice pages for Texas, Illinois over the last 90 days" in p
+    assert "WARN notice pages for Texas, Illinois over the last 180 days" in p
 
 
 def test_missing_and_empty_are_different_for_the_new_lists_too(tm, aip):

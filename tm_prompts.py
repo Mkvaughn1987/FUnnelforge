@@ -1603,7 +1603,7 @@ ROUTINES = [
                         "states rather than all of them. Treat it as a "
                         "good estimate. The why-line says what it found."),
             F("lookback", "How far back to look", "details",
-              default="the last 90 days"),
+              default="the last 180 days"),
         ] + _targeting_fields(where=False) + _newsletter_fields() + _email_fields(
             DEFAULT_SEQUENCE) + _size_fields("5", "4", "120") + \
             _TM_SKIP_FIELDS,
@@ -1907,7 +1907,9 @@ STANDING_RULES = [
     "licensed or physical roles, companies under ten people, and companies "
     "past about a thousand people that already run a captive offshore team "
     "or a large BPO contract. A vacancy counts as a signal only if it is "
-    "under thirty days old; an announcement, under ninety.",
+    "under thirty days old; an announcement, under ninety; a WARN "
+    "notice, under one hundred and eighty, since the company is still "
+    "rebuilding the team months after the filing.",
     "The ZoomInfo connector is the only ZoomInfo surface you have. Do not "
     "call the ZoomInfo REST API and do not scrape the site. If the "
     "connector refuses, quote it and stop at the company list.",
@@ -1977,9 +1979,9 @@ _RECOMMENDABLE = {
         "notices."),
     "lookback": (
         "lookback: how far back to read",
-        "lookback is a phrase like \"the last 90 days\". A vacancy is "
-        "worth acting on under thirty days old and an announcement under "
-        "ninety, so do not reach back so far that the signal is stale."),
+        "lookback is a phrase like \"the last 180 days\". A WARN notice "
+        "is worth acting on for about six months after the filing, while "
+        "the company rebuilds, so do not reach back further than that."),
 }
 
 RECOMMEND_SYSTEM = (
