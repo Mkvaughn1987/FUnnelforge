@@ -578,7 +578,7 @@ _CAMPAIGN_TOOLS = ["campaign_types", "my_campaign_styles", "campaigns_list",
 ROUTINES = [
     {
         "key": "staff_signal_hunt",
-        "name": "Find companies showing a hiring signal",
+        "name": "Find Companies Showing a Hiring Signal",
         "recommend": ["company_size", "roles", "who_to_reach", "signals"],
         "blurb": "A hiring signal is a company telling you from the outside "
                  "that it needs help hiring - a role that keeps getting "
@@ -622,7 +622,7 @@ ROUTINES = [
     },
     {
         "key": "staff_lookalikes",
-        "name": "Find companies like a client",
+        "name": "Find Companies Similar to a Client",
         "recommend": ["company_size", "roles", "who_to_reach"],
         "blurb": "Start from a company you have placed with, or one you "
                  "want more of, find the companies that look like it, check "
@@ -664,7 +664,7 @@ ROUTINES = [
     },
     {
         "key": "staff_agency_displace",
-        "name": "Win business from other agencies",
+        "name": "Win Business from Competing Agencies",
         "recommend": ["roles", "who_to_reach", "search_terms"],
         "defaults": {"company_size": ANY_SIZE},
         "blurb": "A company already paying an agency has decided to use a "
@@ -755,7 +755,7 @@ STARTERS = [
     {
         "id": "staff_signal",
         "icon": "trending_up",
-        "label": "Find companies showing a hiring signal",
+        "label": "Find Companies Showing a Hiring Signal",
         "sub": "A role that keeps getting reposted, a superintendent seat "
                "open, a new plant line. Pick the market and your territory "
                "- the signals and everything else are filled in.",
@@ -768,7 +768,7 @@ STARTERS = [
     {
         "id": "staff_lookalike",
         "icon": "content_copy",
-        "label": "Find companies like a client",
+        "label": "Find Companies Similar to a Client",
         "sub": "Start from a company you have placed with and find the ones "
                "that look like it.",
         "summary": "Find companies that look like a client of mine, check "
@@ -780,7 +780,7 @@ STARTERS = [
     {
         "id": "staff_agency",
         "icon": "swap_horiz",
-        "label": "Win business from other agencies",
+        "label": "Win Business from Competing Agencies",
         "sub": "Roles another staffing firm is already working. They have "
                "decided to pay a recruiter - offer to get it filled.",
         "summary": "Find roles in my market that other staffing and search "

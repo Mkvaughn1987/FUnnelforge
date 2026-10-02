@@ -6,7 +6,7 @@
    "starter": "slate",
    "ask_extra": [],
    "routine": "slate_campaign",
-   "title": "Find companies hiring in a market and put candidates in front of them",
+   "title": "Present Candidates to Companies Hiring in a Market",
    "summary": "Find companies hiring in an industry and area, build a candidate slate for each, and run the Arena 5x5.",
    "vals": {
     "industry": "",
@@ -142,7 +142,7 @@
    "starter": "linkedin",
    "ask_extra": [],
    "routine": "linkedin_touches",
-   "title": "Send today's LinkedIn connection requests",
+   "title": "Send Today's LinkedIn Connection Requests",
    "summary": "Work every LinkedIn card on Today's Tasks and send each person the connection request DripDrop wrote for them.",
    "vals": {
     "which_tasks": "Everything due today, plus anything overdue",
@@ -173,7 +173,7 @@
    "starter": "other",
    "ask_extra": [],
    "routine": "other",
-   "title": "Something else - I'll describe it",
+   "title": "Something Else - Describe Your Own Task",
    "summary": "Do the job described in the details below.",
    "vals": {
     "what": "",
@@ -886,7 +886,7 @@
    "starter": "resume_sweep",
    "ask_extra": [],
    "routine": "resume_sweep",
-   "title": "Automatically upload resumes from your Downloads into DD & TT, Wednesday and Friday",
+   "title": "Upload New Resumes to DD & TT (Wednesday and Friday)",
    "summary": "Find the resumes I downloaded since the last run and add the new people to my DripDrop Pipeline and to Talent Trekker, skipping anyone already in either one.",
    "vals": {
     "where": "my Downloads folder",

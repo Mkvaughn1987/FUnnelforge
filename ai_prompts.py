@@ -2094,8 +2094,7 @@ STARTERS = [
     {
         "id": "slate",
         "icon": "groups",
-        "label": "Find companies hiring in a market and put candidates in "
-                 "front of them",
+        "label": "Present Candidates to Companies Hiring in a Market",
         "sub": "You give an industry and an area. The AI finds the companies "
                "with live openings, pulls three people out of your DripDrop "
                "Pipeline for each of them - and has DripDrop's AI build the "
@@ -2109,7 +2108,7 @@ STARTERS = [
     {
         "id": "linkedin",
         "icon": "person_add",
-        "label": "Send today's LinkedIn connection requests",
+        "label": "Send Today's LinkedIn Connection Requests",
         "sub": "The AI opens Today's Tasks, reads every LinkedIn card on it, "
                "sends each person the connection request with the note "
                "DripDrop already wrote for that campaign, and marks the task "
@@ -2133,8 +2132,7 @@ STARTERS = [
     {
         "id": "resume_sweep",
         "icon": "upload_file",
-        "label": "Automatically upload resumes from your Downloads into DD "
-                 "& TT, Wednesday and Friday",
+        "label": "Upload New Resumes to DD & TT (Wednesday and Friday)",
         "sub": "Every Wednesday and Friday the AI finds the resumes you "
                "downloaded since the last run, skips anyone already in, and "
                "adds the new people to your DripDrop Pipeline and to Talent "
@@ -2173,7 +2171,7 @@ STARTERS = [
     {
         "id": "other",
         "icon": "edit_note",
-        "label": "Something else - I'll describe it",
+        "label": "Something Else - Describe Your Own Task",
         "sub": "Anything the jobs above do not cover. You write the job in "
                "your own words on the next screen and the AI turns it into "
                "the same kind of prompt, with the same rules on it.",
