@@ -10663,6 +10663,8 @@ body,.nicegui-content{{background:{C['bg']} !important;font-family:'Segoe UI',sy
 .fd-decor-content{{position:relative;z-index:1}}
 .fd-attach-pill{{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:99px;font-size:11px;background:rgba(56,189,248,.08);color:{C['email_col']};border:1px solid rgba(56,189,248,.2);margin-right:6px;margin-top:4px;transition:all .15s}}
 a .fd-attach-pill:hover{{background:rgba(56,189,248,.2);border-color:{C['email_col']}}}
+.fd-prev-x:hover{{background:rgba(148,163,184,.16) !important;color:{C['text_l']} !important}}
+.fd-att-card:hover{{border-color:#94A3B8 !important;box-shadow:0 2px 8px rgba(15,23,42,.08)}}
 .fd-etab{{display:inline-flex;align-items:center;gap:6px;padding:8px 16px;font-size:13px;font-weight:500;color:{C['muted']};background:{C['surface']};border:1px solid {C['border']};border-bottom:none;border-radius:8px 8px 0 0;cursor:pointer;transition:all .15s;font-family:inherit;position:relative;top:1px}}
 .fd-etab:hover{{color:{C['text']};background:{C['card']}}}
 .fd-etab.on{{background:{C['card']};border-color:{C['teal']};border-bottom:1px solid {C['card']};}}
@@ -13227,44 +13229,104 @@ def _show_requeue_dialog(s, rf, camp: dict, cname: str, pending_count: int):
 # does, in either theme.
 _STEP_PREVIEW_BODY_STYLE = (
     "background:#ffffff;color:#0F172A;border:1px solid #E2E8F0;"
-    "border-radius:10px;padding:20px 24px;"
+    "border-radius:12px;overflow:hidden;"
     "font-family:'Segoe UI',Arial,sans-serif;"
     "box-shadow:0 1px 3px rgba(15,23,42,.07);"
 )
 
 
-def _show_step_preview_dialog(s, step: dict):
+def _step_preview_attachments(step: dict, step_idx=None, queued=None) -> list:
+    """Files this step actually goes out with, as
+    [{"name", "exists", "size"}].
+
+    `queued` is the union of attachment paths on this step's queue items
+    (None when nothing is queued for it). Queue items are what the sender
+    reads, so when they exist they win over the step definition. Without
+    them we fall back to the step's own list, minus the rules the queue
+    builder applies: step 1 never carries attachments, and "_pending:"
+    placeholders are not files yet."""
+    if queued is not None:
+        _names = [Path(str(a)).name for a in queued if a]
+    elif step_idx == 0:
+        _names = []
+    else:
+        _names = [Path(a).name for a in (step.get("attachments") or [])
+                  if isinstance(a, str) and a and not a.startswith("_pending:")]
+    out, _seen = [], set()
+    for _n in _names:
+        if _n in _seen:
+            continue
+        _seen.add(_n)
+        try:
+            _p = _user_pdf_dir() / _n
+            _ok = _p.is_file()
+            _sz = _p.stat().st_size if _ok else 0
+        except Exception:
+            _ok, _sz = False, 0
+        out.append({"name": _n, "exists": _ok, "size": _sz})
+    return out
+
+
+def _fmt_file_size(n: int) -> str:
+    if n <= 0:
+        return ""
+    if n < 1024:
+        return f"{n} B"
+    if n < 1024 * 1024:
+        return f"{round(n / 1024)} KB"
+    return f"{n / (1024 * 1024):.1f} MB"
+
+
+# Badge colour per attachment type in the preview's file cards.
+_ATT_BADGE = {"pdf": "#DC2626", "doc": "#2563EB", "docx": "#2563EB",
+              "xls": "#16A34A", "xlsx": "#16A34A", "csv": "#16A34A",
+              "ppt": "#EA580C", "pptx": "#EA580C"}
+
+
+def _show_step_preview_dialog(s, step: dict, step_idx=None, queued_atts=None):
     """Read-only preview of a sequence step's actual content  -  the
     subject + rendered HTML body for email steps, or the script/notes text
     for Call/LinkedIn/SMS/Task steps. There's no persisted per-recipient
     'as-sent' copy in the queue, so this renders the step's current
     template with merge tags resolved against the user's own identity  -
-    the same sample-data approach the step editor's Preview Email uses."""
+    the same sample-data approach the step editor's Preview Email uses.
+    Attachments come from the queue when the step is queued (see
+    _step_preview_attachments) and open in a new tab."""
     _stype = step.get("step_type", ST.EMAIL_AUTO) or ST.EMAIL_AUTO
     _is_email = _stype in (ST.EMAIL_AUTO, ST.EMAIL_MANUAL)
     _icon, _color = STEP_META.get(_stype, ("✉", C["email_col"]))
     _name = step.get("name") or step.get("subject") or "Step"
 
     with ui.dialog() as dlg, ui.card().style(
-            f"background:{C['card']};border:1px solid {C['teal']}60;"
-            f"min-width:520px;max-width:680px;padding:0;overflow:hidden;"):
+            f"background:{C['card']};border:1px solid {C['border']};"
+            f"width:min(720px,94vw);max-width:94vw;padding:0;gap:0;overflow:hidden;"
+            f"border-radius:16px;box-shadow:0 24px 64px rgba(0,0,0,.35);"):
+        # Header
         with ui.element("div").style(
-                f"display:flex;align-items:center;gap:12px;padding:20px 24px 14px;"
-                f"border-bottom:1px solid {C['border']};"):
-            ui.label(_icon).style(f"font-size:20px;color:{_color};")
-            with ui.element("div").style("flex:1;"):
+                f"width:100%;box-sizing:border-box;display:flex;align-items:center;gap:14px;"
+                f"padding:18px 20px 16px 24px;border-bottom:1px solid {C['border']};"):
+            with ui.element("div").style(
+                    f"width:38px;height:38px;border-radius:10px;flex-shrink:0;"
+                    f"display:flex;align-items:center;justify-content:center;"
+                    f"background:color-mix(in srgb,{_color} 12%,transparent);"):
+                ui.label(_icon).style(f"font-size:18px;color:{_color};line-height:1;")
+            with ui.element("div").style("flex:1;min-width:0;"):
                 ui.label(_name).style(
                     f"font-size:16px;font-weight:800;color:{C['text_l']};"
-                    f"font-family:'Nunito',sans-serif;")
-                ui.label("Preview  -  merge fields shown with sample data").style(
-                    f"font-size:11px;color:{C['muted']};margin-top:2px;")
-            with ui.element("button").style(
+                    f"font-family:'Nunito',sans-serif;white-space:nowrap;"
+                    f"overflow:hidden;text-overflow:ellipsis;")
+                ui.label("Preview with sample data in the merge fields").style(
+                    f"font-size:12px;color:{C['muted']};margin-top:2px;")
+            with ui.element("button").classes("fd-prev-x").style(
                     f"background:transparent;border:none;color:{C['muted']};"
-                    f"font-size:16px;cursor:pointer;padding:4px 8px;line-height:1;"
+                    f"width:34px;height:34px;border-radius:9px;flex-shrink:0;"
+                    f"font-size:15px;cursor:pointer;line-height:1;"
                     ).on("click", dlg.close):
                 ui.label("✕").style("pointer-events:none;")
 
-        with ui.element("div").style("padding:20px 24px 24px;max-height:70vh;overflow:auto;"):
+        with ui.element("div").style(
+                "width:100%;box-sizing:border-box;padding:20px 24px 24px;"
+                "max-height:74vh;overflow:auto;"):
             if _is_email:
                 _pc = _preview_self_contact(s)
                 _subj = step.get("subject") or "(no subject)"
@@ -13273,17 +13335,55 @@ def _show_step_preview_dialog(s, step: dict):
                                ("{Company}", _pc.get("company","[Company]")), ("{CompanyName}", _pc.get("company","[Company]")), ("{JobTitle}", _pc.get("title","[JobTitle]"))]:
                     _subj = _subj.replace(_k, _v)
                     _body = _body.replace(_k, _v)
-                ui.label("Subject").style(
-                    f"font-size:11px;font-weight:700;text-transform:uppercase;"
-                    f"letter-spacing:.05em;color:{C['muted']};margin-bottom:4px;")
-                ui.label(_subj).style(
-                    f"font-size:14px;font-weight:600;color:{C['text_l']};margin-bottom:16px;")
-                if _body.strip():
-                    with ui.element("div").style(_STEP_PREVIEW_BODY_STYLE):
-                        ui.html(_body)
-                else:
-                    ui.label("This email has no body content yet.").style(
-                        f"font-size:12px;color:{C['muted']};font-style:italic;")
+                _atts = _step_preview_attachments(step, step_idx, queued_atts)
+                # One white "inbox" card: subject header, body, attachments.
+                with ui.element("div").style(_STEP_PREVIEW_BODY_STYLE):
+                    with ui.element("div").style(
+                            "padding:18px 26px 14px;border-bottom:1px solid #EEF2F6;"):
+                        ui.label(_subj).style(
+                            "font-size:19px;font-weight:600;color:#0F172A;line-height:1.35;")
+                        if _atts:
+                            ui.label(f"📎 {len(_atts)} attachment{'s' if len(_atts) != 1 else ''}").style(
+                                "font-size:12px;color:#64748B;margin-top:6px;")
+                    with ui.element("div").style(
+                            "padding:20px 26px 22px;font-size:14.5px;line-height:1.65;color:#1E293B;"):
+                        if _body.strip():
+                            ui.html(_body)
+                        else:
+                            ui.label("This email has no body yet.").style(
+                                "font-size:13px;color:#64748B;font-style:italic;")
+                    if _atts:
+                        with ui.element("div").style(
+                                "padding:14px 26px 20px;border-top:1px solid #EEF2F6;background:#F8FAFC;"):
+                            ui.label(f"{len(_atts)} attachment{'s' if len(_atts) != 1 else ''}").style(
+                                "font-size:11px;font-weight:700;letter-spacing:.06em;"
+                                "text-transform:uppercase;color:#64748B;margin-bottom:10px;")
+                            with ui.element("div").style("display:flex;flex-wrap:wrap;gap:10px;"):
+                                for _a in _atts:
+                                    _ext = _a["name"].rsplit(".", 1)[-1].lower() if "." in _a["name"] else "file"
+                                    _meta = (" · ".join(x for x in (_ext.upper(), _fmt_file_size(_a["size"])) if x)
+                                             if _a["exists"] else "File not found")
+                                    _card_style = (
+                                        "display:flex;align-items:center;gap:12px;width:250px;max-width:100%;"
+                                        "box-sizing:border-box;padding:10px 12px;background:#ffffff;"
+                                        "border:1px solid #E2E8F0;border-radius:10px;text-decoration:none;"
+                                        "transition:border-color .15s,box-shadow .15s;"
+                                        + ("" if _a["exists"] else "opacity:.55;"))
+                                    _wrap = (ui.link(target=f"/pdfs/{_a['name']}", new_tab=True)
+                                             if _a["exists"] else ui.element("div"))
+                                    with _wrap.classes("fd-att-card" if _a["exists"] else "").style(_card_style):
+                                        with ui.element("div").style(
+                                                f"width:36px;height:40px;border-radius:6px;flex-shrink:0;"
+                                                f"background:{_ATT_BADGE.get(_ext, '#475569')};color:#fff;"
+                                                f"display:flex;align-items:center;justify-content:center;"
+                                                f"font-size:10px;font-weight:800;letter-spacing:.03em;"):
+                                            ui.label(_ext.upper()[:4])
+                                        with ui.element("div").style("min-width:0;flex:1;"):
+                                            ui.label(_a["name"]).style(
+                                                "font-size:13px;font-weight:600;color:#0F172A;"
+                                                "white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+                                            ).tooltip(_a["name"])
+                                            ui.label(_meta).style("font-size:11.5px;color:#64748B;margin-top:1px;")
             else:
                 _label = {ST.CALL: "Call Script", ST.LINKEDIN: "LinkedIn Message",
                           ST.SMS: "SMS Text", ST.TASK: "Task Notes"}.get(_stype, "Notes")
@@ -30149,8 +30249,19 @@ def p_seq_mgr(s, rf):
                     # Jun 24 displayed as "Jun 28"). [SENT-DATE FIX 2026-06-25]
                     _queue_by_step_subject = {}
                     _queue_by_step_name = {}
+                    # What each step's queue items actually carry, for the
+                    # preview dialog's attachment cards.
+                    _atts_by_subject = {}
+                    _atts_by_name = {}
                     for _q in queue:
                         if _q.get("campaign") != cname: continue
+                        for _ak, _amap in (((_q.get("subject") or "").strip(), _atts_by_subject),
+                                           ((_q.get("step_name") or "").strip(), _atts_by_name)):
+                            if _ak:
+                                _al = _amap.setdefault(_ak, [])
+                                for _a in _q.get("attachments") or []:
+                                    if _a and _a not in _al:
+                                        _al.append(_a)
                         _q_status = _q.get("status")
                         if _q_status == "pending":
                             _sdt_q = _q.get("send_dt", "")
@@ -30171,7 +30282,7 @@ def p_seq_mgr(s, rf):
                     _row_data = []
                     _cum_delay = 0
                     _today = date.today()
-                    for _step in steps:
+                    for _sidx, _step in enumerate(steps):
                         _cum_delay += _step.get("delay_days", 0)
 
                         # 1) Prefer the actual queued send time  -  this is what
@@ -30237,7 +30348,11 @@ def p_seq_mgr(s, rf):
                             _st_td = "\u2014"; _f_td = "\u2014"
                         _sname_e = esc(_step.get("subject","") or _step.get("name","Step"))
                         _row_opacity = "opacity:0.4;" if (_is_past and _sc == 0) else ""
-                        _row_data.append((_step, _row_opacity, _sname_e, _scheduled, _st_td, _f_td, _st_html))
+                        _qatts = _atts_by_subject.get(_step_subj)
+                        if _qatts is None:
+                            _qatts = _atts_by_name.get(_step_name)
+                        _row_data.append((_step, _row_opacity, _sname_e, _scheduled, _st_td, _f_td, _st_html,
+                                          _sidx, _qatts))
 
                     # Rendered as NiceGUI elements (not a ui.html string) so the
                     # Email cell can carry a Python click handler that opens the
@@ -30256,14 +30371,20 @@ def p_seq_mgr(s, rf):
                                     with ui.element("th").style("text-align:center;padding:10px;"): ui.label("Failed")
                                     with ui.element("th").style("padding:10px;"): ui.label("Status")
                             with ui.element("tbody"):
-                                for _step, _row_opacity, _sname_e, _scheduled, _st_td, _f_td, _st_html in _row_data:
+                                for (_step, _row_opacity, _sname_e, _scheduled, _st_td, _f_td, _st_html,
+                                     _sidx, _qatts) in _row_data:
                                     with ui.element("tr").style(_row_opacity):
                                         with ui.element("td").style(
                                                 f"color:{C['teal']};font-weight:500;padding:12px 10px;"
                                                 f"cursor:pointer;text-decoration:underline;"
                                                 f"text-decoration-color:transparent;"
-                                                ).on("click", lambda step=_step: _show_step_preview_dialog(s, step)):
-                                            ui.label(_sname_e).style("pointer-events:none;")
+                                                ).on("click", lambda step=_step, i=_sidx, qa=_qatts:
+                                                     _show_step_preview_dialog(s, step, i, qa)):
+                                            ui.label(_sname_e).style("pointer-events:none;display:inline;")
+                                            if _step_preview_attachments(_step, _sidx, _qatts):
+                                                ui.label("📎").style(
+                                                    "pointer-events:none;margin-left:6px;font-size:12px;"
+                                                    "opacity:.75;display:inline;")
                                         with ui.element("td").style(f"color:{C['muted']};font-size:12px;padding:12px 10px;"):
                                             ui.label(_scheduled)
                                         with ui.element("td").style(f"color:{C['text_l']};text-align:center;padding:12px 10px;"):
