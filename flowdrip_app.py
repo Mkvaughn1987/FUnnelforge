@@ -10819,6 +10819,14 @@ button:focus-visible,[role="button"]:focus-visible,a:focus-visible,
     transition-duration:.01ms !important;scroll-behavior:auto !important}}
 }}
 
+/* ── Page width: content sits in a capped column, never edge to edge ── */
+.fd-pg>.fd-pi{{max-width:1280px;margin-left:auto;margin-right:auto}}
+
+/* ── Today's Tasks: Sending Today cards ── */
+.fd-send-grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr));gap:8px}}
+.fd-send-card{{display:flex;flex-direction:column;gap:7px;min-width:0;cursor:pointer;transition:background-color .15s,box-shadow .15s}}
+.fd-send-card:hover{{box-shadow:var(--dd-shadow-1)}}
+
 /* ── Tablet: slimmer sidebar, tighter gutters ── */
 @media (max-width:1100px) and (min-width:769px){{
   .fd-side{{width:216px;flex-basis:216px}}
@@ -15864,89 +15872,83 @@ def p_today_combined(s: AppState, rf):
                       key=lambda kv: _camp_recency_ts(kv[1]["camp"]),
                       reverse=True,
                   )
-                  for cname, info in _sorted_auto:
-                      queued = queue_by_camp.get(cname, 0)
-                      # Skip templates  -  only show campaigns with contacts loaded or emails queued
-                      if info["contact_count"] == 0 and queued == 0:
-                          continue
-                      shown_camps.add(cname)
-                      queued    = queue_by_camp.get(cname, 0)
-                      total_c   = info["contact_count"]
-                      total_e   = info["email_count"]
-                      pct_camp  = round(queued / total_c * 100) if total_c else 0
+                  with ui.element("div").classes("fd-send-grid"):
+                      for cname, info in _sorted_auto:
+                          queued = queue_by_camp.get(cname, 0)
+                          # Skip templates  -  only show campaigns with contacts loaded or emails queued
+                          if info["contact_count"] == 0 and queued == 0:
+                              continue
+                          shown_camps.add(cname)
+                          queued    = queue_by_camp.get(cname, 0)
+                          total_c   = info["contact_count"]
+                          total_e   = info["email_count"]
+                          pct_camp  = round(queued / total_c * 100) if total_c else 0
 
-                      # Next scheduled send_dt for this campaign
-                      next_sends = sorted(
-                          [q for q in queue
-                           if q.get("campaign") == cname
-                           and q.get("send_dt")
-                           and q.get("status", "pending") not in ("sent", "cancelled", "failed")],
-                          key=lambda x: x.get("send_dt", "")
-                      )
-                      next_label = ""
-                      if next_sends:
-                          try:
-                              nd = datetime.fromisoformat(next_sends[0]["send_dt"])
-                              if nd.date() == now.date():
-                                  next_label = f"Today @ {nd.strftime('%I:%M %p').lstrip('0')}"
-                              elif nd.date() == (now + timedelta(days=1)).date():
-                                  next_label = f"Tomorrow @ {nd.strftime('%I:%M %p').lstrip('0')}"
-                              else:
-                                  next_label = f"{nd.strftime('%b %d')} @ {nd.strftime('%I:%M %p').lstrip('0')}"
-                          except Exception:
-                              pass
+                          # Next scheduled send_dt for this campaign
+                          next_sends = sorted(
+                              [q for q in queue
+                               if q.get("campaign") == cname
+                               and q.get("send_dt")
+                               and q.get("status", "pending") not in ("sent", "cancelled", "failed")],
+                              key=lambda x: x.get("send_dt", "")
+                          )
+                          next_label = ""
+                          if next_sends:
+                              try:
+                                  nd = datetime.fromisoformat(next_sends[0]["send_dt"])
+                                  if nd.date() == now.date():
+                                      next_label = f"Today @ {nd.strftime('%I:%M %p').lstrip('0')}"
+                                  elif nd.date() == (now + timedelta(days=1)).date():
+                                      next_label = f"Tomorrow @ {nd.strftime('%I:%M %p').lstrip('0')}"
+                                  else:
+                                      next_label = f"{nd.strftime('%b %d')} @ {nd.strftime('%I:%M %p').lstrip('0')}"
+                              except Exception:
+                                  pass
 
-                      def _go_camp(c=info["camp"]):
-                          # Open the campaign-status modal instead of
-                          # dumping straight into the email-template
-                          # editor (2026-05-02 user request — clicks
-                          # on "almost finished" campaigns landed in
-                          # an edit screen they didn't ask for). The
-                          # dialog has an "Edit Campaign" action for
-                          # users who actually want to edit.
-                          _drip_camp_status_dialog(s, rf, c)
+                          def _go_camp(c=info["camp"]):
+                              # Open the campaign-status modal instead of
+                              # dumping straight into the email-template
+                              # editor (2026-05-02 user request — clicks
+                              # on "almost finished" campaigns landed in
+                              # an edit screen they didn't ask for). The
+                              # dialog has an "Edit Campaign" action for
+                              # users who actually want to edit.
+                              _drip_camp_status_dialog(s, rf, c)
 
-                      # Single-row condensed card layout (2026-05-02
-                      # user request: "why are these so long? It's
-                      # gotta be shorter"). Was 3 stacked rows
-                      # (name+contacts / progress bar / seq+queued
-                      # +next), ~80px tall. Now one horizontal row
-                      # with a thin progress strip on the LEFT-BORDER
-                      # accent, ~40px tall. Click still opens the
-                      # status dialog.
-                      with ui.element("div").style(
-                              f"background:{C['surface']};border:1px solid {C['border']};"
-                              f"border-left:3px solid {C['teal']};"
-                              f"border-radius:0 8px 8px 0;padding:8px 14px;margin-bottom:5px;"
-                              f"cursor:pointer;transition:background .15s;"
-                              f"display:flex;align-items:center;gap:14px;"
-                              ).on("click", _go_camp):
-                          # Name (flex:1)
-                          ui.label(cname).style(
-                              f"font-size:13px;font-weight:600;color:{C['text_l']};"
-                              f"font-family:'Nunito',sans-serif;flex:1;min-width:0;"
-                              f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
-                          # Inline progress bar (slim, 80px wide)
-                          with ui.element("div").style(
-                                  f"flex-shrink:0;width:80px;height:4px;"
-                                  f"background:{C['border']};border-radius:99px;overflow:hidden;"):
-                              ui.element("div").style(
-                                  f"width:{min(pct_camp, 100)}%;height:100%;"
-                                  f"background:{C['teal']};")
-                          # Stats — contacts · seq · queued · up-next
-                          with ui.element("div").style(
-                                  "display:flex;align-items:center;gap:10px;flex-shrink:0;"):
-                              ui.label(f"{total_c}c").style(
-                                  f"font-size:10px;color:{C['muted']};font-weight:600;")
-                              ui.label(f"✉{total_e}").style(
-                                  f"font-size:10px;color:{C['muted']};")
-                              if queued:
-                                  ui.label(f"📬{queued}").style(
-                                      f"font-size:10px;color:{C['warn']};font-weight:700;")
-                              if next_label:
-                                  ui.label(next_label).style(
-                                      f"font-size:10px;color:{C['teal']};font-weight:600;"
-                                      f"white-space:nowrap;")
+                          # Compact card in a 2-up grid (2026-10-02 user
+                          # request: full-width rows were "too much" on wide
+                          # screens). Name on top, progress + stats directly
+                          # under it so nothing floats at the far edge.
+                          with ui.element("div").classes("fd-send-card").style(
+                                  f"background:{C['surface']};border:1px solid {C['border']};"
+                                  f"border-left:3px solid {C['teal']};"
+                                  f"border-radius:0 8px 8px 0;padding:10px 14px;"
+                                  ).on("click", _go_camp):
+                              with ui.element("div").style(
+                                      "display:flex;align-items:baseline;gap:10px;min-width:0;"):
+                                  ui.label(cname).style(
+                                      f"font-size:13px;font-weight:600;color:{C['text_l']};"
+                                      f"font-family:'Nunito',sans-serif;flex:1;min-width:0;"
+                                      f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
+                                  if next_label:
+                                      ui.label(next_label).style(
+                                          f"font-size:11px;color:{C['teal']};font-weight:600;"
+                                          f"white-space:nowrap;flex-shrink:0;")
+                              with ui.element("div").style(
+                                      "display:flex;align-items:center;gap:10px;min-width:0;"):
+                                  with ui.element("div").style(
+                                          f"flex-shrink:0;width:72px;height:4px;"
+                                          f"background:{C['border']};border-radius:99px;overflow:hidden;"):
+                                      ui.element("div").style(
+                                          f"width:{min(pct_camp, 100)}%;height:100%;"
+                                          f"background:{C['teal']};")
+                                  _bits = [f"{total_c} contact{'s' if total_c != 1 else ''}",
+                                           f"{total_e} email{'s' if total_e != 1 else ''}"]
+                                  if queued:
+                                      _bits.append(f"{queued} queued")
+                                  ui.label(" · ".join(_bits)).style(
+                                      f"font-size:11px;color:{C['muted']};white-space:nowrap;"
+                                      f"overflow:hidden;text-overflow:ellipsis;min-width:0;")
 
                   # Orphaned queue entries (campaign deleted/renamed)  -  hidden
 
