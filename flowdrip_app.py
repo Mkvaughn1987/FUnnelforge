@@ -10504,19 +10504,23 @@ def _tint(col, alpha_hex):
     return f"color-mix(in srgb, {col} {pct}%, transparent)"
 
 
-# The DripDrop drop mark (blue-to-teal drop, pale circle, "D"), matching
-# dripdrop_logo.png without its baked-in wordmark.
-_DD_DROP_SVG = (
-    '<svg viewBox="0 0 26 34" aria-hidden="true">'
-    '<defs><linearGradient id="ddDropG" x1="0" y1="0" x2="0" y2="1">'
-    '<stop offset="0" stop-color="#6378EC"/><stop offset="1" stop-color="#1DE9DC"/>'
-    '</linearGradient></defs>'
+# The DripDrop mark: three drops (Drip, Drip, Drop), each with its own "D",
+# the last one larger. Same drop/circle/D as dripdrop_logo.png.
+_DD_ONE_DROP = (
     '<path d="M13 .8C10.6 4.6 1.6 15.2 1.6 21.6a11.4 11.4 0 0 0 22.8 0C24.4 15.2 15.4 4.6 13 .8z" '
-    'fill="url(#ddDropG)"/>'
+    'fill="url(#ddDropG)" style="stroke:var(--dd-surface)" stroke-width="1.4"/>'
     '<circle cx="13" cy="21.8" r="7.6" fill="#E8FFFD"/>'
     '<path d="M10.3 17.6h2.6a4.2 4.2 0 0 1 0 8.4h-2.6z" fill="none" stroke="#5B6CE8" '
     'stroke-width="2.1" stroke-linejoin="round"/>'
-    '</svg>'
+)
+_DD_DROP_SVG = (
+    '<svg viewBox="0 0 62 40" aria-hidden="true">'
+    '<defs><linearGradient id="ddDropG" x1="0" y1="0" x2="0" y2="1">'
+    '<stop offset="0" stop-color="#6378EC"/><stop offset="1" stop-color="#1DE9DC"/>'
+    '</linearGradient></defs>'
+    + "".join(f'<g transform="translate({x} {y}) scale({sc})">{_DD_ONE_DROP}</g>'
+              for x, y, sc in ((0, 11, .85), (17, 11, .85), (33, 1, 1.13)))
+    + '</svg>'
 )
 
 def _sidebar_layout_css() -> str:
@@ -10538,13 +10542,12 @@ def _sidebar_layout_css() -> str:
 .fd-side .fd-ico{{flex:0 0 auto;opacity:.85}}
 .fd-side-top{{padding:22px 12px 18px;display:flex;flex-direction:column;gap:16px}}
 .fd-side-logo{{display:flex;align-items:center;height:28px;padding:0 6px;cursor:pointer}}
-/* DripDrop mark: the logo's drop drawn as SVG (the PNG has the wordmark
-   baked in under it, and cropping it with CSS clipped the drop's edge)
-   next to a set wordmark, so it reads at sidebar size. */
-.fd-side-logo.dd{{height:38px}}
-.fd-side-logo.dd > div{{display:flex;align-items:center;gap:8px}}
-.fd-side-drop{{display:block;width:26px;height:34px;flex:0 0 auto}}
-.fd-side-drop svg{{display:block;width:26px;height:34px}}
+/* DripDrop mark: the set wordmark with the three-drop mark (drawn as SVG;
+   the PNG has its wordmark baked in) on its right. */
+.fd-side-logo.dd{{height:60px}}
+.fd-side-logo.dd > div{{display:flex;align-items:center;gap:6px}}
+.fd-side-drop{{display:block;width:84px;height:54px;flex:0 0 auto}}
+.fd-side-drop svg{{display:block;width:84px;height:54px}}
 .fd-side-word{{font-family:'Nunito','DM Sans',sans-serif;font-weight:900;font-size:19px;letter-spacing:-.3px;
   color:{C['text_l']};white-space:nowrap;line-height:1}}
 .fd-side-word b{{color:{C['teal']};font-weight:900}}
