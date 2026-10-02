@@ -602,17 +602,14 @@ def _page_head(s, rf, C, title, help_key, subtitle):
 
 
 def _empty_card(C, headline, body, cta_label=None, cta=None):
-    with ui.element("div").style(
-            f"background:{C['card']};border:1px solid {C['border']};"
-            f"border-radius:10px;padding:28px 24px;text-align:center;margin-top:16px;"):
-        ui.label(headline).style(
-            f"font-size:14px;font-weight:600;color:{C['text_l']};"
-            f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
-        ui.label(body).style(f"font-size:12px;color:{C['muted']};")
+    # .fd-es is the app-wide empty-state component (flowdrip_app._polish_css).
+    with ui.element("div").classes("fd-es wide").style("margin-top:16px;"):
+        ui.label(headline).classes("fd-es-title")
+        ui.label(body).classes("fd-es-body").style("max-width:60ch;")
         if cta_label and cta:
-            with ui.element("button").classes("fd-pb").style(
-                    "padding:9px 16px;font-size:12px;margin-top:14px;").on("click", cta):
-                ui.label(cta_label)
+            with ui.element("div").classes("fd-es-actions"):
+                with ui.element("button").classes("fd-pb").props('type="button"').on("click", cta):
+                    ui.label(cta_label)
 
 
 def _go(s, rf, page_key):
@@ -653,13 +650,14 @@ def p_companies(s, rf):
             (str(n_rep),       "Replied",      C["good"] if n_rep else C["muted"]),
             (str(n_cli),       "Clients",      C["good"] if n_cli else C["muted"]),
         ]:
-            with ui.element("div").classes("fd-stat-cell"):
+            with ui.element("div").classes("fd-stat-cell" + (" zero" if val == "0" else "")):
                 ui.label(val).classes("fd-sn").style(f"color:{col};")
                 ui.label(lbl).classes("fd-sl")
 
     # ── Filters ──
-    with ui.element("div").style("display:flex;gap:10px;align-items:center;"
-                                 "flex-wrap:wrap;margin-bottom:12px;"):
+    # .fd-filters keeps the fields at their own widths on one line (the page
+    # wrapper otherwise stretches every q-field to 100%).
+    with ui.element("div").classes("fd-filters").style("margin-bottom:12px;"):
         def _on_q(e):
             s._co_q = e.value or ""
             rf()
@@ -678,14 +676,14 @@ def p_companies(s, rf):
         # Table | Board toggle. The board used to be its own Pipeline page;
         # every CRM the market uses (Apollo, Close, Pipedrive) makes it a
         # view of the one list instead, so it lives here now.
-        with ui.element("div").style("display:flex;gap:4px;margin-left:auto;"):
+        with ui.element("div").classes("fd-seg").style("margin-left:auto;"):
             for _v, _vl in (("table", "Table"), ("board", "Board")):
                 def _pick_view(v=_v):
                     s._co_view = v
                     rf()
                 with ui.element("button").classes(
-                        "fd-pb" if _v == view else "fd-gb").style(
-                        "padding:8px 14px;font-size:12px;").on("click", _pick_view):
+                        "fd-seg-btn" + (" on" if _v == view else "")).props(
+                        'type="button"').on("click", _pick_view):
                     ui.label(_vl)
 
     if view == "board":
@@ -988,14 +986,14 @@ def p_sales_dashboard(s, rf):
                      "converts, what moved recently and who is waiting on you. "
                      "Counted from the same lists, sends and replies as "
                      "Companies.").classes("fd-sub")
-        with ui.element("div").style("display:flex;gap:8px;flex-shrink:0;"):
+        with ui.element("div").classes("fd-seg").style("flex-shrink:0;"):
             for _win, _wlbl in [(7, "7 days"), (30, "30 days"), (None, "All time")]:
                 def _pick_win(win=_win):
                     s._sd_days = win
                     rf()
                 with ui.element("button").classes(
-                        "fd-pb" if _win == days else "fd-gb").style(
-                        "padding:9px 14px;font-size:12px;").on("click", _pick_win):
+                        "fd-seg-btn" + (" on" if _win == days else "")).props(
+                        'type="button"').on("click", _pick_win):
                     ui.label(_wlbl)
 
     if not stats["funnel"][0]["count"] and not stats["lost"]:

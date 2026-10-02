@@ -19880,6 +19880,194 @@ def _sidebar_layout_css() -> str:
 """
 
 
+def _polish_css() -> str:
+    """Shared design tokens + component polish (radii, depth, focus, motion,
+    segmented controls, empty states). Loaded last so it refines the rules
+    above rather than restating them. Inline .style() still wins where a
+    page sets its own value."""
+    return f"""
+/* ── Tokens ── */
+:root{{
+  --dd-r-sm:6px;--dd-r:8px;--dd-r-md:10px;--dd-r-lg:12px;
+  --dd-ease:cubic-bezier(.2,.7,.2,1);
+  --dd-ring:0 0 0 3px {_tint(C['teal'], '40')};
+  --dd-shadow-1:0 1px 2px rgba(0,0,0,.22);
+  --dd-shadow-2:0 6px 18px rgba(0,0,0,.28);
+  --dd-shadow-pop:0 18px 48px rgba(0,0,0,.45),0 2px 8px rgba(0,0,0,.25);
+}}
+:root[data-theme="light"]{{
+  --dd-shadow-1:0 1px 2px rgba(16,32,56,.04),0 1px 3px rgba(16,32,56,.06);
+  --dd-shadow-2:0 4px 14px rgba(16,32,56,.08),0 1px 3px rgba(16,32,56,.05);
+  --dd-shadow-pop:0 18px 44px rgba(16,32,56,.16),0 2px 8px rgba(16,32,56,.06);
+}}
+
+/* ── Type ── */
+body,.nicegui-content{{font-family:'DM Sans','Segoe UI',system-ui,sans-serif !important;
+  -webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}}
+::selection{{background:{_tint(C['teal'], '33')}}}
+.fd-h1{{line-height:1.25;letter-spacing:-.01em}}
+.fd-sub{{max-width:78ch;line-height:1.55}}
+.fd-sn,.fd-bn,.fd-side-badge{{font-variant-numeric:tabular-nums}}
+
+/* ── Focus: one visible ring for every keyboard-reachable control ── */
+button:focus-visible,[role="button"]:focus-visible,a:focus-visible,
+.fd-side-row:focus-visible,.fd-seg-btn:focus-visible,.fd-stat-cell:focus-visible{{
+  outline:none;box-shadow:var(--dd-ring)}}
+.fd-side-row:focus-visible{{background:{C['card_h']}}}
+
+/* ── Buttons ── */
+.fd-pb,.fd-gb,.fd-db{{display:inline-flex;align-items:center;justify-content:center;gap:6px;
+  border-radius:var(--dd-r);font-weight:600;line-height:1.2;
+  transition:background-color .15s var(--dd-ease),border-color .15s var(--dd-ease),
+    color .15s var(--dd-ease),box-shadow .15s var(--dd-ease),filter .15s,transform .08s}}
+.fd-pb{{box-shadow:var(--dd-shadow-1)}}
+.fd-pb:hover{{opacity:1;filter:brightness(1.08)}}
+.fd-pb:active,.fd-gb:active,.fd-db:active{{transform:translateY(1px)}}
+.fd-gb{{background:{C['card']};color:{C['text']}}}
+.fd-gb:hover{{background:{C['card_h']};color:{C['text_l']};border-color:{_tint(C['muted'], '80')}}}
+.fd-db:hover{{background:{_tint(C['danger'], '12')}}}
+.fd-pb[disabled],.fd-gb[disabled],.fd-db[disabled]{{opacity:.5;cursor:not-allowed;filter:none;transform:none}}
+.q-btn{{text-transform:none;letter-spacing:.005em;font-weight:600}}
+.q-btn:not(.q-btn--round):not(.q-btn--fab):not(.q-btn--dense){{border-radius:var(--dd-r)}}
+
+/* ── Inputs ── */
+.fd-input.q-field:not(.q-field--focused):hover{{border-color:{_tint(C['muted'], '80')}}}
+.fd-ph-search:hover{{border-color:{_tint(C['muted'], '80')}}}
+
+/* ── Surfaces ── */
+.fd-gc,.fd-tc,.fd-cr,.fd-step-card,.fd-stat-strip{{box-shadow:var(--dd-shadow-1)}}
+.fd-tc,.fd-cr,.fd-step-card,.fd-card{{transition:background-color .15s var(--dd-ease),
+  border-color .15s var(--dd-ease),box-shadow .15s var(--dd-ease)}}
+.fd-tc:hover{{box-shadow:var(--dd-shadow-2)}}
+.q-dialog .q-card{{border-radius:14px !important;box-shadow:var(--dd-shadow-pop) !important}}
+.q-menu{{border-radius:var(--dd-r-md);box-shadow:var(--dd-shadow-2)}}
+.q-notification{{border-radius:var(--dd-r-md) !important;box-shadow:var(--dd-shadow-2) !important}}
+
+/* ── Filter toolbar: fields keep their widths on one wrapping line ── */
+.fd-filters{{display:flex;gap:10px;align-items:center;flex-wrap:wrap}}
+.fd-pi .fd-filters .q-field{{width:auto !important;flex:0 1 280px;min-width:160px}}
+.fd-pi .fd-filters .q-select{{flex:0 1 200px}}
+
+/* ── Tables ── */
+.fd-tbl th{{padding:10px 14px;font-size:11px;letter-spacing:.06em}}
+.fd-tbl td{{padding:12px 14px;line-height:1.4}}
+.fd-tbl tbody tr{{transition:background-color .12s}}
+.fd-tbl td{{font-variant-numeric:tabular-nums}}
+/* In-row fields run 32px so a select doesn't set the row height. */
+.fd-tbl .fd-input.q-field:not(.q-field--labeled) .q-field__control,
+.fd-tbl .fd-input.q-field:not(.q-field--labeled) .q-field__native,
+.fd-tbl .fd-input.q-field:not(.q-field--labeled) .q-field__marginal{{min-height:32px;height:32px}}
+
+/* ── Stat strip: neutral zeros, clear affordance on clickable cells ── */
+.fd-stat-cell{{padding:16px 20px}}
+.fd-sn{{font-size:24px;line-height:1.15;letter-spacing:-.01em}}
+.fd-sl{{font-size:11px;margin-top:4px}}
+.fd-stat-cell.zero .fd-sn{{color:{C['muted']} !important;opacity:.7}}
+.fd-stat-cell.go{{cursor:pointer}}
+.fd-stat-cell.go:hover .fd-sl{{color:{C['text']}}}
+
+/* ── Segmented control (day / range / view switches) ── */
+.fd-seg{{display:inline-flex;align-items:center;gap:2px;padding:3px;border-radius:var(--dd-r-md);
+  background:{C['card']};border:1px solid {C['border']};box-shadow:var(--dd-shadow-1);max-width:100%;
+  overflow-x:auto;scrollbar-width:none}}
+.fd-seg::-webkit-scrollbar{{display:none}}
+.fd-seg-btn{{border:none;background:transparent;color:{C['muted']};font-family:inherit;font-size:13px;
+  font-weight:600;line-height:1;padding:8px 14px;border-radius:7px;cursor:pointer;white-space:nowrap;
+  transition:background-color .15s var(--dd-ease),color .15s var(--dd-ease)}}
+.fd-seg-btn *{{pointer-events:none}}
+.fd-seg-btn:hover{{color:{C['text_l']};background:{C['card_h']}}}
+.fd-seg-btn.on{{background:{C['teal']};color:{C['on_teal']};box-shadow:var(--dd-shadow-1)}}
+.fd-seg-btn.danger{{color:{C['danger']}}}
+.fd-seg-btn.danger.on{{background:{C['danger']};color:#fff}}
+.fd-seg.lg .fd-seg-btn{{font-size:14px;padding:10px 18px}}
+
+/* ── Empty state ── */
+.fd-es{{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;
+  padding:40px 28px;margin:8px auto 0;max-width:520px;width:100%;background:{C['card']};
+  border:1px solid {C['border']};border-radius:var(--dd-r-lg);box-shadow:var(--dd-shadow-1)}}
+.fd-es.wide{{max-width:none}}
+.fd-es.compact{{padding:28px 20px;margin-top:0}}
+.fd-es-icon{{width:52px;height:52px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:24px;line-height:1;background:{C['teal_dim']};margin-bottom:8px}}
+.fd-es-title{{font-family:'Nunito','DM Sans',sans-serif;font-size:16px;font-weight:800;color:{C['text_l']};
+  line-height:1.3}}
+.fd-es-body{{font-size:13px;color:{C['muted']};line-height:1.6;max-width:44ch;white-space:pre-line}}
+.fd-es-actions{{display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-top:14px}}
+.fd-es-actions .fd-pb,.fd-es-actions .fd-gb{{padding:9px 18px;font-size:13px}}
+
+/* ── Sidebar refinements ── */
+.fd-side-sec{{font-size:10.5px;letter-spacing:.1em;padding:18px 10px 6px;opacity:.75}}
+.fd-side-row{{height:38px;transition:background-color .12s var(--dd-ease),color .12s var(--dd-ease)}}
+.fd-side-row .fd-ico{{opacity:.7;transition:opacity .12s}}
+.fd-side-row:hover .fd-ico{{opacity:1}}
+.fd-side-sub{{height:32px}}
+.fd-side-nav,.fd-main-ct{{scrollbar-width:thin;scrollbar-color:{_tint(C['muted'], '55')} transparent}}
+.fd-side-nav::-webkit-scrollbar,.fd-main-ct::-webkit-scrollbar{{width:8px}}
+.fd-side-nav::-webkit-scrollbar-thumb,.fd-main-ct::-webkit-scrollbar-thumb{{
+  background:{_tint(C['muted'], '40')};border-radius:99px;border:2px solid transparent;background-clip:content-box}}
+.fd-side-cta{{height:40px;box-shadow:var(--dd-shadow-1)}}
+.fd-side-cta:hover{{filter:brightness(1.08);box-shadow:var(--dd-shadow-2)}}
+.fd-side-menu{{box-shadow:var(--dd-shadow-pop)}}
+.fd-side-mi{{transition:background-color .12s}}
+
+/* ── Page header + content rhythm ── */
+.fd-ph-title{{font-size:15px;letter-spacing:-.005em}}
+.fd-ph-crumb{{font-size:10.5px;letter-spacing:.08em}}
+.fd-ph .fd-theme-toggle{{width:36px;height:36px;border-radius:var(--dd-r-md)}}
+.fd-shell-side .fd-pg{{padding:28px 32px 48px}}
+
+@media (prefers-reduced-motion: reduce){{
+  *,*::before,*::after{{animation-duration:.01ms !important;animation-iteration-count:1 !important;
+    transition-duration:.01ms !important;scroll-behavior:auto !important}}
+}}
+
+/* ── Tablet: slimmer sidebar, tighter gutters ── */
+@media (max-width:1100px) and (min-width:769px){{
+  .fd-side{{width:216px;flex-basis:216px}}
+  .fd-shell-side .fd-pg{{padding:24px 24px 40px}}
+}}
+
+/* ── Phone: compact app bar, one scrolling nav row, stacked grids ── */
+@media (max-width:768px){{
+  .fd-side-top{{gap:10px;padding:10px 14px}}
+  .fd-side-logo img{{height:22px}}
+  /* .fd-ws is also the wizard step-label class, so scope to the sidebar. */
+  .fd-side-top .fd-ws{{display:none}}
+  .fd-side-cta{{margin-left:auto;height:36px;padding:0 14px;font-size:13px;white-space:nowrap;width:auto;flex:0 0 auto}}
+  .fd-side-nav{{flex-wrap:nowrap !important;overflow-x:auto !important;overflow-y:hidden;gap:4px;
+    padding:2px 14px 10px !important;scrollbar-width:none;-webkit-overflow-scrolling:touch}}
+  .fd-side-nav::-webkit-scrollbar{{display:none}}
+  .fd-side-nav .fd-side-row{{flex:0 0 auto;height:34px;padding:0 12px;border:1px solid {C['border']};
+    border-radius:99px;white-space:nowrap}}
+  .fd-side-nav .fd-side-row.on{{border-color:transparent}}
+  .fd-side-nav .fd-side-lbl{{overflow:visible}}
+  .fd-side-subgroup{{margin:0;padding:0;border:none}}
+  .fd-side-bottom{{padding:6px 14px;gap:4px}}
+  .fd-side-blinks{{flex-direction:row;flex-wrap:wrap;gap:4px}}
+  .fd-side-blinks .fd-side-row{{height:34px}}
+  .fd-ph{{padding:10px 14px;gap:8px 10px}}
+  .fd-ph-titles{{flex:1;min-width:0}}
+  .fd-ph .fd-theme-toggle{{order:2}}
+  .fd-ph-act{{order:2}}
+  .fd-ph-search{{order:3;flex:1 1 100%;width:100%}}
+  .fd-shell-side .fd-pg{{padding:16px 14px 32px !important}}
+  .fd-main-ct div[style*="grid-template-columns:1fr 1fr"],
+  .fd-main-ct div[style*="grid-template-columns: 1fr 1fr"],
+  .fd-main-ct div[style*="grid-template-columns:repeat(3"],
+  .fd-main-ct div[style*="grid-template-columns:repeat(2"]{{grid-template-columns:1fr !important}}
+  .fd-stat-strip{{display:grid !important;grid-template-columns:repeat(2,1fr)}}
+  .fd-stat-cell{{border-right:none !important;border-bottom:1px solid {C['border']};padding:12px 14px}}
+  .fd-sn{{font-size:20px}}
+  .fd-es{{padding:28px 18px}}
+  .fd-seg-btn{{padding:8px 12px}}
+  /* Setup checklist: the CTA drops under its text instead of squeezing it. */
+  .fd-setup-step{{flex-wrap:wrap;row-gap:8px !important}}
+  .fd-setup-step > div:nth-child(2){{flex:1 1 200px !important}}
+  .fd-setup-step > button{{margin-left:42px}}
+}}
+"""
+
+
 def inject_styles():
     # Non-blocking Google Fonts load  -  preconnect + display=swap means the page
     # renders immediately with fallback fonts; Nunito/DM Sans swap in once loaded.
@@ -19887,7 +20075,7 @@ def inject_styles():
     ui.add_head_html("""
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Nunito:wght@600;700;800;900&display=swap" rel="stylesheet">
 """)
     # ── Theme CSS custom properties (dark = default, light = [data-theme="light"]) ──
     # Newsletter / SlowDrip per-card palette (5 hues, each with bg/fg/border).
@@ -20484,6 +20672,7 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
   }}
 }}
 {_sidebar_layout_css()}
+{_polish_css()}
 </style>""")
     # Global JS helper  -  insert text at cursor position in any focused input/textarea
     # or contenteditable (QEditor body). Tracks last-focused input so that
@@ -22295,12 +22484,6 @@ def _render_empty_state(s, rf, page_key: str) -> None:
     cta_label_2 = entry.get("cta_label_2", "")
     cta_target_2 = entry.get("cta_target_2", "")
 
-    primary = C["teal"]
-    text = C["text_l"]
-    muted = C["muted"]
-    border = C["border"]
-    bg = C.get("card", C.get("surface", "#FFFFFF"))
-
     def _dispatch(target: str):
         if not target:
             return
@@ -22322,51 +22505,25 @@ def _render_empty_state(s, rf, page_key: str) -> None:
                   flush=True)
 
     _has_secondary = bool(cta_label_2 and cta_target_2)
-    _card_w = "420px" if _has_secondary else "320px"
-    _body_w = "340px" if _has_secondary else "240px"
 
-    with ui.element("div").style(
-            "display:flex;justify-content:center;padding:32px 16px;"):
-        with ui.element("div").style(
-                f"max-width:{_card_w};background:{bg};"
-                f"border:1px solid {border};border-radius:12px;"
-                f"padding:32px 24px;text-align:center;"
-                f"font-family:'DM Sans','Segoe UI',sans-serif;"):
+    with ui.element("div").style("padding:24px 0;width:100%;"):
+        with ui.element("div").classes("fd-es"):
             if icon:
-                ui.label(icon).style(
-                    "font-size:36px;line-height:1.1;margin-bottom:8px;"
-                    "display:block;")
+                ui.label(icon).classes("fd-es-icon")
             if headline:
-                ui.label(headline).style(
-                    f"font-size:14px;font-weight:700;color:{text};"
-                    f"margin-bottom:8px;display:block;")
+                ui.label(headline).classes("fd-es-title")
             if body:
-                # Render body as multi-line if it contains newlines so users
-                # can get structured directional copy (what / how / next).
-                ui.html(
-                    f"<div style='font-size:12px;color:{muted};line-height:1.55;"
-                    f"max-width:{_body_w};margin:0 auto 18px;text-align:left;"
-                    f"white-space:pre-line;'>"
-                    + body.replace("<", "&lt;").replace(">", "&gt;")
-                    + "</div>"
-                )
+                # pre-line keeps newline-structured copy (what / how / next).
+                ui.label(body).classes("fd-es-body")
             if cta_label:
-                with ui.element("div").style(
-                        "display:flex;gap:10px;justify-content:center;"
-                        "flex-wrap:wrap;"):
-                    with ui.element("button").classes("fd-pb").style(
-                            "padding:8px 22px;font-size:12px;font-weight:700;"
-                            "border-radius:99px;cursor:pointer;"
-                            ).on("click", lambda: _dispatch(cta_target)):
-                        ui.label(cta_label).style("pointer-events:none;")
+                with ui.element("div").classes("fd-es-actions"):
+                    with ui.element("button").classes("fd-pb").on(
+                            "click", lambda: _dispatch(cta_target)):
+                        ui.label(cta_label)
                     if _has_secondary:
-                        with ui.element("button").classes("fd-gb").style(
-                                f"padding:8px 22px;font-size:12px;font-weight:700;"
-                                f"border-radius:99px;cursor:pointer;"
-                                f"border:1px solid {primary};color:{primary};"
-                                f"background:transparent;"
-                                ).on("click", lambda: _dispatch(cta_target_2)):
-                            ui.label(cta_label_2).style("pointer-events:none;")
+                        with ui.element("button").classes("fd-gb").on(
+                                "click", lambda: _dispatch(cta_target_2)):
+                            ui.label(cta_label_2)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -22768,10 +22925,13 @@ def _sidebar_v2(s: AppState, rf):
         # highlight pill; the parent keeps the accent text without the fill.
         cls = ("fd-side-row" + (" on" if on else "") + (" open" if open_ else "")
                + (" fd-side-sub" if sub else ""))
-        el = ui.element("div").classes(cls)
+        el = ui.element("div").classes(cls).props(
+            'role="button" tabindex="0"' + (' aria-current="page"' if on else ""))
         if tour:
             el.props(f'data-tour="{tour}"')
-        with el.on("click", click or (lambda k=key: _go(k))):
+        _act = click or (lambda k=key: _go(k))
+        el.on("keydown.enter", _act)
+        with el.on("click", _act):
             ui.html(_svg_icon(ik, 16 if sub else 18))
             ui.label(lbl).classes("fd-side-lbl")
             if badge:
@@ -24479,7 +24639,7 @@ def p_today_combined(s: AppState, rf):
     # is "Mon", not "Tomorrow" (which would be Saturday).
     with ui.element("div").classes("fd-drip-pills").style("display:flex;align-items:center;gap:12px;margin-bottom:4px;"):
         _show_page_help(s, rf, "drip")
-        with ui.element("div").style(f"display:inline-flex;gap:4px;background:{C['surface']};border-radius:10px;padding:4px;"):
+        with ui.element("div").classes("fd-seg lg"):
             pills = []
             for _key in _DAY_KEYS:
                 _offset = _KEY_TO_OFFSET[_key]
@@ -24498,11 +24658,9 @@ def p_today_combined(s: AppState, rf):
                 is_danger = key == "overdue"
                 def _switch(k=key):
                     s.drip_day = k; rf()
-                _on_style = ""
-                if on and is_danger:
-                    _on_style = f"background:{C['danger']};color:#0D1520;border-color:{C['danger']};"
-                with ui.element("button").classes("fd-hub" + (" on" if on else "")).style(
-                        f"border-radius:8px;padding:10px 24px;font-size:15px;font-weight:600;{_on_style}").on("click", _switch):
+                with ui.element("button").classes(
+                        "fd-seg-btn" + (" on" if on else "") + (" danger" if is_danger else "")).props(
+                        'type="button"').on("click", _switch):
                     ui.label(label)
 
 
@@ -24535,9 +24693,9 @@ def p_today_combined(s: AppState, rf):
         if auto_email_count > 0:
             _stats_list.append((str(auto_email_count), "Emails", C["teal"]))
         with ui.element("div").classes("fd-drip-stats"):
-          with ui.element("div").classes("fd-stat-strip").style("margin-bottom:16px;"):
+          with ui.element("div").classes("fd-stat-strip").style("margin:16px 0;"):
             for val, lbl, col in _stats_list:
-                with ui.element("div").classes("fd-stat-cell"):
+                with ui.element("div").classes("fd-stat-cell" + (" zero" if val == "0" else "")):
                     ui.label(val).classes("fd-sn").style(f"color:{col};")
                     ui.label(lbl).classes("fd-sl")
 
@@ -33454,9 +33612,10 @@ def p_contacts(s, rf):
                         f"font-family:'Nunito',sans-serif;")
 
             if not contacts:
-                with ui.element("div").style(f"text-align:center;padding:60px 0;color:{C['muted']};"):
-                    ui.label("📋").style("font-size:36px;")
-                    ui.label("Click a saved list or import a new one").style(f"font-size:14px;margin-top:8px;")
+                with ui.element("div").classes("fd-es").style("margin-top:0;"):
+                    ui.label("📋").classes("fd-es-icon")
+                    ui.label("Pick a list to see its contacts").classes("fd-es-title")
+                    ui.label("Choose a saved list on the left, or import a new one.").classes("fd-es-body")
             else:
                 # Top bar: stats + Add New Contact pill
                 with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;"):
@@ -38928,7 +39087,7 @@ def p_dashboard(s: AppState, rf):
                     ui.label(f"{_done} of {_total}").style(
                         f"font-size:12px;color:{C['muted']};font-weight:600;"
                         f"background:{C['surface']};padding:4px 12px;border-radius:12px;"
-                        f"border:1px solid {C['border']};")
+                        f"border:1px solid {C['border']};white-space:nowrap;flex-shrink:0;")
 
                 ui.label("Complete these steps to start sending campaigns that feel personal and on-brand.").style(
                     f"font-size:12px;color:{C['muted']};margin-bottom:14px;display:block;")
@@ -38987,7 +39146,7 @@ def p_dashboard(s: AppState, rf):
                 ]
 
                 for _st in _steps:
-                    with ui.element("div").style(
+                    with ui.element("div").classes("fd-setup-step").style(
                             f"display:flex;align-items:center;gap:14px;padding:10px 0;"
                             f"border-bottom:1px solid {_tint(C['border'],'40')};"):
                         # Status icon circle
@@ -39007,10 +39166,8 @@ def p_dashboard(s: AppState, rf):
                         if _st["cta"] and _st["page"]:
                             def _go_step(page=_st["page"]):
                                 s.sp = page; rf()
-                            with ui.element("button").style(
-                                    f"padding:7px 16px;background:{C['teal']};color:{C['on_teal']};"
-                                    f"border:none;border-radius:7px;font-size:11px;font-weight:700;"
-                                    f"cursor:pointer;font-family:inherit;flex-shrink:0;"
+                            with ui.element("button").classes("fd-pb").props('type="button"').style(
+                                    "padding:8px 16px;font-size:12px;flex-shrink:0;"
                                     ).on("click", _go_step):
                                 ui.label(_st["cta"]).style("pointer-events:none;")
 
@@ -39036,8 +39193,9 @@ def p_dashboard(s: AppState, rf):
             (len(active_camps),     "Active",           C["teal"],      "seq_mgr", None),
             (len(recs),             "Replies",          C["good"],      "responses", None),
         ]:
-            with ui.element("div").classes("fd-stat-cell").style(
-                    "cursor:pointer;").on("click", _stat_nav(target_page, drip_day)):
+            with ui.element("div").classes("fd-stat-cell go" + ("" if val else " zero")).props(
+                    'role="button" tabindex="0"').on("click", _stat_nav(target_page, drip_day)).on(
+                    "keydown.enter", _stat_nav(target_page, drip_day)):
                 ui.label(str(val)).classes("fd-sn").style(f"color:{col};")
                 ui.label(lbl).classes("fd-sl")
 
@@ -39054,23 +39212,21 @@ def p_dashboard(s: AppState, rf):
                 f"font-size:13px;font-weight:600;color:{C['danger']};")
             ui.label("View →").style(f"font-size:12px;color:{C['danger']};font-weight:600;")
     # ── Drip pills (Today / Tomorrow / Overdue) ─────────────────────────────
-    with ui.element("div").style(
-            f"display:inline-flex;gap:4px;background:{C['surface']};border-radius:10px;"
-            f"padding:4px;margin-bottom:16px;"):
+    with ui.element("div").classes("fd-seg").style("margin-bottom:24px;"):
         # None = no pre-selection; the user clicks one to jump to that view.
         drip_tab = getattr(s, "dash_drip_tab", None)
-        for key, label, _col in [
-            ("today",    f"Today ({len(pending_today)})", C["teal"]),
-            ("tomorrow", f"Tomorrow ({len(pending_tomorrow)})", C["teal"]),
-            ("overdue",  f"Overdue ({len(overdue_tasks)})", C["danger"]),
+        for key, label, _danger in [
+            ("today",    f"Today ({len(pending_today)})", False),
+            ("tomorrow", f"Tomorrow ({len(pending_tomorrow)})", False),
+            ("overdue",  f"Overdue ({len(overdue_tasks)})", bool(overdue_tasks)),
         ]:
             on = drip_tab == key
             def _switch(k=key):
                 s.dash_drip_tab = k
                 nav_go(s, rf, hub="sales", page="drip")
-            _on_style = f"background:{_col};color:#0D1520;border-color:{_col};" if on else ""
-            with ui.element("button").classes("fd-hub" + (" on" if on else "")).style(
-                    f"border-radius:8px;padding:6px 16px;font-size:13px;font-weight:600;{_on_style}").on("click", _switch):
+            with ui.element("button").classes(
+                    "fd-seg-btn" + (" on" if on else "") + (" danger" if _danger else "")).props(
+                    'type="button"').on("click", _switch):
                 ui.label(label)
 
     # ── Two columns: Recent Campaigns + Today's Activity ────────────────────
@@ -39101,15 +39257,14 @@ def p_dashboard(s: AppState, rf):
                 key=_camp_recency_ts, reverse=True)
 
             if not active_camps:
-                with ui.element("div").style(
-                        f"background:{C['card']};border:1px solid {C['border']};"
-                        f"border-radius:10px;padding:28px;text-align:center;"):
-                    ui.label("No active campaigns yet.").style(f"font-size:13px;color:{C['muted']};margin-bottom:8px;")
+                with ui.element("div").classes("fd-es wide compact"):
+                    ui.label("No active campaigns yet").classes("fd-es-title").style("font-size:14px;")
+                    ui.label("Launch one and its progress shows up here.").classes("fd-es-body")
                     def _start():
                         nav_go(s, rf, hub="sales", page="start_seq")
-                    with ui.element("button").classes("fd-pb").style(
-                            "padding:8px 20px;font-size:12px;").on("click", _start):
-                        ui.label("+ Start a Campaign")
+                    with ui.element("div").classes("fd-es-actions").style("margin-top:10px;"):
+                        with ui.element("button").classes("fd-pb").props('type="button"').on("click", _start):
+                            ui.label("+ Start a Campaign")
             else:
                 def _render_camp_card(camp, accent_col):
                     cname = camp.get("name", "")
