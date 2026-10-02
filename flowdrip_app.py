@@ -29090,6 +29090,10 @@ def _sq_loaded_campaign(s: AppState, rf):
                                     launched_at=datetime.now().strftime("%I:%M %p").lstrip("0"),
                                 )
                                 s.loaded_view = "summary"
+                                # The campaign is sent; a history Back would
+                                # reopen its launch step. The summary has its
+                                # own way out (Queue / Active / Start another).
+                                s._nav_history.clear()
                                 rf()
                             except Exception as _fe:
                                 print(f"[Launch] summary transition failed: {_fe}", flush=True)
@@ -55908,7 +55912,8 @@ def p_pdf_gen(s: AppState, rf):
         with ui.element("button").classes("fd-gb").style(
                 "padding:10px 18px;font-size:12px;"
                 ).on("click", _go_to_picker):
-            ui.label("← Back to picker").style("pointer-events:none;")
+            # Same words as the top button: both do the same thing.
+            ui.label("← Pick different PDFs").style("pointer-events:none;")
 
     # Custom PDF modal (gallery → outline preview → generate) still
     # opens via _pdf_custom_stage just like before.
