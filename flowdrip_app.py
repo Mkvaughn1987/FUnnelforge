@@ -6741,6 +6741,31 @@ def _revoke_api_keys(email: str) -> int:
 # ═══════════════════════════════════════════════════════════════════════════
 #  CAMPAIGN API helpers  -  spec validation, contacts CSV parsing, schedule.
 # ═══════════════════════════════════════════════════════════════════════════
+# Phone spellings a ZoomInfo pull can hand the API under. Folded into the
+# contact keys queue_campaign_emails reads, so the mobile and the work line
+# both stay on the campaign's contact record.
+_API_MOBILE_KEYS = ("phone_mobile", "MobilePhone", "mobile", "Mobile",
+                    "mobilePhone", "mobile_phone", "cell", "Cell")
+_API_OFFICE_KEYS = ("phone_office", "WorkPhone", "work_phone", "Phone",
+                    "phone", "directPhone", "direct_phone", "companyPhone")
+
+
+def _api_contact_phones(c: dict) -> dict:
+    """Set phone_mobile / phone_office on an API contact from whichever
+    spelling it arrived with. Leaves everything else alone."""
+    if not isinstance(c, dict):
+        return c
+    for dest, keys in (("phone_mobile", _API_MOBILE_KEYS),
+                       ("phone_office", _API_OFFICE_KEYS)):
+        if str(c.get(dest) or "").strip():
+            continue
+        val = next((str(c.get(k) or "").strip() for k in keys
+                    if str(c.get(k) or "").strip()), "")
+        if val:
+            c[dest] = val
+    return c
+
+
 def _parse_contacts_csv(csv_text: str) -> list:
     """Parse raw CSV text into normalized contact dicts (email/first_name/...)."""
     text = (csv_text or "").strip()
@@ -12043,6 +12068,7 @@ async def api_create_campaign(request: Request):
     contacts = spec.get("contacts")
     if not isinstance(contacts, list):
         contacts = _parse_contacts_csv(spec.get("contacts_csv", ""))
+    contacts = [_api_contact_phones(c) for c in contacts]
 
     if not ANTHROPIC_API_KEY:
         return JSONResponse({"error": "AI not configured on server"}, status_code=503)

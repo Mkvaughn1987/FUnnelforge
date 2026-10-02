@@ -1362,7 +1362,11 @@ _CONTACTS_STEP = (
     "working down {who_to_reach}. Two with a verified email is the floor "
     "that qualifies a company at all. If ZoomInfo returns a permissions "
     "error, quote it, keep the company list, and stop before the emails "
-    "rather than guessing at addresses.")
+    "rather than guessing at addresses. Ask enrich_contacts for "
+    "mobilePhone and phone as well, and keep both numbers on every contact "
+    "as phone_mobile and phone_office so they stay on file; a "
+    "DisallowedOutputFields warning on one of them is not an error, take "
+    "what comes back.")
 
 _SHOW_STEP = (
     "Show me the companies, the signal on each one, the contacts and the "
