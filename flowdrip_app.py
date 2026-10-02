@@ -10548,6 +10548,12 @@ def _sidebar_layout_css() -> str:
 .fd-side-word{{font-family:'Nunito','DM Sans',sans-serif;font-weight:900;font-size:19px;letter-spacing:-.3px;
   color:{C['text_l']};white-space:nowrap;line-height:1}}
 .fd-side-word b{{color:{C['teal']};font-weight:900}}
+/* The two "Drip"s sit stacked and slightly layered (the second nudged right
+   and overlapping the first), a size down from "Drop" beside them. */
+.fd-side-word{{display:flex;align-items:center;gap:3px}}
+.fd-side-stack{{display:flex;flex-direction:column;font-size:.74em;line-height:.8}}
+.fd-side-stack i{{font-style:normal}}
+.fd-side-stack b{{margin:-2px 0 0 5px;text-shadow:0 0 3px {C['surface']}}}
 .fd-side-trail{{display:flex;color:{C['muted']};opacity:.7;margin-left:auto}}
 .fd-ws{{display:flex;align-items:center;gap:10px;width:100%;padding:8px 8px;border-radius:10px;
   border:1px solid {C['border']};background:{C['card']};color:{C['text']};cursor:pointer;
@@ -13644,7 +13650,8 @@ def _sidebar_v2(s: AppState, rf):
                     'role="button" tabindex="0" aria-label="Home"').on(
                     "click", lambda: _go("dashboard")):
                 ui.html(f'<span class="fd-side-drop">{_DD_DROP_SVG}</span>'
-                        '<span class="fd-side-word">Drip<b>Drip</b>Drop</span>')
+                        '<span class="fd-side-word" aria-label="DripDripDrop">'
+                        '<span class="fd-side-stack"><i>Drip</i><b>Drip</b></span>Drop</span>')
             _ws = _sidebar_workspace_name(s)
             _ws_menu = {"m": None}
             def _open_ws():
