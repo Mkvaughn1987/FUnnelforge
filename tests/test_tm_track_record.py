@@ -73,3 +73,13 @@ def test_offshore_line_goes_after_the_opener_question_not_above_it():
     assert b.startswith("Hi {FirstName},<br><br>I've placed 100+")
     assert b.index("augmentation?") < b.index(fa._TM_OFFSHORE_LINE) < b.index("What would")
     assert b.count("100+") == 1
+
+
+def test_slash_industry_reads_as_and():
+    assert "in the freight brokerage and logistics space" in \
+        fa._tm_track_record_line("Dispatcher", "Freight brokerage / logistics")
+
+
+def test_choosing_the_person_becomes_candidate():
+    assert fa._tm_aug_wording("Honestly, choosing the person is easy.") == (
+        "Honestly, choosing the candidate is easy.")

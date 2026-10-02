@@ -7130,6 +7130,8 @@ _TM_EMAIL_OPENER_RULE = (
     "last. Never send a note that is ONLY a check-in: every personal line "
     "is followed by something new. Do not reuse the same opener twice in "
     "a campaign.\n"
+    "- Whoever the client would hire is 'the candidate', never 'the "
+    "person'.\n"
     "- ONE REAL DETAIL: where the BRIEF allows, mention one specific thing "
     "about this company and what it likely means for their work, the kind "
     "of line that would read oddly if sent to anyone else. Never pad with "
@@ -7204,7 +7206,8 @@ def _tm_role_plural(role: str) -> str:
 
 
 def _tm_industry_phrase(industry: str) -> str:
-    ind = " ".join(str(industry or "").replace("&", " and ").split())
+    ind = " ".join(str(industry or "").replace("&", " and ")
+                   .replace("/", " and ").split())
     if not ind:
         return ""
     return " ".join(w if w.isupper() and len(w) > 1 else w.lower()
@@ -16683,7 +16686,11 @@ def _tm_aug_wording(text: str) -> str:
             return ("Offshore Staff Augmentation" if w.split()[1][:1].isupper()
                     else "Offshore staff augmentation")
         return "offshore staff augmentation"
-    return re.sub(r"(?i)\boffshore staffing\b", fix, text or "")
+    out = re.sub(r"(?i)\boffshore staffing\b", fix, text or "")
+    # Mike 2026-10-02: the one they choose is "the candidate", not "the
+    # person".
+    return re.sub(r"\b([Cc])hoosing the person\b", r"\1hoosing the candidate",
+                  out)
 
 
 def _tm_ensure_offshore_and_monthly(campaign_data) -> None:
