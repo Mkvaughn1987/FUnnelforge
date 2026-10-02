@@ -75,6 +75,7 @@ def test_render_strip_does_nothing_when_dismissed(with_user, monkeypatch):
 def test_render_strip_emits_elements_when_active(with_user, monkeypatch):
     import flowdrip_app as fa
     fa.save_config({})  # not dismissed
+    monkeypatch.setattr(fa, "_SIDEBAR_LAYOUT", False)
     counter = _CallCounter()
     monkeypatch.setattr(fa.ui, "element", counter)
     monkeypatch.setattr(fa.ui, "label", counter)
@@ -82,3 +83,17 @@ def test_render_strip_emits_elements_when_active(with_user, monkeypatch):
     monkeypatch.setattr(fa.ui, "icon", counter, raising=False)
     fa._render_page_intro_strip(None, lambda: None, "dashboard")
     assert counter.calls > 0  # at minimum: outer div + summary label + next_action label
+
+
+def test_render_strip_hidden_in_sidebar_layout(with_user, monkeypatch):
+    # The sidebar header already names the page, so the badge row is dropped.
+    import flowdrip_app as fa
+    fa.save_config({})
+    monkeypatch.setattr(fa, "_SIDEBAR_LAYOUT", True)
+    counter = _CallCounter()
+    monkeypatch.setattr(fa.ui, "element", counter)
+    monkeypatch.setattr(fa.ui, "label", counter)
+    monkeypatch.setattr(fa.ui, "html", counter)
+    monkeypatch.setattr(fa.ui, "icon", counter, raising=False)
+    fa._render_page_intro_strip(None, lambda: None, "dashboard")
+    assert counter.calls == 0
