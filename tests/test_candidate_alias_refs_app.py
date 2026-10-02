@@ -45,8 +45,7 @@ def test_identity_card_is_added_and_stripped(ats):
         assert k not in c
     assert isinstance(c["_talent_id"], int)
     assert c["ref"] == "Ref #%d" % c["_talent_id"]
-    assert c["alias"] and c["label"] == c["alias"]
-    assert "Travis" not in c["label"]
+    assert c["alias"] == c["label"] == "Travis K."
     assert c["bullets"] == _anon()["bullets"]
 
 
@@ -91,6 +90,24 @@ def test_synthetic_and_anonymous_cards_pass_through_with_warnings(ats):
     assert cards[0] == anon and cards[1] == synth
     warns = fa._unlinked_card_warnings(cards)
     assert len(warns) == 1 and "card 1" in warns[0]
+
+
+def test_named_card_without_contact_uses_real_first_name(ats):
+    cards, err = fa._link_candidate_cards([_anon(name="Travis Kruse")], OWNER)
+    assert err is None
+    assert cards[0]["label"] == "Travis K."
+    assert "name" not in cards[0] and "_talent_id" not in cards[0]
+
+
+def test_slate_prompts_never_invent_names():
+    bodies = [t[-1] for t in fa.AICB_CAMPAIGN_TYPES
+              if t[0] in ("fivebyfive", "fivebythree")]
+    assert len(bodies) == 2
+    for b in bodies:
+        for fake in ("Aaron M.", "Ben T.", "Carlos R.", "slot alias"):
+            assert fake not in b
+        assert "NEVER invent" in b
+    assert "Never invent" in fa._CAND_REF_RULE
 
 
 def test_no_pipeline_access_leaves_cards_alone(ats, monkeypatch):

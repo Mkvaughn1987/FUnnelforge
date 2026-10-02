@@ -122,10 +122,9 @@ def _con():
             except Exception:
                 pass
         try:
-            # The name a client sees in outreach ("Trent K."), paired with the
-            # talent id as "Ref #1042". Minted once by ensure_client_alias and
-            # never changed, so a client asking about "Trent K." months later
-            # still resolves to the same person.
+            # Made-up aliases older campaigns used ("Trent K."). No longer
+            # minted (outreach now uses the real first name); kept so a client
+            # reply quoting an old alias still resolves to the person.
             con.execute("ALTER TABLE talents ADD COLUMN client_alias TEXT")
         except Exception:
             pass
@@ -731,28 +730,12 @@ def _terms(text: str) -> list:
 
 
 # ── Client alias + Ref # ──────────────────────────────────────────────────
-# Outreach never shows a candidate's real name. Each real candidate used in a
-# campaign gets a stable alias ("Trent K.") and is cited with their talent id
-# ("Ref #1042"), so a client reply about "Trent K." leads straight back to the
-# Pipeline record.
-
-_ALIAS_FIRST_NAMES = (
-    "Aaron", "Adrian", "Alec", "Allison", "Andre", "Angela", "Blake", "Brandon",
-    "Brenda", "Brett", "Caleb", "Cameron", "Carla", "Carmen", "Casey", "Chad",
-    "Colin", "Connor", "Craig", "Dana", "Dante", "Darren", "Dean", "Derek",
-    "Devin", "Diana", "Dylan", "Elena", "Elliot", "Emmett", "Erin", "Evan",
-    "Felix", "Fiona", "Gavin", "Gina", "Grant", "Greta", "Hana", "Heath",
-    "Holly", "Hugo", "Ian", "Irene", "Ivy", "Jared", "Jenna", "Joel", "Jolene",
-    "Julian", "Kara", "Keith", "Kelsey", "Kent", "Kyle", "Lance", "Laura",
-    "Leah", "Leon", "Logan", "Lydia", "Malcolm", "Marcus", "Marissa", "Megan",
-    "Miles", "Monica", "Nadia", "Nathan", "Neil", "Nina", "Noah", "Nolan",
-    "Olivia", "Omar", "Owen", "Paige", "Pierce", "Preston", "Quinn", "Rachel",
-    "Reed", "Renee", "Rhett", "Rosa", "Ross", "Ruby", "Russell", "Sabrina",
-    "Seth", "Sierra", "Simone", "Spencer", "Tara", "Tessa", "Trent", "Trevor",
-    "Troy", "Vanessa", "Vince", "Wade", "Wes", "Whitney", "Xavier", "Yvonne",
-    "Zane", "Zoe",
-)
-_ALIAS_INITIALS = "ABCDEFGHJKLMNPRSTVW"
+# Outreach names each real candidate by their real first name + last initial
+# ("Travis K.") and cites their talent id ("Ref #1042"), so a client reply
+# about "Travis K." leads straight back to the Pipeline record. Never a made-up
+# name (Mike, 2026-10-02). Older campaigns used invented aliases stored in
+# talents.client_alias; that column is only read now, so replies quoting an old
+# alias still resolve.
 
 _REF_RE = re.compile(r"^\s*(?:ref\b\s*)?#?\s*(\d{1,9})\s*$", re.I)
 _ALIAS_RE = re.compile(
@@ -765,58 +748,33 @@ def ref_label(tid) -> str:
     return "Ref #%s" % int(tid)
 
 
-def _alias_candidates(real_first: str):
-    import random
-    real = (real_first or "").strip().lower()
-    names = [n for n in _ALIAS_FIRST_NAMES if n.lower() != real]
-    combos = ["%s %s." % (n, i) for n in names for i in _ALIAS_INITIALS]
-    random.shuffle(combos)
-    return combos
+def real_name_label(first_name, last_name="") -> str:
+    """'Travis K.': the real first name + last initial; just 'Travis' with no
+    last name; '' with no usable first name."""
+    first = re.sub(r"[^A-Za-z'\-]", "", ((first_name or "").strip().split() or [""])[0])
+    if not first:
+        return ""
+    first = first[:1].upper() + first[1:]
+    last = re.sub(r"[^A-Za-z]", "", last_name or "")
+    return "%s %s." % (first, last[0].upper()) if last else first
 
 
 def ensure_client_alias(tid) -> str:
-    """Return the talent's client alias, minting one on first use.
-
-    The alias is a curated first name + last initial, unique among the owner's
-    candidates and never the candidate's real first name. Once set it never
-    changes. Returns '' when the talent does not exist."""
+    """The name outreach uses for this talent ('Travis K.'). '' when the
+    talent does not exist or has no first name."""
     con = _con()
     try:
-        row = con.execute("SELECT id, first_name, owner_email, client_alias "
-                          "FROM talents WHERE id=?", (int(tid),)).fetchone()
-        if not row:
-            return ""
-        if (row["client_alias"] or "").strip():
-            return row["client_alias"]
-        owner = row["owner_email"] or ""
-        taken = {(r[0] or "").lower() for r in con.execute(
-            "SELECT client_alias FROM talents WHERE owner_email=? "
-            "AND client_alias IS NOT NULL AND client_alias!=''", (owner,))}
-        for alias in _alias_candidates(row["first_name"]):
-            if alias.lower() in taken:
-                continue
-            try:
-                cur = con.execute(
-                    "UPDATE talents SET client_alias=? WHERE id=? AND "
-                    "(client_alias IS NULL OR client_alias='')", (alias, row["id"]))
-                con.commit()
-            except sqlite3.IntegrityError:
-                taken.add(alias.lower())  # lost a race for this alias
-                continue
-            if cur.rowcount:
-                return alias
-            # Another writer minted one for this talent first; use theirs.
-            r2 = con.execute("SELECT client_alias FROM talents WHERE id=?",
-                             (row["id"],)).fetchone()
-            return (r2[0] or "") if r2 else ""
-        return ""
+        row = con.execute("SELECT first_name, last_name FROM talents WHERE id=?",
+                          (int(tid),)).fetchone()
+        return real_name_label(row["first_name"], row["last_name"]) if row else ""
     finally:
         con.close()
 
 
 def find_by_ref_or_alias(q: str, owner: str = None) -> list:
     """Talent rows a query names directly: a Ref # ('1042', '#1042',
-    'Ref #1042') or an exact client alias ('Trent K.', 'Trent K. (Ref #1042)').
+    'Ref #1042') or a name label ('Trent K.', 'Trent K. (Ref #1042)'), which
+    matches a real first name + last initial or an older stored alias.
     Empty when the query is neither."""
     q = (q or "").strip()
     if not q:
@@ -843,8 +801,10 @@ def find_by_ref_or_alias(q: str, owner: str = None) -> list:
                                [ref] + _op).fetchall()
         elif alias:
             rows = con.execute(
-                "SELECT * FROM talents WHERE lower(client_alias)=lower(?)" + _own
-                + " ORDER BY id", [alias] + _op).fetchall()
+                "SELECT * FROM talents WHERE (lower(client_alias)=lower(?) OR "
+                "(lower(first_name)=lower(?) AND upper(substr(trim(last_name), 1, 1))=?))"
+                + _own + " ORDER BY id",
+                [alias, m.group(1), m.group(2).upper()] + _op).fetchall()
         return [dict(r) for r in rows]
     except Exception:
         return []

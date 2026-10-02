@@ -1,8 +1,8 @@
 """Client alias + Ref #: ats.py side.
 
-Every real candidate used in outreach gets a stable, per-owner-unique alias
-("Trent K.") and is cited by talent id ("Ref #1042"), so a client reply can be
-traced back to the Pipeline record.
+Every real candidate used in outreach is named by their real first name + last
+initial ("Travis K.") and cited by talent id ("Ref #1042"), so a client reply
+can be traced back to the Pipeline record. No made-up names.
 """
 import sqlite3
 import sys
@@ -56,9 +56,7 @@ def test_upsert_card_adds_and_returns_alias_and_ref(ats):
     assert res["status"] == "added"
     assert isinstance(res["id"], int)
     assert res["ref"] == "Ref #%d" % res["id"]
-    first, initial = res["alias"].split(" ")
-    assert first != "Travis"
-    assert len(initial) == 2 and initial.endswith(".")
+    assert res["alias"] == "Travis K."
 
 
 def test_upsert_card_dedupes_on_repeat_use(ats):
@@ -78,30 +76,24 @@ def test_upsert_card_without_identity_is_junk(ats):
     assert res["status"] == "junk" and res["id"] is None and res["ref"] == ""
 
 
-def test_alias_never_real_first_name_and_unique_per_owner(ats, monkeypatch):
-    # Shrink the name pool so collisions are forced.
-    monkeypatch.setattr(ats, "_ALIAS_FIRST_NAMES", ("Aaron", "Blake"))
-    monkeypatch.setattr(ats, "_ALIAS_INITIALS", "AB")
-    ids = []
-    for i, fn in enumerate(["Aaron", "Carl", "Dave"]):
-        ids.append(ats.upsert_card_record(
-            {"name": "%s Person%d" % (fn, i), "email": "p%d@x.com" % i}, OWNER)["id"])
-    aliases = [ats.ensure_client_alias(t) for t in ids]
-    assert len(set(aliases)) == 3
-    assert not aliases[0].startswith("Aaron")
-    # A different owner may reuse the same alias.
-    other = ats.upsert_card_record({"name": "Eve Other", "email": "e@x.com"},
-                                   "other@arenastaffing.net")
-    assert other["alias"]
+@pytest.mark.parametrize("first,last,want", [
+    ("Travis", "Kruse", "Travis K."), ("ian", "nguyen", "Ian N."),
+    ("Mary Ann", "O'Neil", "Mary O."), ("Sarah", "", "Sarah"),
+    ("", "Kruse", ""), (None, None, "")])
+def test_real_name_label(ats, first, last, want):
+    assert ats.real_name_label(first, last) == want
 
 
-def test_alias_pool_exhausted_returns_empty(ats, monkeypatch):
-    monkeypatch.setattr(ats, "_ALIAS_FIRST_NAMES", ("Aaron",))
-    monkeypatch.setattr(ats, "_ALIAS_INITIALS", "A")
-    a = ats.upsert_card_record({"name": "Carl One", "email": "1@x.com"}, OWNER)
-    b = ats.upsert_card_record({"name": "Dave Two", "email": "2@x.com"}, OWNER)
-    assert a["alias"] == "Aaron A."
-    assert b["alias"] == ""
+def test_alias_is_real_first_name_even_with_old_stored_alias(ats):
+    t = ats.upsert_card_record(_card(), OWNER)
+    con = ats._con()
+    con.execute("UPDATE talents SET client_alias='Aaron M.' WHERE id=?", (t["id"],))
+    con.commit()
+    con.close()
+    assert ats.ensure_client_alias(t["id"]) == "Travis K."
+    # A client reply quoting the old made-up alias still resolves.
+    assert [r["id"] for r in ats.find_by_ref_or_alias("Aaron M.")] == [t["id"]]
+    assert ats.ensure_client_alias(999999) == ""
 
 
 @pytest.mark.parametrize("q", ["{id}", "#{id}", "ref {id}", "Ref #{id}",

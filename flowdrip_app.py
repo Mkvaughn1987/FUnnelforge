@@ -4105,6 +4105,18 @@ AICB_ROLES = {
 # Add new slate variants here to inherit all of it.
 _ARENA_SLATE_TYPES = frozenset({"fourbyfour", "fivebyfive", "fivebythree"})
 
+# How slate copy names candidates. Labels come from the real record (first
+# name + last initial, see ats.real_name_label); the model must never invent
+# one. Mike, 2026-10-02: made-up names like "Aaron M." / "Ian N." kept showing.
+_CAND_NAME_RULE = (
+    "Refer to each candidate by the label given in CANDIDATE HIGHLIGHTS, "
+    "exactly as written. When a label has a Ref # (e.g. 'Trent K. (Ref "
+    "#1042)'), write it as 'Trent K. (Ref #1042)' on the first mention in "
+    "each email. NEVER invent, change, or add a name: a label like "
+    "'Candidate A' stays 'Candidate A'. Same label for the same person "
+    "across every email."
+)
+
 AICB_CAMPAIGN_TYPES = [
     # ── Shortest to longest ──
     ("blitz", "Quick Sprint", "5 steps - 5 days", "#EF4444",
@@ -4178,15 +4190,8 @@ AICB_CAMPAIGN_TYPES = [
      "helpful professional who happens to know great people, not a rep working a "
      "pitch. Short paragraphs, plain words, no hype, no pressure. Refer to the "
      "company's OVERALL MARKET (e.g. construction, manufacturing) rather than the "
-     "specific job title wherever a general reference reads naturally. Refer to "
-     "each candidate by the label given in CANDIDATE HIGHLIGHTS. When a label "
-     "has a Ref # (e.g. 'Trent K. (Ref #1042)'), use that alias exactly and "
-     "write it as 'Trent K. (Ref #1042)' on the first mention in each email. "
-     "Only a label with no Ref # ('Candidate A') gets a slot alias: a friendly "
-     "first name whose initial matches the slot plus a last initial (Candidate "
-     "A -> 'Aaron M.', Candidate B -> 'Ben T.', Candidate C -> 'Carlos R.'). "
-     "Never use a candidate's real name. Use the same alias for the same person "
-     "across every email.\n"
+     "specific job title wherever a general reference reads naturally. "
+     + _CAND_NAME_RULE + "\n"
      "Step 1 - Introducing Myself (delay_days:0, step_type:email_auto) - "
      "Subject exactly: 'Quick note for [Company]' (write the real company "
      "name in). Open warmly: introduce yourself, mention you place [the "
@@ -4234,15 +4239,8 @@ AICB_CAMPAIGN_TYPES = [
      "like a helpful professional who happens to know great people. Short "
      "paragraphs, plain words, no hype, no pressure. Refer to the company's "
      "OVERALL MARKET (e.g. construction, manufacturing) rather than the "
-     "specific job title where it reads naturally. Refer to each candidate "
-     "by the label given in CANDIDATE HIGHLIGHTS. When a label has a Ref # "
-     "(e.g. 'Trent K. (Ref #1042)'), use that alias exactly and write it as "
-     "'Trent K. (Ref #1042)' on the first mention in each email. Only a "
-     "label with no Ref # ('Candidate A') gets a slot alias: a friendly "
-     "first name whose initial matches the slot plus a last initial "
-     "(Candidate A -> 'Aaron M.', Candidate B -> 'Ben T.', Candidate C -> "
-     "'Carlos R.'). Never use a candidate's real name. Same alias for the "
-     "same person across every email.\n"
+     "specific job title where it reads naturally. "
+     + _CAND_NAME_RULE + "\n"
      "Step 1 - Warm Intro (delay_days:0, step_type:email_auto) - Subject "
      "exactly: 'Quick note for [Company]' (write the real company name in). "
      "Open warmly: introduce yourself, mention you place [the specific "
@@ -5282,7 +5280,8 @@ def _format_candidate_block(cards: list, camp_type: str) -> str:
 _CAND_REF_RULE = (
     " When a label carries a Ref # (e.g. 'Trent K. (Ref #1042)'), write the "
     "alias followed by ' (Ref #N)' the first time that candidate is named in "
-    "each email, and never swap the alias for a different name."
+    "each email, and never swap the alias for a different name. Never invent "
+    "a name for any candidate; a label like 'Candidate A' stays as written."
 )
 
 
@@ -5843,6 +5842,12 @@ def _link_candidate_cards(cards, owner, strict=True):
             else:
                 # Pre-anonymized cards (CandidateBlast, older routines) still
                 # generate; the caller reports them via _unlinked_card_warnings.
+                # A card that does carry a name is still called by its real
+                # first name, never a slot label the model might rename.
+                _nl = ats.real_name_label(*(name.split(None, 1) + [""])[:2]) if name else ""
+                if _nl:
+                    card = {k: v for k, v in card.items() if k not in _CARD_IDENTITY_FIELDS}
+                    card["label"] = _nl
                 out.append(card)
                 continue
         linked = {k: v for k, v in card.items() if k not in _CARD_IDENTITY_FIELDS}
@@ -39135,6 +39140,8 @@ def p_ai_campaign(s: AppState, rf):
                         # through. The picker's own cards on AppState keep
                         # the real names the user sees.
                         _gen_cards = list(getattr(s, 'aicb_cand_cards', []) or [])
+                        _pre_labels = [c.get("label") if isinstance(c, dict) else None
+                                       for c in _gen_cards]
                         try:
                             _gen_cards, _ = _link_candidate_cards(
                                 _gen_cards, getattr(s, "_user_email", "") or "",
@@ -39143,7 +39150,9 @@ def p_ai_campaign(s: AppState, rf):
                             print(f"[AICB] candidate linking skipped: {_lk_ex}",
                                   flush=True)
                         _any_linked = any(isinstance(c, dict) and c.get("_talent_id")
-                                          for c in _gen_cards)
+                                          for c in _gen_cards) or _pre_labels != [
+                            c.get("label") if isinstance(c, dict) else None
+                            for c in _gen_cards]
                         try:
                             _saved_resumes = _build_redacted_resumes_from_cards(
                                 _gen_cards,
@@ -42989,6 +42998,16 @@ def p_candidate_campaign(s: AppState, rf):
                     _slate = list(s.cpc_candidates) if getattr(s, "cpc_candidates", None) else [cand]
                     _slate_n_gen = len(_slate)
                     _is_slate = _slate_n_gen > 1
+                    # Each candidate is named by real first name + last
+                    # initial, never a made-up name (Mike, 2026-10-02).
+                    import ats as _ats_nm
+                    _cand_labels = []
+                    for _i, _c in enumerate(_slate):
+                        _nm = (_c.get("name") or "").strip()
+                        _cand_labels.append(
+                            _ats_nm.real_name_label(*(_nm.split(None, 1) + [""])[:2])
+                            or f"Candidate {'ABCDEF'[_i] if _i < 6 else _i + 1}")
+                    _labels_str = " / ".join(_cand_labels)
                     if _is_slate:
                         _cand_block_parts = []
                         for _i, _c in enumerate(_slate, start=1):
@@ -42997,11 +43016,12 @@ def p_candidate_campaign(s: AppState, rf):
                             _cl = _c.get("location", "") or location
                             _csl = _c.get("salary", "") or "market rate"
                             _cand_block_parts.append(
-                                f"CANDIDATE {_i} ({_cr} · {_cl} · {_csl}):\n{_cs}"
+                                f"{_cand_labels[_i - 1]} ({_cr} · {_cl} · {_csl}):\n{_cs}"
                             )
                         _cand_summary_block = "\n\n".join(_cand_block_parts)
                     else:
-                        _cand_summary_block = "CANDIDATE SUMMARY:\n" + (cand.get("summary", "") or "")
+                        _cand_summary_block = (f"CANDIDATE SUMMARY ({_cand_labels[0]}):\n"
+                                               + (cand.get("summary", "") or ""))
 
                     # Step 3: Generate campaign emails
                     prompt = (
@@ -43028,12 +43048,11 @@ def p_candidate_campaign(s: AppState, rf):
                             f"   Email 1: introduce the slate — frame it as "
                             f"\"I have {_slate_n_gen} strong candidates I think "
                             f"fit your team.\" Tease 1-2 standout points per "
-                            f"candidate. Use Candidate A / Candidate B / "
-                            f"Candidate C anonymized labels (NOT real names).\n"
+                            f"candidate. Refer to them as {_labels_str}.\n"
                             f"   Emails 2-3: dig deeper into each candidate "
                             f"in turn — Email 2 expands on the first two, "
                             f"Email 3 (when 3 candidates) expands on the "
-                            f"third. Always anonymized.\n"
+                            f"third.\n"
                             f"   Email 4: offer to share full summaries / "
                             f"redacted resumes. Position the slate as a "
                             f"hiring shortcut.\n"
@@ -43049,11 +43068,11 @@ def p_candidate_campaign(s: AppState, rf):
                             "and experience from the summaries above — "
                             "don't conflate them, keep their distinct "
                             "strengths separate so the recipient sees real "
-                            "differentiation across Candidate A / B / C.\n"
+                            f"differentiation across {_labels_str}.\n"
                             if _is_slate else
                             "3. Reference the candidate's SPECIFIC skills and experience from the summary above\n"
                         )
-                        + "4. Do NOT reveal any candidate's real name  -  say 'a strong candidate', 'Candidate A', or 'one of our top candidates'\n"
+                        + f"4. Refer to each candidate ONLY by their label above ({_labels_str}): first name and last initial. NEVER invent a different name, and never give a full last name, email, or phone.\n"
                         f"5. Each email should provide VALUE  -  market insights, why this candidate fits {{Company}}\n"
                         f"6. Tone: consultative market advisor, never salesy\n"
                         f"7. Do NOT include any sign-off, closing, or sender name at the end of any email. No 'Best,', no 'Thanks,', no name. The user's signature is auto-appended at send time.\n"
