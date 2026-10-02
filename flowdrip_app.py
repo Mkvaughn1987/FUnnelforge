@@ -10549,11 +10549,11 @@ def _sidebar_layout_css() -> str:
   color:{C['text_l']};white-space:nowrap;line-height:1}}
 .fd-side-word b{{color:{C['teal']};font-weight:900}}
 /* The two "Drip"s sit stacked and slightly layered (the second nudged right
-   and overlapping the first), a size down from "Drop" beside them. */
+   and overlapping the first), just under the size of "Drop" beside them. */
 .fd-side-word{{display:flex;align-items:center;gap:3px}}
-.fd-side-stack{{display:flex;flex-direction:column;font-size:.74em;line-height:.8}}
+.fd-side-stack{{display:flex;flex-direction:column;font-size:.92em;line-height:.8}}
 .fd-side-stack i{{font-style:normal}}
-.fd-side-stack b{{margin:-2px 0 0 5px;text-shadow:0 0 3px {C['surface']}}}
+.fd-side-stack b{{margin:-3px 0 0 6px;text-shadow:0 0 3px {C['surface']}}}
 .fd-side-trail{{display:flex;color:{C['muted']};opacity:.7;margin-left:auto}}
 .fd-ws{{display:flex;align-items:center;gap:10px;width:100%;padding:8px 8px;border-radius:10px;
   border:1px solid {C['border']};background:{C['card']};color:{C['text']};cursor:pointer;
