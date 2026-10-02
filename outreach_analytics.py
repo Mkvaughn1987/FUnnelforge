@@ -360,7 +360,7 @@ def _fmt_date(ts):
 _WINDOWS = [(7, "7 days"), (30, "30 days"), (None, "All time")]
 # Tables this narrow read as one block; stretched across a wide monitor the
 # numbers sit a screen-width away from the name they belong to.
-PAGE_MAX_PX = 980
+PAGE_MAX_PX = 1240
 
 
 def render(ui, C, s, rf, sources, types, help_fn=None):
@@ -486,11 +486,15 @@ def _render_page(ui, C, s, rf, sources, types, help_fn):
     ui.label("Campaigns").style(title_css)
     if not camp_rows:
         ui.label("No campaign emails in this window.").style(cell + "margin-bottom:18px;")
-    cols = "minmax(0,1fr) 56px 64px 76px 76px 18px"
+    cols = "minmax(0,1fr) 44px 52px 56px 66px 12px"
+    # Two cards per row; one per row once a card would be too narrow to read.
+    pair = ui.element("div").style(
+        "display:grid;grid-template-columns:repeat(auto-fit,minmax(min(440px,100%),1fr));"
+        "gap:12px;align-items:start;margin-bottom:12px;")
     for row in camp_rows:
         det = report["details"][row["key"]]
         n = row["campaigns"]
-        with ui.element("div").style(card_css + "margin-bottom:12px;"):
+        with pair, ui.element("div").style(card_css + "margin-bottom:0;"):
             with _hover(ui.element("div").style(
                     f"display:flex;align-items:center;gap:10px;flex-wrap:wrap;"
                     f"padding:11px 14px;border-bottom:1px solid {C['border']};"
@@ -508,7 +512,7 @@ def _render_page(ui, C, s, rf, sources, types, help_fn):
                 ui.label("Details ›").style(
                     f"font-size:12px;font-weight:600;color:{C['teal']};")
             with ui.element("div").style(_grid(cols, head_row)):
-                for h in ["Email", "Sent", "Replies", "Reply rate", "Scheduled", ""]:
+                for h in ["Email", "Sent", "Replies", "Rate", "Scheduled", ""]:
                     ui.label(h).style(hdr_css)
             for st in det["steps"]:
                 with _hover(ui.element("div").style(
