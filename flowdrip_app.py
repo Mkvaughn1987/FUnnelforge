@@ -27306,18 +27306,19 @@ _NL_INDUSTRIES = (
     ("Healthcare", r"health|medical|med tech|hospital|pharma"),
     ("Technology", r"software|technology|\btech\b|\bai\b|programmer|\bsaas\b"),
     ("Accounting & Finance", r"accounting|finance|financial|\bcpa\b|bookkeep|banking"),
-    ("Logistics & Freight", r"logistic|freight|trucking|supply chain|warehous|3pl"),
+    ("Logistics & Freight", r"logistic|freigh|trucking|supply chain|warehous|3pl|brokerage"),
+    ("Property & Real Estate", r"property management|real estate|tenant|landlord"),
     ("Energy", r"energy|\boil\b|\bgas\b|solar|renewable"),
 )
 _NL_INDUSTRY_OTHER = "General"
 
 
 def _nl_industry(camp: dict) -> str:
-    """Headline a newsletter sits under. The name is checked first, so a
-    newsletter called "Utah Manufacturing" with an Aerospace niche still
-    reads as Manufacturing; the niche only decides when the name says
-    nothing (e.g. "Montana Market Minute" / Heavy Civil Contractor)."""
-    for _text in (camp.get("name"), camp.get("market_niche")):
+    """Headline a newsletter sits under. The niche is checked first: it is
+    the industry the user picked, while names are often topical ("AI vs
+    Offshore", niche Freight Brokerages). The name decides when the niche
+    is blank or says nothing ("Kansas Manufacturing")."""
+    for _text in (camp.get("market_niche"), camp.get("name")):
         _t = str(_text or "").lower()
         if not _t:
             continue

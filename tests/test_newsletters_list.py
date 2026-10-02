@@ -41,7 +41,7 @@ def test_list_css_is_in_the_global_stylesheet():
     assert "{_nl_list_css()}" in inspect.getsource(fa)
 
 
-def test_industry_reads_the_name_first_then_the_niche():
+def test_industry_reads_the_niche_first_then_the_name():
     ind = fa._nl_industry
     assert ind({"name": "Kansas Manufacturing"}) == "Manufacturing"
     assert ind({"name": "Utah Manufacturing", "market_niche": "Aerospace"}) == "Manufacturing"
@@ -63,6 +63,14 @@ def test_industry_reads_the_name_first_then_the_niche():
     assert ind({"name": "Offshore Accounting Talent"}) == "Accounting & Finance"
     assert ind({"name": "Freight Brokerage Brief"}) == "Logistics & Freight"
     assert ind({"name": "Arena Direct Hire Market Note"}) == "General"
+    assert ind({"name": "AI vs Offshore - I've got the answer",
+                "market_niche": "Freigh Brokerages"}) == "Logistics & Freight"
+    assert ind({"name": "AI Didn't Replace Human Interaction.",
+                "market_niche": "CPA Firms"}) == "Accounting & Finance"
+    assert ind({"name": "Doors, Tenants, and a Team in the Philippines",
+                "market_niche": "Property Management"}) == "Property & Real Estate"
+    assert ind({"name": "Healthcare Project Delivery 2026",
+                "market_niche": "Healthcare Construction"}) == "Construction"
     assert ind({}) == "General"
 
 
