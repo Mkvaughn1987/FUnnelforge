@@ -12,6 +12,7 @@ increase cost).
 """
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 
 
@@ -48,7 +49,8 @@ def test_cache_hits_after_first_write(tmp_path, monkeypatch):
         "heavy-civil": {
             "fill_window_days": "50 to 65",
             "trend_summary": "fill windows have stretched",
-            "_cached_at": "2026-05-10T12:00:00",
+            # Fresh timestamp: a hardcoded date ages past the 30-day TTL.
+            "_cached_at": datetime.now().isoformat(timespec="seconds"),
         }
     }
     fa._MARKET_STATS_CACHE_PATH.write_text(json.dumps(cache), encoding="utf-8")

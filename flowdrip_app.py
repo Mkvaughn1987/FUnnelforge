@@ -23715,6 +23715,10 @@ def _render_nl_first_gen_status(s, rf) -> None:
                 ui.editor(value=_body0), _TOOLBAR_FULL).style(
                 "min-height:340px;max-height:52vh;overflow:auto;"
                 "border-radius:8px;background:#FFFFFF;")
+            try:
+                s._register_qeditor(_inline_editor, "nl_first_gen_inline")
+            except Exception:
+                pass
         else:
             ui.label(
                 "The issue generated but has no preview body yet — open it in "
@@ -46569,7 +46573,11 @@ def _jway_render(d: dict, contact_name: str) -> str:
     out.append(f"<p style='{P}margin-top:14px;'>"
                f"{_md(d.get('signoff') or 'Thank you, and I hope this was helpful!')}</p>")
     out.append(f"<p style='{P}margin-top:2px;'>Warm regards,</p>")
-    return _strip_dashes("".join(out))
+    # White "paper" behind the hard-coded #222 text, or it renders
+    # dark-on-dark in the dark-theme editor canvas.
+    return _strip_dashes(
+        "<div style='background:#ffffff;color:#222;padding:12px 16px;'>"
+        + "".join(out) + "</div>")
 
 
 def _generate_jway_newsletter(client, camp: dict, nl_name: str, company: str,

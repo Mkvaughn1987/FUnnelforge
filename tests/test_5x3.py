@@ -276,6 +276,23 @@ def test_attach_noop_when_no_pdfs():
 
 def test_build_resumes_from_cards_5x3_representative(with_user):
     import flowdrip_app as fa
+    # Only bench-shortfall filler (_synthetic) is labeled representative;
+    # a real card without a _pool_id renders as a real redacted résumé (054701f).
+    cards = [{"label": "Candidate A", "role": "Project Manager", "_synthetic": True,
+              "bullets": ["OSHPD healthcare TIs", "Procore, Bluebeam"]}]
+    saved = fa._build_redacted_resumes_from_cards(cards, "fivebythree", client=None)
+    assert saved == ["Resume_Candidate_A_Redacted.pdf"]
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        from PyPDF2 import PdfReader
+    txt = "\n".join((p.extract_text() or "")
+                    for p in PdfReader(str(fa._user_pdf_dir()/saved[0])).pages)
+    assert "representative" in txt.lower()
+
+
+def test_build_resumes_from_cards_5x3_real_card_not_representative(with_user):
+    import flowdrip_app as fa
     cards = [{"label": "Candidate A", "role": "Project Manager",
               "bullets": ["OSHPD healthcare TIs", "Procore, Bluebeam"]}]
     saved = fa._build_redacted_resumes_from_cards(cards, "fivebythree", client=None)
@@ -286,7 +303,8 @@ def test_build_resumes_from_cards_5x3_representative(with_user):
         from PyPDF2 import PdfReader
     txt = "\n".join((p.extract_text() or "")
                     for p in PdfReader(str(fa._user_pdf_dir()/saved[0])).pages)
-    assert "representative" in txt.lower()          # no _pool_id -> representative
+    assert "representative" not in txt.lower()
+    assert "oshpd healthcare tis" in txt.lower()
 
 
 def test_build_resumes_from_cards_legacy_thin(with_user):
