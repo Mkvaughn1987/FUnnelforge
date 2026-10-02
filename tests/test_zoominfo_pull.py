@@ -306,3 +306,23 @@ def test_pending_runs_lists_only_sales_campaign_runs(ff):
     out = sc.pending_runs(OWNER, limit=10)
     assert [r["run_id"] for r in out] == [run["run_id"]]
     assert out[0]["kind"] == "sales_campaign"
+
+
+@pytest.mark.parametrize("key", [r["key"] for r in aip.ARENA.routines])
+def test_every_arena_prompt_runs_straight_through(key):
+    """Every DripDrop AI Prompt runs end to end, the base catalogue too,
+    including a picked start date left blank (Mike 2026-10-02)."""
+    r = aip.ARENA.routine_by_key[key]
+    for rep in (False, True):
+        for when in (None, "Pick a date and time"):
+            v = aip.defaults_for(r)
+            v.update(repeat_on=rep)
+            if when and "start_when" in r["field_by_key"]:
+                v.update(start_when=when, start_on="")
+            text = " ".join(aip.build_prompt({"routine": key, "vals": v},
+                                             aip.ARENA).split())
+            assert "say go" not in text, (key, rep, when)
+            assert "wait for me" not in text.lower(), (key, rep, when)
+            assert "ask me before you start" not in text, (key, rep, when)
+            assert "ask me for it" not in text, (key, rep, when)
+            assert "Show me the result before" not in text, (key, rep)

@@ -1161,8 +1161,7 @@ ROUTINES = [
             "{what}",
             "{done_clause}",
             "{newsletter_step}",
-            "Show me the result before acting on anything that leaves this "
-            "machine.",
+            "{result_step}",
         ],
     },
 ]
@@ -1286,7 +1285,7 @@ class _Fill(dict):
         return ""
 
 
-def _start_date(r, vals):
+def _start_date(r, vals, cat=None):
     """create_campaign takes an ISO date or the literal "auto", which the
     server resolves to the upcoming Monday. Say which one and why, so the
     date in the prompt cannot be read as a typo for another week."""
@@ -1306,6 +1305,10 @@ def _start_date(r, vals):
         try:
             day = date.fromisoformat(_txt(r, vals, "start_on"))
         except ValueError:
+            # A run-through catalogue never stops to ask: no date picked
+            # falls back to the upcoming Monday.
+            if (cat or _CAT).run_through:
+                return '"auto", which the server resolves to the upcoming Monday'
             return ("the date I give you — ask me for it before you build "
                     "anything")
         return '"%s" and start_time "%s"' % (
@@ -1313,7 +1316,7 @@ def _start_date(r, vals):
             _clock(_txt(r, vals, "start_at") or "8:00am"))
     # "A date I'll give ..." is no longer offered; answers saved with it
     # still open and still ask.
-    if when.startswith("A date"):
+    if when.startswith("A date") and not (cat or _CAT).run_through:
         return "the date I give you — ask me for it before you build anything"
     return '"auto", which the server resolves to the upcoming Monday'
 
@@ -1385,9 +1388,14 @@ def _derived(r, vals, cat=None):
                         "that looks wrong as you go"
                         if solo else "stop and wait for me to say go")
     d["go_prefix"] = "Then" if solo else "Once I say go,"
+    d["result_step"] = ("Before anything leaves this machine, say in one "
+                        "line what is going out, then carry on."
+                        if solo else
+                        "Show me the result before acting on anything that "
+                        "leaves this machine.")
 
     d["template_clause"] = _template_clause(r, vals, cat)
-    d["start_date"] = _start_date(r, vals)
+    d["start_date"] = _start_date(r, vals, cat)
     d["skip_clause"] = _skip_clause(r, vals)
     d["posting_age_lc"] = (d.get("posting_age") or "").lower()
 

@@ -59,10 +59,13 @@ def test_pick_a_date_left_blank_still_asks():
     assert "What date the first email should go out" not in qs
 
 
-def test_saved_answer_with_the_old_option_still_asks():
+def test_saved_answer_with_the_old_option_never_stops_to_ask():
+    # DripDrop runs end to end (Mike 2026-10-02): an old "A date I'll give"
+    # answer starts on the upcoming Monday instead of asking.
     out = aip._start_date({"field_by_key": {}},
                           {"start_when": "A date I'll give the AI"})
-    assert "ask me" in out
+    assert "ask me" not in out
+    assert '"auto"' in out
 
 
 def test_validate_accepts_and_rejects_start_time():
