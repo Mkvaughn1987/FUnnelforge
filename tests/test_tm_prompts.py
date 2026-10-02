@@ -562,7 +562,7 @@ def test_every_run_that_can_be_recommended_for_declares_its_keys(tm):
                           "who_to_reach"],
         "tm_displacement": ["location", "company_size", "roles",
                             "who_to_reach", "search_terms"],
-        "tm_cost_pressure": ["states", "lookback", "location",
+        "tm_cost_pressure": ["states", "lookback",
                              "company_size", "roles", "who_to_reach"],
         "tm_seasonal": ["season_note", "location", "company_size", "roles",
                         "who_to_reach"],

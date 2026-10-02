@@ -1294,10 +1294,14 @@ def _vertical_field(default=DEFAULT_VERTICAL):
                   "test, and the prompt says so.")
 
 
-def _targeting_fields():
+def _targeting_fields(where=True):
+    # where=False on a run whose own question already says where to look
+    # (cost pressure's WARN state list): two boxes for one answer only
+    # invited them to disagree. Mike 2026-10-02.
     return [
         F("location", "Where", "details", "textarea", hint=_REC,
           placeholder="Recommended area for the vertical"),
+    ][:1 if where else 0] + [
         F("company_size", "How big a company", "details", hint=_REC,
           placeholder="Recommended band for the vertical"),
         F("roles", "Which roles they are hiring for", "details",
@@ -1579,7 +1583,7 @@ ROUTINES = [
     {
         "key": "tm_cost_pressure",
         "name": "Scan for cost pressure",
-        "recommend": ["states", "lookback", "location", "company_size",
+        "recommend": ["states", "lookback", "company_size",
                       "roles", "who_to_reach"],
         "blurb": "Layoff notices, private-equity roll-ups and office "
                  "closures in one vertical: companies under pressure to do "
@@ -1600,15 +1604,15 @@ ROUTINES = [
                         "good estimate. The why-line says what it found."),
             F("lookback", "How far back to look", "details",
               default="the last 90 days"),
-        ] + _targeting_fields() + _newsletter_fields() + _email_fields(
+        ] + _targeting_fields(where=False) + _newsletter_fields() + _email_fields(
             DEFAULT_SEQUENCE) + _size_fields("5", "4", "120") + \
             _TM_SKIP_FIELDS,
         "steps": [
             "{vertical_guide}",
-            "Read the state WARN notice pages for {states} over {lookback} "
-            "and the news for private-equity acquisitions, roll-ups and "
-            "office closures among {vertical_label} companies in "
-            "{location}. Use your ZoomInfo connector's search_scoops for "
+            "Read the state WARN notice pages for {states} over {lookback}, "
+            "and the news in those states for private-equity acquisitions, "
+            "roll-ups and office closures among {vertical_label} "
+            "companies. Use your ZoomInfo connector's search_scoops for "
             "leadership changes and funding. Keep companies of about "
             "{company_size} where the cut hit operations, admin or "
             "back-office roles and the company is still trading, not "
