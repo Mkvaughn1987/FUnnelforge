@@ -20786,6 +20786,7 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
 {_sidebar_layout_css()}
 {_polish_css()}
 {_nl_list_css()}
+{_ct_css()}
 </style>""")
     # Global JS helper  -  insert text at cursor position in any focused input/textarea
     # or contenteditable (QEditor body). Tracks last-focused input so that
@@ -33758,229 +33759,247 @@ def p_contacts(s, rf):
             _show_page_help(s, rf, "contacts")
         ui.label("Import, manage, and browse your contact lists.").classes("fd-sub")
 
+    # Which saved list is loaded into the active CSV (byte-identical copy).
+    _active_list_name = None
+    _active_path = None
+    if contacts and _user_contacts_csv_path().exists():
+        try:
+            _active_data = _user_contacts_csv_path().read_bytes()
+            for _sname, _spath in saved.items():
+                sp = Path(_spath)
+                if sp.exists() and sp.stat().st_size == len(_active_data) and sp.read_bytes() == _active_data:
+                    _active_list_name = _sname.replace("_", " ")
+                    _active_path = _spath
+                    break
+        except Exception:
+            pass
+
     def _save_contacts_to_csv(contact_list):
-        """Write contacts back to the active CSV atomically (write tmp, replace)."""
-        _atomic_write_csv_text(
-            _user_contacts_csv_path(),
-            _contacts_csv_text(contact_list, _CONTACT_COLMAP_SNAKE))
+        """Write contacts back to the active CSV atomically (write tmp, replace),
+        and to the saved list it came from so edits stick to that list."""
+        text = _contacts_csv_text(contact_list, _CONTACT_COLMAP_SNAKE)
+        _atomic_write_csv_text(_user_contacts_csv_path(), text)
+        if _active_path:
+            try:
+                _atomic_write_csv_text(Path(_active_path), text)
+            except Exception:
+                pass
 
-    with ui.element("div").style("display:grid;grid-template-columns:260px 1fr;gap:20px;"):
-        # ── LEFT: Import + Saved Lists ──────────────────────────────────────
-        with ui.element("div"):
-            ui.label("Contact Lists").style(
-                f"font-size:15px;font-weight:700;color:{C['text_l']};margin-bottom:16px;"
-                f"font-family:'Nunito',sans-serif;")
+    def _on_uploaded(_new):
+        rf()
+    _upload_el = _contact_upload_and_name(s, rf, _on_uploaded)
 
-            def _on_uploaded(new_contacts):
-                rf()
-            _upload_el = _contact_upload_and_name(s, rf, _on_uploaded)
+    def _bind_search(inp, rows):
+        """Show only the rows whose text contains the search box's text."""
+        def _apply(e=None):
+            q = (inp.value or "").strip().lower()
+            for el, hay in rows:
+                el.set_visibility(not q or q in hay)
+        inp.on_value_change(_apply)
 
-            # Visible "Import New List" button  -  the upload widget itself is
-            # hidden (in a zero-height wrapper) and triggered via pickFiles().
-            with ui.element("button").classes("fd-pb").style(
-                    "width:100%;padding:10px 14px;font-size:13px;font-weight:700;"
-                    "display:flex;align-items:center;justify-content:center;gap:6px;"
+    # ── A list is open: its contacts get the whole page ─────────────────────
+    if contacts:
+        def _clear_list():
+            try:
+                _user_contacts_csv_path().unlink(missing_ok=True)
+            except Exception:
+                pass
+            s.expanded = {k for k in s.expanded if not str(k).startswith("contact_")}
+            rf()
+
+        def _add_new():
+            contacts.insert(0, dict(first_name="", last_name="", email="", company="", title="",
+                                    phone_mobile="", phone_office="", linkedin="", city="", state=""))
+            _save_contacts_to_csv(contacts)
+            s.expanded.add("contact_0"); rf()
+
+        with ui.element("div").classes("fd-ct-head"):
+            with ui.element("button").classes("fd-ct-back").props('type="button"').on("click", _clear_list):
+                ui.label("← All lists").style("pointer-events:none;")
+            ui.label(_active_list_name or "Loaded contacts").classes("fd-ct-title")
+            ui.element("div").style("flex:1;")
+            with ui.element("button").classes("fd-pb").props('type="button"').style(
+                    "padding:8px 18px;font-size:13px;font-weight:700;").on("click", _add_new):
+                ui.label("＋ Add contact").style("pointer-events:none;")
+
+        _n_email = sum(1 for c in contacts if c.get("email"))
+        _n_li = sum(1 for c in contacts if c.get("linkedin"))
+        _n_mob = sum(1 for c in contacts if c.get("phone_mobile"))
+        _meta = [f"{len(contacts)} contact{'s' if len(contacts) != 1 else ''}",
+                 f"{_n_email} with email", f"{_n_li} on LinkedIn"]
+        if _n_mob:
+            _meta.append(f"{_n_mob} mobile")
+        ui.label(" · ".join(_meta)).classes("fd-ct-meta")
+
+        _ct_search = None
+        if len(contacts) > 5:
+            with ui.element("div").classes("fd-filters").style("margin-bottom:12px;"):
+                _ct_search = ui.input(placeholder="Search name, title, company, email…").props(
+                    "dense outlined clearable").classes("fd-input")
+
+        _ct_rows = []
+        _shown = contacts[:500]
+        with ui.element("div").classes("fd-ct-people"):
+            for idx, c in enumerate(_shown):
+                name = f"{c.get('first_name', '')} {c.get('last_name', '')}".strip()
+                ini = initials(name) if name else "??"
+                cid = f"contact_{idx}"
+                is_editing = cid in s.expanded
+                _meta_parts = [p for p in [c.get('title', ''), c.get('company', '')] if p]
+                _loc_str = ", ".join(p for p in [c.get('city', ''), c.get('state', '')] if p)
+                if _loc_str:
+                    _meta_parts.append(_loc_str)
+
+                with ui.element("div").classes("fd-ct-person") as _row:
+                    with ui.element("div").style("display:flex;align-items:center;gap:12px;"):
+                        ui.label(ini).classes("fd-ct-av")
+                        with ui.element("div").style("flex:1;min-width:0;"):
+                            ui.label(name or "New contact").classes("fd-ct-name")
+                            ui.label(" · ".join(_meta_parts)).classes("fd-ct-sub")
+                        _li_url = c.get("linkedin", "").strip()
+                        if _li_url:
+                            _li_href = _li_url if _li_url.startswith("http") else f"https://{_li_url}"
+                            with ui.link(target=_li_href, new_tab=True).classes("fd-ct-li"):
+                                ui.label("in")
+                        ui.label(c.get("email", "")).classes("fd-ct-email")
+
+                        def _edit(x=cid):
+                            s.expanded.symmetric_difference_update({x}); rf()
+
+                        def _del_contact(x=idx):
+                            contacts.pop(x)
+                            _save_contacts_to_csv(contacts)
+                            s.expanded = {k for k in s.expanded if not str(k).startswith("contact_")}
+                            rf()
+                        with ui.element("button").classes("fd-nl-more").props(
+                                'type="button" aria-label="More actions"').on("click.stop", lambda: None):
+                            ui.html(_NL_DOTS_SVG).style("pointer-events:none;display:flex;")
+                            with ui.menu().props("anchor='bottom right' self='top right'").classes("fd-nl-menu"):
+                                ui.menu_item("Close editor" if is_editing else "Edit",
+                                             on_click=_edit).classes("fd-nl-mi")
+                                ui.element("div").classes("fd-nl-div")
+                                ui.menu_item("Remove from list", on_click=_del_contact).classes(
+                                    "fd-nl-mi danger")
+
+                    # Inline edit form
+                    if is_editing:
+                        with ui.element("div").style(f"margin-top:10px;padding-top:10px;border-top:1px solid {C['border']};"):
+                            with ui.element("div").style("display:grid;grid-template-columns:1fr 1fr;gap:8px;"):
+                                fn = ui.input(value=c.get("first_name", ""), placeholder="First Name").classes("fd-input")
+                                ln = ui.input(value=c.get("last_name", ""), placeholder="Last Name").classes("fd-input")
+                                em_inp = ui.input(value=c.get("email", ""), placeholder="Email").classes("fd-input")
+                                co = ui.input(value=c.get("company", ""), placeholder="Company").classes("fd-input")
+                                ti = ui.input(value=c.get("title", ""), placeholder="Job Title").classes("fd-input")
+                                ph = ui.input(value=c.get("phone_mobile", ""), placeholder="Phone").classes("fd-input")
+                                ci_inp = ui.input(value=c.get("city", ""), placeholder="City").classes("fd-input")
+                                st_inp = ui.input(value=c.get("state", ""), placeholder="State").classes("fd-input")
+                            li_inp = ui.input(value=c.get("linkedin", ""), placeholder="LinkedIn URL").classes("fd-input").style("margin-top:8px;")
+                            def _save_contact(x=idx, f=fn, l=ln, e=em_inp, c2=co, t=ti, p=ph, li=li_inp, ci2=ci_inp, st2=st_inp):
+                                contacts[x].update(dict(
+                                    first_name=f.value, last_name=l.value, email=e.value,
+                                    company=c2.value, title=t.value, phone_mobile=p.value,
+                                    linkedin=li.value, city=ci2.value, state=st2.value))
+                                _save_contacts_to_csv(contacts)
+                                s.expanded.discard(f"contact_{x}")
+                                ui.notify("Contact saved", type="positive", timeout=1500); rf()
+                            with ui.element("div").style("display:flex;justify-content:flex-end;margin-top:8px;"):
+                                with ui.element("button").classes("fd-pb").style("padding:5px 14px;font-size:11px;").on("click", _save_contact):
+                                    ui.label("Save contact")
+                _ct_rows.append((_row, " ".join(
+                    [name, c.get("email", "")] + _meta_parts).lower()))
+        if len(contacts) > len(_shown):
+            ui.label(f"Showing the first {len(_shown)} of {len(contacts)}. Search to find anyone else.").classes(
+                "fd-ct-meta").style("margin-top:10px;")
+        if _ct_search is not None:
+            _bind_search(_ct_search, _ct_rows)
+        return
+
+    # ── No list open: every saved list in one table ─────────────────────────
+    with ui.element("div").classes("fd-ct-lists"):
+        with ui.element("div").classes("fd-filters").style("justify-content:space-between;margin-bottom:12px;"):
+            _ls_search = ui.input(placeholder="Search lists…").props(
+                "dense outlined clearable").classes("fd-input") if len(saved) > 5 else None
+            if _ls_search is None:
+                ui.element("div")
+            with ui.element("button").classes("fd-pb").props('type="button"').style(
+                    "padding:8px 18px;font-size:13px;font-weight:700;"
                     ).on("click", lambda: _upload_el.run_method("pickFiles")):
-                ui.label("＋ Import New List")
+                ui.label("＋ Import list").style("pointer-events:none;")
 
-            # Saved lists
-            ui.label("Saved Lists").classes("fd-sec").style("margin-top:20px;")
-            if not saved:
-                ui.label("No saved lists yet.").style(f"font-size:12px;color:{C['muted']};padding:8px 0;")
-            else:
-                with ui.element("div").style("max-height:500px;overflow-y:auto;"):
-                    for name, path in sorted(saved.items()):
-                        cnt = _get_csv_row_count(path) or "?"
-                        def _load_list(p=path, n=name):
-                            import shutil
-                            shutil.copy2(p, str(_user_contacts_csv_path()))
-                            ui.notify(f"✓ Loaded '{n}'", type="positive"); rf()
+        if not saved:
+            with ui.element("div").classes("fd-es").style("margin-top:0;"):
+                ui.label("📋").classes("fd-es-icon")
+                ui.label("No saved lists yet").classes("fd-es-title")
+                ui.label("Import a CSV to make your first list. Campaigns you run also "
+                         "save their contacts here.").classes("fd-es-body")
+            return
 
-                        with ui.element("div").style(
-                                f"display:flex;align-items:center;justify-content:space-between;"
-                                f"padding:8px 10px;border-bottom:1px solid {C['border']};"):
-                            # Clickable name area
-                            with ui.element("div").style(
-                                    "flex:1;cursor:pointer;min-width:0;").on("click", _load_list):
-                                ui.label(name.replace("_", " ")).style(
-                                    f"font-size:12px;font-weight:500;color:{C['text_l']};")
-                            ui.label(f"{cnt}").style(f"font-size:11px;color:{C['muted']};margin:0 8px;")
+        def _mtime(p):
+            try:
+                return Path(p).stat().st_mtime
+            except Exception:
+                return 0
+        _ls_rows = []
+        with ui.element("div").classes("fd-nl-list"):
+            with ui.element("div").classes("fd-nl-row fd-nl-head"):
+                ui.label("List").classes("fd-nl-cell")
+                ui.label("Contacts").classes("fd-nl-cell")
+                ui.label("Updated").classes("fd-nl-cell")
+                ui.element("div").classes("fd-nl-cell")
+            for name, path in sorted(saved.items(), key=lambda kv: -_mtime(kv[1])):
+                cnt = _get_csv_row_count(path)
+                label = name.replace("_", " ")
+                _mt = _mtime(path)
+                _upd = _humanize_iso_age(datetime.fromtimestamp(_mt).isoformat()) if _mt else "—"
 
-                            # Delete pill with confirmation dialog
-                            with ui.dialog() as confirm_dialog, ui.card().style(
-                                    f"background:{C['card']};border:1px solid {C['border']};min-width:360px;padding:24px;"):
-                                ui.label("Delete Contact List?").style(
-                                    f"font-size:16px;font-weight:700;color:{C['text_l']};margin-bottom:8px;"
-                                    f"font-family:'Nunito',sans-serif;")
-                                ui.label(f"This will permanently delete \"{name.replace('_', ' ')}\" ({cnt} contacts).").style(
-                                    f"font-size:13px;color:{C['muted']};margin-bottom:6px;")
-                                ui.label("This cannot be undone.").style(
-                                    f"font-size:12px;color:{C['danger']};font-weight:600;margin-bottom:20px;")
-                                with ui.element("div").style("display:flex;gap:10px;justify-content:flex-end;"):
-                                    with ui.element("button").style(
-                                            f"padding:8px 18px;border-radius:8px;font-size:13px;cursor:pointer;"
-                                            f"background:transparent;border:1px solid {C['border']};"
-                                            f"color:{C['muted']};font-family:inherit;").on(
-                                            "click", confirm_dialog.close):
-                                        ui.label("Cancel")
-                                    def _confirm_delete(p=path, n=name, d=confirm_dialog):
-                                        try:
-                                            Path(p).unlink(missing_ok=True)
-                                        except Exception:
-                                            pass
-                                        d.close()
-                                        ui.notify(f"Deleted '{n.replace('_', ' ')}'", type="warning")
-                                        rf()
-                                    with ui.element("button").style(
-                                            f"padding:8px 18px;border-radius:8px;font-size:13px;cursor:pointer;"
-                                            f"background:{C['danger']};color:white;border:none;"
-                                            f"font-weight:600;font-family:inherit;").on(
-                                            "click", _confirm_delete):
-                                        ui.label("🗑 Delete")
+                def _load_list(p=path, n=label):
+                    import shutil
+                    shutil.copy2(p, str(_user_contacts_csv_path()))
+                    rf()
 
-                            with ui.element("button").style(
-                                    f"display:inline-flex;align-items:center;padding:3px 10px;"
-                                    f"border-radius:99px;font-size:10px;font-weight:600;cursor:pointer;"
-                                    f"background:{_tint(C['danger'],'15')};color:{C['danger']};"
-                                    f"border:1px solid {_tint(C['danger'],'40')};font-family:inherit;"
-                                    f"white-space:nowrap;").on("click", confirm_dialog.open):
-                                ui.label("Delete")
-        # ── RIGHT: Active contact list view ─────────────────────────────────
-        with ui.element("div"):
-            # Detect which saved list is currently loaded
-            _active_list_name = None
-            if contacts and _user_contacts_csv_path().exists():
-                try:
-                    _active_size = _user_contacts_csv_path().stat().st_size
-                    _active_data = _user_contacts_csv_path().read_bytes()
-                    for _sname, _spath in saved.items():
-                        sp = Path(_spath)
-                        if sp.exists() and sp.stat().st_size == _active_size and sp.read_bytes() == _active_data:
-                            _active_list_name = _sname.replace("_", " ")
-                            break
-                except Exception:
-                    pass
-            if _active_list_name:
-                with ui.element("div").style("display:flex;align-items:center;gap:12px;margin-bottom:10px;"):
-                    def _clear_list():
-                        # Clear active contacts to go back to empty state
-                        try:
-                            _user_contacts_csv_path().unlink(missing_ok=True)
-                        except Exception:
-                            pass
-                        rf()
-                    with ui.element("span").style(
-                            f"font-size:12px;color:{C['muted']};cursor:pointer;"
-                            f"padding:4px 10px;border-radius:6px;border:1px solid {C['border']};"
-                            ).on("click", _clear_list):
-                        ui.label("← All Lists")
-                    ui.label(_active_list_name).style(
-                        f"font-size:18px;font-weight:700;color:{C['text_l']};"
+                with ui.dialog() as confirm_dialog, ui.card().style(
+                        f"background:{C['card']};border:1px solid {C['border']};min-width:360px;padding:24px;"):
+                    ui.label("Delete this list?").style(
+                        f"font-size:16px;font-weight:700;color:{C['text_l']};margin-bottom:8px;"
                         f"font-family:'Nunito',sans-serif;")
+                    ui.label(f"\"{label}\" and its {cnt or 0} contacts will be removed. "
+                             "Campaigns already running keep their contacts.").style(
+                        f"font-size:13px;color:{C['muted']};margin-bottom:20px;")
+                    with ui.element("div").style("display:flex;gap:10px;justify-content:flex-end;"):
+                        with ui.element("button").classes("fd-gb").on("click", confirm_dialog.close):
+                            ui.label("Cancel")
+                        def _confirm_delete(p=path, n=label, d=confirm_dialog):
+                            try:
+                                Path(p).unlink(missing_ok=True)
+                            except Exception:
+                                pass
+                            d.close()
+                            ui.notify(f"Deleted '{n}'", type="warning")
+                            rf()
+                        with ui.element("button").style(
+                                f"padding:8px 18px;border-radius:8px;font-size:13px;cursor:pointer;"
+                                f"background:{C['danger']};color:white;border:none;"
+                                f"font-weight:600;font-family:inherit;").on("click", _confirm_delete):
+                            ui.label("Delete list")
 
-            if not contacts:
-                with ui.element("div").classes("fd-es").style("margin-top:0;"):
-                    ui.label("📋").classes("fd-es-icon")
-                    ui.label("Pick a list to see its contacts").classes("fd-es-title")
-                    ui.label("Choose a saved list on the left, or import a new one.").classes("fd-es-body")
-            else:
-                # Top bar: stats + Add New Contact pill
-                with ui.element("div").style("display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;"):
-                    with ui.element("div").classes("fd-stat-strip").style("margin:0;flex:1;"):
-                        for n, l in [(len(contacts), "Total"),
-                                     (sum(1 for c in contacts if c.get("email")), "With Email"),
-                                     (sum(1 for c in contacts if c.get("phone_mobile")), "Mobile"),
-                                     (sum(1 for c in contacts if c.get("linkedin")), "LinkedIn")]:
-                            with ui.element("div").classes("fd-stat-cell"):
-                                ui.label(str(n)).classes("fd-sn"); ui.label(l).classes("fd-sl")
-
-                    def _add_new():
-                        contacts.insert(0, dict(first_name="", last_name="", email="", company="", title="",
-                                                phone_mobile="", phone_office="", linkedin="", city="", state=""))
-                        _save_contacts_to_csv(contacts)
-                        s.expanded.add("contact_0"); rf()
-                    ui.button("＋ Add New Contact", on_click=_add_new).props("unelevated no-caps").style(
-                            f"background:{C['teal']};color:{C['on_teal']};border-radius:99px;"
-                            f"font-size:12px;font-weight:700;white-space:nowrap;"
-                            f"font-family:'Nunito',sans-serif;flex-shrink:0;margin-left:12px;padding:7px 16px;")
-
-                # Contact cards (editable)
-                with ui.element("div").style("max-height:600px;overflow-y:auto;"):
-                    for idx, c in enumerate(contacts[:200]):
-                        name = f"{c.get('first_name', '')} {c.get('last_name', '')}".strip()
-                        ini = initials(name) if name else "??"
-                        cid = f"contact_{idx}"
-                        is_editing = cid in s.expanded
-
-                        with ui.element("div").style(
-                                f"background:{C['card']};border:1px solid {C['border']};"
-                                f"border-radius:8px;padding:10px 14px;margin-bottom:4px;"):
-                            with ui.element("div").style("display:flex;align-items:center;gap:10px;"):
-                                with ui.element("div").style(
-                                        f"width:30px;height:30px;border-radius:50%;background:{C['teal_dim']};"
-                                        f"color:{C['teal']};font-size:10px;font-weight:600;display:flex;"
-                                        f"align-items:center;justify-content:center;flex-shrink:0;"):
-                                    ui.label(ini)
-                                with ui.element("div").style("flex:1;min-width:0;"):
-                                    ui.label(name or "New Contact").style(f"font-size:13px;font-weight:500;color:{C['text_l']};")
-                                    _meta_parts = [p for p in [c.get('title', ''), c.get('company', '')] if p]
-                                    _loc_parts = [p for p in [c.get('city', ''), c.get('state', '')] if p]
-                                    _loc_str = ", ".join(_loc_parts)
-                                    if _loc_parts:
-                                        _meta_parts.append(_loc_str)
-                                    ui.label(" · ".join(_meta_parts)).style(
-                                        f"font-size:11px;color:{C['muted']};")
-                                # LinkedIn link
-                                _li_url = c.get("linkedin", "").strip()
-                                if _li_url:
-                                    _li_href = _li_url if _li_url.startswith("http") else f"https://{_li_url}"
-                                    with ui.link(target=_li_href, new_tab=True).style("text-decoration:none;flex-shrink:0;"):
-                                        ui.label("in").style(
-                                            f"font-size:10px;font-weight:800;color:{C['indigo']};"
-                                            f"background:{C['indigo_dim']};padding:2px 6px;border-radius:4px;"
-                                            f"cursor:pointer;")
-                                ui.label(c.get("email", "")).style(f"font-size:11px;color:{C['email_col']};flex-shrink:0;")
-                                # Edit button
-                                def _edit(x=cid):
-                                    s.expanded.symmetric_difference_update({x}); rf()
-                                with ui.element("span").style(
-                                        f"color:{C['teal']};cursor:pointer;font-size:12px;padding:2px 6px;").on("click", _edit):
-                                    ui.label("✎" if not is_editing else "▲")
-                                # Delete button
-                                def _del_contact(x=idx):
-                                    contacts.pop(x)
-                                    _save_contacts_to_csv(contacts)
-                                    rf()
-                                with ui.element("span").style(
-                                        f"color:{C['danger']};cursor:pointer;font-size:14px;padding:2px 6px;").on("click", _del_contact):
-                                    ui.label("✕")
-
-                            # Inline edit form
-                            if is_editing:
-                                with ui.element("div").style(f"margin-top:10px;padding-top:10px;border-top:1px solid {C['border']};"):
-                                    with ui.element("div").style("display:grid;grid-template-columns:1fr 1fr;gap:8px;"):
-                                        fn = ui.input(value=c.get("first_name", ""), placeholder="First Name").classes("fd-input")
-                                        ln = ui.input(value=c.get("last_name", ""), placeholder="Last Name").classes("fd-input")
-                                        em_inp = ui.input(value=c.get("email", ""), placeholder="Email").classes("fd-input")
-                                        co = ui.input(value=c.get("company", ""), placeholder="Company").classes("fd-input")
-                                        ti = ui.input(value=c.get("title", ""), placeholder="Job Title").classes("fd-input")
-                                        ph = ui.input(value=c.get("phone_mobile", ""), placeholder="Phone").classes("fd-input")
-                                        ci_inp = ui.input(value=c.get("city", ""), placeholder="City").classes("fd-input")
-                                        st_inp = ui.input(value=c.get("state", ""), placeholder="State").classes("fd-input")
-                                    li_inp = ui.input(value=c.get("linkedin", ""), placeholder="LinkedIn URL").classes("fd-input").style("margin-top:8px;")
-                                    def _save_contact(x=idx, f=fn, l=ln, e=em_inp, c2=co, t=ti, p=ph, li=li_inp, ci2=ci_inp, st2=st_inp):
-                                        contacts[x].update(dict(
-                                            first_name=f.value, last_name=l.value, email=e.value,
-                                            company=c2.value, title=t.value, phone_mobile=p.value,
-                                            linkedin=li.value, city=ci2.value, state=st2.value))
-                                        _save_contacts_to_csv(contacts)
-                                        s.expanded.discard(f"contact_{x}")
-                                        ui.notify("Contact saved", type="positive", timeout=1500); rf()
-                                    with ui.element("div").style("display:flex;justify-content:flex-end;margin-top:8px;"):
-                                        with ui.element("button").classes("fd-pb").style("padding:5px 14px;font-size:11px;").on("click", _save_contact):
-                                            ui.label("💾 Save Contact")
-
-                # (Add New Contact is at the top right of this panel)
+                with ui.element("div").classes("fd-nl-row").on("click", _load_list) as _row:
+                    with ui.element("div").classes("fd-nl-cell fd-nl-name"):
+                        ui.label(label).classes("fd-nl-title")
+                    ui.label(str(cnt) if cnt else "0").classes(
+                        "fd-nl-cell fd-nl-num" + ("" if cnt else " zero")).props('data-l="Contacts"')
+                    ui.label(_upd).classes("fd-nl-cell fd-nl-date").props('data-l="Updated"')
+                    with ui.element("div").classes("fd-nl-cell fd-nl-acts"):
+                        with ui.element("button").classes("fd-nl-more").props(
+                                'type="button" aria-label="More actions"').on("click.stop", lambda: None):
+                            ui.html(_NL_DOTS_SVG).style("pointer-events:none;display:flex;")
+                            with ui.menu().props("anchor='bottom right' self='top right'").classes("fd-nl-menu"):
+                                ui.menu_item("Open", on_click=_load_list).classes("fd-nl-mi")
+                                ui.element("div").classes("fd-nl-div")
+                                ui.menu_item("Delete list", on_click=confirm_dialog.open).classes(
+                                    "fd-nl-mi danger")
+                _ls_rows.append((_row, label.lower()))
+        if _ls_search is not None:
+            _bind_search(_ls_search, _ls_rows)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -38094,6 +38113,33 @@ _NL_DOTS_SVG = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="currentCo
                 'aria-hidden="true"><circle cx="5" cy="12" r="1.8"/>'
                 '<circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>')
 
+
+def _ct_css() -> str:
+    """Contacts page: the saved-lists table reuses the Newsletters list
+    (.fd-nl-*); an open list is a stack of light person rows."""
+    return f"""
+.fd-ct-lists{{max-width:980px}}
+.fd-ct-lists .fd-nl-row{{grid-template-columns:minmax(0,1fr) 90px 130px 44px}}
+.fd-ct-head{{display:flex;align-items:center;gap:12px;margin-bottom:4px}}
+.fd-ct-back{{font-size:12.5px;color:{C['muted']};background:transparent;border:1px solid {C['border']};
+  border-radius:8px;padding:5px 12px;cursor:pointer;font-family:inherit}}
+.fd-ct-back:hover{{color:{C['text_l']};background:{C['card_h']}}}
+.fd-ct-title{{font-size:20px;font-weight:700;color:{C['text_l']};font-family:'Nunito',sans-serif;
+  min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.fd-ct-meta{{font-size:13px;color:{C['muted']};margin:0 0 14px}}
+.fd-ct-people{{border:1px solid {C['border']};border-radius:12px;background:{C['card']};overflow:hidden}}
+.fd-ct-person{{padding:10px 14px;border-top:1px solid {C['border']}}}
+.fd-ct-person:first-child{{border-top:none}}
+.fd-ct-person:hover{{background:{C['card_h']}}}
+.fd-ct-av{{width:32px;height:32px;border-radius:50%;background:{C['teal_dim']};color:{C['teal']};
+  font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}}
+.fd-ct-name{{font-size:14px;font-weight:600;color:{C['text_l']}}}
+.fd-ct-sub{{font-size:12px;color:{C['muted']};overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+.fd-ct-li{{text-decoration:none;flex-shrink:0;font-size:10px;font-weight:800;color:{C['indigo']};
+  background:{C['indigo_dim']};padding:2px 6px;border-radius:4px}}
+.fd-ct-email{{font-size:12.5px;color:{C['text']};flex-shrink:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+@media (max-width:700px){{.fd-ct-email{{display:none}}}}
+"""
 
 def _nl_list_css() -> str:
     """Newsletters page list. One neutral surface; the only colour is the
