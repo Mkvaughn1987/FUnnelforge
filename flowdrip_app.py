@@ -13643,8 +13643,8 @@ def _sidebar_v2(s: AppState, rf):
             with ui.element("div").classes("fd-side-logo dd").props(
                     'role="button" tabindex="0" aria-label="Home"').on(
                     "click", lambda: _go("dashboard")):
-                ui.html(f'<span class="fd-side-drop">{_DD_DROP_SVG}</span>'
-                        '<span class="fd-side-word">Drip<b>Drip</b>Drop</span>')
+                ui.html('<span class="fd-side-word">Drip<b>Drip</b>Drop</span>'
+                        f'<span class="fd-side-drop">{_DD_DROP_SVG}</span>')
             _ws = _sidebar_workspace_name(s)
             _ws_menu = {"m": None}
             def _open_ws():
