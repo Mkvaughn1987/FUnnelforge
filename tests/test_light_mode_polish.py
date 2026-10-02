@@ -117,13 +117,12 @@ def test_evergreen_css_vars_defined_for_both_themes():
     )
 
 
-def test_newsletters_card_has_left_strip():
-    """p_newsletters card render must include border-left:4px solid
-    so the identity hue shows as a colored strip on the white card
-    in light mode."""
+def test_newsletters_page_is_one_neutral_list():
+    """2026-10-02: the per-newsletter colour cards (and their 4px identity
+    strip) were retired. The page is one neutral list styled by .fd-nl-*."""
     import flowdrip_app as fa
     src = inspect.getsource(fa.p_newsletters)
-    assert "border-left:4px solid" in src, (
-        "p_newsletters card render must include "
-        "'border-left:4px solid {fg};' for the colored identity strip"
-    )
+    assert "fd-nl-list" in src
+    assert "EVERGREEN_COLORS" not in src
+    assert "border-left:4px solid" not in src
+

@@ -20708,6 +20708,7 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
 }}
 {_sidebar_layout_css()}
 {_polish_css()}
+{_nl_list_css()}
 </style>""")
     # Global JS helper  -  insert text at cursor position in any focused input/textarea
     # or contenteditable (QEditor body). Tracks last-focused input so that
@@ -37964,6 +37965,70 @@ def _roundup_send_dialog(s, rf, issue: dict):
     dlg.open()
 
 
+def _nl_enrolled_count(camp: dict) -> int:
+    """Contacts still enrolled in a newsletter (removed ones don't count)."""
+    return len([c for c in (camp.get("contacts", []) or [])
+                if isinstance(c, dict) and not c.get("removed")])
+
+
+def _nl_short_date(value) -> str:
+    """'2026-09-18' / '2026-09-18T10:02:11' -> 'Sep 18, 2026'. '' if unusable."""
+    _v = str(value or "").strip()[:10]
+    try:
+        _d = date.fromisoformat(_v)
+    except Exception:
+        return ""
+    return f"{_d.strftime('%b')} {_d.day}, {_d.year}"
+
+
+def _nl_created_label(camp: dict) -> str:
+    return _nl_short_date(camp.get("created_date") or camp.get("created_at")
+                          or camp.get("created"))
+
+
+_NL_DOTS_SVG = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" '
+                'aria-hidden="true"><circle cx="5" cy="12" r="1.8"/>'
+                '<circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>')
+
+
+def _nl_list_css() -> str:
+    """Newsletters page list. One neutral surface; the only colour is the
+    danger tint on Delete. Below 900px the grid becomes a wrapping flex row
+    and each cell prints its own label."""
+    return f"""
+.fd-nl-list{{border:1px solid {C['border']};border-radius:12px;background:{C['card']};overflow:hidden}}
+.fd-nl-row{{display:grid;grid-template-columns:minmax(0,1fr) 84px 118px 118px 140px;align-items:center;
+  gap:12px;padding:12px 16px;border-top:1px solid {C['border']};cursor:pointer;transition:background-color .12s}}
+.fd-nl-row:first-child{{border-top:none}}
+.fd-nl-row:not(.fd-nl-head):hover{{background:{C['card_h']}}}
+.fd-nl-head{{cursor:default;padding:9px 16px;background:{C['surface']}}}
+.fd-nl-head .fd-nl-cell{{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:{C['muted']}}}
+.fd-nl-name{{min-width:0}}
+.fd-nl-title{{font-size:14px;font-weight:600;line-height:1.35;color:{C['text_l']};overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow-wrap:anywhere}}
+.fd-nl-note{{font-size:11px;color:{C['muted']};margin-top:2px}}
+.fd-nl-num{{font-size:14px;font-weight:700;color:{C['text_l']};font-variant-numeric:tabular-nums}}
+.fd-nl-num.zero{{color:{C['muted']};font-weight:500}}
+.fd-nl-date{{font-size:13px;color:{C['text']};white-space:nowrap}}
+.fd-nl-acts{{display:flex;justify-content:flex-end;align-items:center;gap:4px}}
+.fd-nl-enroll{{padding:6px 14px !important;font-size:12.5px !important;font-weight:600}}
+.fd-nl-more{{width:32px;height:32px;display:inline-flex;align-items:center;justify-content:center;
+  background:transparent;border:1px solid transparent;border-radius:8px;color:{C['muted']};cursor:pointer;padding:0}}
+.fd-nl-more:hover{{background:{C['surface']};border-color:{C['border']};color:{C['text_l']}}}
+.fd-nl-menu{{min-width:210px;padding:4px}}
+.fd-nl-mi{{font-size:13px;border-radius:6px;min-height:34px;padding:0 12px}}
+.fd-nl-mi.danger{{color:{C['danger']} !important}}
+.fd-nl-div{{height:1px;background:{C['border']};margin:4px 0}}
+@media (max-width:900px){{
+  .fd-nl-row{{display:flex;flex-wrap:wrap;gap:4px 14px}}
+  .fd-nl-row.fd-nl-head{{display:none}}
+  .fd-nl-name{{flex:1 1 calc(100% - 150px);order:1}}
+  .fd-nl-acts{{order:2;flex:0 0 auto}}
+  .fd-nl-num,.fd-nl-date{{order:3;font-size:12px;font-weight:500;color:{C['text']}}}
+  .fd-nl-row [data-l]::before{{content:attr(data-l) " ";color:{C['muted']}}}
+}}
+"""
+
+
 def p_newsletters(s, rf):
     """Dedicated Newsletters page. Shows ONLY newsletter campaigns —
     no slow drips, no amber reminder banner. Each card has a hero
@@ -38020,6 +38085,7 @@ def p_newsletters(s, rf):
 
         # Title left, actions right: the same header every other page uses.
         # It was the one centred page in the app.
+        # Title left, actions right: the same header every other page uses.
         with ui.element("div").style(
                 "display:flex;align-items:flex-start;justify-content:space-between;"
                 "gap:16px;flex-wrap:wrap;margin-bottom:18px;"):
@@ -38032,36 +38098,29 @@ def p_newsletters(s, rf):
                 except Exception:
                     pass
             ui.label(
-                "Each card below is one of your monthly newsletters. "
-                "Click View / Edit to open this month's issue, review what "
-                "Claude drafted, and tweak before it sends."
+                "Monthly newsletters. Open one to review this month's issue "
+                "before it sends."
             ).classes("fd-sub").style("margin-bottom:0;")
 
-          # Top action row — New Newsletter + Send Now (one-off send to a
-          # custom recipient list, separate from the scheduled enrolled-list
-          # sends). Send Now disabled when no newsletters exist yet.
+          # Send Now = one-off send to a custom list (separate from the
+          # scheduled enrolled-list sends); disabled until a newsletter exists.
+          # New Newsletter is the primary action, so it sits rightmost.
           with ui.element("div").style(
                 "display:flex;align-items:center;"
                 "gap:10px;flex-wrap:wrap;"):
-            with ui.element("button").classes("fd-pb").style(
-                    "padding:9px 22px;font-size:13px;").on(
-                    "click", lambda: _create_newsletter_dialog(s, rf)):
-                ui.label("+ New Newsletter")
-
-            # "From a Campaign" button removed 2026-05-20 — the only entry
-            # for spinning up a newsletter from a campaign is now the
-            # "Create a Newsletter from this campaign" card on the
-            # campaign launch screen (p_launch).
-
             _can_send = bool(camps)
             with ui.element("button").classes("fd-gb").style(
-                    f"padding:9px 20px;font-size:13px;font-weight:600;"
+                    f"padding:9px 18px;font-size:13px;font-weight:600;"
                     f"cursor:{'pointer' if _can_send else 'not-allowed'};"
                     f"opacity:{1 if _can_send else 0.5};"
                     ).on("click",
                          (lambda: _send_now_dialog(s, rf, camps))
                          if _can_send else (lambda: None)):
-                ui.label("Send a Newsletter Now").style("pointer-events:none;")
+                ui.label("Send one now").style("pointer-events:none;")
+            with ui.element("button").classes("fd-pb").style(
+                    "padding:9px 22px;font-size:13px;").on(
+                    "click", lambda: _create_newsletter_dialog(s, rf)):
+                ui.label("+ New Newsletter")
 
         # Deep link from preview email: ?edit_newsletter=<campaign_name>
         # Open the Edit modal for the named campaign on first render.
@@ -38093,68 +38152,42 @@ def p_newsletters(s, rf):
             _render_empty_state(s, rf, "newsletters")
             return
 
-        for i, camp in enumerate(camps):
-            bg, fg, border = EVERGREEN_COLORS[i % len(EVERGREEN_COLORS)]
-            steps = camp.get("emails", []) or []
-            contacts = camp.get("contacts", []) or []
-            _next_idx = _find_next_evergreen_step(camp)
-            _next_step = (steps[_next_idx]
-                          if _next_idx < len(steps) else None)
-            _was_auto = bool(_next_step
-                             and _next_step.get("auto_confirmed")
-                             and not _next_step.get("confirmed"))
+        # One neutral list, busiest newsletter first. The coloured cards
+        # were retired 2026-10-02: the hues meant nothing.
+        # Whole row opens View / Edit; Regenerate / Settings / Delete live
+        # behind the row's ⋯ menu so Enroll is the only visible button.
+        _nl_rows = sorted(camps, key=lambda c: (-_nl_enrolled_count(c),
+                                                 (c.get("name") or "").lower()))
+        with ui.element("div").classes("fd-nl-list"):
+            with ui.element("div").classes("fd-nl-row fd-nl-head"):
+                for _h in ("Name", "Enrolled", "Next issue", "Created", ""):
+                    ui.label(_h).classes("fd-nl-cell")
+            for camp in _nl_rows:
+                steps = camp.get("emails", []) or []
+                _n_enrolled = _nl_enrolled_count(camp)
+                _next_idx = _find_next_evergreen_step(camp)
+                _next_step = (steps[_next_idx]
+                              if _next_idx < len(steps) else None)
+                _was_auto = bool(_next_step
+                                 and _next_step.get("auto_confirmed")
+                                 and not _next_step.get("confirmed"))
+                if _next_step is None:
+                    _next_txt = "All sent"
+                else:
+                    _next_txt = (_nl_short_date(_next_step.get("fixed_date"))
+                                 or (_next_step.get("name") or "—"))
+                _busy = camp.get("name", "") in getattr(s, "_nl_refreshing", set())
 
-            # Hoisted above the title render so the title itself can use
-            # _edit as its click handler — clicking the name opens the
-            # same View / Edit modal the pill button does. Reported
-            # 2026-05-20 by user.
-            def _edit(c=camp):
-                _idx = _find_next_evergreen_step(c)
-                _emails = c.get("emails", []) or []
-                if _idx >= len(_emails):
-                    ui.notify("All newsletter issues have been sent.", type="info")
-                    return
-                _next = _emails[_idx]
-                _body = (_next.get("body") or "").strip()
-                _needs_create = (not _body) or "[AI:" in _body
-                _edit_newsletter_modal(s, rf, c, _idx, force_generate=_needs_create)
-
-            with ui.element("div").style(
-                    f"background:{bg};border:1px solid {border};"
-                    f"border-left:4px solid {fg};border-radius:10px;"
-                    f"padding:14px 18px;margin-bottom:10px;display:flex;"
-                    f"align-items:center;justify-content:space-between;gap:14px;"):
-                with ui.element("div").style("flex:1;min-width:0;"):
-                    # Newsletter title — clickable, opens View / Edit modal.
-                    # Inline-block + hover underline so the affordance is
-                    # discoverable without a bordered button look.
-                    with ui.element("div").style(
-                            "display:inline-block;cursor:pointer;"
-                            ).on("click", _edit):
-                        ui.label(camp.get("name", "")).style(
-                            f"font-size:15px;font-weight:700;color:{fg};"
-                            f"pointer-events:none;text-decoration:underline;"
-                            f"text-decoration-color:{fg}55;"
-                            f"text-underline-offset:3px;")
-                    _meta = (
-                        f"{len(steps)} issues · {len(contacts)} enrolled"
-                        + (f" · next: {_next_step.get('name','')}"
-                           if _next_step else "")
-                    )
-                    ui.label(_meta).style(
-                        f"font-size:11px;color:{C['muted']};margin-top:2px;")
-                    if _was_auto:
-                        ui.label("ⓘ Auto-refreshed").style(
-                            f"font-size:10px;color:{C['muted']};"
-                            f"background:{C['surface']};border:1px solid {C['border']};"
-                            f"border-radius:99px;padding:1px 8px;margin-top:4px;"
-                            f"display:inline-block;")
-
-                # Action buttons: + Enroll (manage contacts) and View / Edit
-                # (open the focused modal — same modal handles both first-time
-                # generation when the issue body is blank, and edits when the
-                # user wants to tweak an already-rendered issue).
-                _btn_color = C["indigo"]
+                def _edit(c=camp):
+                    _idx = _find_next_evergreen_step(c)
+                    _emails = c.get("emails", []) or []
+                    if _idx >= len(_emails):
+                        ui.notify("All newsletter issues have been sent.", type="info")
+                        return
+                    _next = _emails[_idx]
+                    _body = (_next.get("body") or "").strip()
+                    _needs_create = (not _body) or "[AI:" in _body
+                    _edit_newsletter_modal(s, rf, c, _idx, force_generate=_needs_create)
 
                 def _enroll(c=camp):
                     _enroll_dialog(c, s, rf)
@@ -38274,72 +38307,49 @@ def p_newsletters(s, rf):
                                 ui.label("Delete")
                     _dlg.open()
 
-                # 2026-05-25 — added ⚙ Settings icon so users can edit
-                # the candidate spotlight recipe (recommendations, count,
-                # city-life toggle) on existing newsletters without
-                # recreating them. Manual "🔄 Re-roll" icon was added
-                # then removed the same day — auto-refresh already
-                # regenerates each upcoming issue once within 3 days of
-                # its send (see _auto_refresh_newsletter_tick), so
-                # candidates auto-roll month-to-month with no user click
-                # needed. The _refresh closure is kept defined above
-                # because other call sites still use it.
-                with ui.element("div").style(
-                        "flex-shrink:0;display:flex;gap:6px;align-items:center;"):
-                    # + Enroll — primary CTA, full pill
-                    with ui.element("button").classes("fd-pb").style(
-                            f"padding:9px 18px;font-size:13px;background:{fg};").on(
-                            "click", _enroll):
-                        ui.label("＋ Enroll").style("pointer-events:none;")
-                    # Regenerate (back 2026-09-19: the only other route was
-                    # ⚙ → Save, which nobody would find). Rewrites the next
-                    # unsent issue; the card polls until the worker is done.
-                    _busy = camp.get("name", "") in getattr(s, "_nl_refreshing", set())
-                    with ui.element("button").style(
-                            f"padding:9px 14px;font-size:13px;line-height:1;"
-                            f"background:transparent;color:{C['text']};"
-                            f"border:1px solid {C['border']};border-radius:8px;"
-                            f"cursor:{'wait' if _busy else 'pointer'};font-family:inherit;"
-                            f"opacity:{0.6 if _busy else 1};"
-                            ).on("click", _refresh):
-                        ui.label("Regenerating…" if _busy else "↻ Regenerate").style(
-                            "pointer-events:none;")
-                        ui.tooltip("Rewrite the next unsent issue with fresh content. "
-                                   "Takes about a minute.")
-                    if _busy:
-                        def _poll(n=camp.get("name", "")):
-                            if n not in getattr(s, "_nl_refreshing", set()):
-                                ui.notify(f"\"{n}\" regenerated. Open it to take a look.",
-                                          type="positive")
-                                rf()
-                        ui.timer(4.0, _poll)
-                    # Settings — opens the per-campaign settings dialog
-                    # for spotlight recommendations, count, city life.
-                    def _open_settings(c=camp):
-                        _edit_newsletter_settings_dialog(c, s, rf)
-                    with ui.element("button").style(
-                            f"padding:9px 11px;font-size:13px;line-height:1;"
-                            f"background:transparent;color:{C['text']};"
-                            f"border:1px solid {C['border']};border-radius:8px;"
-                            f"cursor:pointer;font-family:inherit;"
-                            ).on("click", _open_settings):
-                        ui.label("⚙").style("pointer-events:none;")
-                        ui.tooltip(
-                            "Settings — edit the profiles and topic. "
-                            "Saving regenerates the next upcoming issue."
-                            if _SALES_MODE else
-                            "Settings — edit spotlight recommendations, "
-                            "candidate count, and City Life toggle. "
-                            "Saving regenerates the next upcoming issue.")
-                    # Delete — icon only, tooltip explains
-                    with ui.element("button").style(
-                            f"padding:9px 11px;font-size:13px;line-height:1;"
-                            f"background:transparent;color:{C['danger']};"
-                            f"border:1px solid {_tint(C['danger'],'40')};border-radius:8px;"
-                            f"cursor:pointer;font-family:inherit;"
-                            ).on("click", _delete_nl):
-                        ui.label("✕").style("pointer-events:none;")
-                        ui.tooltip("Delete this newsletter")
+                def _open_settings(c=camp):
+                    _edit_newsletter_settings_dialog(c, s, rf)
+
+                with ui.element("div").classes("fd-nl-row").on("click", _edit):
+                    with ui.element("div").classes("fd-nl-cell fd-nl-name"):
+                        ui.label(camp.get("name", "")).classes("fd-nl-title")
+                        if _busy:
+                            ui.label("Regenerating the next issue…").classes("fd-nl-note")
+                        elif _was_auto:
+                            ui.label("Next issue auto-refreshed").classes("fd-nl-note")
+                    ui.label(str(_n_enrolled) if _n_enrolled else "—").classes(
+                        "fd-nl-cell fd-nl-num" + ("" if _n_enrolled else " zero")
+                        ).props('data-l="Enrolled"')
+                    ui.label(_next_txt).classes("fd-nl-cell fd-nl-date").props(
+                        'data-l="Next issue"')
+                    ui.label(_nl_created_label(camp) or "—").classes(
+                        "fd-nl-cell fd-nl-date").props('data-l="Created"')
+                    with ui.element("div").classes("fd-nl-cell fd-nl-acts"):
+                        with ui.element("button").classes("fd-gb fd-nl-enroll").props(
+                                'type="button"').on("click.stop", _enroll):
+                            ui.label("＋ Enroll").style("pointer-events:none;")
+                        with ui.element("button").classes("fd-nl-more").props(
+                                'type="button" aria-label="More actions"'
+                                ).on("click.stop", lambda: None):
+                            ui.html(_NL_DOTS_SVG).style("pointer-events:none;display:flex;")
+                            with ui.menu().props(
+                                    "anchor='bottom right' self='top right'"
+                                    ).classes("fd-nl-menu"):
+                                ui.menu_item("View / Edit", on_click=_edit).classes("fd-nl-mi")
+                                ui.menu_item(
+                                    "Regenerating…" if _busy else "Regenerate next issue",
+                                    on_click=_refresh).classes("fd-nl-mi")
+                                ui.menu_item("Settings", on_click=_open_settings).classes("fd-nl-mi")
+                                ui.element("div").classes("fd-nl-div")
+                                ui.menu_item("Delete", on_click=_delete_nl).classes(
+                                    "fd-nl-mi danger")
+                if _busy:
+                    def _poll(n=camp.get("name", "")):
+                        if n not in getattr(s, "_nl_refreshing", set()):
+                            ui.notify(f"\"{n}\" regenerated. Open it to take a look.",
+                                      type="positive")
+                            rf()
+                    ui.timer(4.0, _poll)
 
     # ── Slow Drip section ────────────────────────────────────────────────
     # Shelved 2026-05-20 per user — was rendered here as
