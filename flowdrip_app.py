@@ -41608,13 +41608,20 @@ def p_seq_mgr(s, rf):
     # _active_regular / _active_drips sort and the dashboard ordering).
     completed.sort(key=_camp_recency_ts, reverse=True)
 
+    # Active and Completed are separate views. A campaign opened from
+    # elsewhere (Home, Replies) switches to the view it belongs to.
+    _sel0 = s.sel_camp_name
+    if _sel0:
+        if any(c.get("name", "") == _sel0 for c in completed):
+            s._mgr_show_completed = True
+        elif any(c.get("name", "") == _sel0 for c in active):
+            s._mgr_show_completed = False
+    _show_completed = s._mgr_show_completed
+
     with ui.element("div").style("display:flex;align-items:center;"):
-        ui.label("Current Campaigns").classes("fd-h1")
+        ui.label("Completed Campaigns" if _show_completed else "Current Campaigns").classes("fd-h1")
         _show_page_help(s, rf, "seq_mgr")
     ui.label(f"{len(active)} active · {len(completed)} completed").classes("fd-sub")
-
-    # Toggle: clicking Completed pill shows/hides completed in sidebar
-    _show_completed = s._mgr_show_completed
 
     def _toggle_completed():
         s._mgr_show_completed = not s._mgr_show_completed
@@ -41628,7 +41635,8 @@ def p_seq_mgr(s, rf):
         _comp_cls = " on" if _show_completed else ""
         with ui.element("button").classes("fd-hub" + _comp_cls).style(
                 "border-radius:8px;padding:7px 16px;font-size:12px;").on("click", _toggle_completed):
-            ui.label(f"Show Completed ({len(completed)})")
+            ui.label(f"Show Active ({len(active)})" if _show_completed
+                     else f"Show Completed ({len(completed)})")
 
     # Auto-select: respect whether we're viewing active or completed
     _show_completed = s._mgr_show_completed
@@ -41691,7 +41699,9 @@ def p_seq_mgr(s, rf):
                         elif cq.get("sent", 0) > 0:
                             ui.label(f"· {cq['sent']} sent").style(f"font-size:11px;color:{C['muted']};")
 
-            # Active Campaigns section
+            # Active Campaigns section (hidden in the Completed view)
+            if _show_completed:
+                _active_regular, _active_drips = [], []
             if _active_regular:
                 with ui.element("div").style(
                         f"padding:12px 16px 6px;display:flex;align-items:center;gap:6px;"):
@@ -41715,13 +41725,18 @@ def p_seq_mgr(s, rf):
                     _render_camp_item(camp)
 
             # Show message if nothing active
-            if not _active_regular and not _active_drips:
+            if not _show_completed and not _active_regular and not _active_drips:
                 with ui.element("div").style(
                         f"padding:12px 16px 6px;display:flex;align-items:center;gap:6px;"):
                     ui.label("No active campaigns").style(
                         f"font-size:12px;color:{C['muted']};")
 
-            # Completed section - only shown when user clicks the stat
+            if _show_completed and not completed:
+                with ui.element("div").style("padding:12px 16px 6px;"):
+                    ui.label("No completed campaigns yet").style(
+                        f"font-size:12px;color:{C['muted']};")
+
+            # Completed section - the Completed view's only list
             if _show_completed and completed:
                 with ui.element("div").style(
                         f"padding:10px 16px 6px;margin-top:4px;"
