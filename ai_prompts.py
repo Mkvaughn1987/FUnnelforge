@@ -1040,6 +1040,92 @@ ROUTINES = [
         ],
     },
     {
+        "key": "resume_sweep",
+        "name": "Load new resumes into DripDrop and Talent Trekker",
+        "blurb": "Find the resumes downloaded since the last run and add the "
+                 "new people to the DripDrop Pipeline and Talent Trekker.",
+        "example": "Load this week's downloaded resumes into DripDrop and TT",
+        # The resume-sweep (TT) and dripdrop-resume-load (DD) skills folded
+        # into one run with one ledger. DripDrop goes first because the
+        # connector needs no browser; Talent Trekker is Chrome work and the
+        # half most likely to stall, so the ledger records each place
+        # separately and a person who only made it into one is retried for
+        # the other next time instead of being pushed twice.
+        "tools": ["candidates_count", "candidates_search",
+                  "import_candidates"],
+        "fields": [
+            F("where", "Where your resumes download to", "details",
+              default="my Downloads folder"),
+            F("since", "Which files", "details", "select",
+              default="Anything new since the last run",
+              options=["Anything new since the last run",
+                       "Only the last 7 days",
+                       "Everything in the folder"],
+              hint="The first run has no last run to go by, so it takes "
+                   "the last 7 days."),
+            F("to_tt", "Add them to Talent Trekker as well", "details",
+              "toggle", default=True),
+        ],
+        "steps": [
+            "Check the setup first: confirm you can read the files in "
+            "{where}, take a candidates_count so there is a before number"
+            "{tt_setup_clause} Never type a password or try to sign in for "
+            "me.",
+            "Keep a ledger file called .resume_sweep_ledger.json in that "
+            "folder: the time of the last run, and one entry per person with "
+            "name, email, phone, the file's sha256, and whether they are in "
+            "DripDrop and in Talent Trekker. Create it if it is not there. "
+            "{since_clause}",
+            "Look at .pdf, .doc and .docx files only. Skip anything under "
+            "3KB but list every one you skipped by name - a short text-only "
+            "resume can be 4KB. The same person often downloads several "
+            "times (Jane Doe resume.pdf, Jane Doe resume (1).pdf, "
+            "Jane-Doe-resume-2.pdf): keep the newest, and the largest if "
+            "two are the same age. Match any filename filter on whole words, "
+            "never part of a word.",
+            "Open each one and pull the candidate's own email and 10-digit "
+            "phone - not a recruiter, job board or no-reply address, and "
+            "not a reference's. Leave out anything that is not a person's "
+            "resume: client submittal copies, fit summaries, job "
+            "descriptions, position packets, interview guides, agreements, "
+            "and anonymised Candidate A/B/C cards. Never open anything "
+            "personal or medical that happens to be in the folder. A resume "
+            "with no email and no phone cannot be checked for duplicates, "
+            "so hold it and list it for me.",
+            "A PDF with pages but almost no text is usually an Indeed or "
+            "LinkedIn profile saved as images - it is a real resume. Read "
+            "the text with OCR, but look at the name, phone and email at "
+            "the top of page 1 yourself rather than trusting the OCR, "
+            "because that line is exactly what the duplicate check runs on. "
+            "If you cannot confirm it by eye, hold that person and tell me.",
+            "Check each person against the ledger by email, phone or file "
+            "sha256 - never by name. Someone already in both places is "
+            "done; someone in only one still needs the other.",
+            "DripDrop: before importing anyone, run candidates_search on "
+            "their email, then their phone, and skip them if they are "
+            "already in the Pipeline. Import the rest with import_candidates "
+            "- each file as filename and content_base64, about 10 files a "
+            "call, each under 10MB - and read the status it gives back for "
+            "every file. Take a candidates_count afterwards and tell me if "
+            "the difference does not match what the imports said.",
+            "{tt_step}",
+            "Only mark a person as in DripDrop or Talent Trekker in the "
+            "ledger once you have seen them land there. If something failed, "
+            "leave it unmarked so the next run picks it up. Never move, "
+            "rename or delete anything in the folder.",
+            "This job reads files on this computer and uses my Chrome, so "
+            "when you make it repeat, make it a scheduled task that runs on "
+            "this computer, not one that runs in the cloud - a cloud run "
+            "cannot see my Downloads folder.",
+            "When you finish, give me: who went into DripDrop, who went "
+            "into Talent Trekker, who was skipped as already there and on "
+            "which match, copies collapsed, files left out and why, files "
+            "under 3KB, anyone held for a contact line you could not "
+            "confirm, and any failures with the exact error. Put anything I "
+            "need to deal with under ACTION FOR ME at the end.",
+        ],
+    },
+    {
         "key": "other",
         "name": "Something else",
         "blurb": "Anything that is not one of the above.",
@@ -1507,6 +1593,43 @@ def _derived(r, vals, cat=None):
             "you needs contacts from ZoomInfo, pull them this way, " + zi_who
             + " Do the setup check now, tell me it is ready, and use this "
             "for every job after it.")
+
+    # ── Resumes into DripDrop and Talent Trekker ──────────────────────────
+    since = d.get("since") or ""
+    if since.startswith("Only the last 7"):
+        d["since_clause"] = ("Take files downloaded in the last 7 days.")
+    elif since.startswith("Everything"):
+        d["since_clause"] = (
+            "Take every file in the folder, whatever its age. Tell me how "
+            "many that is before you start pushing.")
+    else:
+        d["since_clause"] = (
+            "Take files downloaded since the last run in the ledger. With "
+            "no ledger yet, take the last 7 days and say so.")
+    if _flag(r, vals, "to_tt"):
+        d["tt_setup_clause"] = (
+            ", and open arena.talent-trekker.com in Chrome to confirm I am "
+            "signed in. If Talent Trekker is not reachable, do the DripDrop "
+            "half anyway and list everyone as waiting on Talent Trekker.")
+        d["tt_step"] = (
+            "Talent Trekker, one person at a time: search the email in the "
+            "search box at the top, then the phone as 10 digits and as "
+            "(NNN) NNN-NNNN. A Talent match means they are already there - "
+            "skip them. A Customer Representative match is not a duplicate, "
+            "but tell me about it. For each new person go to Talents, click "
+            "Create Talent, attach their resume file and wait for it to "
+            "read the resume. Then set Talent Status Type to Direct Hire, "
+            "Talent Status to Applicant and Source to Resume Upload "
+            "yourself - Create does nothing if Source is empty, without "
+            "saying so - check the name, email and phone match the resume, "
+            "and click Create. If the file will not attach, type the fields "
+            "in and tell me which records have no resume file on them. "
+            "\"Phone number already linked to another Talent\" means they "
+            "are already there. Search their email afterwards to confirm "
+            "the record exists before you count it.")
+    else:
+        d["tt_setup_clause"] = "."
+        d["tt_step"] = ""
 
     done = d.get("done_when") or ""
     d["done_clause"] = ("I will know it worked when %s." % done if done
@@ -1983,6 +2106,28 @@ STARTERS = [
         # the cap stops it at 25, a card it cannot read is skipped rather
         # than guessed at, and any LinkedIn warning stops the run outright.
         "vals": {"repeat_on": True, "repeat_every": "Every day",
+                 "unattended": "Run it all the way through"},
+    },
+    {
+        "id": "resume_sweep",
+        "icon": "upload_file",
+        "label": "Automatically upload resumes from your Downloads into DD "
+                 "& TT, Wednesday and Friday",
+        "sub": "Every Wednesday and Friday the AI finds the resumes you "
+               "downloaded since the last run, skips anyone already in, and "
+               "adds the new people to your DripDrop Pipeline and to Talent "
+               "Trekker. Runs on your computer, so it needs the AI's Chrome "
+               "extension and you signed in to Talent Trekker.",
+        "summary": "Find the resumes I downloaded since the last run and add "
+                   "the new people to my DripDrop Pipeline and to Talent "
+                   "Trekker, skipping anyone already in either one.",
+        "routine": "resume_sweep",
+        # Opens with the schedule on: Wednesday and Friday is the job. Runs
+        # unattended for the same reason as the LinkedIn card - the safety
+        # net is the email/phone check against each system, not a person
+        # saying go.
+        "vals": {"repeat_on": True, "repeat_every": "Every other day",
+                 "repeat_days": "Wednesday, Friday", "repeat_time": "3:00pm",
                  "unattended": "Run it all the way through"},
     },
     {
