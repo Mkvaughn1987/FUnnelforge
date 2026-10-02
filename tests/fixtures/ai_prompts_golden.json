@@ -804,7 +804,7 @@
    "starter": "zi_seat",
    "ask_extra": [],
    "routine": "zi_seat",
-   "title": "Pull ZoomInfo contacts with my own seat when Bulk Credits run out",
+   "title": "Teach Claude to Use ZoomInfo",
    "summary": "Pull ZoomInfo contacts - the shared Bulk Credits first, then my own ZoomInfo seat in Chrome when they run out - and tell me exactly what to fix if anything stops it.",
    "vals": {
     "companies": "",
@@ -842,7 +842,7 @@
    "starter": "zi_seat",
    "ask_extra": [],
    "routine": "zi_seat",
-   "title": "Pull ZoomInfo contacts with my own seat when Bulk Credits run out",
+   "title": "Teach Claude to Use ZoomInfo",
    "summary": "Pull ZoomInfo contacts - the shared Bulk Credits first, then my own ZoomInfo seat in Chrome when they run out - and tell me exactly what to fix if anything stops it.",
    "vals": {
     "companies": "Summit Mechanical, Front Range Fab",

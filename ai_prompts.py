@@ -2018,8 +2018,7 @@ STARTERS = [
     {
         "id": "zi_seat",
         "icon": "contact_mail",
-        "label": "Pull ZoomInfo contacts with my own seat when Bulk Credits "
-                 "run out",
+        "label": "Teach Claude to Use ZoomInfo",
         "sub": "When the shared Bulk Credits say Limit exceeded, the AI "
                "switches to your own ZoomInfo login in Chrome. List the "
                "companies, or leave it blank to make it the rule for the "
