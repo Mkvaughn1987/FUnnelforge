@@ -154,7 +154,7 @@ def test_keyword_search_with_meta_returns_tuple(ats_mod):
 
 
 def test_keyword_search_radius_narrows_results(ats_mod, monkeypatch):
-    monkeypatch.setattr(ats_mod, "geocode_text", lambda s: _ORIGIN)
+    monkeypatch.setattr(ats_mod, "geocode_place", lambda s: (_ORIGIN, ""))
     _seed(ats_mod, "Near", "Santa Ana", "CA", _NEAR)
     _seed(ats_mod, "Mid", "Los Angeles", "CA", _MID)
     _seed(ats_mod, "Far", "San Diego", "CA", _FAR)
@@ -170,7 +170,7 @@ def test_keyword_search_radius_narrows_results(ats_mod, monkeypatch):
 
 def test_keyword_search_unlocatable_candidate_is_reported_not_silently_dropped(
         ats_mod, monkeypatch):
-    monkeypatch.setattr(ats_mod, "geocode_text", lambda s: _ORIGIN)
+    monkeypatch.setattr(ats_mod, "geocode_place", lambda s: (_ORIGIN, ""))
     _seed(ats_mod, "Near", "Santa Ana", "CA", _NEAR)
     _seed(ats_mod, "Nowhere", "", "", None)
     rows, meta = ats_mod.keyword_search(
@@ -213,7 +213,7 @@ def test_keyword_search_owner_scope_still_applies_alongside_new_filters(ats_mod)
 def test_keyword_search_filters_apply_before_the_limit_is_taken(ats_mod, monkeypatch):
     """The radius filter runs in Python, so the SQL page has to be widened
     first — otherwise limit=N would return fewer than N in-range candidates."""
-    monkeypatch.setattr(ats_mod, "geocode_text", lambda s: _ORIGIN)
+    monkeypatch.setattr(ats_mod, "geocode_place", lambda s: (_ORIGIN, ""))
     for i in range(20):
         _seed(ats_mod, f"Far{i:02d}", "San Diego", "CA", _FAR)
     for i in range(3):
@@ -232,7 +232,7 @@ def test_jd_search_explicit_location_overrides_the_parsed_one(ats_mod, monkeypat
         "title": "Project Manager", "must_have_skills": ["OSHA"],
         "nice_to_have": [], "location": "", "seniority": "Senior"})
     # us_geo.csv is server-only data; pin the origin like the other radius tests.
-    monkeypatch.setattr(ats_mod, "geocode_text", lambda s: _ORIGIN)
+    monkeypatch.setattr(ats_mod, "geocode_place", lambda s: (_ORIGIN, ""))
     _seed(ats_mod, "Near", "Santa Ana", "CA", _NEAR)
     _seed(ats_mod, "Far", "San Diego", "CA", _FAR)
 
@@ -248,7 +248,7 @@ def test_jd_search_falls_back_to_parsed_location(ats_mod, monkeypatch):
         "title": "Project Manager", "must_have_skills": ["OSHA"],
         "nice_to_have": [], "location": "Irvine, CA", "seniority": "Senior"})
     # us_geo.csv is server-only data; pin the origin like the other radius tests.
-    monkeypatch.setattr(ats_mod, "geocode_text", lambda s: _ORIGIN)
+    monkeypatch.setattr(ats_mod, "geocode_place", lambda s: (_ORIGIN, ""))
     _seed(ats_mod, "Near", "Santa Ana", "CA", _NEAR)
     _seed(ats_mod, "Far", "San Diego", "CA", _FAR)
 

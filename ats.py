@@ -914,6 +914,31 @@ def find_by_ref_or_alias(q: str, owner: str = None) -> list:
         con.close()
 
 
+def quick_find(q: str, limit: int = 8) -> list:
+    """Candidates for the top-bar search: a Ref # or alias first, then
+    anyone whose name or email contains what was typed. Every word has to
+    match, so "john smi" finds John Smith. Whole team's pool."""
+    q = (q or "").strip()
+    if len(q) < 2:
+        return []
+    direct = find_by_ref_or_alias(q)
+    words = [w for w in q.lower().split() if w][:4]
+    con = _con()
+    try:
+        hay = ("lower(coalesce(first_name,'') || ' ' || coalesce(last_name,'') "
+               "|| ' ' || coalesce(email,'') || ' ' || coalesce(client_alias,''))")
+        where = " AND ".join([hay + " LIKE ?"] * len(words))
+        rows = con.execute(
+            "SELECT * FROM talents WHERE " + where + " ORDER BY id DESC LIMIT ?",
+            ["%" + w + "%" for w in words] + [limit]).fetchall()
+        ids = {r["id"] for r in direct}
+        return (direct + [dict(r) for r in rows if r["id"] not in ids])[:limit]
+    except Exception:
+        return direct[:limit]
+    finally:
+        con.close()
+
+
 def keyword_search(q: str, limit: int = 80, strict: bool = False,
                    owner: str = None, location: str = None,
                    radius_mi: float = None, added_within_days: int = None,
@@ -4633,6 +4658,66 @@ def _view_stub(ff, st, title, blurb):
             f"font-size:13px;color:{_c(C,'muted','#94A3B8')};margin-top:8px;")
 
 
+def _quick_find_box(ff, st, refresh):
+    """Top-bar search: type a name, email or Ref #, click a match to open
+    the candidate. Same look as the header search on the rest of DripDrop
+    (.fd-ph-search styles come from flowdrip_app's injected CSS)."""
+    try:
+        icon = ff._svg_icon("search", 15)
+    except Exception:
+        icon = ""
+    with ui.element("div").classes("fd-ph-search").style("margin-left:0;"):
+        if icon:
+            ui.html(icon)
+        inp = ui.input(placeholder="Search candidates by name").props(
+            'borderless dense clearable aria-label="Search candidates"')
+        box = ui.element("div").classes("fd-ph-results")
+        box.set_visibility(False)
+
+        def _open(tid):
+            box.set_visibility(False)
+            st.update({"sel": tid, "tab": "resume", "view": "profile"})
+            refresh()
+
+        def _search(e):
+            q = (e.value or "").strip()
+            box.clear()
+            if len(q) < 2:
+                box.set_visibility(False); return
+            rows = quick_find(q)
+            with box:
+                if not rows:
+                    ui.label("No candidates match.").classes("fd-ph-res-empty")
+                for r in rows:
+                    nm = f"{r.get('first_name') or ''} {r.get('last_name') or ''}".strip()
+                    lbl = nm or r.get("email") or f"Ref #{r['id']}"
+                    sub = r.get("current_title") or ""
+                    loc = ", ".join(x for x in (r.get("city"), r.get("state")) if x)
+                    if sub and loc:
+                        sub += " · " + loc
+                    elif loc:
+                        sub = loc
+                    with ui.element("div").classes("fd-ph-res").on(
+                            "click", lambda _i=r["id"]: _open(_i)):
+                        with ui.element("div").style("flex:1;min-width:0;"):
+                            ui.label(lbl).classes("fd-ph-res-lbl").style("display:block;")
+                            if sub:
+                                ui.label(sub).style(
+                                    "display:block;font-size:11px;opacity:.7;white-space:nowrap;"
+                                    "overflow:hidden;text-overflow:ellipsis;")
+                        ui.label(f"#{r['id']}").classes("fd-ph-res-kind")
+            box.set_visibility(True)
+
+        def _first(_e=None):
+            rows = quick_find(inp.value or "")
+            if rows:
+                _open(rows[0]["id"])
+
+        inp.on_value_change(_search)
+        inp.on("keydown.enter", _first)
+        inp.on("keydown.escape", lambda: (inp.set_value(""), box.set_visibility(False)))
+
+
 def _render_app(ff, st, refresh):
     C = ff.C
     # Top bar
@@ -4658,6 +4743,7 @@ def _render_app(ff, st, refresh):
                 "click", lambda: ui.navigate.to("/")):
             ui.label("← Back to DripDrop")
         ui.element("div").style("flex:1;")
+        _quick_find_box(ff, st, refresh)
         ui.label(st.get("name", "")).style(f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
 
     # Body: sidebar + content
