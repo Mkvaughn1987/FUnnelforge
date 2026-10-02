@@ -351,6 +351,22 @@ def _vertical_guide(v, own_signals=False):
 _FROM_VERTICAL = (("company_size", "band"), ("who_to_reach", "buyers"),
                   ("roles", "roles"))
 
+ANY_SIZE = "Any size"
+
+
+def _rec_for(r, v, key, attr):
+    """The recommendation for one targeting box. A routine can override the
+    market's own under "defaults": the agency run takes any size, because a
+    company already paying an agency is a lead whatever its headcount."""
+    return (r.get("defaults") or {}).get(key) or v[attr]
+
+
+def _size_clause(size):
+    if " ".join(str(size or "").split()).lower() == ANY_SIZE.lower():
+        return ("of any size - never drop a company for being too big or "
+                "too small")
+    return "of about %s" % size
+
 
 def _derive_staffing(r, vals, d):
     """Engine hook. A blank targeting answer means "use the recommendation
@@ -366,8 +382,8 @@ def _derive_staffing(r, vals, d):
     for key, attr in _FROM_VERTICAL:
         if (key in r["field_by_key"] and v.get(attr)
                 and not str(vals.get(key) or "").strip()):
-            d[key] = v[attr]
-            vals[key] = v[attr]
+            d[key] = vals[key] = _rec_for(r, v, key, attr)
+    d["size_clause"] = _size_clause(d.get("company_size"))
     if "signals" in r["field_by_key"]:
         # No key = a request that never saw the screen, which gets the
         # recommendation. An EMPTY key = someone cleared the list on
@@ -423,10 +439,11 @@ def prefill_staffing(r, vals, written=None):
         if key not in r["field_by_key"]:
             continue
         cur = str(vals.get(key) or "").strip()
-        stale = any(cur == other[attr] for other in VERTICALS)
+        stale = any(cur == _rec_for(r, other, key, attr)
+                    or cur == other[attr] for other in VERTICALS)
         if cur and cur != str(written.get(key) or "").strip() and not stale:
             continue
-        vals[key] = out[key] = v[attr]
+        vals[key] = out[key] = _rec_for(r, v, key, attr)
 
     for key, (menu_of, ids_of, _prose) in CHECKS.items():
         if key not in r["field_by_key"]:
@@ -648,8 +665,8 @@ ROUTINES = [
     {
         "key": "staff_agency_displace",
         "name": "Win business from other agencies",
-        "recommend": ["company_size", "roles", "who_to_reach",
-                      "search_terms"],
+        "recommend": ["roles", "who_to_reach", "search_terms"],
+        "defaults": {"company_size": ANY_SIZE},
         "blurb": "A company already paying an agency has decided to use a "
                  "recruiter. Find the roles in your market that other "
                  "staffing and search firms are working, work out who the "
@@ -684,8 +701,8 @@ ROUTINES = [
             "Only keep a company you can name with a reason; never guess. "
             "Drop the agencies themselves.",
             "{skip_clause}",
-            "Land {companies} companies of about {company_size}, the "
-            "longest-open and most-reposted roles first. For each pick say "
+            "Land {companies} companies {size_clause}. Longest-open and "
+            "most-reposted roles first. For each pick say "
             "which role, where you saw it, how long it has been open and how "
             "you identified the employer. The first email never names the "
             "other agency and never runs it down: it offers to get the role "
