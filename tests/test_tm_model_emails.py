@@ -18,7 +18,7 @@ def test_the_seven_models_and_their_subjects():
         ("Capacity", "More room for the work that matters"),
         ("Economics", "What would the role actually cost?"),
         ("Role scope", "A clearer scope for the role"),
-        ("After the person joins", "After the person joins"),
+        ("After the candidate joins", "After the candidate joins"),
         ("Quality and control", "What you would assess before hiring"),
         ("Commitment", "Start with the role requirements"),
         ("Close", "Leaving this with you"),

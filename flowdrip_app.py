@@ -5610,13 +5610,13 @@ AICB_CAMPAIGN_TYPES = [
      "scope) - Name the tasks the person would own in one role that fits this "
      "company and what the client's team keeps. Name the position the way the "
      "buyer would, never 'virtual assistant'.\n"
-     "Step 6 - After the person joins (delay_days:3, step_type:email_auto) "
-     "(model: After the person joins) - Cite customer proof ONLY as the "
+     "Step 6 - After the candidate joins (delay_days:3, step_type:email_auto) "
+     "(model: After the candidate joins) - Cite customer proof ONLY as the "
      "approved-proof field allows; if it approves nothing, cite no customer.\n"
      "Step 7 - Follow-up Call 2 (delay_days:0, step_type:call) - SAME DAY as "
      "Step 6. Short call script in the body: reference the note about "
      "onboarding, ask which role they would add first and who would bring that "
-     "person up to speed. Add a voicemail line under 20 seconds.\n"
+     "candidate up to speed. Add a voicemail line under 20 seconds.\n"
      "Step 8 - Quality and control (delay_days:4, step_type:email_auto) "
      "(model: Quality and control) - Name two or three skills that matter for "
      "the role you scoped in Step 5.\n"
@@ -5670,8 +5670,8 @@ AICB_CAMPAIGN_TYPES = [
      "or the user's notes, and ask them to confirm or correct it. No pricing.\n"
      "Step 3 - Follow-up Call (delay_days:0, step_type:call) - SAME DAY as "
      "Step 2. Script: walk the requirements list, agree the interview panel.\n"
-     "Step 4 - After the person joins (delay_days:3, step_type:email_auto) "
-     "(model: After the person joins) - Its question ties to the next step "
+     "Step 4 - After the candidate joins (delay_days:3, step_type:email_auto) "
+     "(model: After the candidate joins) - Its question ties to the next step "
      "they already agreed. Cite customer proof ONLY as the approved-proof "
      "field allows.\n"
      "Step 5 - Commitment (delay_days:4, step_type:email_auto) (model: "
@@ -5727,8 +5727,8 @@ AICB_CAMPAIGN_TYPES = [
      "Step 4 - Economics (delay_days:10, step_type:email_auto) (model: "
      "Economics) - Still no pressure: offer the comparison for whenever the "
      "moment arrives. The only email that states the saving.\n"
-     "Step 5 - After the person joins (delay_days:14, step_type:email_auto) "
-     "(model: After the person joins) - Cite customer proof ONLY as the "
+     "Step 5 - After the candidate joins (delay_days:14, step_type:email_auto) "
+     "(model: After the candidate joins) - Cite customer proof ONLY as the "
      "approved-proof field allows; if it approves nothing, cite no customer.\n"
      "Step 6 - Close (delay_days:14, step_type:email_auto) (model: Close) - "
      "Warm, and explicitly the last scheduled note."),
@@ -5795,13 +5795,15 @@ AICB_CAMPAIGN_TYPES = [
      "Step 5 - Role scope (delay_days:3, step_type:email_auto) (model: Role "
      "scope) - Name the tasks the person would own in the target role and what "
      "the client's team keeps, drawn from the BRIEF. Name the position the way "
-     "the buyer would, never 'virtual assistant'.\n"
-     "Step 6 - After the person joins (delay_days:3, step_type:email_auto) "
-     "(model: After the person joins) - Cite customer proof ONLY as the "
+     "the buyer would, never 'virtual assistant'. The system adds three "
+     "candidate profiles to this email before its question.\n"
+     "Step 6 - After the candidate joins (delay_days:3, step_type:email_auto) "
+     "(model: After the candidate joins) - Cite customer proof ONLY as the "
      "approved-proof field allows; if it approves nothing, cite no customer.\n"
      "Step 7 - Quality and control (delay_days:4, step_type:email_auto) "
      "(model: Quality and control) - Name two or three skills that matter for "
-     "the target role.\n"
+     "the target role. The system adds the same candidate profiles to this "
+     "email again before its question.\n"
      "Step 8 - Follow-up Call 2 (delay_days:0, step_type:call) - SAME DAY as "
      "Step 7. Script: ask which skill would matter most for the role and who "
      "would interview. Voicemail line under 20 seconds.\n"
@@ -5809,7 +5811,12 @@ AICB_CAMPAIGN_TYPES = [
      "Commitment) - As the model does, offer to put the scope and current "
      "commercial terms in front of them for review; do not list the terms.\n"
      "Step 10 - Close (delay_days:5, step_type:email_auto) (model: Close) - "
-     "The last email in the sequence."),
+     "The last email in the sequence. Honest and warm, no pressure: keep the "
+     "model's promise to stay in touch about once a month, say plainly that a "
+     "dedicated hire can cost them well under a comparable local hire (no "
+     "figure in this email), and invite them to take a chance on one role. "
+     "The system adds two candidate profiles to this email before its "
+     "question."),
     ("tm_threebythree", "Quick Intro", "3 steps - 2 weeks", "#EF4444",
      "Three short emails over about a week and a half, email only: the work, "
      "the cost, then a straight answer. For big lists where you want a fast "
@@ -7063,8 +7070,8 @@ _TM_MODEL_EMAILS = [
         "handle exceptions outside the coordinator's authority. That gives "
         "the person clear ownership without leaving responsibilities vague.",
         "Would a one-page outline of that role help?")),
-    ("After the person joins", "After the person joins", (
-        "Choosing the person is one part of adding capacity. Getting them up "
+    ("After the candidate joins", "After the candidate joins", (
+        "Choosing the candidate is one part of adding capacity. Getting them up "
         "to speed takes a clear handoff, access to the right systems and "
         "someone to set priorities.",
         "We coordinate setup and stay involved afterwards, "
@@ -7412,7 +7419,7 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
             _tm_add_campaign_profiles(
                 client, campaign_data, ai_profiles, roles_str,
                 niche_str or ind_label or company, company=company,
-                brief=brief)
+                brief=brief, camp_type=camp_type)
         except Exception as ex:
             print(f"[AICB] TM candidate profiles failed: {ex}", flush=True)
     _spread_email_times(campaign_data.get("emails", []))
@@ -62522,7 +62529,7 @@ _TM_PROFILES_LEAD = "Here are some of the candidate profiles in our pipeline:"
 # Told to the campaign writer so it leaves room instead of writing its own.
 _TM_PROFILES_WRITER_NOTE = (
     "CANDIDATE PROFILES: the system adds a short set of candidate profiles to "
-    "one of the follow-up emails after you write the campaign. Do not write "
+    "one or more of the follow-up emails after you write the campaign. Do not write "
     "candidate profiles or describe individual candidates yourself, and do "
     "not promise profiles in any other email.\n\n")
 
@@ -62531,9 +62538,33 @@ _TM_PROFILE_STEP_WORDS = ("candidate", "profile", "talent", "who we",
                           "people", "team", "bench", "shortlist", "pipeline",
                           "what we need", "role")
 
+# Standard Outreach shows the same candidates three times (Mike 2026-10-02):
+# introduced on Role scope, sent again on Quality and control, and two of
+# them on the Close. The last lead says nothing about what happened to the
+# third: the profiles are typical of the pipeline, not people we can say
+# were placed.
+_TM_PROFILES_AGAIN_LEAD = ("Here are those candidate profiles in our pipeline "
+                           "again, in case my last note got buried:")
+_TM_PROFILES_LAST_LEAD = ("Good candidates in our pipeline get placed, so who "
+                          "is available changes. Here are two of the "
+                          "candidate profiles I shared, one last time:")
+_TM_PROFILES_LEADS = (_TM_PROFILES_LEAD, _TM_PROFILES_AGAIN_LEAD,
+                      _TM_PROFILES_LAST_LEAD)
+# type -> ((model subject, email number to fall back on, lead, how many or
+# None for all), ...)
+_TM_PROFILE_ROUNDS = {
+    "tm_fivebyseven": (
+        ("A clearer scope for the role", 3, _TM_PROFILES_LEAD, None),
+        ("What you would assess before hiring", 5, _TM_PROFILES_AGAIN_LEAD,
+         None),
+        ("Leaving this with you", 7, _TM_PROFILES_LAST_LEAD, 2),
+    ),
+}
+
 # One profile set as written by _tm_profiles_html, for rerunnable removal.
 _TM_PROFILES_BLOCK_RE = re.compile(
-    r"(?:<br\s*/?>\s*)*" + re.escape(_TM_PROFILES_LEAD)
+    r"(?:<br\s*/?>\s*)*(?:"
+    + "|".join(re.escape(x) for x in _TM_PROFILES_LEADS) + ")"
     + r"(?:\s*<br\s*/?>)+"
     r"(?:<b>Candidate [A-Z]:[^<]*</b>[^<]*(?:<br\s*/?>\s*•[^<]*)+"
     r"(?:\s*<br\s*/?>)*)+", re.IGNORECASE)
@@ -62644,9 +62675,9 @@ def _tm_generate_campaign_profiles(client, n, roles, niche, company="",
     return sorted(out, key=lambda p: not p["rate"])[:n]
 
 
-def _tm_profiles_html(profiles) -> str:
+def _tm_profiles_html(profiles, lead=None) -> str:
     """The profile set as it appears in the email."""
-    parts = [_TM_PROFILES_LEAD]
+    parts = [lead or _TM_PROFILES_LEAD]
     for i, p in enumerate(profiles):
         head = (f"<b>Candidate {chr(65 + i)}: {p['title']}</b>"
                 f" · {p['years']} years")
@@ -62656,7 +62687,8 @@ def _tm_profiles_html(profiles) -> str:
     return "<br><br>".join(parts)
 
 
-_TM_PROFILES_LEAD_RE = re.compile(r"candidate profiles? in our pipeline",
+_TM_PROFILES_LEAD_RE = re.compile(r"candidate profiles? (?:in our pipeline"
+                                  r"|I shared)",
                                   re.IGNORECASE)
 
 
@@ -62701,6 +62733,28 @@ def _tm_profiles_email_index(emails):
     return next((i for i in elig if not emails[i].get("attachments")), elig[0])
 
 
+def _tm_profile_rounds(camp_type, emails) -> list:
+    """[(email index, lead, count)] for a type that shows its profiles more
+    than once, else []. Each email is found by its model subject, then by its
+    place among the emails. Never the first email."""
+    rounds = _TM_PROFILE_ROUNDS.get((camp_type or "").strip())
+    if not rounds:
+        return []
+    mail = [i for i, e in enumerate(emails or [])
+            if e.get("step_type", "") in ("email_auto", "email")]
+    out, used = [], set(mail[:1])
+    for subj, num, lead, cnt in rounds:
+        i = next((i for i in mail if i not in used and (
+            emails[i].get("subject") or "").strip().lower() == subj.lower()),
+            None)
+        if i is None and len(mail) >= num and mail[num - 1] not in used:
+            i = mail[num - 1]
+        if i is not None:
+            used.add(i)
+            out.append((i, lead, cnt))
+    return out
+
+
 def _tm_insert_profiles(body: str, block: str) -> str:
     """Set the profiles in before the email's closing paragraph (its ask)."""
     paras = re.split(r"(?:<br\s*/?>\s*){2,}", body or "")
@@ -62710,7 +62764,8 @@ def _tm_insert_profiles(body: str, block: str) -> str:
 
 
 def _tm_add_campaign_profiles(client, campaign_data, n, roles, niche,
-                              company="", brief="", profiles=None) -> dict:
+                              company="", brief="", profiles=None,
+                              camp_type="") -> dict:
     """Give a ThriveModal campaign its candidate profiles, replacing any set
     an earlier run added. Returns {"email": index or None, "profiles": [...]}.
     `profiles` skips the model call (tests, dry runs)."""
@@ -62721,6 +62776,16 @@ def _tm_add_campaign_profiles(client, campaign_data, n, roles, niche,
     if profiles is None:
         profiles = _tm_generate_campaign_profiles(
             client, n, roles, niche, company=company, brief=brief)
+    rounds = _tm_profile_rounds(camp_type, emails) if profiles else []
+    if rounds:
+        for i, lead, cnt in rounds:
+            emails[i]["body"] = _tm_insert_profiles(
+                emails[i].get("body"),
+                _tm_profiles_html(profiles[:cnt] if cnt else profiles, lead))
+        print(f"[AICB] TM: {len(profiles)} candidate profiles on emails "
+              + ", ".join(str(i + 1) for i, _l, _c in rounds), flush=True)
+        return {"email": rounds[0][0], "emails": [i for i, _l, _c in rounds],
+                "profiles": profiles}
     ei = _tm_profiles_email_index(emails) if profiles else None
     if ei is not None:
         emails[ei]["body"] = _tm_insert_profiles(

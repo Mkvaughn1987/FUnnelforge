@@ -212,3 +212,68 @@ def test_builder_adds_profiles_only_for_tm_without_real_candidates():
     assert "ai_profiles=ai_profiles" in inspect.getsource(fa.generate_aicb_campaign)
     assert 'spec.get("ai_profiles")' in inspect.getsource(fa._api_create_campaign_blocking)
     assert "Do not write candidate profiles" in fa._TM_PROFILES_WRITER_NOTE
+
+
+def _std_camp():
+    """Standard Outreach as built: seven emails with the model subjects,
+    two calls and a LinkedIn step."""
+    steps = [("Step 1 - Capacity", "More room for the work that matters"),
+             ("Step 2 - Economics", "What would the role actually cost?"),
+             ("Step 3 - Follow-up Call", ""), ("Step 4 - LinkedIn Connect", ""),
+             ("Step 5 - Role scope", "A clearer scope for the role"),
+             ("Step 6 - After the candidate joins", "After the candidate joins"),
+             ("Step 7 - Quality and control",
+              "What you would assess before hiring"),
+             ("Step 8 - Follow-up Call 2", ""),
+             ("Step 9 - Commitment", "Start with the role requirements"),
+             ("Step 10 - Close", "Leaving this with you")]
+    return {"emails": [
+        {"name": n, "subject": sub,
+         "body": "Hi {FirstName},<br><br>Para one.<br><br>Worth a call?",
+         "step_type": ("call" if "Call" in n else "linkedin" if "LinkedIn" in n
+                       else "email_auto")} for n, sub in steps]}
+
+
+def test_standard_outreach_shows_the_candidates_three_times():
+    """Mike 2026-10-02: introduced on email 3, sent again on email 5, and two
+    of them on the close (email 7)."""
+    camp = _std_camp()
+    for _ in range(2):                      # reruns replace, never stack
+        out = fa._tm_add_campaign_profiles(None, camp, 3, "", "",
+                                           profiles=_PROFILES,
+                                           camp_type="tm_fivebyseven")
+    assert out["emails"] == [4, 6, 9]
+    b = [e["body"] for e in camp["emails"]]
+    assert b[4].count(fa._TM_PROFILES_LEAD) == 1
+    assert b[4].count("<b>Candidate ") == 3
+    assert b[6].count(fa._TM_PROFILES_AGAIN_LEAD) == 1
+    assert b[6].count("<b>Candidate ") == 3
+    assert b[9].count(fa._TM_PROFILES_LAST_LEAD) == 1
+    assert b[9].count("<b>Candidate ") == 2
+    assert "Candidate C" not in b[9]
+    for i in (4, 6, 9):
+        assert b[i].endswith("<br><br>Worth a call?")
+        assert fa._tm_strip_campaign_profiles(b[i]) == (
+            "Hi {FirstName},<br><br>Para one.<br><br>Worth a call?")
+    others = [b[i] for i in range(len(b)) if i not in (4, 6, 9)]
+    assert not any("<b>Candidate " in x for x in others)
+    # The last lead never claims what happened to the third candidate.
+    low = fa._TM_PROFILES_LAST_LEAD.lower()
+    assert "placed one" not in low and "lost" not in low and "hired" not in low
+
+
+def test_other_types_keep_one_profile_email():
+    camp = _std_camp()
+    out = fa._tm_add_campaign_profiles(None, camp, 3, "", "",
+                                       profiles=_PROFILES,
+                                       camp_type="tm_conversation")
+    assert "emails" not in out
+    assert sum("<b>Candidate " in e["body"] for e in camp["emails"]) == 1
+
+
+def test_standard_outreach_close_asks_them_to_take_a_chance():
+    row = next(t for t in fa.AICB_CAMPAIGN_TYPES if t[0] == "tm_fivebyseven")
+    steps = row[-1]
+    assert "stay in touch" in steps and "take a chance on one role" in steps
+    assert "After the person joins" not in steps
+    assert "After the candidate joins" in steps
