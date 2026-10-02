@@ -237,3 +237,199 @@ def test_credits_line_is_kept(ff):
 def test_parked_status_has_a_label():
     assert "parked" in sc.RUN_STATUSES
     assert sc._STATUS_TEXT["parked"] == "Waiting on ZoomInfo"
+
+
+# -- Every prompt carries the pull rule ----------------------------------------
+
+@pytest.mark.parametrize("key", [r["key"] for r in sp.STAFFING.routines])
+def test_every_staffing_prompt_carries_the_pull_rule(key):
+    assert ZI_PULL_RULE in _prompt(sp.STAFFING, key)
+
+
+def test_rule_already_in_a_step_is_not_repeated():
+    text = _prompt(sp.STAFFING, "slate_campaign")
+    assert text.count(ZI_PULL_RULE) == 1
+    assert "ZOOMINFO Any time" not in text
+
+
+def test_staff_account_pulls_contacts():
+    text = _prompt(sp.STAFFING, "staff_account")
+    assert "No emails needed" not in text
+    assert "email and direct phone" in text
+
+
+# -- Send to my AI: the queued prompt ------------------------------------------
+
+def _queued(key, **vals):
+    r = sp.STAFFING.routine_by_key[key]
+    v = aip.defaults_for(r)
+    v.update(vals)
+    return " ".join(aip.build_prompt({"routine": key, "vals": v,
+                                      "queued": True}, sp.STAFFING).split())
+
+
+@pytest.mark.parametrize("key", [r["key"] for r in sp.STAFFING.routines])
+def test_queued_prompt_never_waits_or_schedules(key):
+    text = _queued(key, repeat_on=True, repeat_every="Every day")
+    assert "wait for me" not in text.lower()
+    assert "THEN MAKE IT REPEAT" not in text
+    assert "ask me before you start" not in text
+    assert "make the most reasonable call" in text
+    for name in ("Claude", "ChatGPT", "GPT"):
+        assert name not in text, (key, name)
+
+
+def test_queued_open_questions_are_decided_not_asked():
+    text = _queued("staff_account", company="")
+    assert "I HAVEN'T DECIDED THESE" in text
+    assert "Ask me about all of them" not in text
+    assert "say what you chose" in text
+
+
+def test_pasted_prompt_still_repeats_and_waits():
+    r = sp.STAFFING.routine_by_key["staff_account"]
+    v = aip.defaults_for(r)
+    v.update(repeat_on=True)
+    text = aip.build_prompt({"routine": "staff_account", "vals": v},
+                            sp.STAFFING)
+    assert "THEN MAKE IT REPEAT" in text
+    assert "wait for me to say go" in text
+
+
+def test_worker_tile_is_gone_but_the_routine_stays():
+    assert "sc_worker" not in sp.STAFFING.starter_by_id
+    assert "sc_worker" in sp.STAFFING.routine_by_key
+    text = " ".join(aip.worker_prompt(sp.STAFFING).split())
+    assert "DripDrop - job worker" in text
+    assert "AI Prompts jobs and Sales Campaign runs" in text
+    assert "Nothing it does sends email" not in text
+
+
+def test_only_dripdrop_queues_jobs():
+    import tm_prompts as tm
+    assert aip.ARENA.queue_jobs and sp.STAFFING.queue_jobs
+    assert sp.STAFFING.zi_rule == ZI_PULL_RULE
+    assert not tm.TM.queue_jobs and not tm.TM.zi_rule
+
+
+def test_repeat_spec_reads_the_schedule_answers():
+    r = sp.STAFFING.routine_by_key["staff_account"]
+    assert aip._repeat_spec(r, {"repeat_on": False}) is None
+    got = aip._repeat_spec(r, {"repeat_on": True, "repeat_every": "weekly",
+                               "repeat_day": "Tuesday",
+                               "repeat_time": "9:00am",
+                               "repeat_tz": "Central"})
+    assert got["every"] == "Once a week"
+    assert got["day"] == "Tuesday" and got["tz"] == "Central"
+
+
+# -- Send to my AI: the queue --------------------------------------------------
+
+import ai_jobs  # noqa: E402
+
+
+def test_queue_pending_update(ff):
+    rec = ai_jobs.queue_job(OWNER, "Research one account - Acme", "DO IT",
+                            "staff_account")
+    assert rec["job_id"].startswith("job_") and rec["status"] == "queued"
+    pend = ai_jobs.pending(OWNER)
+    assert [p["run_id"] for p in pend] == [rec["job_id"]]
+    assert pend[0]["kind"] == "ai_job"
+    ins = pend[0]["instructions"]
+    assert "DO IT" in ins and ins.count(rec["job_id"]) >= 2
+    assert "'working'" in ins and "'done'" in ins
+    ai_jobs.update_job(OWNER, rec["job_id"], {"status": "working"})
+    assert ai_jobs.pending(OWNER) == []
+    got = ai_jobs.update_job(OWNER, rec["job_id"],
+                             {"status": "done", "result": "3 contacts"})
+    assert got["status"] == "done" and got["result"] == "3 contacts"
+    with pytest.raises(RuntimeError):
+        ai_jobs.update_job(OWNER, rec["job_id"], {"status": "working"})
+
+
+def test_update_rejects_unknown_status(ff):
+    rec = ai_jobs.queue_job(OWNER, "x", "p")
+    with pytest.raises(ValueError):
+        ai_jobs.update_job(OWNER, rec["job_id"], {"status": "sourced"})
+
+
+def test_stale_working_job_is_handed_out_again(ff):
+    rec = ai_jobs.queue_job(OWNER, "x", "p")
+    ai_jobs.update_job(OWNER, rec["job_id"], {"status": "working"})
+    got = ai_jobs.load_job(rec["job_id"], OWNER)
+    got["status"] = "working"
+    ai_jobs._ff()._atomic_write_text(
+        ai_jobs._path(rec["job_id"], OWNER),
+        json.dumps(dict(got, updated_at=(datetime.now() - timedelta(hours=4)
+                                         ).isoformat(timespec="seconds"))))
+    assert [p["run_id"] for p in ai_jobs.pending(OWNER)] == [rec["job_id"]]
+
+
+def test_cancel_stops_a_job_and_its_repeat(ff):
+    rep = {"every": "Every day", "time": "8:00am", "tz": "Mountain"}
+    rec = ai_jobs.queue_job(OWNER, "x", "p", repeat=rep)
+    got = ai_jobs.cancel_job(OWNER, rec["job_id"])
+    assert got["status"] == "cancelled" and got["next_at"] is None
+    assert ai_jobs.pending(OWNER) == []
+
+
+def test_repeat_spawns_one_copy_per_slot(ff, monkeypatch):
+    rep = {"every": "Every day", "time": "8:00am", "tz": "Mountain"}
+    rec = ai_jobs.queue_job(OWNER, "x", "p", repeat=rep)
+    ai_jobs.update_job(OWNER, rec["job_id"], {"status": "done",
+                                              "result": "ok"})
+    later = datetime.fromisoformat(rec["next_at"]) + timedelta(minutes=5)
+    monkeypatch.setattr(ai_jobs, "_now", lambda: later)
+    made = ai_jobs._spawn_repeats(OWNER)
+    assert len(made) == 1
+    child = ai_jobs.load_job(made[0], OWNER)
+    assert child["status"] == "queued" and child["repeat"] == rep
+    assert ai_jobs.load_job(rec["job_id"], OWNER)["next_job"] == made[0]
+    assert ai_jobs._spawn_repeats(OWNER) == []
+
+
+def test_next_due_lands_on_the_named_day_and_time():
+    rep = {"every": "Once a week", "day": "Wednesday", "time": "1:00pm",
+           "tz": "Mountain"}
+    after = datetime(2026, 10, 5, 9, 0)            # a Monday
+    due = ai_jobs.next_due(rep, after)
+    assert due > after
+    assert due - after < timedelta(days=7)
+    again = ai_jobs.next_due(rep, due)
+    assert timedelta(days=6.9) < again - due < timedelta(days=7.1)
+
+
+def test_next_due_every_day_skips_the_weekend():
+    rep = {"every": "Every day", "time": "8:00am", "tz": "Mountain"}
+    after = datetime(2026, 10, 9, 23, 0)           # a Friday night
+    due = ai_jobs.next_due(rep, after)
+    assert due - after > timedelta(days=1.5)
+
+
+# -- Send to my AI: the shared connector tools ---------------------------------
+
+def test_update_run_and_claim_dispatch_job_ids(ff):
+    rec = ai_jobs.queue_job(OWNER, "x", "p")
+    got = sc.claim_run(OWNER, rec["job_id"])
+    assert got["status"] == "working"
+    got = sc.update_run(OWNER, rec["job_id"], {"status": "done",
+                                               "result": "fine"})
+    assert got["status"] == "done"
+    assert ai_jobs.load_job(rec["job_id"], OWNER)["result"] == "fine"
+
+
+def test_claim_run_saves_working(ff):
+    rec = _handoff_run()
+    sc.claim_run(OWNER, rec["run_id"])
+    assert sc.load_run(rec["run_id"], OWNER)["status"] == "working"
+
+
+def test_pending_runs_merges_jobs_and_checks_the_worker_in(ff):
+    assert ai_jobs.worker_last_seen(OWNER) is None
+    run = _handoff_run()
+    job = ai_jobs.queue_job(OWNER, "x", "p")
+    out = sc.pending_runs(OWNER, limit=10)
+    kinds = {r["run_id"]: r.get("kind") for r in out}
+    assert kinds[run["run_id"]] == "sales_campaign"
+    assert kinds[job["job_id"]] == "ai_job"
+    assert ai_jobs.worker_last_seen(OWNER)

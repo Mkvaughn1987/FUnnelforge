@@ -194,9 +194,19 @@ class Catalogue:
     # how it tells a value it put there from one the user typed over. It
     # returns the new record, which lives on the request and is never saved.
     prefill: object = None
+    # The ZoomInfo pull rule every prompt must carry. A routine whose steps
+    # already quote it is left alone; any other gets it as its own section,
+    # so a job that turns out to need a person never guesses at one. Empty
+    # (inboxslide's) adds nothing: its runs must never fall back onto an
+    # Arena ZoomInfo seat.
+    zi_rule: str = ""
+    # True shows "Send to my AI" on the result screen and the "Your AI"
+    # panel on step 1: the job is queued in ai_jobs.py for the user's hourly
+    # worker instead of being pasted.
+    queue_jobs: bool = False
 
 
-SEQUENCES = ["Arena 5x5", "Arena 5x3", "Arena 4x4", "One of my saved styles",
+SEQUENCES =["Arena 5x5", "Arena 5x3", "Arena 4x4", "One of my saved styles",
              "Let the AI choose"]
 
 # Which create_campaign template each sequence name means. The prompt names
@@ -570,7 +580,7 @@ ROUTINES = [
     },
     {
         "key": "sc_worker",
-        "name": "Work my Sales Campaigns automatically",
+        "name": "Let my AI work my DripDrop jobs automatically",
         # It builds its own hourly schedule, so the common repeat questions
         # would only contradict it.
         "no_repeat": True,
@@ -578,10 +588,10 @@ ROUTINES = [
         # unattended rule instead of "wait for me to say go".
         "solo": True,
         "blurb": "Set up an hourly check on this computer that picks up "
-                 "every Sales Campaign run I queue in DripDrop, pulls the "
-                 "contacts out of ZoomInfo - our Bulk Credits first, then my "
-                 "own - and posts them back to DripDrop for review.",
-        "example": "Check DripDrop for my Sales Campaign runs every hour on "
+                 "every job I send it from DripDrop - AI Prompts jobs and "
+                 "Sales Campaign runs - works each one with nobody watching, "
+                 "and posts the result back to DripDrop.",
+        "example": "Check DripDrop for jobs I sent my AI every hour on "
                    "weekdays",
         "tools": ["sales_runs_pending", "sales_run_update"],
         "fields": [
@@ -598,25 +608,26 @@ ROUTINES = [
             "you go further.",
             "Create a scheduled task here, in the desktop app you are "
             "running in, named "
-            "\"DripDrop - Sales Campaign worker\" that runs every hour on "
+            "\"DripDrop - job worker\" that runs every hour on "
             "the hour, {worker_hours}, {worker_days}, {worker_tz} time. It "
             "has to run on this computer, not in the cloud: when our Bulk "
             "Credits run out it uses my own ZoomInfo seat through Chrome, "
             "and only this computer has that.",
             "Give the task this as its whole instruction: call "
-            "sales_runs_pending. If it returns no runs, stop and say "
-            "nothing. Otherwise take the runs one at a time, oldest first, "
-            "and follow each run's instructions field exactly - it is the "
-            "full brief: claiming the run, the job boards, the ZoomInfo "
-            "credit rules and how to post the result back. Finish one run "
-            "before starting the next.",
+            "sales_runs_pending. It returns every job I send it - AI "
+            "Prompts jobs and Sales Campaign runs. If it returns none, stop "
+            "and say nothing. Otherwise take them one at a time, oldest "
+            "first. Claim each one with sales_run_update, status working, "
+            "before you start it, then follow its instructions field "
+            "exactly - it is the full brief: the job itself, the job "
+            "boards, the ZoomInfo credit rules and how to post the result "
+            "back. Finish one before starting the next.",
             "Nobody is at the keyboard when it runs, so it never waits for "
-            "an answer. Nothing it does sends email itself - DripDrop "
-            "decides what sends, on its own review screen - so it does not "
-            "need to stop and check with me. If a run cannot be finished, post it back with "
-            "sales_run_update: the companies it could not get contacts for "
-            "as parked with the exact error, or status error with the "
-            "exact error, and move on.",
+            "an answer: it makes the most reasonable call and says what it "
+            "chose. If a job cannot be finished, post it back with "
+            "sales_run_update - for a Sales Campaign run, the companies it "
+            "could not get contacts for as parked with the exact error; "
+            "otherwise status error with the exact error - and move on.",
             "Run it once now so I can watch it work, then read the task "
             "name and the schedule back to me.",
         ],
@@ -1574,8 +1585,15 @@ def build_prompt(req, cat=None):
     r = cat.routine_by_key.get(req.get("routine") or "",
                            cat.routine_by_key[cat.default_routine])
     vals = dict(req.get("vals") or {})
+    # Queued with "Send to my AI": the user's hourly worker runs it with
+    # nobody at the keyboard, so it can never wait for an answer, and
+    # DripDrop queues any repeat itself (ai_jobs.py) instead of the AI
+    # making a scheduled task of its own.
+    queued = bool(req.get("queued"))
+    if queued:
+        vals["unattended"] = UNATTENDED[1]
     d = _derived(r, vals, cat)
-    solo = (bool(r.get("solo"))
+    solo = (queued or bool(r.get("solo"))
             or (_txt(r, vals, "unattended") or "").startswith("Run it all"))
     # A routine can declare no tools and still be sent to the connector by
     # the newsletter answer - "Something else" is exactly that. Name the
@@ -1619,7 +1637,10 @@ def build_prompt(req, cat=None):
     if open_qs:
         L += ["", "I HAVEN'T DECIDED THESE"]
         L += ["  " + q for q in open_qs]
-        L += _wrap("Ask me about all of them in one go before you start, not "
+        L += _wrap("Nobody is here to answer, so make the most reasonable "
+                   "call on each one and say what you chose."
+                   if queued else
+                   "Ask me about all of them in one go before you start, not "
                    "one at a time as you hit them.")
 
     L += ["", "HOW TO DO IT"]
@@ -1634,6 +1655,13 @@ def build_prompt(req, cat=None):
         n += 1
         L += _numbered(n, extra)
 
+    if cat.zi_rule and " ".join(cat.zi_rule.split()) not in \
+            " ".join("\n".join(L).split()):
+        L += ["", "ZOOMINFO"]
+        L += _wrap("Any time this job needs a person - the right people at "
+                   "a company, or someone's email or phone number - get them "
+                   "from ZoomInfo, not from guesswork. " + cat.zi_rule)
+
     if tools:
         L += ["", "TOOLS"]
         L += _wrap("Use my %s: %s. If a tool is missing or "
@@ -1645,7 +1673,7 @@ def build_prompt(req, cat=None):
     for i, rule in enumerate(cat.standing_rules):
         L += _bullet(cat.unattended_rule if (i == 0 and solo) else rule)
 
-    if _flag(r, vals, "repeat_on"):
+    if _flag(r, vals, "repeat_on") and not queued:
         L += ["", "THEN MAKE IT REPEAT"]
         L += _wrap("Run this again %s at %s %s time, and keep running "
                    "it on that schedule."
@@ -1664,7 +1692,9 @@ def build_prompt(req, cat=None):
                 "there and tell me it is waiting rather than going ahead.")
 
     L += ["", ""]
-    L += _wrap("If any of this is ambiguous, ask me before you start rather "
+    L += _wrap("If any of this is ambiguous, make the most reasonable call "
+               "and say what you chose." if queued else
+               "If any of this is ambiguous, ask me before you start rather "
                "than after.", indent="")
     return "\n".join(L)
 
@@ -1789,19 +1819,6 @@ STARTERS = [
                  "unattended": "Run it all the way through"},
     },
     {
-        "id": "sc_worker",
-        "icon": "schedule",
-        "label": "Work my Sales Campaigns automatically",
-        "sub": "A one-time setup. Claude checks DripDrop every hour, picks up "
-               "any Sales Campaign run you queued, pulls the contacts out of "
-               "ZoomInfo - shared Bulk Credits first, then your own - and "
-               "hands them back here for review.",
-        "summary": "Set up an hourly scheduled task on this computer that "
-                   "works every Sales Campaign run I queue in DripDrop.",
-        "routine": "sc_worker",
-        "vals": {},
-    },
-    {
         "id": "other",
         "icon": "edit_note",
         "label": "Something else - I'll describe it",
@@ -1893,6 +1910,8 @@ ARENA = Catalogue(
                  "connector switched on, and paste it as your first "
                  "message."),
     result_extra=_arena_result_extra,
+    zi_rule=ZI_PULL_RULE,
+    queue_jobs=True,
 )
 
 # The catalogue the page is currently rendering. render_page() binds it; an
@@ -2115,7 +2134,8 @@ def _steps(at):
     """Pick → Answer → Copy, with the current one lit."""
     with ui.element("div").classes("aip-steps"):
         for i, name in enumerate(("Pick a job", "Answer the questions",
-                                  "Copy your prompt"), 1):
+                                  "Send it to your AI" if _CAT.queue_jobs
+                                  else "Copy your prompt"), 1):
             if i > 1:
                 ui.element("div").classes("aip-step-line")
             state = " on" if i == at else (" done" if i < at else "")
@@ -2193,6 +2213,8 @@ def render_page(s, rf, cat):
             _aip_confirm(s, rf, C)
         else:
             _steps(1)
+            if cat.queue_jobs:
+                _aip_jobs_panel(s, rf, C)
             _aip_ask(s, rf, C)
 
 
@@ -2264,11 +2286,16 @@ def _aip_ask(s, rf, C):
                 f"border-top:1px solid {C['border']};flex-wrap:wrap;"):
             with ui.element("div").style("min-width:0;flex:1 1 280px;"):
                 _text(st["label"], C, 13, 700, C["text_l"], 2)
-                _text("%d question%s next%s. Nothing runs or sends here: "
-                      "you're writing the message to paste into %s."
-                      % (main, "" if main == 1 else "s",
-                         ", %d more optional" % rest if rest else "",
-                         _CAT.assistant),
+                _text(("%d question%s next%s. Nothing runs yet: at the end "
+                       "you send the job to your AI or copy the prompt."
+                       % (main, "" if main == 1 else "s",
+                          ", %d more optional" % rest if rest else ""))
+                      if _CAT.queue_jobs else
+                      ("%d question%s next%s. Nothing runs or sends here: "
+                       "you're writing the message to paste into %s."
+                       % (main, "" if main == 1 else "s",
+                          ", %d more optional" % rest if rest else "",
+                          _CAT.assistant)),
                       C, 11, colour=C["muted"])
             with ui.element("button").classes("fd-pb").style(
                     "padding:11px 26px;font-size:13px;flex-shrink:0;"
@@ -3197,6 +3224,9 @@ def _aip_result(s, rf, C):
     req = s._aip_req or {}
     r = _CAT.routine_by_key.get(req.get("routine") or "",
                            _CAT.routine_by_key[_CAT.default_routine])
+    # The worker's own setup is the one prompt that has to be pasted: it is
+    # what creates the worker a queued job would be waiting for.
+    sendable = _CAT.queue_jobs and r["key"] != "sc_worker"
 
     def _copy():
         ui.run_javascript("navigator.clipboard.writeText(%s)"
@@ -3233,6 +3263,12 @@ def _aip_result(s, rf, C):
                     _text("Your prompt is ready", C, 17, 700, C["text_l"], 2)
                     ui.label(r["name"]).classes("aip-pill good")
                 _text(_CAT.result_copy, C, 12, colour=C["muted"])
+                if sendable:
+                    _text("Or skip the pasting: Send to my AI queues it in "
+                          "DripDrop. Your AI picks it up on its next hourly "
+                          "check, runs it with nobody watching and posts the "
+                          "result back under Your AI on the first screen.",
+                          C, 12, colour=C["muted"])
 
         with ui.element("div").style("position:relative;"):
             ui.label(prompt).classes("aip-prompt")
@@ -3246,7 +3282,239 @@ def _aip_result(s, rf, C):
             _btn("Start a new prompt", _restart, lead="add")
         with ui.element("div").classes("aip-bar-side"):
             _aip_save_setup(s, rf, C, req, label="Save prompt")
-            _btn("Copy the prompt", _copy, primary=True, lead="content_copy")
+            _btn("Copy the prompt", _copy, primary=not sendable,
+                 lead="content_copy")
+            if sendable:
+                _btn("Send to my AI", lambda: _aip_send(s, rf, req),
+                     primary=True, lead="send")
 
     if _CAT.result_extra:
         _CAT.result_extra(s, rf, C, r)
+
+
+# ── Send to my AI ─────────────────────────────────────────────────────────
+#
+# A catalogue with queue_jobs set (DripDrop's) can hand a job straight to
+# the user's own AI instead of asking them to paste it. The job is queued
+# in ai_jobs.py; the hourly worker the user set up once with the sc_worker
+# routine picks it up through sales_runs_pending, runs it unattended and
+# posts the result back, which the "Your AI" panel on step 1 shows.
+
+WORKER_SUMMARY = ("Set up an hourly scheduled task on this computer that "
+                  "works every job I send my AI from DripDrop.")
+
+# The worker counts as set up if it has checked in this recently. It runs
+# hourly on working days, so a long weekend is the longest honest gap.
+WORKER_FRESH = timedelta(days=3)
+
+
+def worker_prompt(cat=None):
+    """The one-time setup prompt for the hourly worker, with its default
+    hours, days and timezone. The setup pop-up copies it."""
+    cat = cat or _CAT
+    r = cat.routine_by_key["sc_worker"]
+    return build_prompt({"routine": "sc_worker", "summary": WORKER_SUMMARY,
+                         "vals": defaults_for(r)}, cat)
+
+
+def _repeat_spec(r, vals):
+    """The schedule answers as the repeat ai_jobs.py keeps, or None for a
+    one-off. DripDrop queues each repeat itself, so this replaces the
+    THEN MAKE IT REPEAT section a pasted prompt would carry."""
+    if not _flag(r, vals, "repeat_on"):
+        return None
+    cad = _txt(r, vals, "repeat_every") or "Once a week"
+    cad = CADENCE_LEGACY.get(cad.strip().lower(), cad)
+    return {"every": cad,
+            "days": ", ".join(_days_list(_val(r, vals, "repeat_days"))),
+            "day": _txt(r, vals, "repeat_day") or "Monday",
+            "time": _txt(r, vals, "repeat_time") or "8:00am",
+            "tz": _txt(r, vals, "repeat_tz") or "Mountain"}
+
+
+def _job_title(r, vals):
+    for key in ("location", "company", "target_company", "topic"):
+        v = str(vals.get(key) or "").strip()
+        if v and not v.startswith("<"):
+            return "%s - %s" % (r["name"], v)
+    return r["name"]
+
+
+def _since(iso):
+    """Seconds since an ISO timestamp, or None if it does not parse."""
+    try:
+        from datetime import datetime
+        return (datetime.now() - datetime.fromisoformat(iso)).total_seconds()
+    except Exception:
+        return None
+
+
+def _worker_fresh(seen):
+    secs = _since(seen) if seen else None
+    return secs is not None and secs < WORKER_FRESH.total_seconds()
+
+
+def _ago(iso):
+    secs = _since(iso)
+    if secs is None:
+        return ""
+    if secs < 90:
+        return "just now"
+    if secs < 3600:
+        return "%d min ago" % (secs // 60)
+    if secs < 2 * 86400:
+        h = int(secs // 3600)
+        return "%d hour%s ago" % (h, "" if h == 1 else "s")
+    return "%d days ago" % (secs // 86400)
+
+
+def _aip_send(s, rf, req):
+    """Queue the job for the user's AI and go back to step 1, where the
+    Your AI panel shows it waiting."""
+    import ai_jobs
+    owner = _aip_owner(s)
+    if not owner:
+        ui.notify("Sign in again to send jobs to your AI.", type="warning")
+        return
+    r = _CAT.routine_by_key.get(req.get("routine") or "",
+                                _CAT.routine_by_key[_CAT.default_routine])
+    vals = dict(req.get("vals") or {})
+    try:
+        ai_jobs.queue_job(owner, _job_title(r, vals),
+                          build_prompt(dict(req, queued=True)),
+                          r["key"], _repeat_spec(r, vals))
+        seen = ai_jobs.worker_last_seen(owner)
+    except Exception as ex:
+        print("[AIPrompts] queue failed: %s" % ex, flush=True)
+        ui.notify("Could not send it: %s" % ex, type="negative")
+        return
+    ui.notify("Sent. Your AI picks it up on its next hourly check.",
+              type="positive")
+    s._aip_req = None
+    s._aip_back = None
+    s._aip_prompt = None
+    s._aip_raw = ""
+    s._aip_pick = ""
+    s._aip_open = None
+    s._aip_saving = False
+    s._aip_err = ""
+    # Opened by the panel on the next render, not from this handler: the
+    # re-render below deletes the button this handler's context belongs to.
+    s._aip_setup_popup = not _worker_fresh(seen)
+    rf()
+
+
+_JOB_PILL = {"queued": ("Waiting for your AI", ""),
+             "working": ("Working", " good"),
+             "done": ("Done", " good"),
+             "error": ("Failed", " warn"),
+             "cancelled": ("Cancelled", "")}
+
+
+def _aip_jobs_panel(s, rf, C):
+    """Step 1's "Your AI": whether the worker is checking in, and the last
+    jobs sent to it with their results."""
+    import ai_jobs
+    import sales_campaign as sc
+    owner = _aip_owner(s)
+    if not owner:
+        return
+    try:
+        seen = ai_jobs.worker_last_seen(owner)
+        jobs = ai_jobs.list_jobs(owner, limit=8)
+    except Exception as ex:
+        print("[AIPrompts] jobs panel failed: %s" % ex, flush=True)
+        return
+
+    if getattr(s, "_aip_setup_popup", False):
+        s._aip_setup_popup = False
+        try:
+            sc.zi_setup_dialog(s)
+        except Exception as ex:
+            print("[AIPrompts] setup pop-up failed: %s" % ex, flush=True)
+
+    def _setup():
+        try:
+            sc.zi_setup_dialog(s)
+        except Exception as ex:
+            ui.notify("Could not open the setup: %s" % ex, type="negative")
+
+    def _cancel(jid):
+        try:
+            ai_jobs.cancel_job(_aip_owner(s), jid)
+        except Exception as ex:
+            ui.notify("Could not cancel it: %s" % ex, type="negative")
+            return
+        rf()
+
+    def _toggle(jid):
+        s._aip_job_open = (None if getattr(s, "_aip_job_open", None) == jid
+                           else jid)
+        rf()
+
+    fresh = _worker_fresh(seen)
+    with _card(C):
+        with ui.element("div").style(
+                "display:flex;align-items:flex-start;gap:14px;"
+                "justify-content:space-between;flex-wrap:wrap;"):
+            with ui.element("div").style("min-width:0;flex:1 1 280px;"):
+                _text("Your AI", C, 15, 700, C["text_l"], 2)
+                if fresh:
+                    status = ("Checking in every hour - last seen %s."
+                              % _ago(seen))
+                elif seen:
+                    status = ("Last seen %s. It has stopped checking in, so "
+                              "jobs you send will wait until it does."
+                              % _ago(seen))
+                else:
+                    status = ("Not set up yet. Jobs you send wait here until "
+                              "your AI is set up to check in.")
+                _text(status, C, 12, colour=C["muted"])
+            if not fresh:
+                _btn("Set it up", _setup, primary=not seen, lead="settings",
+                     small=True)
+
+        if not jobs:
+            _text("Nothing sent yet. Pick a job below, answer the questions "
+                  "and choose Send to my AI.", C, 12, colour=C["muted"])
+            return
+
+        open_id = getattr(s, "_aip_job_open", None)
+        with ui.element("div").style("margin-top:12px;"):
+            for job in jobs:
+                jid = job.get("job_id") or ""
+                st = job.get("status") or "queued"
+                label, tone = _JOB_PILL.get(st, (st.title(), ""))
+                rep = ai_jobs.repeat_text(job.get("repeat"))
+                body = job.get("result") or job.get("error") or ""
+                with ui.element("div").style(
+                        f"border-top:1px solid {C['border']};padding:10px 0;"):
+                    with ui.element("div").style(
+                            "display:flex;align-items:center;gap:10px;"
+                            "flex-wrap:wrap;"):
+                        ui.label(label).classes("aip-pill" + tone)
+                        with ui.element("div").style("min-width:0;flex:1;"):
+                            _text(job.get("title") or "AI job", C, 12.5, 700,
+                                  C["text_l"])
+                            _text(" · ".join(x for x in (
+                                "sent " + _ago(job.get("created_at") or ""),
+                                rep) if x), C, 11, colour=C["muted"])
+                        if body:
+                            _btn("Hide" if open_id == jid
+                                 else ("Show error" if st == "error"
+                                       else "Show result"),
+                                 lambda _e=None, j=jid: _toggle(j),
+                                 small=True)
+                        # A repeat that already queued its next copy hands
+                        # the schedule to that copy, which is where it stops.
+                        if st in ai_jobs.OPEN_STATUSES or (
+                                job.get("repeat") and not job.get("next_job")):
+                            _btn("Cancel" if st in ai_jobs.OPEN_STATUSES
+                                 else "Stop repeating",
+                                 lambda _e=None, j=jid: _cancel(j),
+                                 small=True)
+                    if body and open_id == jid:
+                        ui.label(body).style(
+                            f"white-space:pre-wrap;font-size:12px;"
+                            f"color:{C['text_l']};line-height:1.55;"
+                            f"margin-top:8px;display:block;")

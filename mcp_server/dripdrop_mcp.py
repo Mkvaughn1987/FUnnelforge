@@ -376,7 +376,12 @@ async def campaign_get(campaign_id: str) -> dict:
         "'instructions' field that is the literal brief: follow it. Calling "
         "it also queues retry runs for companies an earlier run parked while "
         "ZoomInfo was out of credits, once their two-day wait is up; a retry "
-        "run's brief says so and only asks for contacts."
+        "run's brief says so and only asks for contacts. The list also holds "
+        "the jobs the user sent with 'Send to my AI' on the AI Prompts page: "
+        "those have kind 'ai_job' (Sales Campaign runs have kind "
+        "'sales_campaign'), a run_id starting 'job_', a title, and an "
+        "'instructions' field that is the whole job, written to run with "
+        "nobody watching. Work every entry, oldest first."
     )
 )
 async def sales_runs_pending() -> dict:
@@ -397,7 +402,11 @@ async def sales_runs_pending() -> dict:
         "with the companies you kept and status 'sourced'. Setting 'sourced' "
         "is what makes DripDrop write the campaigns - it matches candidates "
         "off its own bench and stops at a review screen, so do NOT call "
-        "create_campaign for these companies and do not send anything."
+        "create_campaign for these companies and do not send anything. "
+        "For an AI Prompts job (run_id starting 'job_') it is different: "
+        "claim it with {\"status\": \"working\"}, do the job exactly as its "
+        "instructions say, then post {\"status\": \"done\", \"result\": "
+        "\"...\"} or {\"status\": \"error\", \"error\": \"...\"}."
     )
 )
 async def sales_run_update(run_id: str, update: dict) -> dict:
@@ -406,7 +415,12 @@ async def sales_run_update(run_id: str, update: dict) -> dict:
     update: any of -
         status: "working" (you picked it up), "sourced" (done - starts the
             build), "error" (with an "error" string saying what stopped you),
-            "cancelled".
+            "cancelled". An AI Prompts job ("job_" run_id) takes "working",
+            "done", "error" or "cancelled", never "sourced".
+        result: AI Prompts jobs only - with status "done", what you did in
+            plain words: every company, contact, campaign or file you made
+            or changed, and every judgement call. The user reads it on the
+            AI Prompts page.
         companies: list of the companies you kept, each
             {"company": str, "state": str, "role": str, "why": str,
              "source": str, "zi_total": int,

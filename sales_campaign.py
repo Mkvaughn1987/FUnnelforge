@@ -1193,13 +1193,22 @@ def _run_summary(rec):
         # the Companies page one screen at a time.
         "already_worked": worked[:2000],
         "already_worked_truncated": len(worked) > 2000,
+        "kind": "sales_campaign",
         "instructions": handoff_brief(rec),
     }
 
 
 def pending_runs(owner, limit=5):
-    """Every run of this user's still waiting on Claude, newest first."""
+    """Every run of this user's still waiting on Claude, newest first, then
+    the AI Prompts jobs queued with "Send to my AI" (ai_jobs.py), oldest
+    first. Each carries "kind" and its own "instructions". Calling this is
+    also the worker's check-in, which the AI Prompts page reads."""
+    import ai_jobs
     _bind_user(owner)
+    try:
+        ai_jobs.touch_worker(owner)
+    except Exception as ex:
+        print("[SalesCampaign] worker check-in failed: %s" % ex, flush=True)
     try:
         _spawn_retries(owner)
     except Exception as ex:
@@ -1210,6 +1219,10 @@ def pending_runs(owner, limit=5):
             out.append(_run_summary(rec))
             if len(out) >= limit:
                 break
+    try:
+        out += ai_jobs.pending(owner)[:10]
+    except Exception as ex:
+        print("[SalesCampaign] AI jobs failed: %s" % ex, flush=True)
     return out
 
 
@@ -1218,6 +1231,9 @@ def claim_run(owner, run_id=None):
     already in progress returns it rather than failing, because a dropped
     Claude session retrying is the normal case, not an error."""
     _bind_user(owner)
+    if run_id and str(run_id).startswith("job_"):
+        import ai_jobs
+        return ai_jobs.update_job(owner, run_id, {"status": "working"})
     if not run_id:
         pend = [r for r in list_runs(owner, limit=25)
                 if r.get("status") == "handoff"]
@@ -1233,6 +1249,7 @@ def claim_run(owner, run_id=None):
     if rec.get("status") == "handoff":
         rec["status"] = "working"
         _log(rec, "Claude picked the run up")
+        save_run(rec, owner)
     return _run_summary(load_run(run_id, owner) or rec)
 
 
@@ -1391,6 +1408,10 @@ def update_run(owner, run_id, patch):
     it."""
     _bind_user(owner)
     patch = dict(patch or {})
+    if str(run_id).startswith("job_"):
+        # An AI Prompts job, sharing this tool so the worker needs only one.
+        import ai_jobs
+        return ai_jobs.update_job(owner, run_id, patch)
     rec = load_run(run_id, owner)
     if not rec:
         raise RuntimeError("run %s not found" % run_id)
@@ -3092,10 +3113,18 @@ def zi_setup_steps(C):
         "when the shared Bulk Credits run out.",
         "In Claude in Chrome, set these sites to Always allow, or a run with "
         "nobody watching stops at the permission prompt:",
-        "On AI Prompts, run \"Work my Sales Campaigns automatically\" and "
-        "paste the prompt into Claude desktop once. It sets up the hourly "
-        "check.",
+        "Copy the setup prompt and paste it into Claude desktop once. It "
+        "sets up the hourly check that works every job you send your AI - "
+        "AI Prompts jobs and Sales Campaign runs.",
     ]
+
+    def _copy_setup():
+        import ai_prompts
+        import staffing_prompts
+        ui.run_javascript("navigator.clipboard.writeText(%s)" % json.dumps(
+            ai_prompts.worker_prompt(staffing_prompts.STAFFING)))
+        ui.notify("Setup prompt copied. Paste it into Claude desktop.",
+                  type="positive")
     for i, text in enumerate(steps, 1):
         ui.label("%d. %s" % (i, text)).style(
             f"font-size:12px;color:{C['text_l']};line-height:1.6;"
@@ -3114,6 +3143,11 @@ def zi_setup_steps(C):
                             "padding:5px 10px;font-size:11px;"
                             ).on("click", lambda x=site: _copy(x)):
                         ui.label(site)
+        if i == 4:
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:6px 12px;font-size:11px;margin:0 0 8px 16px;"
+                    ).on("click", _copy_setup):
+                ui.label("Copy the setup prompt")
 
 
 def zi_setup_dialog(s):
@@ -3122,7 +3156,7 @@ def zi_setup_dialog(s):
     with ui.dialog() as dlg, ui.card().style(
             f"background:{C['card']};border:1px solid {C['border']};"
             f"border-radius:12px;padding:22px 24px;max-width:560px;"):
-        ui.label("One-time setup so Claude can pull your contacts").style(
+        ui.label("One-time setup so your AI can work DripDrop jobs").style(
             f"font-size:15px;font-weight:700;color:{C['text_l']};"
             f"font-family:'Nunito',sans-serif;display:block;"
             f"margin-bottom:10px;")

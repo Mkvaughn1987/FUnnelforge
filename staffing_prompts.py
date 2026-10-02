@@ -724,8 +724,8 @@ ROUTINES = [
             "of those we recruit for, and every signal from the guide you "
             "actually found.",
             "Name the people to reach, working down {who_to_reach}, with "
-            "their titles and how long they have been there. No emails "
-            "needed yet.",
+            "their titles, how long they have been there, and their email "
+            "and direct phone. " + ZI_PULL_RULE,
             "Write me a one-paragraph talk track and three discovery "
             "questions that use what you found. Do not draft the outreach "
             "emails; I will run a campaign for that.",
