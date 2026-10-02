@@ -1,5 +1,9 @@
 # HANDOFF: "Send to my AI" job queue + ZoomInfo rule in every prompt
 
+**DONE 2026-10-02: items 1-6 below committed as 6b3808d and deployed to
+prod (backup `/opt/dripdrop/backups/ai-jobs-20261001-234443`). Only item 7
+(the stale run) and a supervised live run remain.**
+
 Paused 2026-10-02 mid-build. Worktree `C:\Users\mkvau\ff-wt\zi-fallback`, branch `feat/zoominfo-fallback-worker`.
 
 ## Already live on DripDrop prod (commit 9020964, deployed 2026-10-02)
