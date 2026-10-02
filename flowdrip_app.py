@@ -25229,8 +25229,8 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
         # blurbs (food, sports, neighborhood, development) under the
         # candidate spotlights. Off-by-default users still get a tight
         # market-only newsletter. Locked at campaign creation; not
-        # editable per-issue.
-        with ui.element("div").style("display:flex;align-items:center;gap:8px;margin-bottom:14px;"):
+        # editable per-issue. Hidden on Organic: that style never has one.
+        with ui.element("div").style("display:flex;align-items:center;gap:8px;margin-bottom:14px;") as _city_row:
             city_life_in = ui.checkbox("Include City Life section", value=True).style("font-size:12px;")
             with ui.element("span").style(
                     f"display:inline-flex;align-items:center;justify-content:center;"
@@ -25244,6 +25244,8 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                     "development) under the candidate spotlights. Turn off "
                     "for a market-only newsletter."
                 )
+        _city_row.bind_visibility_from(
+            _style_toggle, "value", backward=lambda v: (v or "") != "j_way")
 
         # Start date + count on one row.
         # 2026-05-25 — switched from "Start Month" YYYY-MM to a full
@@ -25417,7 +25419,8 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             # requires candidate cards to exist; "None" was removed.
             if _spotlight_count not in (3, 6):
                 _spotlight_count = 3
-            _show_city_life = bool(city_life_in.value)
+            _show_city_life = ((_style_toggle.value or "") != "j_way"
+                               and bool(city_life_in.value))
             # AI and Pipeline paths are mutually exclusive — save only the
             # active fork's data so a candidate picked then switched away from
             # doesn't silently override the AI spotlights (and vice-versa).
@@ -25611,9 +25614,12 @@ def _edit_newsletter_settings_dialog(camp: dict, s, rf) -> None:
             value=_cur_count,
         ).classes("fd-input").style("margin-bottom:14px;width:100%;")
 
-        # City Life toggle
-        with ui.element("div").style("display:flex;align-items:center;gap:8px;margin-bottom:18px;"):
-            _city_in = ui.checkbox("Include City Life section", value=_cur_city).style("font-size:12px;")
+        # City Life toggle (Organic never has the section, so no toggle)
+        _is_jway = (camp.get("newsletter_style") or "").strip() == "j_way"
+        _city_in = None
+        if not _is_jway:
+            with ui.element("div").style("display:flex;align-items:center;gap:8px;margin-bottom:18px;"):
+                _city_in = ui.checkbox("Include City Life section", value=_cur_city).style("font-size:12px;")
 
         def _save():
             try:
@@ -25624,7 +25630,7 @@ def _edit_newsletter_settings_dialog(camp: dict, s, rf) -> None:
                 _new_count = 3
             camp["newsletter_spotlight_count"] = _new_count
             camp["newsletter_spotlight_recommendations"] = (_recs_in.value or "").strip()
-            camp["newsletter_show_city_life"] = bool(_city_in.value)
+            camp["newsletter_show_city_life"] = bool(_city_in and _city_in.value)
             try:
                 save_campaign(camp)
                 _cache_campaigns.invalidate()
