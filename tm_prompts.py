@@ -17,7 +17,7 @@ from datetime import date
 
 import ai_prompts as _e
 from ai_prompts import (Catalogue, F,
-                        POSTING_AGE, SKIP_FIELDS, WHEN_OPTIONS,
+                        POSTING_AGE, SKIP_FIELDS, start_fields,
                         finalize_routines)
 
 # ── Verticals ────────────────────────────────────────────────────────────
@@ -1299,8 +1299,7 @@ def _email_fields(sequence=DEFAULT_SEQUENCE, name_default="the company name"):
     return [
         F("sequence", "Which campaign type", "emails", "select",
           default=sequence, options=SEQUENCES),
-        F("start_when", "When the first email goes out", "emails", "select",
-          default="Next Monday", options=WHEN_OPTIONS),
+        *start_fields(),
         F("campaign_name", "What to call the campaigns", "emails",
           default=name_default),
     ]
