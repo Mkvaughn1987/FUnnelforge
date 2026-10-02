@@ -1857,6 +1857,14 @@ def _aip_css():
         ".aip-wrap .aip-check.on{border-color:var(--dd-teal);"
         "background:var(--dd-teal_dim);}"
         ".aip-wrap .aip-check .q-checkbox{margin:-3px 0 0 -6px;}"
+        ".aip-wrap .aip-checks.aip-compact{gap:6px;"
+        "grid-template-columns:repeat(auto-fill,minmax(150px,1fr));}"
+        ".aip-wrap .aip-compact .aip-check{padding:4px 8px 5px;gap:4px;"
+        "border-radius:8px;align-items:center;}"
+        ".aip-wrap .aip-compact .aip-check .q-checkbox{margin:-4px 0 -4px -8px;}"
+        ".aip-wrap .aip-compact .aip-check.aip-why{grid-column:span 2;}"
+        "@media(max-width:520px){.aip-wrap .aip-compact .aip-check.aip-why"
+        "{grid-column:auto;}}"
         ".aip-wrap .aip-tiles{display:grid;gap:12px;"
         "grid-template-columns:repeat(auto-fill,minmax(240px,1fr));}"
         ".aip-wrap .aip-tile{position:relative;display:flex;gap:12px;"
@@ -2640,10 +2648,15 @@ def _aip_checks(s, rf, C, r, vals, f):
     def _write():
         vals[key] = ", ".join(i["id"] for i in items if i["id"] in on)
 
-    with ui.element("div").classes("aip-checks"):
+    # A long menu (every WARN state) gets small boxes so it fits on one
+    # screen; the why-line still shows on the recommended ones.
+    compact = len(items) > 15
+    with ui.element("div").classes(
+            "aip-checks" + (" aip-compact" if compact else "")):
         for item in items:
             row = ui.element("div").classes(
-                "aip-check" + (" on" if item["id"] in on else ""))
+                "aip-check" + (" on" if item["id"] in on else "")
+                + (" aip-why" if compact and item.get("why") else ""))
 
             def _flip(e, _id=item["id"], _row=row):
                 if e.value:
@@ -2659,12 +2672,15 @@ def _aip_checks(s, rf, C, r, vals, f):
                 with ui.element("div").style("flex:1;min-width:0;"):
                     label = str(item["label"])
                     ui.label(label[:1].upper() + label[1:]).style(
-                        f"font-size:12.5px;font-weight:600;"
+                        f"font-size:{'12px' if compact else '12.5px'};"
+                        f"font-weight:600;"
                         f"color:{C['text_l']};line-height:1.4;display:block;")
                     if item.get("why"):
                         ui.label(str(item["why"])).style(
-                            f"font-size:10.5px;color:{C['muted']};"
-                            f"line-height:1.5;display:block;margin-top:2px;")
+                            f"font-size:{'10px' if compact else '10.5px'};"
+                            f"color:{C['muted']};"
+                            f"line-height:1.4;display:block;"
+                            f"margin-top:{'0' if compact else '2px'};")
 
     def _set_all(ids):
         on.clear()
@@ -2683,7 +2699,7 @@ def _aip_checks(s, rf, C, r, vals, f):
             with ui.element("button").classes("aip-link").on(
                     "click", lambda: _set_all([i["id"] for i in items])):
                 ui.icon("done_all").style("font-size:14px;")
-                ui.label("Tick everything")
+                ui.label("Select all")
         if on:
             with ui.element("button").classes("aip-link").on(
                     "click", lambda: _set_all([])):

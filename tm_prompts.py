@@ -986,10 +986,39 @@ def term_prose(v, ids=None):
     return ", ".join(s["label"] for s in term_menu(v) if s["id"] in want)
 
 
+# Every state that publishes WARN notices: all fifty and DC. The vertical's
+# own states lead the menu ticked, with why each matters; the rest follow
+# alphabetically, unticked, so a run can reach anywhere a filing turns up.
+ALL_WARN_STATES = [
+    ("al", "Alabama"), ("ak", "Alaska"), ("az", "Arizona"),
+    ("ar", "Arkansas"), ("ca", "California"), ("co", "Colorado"),
+    ("ct", "Connecticut"), ("de", "Delaware"),
+    ("dc", "District of Columbia"), ("fl", "Florida"), ("ga", "Georgia"),
+    ("hi", "Hawaii"), ("id", "Idaho"), ("il", "Illinois"),
+    ("in", "Indiana"), ("ia", "Iowa"), ("ks", "Kansas"),
+    ("ky", "Kentucky"), ("la", "Louisiana"), ("me", "Maine"),
+    ("md", "Maryland"), ("ma", "Massachusetts"), ("mi", "Michigan"),
+    ("mn", "Minnesota"), ("ms", "Mississippi"), ("mo", "Missouri"),
+    ("mt", "Montana"), ("ne", "Nebraska"), ("nv", "Nevada"),
+    ("nh", "New Hampshire"), ("nj", "New Jersey"), ("nm", "New Mexico"),
+    ("ny", "New York"), ("nc", "North Carolina"), ("nd", "North Dakota"),
+    ("oh", "Ohio"), ("ok", "Oklahoma"), ("or", "Oregon"),
+    ("pa", "Pennsylvania"), ("ri", "Rhode Island"),
+    ("sc", "South Carolina"), ("sd", "South Dakota"), ("tn", "Tennessee"),
+    ("tx", "Texas"), ("ut", "Utah"), ("vt", "Vermont"),
+    ("va", "Virginia"), ("wa", "Washington"), ("wv", "West Virginia"),
+    ("wi", "Wisconsin"), ("wy", "Wyoming"),
+]
+
+
 def state_menu(v):
-    """The cost-pressure run's states for a vertical, each with why that
-    state's WARN feed matters for this market. All ticked to start."""
-    return [dict(s, rec=True) for s in v["states"]]
+    """The cost-pressure run's states: every state that publishes WARN
+    notices. The vertical's own states come first and ticked, each with why
+    that feed matters for this market; every other state follows unticked."""
+    own = [dict(s, rec=True) for s in v["states"]]
+    have = {s["id"] for s in own}
+    return own + [{"id": i, "label": n, "why": "", "rec": False}
+                  for i, n in ALL_WARN_STATES if i not in have]
 
 
 def state_ids(v, recommended_only=True):
@@ -1250,9 +1279,9 @@ _TERMS_INTRO = (
     "not search for.")
 
 _STATES_INTRO = (
-    "Every state publishes its WARN notices. These are the ones where the "
-    "vertical you picked concentrates, each with the reason - untick any "
-    "you would rather skip.")
+    "Every state that publishes WARN notices is here. The ones where the "
+    "vertical you picked concentrates are ticked and listed first, each "
+    "with the reason. Tick any others, or select all.")
 
 
 def _vertical_field(default=DEFAULT_VERTICAL):
@@ -1927,10 +1956,11 @@ _RECOMMENDABLE = {
         "states: which of the states on the menu below to read WARN "
         "notices for, as a comma separated list of their ids",
         "states is the one to search for. Look at what has actually been "
-        "filed recently and keep the states on the menu with real, recent "
-        "WARN activity touching this market - ids only, never a state that "
-        "is not on the menu. If a search turns up nothing usable, keep the "
-        "whole menu and say in `why` that you could not see live "
+        "filed recently and pick the states with real, recent WARN "
+        "activity touching this market. Start from the ones marked usual "
+        "for this market and add any other state where recent filings "
+        "show it - ids only. If a search turns up nothing usable, answer "
+        "with the usual ones and say in `why` that you could not see live "
         "notices."),
     "lookback": (
         "lookback: how far back to read",
@@ -1990,7 +2020,9 @@ def recommend_tm(r, vals, keys=None):
         # instruction with nothing to pick from.
         rules += ("\n- The %s menu, and the only ids you may answer "
                   "with:\n" % k + "\n".join(
-                      "    %s: %s" % (s["id"], s["label"])
+                      "    %s: %s%s" % (s["id"], s["label"],
+                                      " (usual for this market)"
+                                      if s.get("rec") else "")
                       for s in CHECKS[k][0](v)))
     shape = ", ".join('"%s": "..."' % k for k in keys)
 

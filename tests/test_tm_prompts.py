@@ -896,7 +896,25 @@ def test_the_universal_offshore_tells_sit_on_every_terms_menu(tm):
         assert [t["id"] for t in menu][-len(uni):] == uni
         assert all(t["rec"] for t in menu)      # all ticked: they are the run
         assert tm.term_prose(v).startswith(v["terms"][0]["label"])
-    assert all(t["rec"] for t in tm.state_menu(tm.VERTICALS[0]))
+    # States: the vertical's own lead, ticked; every other WARN state follows.
+    menu = tm.state_menu(tm.VERTICALS[0])
+    own = len(tm.VERTICALS[0]["states"])
+    assert all(t["rec"] for t in menu[:own])
+    assert not any(t["rec"] for t in menu[own:])
+
+
+def test_states_menu_offers_every_warn_state(tm):
+    assert len(tm.ALL_WARN_STATES) == 51
+    every = {i for i, _ in tm.ALL_WARN_STATES}
+    for v in tm.VERTICALS:
+        menu = tm.state_menu(v)
+        assert {t["id"] for t in menu} == every, v["key"]
+        assert {s["id"] for s in v["states"]} <= every, v["key"]
+        # Recommended stays the vertical's own list, not all fifty.
+        assert tm.state_ids(v) == [s["id"] for s in v["states"]]
+        assert len(tm.state_ids(v, recommended_only=False)) == 51
+    # A state off the vertical's list still reaches the prompt when ticked.
+    assert tm.state_prose(tm.VERTICALS[0], ["wy"]) == "Wyoming"
 
 
 def test_search_terms_and_states_are_tick_lists_off_the_picked_vertical(tm):
@@ -1030,7 +1048,9 @@ def test_the_new_menus_travel_with_the_recommendation_and_come_back_as_ids(
     assert got[0] == {"states": "tx, il"}       # menu order, junk dropped
     _, ff = _recommend(tm, monkeypatch, "{}", routine="tm_cost_pressure")
     sent = ff.sent["messages"][0]["content"]
-    assert "The states menu" in sent and "never a state that is not on the menu" in sent
+    assert "The states menu" in sent and "add any other state where recent filings" in sent
+    assert "tx: Texas (usual for this market)" in sent
+    assert "    wy: Wyoming" in sent and "wy: Wyoming (usual" not in sent
 
 
 def test_audience_and_company_are_picks_off_the_users_own_data(tm, aip,
