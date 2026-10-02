@@ -89,7 +89,7 @@ SECTION_NAME = {k: n for k, n, _ in SECTIONS}
 
 def F(key, label, section="details", type="text", default="", ask=False,
       hint="", placeholder="", options=None, refresh=False, source="",
-      pick_first=False, chips=None):
+      pick_first=False, chips=None, show_if=None):
     """One question on the screen.
 
     ask=True means "only the user can answer this" — left blank it becomes a
@@ -106,12 +106,21 @@ def F(key, label, section="details", type="text", default="", ask=False,
     takes anything typed. pick_first opens it on the first entry. chips are
     ready-made answers shown above the box: one click writes the wording
     in, and it stays editable.
+
+    show_if is `(routine, vals) -> bool`. A question that an earlier answer
+    has already settled is not shown.
     """
     return {"key": key, "label": label, "section": section, "type": type,
             "default": default, "ask": ask, "hint": hint,
             "placeholder": placeholder, "options": options or [],
             "refresh": bool(refresh), "source": source or "",
-            "pick_first": bool(pick_first), "chips": list(chips or [])}
+            "pick_first": bool(pick_first), "chips": list(chips or []),
+            "show_if": show_if}
+
+
+def _visible(r, vals, f):
+    fn = f.get("show_if")
+    return True if not fn else bool(fn(r, vals))
 
 
 def finalize_routines(routines):
@@ -195,7 +204,7 @@ TEMPLATE_KEY = {
 }
 
 WHEN_OPTIONS = ["Next Monday", "The Monday after next", "8am tomorrow",
-                "As soon as it's built", "A date I'll give Claude"]
+                "As soon as it's built", "Pick a date and time"]
 
 POSTING_AGE = ["Posted in the last 7 days", "Posted in the last 14 days",
                "Posted in the last 30 days", "Posted in the last 60 days"]
@@ -204,6 +213,36 @@ CADENCE = ["Every weekday", "Every day", "Every week", "Every two weeks",
            "Every month"]
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 TIMES = ["7:00am", "8:00am", "9:00am", "10:00am", "1:00pm", "3:00pm"]
+
+
+def _if_pick_date(r, vals):
+    return str(_val(r, vals, "start_when") or "").startswith("Pick a date")
+
+
+def start_fields():
+    """"When the first email goes out", plus the date and time boxes that
+    only show once "Pick a date and time" is chosen. Every run type uses
+    this one set, so the choices cannot drift between them."""
+    return [
+        F("start_when", "When the first email goes out", "emails", "select",
+          default="Next Monday", options=WHEN_OPTIONS, refresh=True),
+        F("start_on", "Date", "emails", "date", show_if=_if_pick_date,
+          hint="A Saturday or Sunday moves to Monday."),
+        F("start_at", "Time", "emails", "select", default="8:00am",
+          options=TIMES, show_if=_if_pick_date),
+    ]
+
+
+def _weekday_on_or_after(d):
+    while d.weekday() >= 5:
+        d += timedelta(days=1)
+    return d
+
+
+def _clock(t):
+    """"8:00am" (the TIMES spelling) -> "8:00 AM" (create_campaign's)."""
+    t = str(t or "").strip().lower().replace(" ", "")
+    return (t[:-2] + " " + t[-2:].upper()) if t[-2:] in ("am", "pm") else t
 ZONES = ["Mountain", "Central", "Eastern", "Pacific"]
 UNATTENDED = ["Stop and check with me first", "Run it all the way through"]
 
@@ -313,8 +352,7 @@ ROUTINES = [
               default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
               hint="Only if you picked one of your saved styles above."),
-            F("start_when", "When the first email goes out", "emails",
-              "select", default="Next Monday", options=WHEN_OPTIONS),
+            *start_fields(),
             F("campaign_name", "What to call the campaigns", "emails",
               default="the company name"),
             F("companies", "How many companies you want to end up with",
@@ -405,8 +443,7 @@ ROUTINES = [
               default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
               hint="Only if you picked one of your saved styles above."),
-            F("start_when", "When the first email goes out", "emails",
-              "select", default="Next Monday", options=WHEN_OPTIONS),
+            *start_fields(),
             F("campaign_name", "What to call the campaigns", "emails",
               default="the company name"),
             F("companies", "How many companies you want to end up with",
@@ -489,8 +526,7 @@ ROUTINES = [
               "emails", "select", default="Send these exact people",
               options=["Send these exact people",
                        "Let DripDrop pick the best match"]),
-            F("start_when", "When the first email goes out", "emails",
-              "select", default="Next Monday", options=WHEN_OPTIONS),
+            *start_fields(),
             F("companies_each", "How many companies each", "size", "number",
               default="3"),
             F("contacts_each", "How many people at each company", "size",
@@ -691,8 +727,7 @@ ROUTINES = [
               default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
               hint="Only if you picked one of your saved styles above."),
-            F("start_when", "When the first email goes out", "emails",
-              "select", default="Next Monday", options=WHEN_OPTIONS),
+            *start_fields(),
             F("campaign_name", "What to call it", "emails"),
             F("email_cap", "Most emails this run should send", "size",
               "number", default="175"),
@@ -942,9 +977,21 @@ def _start_date(r, vals):
     if when.startswith("As soon"):
         return '"%s" (today)' % today.isoformat()
     if when.startswith("8am tomorrow"):
-        return ('"%s" (tomorrow; if you run this on a later day, use the day '
-                'after that) and start_time "8:00 AM"'
-                % (today + timedelta(days=1)).isoformat())
+        nxt = _weekday_on_or_after(today + timedelta(days=1))
+        return ('"%s" (the next weekday; if you run this on a later day, use '
+                'the next weekday after that) and start_time "8:00 AM"'
+                % nxt.isoformat())
+    if when.startswith("Pick a date"):
+        try:
+            day = date.fromisoformat(_txt(r, vals, "start_on"))
+        except ValueError:
+            return ("the date I give you — ask me for it before you build "
+                    "anything")
+        return '"%s" and start_time "%s"' % (
+            _weekday_on_or_after(day).isoformat(),
+            _clock(_txt(r, vals, "start_at") or "8:00am"))
+    # "A date I'll give ..." is no longer offered; answers saved with it
+    # still open and still ask.
     if when.startswith("A date"):
         return "the date I give you — ask me for it before you build anything"
     return '"auto", which the server resolves to the upcoming Monday'
@@ -1247,7 +1294,10 @@ def _open_questions(r, vals, extra=()):
             continue
         if not str(_val(r, vals, f["key"]) or "").strip():
             qs.append(f["label"])
-    if str(_val(r, vals, "start_when") or "").startswith("A date"):
+    when = str(_val(r, vals, "start_when") or "")
+    if when.startswith("A date") or (
+            when.startswith("Pick a date")
+            and not str(_val(r, vals, "start_on") or "").strip()):
         qs.append("What date the first email should go out")
     return qs
 
@@ -2509,6 +2559,9 @@ def _aip_field(s, rf, C, r, vals, f):
                        on_change=_set).props("dense").classes("fd-input")
         if f["type"] == "number":
             inp.props("type=number")
+        elif f["type"] == "date":
+            # The browser's own date picker; the value is YYYY-MM-DD.
+            inp.props("type=date min=%s" % date.today().isoformat())
 
 
 def _aip_chips(rf, C, vals, f):
@@ -2933,7 +2986,8 @@ def _aip_confirm(s, rf, C):
     with ui.element("div").classes("aip-acc"):
         for key, name in _aip_sections_for(r):
             is_open = bool(opened.get(key))
-            rows = [f for f in r["fields"] if f["section"] == key]
+            rows = [f for f in r["fields"] if f["section"] == key
+                    and _visible(r, vals, f)]
             count = len([f for f in rows
                          if str(_val(r, vals, f["key"]) or "").strip()])
 
