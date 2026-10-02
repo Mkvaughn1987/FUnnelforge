@@ -10,10 +10,59 @@ def test_option_is_offered():
     assert "8am tomorrow" in aip.WHEN_OPTIONS
 
 
-def test_prompt_names_tomorrow_and_start_time():
+def _next_weekday(d):
+    while d.weekday() >= 5:
+        d += timedelta(days=1)
+    return d
+
+
+def test_prompt_names_next_weekday_and_start_time():
     out = aip._start_date({"field_by_key": {}}, {"start_when": "8am tomorrow"})
-    assert '"%s"' % (date.today() + timedelta(days=1)).isoformat() in out
+    want = _next_weekday(date.today() + timedelta(days=1))
+    assert '"%s"' % want.isoformat() in out
     assert 'start_time "8:00 AM"' in out
+
+
+def test_pick_a_date_and_time_is_offered_instead_of_asking():
+    assert "Pick a date and time" in aip.WHEN_OPTIONS
+    assert not any(o.startswith("A date") for o in aip.WHEN_OPTIONS)
+
+
+def test_picked_date_and_time_go_into_the_prompt():
+    vals = {"start_when": "Pick a date and time", "start_on": "2026-10-07",
+            "start_at": "1:00pm"}
+    out = aip._start_date({"field_by_key": {}}, vals)
+    assert out == '"2026-10-07" and start_time "1:00 PM"'
+
+
+def test_picked_weekend_moves_to_monday():
+    vals = {"start_when": "Pick a date and time", "start_on": "2026-10-10",
+            "start_at": "8:00am"}  # a Saturday
+    assert '"2026-10-12"' in aip._start_date({"field_by_key": {}}, vals)
+
+
+def test_date_boxes_only_show_for_pick_a_date():
+    f = {x["key"]: x for x in aip.start_fields()}
+    r = {"field_by_key": f}
+    assert not aip._visible(r, {"start_when": "Next Monday"}, f["start_on"])
+    assert aip._visible(r, {"start_when": "Pick a date and time"}, f["start_on"])
+    assert aip._visible(r, {"start_when": "Pick a date and time"}, f["start_at"])
+
+
+def test_pick_a_date_left_blank_still_asks():
+    r = {"fields": aip.start_fields(),
+         "field_by_key": {x["key"]: x for x in aip.start_fields()}}
+    qs = aip._open_questions(r, {"start_when": "Pick a date and time"})
+    assert "What date the first email should go out" in qs
+    qs = aip._open_questions(r, {"start_when": "Pick a date and time",
+                                 "start_on": "2026-10-07"})
+    assert "What date the first email should go out" not in qs
+
+
+def test_saved_answer_with_the_old_option_still_asks():
+    out = aip._start_date({"field_by_key": {}},
+                          {"start_when": "A date I'll give the AI"})
+    assert "ask me" in out
 
 
 def test_validate_accepts_and_rejects_start_time():

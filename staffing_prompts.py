@@ -24,7 +24,7 @@ from datetime import date
 import ai_prompts as _e
 from zoominfo_pull import BOARDS_DEFAULT, BOARDS_RULE, ZI_PULL_RULE
 from ai_prompts import (ARENA, F, NEWSLETTER_DEFAULT, NEWSLETTER_MODES,
-                        POSTING_AGE, SEQUENCES, SKIP_FIELDS, WHEN_OPTIONS,
+                        POSTING_AGE, SEQUENCES, SKIP_FIELDS, start_fields,
                         finalize_routines)
 
 
@@ -503,8 +503,7 @@ def _email_fields(name_default="the company name"):
           default="Arena 5x5", options=SEQUENCES),
         F("saved_style", "Which saved style", "emails",
           hint="Only if you picked one of your saved styles above."),
-        F("start_when", "When the first email goes out", "emails", "select",
-          default="Next Monday", options=WHEN_OPTIONS),
+        *start_fields(),
         F("campaign_name", "What to call the campaigns", "emails",
           default=name_default),
     ]

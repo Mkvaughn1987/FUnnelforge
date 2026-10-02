@@ -220,7 +220,7 @@ TEMPLATE_KEY = {
 }
 
 WHEN_OPTIONS = ["Next Monday", "The Monday after next", "8am tomorrow",
-                "As soon as it's built", "A date I'll give the AI"]
+                "As soon as it's built", "Pick a date and time"]
 
 POSTING_AGE = ["Posted in the last 7 days", "Posted in the last 14 days",
                "Posted in the last 30 days", "Posted in the last 60 days"]
@@ -246,6 +246,36 @@ def _cadence_of(r, vals):
 def _if_repeat(r, vals):
     """Nothing about the schedule is asked until there is a schedule."""
     return _flag(r, vals, "repeat_on")
+
+
+def _if_pick_date(r, vals):
+    return str(_val(r, vals, "start_when") or "").startswith("Pick a date")
+
+
+def start_fields():
+    """"When the first email goes out", plus the date and time boxes that
+    only show once "Pick a date and time" is chosen. Every run type uses
+    this one set, so the choices cannot drift between them."""
+    return [
+        F("start_when", "When the first email goes out", "emails", "select",
+          default="Next Monday", options=WHEN_OPTIONS, refresh=True),
+        F("start_on", "Date", "emails", "date", show_if=_if_pick_date,
+          hint="A Saturday or Sunday moves to Monday."),
+        F("start_at", "Time", "emails", "select", default="8:00am",
+          options=TIMES, show_if=_if_pick_date),
+    ]
+
+
+def _weekday_on_or_after(d):
+    while d.weekday() >= 5:
+        d += timedelta(days=1)
+    return d
+
+
+def _clock(t):
+    """"8:00am" (the TIMES spelling) -> "8:00 AM" (create_campaign's)."""
+    t = str(t or "").strip().lower().replace(" ", "")
+    return (t[:-2] + " " + t[-2:].upper()) if t[-2:] in ("am", "pm") else t
 
 
 def _if_many_days(r, vals):
@@ -375,8 +405,7 @@ ROUTINES = [
               default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
               hint="Only if you picked one of your saved styles above."),
-            F("start_when", "When the first email goes out", "emails",
-              "select", default="Next Monday", options=WHEN_OPTIONS),
+            *start_fields(),
             F("campaign_name", "What to call the campaigns", "emails",
               default="the company name"),
             F("companies", "How many companies you want to end up with",
@@ -465,8 +494,7 @@ ROUTINES = [
               default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
               hint="Only if you picked one of your saved styles above."),
-            F("start_when", "When the first email goes out", "emails",
-              "select", default="Next Monday", options=WHEN_OPTIONS),
+            *start_fields(),
             F("campaign_name", "What to call the campaigns", "emails",
               default="the company name"),
             F("companies", "How many companies you want to end up with",
@@ -547,8 +575,7 @@ ROUTINES = [
               "emails", "select", default="Send these exact people",
               options=["Send these exact people",
                        "Let DripDrop pick the best match"]),
-            F("start_when", "When the first email goes out", "emails",
-              "select", default="Next Monday", options=WHEN_OPTIONS),
+            *start_fields(),
             F("companies_each", "How many companies each", "size", "number",
               default="3"),
             F("contacts_each", "How many people at each company", "size",
@@ -750,8 +777,7 @@ ROUTINES = [
               default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
               hint="Only if you picked one of your saved styles above."),
-            F("start_when", "When the first email goes out", "emails",
-              "select", default="Next Monday", options=WHEN_OPTIONS),
+            *start_fields(),
             F("campaign_name", "What to call it", "emails"),
             F("email_cap", "Most emails this run should send", "size",
               "number", default="175"),
@@ -1001,9 +1027,21 @@ def _start_date(r, vals):
     if when.startswith("As soon"):
         return '"%s" (today)' % today.isoformat()
     if when.startswith("8am tomorrow"):
-        return ('"%s" (tomorrow; if you run this on a later day, use the day '
-                'after that) and start_time "8:00 AM"'
-                % (today + timedelta(days=1)).isoformat())
+        nxt = _weekday_on_or_after(today + timedelta(days=1))
+        return ('"%s" (the next weekday; if you run this on a later day, use '
+                'the next weekday after that) and start_time "8:00 AM"'
+                % nxt.isoformat())
+    if when.startswith("Pick a date"):
+        try:
+            day = date.fromisoformat(_txt(r, vals, "start_on"))
+        except ValueError:
+            return ("the date I give you — ask me for it before you build "
+                    "anything")
+        return '"%s" and start_time "%s"' % (
+            _weekday_on_or_after(day).isoformat(),
+            _clock(_txt(r, vals, "start_at") or "8:00am"))
+    # "A date I'll give ..." is no longer offered; answers saved with it
+    # still open and still ask.
     if when.startswith("A date"):
         return "the date I give you — ask me for it before you build anything"
     return '"auto", which the server resolves to the upcoming Monday'
@@ -1345,7 +1383,10 @@ def _open_questions(r, vals, extra=()):
             continue
         if not str(_val(r, vals, f["key"]) or "").strip():
             qs.append(f["label"])
-    if str(_val(r, vals, "start_when") or "").startswith("A date"):
+    when = str(_val(r, vals, "start_when") or "")
+    if when.startswith("A date") or (
+            when.startswith("Pick a date")
+            and not str(_val(r, vals, "start_on") or "").strip()):
         qs.append("What date the first email should go out")
     return qs
 
@@ -2649,6 +2690,9 @@ def _aip_field(s, rf, C, r, vals, f):
                        on_change=_set).props("dense").classes("fd-input")
         if f["type"] == "number":
             inp.props("type=number")
+        elif f["type"] == "date":
+            # The browser's own date picker; the value is YYYY-MM-DD.
+            inp.props("type=date min=%s" % date.today().isoformat())
 
 
 def _aip_chips(rf, C, vals, f):
