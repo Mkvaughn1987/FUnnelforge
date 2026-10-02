@@ -69,3 +69,15 @@ def test_dripdrop_only_when_tt_is_off(aip):
 def test_since_choices(aip):
     assert "last 7 days and say so" in _prompt(aip)
     assert "whatever its age" in _prompt(aip, since="Everything in the folder")
+
+
+def test_tells_the_user_how_to_connect_downloads(aip):
+    p = _prompt(aip)
+    assert p.index("list the five newest files") < p.index("candidates_count")
+    assert "desktop app" in p
+    assert "always allow it" in p
+    assert "Start a new chat" in p
+
+
+def test_sets_talent_rank(aip):
+    assert "Talent Rank to 3" in _prompt(aip)

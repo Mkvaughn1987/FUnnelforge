@@ -1067,10 +1067,22 @@ ROUTINES = [
               "toggle", default=True),
         ],
         "steps": [
-            "Check the setup first: confirm you can read the files in "
-            "{where}, take a candidates_count so there is a before number"
-            "{tt_setup_clause} Never type a password or try to sign in for "
-            "me.",
+            "First make sure you can see {where}: list the five newest "
+            "files in it. If it looks empty or missing, check once more "
+            "before you decide. If you really cannot see it, stop and give "
+            "me these directions: (1) Use the AI's desktop app on your "
+            "computer - this job reads files on your computer, which a "
+            "browser tab cannot do. (2) Add the Downloads folder as a "
+            "folder the AI can work in (on Windows it is C:\\Users\\<your name>\\Downloads, "
+            "on a Mac it is Downloads in your home folder), and when it "
+            "asks, choose to always allow it rather than allow once. (3) "
+            "Check Downloads now shows in the app's list of connected "
+            "folders. (4) Start a new chat - a chat that was already open "
+            "does not see a folder added after it started - and paste this "
+            "prompt again.",
+            "Then check the rest of the setup: take a candidates_count so "
+            "there is a before number{tt_setup_clause} Never type a "
+            "password or try to sign in for me.",
             "Keep a ledger file called .resume_sweep_ledger.json in that "
             "folder: the time of the last run, and one entry per person with "
             "name, email, phone, the file's sha256, and whether they are in "
@@ -1116,7 +1128,8 @@ ROUTINES = [
             "This job reads files on this computer and uses my Chrome, so "
             "when you make it repeat, make it a scheduled task that runs on "
             "this computer, not one that runs in the cloud - a cloud run "
-            "cannot see my Downloads folder.",
+            "cannot see my Downloads folder. Make sure the scheduled task "
+            "has the Downloads folder connected too.",
             "When you finish, give me: who went into DripDrop, who went "
             "into Talent Trekker, who was skipped as already there and on "
             "which match, copies collapsed, files left out and why, files "
@@ -1619,9 +1632,10 @@ def _derived(r, vals, cat=None):
             "but tell me about it. For each new person go to Talents, click "
             "Create Talent, attach their resume file and wait for it to "
             "read the resume. Then set Talent Status Type to Direct Hire, "
-            "Talent Status to Applicant and Source to Resume Upload "
-            "yourself - Create does nothing if Source is empty, without "
-            "saying so - check the name, email and phone match the resume, "
+            "Talent Status to Applicant, Source to Resume Upload and Talent "
+            "Rank to 3 yourself - Create does nothing if Source or Talent "
+            "Rank is empty, without saying so - check the name, email and "
+            "phone match the resume, "
             "and click Create. If the file will not attach, type the fields "
             "in and tell me which records have no resume file on them. "
             "\"Phone number already linked to another Talent\" means they "
@@ -2116,8 +2130,10 @@ STARTERS = [
         "sub": "Every Wednesday and Friday the AI finds the resumes you "
                "downloaded since the last run, skips anyone already in, and "
                "adds the new people to your DripDrop Pipeline and to Talent "
-               "Trekker. Runs on your computer, so it needs the AI's Chrome "
-               "extension and you signed in to Talent Trekker.",
+               "Trekker. Runs on your computer, so it needs your Downloads "
+               "folder connected in the AI's desktop app, the AI's Chrome "
+               "extension, and you signed in to Talent Trekker - if "
+               "anything is missing, it tells you how to set it up.",
         "summary": "Find the resumes I downloaded since the last run and add "
                    "the new people to my DripDrop Pipeline and to Talent "
                    "Trekker, skipping anyone already in either one.",
