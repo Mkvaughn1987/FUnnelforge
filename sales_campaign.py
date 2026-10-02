@@ -32,11 +32,14 @@ import sys
 import threading
 import time
 import traceback
+import textwrap
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from nicegui import ui
+
+from zoominfo_pull import BOARDS_DEFAULT, BOARDS_RULE, ZI_PULL_RULE
 
 
 def _ff():
@@ -427,7 +430,8 @@ def _flatten(row):
 # and come back to the review screen. So state is on disk, not in AppState.
 
 RUN_STATUSES = ("queued", "sourcing", "sizing", "contacts", "building",
-                "review", "launching", "done", "error", "cancelled")
+                "review", "launching", "done", "error", "cancelled",
+                "parked")
 
 
 def _runs_dir(owner_email=None):
@@ -467,7 +471,13 @@ def list_runs(owner_email=None, limit=25):
 
 
 def latest_run(owner_email=None):
-    runs = list_runs(owner_email, limit=1)
+    """The run the page shows. A follow-up still waiting on Claude runs in
+    the background, so it never takes the screen from the run the user
+    actually has to look at."""
+    runs = list_runs(owner_email, limit=10)
+    for r in runs:
+        if not (r.get("retry_of") and r.get("status") in HANDOFF_STATUSES):
+            return r
     return runs[0] if runs else None
 
 
@@ -1007,35 +1017,18 @@ def schedule_line(sched):
                                   sched.get("tz") or "?")
 
 
-def handoff_brief(rec):
-    """The instruction the user hands Claude, and the exact text the API
-    returns to it. One source, so what the page shows and what the tool says
-    cannot drift apart."""
-    t = rec.get("target") or {}
-    roles = ", ".join(t.get("roles") or []) or "(none named)"
-    avoid = ", ".join(t.get("avoid") or []) or "(none)"
-    L = [
-        "DripDrop Sales Campaign run %s is queued and waiting for you."
-        % rec.get("run_id"),
-        "",
-        "TARGET",
-        "  Industry:   %s" % (t.get("industry") or "?"),
-        "  Geography:  %s" % (t.get("geography") or "?"),
-        "  Roles:      %s" % roles,
-        "  Employees:  %s to %s" % (t.get("emp_min"), t.get("emp_max")),
-        "  Avoid:      %s" % avoid,
-        "  Cadence:    %s" % (t.get("template") or "fivebyfive"),
-        "",
-        "DO ONLY THE TWO THINGS THIS SERVER CANNOT DO",
-        "  1. Source companies hiring those roles in that geography off the",
-        "     job boards — Google Jobs (udm=8) first, then ZipRecruiter,",
-        "     then LinkedIn, Indeed sparingly. Google casts the widest net",
-        "     but bot-checks: if it does, never solve it — drop to",
-        "     ZipRecruiter and say Google was skipped. Run ZipRecruiter",
-        "     either way. Operating companies only: no recruiting firms, no",
-        "     aggregators, no government, no in-house-recruiting shops.",
-        "  2. Pull the buying centre for each out of ZoomInfo. Target %d"
-        % CONTACTS_TARGET,
+def _brief_wrap(text, indent="     "):
+    """A shared rule string, wrapped to sit under a numbered brief step."""
+    return textwrap.wrap(text, width=70, initial_indent=indent,
+                         subsequent_indent=indent)
+
+
+def _brief_contacts(L, n):
+    """Step n of the brief: the buying centre, and the ZoomInfo credit rules
+    every DripDrop prompt shares (zoominfo_pull.py)."""
+    L += [
+        "  %d. Pull the buying centre for each out of ZoomInfo. Target %d"
+        % (n, CONTACTS_TARGET),
         "     contacts per company, floor %d, cap %d, working down"
         % (CONTACTS_FLOOR, CONTACTS_CAP),
         "     %s." % " -> ".join(SENIORITY_TIERS),
@@ -1044,11 +1037,80 @@ def handoff_brief(rec):
         "     pull against it — %d is the number to aim for, %d is only the"
         % (CONTACTS_TARGET, CONTACTS_FLOOR),
         "     floor that qualifies a company at all.",
-        "",
-        "  Size %d companies to land %d, and name %d ranked reserves."
-        % (SIZE_SHORTLIST, COMPANIES_PER_RUN, RESERVES_PER_RUN),
-        "  The already_worked list on this run is the dedupe check — every",
-        "  key in it has been worked from this account already. Skip those.",
+    ]
+    L += _brief_wrap(ZI_PULL_RULE)
+
+
+_PARKED_HOWTO = [
+    "WAITING ON ZOOMINFO",
+    "  A company you could not get contacts for because both credit pools",
+    "  were out goes in 'parked', not 'companies' and not 'dropped' - same",
+    "  shape as a company, plus \"waiting_reason\": the exact error. DripDrop",
+    "  hands it back to you in two days on its own. Also send 'credits': one",
+    "  line saying what each pool did, e.g. \"Bulk: 34 reveals, then Limit",
+    "  exceeded. Seat: 41 reveals.\"",
+]
+
+
+def handoff_brief(rec):
+    """The instruction the user hands Claude, and the exact text the API
+    returns to it. One source, so what the page shows and what the tool says
+    cannot drift apart.
+
+    A follow-up run (retry_of set) gets the short version: the companies
+    were already picked, so it only pulls their contacts."""
+    t = rec.get("target") or {}
+    roles = ", ".join(t.get("roles") or []) or "(none named)"
+    avoid = ", ".join(t.get("avoid") or []) or "(none)"
+    retry = rec.get("retry_companies") or []
+    if rec.get("retry_of"):
+        L = [
+            "DripDrop Sales Campaign run %s is queued and waiting for you."
+            % rec.get("run_id"),
+            "",
+            "THIS IS A RETRY. Run %s parked these companies because ZoomInfo"
+            % rec.get("retry_of"),
+            "was out of credits. They are already picked - do NOT search the",
+            "job boards and do NOT add companies. Only pull their contacts.",
+            "",
+        ]
+        for c in retry:
+            L.append("  - %s (%s) - %s - last error: %s" % (
+                c.get("company", "?"), c.get("state") or "?",
+                c.get("role") or roles, c.get("waiting_reason") or "?"))
+        L += ["", "DO THIS"]
+        _brief_contacts(L, 1)
+    else:
+        L = [
+            "DripDrop Sales Campaign run %s is queued and waiting for you."
+            % rec.get("run_id"),
+            "",
+            "TARGET",
+            "  Industry:   %s" % (t.get("industry") or "?"),
+            "  Geography:  %s" % (t.get("geography") or "?"),
+            "  Roles:      %s" % roles,
+            "  Employees:  %s to %s" % (t.get("emp_min"), t.get("emp_max")),
+            "  Avoid:      %s" % avoid,
+            "  Cadence:    %s" % (t.get("template") or "fivebyfive"),
+            "",
+            "DO ONLY THE TWO THINGS THIS SERVER CANNOT DO",
+        ]
+        L += _brief_wrap(
+            "1. Source companies hiring those roles in that geography off "
+            "the job boards - %s." % BOARDS_DEFAULT, indent="  ")
+        L += _brief_wrap(BOARDS_RULE)
+        L += _brief_wrap(
+            "Operating companies only: no recruiting firms, no aggregators, "
+            "no government, no in-house-recruiting shops.")
+        _brief_contacts(L, 2)
+        L += [
+            "",
+            "  Size %d companies to land %d, and name %d ranked reserves."
+            % (SIZE_SHORTLIST, COMPANIES_PER_RUN, RESERVES_PER_RUN),
+            "  The already_worked list on this run is the dedupe check — every",
+            "  key in it has been worked from this account already. Skip those.",
+        ]
+    L += [
         "",
         "CLAIM IT FIRST",
         "  Call sales_run_update with run_id '%s' and status 'working'"
@@ -1059,12 +1121,14 @@ def handoff_brief(rec):
         "  Call sales_run_update with run_id '%s', the companies you kept"
         % rec.get("run_id"),
         "  (each with its contacts), the reserves, what you dropped and why,",
-        "  and status 'sourced'.",
+        "  anything parked, the credits line, and status 'sourced'.",
         "",
         "  Do NOT call create_campaign and do NOT send anything. DripDrop",
         "  writes the emails itself the moment you set 'sourced', matches",
         "  candidates off its own bench, and holds the whole run at a review",
         "  screen. Launching is the user's press, on this side.",
+        "",
+    ] + _PARKED_HOWTO + [
         "",
         "COMPANY SHAPE",
         '  {"company": "Acme Builders", "state": "CO",',
@@ -1072,7 +1136,8 @@ def handoff_brief(rec):
         '   "source": "ziprecruiter", "zi_total": 84,',
         '   "contacts": [{"email": "...", "first_name": "...",',
         '                 "last_name": "...", "title": "...",',
-        '                 "linkedin": "...", "state": "CO"}]}',
+        '                 "linkedin": "...", "state": "CO",',
+        '                 "paid_by": "bulk"}]}',
         "  Contacts are cleaned and deduped on arrival; a contact with no",
         "  usable email is dropped with a reason rather than silently kept.",
     ]
@@ -1135,6 +1200,10 @@ def _run_summary(rec):
 def pending_runs(owner, limit=5):
     """Every run of this user's still waiting on Claude, newest first."""
     _bind_user(owner)
+    try:
+        _spawn_retries(owner)
+    except Exception as ex:
+        print("[SalesCampaign] retry spawn failed: %s" % ex, flush=True)
     out = []
     for rec in list_runs(owner, limit=25):
         if rec.get("status") in HANDOFF_STATUSES:
@@ -1207,6 +1276,113 @@ def _norm_company_row(row):
     return row
 
 
+# -- Waiting on ZoomInfo ---------------------------------------------------
+#
+# When both credit pools are out Claude parks a company instead of dropping
+# it. Two days later pending_runs turns the parked companies into a small
+# follow-up run that only pulls contacts, and that run goes through the same
+# build -> review -> launch path as any other, so a second batch is always
+# held at review. A company tried PARK_MAX_ATTEMPTS times is dropped rather
+# than retried forever.
+
+PARK_RETRY_DAYS = 2
+PARK_MAX_ATTEMPTS = 4      # the first run plus three retries
+
+
+def _park(rec, rows):
+    attempt = int(rec.get("attempt") or 1)
+    due = (datetime.now() + timedelta(days=PARK_RETRY_DAYS)
+           ).isoformat(timespec="seconds")
+    parked = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        name = str(row.get("company") or row.get("name") or "").strip()
+        if not name:
+            raise ValueError("every parked company needs a 'company' name")
+        reason = str(row.get("waiting_reason") or row.get("error")
+                     or "no error given")[:500]
+        if attempt >= PARK_MAX_ATTEMPTS:
+            rec.setdefault("dropped", []).append({
+                "company": name,
+                "drop_reason": "ZoomInfo out after %d tries: %s"
+                               % (attempt, reason)})
+            _log(rec, "%s - dropped, ZoomInfo out after %d tries"
+                 % (name, attempt))
+            continue
+        parked.append({
+            "company": name.replace("&", "and"),
+            "state": str(row.get("state") or "").strip(),
+            "role": str(row.get("role") or "").strip(),
+            "why": str(row.get("why") or "").strip(),
+            "source": str(row.get("source") or "").strip(),
+            "waiting_reason": reason,
+            "attempt": attempt,
+            "retry_after": due,
+            "retry_run": None,
+        })
+    rec["parked"] = parked
+    if parked:
+        _log(rec, "%d companies waiting on ZoomInfo, retrying %s"
+             % (len(parked), due[:10]))
+
+
+def _waiting(rec):
+    """Parked companies not yet handed to a follow-up run."""
+    return [p for p in (rec.get("parked") or []) if not p.get("retry_run")]
+
+
+def _spawn_retries(owner, run_id=None):
+    """Turn every parked company past its retry date into a follow-up run,
+    one per parent run. Returns the new run ids. run_id narrows it to one
+    parent (Retry now)."""
+    now = datetime.now().isoformat(timespec="seconds")
+    made = []
+    for rec in list_runs(owner, limit=50):
+        if run_id and rec.get("run_id") != run_id:
+            continue
+        due = [p for p in _waiting(rec)
+               if (p.get("retry_after") or "") <= now]
+        if not due:
+            continue
+        child = new_run(owner, dict(rec.get("target") or {}))
+        child["engine"] = "claude"
+        child["status"] = "handoff"
+        child["retry_of"] = rec.get("run_id")
+        child["attempt"] = max(int(p.get("attempt") or 1) for p in due) + 1
+        child["retry_companies"] = [
+            {k: p.get(k) for k in ("company", "state", "role", "why",
+                                   "source", "waiting_reason")}
+            for p in due]
+        save_run(child, owner)
+        _log(child, "Retry of %s - %d companies waiting on ZoomInfo"
+             % (rec.get("run_id"), len(due)))
+        for p in due:
+            p["retry_run"] = child["run_id"]
+        _log(rec, "Handed %d waiting companies to retry run %s"
+             % (len(due), child["run_id"]))
+        save_run(rec, owner)
+        made.append(child["run_id"])
+    return made
+
+
+def retry_now(owner, run_id):
+    """The page's Retry now: skip the two-day wait for one run."""
+    _bind_user(owner)
+    rec = load_run(run_id, owner)
+    if not rec:
+        raise RuntimeError("run %s not found" % run_id)
+    if not _waiting(rec):
+        raise RuntimeError("nothing on run %s is waiting on ZoomInfo"
+                           % run_id)
+    now = datetime.now().isoformat(timespec="seconds")
+    for p in _waiting(rec):
+        p["retry_after"] = now
+    save_run(rec, owner)
+    made = _spawn_retries(owner, run_id)
+    return made[0] if made else None
+
+
 def update_run(owner, run_id, patch):
     """Claude's write-back. Returns the run summary as it stands afterwards.
 
@@ -1241,6 +1417,14 @@ def update_run(owner, run_id, patch):
     for key in ("reserves", "dropped"):
         if key in patch and isinstance(patch[key], list):
             rec[key] = patch[key]
+    if "parked" in patch:
+        rows = patch.get("parked") or []
+        if not isinstance(rows, list):
+            raise ValueError("parked must be a list")
+        _park(rec, rows)
+    if patch.get("credits"):
+        rec["credits"] = str(patch["credits"])[:500]
+        _log(rec, "Credits: %s" % rec["credits"])
     if patch.get("claude_notes"):
         rec["claude_notes"] = patch["claude_notes"]
     if patch.get("schedule_result"):
@@ -1265,6 +1449,14 @@ def update_run(owner, run_id, patch):
     if status == "sourced":
         usable = [c for c in (rec.get("companies") or [])
                   if len(c.get("contacts") or []) >= CONTACTS_FLOOR]
+        if not usable and _waiting(rec):
+            # Nothing to build yet, but nothing failed either: every company
+            # is waiting on ZoomInfo credits and comes back on its own.
+            rec["status"] = "parked"
+            _log(rec, "Nothing to build yet - %d companies waiting on "
+                 "ZoomInfo" % len(_waiting(rec)))
+            save_run(rec, owner)
+            return _run_summary(rec)
         if not usable:
             # Not an error on the server's part, and not something to paper
             # over: with nothing above the floor there is nothing to build.
@@ -1767,6 +1959,7 @@ _STATUS_TEXT = {
     "done": "Done",
     "error": "Failed",
     "cancelled": "Cancelled",
+    "parked": "Waiting on ZoomInfo",
 }
 
 
@@ -1844,9 +2037,10 @@ def _conn_state(owner):
     account says exactly that rather than showing green."""
     C = _ff().C
     if not has_credentials(owner):
-        return ("Not connected", C["warn"],
-                "Paste your ZoomInfo API credentials below to switch this "
-                "page on. Nothing else on the page works until you do.")
+        return ("No API credentials", C["muted"],
+                "Optional. Runs go through Claude and your ZoomInfo connector, "
+                "so this page works without them. Only fill these in if "
+                "ZoomInfo has given you API access of your own.")
     t = sc_settings().get("last_test") or {}
     if t.get("error"):
         return ("Test failed", C["warn"], t.get("error"))
@@ -1884,7 +2078,7 @@ def _sc_credentials_panel(s, rf, owner):
         with ui.element("div").style(
                 "display:flex;align-items:center;justify-content:space-between;"
                 "gap:12px;margin-bottom:6px;"):
-            ui.label("Step 1 - connect ZoomInfo" if not connected
+            ui.label("ZoomInfo API credentials (optional)" if not connected
                      else "Your ZoomInfo connection").style(
                 f"font-size:15px;font-weight:700;color:{C['text_l']};"
                 f"font-family:'Nunito',sans-serif;")
@@ -2341,6 +2535,8 @@ def _sc_form(s, rf, owner):
                 ui.notify(str(ex), type="negative"); return
             s._sc_new = False
             rf()
+            if not sc_settings().get("zi_setup_ack"):
+                zi_setup_dialog(s)
 
         # What pressing this actually costs, next to the button rather than
         # discovered afterwards.
@@ -2780,6 +2976,12 @@ def _sc_review(s, rf, owner, rec):
                                       d.get("drop_reason", ""))).style(
                     f"font-size:11px;color:{C['muted']};display:block;")
 
+    _sc_parked(s, rf, owner, rec)
+    if rec.get("credits"):
+        ui.label("Credits: %s" % rec["credits"]).style(
+            f"font-size:11px;color:{C['muted']};margin:10px 0 0;"
+            f"display:block;")
+
     if rec.get("zi_errors"):
         ui.label("ZoomInfo errors, verbatim — no cause has been inferred").style(
             f"font-size:12px;font-weight:700;color:{C['warn']};"
@@ -2831,7 +3033,116 @@ def _sc_review(s, rf, owner, rec):
             ui.label("Discard this run")
 
 
-# ── Finished run ──────────────────────────────────────────────────────────
+# -- Waiting on ZoomInfo ----------------------------------------------------
+def _sc_parked(s, rf, owner, rec):
+    """Companies parked because both ZoomInfo credit pools were out, with
+    the literal error, when they come back, and Retry now."""
+    C = _ff().C
+    parked = rec.get("parked") or []
+    if not parked:
+        return
+    ui.label("Waiting on ZoomInfo").style(
+        f"font-size:12px;font-weight:700;color:{C['warn']};"
+        f"margin:16px 0 4px;display:block;")
+    for p in parked:
+        if p.get("retry_run"):
+            when = "handed to retry run %s" % p["retry_run"]
+        else:
+            when = "retrying %s" % (p.get("retry_after") or "")[:10]
+        ui.label("%s — %s · %s" % (p.get("company", ""), when,
+                                   p.get("waiting_reason", ""))).style(
+            f"font-size:11px;color:{C['muted']};display:block;")
+    if not _waiting(rec):
+        return
+
+    def _retry():
+        _sc_owner(s)
+        try:
+            rid = retry_now(owner, rec["run_id"])
+        except Exception as ex:
+            ui.notify(str(ex), type="negative"); return
+        ui.notify("Queued retry run %s - Claude picks it up on its next "
+                  "check." % rid, type="positive")
+        rf()
+    with ui.element("button").classes("fd-gb").style(
+            "padding:6px 12px;font-size:11px;margin:8px 0 4px;"
+            ).on("click", _retry):
+        ui.label("Retry now")
+
+
+# -- One-time ZoomInfo setup ------------------------------------------------
+# Shown on Start and on the AI Prompts worker run until the user ticks
+# "I've done this". Unattended runs have stalled before on Claude in
+# Chrome's per-site permission prompt, so the sites are listed by name.
+ZI_SETUP_SITES = ("recruiter-app.zoominfo.com", "google.com", "linkedin.com")
+
+
+def zi_setup_steps(C):
+    """The four steps, rendered into whatever container is open."""
+    def _copy(text):
+        ui.run_javascript("navigator.clipboard.writeText(%s)"
+                          % json.dumps(text))
+        ui.notify("%s copied." % text, type="positive")
+
+    steps = [
+        "In Claude desktop, turn on the ZoomInfo, Indeed and ZipRecruiter "
+        "connectors, plus the DripDrop connector.",
+        "In Chrome, sign in to ZoomInfo Talent at recruiter-app.zoominfo.com "
+        "and leave it signed in. That is where Claude uses your own credits "
+        "when the shared Bulk Credits run out.",
+        "In Claude in Chrome, set these sites to Always allow, or a run with "
+        "nobody watching stops at the permission prompt:",
+        "On AI Prompts, run \"Work my Sales Campaigns automatically\" and "
+        "paste the prompt into Claude desktop once. It sets up the hourly "
+        "check.",
+    ]
+    for i, text in enumerate(steps, 1):
+        ui.label("%d. %s" % (i, text)).style(
+            f"font-size:12px;color:{C['text_l']};line-height:1.6;"
+            f"display:block;margin-bottom:6px;")
+        if i == 2:
+            ui.link("Open ZoomInfo Talent",
+                    "https://recruiter-app.zoominfo.com",
+                    new_tab=True).style(
+                f"font-size:12px;color:{C['teal']};display:block;"
+                f"margin:0 0 8px 16px;")
+        if i == 3:
+            with ui.element("div").style(
+                    "display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px 16px;"):
+                for site in ZI_SETUP_SITES:
+                    with ui.element("button").classes("fd-gb").style(
+                            "padding:5px 10px;font-size:11px;"
+                            ).on("click", lambda x=site: _copy(x)):
+                        ui.label(site)
+
+
+def zi_setup_dialog(s):
+    """The pop-up. Ticking the box hides it for this user for good."""
+    C = _ff().C
+    with ui.dialog() as dlg, ui.card().style(
+            f"background:{C['card']};border:1px solid {C['border']};"
+            f"border-radius:12px;padding:22px 24px;max-width:560px;"):
+        ui.label("One-time setup so Claude can pull your contacts").style(
+            f"font-size:15px;font-weight:700;color:{C['text_l']};"
+            f"font-family:'Nunito',sans-serif;display:block;"
+            f"margin-bottom:10px;")
+        zi_setup_steps(C)
+        done = ui.checkbox("I've done this - don't show it again").style(
+            "font-size:12px;margin-top:6px;")
+
+        def _close():
+            if done.value:
+                _sc_owner(s)
+                save_sc_settings({"zi_setup_ack": True})
+            dlg.close()
+        with ui.element("button").classes("fd-pb").style(
+                "padding:9px 18px;font-size:12px;margin-top:10px;"
+                ).on("click", _close):
+            ui.label("Close")
+    dlg.open()
+
+
+# -- Finished run -----------------------------------------------------------
 def _sc_summary(s, rf, owner, rec):
     ff = _ff()
     C = ff.C
@@ -2844,6 +3155,7 @@ def _sc_summary(s, rf, owner, rec):
 
     if status == "error":
         _note(rec.get("error", "no error recorded"), C["warn"], C["warn"])
+    _sc_parked(s, rf, owner, rec)
 
     launch = rec.get("launch") or {}
     for r in launch.get("results") or []:
@@ -2915,7 +3227,7 @@ def _sc_body(s, rf, owner, C):
                 "out of your ZoomInfo, and write the campaigns. You review "
                 "before anything sends."
             ).classes("fd-sub")
-        if owner and has_credentials(owner):
+        if owner:
             def _toggle_settings():
                 s._sc_settings_open = not bool(
                     getattr(s, "_sc_settings_open", False))
@@ -2923,7 +3235,8 @@ def _sc_body(s, rf, owner, C):
             state, state_col, _ = _conn_state(owner)
             with ui.element("div").style(
                     "display:flex;align-items:center;gap:10px;flex-shrink:0;"):
-                _pill(state, state_col)
+                if has_credentials(owner):
+                    _pill(state, state_col)
                 with ui.element("button").classes("fd-gb").style(
                         "padding:9px 16px;font-size:12px;"
                         ).on("click", _toggle_settings):
@@ -2935,17 +3248,15 @@ def _sc_body(s, rf, owner, C):
         _note("Sign in to use Sales Campaign.", C["warn"], C["warn"])
         return
 
-    connected = has_credentials(owner)
     settings_open = bool(getattr(s, "_sc_settings_open", False))
-    if not connected or settings_open:
+    if settings_open:
         _sc_credentials_panel(s, rf, owner)
 
-    # Auto-launch. Off by default, and deliberately not shown to someone who
-    # has not connected yet: at that point it is a scary switch attached to a
-    # page they cannot use. It is an account-level decision about whether a run
-    # may send with nobody in the chair, not a per-run one, so it lives in
-    # settings rather than on the form.
-    if connected and settings_open:
+    # Auto-launch. Off by default, and only behind the settings button. It is
+    # an account-level decision about whether a run may send with nobody in
+    # the chair, not a per-run one, so it lives in settings rather than on
+    # the form.
+    if settings_open:
         st = sc_settings()
 
         def _toggle_auto(e):
@@ -2976,9 +3287,6 @@ def _sc_body(s, rf, owner, C):
                 "edited or added to."
             ).style(f"font-size:11px;color:{C['muted']};line-height:1.55;"
                     f"margin-top:4px;display:block;")
-
-    if not connected:
-        return
 
     rec = latest_run(owner)
     if getattr(s, "_sc_new", False) or rec is None:

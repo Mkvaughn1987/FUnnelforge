@@ -56,6 +56,8 @@ from datetime import date, timedelta
 
 from nicegui import ui
 
+from zoominfo_pull import BOARDS_DEFAULT, BOARDS_RULE, ZI_PULL_RULE
+
 
 def _ff():
     """The already-loaded flowdrip_app module (as 'flowdrip_app' or '__main__').
@@ -133,7 +135,8 @@ def finalize_routines(routines):
     for r in routines:
         if "field_by_key" in r:
             continue
-        r["fields"] = list(r["fields"]) + list(COMMON_FIELDS)
+        if not r.get("no_repeat"):
+            r["fields"] = list(r["fields"]) + list(COMMON_FIELDS)
         r["field_by_key"] = {f["key"]: f for f in r["fields"]}
     return {r["key"]: r for r in routines}
 
@@ -374,13 +377,11 @@ ROUTINES = [
               "select", default="Posted in the last 30 days",
               options=POSTING_AGE),
             F("boards", "Where to look for the jobs", "size",
-              default="Google Jobs first, then ZipRecruiter, then LinkedIn"),
+              default=BOARDS_DEFAULT),
         ] + SKIP_FIELDS,
         "steps": [
             "Search the job boards for companies hiring {roles} in "
-            "{location}, {posting_age_lc}. {boards}. If Google shows a bot "
-            "check, do not try to solve it: drop to ZipRecruiter and tell me "
-            "Google was skipped. Run ZipRecruiter either way.",
+            "{location}, {posting_age_lc}. {boards}. " + BOARDS_RULE,
             "{skip_clause}",
             "Size about {pool} companies to land {companies} of about "
             "{company_size}, and name 3 ranked reserves. For every pick give "
@@ -398,7 +399,7 @@ ROUTINES = [
             "Pull the buying centre for each company out of ZoomInfo. Aim "
             "for {contacts_each} contacts per company; 3 is the floor that "
             "qualifies a company at all, 15 is the cap. Work down "
-            "{who_to_reach}.",
+            "{who_to_reach}. " + ZI_PULL_RULE,
             "Show me the companies, the slate you built for each, the "
             "contacts and the total send volume. This run must not send more "
             "than {email_cap} emails - if it would, cut the weakest "
@@ -466,13 +467,11 @@ ROUTINES = [
               "select", default="Posted in the last 30 days",
               options=POSTING_AGE),
             F("boards", "Where to look for the jobs", "size",
-              default="Google Jobs first, then ZipRecruiter, then LinkedIn"),
+              default=BOARDS_DEFAULT),
         ] + SKIP_FIELDS,
         "steps": [
             "Search the job boards for companies hiring {roles} in "
-            "{location}, {posting_age_lc}. {boards}. If Google shows a bot "
-            "check, do not try to solve it: drop to ZipRecruiter and tell me "
-            "Google was skipped. Run ZipRecruiter either way.",
+            "{location}, {posting_age_lc}. {boards}. " + BOARDS_RULE,
             "{skip_clause}",
             "Size about {pool} companies to land {companies} of about "
             "{company_size}, and name 3 ranked reserves. For every pick give "
@@ -482,7 +481,7 @@ ROUTINES = [
             "Pull the buying centre for each company out of ZoomInfo. Aim "
             "for {contacts_each} contacts per company; 3 is the floor that "
             "qualifies a company at all, 15 is the cap. Work down "
-            "{who_to_reach}.",
+            "{who_to_reach}. " + ZI_PULL_RULE,
             "Show me the companies, the contacts and the total send volume. "
             "This run must not send more than {email_cap} emails - if it "
             "would, cut the weakest companies until it doesn't. Then {gate}.",
@@ -560,13 +559,66 @@ ROUTINES = [
             "{skip_clause}",
             "Land {companies_each} companies per candidate, and pull "
             "{contacts_each} contacts at each out of ZoomInfo. Work down "
-            "{who_to_reach}.",
+            "{who_to_reach}. " + ZI_PULL_RULE,
             "Show me the shortlist, the fit reasoning and the total send "
             "volume - it must not exceed {email_cap} emails - and {gate}.",
             "{go_prefix} build one campaign per company with create_campaign "
             "using {template_clause}, start_date "
             "{start_date}.{slate_clause}{newsletter_clause} Read back the "
             "campaign id and the queued-contact count for every one.",
+        ],
+    },
+    {
+        "key": "sc_worker",
+        "name": "Work my Sales Campaigns automatically",
+        # It builds its own hourly schedule, so the common repeat questions
+        # would only contradict it.
+        "no_repeat": True,
+        # Nobody is in the chair when the task fires, so it takes the
+        # unattended rule instead of "wait for me to say go".
+        "solo": True,
+        "blurb": "Set up an hourly check on this computer that picks up "
+                 "every Sales Campaign run I queue in DripDrop, pulls the "
+                 "contacts out of ZoomInfo - our Bulk Credits first, then my "
+                 "own - and posts them back to DripDrop for review.",
+        "example": "Check DripDrop for my Sales Campaign runs every hour on "
+                   "weekdays",
+        "tools": ["sales_runs_pending", "sales_run_update"],
+        "fields": [
+            F("worker_hours", "Which hours", "details",
+              default="from 7am to 6pm"),
+            F("worker_days", "Which days", "details",
+              default="Monday to Friday"),
+            F("worker_tz", "Your timezone", "details", "select",
+              default="Mountain", options=ZONES),
+        ],
+        "steps": [
+            "Check that my DripDrop, ZoomInfo, Indeed and ZipRecruiter "
+            "connectors are all on, and tell me if any is missing before "
+            "you go further.",
+            "Create a scheduled task here, in the desktop app you are "
+            "running in, named "
+            "\"DripDrop - Sales Campaign worker\" that runs every hour on "
+            "the hour, {worker_hours}, {worker_days}, {worker_tz} time. It "
+            "has to run on this computer, not in the cloud: when our Bulk "
+            "Credits run out it uses my own ZoomInfo seat through Chrome, "
+            "and only this computer has that.",
+            "Give the task this as its whole instruction: call "
+            "sales_runs_pending. If it returns no runs, stop and say "
+            "nothing. Otherwise take the runs one at a time, oldest first, "
+            "and follow each run's instructions field exactly - it is the "
+            "full brief: claiming the run, the job boards, the ZoomInfo "
+            "credit rules and how to post the result back. Finish one run "
+            "before starting the next.",
+            "Nobody is at the keyboard when it runs, so it never waits for "
+            "an answer. Nothing it does sends email itself - DripDrop "
+            "decides what sends, on its own review screen - so it does not "
+            "need to stop and check with me. If a run cannot be finished, post it back with "
+            "sales_run_update: the companies it could not get contacts for "
+            "as parked with the exact error, or status error with the "
+            "exact error, and move on.",
+            "Run it once now so I can watch it work, then read the task "
+            "name and the schedule back to me.",
         ],
     },
     {
@@ -1523,7 +1575,8 @@ def build_prompt(req, cat=None):
                            cat.routine_by_key[cat.default_routine])
     vals = dict(req.get("vals") or {})
     d = _derived(r, vals, cat)
-    solo = (_txt(r, vals, "unattended") or "").startswith("Run it all")
+    solo = (bool(r.get("solo"))
+            or (_txt(r, vals, "unattended") or "").startswith("Run it all"))
     # A routine can declare no tools and still be sent to the connector by
     # the newsletter answer - "Something else" is exactly that. Name the
     # tool the steps tell it to call, or the prompt asks for something it
@@ -1736,6 +1789,19 @@ STARTERS = [
                  "unattended": "Run it all the way through"},
     },
     {
+        "id": "sc_worker",
+        "icon": "schedule",
+        "label": "Work my Sales Campaigns automatically",
+        "sub": "A one-time setup. Claude checks DripDrop every hour, picks up "
+               "any Sales Campaign run you queued, pulls the contacts out of "
+               "ZoomInfo - shared Bulk Credits first, then your own - and "
+               "hands them back here for review.",
+        "summary": "Set up an hourly scheduled task on this computer that "
+                   "works every Sales Campaign run I queue in DripDrop.",
+        "routine": "sc_worker",
+        "vals": {},
+    },
+    {
         "id": "other",
         "icon": "edit_note",
         "label": "Something else - I'll describe it",
@@ -1757,7 +1823,23 @@ STARTER_BY_ID = {x["id"]: x for x in STARTERS}
 
 def _arena_result_extra(s, rf, C, r):
     """The one routine DripDrop can also run itself. Said on the result
-    screen because the page that does it no longer has its own nav row."""
+    screen because the page that does it no longer has its own nav row.
+
+    The worker setup gets the one-time ZoomInfo checklist instead, and the
+    pop-up until the user ticks it off."""
+    if r["key"] == "sc_worker":
+        import sales_campaign as sc
+        with _card(C):
+            _text("Before you paste it - one-time setup", C, 13, 700,
+                  C["text_l"], 8)
+            sc.zi_setup_steps(C)
+        try:
+            sc._sc_owner(s)
+            if not sc.sc_settings().get("zi_setup_ack"):
+                sc.zi_setup_dialog(s)
+        except Exception as ex:
+            print("[AIPrompts] setup pop-up failed: %s" % ex, flush=True)
+        return
     if r["key"] != "sales_campaign":
         return
     with _card(C):

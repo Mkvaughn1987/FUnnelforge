@@ -373,7 +373,10 @@ async def campaign_get(campaign_id: str) -> dict:
         "REST API - so it queues the target here. Each run comes back with "
         "the full target (industry, geography, roles, size band, avoid list), "
         "the already_worked dedupe keys, the contact targets, and an "
-        "'instructions' field that is the literal brief: follow it. Read-only."
+        "'instructions' field that is the literal brief: follow it. Calling "
+        "it also queues retry runs for companies an earlier run parked while "
+        "ZoomInfo was out of credits, once their two-day wait is up; a retry "
+        "run's brief says so and only asks for contacts."
     )
 )
 async def sales_runs_pending() -> dict:
@@ -408,12 +411,20 @@ async def sales_run_update(run_id: str, update: dict) -> dict:
             {"company": str, "state": str, "role": str, "why": str,
              "source": str, "zi_total": int,
              "contacts": [{"email", "first_name", "last_name", "title",
-                           "linkedin", "state"}]}.
+                           "linkedin", "state", "paid_by"}]}.
+            paid_by is "bulk" (connector Bulk Credits) or "seat" (the
+            user's own ZoomInfo Talent credits).
             Contacts are cleaned and deduped on arrival; one with no usable
             email is dropped with a reason rather than silently kept. A
             company below the contact floor is skipped at build time.
         reserves: ranked reserves, same shape, each with its demerit.
         dropped: what you dropped and why.
+        parked: companies you could not get contacts for because both
+            ZoomInfo credit pools were out - same shape as a company, plus
+            "waiting_reason" (the exact error). DripDrop retries them in two
+            days on its own. Never put these in companies or dropped.
+        credits: one line on what each credit pool did, e.g. "Bulk: 34
+            reveals, then Limit exceeded. Seat: 41 reveals."
         claude_notes: anything the user should read on the review screen.
         schedule_result: if the run asked for a repeat, what you created.
         log: str or list of str, appended to the run's progress log.

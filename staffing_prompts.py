@@ -22,6 +22,7 @@ import re
 from datetime import date
 
 import ai_prompts as _e
+from zoominfo_pull import BOARDS_DEFAULT, BOARDS_RULE, ZI_PULL_RULE
 from ai_prompts import (ARENA, F, NEWSLETTER_DEFAULT, NEWSLETTER_MODES,
                         POSTING_AGE, SEQUENCES, SKIP_FIELDS, WHEN_OPTIONS,
                         finalize_routines)
@@ -525,9 +526,10 @@ _CONTACTS_STEP = (
     "Pull the buying centre for each company out of ZoomInfo. Aim for "
     "{contacts_each} contacts per company; 3 is the floor that qualifies a "
     "company at all, 15 is the cap. Work down {who_to_reach}. Never the "
-    "person whose own job the opening is. If ZoomInfo returns a permissions "
-    "error, quote it, keep the company list, and stop before the emails "
-    "rather than guessing at addresses.")
+    "person whose own job the opening is. " + ZI_PULL_RULE + " If ZoomInfo "
+    "returns a permissions error - not a credit or quota error - quote it, "
+    "keep the company list, and stop before the emails rather than "
+    "guessing at addresses.")
 
 _SHOW_STEP = (
     "Show me the companies, the signal on each one, the contacts and the "
@@ -588,16 +590,13 @@ ROUTINES = [
               "select", default="Posted in the last 30 days",
               options=STAFF_POSTING_AGE),
             F("boards", "Where to look for the jobs", "size",
-              default="Google Jobs first, then ZipRecruiter, then LinkedIn, "
-                      "then Indeed"),
+              default=BOARDS_DEFAULT),
         ] + SKIP_FIELDS,
         "steps": [
             "{vertical_guide}",
             "Search the job boards for {vertical_label} companies in "
             "{location} hiring {roles}, {posting_age_lc}. {boards}. "
-            "{signals_clause} If Google shows a bot check, do not try to "
-            "solve it: drop to ZipRecruiter and tell me Google was skipped. "
-            "Run ZipRecruiter either way.",
+            "{signals_clause} " + BOARDS_RULE,
             "{skip_clause}",
             _SCORE_STEP,
             _CONTACTS_STEP,
@@ -677,8 +676,9 @@ ROUTINES = [
         ] + SKIP_FIELDS,
         "steps": [
             "{vertical_guide}",
-            "Search the job boards and LinkedIn for {roles} in {location}, "
-            "{posting_age_lc}, looking for {search_terms}.",
+            "Search the job boards - " + BOARDS_DEFAULT + " - for {roles} "
+            "in {location}, {posting_age_lc}, looking for {search_terms}. "
+            + BOARDS_RULE,
             "For every agency posting, work out the employer from what the "
             "posting gives away - the city, the project, the size, the "
             "product, the wording the company uses on its own careers page. "
