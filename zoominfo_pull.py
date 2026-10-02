@@ -17,6 +17,11 @@ BOARDS_DEFAULT = ("Google Jobs first, then LinkedIn Jobs, then Indeed, then "
 
 # Follows the boards sentence in every sourcing step.
 BOARDS_RULE = (
+    "Go in that order, one board at a time, and finish each board before "
+    "you start the next. Google Jobs and LinkedIn Jobs are searched in "
+    "Chrome. Indeed and ZipRecruiter have connectors, but they still come "
+    "after Google Jobs and LinkedIn: do not start with the connectors or "
+    "run them alongside the browser searches just because they are faster. "
     "If Google shows a bot check, do not try to solve it: move to the next "
     "board and tell me Google was skipped. Search every board either way, "
     "not just until you have enough, then pool what you found and pick the "
