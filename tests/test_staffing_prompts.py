@@ -107,9 +107,12 @@ def test_new_runs_come_first_then_every_arena_run(aip, sp):
     assert keys[:4] == NEW
     assert keys[4:] == [r["key"] for r in aip.ARENA.routines]
     starters = [st["id"] for st in sp.STAFFING.starters]
+    # "Research one account" came off the picker (Mike 2026-10-02); its
+    # routine stays so saved setups still open. MPC leads the Arena cards.
     assert starters[:4] == ["staff_signal", "staff_lookalike",
-                            "staff_agency", "staff_account"]
-    assert starters[4:] == [st["id"] for st in aip.ARENA.starters]
+                            "staff_agency", "mpc"]
+    assert "staff_account" not in starters
+    assert starters[3:] == [st["id"] for st in aip.ARENA.starters]
     for st in sp.STAFFING.starters:
         assert st.get("icon"), st["id"]
         assert st["routine"] in sp.STAFFING.routine_by_key

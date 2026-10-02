@@ -610,6 +610,83 @@ ROUTINES = [
         ],
     },
     {
+        # The page's own version of the app's "Start with an MPC" tile. The
+        # people are picked off the Pipeline on the page rather than typed,
+        # so each one reaches the prompt with its Ref # and the AI looks them
+        # up by that, never by a name it might match to the wrong person.
+        # The in-app MPC sequence is not a create_campaign template, so this
+        # runs the Arena 5x3 - the template that pins an exact slate.
+        "key": "mpc_campaign",
+        "name": "Start with an MPC",
+        "blurb": "Pick your Most Placeable Candidates from the Pipeline, find "
+                 "companies hiring for what they do, and pitch them in.",
+        "example": "Start an MPC for my senior estimator, pitched to general "
+                   "contractors in the Denver metro",
+        "tools": ["candidates_search", "campaigns_list", "create_campaign"],
+        "fields": [
+            F("candidates", "Which candidates", "details", "people", ask=True,
+              placeholder="Start typing a name, title or Ref #",
+              hint="Up to 3, from your DripDrop Pipeline."),
+            F("target_company", "What kind of company to pitch them to",
+              "details", default="any company hiring for what they do"),
+            F("location", "Where", "details", ask=True,
+              placeholder="e.g. the Denver metro"),
+            F("travel", "How far they'll travel", "details",
+              default="the metro they are already in"),
+            F("anonymise", "Hide their names and current employers", "details",
+              "toggle", default=True),
+            F("who_to_reach", "Who to reach", "details",
+              default="hiring managers first, then owners and C-level, then "
+                      "VPs and directors"),
+            F("newsletter_mode", "Add them to a newsletter", "details",
+              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
+            F("newsletter", "Which newsletter", "details",
+              placeholder="Only if you're naming one above",
+              hint="Leave this blank and the AI picks whichever of your "
+                   "newsletters is in the same line of work."),
+            *start_fields(),
+            F("companies_each", "How many companies", "size", "number",
+              default="3"),
+            F("contacts_each", "How many people at each company", "size",
+              "number", default="7",
+              hint="3 is the fewest worth doing, 15 the most."),
+            F("email_cap", "Most emails this run should send", "size",
+              "number", default="175"),
+        ] + SKIP_FIELDS,
+        "steps": [
+            "Pull each of these people out of DripDrop: {candidates}. Look "
+            "each one up with candidates_search using their Ref # as the "
+            "query (\"Ref #1042\") and a limit of 1 - the full resume text "
+            "is large. Keep the id that comes back for each one; that id is "
+            "how the campaign knows exactly who they are.",
+            "Build a card per candidate from their resume: three bullets, "
+            "each one a skillset, a notable project, or a company they have "
+            "worked for. No years-of-experience, location or salary "
+            "bullets.{anon_clause}",
+            "Find live openings at {target_company} in {location} that these "
+            "people genuinely fit. The same title is not the same job - score "
+            "the fit against the posting and say what the evidence was. Keep "
+            "it inside {travel}. Search the job boards - "
+            + BOARDS_DEFAULT + ". " + BOARDS_RULE,
+            "{skip_clause}",
+            "Land {companies_each} companies, and pull {contacts_each} "
+            "contacts at each out of ZoomInfo. Work down {who_to_reach}. "
+            + ZI_PULL_RULE,
+            "Show me the companies, which of these people fit each one and "
+            "why, and the total send volume - it must not exceed {email_cap} "
+            "emails - and {gate}.",
+            "{go_prefix} build one campaign per company with create_campaign "
+            "using template \"fivebythree\", start_date {start_date}. Pass "
+            "the people who fit that company in the candidates argument, "
+            "one card each, shaped {{\"_pool_id\": the id from "
+            "candidates_search, \"label\": \"Candidate A\", \"role\": a real "
+            "job title, \"bullets\": the three bullets}}, so DripDrop sends "
+            "these exact people and nobody else.{newsletter_clause} Read "
+            "back the campaign id and the queued-contact count for every "
+            "one.",
+        ],
+    },
+    {
         "key": "campaign_report",
         "name": "Tell me what's running",
         "blurb": "Read back live campaigns, their steps, and how they are "
@@ -1743,6 +1820,20 @@ def _save_setups(rows, cat=None):
 # are just not what this dropdown is for. Add one here when it earns a slot.
 STARTERS = [
     {
+        "id": "mpc",
+        "icon": "star",
+        "label": "Start with an MPC (Most Placeable Candidate)",
+        "sub": "Pick up to three people from your DripDrop Pipeline. The AI "
+               "finds companies with openings they genuinely fit, pulls the "
+               "hiring managers, and runs the Arena 5x3 with those exact "
+               "people on it.",
+        "summary": "Take the Most Placeable Candidates I picked from my "
+                   "Pipeline to companies hiring for what they do, and run "
+                   "the Arena 5x3 with them on it.",
+        "routine": "mpc_campaign",
+        "vals": {},
+    },
+    {
         "id": "slate",
         "icon": "groups",
         "label": "Find companies hiring in a market and put candidates in "
@@ -2391,6 +2482,9 @@ def describe_runs(cat=None, newsletter_names=()):
                 if names:
                     q["options"] = names
                     q["any_text"] = True
+            elif f["type"] == "people":
+                # Names or Ref #s, separated by semicolons.
+                q["type"] = "text"
             elif f["options"]:
                 q["options"] = list(f["options"])
             for k in ("hint", "placeholder"):
@@ -2659,6 +2753,9 @@ def _aip_field(s, rf, C, r, vals, f):
     if f["type"] == "pick":
         _pick_widget(C, vals, f, cur)
         return
+    if f["type"] == "people":
+        _people_widget(s, vals, f, cur)
+        return
     if f["type"] == "days":
         picked = _days_list(cur)
 
@@ -2742,6 +2839,90 @@ def _pick_widget(C, vals, f, cur):
     ui.select(options=opts, value=cur or None, with_input=True,
               new_value_mode="add-unique", clearable=True,
               on_change=_set).props("dense").classes("fd-input")
+
+
+PEOPLE_MAX = 3
+PEOPLE_SEP = "; "
+
+
+def _people_list(cur):
+    return [p.strip() for p in str(cur or "").split(";") if p.strip()]
+
+
+def _person_line(row):
+    """'Jane Doe - Senior Estimator, Denver CO (Ref #1042)'. The Ref # is
+    what the AI looks the person up by, so it is always on the end."""
+    name = " ".join(p for p in ((row.get("first_name") or "").strip(),
+                                (row.get("last_name") or "").strip()) if p)
+    title = (row.get("current_title") or "").strip()
+    place = " ".join(p for p in ((row.get("city") or "").strip(),
+                                 (row.get("state") or "").strip()) if p)
+    about = ", ".join(p for p in (title, place) if p)
+    line = name or "No name"
+    if about:
+        line += " - " + about
+    return (line + " (Ref #%s)" % row.get("id")).replace(";", ",")
+
+
+def _pipeline_people(owner, limit=1500):
+    """The Pipeline as picker lines: this user's own people first, newest
+    first, then the rest of the shared Pipeline the connector also searches.
+    Empty when there is no Pipeline to read, and the question falls back to
+    a plain box."""
+    # Only the columns the line shows - ats.recent() is SELECT *, and the
+    # resume text on a thousand rows is megabytes for a dropdown.
+    try:
+        # Same gate as the Pipeline page: nobody sees a list they could not
+        # open there.
+        allowed = getattr(_ff(), "_ats_allowed", None)
+        if not owner or (allowed and not allowed(owner)):
+            return []
+        import ats
+        con = ats._con()
+        try:
+            rows = con.execute(
+                "SELECT id, first_name, last_name, current_title, city, state "
+                "FROM talents ORDER BY (lower(owner_email)=?) DESC, id DESC LIMIT ?",
+                ((owner or "").lower(), int(limit))).fetchall()
+        finally:
+            con.close()
+        return [_person_line(dict(r)) for r in rows]
+    except Exception:
+        return []
+
+
+def _people_widget(s, vals, f, cur):
+    """Pick up to PEOPLE_MAX people off the Pipeline; type to filter. Stored
+    as one string so it saves and reads back like every other answer."""
+    key = f["key"]
+    picked = _people_list(cur)
+    names = _pipeline_people(_aip_owner(s))
+    if not names:
+        def _set_txt(e):
+            vals[key] = str(e.value or "")
+        ui.input(value=cur, placeholder="Names, or Ref #s",
+                 on_change=_set_txt).props("dense").classes("fd-input")
+        return
+    opts = list(dict.fromkeys(picked + names))
+
+    sel = None
+
+    def _set(e):
+        v = [str(x) for x in (e.value or []) if str(x or "").strip()]
+        if len(v) > PEOPLE_MAX:
+            v = v[:PEOPLE_MAX]
+            ui.notify("Up to %d people per MPC." % PEOPLE_MAX)
+            sel.value = v
+        vals[key] = PEOPLE_SEP.join(v)
+
+    # Pick-only: typing filters the list, it never becomes an answer of its
+    # own - with free text on, Enter saved the half-typed filter instead of
+    # the person it had narrowed down to.
+    sel = ui.select(options=opts, value=picked, multiple=True,
+                    with_input=True, on_change=_set).props(
+        'dense use-chips clearable input-debounce=150 '
+        'placeholder="%s"' % f["placeholder"]).classes("fd-input").style(
+        "width:100%;")
 
 
 def _aip_checks(s, rf, C, r, vals, f):

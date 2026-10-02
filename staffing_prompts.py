@@ -772,17 +772,8 @@ STARTERS = [
         "routine": "staff_agency_displace",
         "vals": {},
     },
-    {
-        "id": "staff_account",
-        "icon": "search",
-        "label": "Research one account",
-        "sub": "Everything worth knowing before a call. Nothing is sent.",
-        "summary": "Research one company before I reach out: what they do, "
-                   "who owns the hire, what they are hiring for, and the "
-                   "talk track.",
-        "routine": "staff_account",
-        "vals": {},
-    },
+    # "Research one account" (staff_account) came off the picker 2026-10-02.
+    # Its routine stays, so a setup saved against it still opens.
 ]
 
 
