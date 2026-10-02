@@ -690,7 +690,7 @@ def test_the_ask_carries_todays_date_and_the_vertical_row(tm, monkeypatch):
     assert ff.sent["system"].startswith("GUARD ")
     assert out == {"season_note": "s", "company_size": "c", "roles": "r",
                    "who_to_reach": "w"}
-    assert "Run a seasonal push" in sent
+    assert "Run a Seasonal Push" in sent
     assert why == "because"
 
 

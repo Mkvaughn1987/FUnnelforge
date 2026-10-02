@@ -1457,7 +1457,7 @@ OWN_JOBS = [
 ROUTINES = [
     {
         "key": "tm_signal_hunt",
-        "name": "Find companies showing a hiring signal",
+        "name": "Find Companies Showing a Hiring Signal",
         "recommend": ["location", "company_size", "roles", "who_to_reach",
                       "signals"],
         "blurb": "A hiring signal is a company telling you from the outside "
@@ -1500,7 +1500,7 @@ ROUTINES = [
     },
     {
         "key": "tm_lookalikes",
-        "name": "Find companies like a customer",
+        "name": "Find Companies Similar to a Customer",
         "recommend": ["location", "company_size", "roles", "who_to_reach"],
         "blurb": "Start from a company ThriveModal already serves, find the "
                  "ones that look like it through ZoomInfo, and open a "
@@ -1541,7 +1541,7 @@ ROUTINES = [
     },
     {
         "key": "tm_displacement",
-        "name": "Find companies already using offshore staff",
+        "name": "Find Companies Already Using Offshore Staff",
         "recommend": ["location", "company_size", "roles", "who_to_reach",
                       "search_terms"],
         "blurb": "Companies that already run offshore staff have proven the "
@@ -1585,7 +1585,7 @@ ROUTINES = [
     },
     {
         "key": "tm_cost_pressure",
-        "name": "Scan for cost pressure",
+        "name": "Scan for Cost Pressure",
         "recommend": ["states", "lookback", "company_size",
                       "roles", "who_to_reach"],
         "blurb": "Layoff notices, private-equity roll-ups and office "
@@ -1632,7 +1632,7 @@ ROUTINES = [
     },
     {
         "key": "tm_seasonal",
-        "name": "Run a seasonal push for one vertical",
+        "name": "Run a Seasonal Push for One Vertical",
         "recommend": ["season_note", "location", "company_size", "roles",
                       "who_to_reach"],
         "blurb": "Time a push to the season one vertical plans its staffing "
@@ -1665,7 +1665,7 @@ ROUTINES = [
     },
     {
         "key": "tm_audience",
-        "name": "Turn a saved audience into a campaign",
+        "name": "Turn a Saved Audience into a Campaign",
         "blurb": "Take contacts already imported into inboxslide, check "
                  "them, and put them into one campaign.",
         "example": "Take my Denver property managers audience and start a "
@@ -1709,7 +1709,7 @@ ROUTINES = [
     },
     {
         "key": "tm_account",
-        "name": "Research one account before I reach out",
+        "name": "Research an Account Before Outreach",
         "recommend": ["who_to_reach"],
         "blurb": "Everything worth knowing about one company before a call "
                  "or a hand-written email: what they do, who buys, what "
@@ -1747,7 +1747,7 @@ ROUTINES = [
     },
     {
         "key": "other",
-        "name": "Create your own",
+        "name": "Create Your Own",
         "blurb": "Describe it in your own words and the prompt is built "
                  "around that, with the ThriveModal rules attached.",
         "example": "Go through my Stay on Their Radar campaigns and tell me "
@@ -1784,7 +1784,7 @@ STARTERS = [
     {
         "id": "signal",
         "icon": "trending_up",
-        "label": "Find companies showing a hiring signal",
+        "label": "Find Companies Showing a Hiring Signal",
         "sub": "A signal is a company showing from the outside that it is "
                "short-handed: a posting that keeps coming back, a night "
                "shift, three of the same junior role. Tick which ones to "
@@ -1798,7 +1798,7 @@ STARTERS = [
     {
         "id": "lookalike",
         "icon": "content_copy",
-        "label": "Find companies like a customer",
+        "label": "Find Companies Similar to a Customer",
         "sub": "Start from a reference customer and find the companies that "
                "look like it.",
         "summary": "Find companies that look like a reference customer, "
@@ -1810,7 +1810,7 @@ STARTERS = [
     {
         "id": "displace",
         "icon": "swap_horiz",
-        "label": "Find companies already offshore",
+        "label": "Find Companies Already Using Offshore Staff",
         "sub": "They have proven the model. Pitch the better-run version.",
         "summary": "Find companies whose postings or pages show they already "
                    "use offshore staff and start a conversation about doing "
@@ -1822,7 +1822,7 @@ STARTERS = [
     {
         "id": "pressure",
         "icon": "savings",
-        "label": "Scan for cost pressure",
+        "label": "Scan for Cost Pressure",
         "sub": "WARN notices, roll-ups and closures in one vertical.",
         "summary": "Find companies in one vertical under visible cost "
                    "pressure and start a conversation about keeping the work "
@@ -1833,7 +1833,7 @@ STARTERS = [
     {
         "id": "season",
         "icon": "event",
-        "label": "Run a seasonal push",
+        "label": "Run a Seasonal Push",
         "sub": "Time it to when one vertical plans its staffing.",
         "summary": "Run a push into one vertical timed to the season it "
                    "staffs for.",
@@ -1843,7 +1843,7 @@ STARTERS = [
     {
         "id": "audience",
         "icon": "groups",
-        "label": "Turn a saved audience into a campaign",
+        "label": "Turn a Saved Audience into a Campaign",
         "sub": "Contacts already in inboxslide, checked and put into one "
                "campaign.",
         "summary": "Take one of my saved audiences, clean it, and put it "
@@ -1854,7 +1854,7 @@ STARTERS = [
     {
         "id": "account",
         "icon": "search",
-        "label": "Research one account",
+        "label": "Research an Account",
         "sub": "Everything worth knowing before a call. Nothing is sent.",
         "summary": "Research one company before I reach out: what they do, "
                    "who buys, what they are hiring, and the talk track.",
@@ -1864,7 +1864,7 @@ STARTERS = [
     {
         "id": "other",
         "icon": "edit_note",
-        "label": "Create your own",
+        "label": "Create Your Own",
         "sub": "Describe exactly what you want, in your own words.",
         "summary": "",
         "routine": "other",
