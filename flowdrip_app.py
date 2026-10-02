@@ -15013,7 +15013,7 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
                     def _pick(idx=i, key=sel_key):
                         setattr(s, key, idx); rf()
                     bg = C["teal"] if is_sel else "transparent"
-                    fg = "#fff" if is_sel else C["teal"]
+                    fg = C["on_teal"] if is_sel else C["teal"]
                     label = v.get("label", f"Variant {i+1}")
                     with ui.element("button").style(
                             f"padding:5px 12px;border-radius:14px;cursor:pointer;"
@@ -27375,33 +27375,6 @@ def p_newsletters(s, rf):
             "max-width:880px;margin:0 auto;padding:0 8px;"):
 
         _render_page_intro_strip(s, rf, "newsletters")
-
-        # ── The Roundup tab (gated) ───────────────────────────────────────
-        # Owner (Rothany) + Michael see a two-tab switch. Everyone else falls
-        # straight through to the standard AI-newsletter page (no trace).
-        _roundup_ok = _roundup_allowed(getattr(s, "_user_email", "") or "")
-        if _roundup_ok:
-            _active_tab = getattr(s, "_nl_active_tab", "market")
-            with ui.element("div").style(
-                    "display:flex;justify-content:center;gap:8px;"
-                    "margin:0 0 18px;"):
-                for _key, _lbl in (("market", "Market Newsletters"),
-                                   ("roundup", "The Roundup")):
-                    _is_on = (_active_tab == _key)
-                    def _switch(k=_key):
-                        s._nl_active_tab = k
-                        rf()
-                    with ui.element("button").style(
-                            f"padding:8px 20px;font-size:13px;font-weight:700;"
-                            f"border-radius:8px;cursor:pointer;font-family:inherit;"
-                            f"border:1px solid {C['border']};"
-                            f"background:{C['teal'] if _is_on else 'transparent'};"
-                            f"color:{'#fff' if _is_on else C['muted']};"
-                            ).on("click", _switch):
-                        ui.label(_lbl).style("pointer-events:none;")
-            if _active_tab == "roundup":
-                _roundup_tab(s, rf)
-                return
 
         # First-issue generation status — shows when a user just created
         # a newsletter and the bg thread is still generating its first
@@ -40543,7 +40516,8 @@ def p_target_candidate(s: AppState, rf):
                 is_done = i < s.tc_step
                 is_current = i == s.tc_step
                 bg = C["teal"] if is_current else (C["good"] if is_done else C["border"])
-                fg = "#fff" if (is_current or is_done) else C["muted"]
+                fg = (C["on_teal"] if is_current
+                      else "#fff" if is_done else C["muted"])
                 with ui.element("div").style(
                         "display:flex;align-items:center;gap:8px;"):
                     ui.html(
