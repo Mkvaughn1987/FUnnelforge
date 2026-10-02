@@ -598,27 +598,86 @@ def _state_abbr(s):
     return _STATE_ABBR.get(s.lower(), "")
 
 
-def geocode(city, state):
-    """(lat,lng) for a city/state — precise city match, else state centroid."""
+# Recruiters type areas, not just cities: "Orange County, CA", "Greater
+# Boston, MA", "Salt Lake County, UT". None of those are rows in us_geo.csv,
+# so we retry the lookup with the qualifier stripped, and once more with
+# "City" appended ("Salt Lake County" -> "Salt Lake City").
+_QUAL_PREFIX = re.compile(r"^(?:the|greater|metropolitan|metro|city\s+and\s+county\s+of)\s+",
+                          re.I)
+_QUAL_SUFFIX = re.compile(r"\s+(?:county|parish|borough|metropolitan\s+area|"
+                          r"metro\s+area|metro|area|region)$", re.I)
+
+
+def _city_variants(city):
+    """The names to try for a typed place, best guess first."""
+    c = (city or "").strip()
+    if not c:
+        return []
+    out = [c]
+    s = _QUAL_SUFFIX.sub("", _QUAL_PREFIX.sub("", c)).strip()
+    if s and _norm_city(s) != _norm_city(c):
+        out += [s, s + " City"]
+    return out
+
+
+def geocode(city, state, allow_state_centroid=False):
+    """Precise (lat,lng) for a city/state, or None when we can't place it.
+
+    Deliberately does NOT fall back to the state centroid: a radius is only
+    meaningful measured from a real point, and quietly substituting the middle
+    of California turned every "Orange County, CA" search into an empty result
+    set with nothing on screen to explain why. Callers that genuinely want a
+    state-level approximation must opt in.
+    """
+    coord, _ = _geocode_named(city, state)
+    if coord:
+        return coord
+    if allow_state_centroid:
+        return _STATE_CENTROID.get(_state_abbr(state))
+    return None
+
+
+def _geocode_named(city, state):
+    """(coord, matched_name) for a city/state — matched_name is the variant we
+    actually found, so the caller can disclose a substitution. (None, "") when
+    the place can't be pinned to a real city."""
     st = _state_abbr(state)
     if not st:
-        return None
-    hit = _load_geo().get((_norm_city(city), st))
-    return hit or _STATE_CENTROID.get(st)
+        return None, ""
+    geo = _load_geo()
+    for name in _city_variants(city):
+        hit = geo.get((_norm_city(name), st))
+        if hit:
+            return hit, name
+    return None, ""
+
+
+def geocode_place(s):
+    """Geocode a free 'City, ST' string into (coord, label).
+
+    `label` is set only when we resolved the text to a *different* place than
+    was typed (e.g. "Orange County, CA" -> "Orange, CA") — that guess is
+    sometimes wrong (Maricopa County, AZ resolves to the town of Maricopa,
+    35 mi from Phoenix), so the UI shows it and lets the user correct it.
+    """
+    s = (s or "").strip()
+    if not s:
+        return None, ""
+    parts = [p.strip() for p in s.split(",") if p.strip()]
+    # A bare state is not a point — no radius can be measured from it.
+    if len(parts) < 2:
+        return None, ""
+    coord, matched = _geocode_named(parts[0], parts[-1])
+    if not coord:
+        return None, ""
+    label = ("%s, %s" % (matched, _state_abbr(parts[-1]))
+             if _norm_city(matched) != _norm_city(parts[0]) else "")
+    return coord, label
 
 
 def geocode_text(s):
     """Geocode a free 'City, ST' / 'City, State' string (e.g. a JD location)."""
-    s = (s or "").strip()
-    if not s:
-        return None
-    parts = [p.strip() for p in s.split(",") if p.strip()]
-    if len(parts) >= 2:
-        return geocode(parts[0], parts[-1])
-    # single token: maybe a state name/abbrev, else a bare city is ambiguous
-    if _state_abbr(parts[0]):
-        return geocode("", parts[0])
-    return None
+    return geocode_place(s)[0]
 
 
 def _haversine(a, b):
@@ -696,8 +755,11 @@ def backfill_coords() -> dict:
             if not st:
                 out["unlocated"] += 1
                 continue
-            precise = _load_geo().get((_norm_city(r["city"]), st))
-            coord = precise or _STATE_CENTROID.get(st)
+            # Stored coords bypass the geocode path on every later search, so
+            # a centroid written here would be trusted as a real position
+            # forever after. Only precise city matches get persisted.
+            coord, _ = _geocode_named(r["city"], st)
+            precise = bool(coord)
             if not coord:
                 out["unlocated"] += 1
                 continue
@@ -812,6 +874,31 @@ def find_by_ref_or_alias(q: str, owner: str = None) -> list:
         con.close()
 
 
+def quick_find(q: str, limit: int = 8) -> list:
+    """Candidates for the top-bar search: a Ref # or alias first, then
+    anyone whose name or email contains what was typed. Every word has to
+    match, so "john smi" finds John Smith. Whole team's pool."""
+    q = (q or "").strip()
+    if len(q) < 2:
+        return []
+    direct = find_by_ref_or_alias(q)
+    words = [w for w in q.lower().split() if w][:4]
+    con = _con()
+    try:
+        hay = ("lower(coalesce(first_name,'') || ' ' || coalesce(last_name,'') "
+               "|| ' ' || coalesce(email,'') || ' ' || coalesce(client_alias,''))")
+        where = " AND ".join([hay + " LIKE ?"] * len(words))
+        rows = con.execute(
+            "SELECT * FROM talents WHERE " + where + " ORDER BY id DESC LIMIT ?",
+            ["%" + w + "%" for w in words] + [limit]).fetchall()
+        ids = {r["id"] for r in direct}
+        return (direct + [dict(r) for r in rows if r["id"] not in ids])[:limit]
+    except Exception:
+        return direct[:limit]
+    finally:
+        con.close()
+
+
 def keyword_search(q: str, limit: int = 80, strict: bool = False,
                    owner: str = None, location: str = None,
                    radius_mi: float = None, added_within_days: int = None,
@@ -827,8 +914,10 @@ def keyword_search(q: str, limit: int = 80, strict: bool = False,
     "Ref #1042" or "Trent K." from a client email finds the person.
 
     Returns a list of rows. With `with_meta=True` returns (rows, meta) instead,
-    where meta carries `origin`, `bad_location` (a location string we couldn't
-    geocode) and `hidden_no_location` for the UI to report honestly.
+    where meta carries `origin`, `origin_label` (the city we resolved a region
+    to, when that differs from what was typed), `bad_location` (a location
+    string we couldn't geocode) and `hidden_no_location` for the UI to report
+    honestly.
     """
     direct = find_by_ref_or_alias(q, owner=owner)
     if direct:
@@ -844,17 +933,19 @@ def keyword_search(q: str, limit: int = 80, strict: bool = False,
 
 def _keyword_search_fts(q, limit, strict, owner, location, radius_mi,
                         added_within_days):
-    meta = {"origin": None, "bad_location": "", "hidden_no_location": 0}
+    meta = {"origin": None, "origin_label": "", "bad_location": "",
+            "hidden_no_location": 0}
     terms = _terms(q)
     if not terms:
         return [], meta
-    origin = geocode_text(location) if location else None
+    origin, origin_label = geocode_place(location) if location else (None, "")
     if location and not origin:
-        # e.g. a bare city like "Irvine" — geocode_text needs "Irvine, CA".
+        # e.g. a bare city like "Irvine" — geocode_place needs "Irvine, CA".
         # Fall through unfiltered rather than silently returning nothing, and
         # tell the caller so it can show a warning.
         meta["bad_location"] = location
     meta["origin"] = origin
+    meta["origin_label"] = origin_label
     since = _added_since(added_within_days)
     con = _con()
     try:
@@ -935,8 +1026,9 @@ def jd_search(jd_text: str, limit: int = 80, owner: str = None,
     # Geocode the search location so we can rank/filter by distance. An
     # explicit location from the filter bar wins over the AI-parsed one.
     _loc = (location or "").strip() or crit.get("location", "")
-    origin = geocode_text(_loc) if _loc else None
+    origin, origin_label = geocode_place(_loc) if _loc else (None, "")
     crit["_origin"] = origin
+    crit["_origin_label"] = origin_label
     crit["_location_used"] = _loc
     crit["_bad_location"] = (location.strip() if (location and location.strip()
                                                   and not origin) else "")
@@ -3250,6 +3342,7 @@ def _view_candidates(ff, st, refresh):
             results = await _run.io_bound(lambda: score_results(jd, results))
             st["crit"], st["results"], st["terms"] = crit, results, terms
             st["meta"] = {"bad_location": crit.get("_bad_location", ""),
+                          "origin_label": crit.get("_origin_label", ""),
                           "hidden_no_location": crit.get("_hidden_no_location", 0)}
             st["searching"] = False
             refresh()
@@ -3308,6 +3401,13 @@ def _view_candidates(ff, st, refresh):
                 ui.label(f"⚠ Couldn't locate “{_m['bad_location']}” — use a City, ST "
                          f"format like “Irvine, CA”. Distance filter not applied.").style(
                     f"font-size:11px;color:{_c(C,'warn','#D97706')};margin-top:7px;")
+            if _m.get("origin_label"):
+                # Resolving a region to a city is a guess ("Maricopa County, AZ"
+                # lands on the town of Maricopa, 35mi from Phoenix). Show it so
+                # a wrong guess is obvious instead of silently skewing results.
+                ui.label(f"ℹ Measuring distance from {_m['origin_label']}. "
+                         f"Type an exact City, ST to change it.").style(
+                    f"font-size:11px;color:{_c(C,'muted','#94A3B8')};margin-top:7px;")
             _hid = _m.get("hidden_no_location") or 0
             if _hid:
                 ui.label(f"ℹ {_hid:,} candidate{'s' if _hid != 1 else ''} hidden — "
@@ -4518,6 +4618,66 @@ def _view_stub(ff, st, title, blurb):
             f"font-size:13px;color:{_c(C,'muted','#94A3B8')};margin-top:8px;")
 
 
+def _quick_find_box(ff, st, refresh):
+    """Top-bar search: type a name, email or Ref #, click a match to open
+    the candidate. Same look as the header search on the rest of DripDrop
+    (.fd-ph-search styles come from flowdrip_app's injected CSS)."""
+    try:
+        icon = ff._svg_icon("search", 15)
+    except Exception:
+        icon = ""
+    with ui.element("div").classes("fd-ph-search").style("margin-left:0;"):
+        if icon:
+            ui.html(icon)
+        inp = ui.input(placeholder="Search candidates by name").props(
+            'borderless dense clearable aria-label="Search candidates"')
+        box = ui.element("div").classes("fd-ph-results")
+        box.set_visibility(False)
+
+        def _open(tid):
+            box.set_visibility(False)
+            st.update({"sel": tid, "tab": "resume", "view": "profile"})
+            refresh()
+
+        def _search(e):
+            q = (e.value or "").strip()
+            box.clear()
+            if len(q) < 2:
+                box.set_visibility(False); return
+            rows = quick_find(q)
+            with box:
+                if not rows:
+                    ui.label("No candidates match.").classes("fd-ph-res-empty")
+                for r in rows:
+                    nm = f"{r.get('first_name') or ''} {r.get('last_name') or ''}".strip()
+                    lbl = nm or r.get("email") or f"Ref #{r['id']}"
+                    sub = r.get("current_title") or ""
+                    loc = ", ".join(x for x in (r.get("city"), r.get("state")) if x)
+                    if sub and loc:
+                        sub += " · " + loc
+                    elif loc:
+                        sub = loc
+                    with ui.element("div").classes("fd-ph-res").on(
+                            "click", lambda _i=r["id"]: _open(_i)):
+                        with ui.element("div").style("flex:1;min-width:0;"):
+                            ui.label(lbl).classes("fd-ph-res-lbl").style("display:block;")
+                            if sub:
+                                ui.label(sub).style(
+                                    "display:block;font-size:11px;opacity:.7;white-space:nowrap;"
+                                    "overflow:hidden;text-overflow:ellipsis;")
+                        ui.label(f"#{r['id']}").classes("fd-ph-res-kind")
+            box.set_visibility(True)
+
+        def _first(_e=None):
+            rows = quick_find(inp.value or "")
+            if rows:
+                _open(rows[0]["id"])
+
+        inp.on_value_change(_search)
+        inp.on("keydown.enter", _first)
+        inp.on("keydown.escape", lambda: (inp.set_value(""), box.set_visibility(False)))
+
+
 def _render_app(ff, st, refresh):
     C = ff.C
     # Top bar
@@ -4543,6 +4703,7 @@ def _render_app(ff, st, refresh):
                 "click", lambda: ui.navigate.to("/")):
             ui.label("← Back to DripDrop")
         ui.element("div").style("flex:1;")
+        _quick_find_box(ff, st, refresh)
         ui.label(st.get("name", "")).style(f"font-size:12px;color:{_c(C,'muted','#94A3B8')};")
 
     # Body: sidebar + content
