@@ -1949,6 +1949,17 @@ def _aip_css():
         "color:var(--dd-muted);display:inline-flex;align-items:center;"
         "gap:4px;}"
         ".aip-wrap .aip-link:hover{color:var(--dd-teal);}"
+        # Back on the answers and prompt screens: a highlighted pill, so the
+        # way out is the first thing you see, not a muted text link.
+        ".aip-wrap .aip-back{display:inline-flex;align-items:center;gap:6px;"
+        "cursor:pointer;font-family:inherit;font-size:13px;font-weight:700;"
+        "color:var(--dd-teal);border-radius:999px;padding:6px 14px 6px 10px;"
+        "background:color-mix(in srgb,var(--dd-teal) 14%,transparent);"
+        "border:1px solid color-mix(in srgb,var(--dd-teal) 45%,transparent);"
+        "transition:background .15s;}"
+        ".aip-wrap .aip-back:hover{"
+        "background:color-mix(in srgb,var(--dd-teal) 24%,transparent);}"
+        ".aip-wrap .aip-back .q-icon{font-size:16px;}"
         ".aip-wrap .aip-link.back{font-weight:600;color:var(--dd-teal);"
         "background:var(--dd-teal_dim);padding:4px 12px;"
         "border-radius:999px;}"
@@ -3063,7 +3074,7 @@ def _aip_confirm(s, rf, C):
                     _text("Here's what I understood" if heard
                           else req.get("title") or "Set this up",
                           C, 17, 700, C["text_l"], 2)
-                    with ui.element("button").classes("aip-link back").on(
+                    with ui.element("button").classes("aip-back").on(
                             "click", _back):
                         ui.icon("arrow_back").style("font-size:15px;")
                         ui.label(back_label)
@@ -3200,7 +3211,7 @@ def _aip_result(s, rf, C):
                         ui.label(r["name"]).classes("aip-pill good")
                         # Back sits up here too: the prompt is long, so the
                         # button row below is off screen when you land.
-                        with ui.element("button").classes("aip-link back").on(
+                        with ui.element("button").classes("aip-back").on(
                                 "click", _back):
                             ui.icon("arrow_back").style("font-size:15px;")
                             ui.label(back_label)
