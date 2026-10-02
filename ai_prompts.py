@@ -572,7 +572,8 @@ ROUTINES = [
             "Find live openings at {target_company} in {location} that "
             "genuinely fit each one.{breadth_clause} The same title is not "
             "the same job - score the fit and say what the evidence was. "
-            "Keep it inside {travel}.",
+            "Keep it inside {travel}. Search the job boards - "
+            + BOARDS_DEFAULT + ". " + BOARDS_RULE,
             "{skip_clause}",
             "Land {companies_each} companies per candidate, and pull "
             "{contacts_each} contacts at each out of ZoomInfo. Work down "
