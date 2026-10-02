@@ -59,9 +59,10 @@ def test_sales_wizard_skips_confirm_and_candidates():
     assert "if _SALES_MODE and _wiz_step in (3, 4):" in src
     # top + bottom Next
     assert src.count("if _SALES_MODE and _nxt in (3, 4):") == 2
-    # Back from Campaign style lands on Target details
-    assert "if _SALES_MODE and _prev in (3, 4):" in src
-    assert "_prev = 2" in src
+    # Back from Campaign style lands on Target details. The rule lives in
+    # _aicb_prev_wizard_step (shared with the top Back bar); its outcomes
+    # are pinned in tests/test_back_buttons.py.
+    assert "_aicb_prev_wizard_step(s, _wiz_step)" in src
     # progress pills
     assert "_steps = [st for st in _steps if st[0] not in (3, 4)]" in src
 

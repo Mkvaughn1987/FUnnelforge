@@ -21619,6 +21619,24 @@ def _wiz_back_clear_outputs(s: "AppState") -> None:
                 setattr(s, name, getattr(fresh, name))
 
 
+def _aicb_prev_wizard_step(s: "AppState", cur: int) -> int:
+    """The step Back lands on from wizard step `cur`. One rule shared by
+    the top "Back a step" bar and the wizard's own Back button, so the
+    two can't disagree: a locked style has no step 5, and a sales
+    instance has no steps 3 or 4. The top bar used to skip only step 4,
+    so on a ThriveModal Review step it sent you to 5 and the wizard
+    bounced you straight back to 6."""
+    camp_type = getattr(s, "aicb_camp_type", "") or ""
+    style_locked = (bool(getattr(s, "aicb_style_locked", False))
+                    and (camp_type == "fourbyfour" or camp_type in _TM_TYPE_KEYS))
+    prev = max(1, int(cur) - 1)
+    if style_locked and prev == 5:
+        prev = 4
+    if _SALES_MODE and prev in (3, 4):
+        prev = 2
+    return prev
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 #  NAVIGATION HELPERS
 # ═══════════════════════════════════════════════════════════════════════════
@@ -21935,6 +21953,11 @@ def nav_back_label(s: AppState) -> str:
         return f"{lname}  -  {view_label}"
 
     page_key = sp if hub == "sales" else ep
+    # Name the page the way the sidebar does. PAGE_NAMES are the classic
+    # nav's names ("Dashboard", "Campaign Radar"), which the sidebar
+    # layout never shows anywhere else.
+    if _SIDEBAR_LAYOUT and page_key in SIDEBAR_TITLES:
+        return f"Back to {SIDEBAR_TITLES[page_key]}"
     return PAGE_NAMES.get(page_key, "Back")
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -22877,11 +22900,16 @@ def _sidebar_setup_status() -> dict:
     return {"email": True, "company": True, "timezone": True, "ready": True}
 
 
-def _sidebar_nav(s, rf, k: str, setup: dict, tab: str = ""):
+def _sidebar_nav(s, rf, k: str, setup: dict, tab: str = "",
+                 came_from: str = ""):
     """Navigate from the sidebar / page header. Mirrors the classic
     sidebar's _go() exactly: setup gate on New Campaign, back-history
     snapshot, draft auto-save + wizard reset when starting a campaign,
-    and the Saved tab shortcut (drafts_saved in the classic nav)."""
+    and the Saved tab shortcut (drafts_saved in the classic nav).
+
+    came_from names the page a drill-in left, so the page it lands on
+    can draw its own "Back to ..." (sidebar pages get no history Back).
+    A plain sidebar click passes nothing and so clears it."""
     if (k == "start_seq" and _SERVER_MODE
             and not setup.get("ready", True)
             and not getattr(s, "_setup_gate_dismissed", False)):
@@ -22891,6 +22919,7 @@ def _sidebar_nav(s, rf, k: str, setup: dict, tab: str = ""):
         s._nav_history = s._nav_history[-20:]
     s.hub = "sales"      # every sidebar destination lives in the Sales hub
     s.sp = k
+    s._came_from = came_from
     if k == "dashboard":
         s.launch_result = None
     if k == "start_seq" and tab == "saved":
@@ -38808,6 +38837,13 @@ def p_evergreen(s, rf, *, as_section: bool = False):
 
 def p_evergreen_create(s, rf):
     """Dedicated page for creating a new evergreen campaign."""
+    # The sidebar layout hides the global Back bar on this page (it maps to
+    # a sidebar row), which left Cancel at the very bottom as the only exit.
+    if _SIDEBAR_LAYOUT and "evergreen_create" in SIDEBAR_PAGE_ROW:
+        with ui.element("div").classes("fd-back-bar"):
+            with ui.element("button").classes("fd-back-btn").on(
+                    "click", lambda: nav_back(s, rf)):
+                ui.label("← Back")
     ui.label(f"Create {TERM_NURTURE} Campaign").classes("fd-h1")
     ui.label("Build an evergreen sequence - contacts you enroll will receive each email on a rolling schedule.").classes("fd-sub")
 
@@ -40750,17 +40786,26 @@ def p_seq_builder(s: AppState, rf):
             "display:flex;align-items:center;justify-content:space-between;"
             "margin-bottom:14px;max-width:920px;"):
         ui.label("Create a Campaign Style").classes("fd-h1")
+        # Step 1 goes back where you came from (the campaign wizard's style
+        # step, Templates...). It used to always jump to the chooser, while
+        # the global bar above it went somewhere else; that bar is now
+        # hidden on this page so there is one Back.
+        _sb_from = nav_back_label(s)
+
         def _back():
             if s.sb_wiz_step > 1:
                 s.sb_wiz_step -= 1
+            elif s._nav_history:
+                nav_back(s, rf); return
             else:
                 s.sp = "start_seq"
                 s._tab = ""
             rf()
         with ui.element("button").classes("fd-gb").style(
                 "padding:6px 14px;font-size:11px;").on("click", _back):
-            ui.label("← Back to Campaign Styles" if s.sb_wiz_step <= 1
-                      else "← Back")
+            ui.label("← Back" if s.sb_wiz_step > 1
+                      else f"← {_sb_from}" if _sb_from
+                      else "← Back to Templates")
 
     # Step progress strip
     _wiz_labels = ["1. Counts", "2. Sequence & timing",
@@ -53331,12 +53376,8 @@ def p_ai_campaign(s: AppState, rf):
                     # forward re-run regenerates from current inputs.
                     # Inputs preserved.
                     _wiz_back_clear_outputs(s)
-                    _prev = max(1, _wiz_step - 1)
-                    if _style_locked and _prev == 5:  # skip Campaign Style step
-                        _prev = 4
-                    if _SALES_MODE and _prev in (3, 4):  # Confirm + Candidates are not in the flow
-                        _prev = 2
-                    s.aicb_wizard_step = _prev; rf()
+                    s.aicb_wizard_step = _aicb_prev_wizard_step(s, _wiz_step)
+                    rf()
 
                 with ui.element("div").style(
                         f"{_col2}"
@@ -69718,6 +69759,11 @@ def render_page(s: AppState, rf):
             _in_aicb_wizard = (page == "ai_campaign"
                                and _aicb_clamp_wizard_step(
                                    getattr(s, "aicb_wizard_step", 1)) > 1)
+            # The generated-campaign screen sits on top of the wizard, so a
+            # step Back there changed a step you couldn't see.
+            _in_aicb_results = (page == "ai_campaign"
+                                and getattr(s, "aicb_step", 1) == 2)
+            _in_aicb_wizard = _in_aicb_wizard or _in_aicb_results
             # Loaded campaign editor (start_seq with s.loaded_camp set) has
             # its own 4-step flow: emails → sequence → contacts → launch.
             # When the user is on any step BEYOND emails, Back should go
@@ -69740,16 +69786,21 @@ def render_page(s: AppState, rf):
             # from in the old nav, not anything on screen. Step Backs stay.
             if _SIDEBAR_LAYOUT and page in SIDEBAR_PAGE_ROW:
                 back_label = ""
+            if page == "seq_builder":   # draws its own step-aware Back
+                back_label = ""
             _show_back = (_in_aicb_wizard or _in_loaded_camp_step or back_label) and page != "dashboard"
             if _show_back:
                 def _do_back():
-                    if _in_aicb_wizard:
-                        _bprev = max(
-                            1, _aicb_clamp_wizard_step(
-                                getattr(s, "aicb_wizard_step", 1)) - 1)
-                        if _SALES_MODE and _bprev == 4:  # skip Candidates step
-                            _bprev = 3
-                        s.aicb_wizard_step = _bprev
+                    if _in_aicb_results:
+                        # Results -> the Review step it was generated
+                        # from, inputs kept. "Start Over" stays the wipe.
+                        s.aicb_step = 1
+                        rf()
+                    elif _in_aicb_wizard:
+                        _wiz_back_clear_outputs(s)
+                        s.aicb_wizard_step = _aicb_prev_wizard_step(
+                            s, _aicb_clamp_wizard_step(
+                                getattr(s, "aicb_wizard_step", 1)))
                         rf()
                     elif _in_loaded_camp_step:
                         try:
@@ -69761,7 +69812,9 @@ def render_page(s: AppState, rf):
                     else:
                         nav_back(s, rf)
                 _btn_text = "← Back"
-                if _in_aicb_wizard:
+                if _in_aicb_results:
+                    _btn_text = "← Back to review"
+                elif _in_aicb_wizard:
                     _btn_text = "← Back a step"
                 elif _in_loaded_camp_step:
                     # Show the previous step's name so the user knows

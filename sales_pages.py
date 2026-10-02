@@ -612,9 +612,38 @@ def _empty_card(C, headline, body, cta_label=None, cta=None):
                     ui.label(cta_label)
 
 
-def _go(s, rf, page_key):
+def _go(s, rf, page_key, came_from=""):
     ff = _ff()
-    ff._sidebar_nav(s, rf, page_key, ff._sidebar_setup_status())
+    ff._sidebar_nav(s, rf, page_key, ff._sidebar_setup_status(),
+                    came_from=came_from)
+
+
+def _co_back_link(s, rf, C):
+    """Companies is a sidebar page, so it gets no history Back. When you
+    drilled in from the Sales Dashboard or a board card, say so and offer
+    the way back."""
+    came = getattr(s, "_came_from", "") or ""
+    if came == "sales_dashboard":
+        label = "← Back to Sales Dashboard"
+
+        def _back():
+            s._co_open = ""
+            s._co_stage = ""
+            _go(s, rf, "sales_dashboard")
+    elif came == "companies_board":
+        label = "← Back to the board"
+
+        def _back():
+            s._came_from = ""
+            s._co_open = ""
+            s._co_stage = ""
+            s._co_view = "board"
+            rf()
+    else:
+        return
+    with ui.element("div").classes("fd-back-bar"):
+        with ui.element("button").classes("fd-back-btn").on("click", _back):
+            ui.label(label)
 
 
 def p_companies(s, rf):
@@ -626,7 +655,10 @@ def p_companies(s, rf):
     stage = getattr(s, "_co_stage", "") or ""
     open_key = getattr(s, "_co_open", "") or ""
     view = "board" if getattr(s, "_co_view", "") == "board" else "table"
+    if view == "board" and getattr(s, "_came_from", "") == "companies_board":
+        s._came_from = ""   # already back on the board
 
+    _co_back_link(s, rf, C)
     _page_head(s, rf, C, "Companies", "companies",
                "Every company you have a contact at, with what your campaigns "
                "have done there. Counted from your lists, the send queue and "
@@ -842,6 +874,16 @@ def _company_detail(s, rf, C, r, actor):
                 with ui.element("button").classes("fd-gb").style(
                         "padding:8px 14px;font-size:12px;").on("click", _see_board):
                     ui.label("See on the board")
+
+                def _close():
+                    # Clicking the name again also closes it, but nothing
+                    # on screen said so.
+                    s._co_open = ""
+                    rf()
+                with ui.element("button").classes("fd-gb").style(
+                        "padding:8px 14px;font-size:12px;margin-left:auto;").on(
+                        "click", _close):
+                    ui.label("Close")
             rec = r["record"]
             if rec.get("updated_at"):
                 ui.label(f"Updated {_fmt_when(_norm_ts(rec['updated_at']))}"
@@ -867,6 +909,7 @@ def _board(s, rf, C, rollup, actor):
         s._co_q = ""
         s._co_stage = ""
         s._co_view = "table"
+        s._came_from = "companies_board"
         rf()
 
     with ui.element("div").style(
@@ -922,6 +965,7 @@ def _board(s, rf, C, rollup, actor):
                     def _see_rest(stage=k):
                         s._co_stage = stage
                         s._co_view = "table"
+                        s._came_from = "companies_board"
                         rf()
                     ui.label(f"+{col['total'] - len(col['rows'])} more in the table").style(
                         f"font-size:11px;color:{C['teal']};text-align:center;"
@@ -936,7 +980,7 @@ def _company_link(s, rf, C, r, meta: str = ""):
         s._co_open = r["key"]
         s._co_q = ""
         s._co_stage = ""
-        _go(s, rf, "companies")
+        _go(s, rf, "companies", came_from="sales_dashboard")
     with ui.element("div").style(
             f"display:flex;align-items:center;gap:10px;padding:8px 0;"
             f"border-bottom:1px solid {C['border']};"):
@@ -1013,7 +1057,7 @@ def p_sales_dashboard(s, rf):
         s._co_view = "table"
         s._co_open = ""
         s._co_q = ""
-        _go(s, rf, "companies")
+        _go(s, rf, "companies", came_from="sales_dashboard")
 
     with ui.element("div").style(
             "display:grid;grid-template-columns:minmax(0,1fr) 220px;gap:16px;"

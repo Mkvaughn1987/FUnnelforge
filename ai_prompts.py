@@ -2409,6 +2409,27 @@ def _open_setup(s, row, built=False):
     s._aip_err = ""
 
 
+def _aip_back_label(s, default):
+    return ("Back to Saved Prompts"
+            if getattr(s, "_aip_from_saved", False) and NAVIGATE else default)
+
+
+def _aip_back_to_saved(s, rf):
+    """Back from a prompt opened on Saved Prompts goes back there. Returns
+    False when the prompt wasn't opened that way, so the caller does its
+    usual step Back."""
+    if not (getattr(s, "_aip_from_saved", False) and NAVIGATE):
+        return False
+    s._aip_from_saved = False
+    s._aip_req = None
+    s._aip_back = None
+    s._aip_prompt = None
+    s._aip_saving = False
+    s._aip_err = ""
+    NAVIGATE("tm_saved_prompts")
+    return True
+
+
 def render_saved_page(s, rf, cat):
     """Saved Prompts: every prompt this user saved, newest first. Open
     rebuilds it from the saved answers (so it picks up any wording fixes
@@ -2422,6 +2443,9 @@ def render_saved_page(s, rf, cat):
     def _go(row, built):
         _open_setup(s, row, built)
         if NAVIGATE:
+            # Remembered so Back on AI Prompt returns here, not to the
+            # job picker you never saw.
+            s._aip_from_saved = True
             NAVIGATE("tm_prompts")
         else:
             rf()
@@ -3001,12 +3025,15 @@ def _aip_confirm(s, rf, C):
     # screen and never reaches a saved setup.
     run_prefill(r, req)
     opened = _aip_open_state(s, r, req)
+    back_label = _aip_back_label(s, "Back")
 
     def _back():
         # Back, not "start over" - the answers are kept, so going out to
         # read what the other jobs do costs nothing. They come back when
         # you re-pick the same job. Defined up here because the header card
         # renders before the button row and both use it.
+        if _aip_back_to_saved(s, rf):
+            return
         s._aip_back = s._aip_req
         s._aip_req = None
         s._aip_prompt = None
@@ -3032,7 +3059,7 @@ def _aip_confirm(s, rf, C):
                     with ui.element("button").classes("aip-link back").on(
                             "click", _back):
                         ui.icon("arrow_back").style("font-size:15px;")
-                        ui.label("Back")
+                        ui.label(back_label)
                 # No job picker here. The job was chosen on the screen before
                 # this one; repeating the choice next to the answers it decides
                 # only invited a change that silently reset them.
@@ -3108,7 +3135,7 @@ def _aip_confirm(s, rf, C):
 
     with ui.element("div").classes("aip-bar"):
         with ui.element("div").classes("aip-bar-side"):
-            _btn("Back", _back, lead="arrow_back")
+            _btn(back_label, _back, lead="arrow_back")
         with ui.element("div").classes("aip-bar-side"):
             _aip_save_setup(s, rf, C, req)
             _btn("Write my prompt", _build, primary=True,
@@ -3129,11 +3156,16 @@ def _aip_result(s, rf, C):
         ui.notify("Copied. Paste it into %s." % _CAT.assistant,
                   type="positive")
 
+    back_label = _aip_back_label(s, "Back")
+
     def _back():
+        if _aip_back_to_saved(s, rf):
+            return
         s._aip_prompt = None
         rf()
 
     def _restart():
+        s._aip_from_saved = False
         s._aip_req = None
         s._aip_back = None
         s._aip_prompt = None
@@ -3156,7 +3188,15 @@ def _aip_result(s, rf, C):
                         "display:flex;align-items:baseline;gap:12px;"
                         "flex-wrap:wrap;justify-content:space-between;"):
                     _text("Your prompt is ready", C, 17, 700, C["text_l"], 2)
-                    ui.label(r["name"]).classes("aip-pill good")
+                    with ui.element("div").style(
+                            "display:flex;align-items:center;gap:12px;"):
+                        ui.label(r["name"]).classes("aip-pill good")
+                        # Back sits up here too: the prompt is long, so the
+                        # button row below is off screen when you land.
+                        with ui.element("button").classes("aip-link back").on(
+                                "click", _back):
+                            ui.icon("arrow_back").style("font-size:15px;")
+                            ui.label(back_label)
                 _text(_CAT.result_copy, C, 12, colour=C["muted"])
 
         with ui.element("div").style("position:relative;"):
@@ -3167,7 +3207,7 @@ def _aip_result(s, rf, C):
 
     with ui.element("div").classes("aip-bar"):
         with ui.element("div").classes("aip-bar-side"):
-            _btn("Change my answers", _back, lead="arrow_back")
+            _btn(back_label, _back, lead="arrow_back")
             _btn("Start a new prompt", _restart, lead="add")
         with ui.element("div").classes("aip-bar-side"):
             _aip_save_setup(s, rf, C, req, label="Save prompt")
