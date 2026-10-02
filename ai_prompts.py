@@ -207,13 +207,14 @@ class Catalogue:
     run_through: bool = False
 
 
-SEQUENCES = ["Arena 5x5", "Arena 5x3", "Arena 4x4", "One of my saved styles",
-             "Let the AI choose"]
+SEQUENCES = ["Arena 5x7", "Arena 5x5", "Arena 5x3", "Arena 4x4",
+             "One of my saved styles", "Let the AI choose"]
 
 # Which create_campaign template each sequence name means. The prompt names
 # the template key outright rather than describing the sequence, so Claude
 # does not have to guess which one "the five-step one" was.
 TEMPLATE_KEY = {
+    "Arena 5x7": "fivebyseven",
     "Arena 5x5": "fivebyfive",
     "Arena 5x3": "fivebythree",
     "Arena 4x4": "fourbyfour",

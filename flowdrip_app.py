@@ -4103,7 +4103,11 @@ AICB_ROLES = {
 # Arena slate family: the 4×4 and its 5×5 variant share newsletter handoff,
 # the Arena house font, resume placement, and PDF-subject (recruiting) behavior.
 # Add new slate variants here to inherit all of it.
-_ARENA_SLATE_TYPES = frozenset({"fourbyfour", "fivebyfive", "fivebythree"})
+_ARENA_SLATE_TYPES = frozenset({"fourbyfour", "fivebyfive", "fivebythree",
+                                "fivebyseven"})
+# The slate types whose candidates come from the pipeline (matched to the
+# company when none are given) and whose redacted résumés attach on their own.
+_PIPELINE_SLATE_TYPES = frozenset({"fivebythree", "fivebyseven"})
 
 # How slate copy names candidates. Labels come from the real record (first
 # name + last initial, see ats.real_name_label); the model must never invent
@@ -4269,6 +4273,87 @@ AICB_CAMPAIGN_TYPES = [
      "you don't want to crowd their inbox; you'll add them to your monthly "
      "newsletter so useful market news still reaches them; the door's "
      "always open. No hard sell."),
+    # Arena 5×7 (Mike, 2026-10-02): the Arena copy of inboxslide's Standard
+    # Outreach (tm_fivebyseven). Same 10-step shape and the same three
+    # candidate rounds: introduced on email 3, sent again on email 5, two of
+    # them on the close. Candidates come from the pipeline like the 5×3.
+    ("fivebyseven", "Arena 5×7", "10 steps - 4 weeks", "#7C3AED",
+     "Arena's longest warm play. Seven emails, two calls and a LinkedIn "
+     "touch over about four weeks. Three pipeline-matched candidates are "
+     "introduced on email 3, sent again on email 5, and two of them close "
+     "it out on email 7, with redacted résumés on emails 3 and 5.",
+     "Relationship-first BD - 3 candidates - 4 weeks",
+     "GLOBAL VOICE: Write warm, personable, and human — NOT salesy. Sound "
+     "like a recruiter who talks to people in this market every day and "
+     "happens to know great people. Short paragraphs, plain words, no hype, "
+     "no pressure. Refer to the company's OVERALL MARKET (e.g. construction, "
+     "manufacturing) rather than the specific job title where it reads "
+     "naturally. Only Steps 5, 7 and 10 mention candidates; every other "
+     "email names none. "
+     + _CAND_NAME_RULE + "\n"
+     "Step 1 - Introducing Myself (delay_days:0, step_type:email_auto) - "
+     "Subject exactly: 'Quick note for [Company]' (write the real company "
+     "name in). Open warmly: introduce yourself, mention you place [the "
+     "specific role this campaign is targeting, if provided — otherwise "
+     "the types of roles common to the company's overall market], and "
+     "that you've been active in the space for a while. Note you came "
+     "across {CompanyName} and wanted to reach out. Do NOT list or "
+     "reference any candidates. End the email with exactly this line on "
+     "its own: 'Are you involved in the hiring process?'\n"
+     "Step 2 - What I'm seeing (delay_days:3, step_type:email_auto) - "
+     "Subject like 'What I'm seeing in [market]' (write the market in). "
+     "Share one or two specific things you're seeing in hiring in their "
+     "market right now, picked from: how long roles are sitting open, "
+     "counter offers, pay creeping up at the senior level, what candidates "
+     "ask about in screens. 'Lately I'm seeing...' openers work. No "
+     "candidates, no ask. 80 to 120 words.\n"
+     "Step 3 - Follow-up Call (delay_days:0, step_type:call) - SAME DAY as "
+     "Step 2, keep delay_days:0. Call script in the body: reference the "
+     "emails, ask who handles hiring for the role and whether anything is "
+     "open or coming up. Qualifying, not closing. End with a voicemail "
+     "line under 20 seconds.\n"
+     "Step 4 - LinkedIn Connect (delay_days:0, step_type:linkedin) - SAME "
+     "DAY as Step 3, keep delay_days:0. Connection message under 300 "
+     "characters: 'Sent you an email, wanted to connect here as well. "
+     "Always sharing hiring and market insights in your space.'\n"
+     "Step 5 - A few candidates (delay_days:3, step_type:email_auto) - "
+     "Subject exactly: 'A few candidates for [Company]'. A 1 to 2 sentence "
+     "opener framed as 'in case you have an opening, or one coming up', "
+     "not 'you should hire these people'. Then EVERY candidate from "
+     "CANDIDATE HIGHLIGHTS as a short spotlight: label, title and one line "
+     "on what they bring. Close with one line like 'happy to share more on "
+     "any of them'. Do NOT mention attachments (the system adds that "
+     "line).\n"
+     "Step 6 - How I work (delay_days:3, step_type:email_auto) - Subject "
+     "like 'How I work'. Briefly, how you work: you talk to people before "
+     "they ever reach the hiring manager's desk, you only bring people who "
+     "fit the role and the team, and you stay in touch after the start "
+     "date. Do NOT state fees, guarantees, placement counts or any other "
+     "figure. No candidates. 70 to 110 words, ending on one soft question.\n"
+     "Step 7 - Those candidates again (delay_days:4, step_type:email_auto) - "
+     "Subject exactly: 'Those candidates again'. Open with: 'Sending these "
+     "again in case my last note got buried.' Then the SAME candidates "
+     "with the SAME labels, one line each from a different angle: the one "
+     "skill that matters most for the role. Do NOT mention attachments "
+     "(the system adds that line).\n"
+     "Step 8 - Follow-up Call 2 (delay_days:0, step_type:call) - SAME DAY "
+     "as Step 7, keep delay_days:0. Script: ask whether any of the "
+     "candidates are worth a conversation and who would interview. End "
+     "with a voicemail line under 20 seconds.\n"
+     "Step 9 - Right person to ask (delay_days:4, step_type:email_auto) - "
+     "Subject exactly: 'Right person to ask?'. Short: ask gently whether "
+     "{FirstName} is the right person for hiring conversations at the "
+     "company or whether you should be talking to someone else. Genuine "
+     "curiosity, not a brush-off. Don't apologize for the emails and don't "
+     "write 'I haven't heard back'. No candidates. 40 to 70 words.\n"
+     "Step 10 - Closing the loop (delay_days:5, step_type:email_auto) - "
+     "Subject exactly: 'Closing the loop for now'. The last email: honest "
+     "and warm, no pressure. Open with exactly: 'Good candidates get "
+     "placed, so who is available changes. Here are two of the candidates "
+     "I shared, one last time:' then ONLY the first two candidates from "
+     "CANDIDATE HIGHLIGHTS, one line each. Then: you'll stay in touch about "
+     "once a month through your market newsletter, the door's always open, "
+     "and invite them to take a chance on one interview. No hard sell."),
     ("talentdrop", "Candidate-Led Pitch", "7 steps - 2 weeks", "#10B981",
      "Lead with real candidates. Enter your candidate details and AI builds the outreach "
      "around them  -  intro with profiles, market data follow-ups, and value-add PDFs. "
@@ -5527,6 +5612,7 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
 
     _apply_fivebyfive_overrides(camp_type, campaign_data)
     _apply_fivebythree_overrides(camp_type, campaign_data)
+    _apply_fivebyseven_overrides(camp_type, campaign_data)
     _spread_email_times(campaign_data.get("emails", []))
     return campaign_data
 
@@ -5982,7 +6068,7 @@ def _api_create_campaign_blocking(client, spec, owner):
         template = "byos"
         byos_desc = (_style.get("description") or "").strip()
     cards = list(spec.get("candidates") or [])
-    if template == "fivebythree":
+    if template in _PIPELINE_SLATE_TYPES:
         cards, skip = _api_resolve_5x3_cards(client, spec, owner=owner)
         if skip:
             return {"skip": skip}
@@ -6016,12 +6102,12 @@ def _api_create_campaign_blocking(client, spec, owner):
     refs = _candidate_refs(cards)
     if refs:
         campaign_data["candidate_refs"] = refs
-    if template == "fivebythree" and emails:
+    if template in _PIPELINE_SLATE_TYPES and emails:
         try:
             pdfs = _build_redacted_resumes_from_cards(cards, template, client, owner=owner)
             _attach_resumes_to_emails(template, emails, pdfs)
         except Exception as _re:
-            print(f"[api] 5x3 résumé attach skipped: {_re}", flush=True)
+            print(f"[api] {template} résumé attach skipped: {_re}", flush=True)
     warnings = _unlinked_card_warnings(cards) if cards and _ats_allowed(owner) else []
     return {"template": template, "campaign_data": campaign_data, "emails": emails,
             "candidate_refs": refs, "candidate_warnings": warnings}
@@ -8564,6 +8650,48 @@ def _apply_fivebythree_overrides(camp_type, campaign_data):
     return campaign_data
 
 
+# Arena 5×7: canonical relative delays by Step-N marker (the shape of
+# inboxslide's Standard Outreach). Calls and LinkedIn share their email's day.
+_FIVEBYSEVEN_DELAYS = {1: 0, 2: 3, 3: 0, 4: 0, 5: 3, 6: 3, 7: 4, 8: 0, 9: 4,
+                       10: 5}
+# The two emails that carry the candidates' résumés (email 3 and email 5).
+_FIVEBYSEVEN_RESUME_STEPS = (5, 7)
+_FIVEBYSEVEN_RESUME_LINE = "<br><br>I've attached their résumés as well."
+
+
+def _apply_fivebyseven_overrides(camp_type, campaign_data):
+    """Pin the Arena 5×7's schedule. No-op for any other type. Idempotent."""
+    if (camp_type or "").strip() != "fivebyseven":
+        return campaign_data
+    for em in (campaign_data or {}).get("emails", []) or []:
+        n = _fivebyfive_step_no(em.get("name"))  # generic "Step N -" parser
+        if n in _FIVEBYSEVEN_DELAYS:
+            em["delay_days"] = _FIVEBYSEVEN_DELAYS[n]
+    return campaign_data
+
+
+def _attach_fivebyseven_resumes(emails, resume_pdfs):
+    """Put every résumé on the 5×7's two candidate emails (found by step
+    number, since calls and LinkedIn sit between them) and add the one line
+    that says so. The writer never mentions attachments, so an email only
+    says it carries résumés when it does."""
+    for em in emails:
+        if _fivebyfive_step_no(em.get("name")) not in _FIVEBYSEVEN_RESUME_STEPS:
+            continue
+        slot = em.setdefault("attachments", [])
+        for pdf in resume_pdfs:
+            if pdf not in slot:
+                slot.append(pdf)
+        body = em.get("body") or ""
+        if _FIVEBYSEVEN_RESUME_LINE not in body:
+            if body.rstrip().endswith("</div>"):
+                em["body"] = (body.rstrip()[:-6] + _FIVEBYSEVEN_RESUME_LINE
+                              + "</div>")
+            else:
+                em["body"] = body + _FIVEBYSEVEN_RESUME_LINE
+    return emails
+
+
 def _resume_attach_indices(camp_type, n_emails):
     """Email indices (0-based) that should carry redacted resume PDFs.
 
@@ -8584,6 +8712,8 @@ def _attach_resumes_to_emails(camp_type, emails, resume_pdfs):
     ct = (camp_type or "").strip()
     if not resume_pdfs or not emails:
         return emails
+    if ct == "fivebyseven":
+        return _attach_fivebyseven_resumes(emails, resume_pdfs)
     targets = _resume_attach_indices(ct, len(emails))
     if ct == "fivebythree":
         for ei in targets:
@@ -8621,7 +8751,8 @@ def _pdf_campaign_subject(camp):
     _is_recruiting = bool(
         camp.get("candidate_role") or camp.get("candidate_name")
         or camp.get("market_niche")
-        or (camp.get("_chooser_origin") in ("candidate", "fourbyfour", "fivebyfive", "fivebythree"))
+        or (camp.get("_chooser_origin") in ("candidate", "fourbyfour", "fivebyfive", "fivebythree",
+                                            "fivebyseven"))
         or re.match(r"(?i)^(find candidates|arena\s*[45]|[45]\s*x\s*[45]|mpc)\b",
                     (camp.get("name") or "").strip()))
     if not company and not _is_recruiting:
@@ -20092,6 +20223,19 @@ CHOOSER_OPTIONS = [
         "border": "#0EA5A5",
     },
     {
+        "key": "fivebyseven",
+        "icon": "📬",
+        "title": "Arena 5×7",
+        "subtitle": "Seven warm emails, two calls, about four weeks",
+        "desc": ("The longest warm play. Three pipeline-matched "
+                 "candidates introduced on email 3, sent again on "
+                 "email 5 and two of them on the close, with redacted "
+                 "résumés on emails 3 and 5, plus a market read, how "
+                 "you work, and two calls."),
+        "best_for": ["Relationship-first BD", "3 candidates", "Longer runway"],
+        "border": "#7C3AED",
+    },
+    {
         "key": "saved",
         "icon": "📁",
         "title": "Saved Campaigns",
@@ -20223,6 +20367,19 @@ def _sq_pick(s, rf):
                         _reset_wizard_state(s)
                         s._chooser_origin = "fivebyfive"
                         s.aicb_camp_type = "fivebyfive"
+                        s.aicb_style_locked = True
+                        s.sp = "ai_campaign"
+                        s.aicb_step = 1
+                        s.aicb_target_mode = "market"
+                        s.aicb_wizard_step = 2
+                        s.aicb_type_picked = True
+                        s.aicb_contacts = []
+                    elif k == "fivebyseven":
+                        # Arena 5×7 — same entry as the 5×3, style pre-locked.
+                        s._nav_history.append(_nav_snapshot(s))
+                        _reset_wizard_state(s)
+                        s._chooser_origin = "fivebyseven"
+                        s.aicb_camp_type = "fivebyseven"
                         s.aicb_style_locked = True
                         s.sp = "ai_campaign"
                         s.aicb_step = 1
@@ -35075,7 +35232,7 @@ def _build_redacted_resumes_from_cards(cards, camp_type, client=None, owner=None
     representative/illustrative fallback. Every other campaign type keeps
     the legacy thin PDF. Returns saved filenames in card order."""
     saved = []
-    is_5x3 = (camp_type or "").strip() == "fivebythree"
+    is_5x3 = (camp_type or "").strip() in _PIPELINE_SLATE_TYPES
     for card in (cards or []):
         try:
             label = (card.get("label") or "Candidate").strip() or "Candidate"
@@ -36092,7 +36249,7 @@ def _render_aicb_candidate_cards(s, rf):
         return
     can_reroll = s.aicb_cand_source in ("autogen", "autogen_titles")
 
-    if (s.aicb_camp_type or "").strip() == "fivebythree":
+    if (s.aicb_camp_type or "").strip() in _PIPELINE_SLATE_TYPES:
         def _toggle_aicb_redact_companies(e):
             s.aicb_redact_companies = bool(e.value)
             rf()
@@ -39186,8 +39343,8 @@ def p_ai_campaign(s: AppState, rf):
                                 client,
                                 owner=getattr(s, "_user_email", "") or "",
                                 redact_companies=bool(getattr(s, "aicb_redact_companies", True)))
-                            # 5x3 auto-attaches; 4x4/5x5 stay manual-attach only
-                            if (s.aicb_camp_type or "").strip() == "fivebythree":
+                            # 5x3/5x7 auto-attach; 4x4/5x5 stay manual-attach only
+                            if (s.aicb_camp_type or "").strip() in _PIPELINE_SLATE_TYPES:
                                 _resume_pdfs = _saved_resumes
                         except Exception as _rr_ex:
                             print(f"[AICB] redacted résumé gen skipped: {_rr_ex}",
