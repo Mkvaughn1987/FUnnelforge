@@ -16545,7 +16545,11 @@ def _drip_done_card(t, s: AppState, rf):
 
 def p_responses(s, rf):
     _render_page_intro_strip(s, rf, "responses")
-    recs = load_responded()
+    # Newest reply first. The reply monitor writes `date`, add_responded()
+    # writes `replied_at`; undated records sink to the bottom.
+    recs = sorted(load_responded(),
+                  key=lambda r: str(r.get("replied_at") or r.get("date") or ""),
+                  reverse=True)
 
     # First-time empty state: no replies AND no actively-running campaigns
     # (running = at least one pending email in queue, non-evergreen). We
@@ -16734,7 +16738,7 @@ def p_responses(s, rf):
         campaign  = rec.get("campaign", " - ")
         subject   = rec.get("subject", " - ")
         body_prev = (rec.get("reply_body") or "").strip()
-        replied_at = rec.get("replied_at", "")
+        replied_at = rec.get("replied_at") or rec.get("date") or ""
         try:
             date_str = datetime.fromisoformat(replied_at).strftime("%b %d, %I:%M %p").lstrip("0")
         except Exception:
