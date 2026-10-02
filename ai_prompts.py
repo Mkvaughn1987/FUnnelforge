@@ -2572,20 +2572,32 @@ def _aip_ask(s, rf, C):
             _text("That didn't work", C, 14, 700, C["text_l"], 4)
             _text(err, C, 12, colour=C["muted"])
 
-    pick = getattr(s, "_aip_pick", "") or _CAT.starters[0]["id"]
-    if pick not in _CAT.starter_by_id:
-        pick = _CAT.starters[0]["id"]
-    st = _CAT.starter_by_id[pick]
-    r = _CAT.routine_by_key.get(st["routine"], _CAT.routine_by_key[_CAT.default_routine])
+    # Only highlights the job picked last time (after Back). Clicking a tile
+    # goes straight to the questions; there is no separate confirm button.
+    pick = getattr(s, "_aip_pick", "") or ""
 
     with _card(C):
         _text("What do you want to do?", C, 17, 700, C["text_l"], 2)
-        _text("Pick the closest one. You fill in the specifics (industry, "
-              "area, who to email, how many) on the next screen.",
+        _text("Click the closest one. You fill in the specifics (industry, "
+              "area, who to email, how many) on the next screen. Nothing "
+              "runs or sends here: you're writing the message to paste into "
+              "%s." % _CAT.assistant,
               C, 12, colour=C["muted"], mb=16)
 
         def _pick(key):
-            s._aip_pick = key
+            starter = _CAT.starter_by_id.get(key) or _CAT.starters[0]
+            s._aip_pick = starter["id"]
+            # Answers left behind by Back are picked up again only for the
+            # same job. A different job is a different set of questions, so
+            # carrying answers across would be carrying the wrong ones.
+            _prev = getattr(s, "_aip_back", None)
+            if _prev and _prev.get("starter") == starter["id"]:
+                s._aip_req = _prev
+            else:
+                s._aip_req = _req_from_starter(starter)
+            s._aip_back = None
+            s._aip_open = None
+            s._aip_saving = False
             s._aip_err = ""
             rf()
 
@@ -2603,45 +2615,6 @@ def _aip_ask(s, rf, C):
                         _text(x["sub"], C, 11.5, colour=C["muted"])
                     if on:
                         ui.icon("check_circle").classes("aip-tick")
-
-        main = len([f for f in r["fields"] if f["section"] == "details"])
-        rest = len(r["fields"]) - main
-
-        def _go():
-            key = getattr(s, "_aip_pick", "") or _CAT.starters[0]["id"]
-            starter = _CAT.starter_by_id.get(key) or _CAT.starters[0]
-            # Answers left behind by Back are picked up again only for the
-            # same job. A different job is a different set of questions, so
-            # carrying answers across would be carrying the wrong ones.
-            _prev = getattr(s, "_aip_back", None)
-            if _prev and _prev.get("starter") == starter["id"]:
-                s._aip_req = _prev
-            else:
-                s._aip_req = _req_from_starter(starter)
-            s._aip_back = None
-            s._aip_open = None
-            s._aip_saving = False
-            s._aip_err = ""
-            rf()
-
-        with ui.element("div").style(
-                "display:flex;align-items:center;justify-content:space-between;"
-                f"gap:14px;margin-top:18px;padding-top:16px;"
-                f"border-top:1px solid {C['border']};flex-wrap:wrap;"):
-            with ui.element("div").style("min-width:0;flex:1 1 280px;"):
-                _text(st["label"], C, 13, 700, C["text_l"], 2)
-                _text("%d question%s next%s. Nothing runs or sends here: "
-                      "you're writing the message to paste into %s."
-                      % (main, "" if main == 1 else "s",
-                         ", %d more optional" % rest if rest else "",
-                         _CAT.assistant),
-                      C, 11, colour=C["muted"])
-            with ui.element("button").classes("fd-pb").style(
-                    "padding:11px 26px;font-size:13px;flex-shrink:0;"
-                    "display:flex;align-items:center;gap:6px;"
-                    ).on("click", _go):
-                ui.label("Set this up")
-                ui.icon("arrow_forward").style("font-size:16px;")
 
     setups = _load_setups()
     if setups:
