@@ -14,7 +14,10 @@ emails themselves on click), and the individual campaigns run as that type.
 draws it and takes every app dependency (ui, palette) as an argument, so the
 module imports nothing from either app.
 """
+import re
 from datetime import datetime, timedelta
+
+_STEP_PREFIX = re.compile(r"^\s*(?:step|email)\s*\d+\s*[-–—:.]\s*", re.I)
 
 NEWSLETTER = "_newsletter"
 OTHER = "_other"
@@ -233,7 +236,8 @@ def build_report(queue, responded, dnc, campaigns, types, days=None, now=None):
         crow = _camp(key, name)
         for r in (trow, step, crow):
             r[status] += 1
-        label = _s(item.get("step_name"))
+        # "Step 1 - The Signal" -> "The Signal"; the table numbers rows itself.
+        label = _STEP_PREFIX.sub("", _s(item.get("step_name"))) or _s(item.get("step_name"))
         if label:
             step["_labels"][label] = step["_labels"].get(label, 0) + 1
         if status == "sent":

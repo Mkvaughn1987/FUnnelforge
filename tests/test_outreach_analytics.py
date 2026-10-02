@@ -111,6 +111,13 @@ def test_step_label_is_the_most_common_name():
     assert len(step["emails"]) == 3
 
 
+def test_step_number_prefix_is_dropped_from_the_label():
+    q = [_q("Fusion Transport", "a@x.com", 1, label="Step 1 - The Signal"),
+         _q("Fusion Transport", "a@x.com", 2, label="Email 2")]
+    steps = _report(q)["details"]["tm_fivebyseven"]["steps"]
+    assert [s["label"] for s in steps] == ["The Signal", "Email 2"]
+
+
 def test_campaign_filter_narrows_the_step_table():
     q = [_q("Fusion Transport", "a@x.com", 1), _q("R2 Logistics", "b@x.com", 1),
          _q("R2 Logistics", "b@x.com", 2)]
