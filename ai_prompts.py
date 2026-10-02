@@ -196,6 +196,10 @@ class Catalogue:
     # how it tells a value it put there from one the user typed over. It
     # returns the new record, which lives on the request and is never saved.
     prefill: object = None
+    # True writes every prompt to run start to finish: no "say go" review
+    # points, no questions before it starts, and the "stop and check with
+    # you, or finish it?" question is not asked.
+    run_through: bool = False
 
 
 SEQUENCES = ["Arena 5x5", "Arena 5x3", "Arena 4x4", "One of my saved styles",
@@ -268,6 +272,8 @@ COMMON_FIELDS = [
     F("unattended", "When it runs on its own, should Claude stop and check "
       "with you, or finish it?", "repeat", "select",
       default="Stop and check with me first", options=UNATTENDED,
+      # A run-through catalogue never stops, so there is nothing to choose.
+      show_if=lambda r, vals: not _CAT.run_through,
       hint="Nobody is in the chair on a scheduled run. If Claude stops and "
            "waits, the run just sits there until you find it."),
 ]
@@ -1064,7 +1070,7 @@ def _derived(r, vals, cat=None):
                        if f["type"] == "checks" else _txt(r, vals, f["key"]))
 
     unattended = _txt(r, vals, "unattended") or UNATTENDED[0]
-    solo = unattended.startswith("Run it all")
+    solo = cat.run_through or unattended.startswith("Run it all")
     d["gate"] = ("note anything that looks wrong, say so, and keep going"
                  if solo else "stop and wait for me to say go")
     d["report_gate"] = ("carry on without waiting for me - flag anything "
@@ -1499,7 +1505,8 @@ def build_prompt(req, cat=None):
                            cat.routine_by_key[cat.default_routine])
     vals = dict(req.get("vals") or {})
     d = _derived(r, vals, cat)
-    solo = (_txt(r, vals, "unattended") or "").startswith("Run it all")
+    solo = (cat.run_through
+            or (_txt(r, vals, "unattended") or "").startswith("Run it all"))
     # A routine can declare no tools and still be sent to the connector by
     # the newsletter answer - "Something else" is exactly that. Name the
     # tool the steps tell it to call, or the prompt asks for something it
@@ -1542,7 +1549,10 @@ def build_prompt(req, cat=None):
     if open_qs:
         L += ["", "I HAVEN'T DECIDED THESE"]
         L += ["  " + q for q in open_qs]
-        L += _wrap("Ask me about all of them in one go before you start, not "
+        L += _wrap("Do not stop to ask me: make the most reasonable call on "
+                   "each one and say what you chose."
+                   if cat.run_through else
+                   "Ask me about all of them in one go before you start, not "
                    "one at a time as you hit them.")
 
     L += ["", "HOW TO DO IT"]
@@ -1594,7 +1604,10 @@ def build_prompt(req, cat=None):
                 "there and tell me it is waiting rather than going ahead.")
 
     L += ["", ""]
-    L += _wrap("If any of this is ambiguous, ask me before you start rather "
+    L += _wrap("If any of this is ambiguous, make the most reasonable call "
+               "and say what you chose."
+               if cat.run_through else
+               "If any of this is ambiguous, ask me before you start rather "
                "than after.", indent="")
     return "\n".join(L)
 

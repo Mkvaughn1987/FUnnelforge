@@ -362,12 +362,44 @@ def test_standing_rules_carry_the_claims_discipline(tm):
                    "up to sixty to seventy percent", "ceiling, not a promise",
                    "never say guaranteed savings", "one person is not",
                    "knichel logistics", "travel byrds", "not prospects",
-                   "accents", "union shops", "under thirty days",
-                   "under ninety", "zoominfo connector", "tm_mailboxes"):
+                   "accents", "union shops", "last sixty days",
+                   "or been reposted, counts too", "under ninety",
+                   "zoominfo connector", "tm_mailboxes"):
         assert phrase in rules, phrase
+    assert "thirty" not in rules
     # Rule one is the one solo mode swaps out, so it must be the gate.
     assert "wait for me to say go" in tm.STANDING_RULES[0]
     assert tm.TM.unattended_rule == tm.UNATTENDED_RULE
+
+
+def test_every_tm_prompt_runs_end_to_end(tm, aip):
+    """inboxslide prompts never park for a "go", repeating or not, and the
+    stop-or-finish question is hidden (Mike 2026-10-02)."""
+    assert tm.TM.run_through
+    for r in tm.TM.routines:
+        for rep in (False, True):
+            vals = _defaults(aip, r)
+            vals["repeat_on"] = rep
+            p = " ".join(tm.build_prompt({"routine": r["key"], "vals": vals,
+                                          "summary": "x"}).split())
+            assert "say go" not in p, (r["key"], rep)
+            assert "wait for me" not in p.lower(), (r["key"], rep)
+            assert "ask me before you start" not in p, (r["key"], rep)
+            assert "Show me the result before" not in p, r["key"]
+    old = aip._CAT
+    try:
+        aip._CAT = tm.TM
+        r = tm.TM.routines[0]
+        f = r["field_by_key"]["unattended"]
+        assert not aip._visible(r, {"repeat_on": True}, f)
+    finally:
+        aip._CAT = old
+
+
+def test_posting_age_defaults_to_sixty_and_drops_thirty(tm):
+    assert "Posted in the last 30 days" not in tm.TM_POSTING_AGE
+    f = tm.ROUTINE_BY_KEY["tm_signal_hunt"]["field_by_key"]["posting_age"]
+    assert f["default"] == "Posted in the last 60 days"
 
 
 def test_blank_targeting_is_filled_from_the_picked_vertical(tm, aip):
@@ -420,7 +452,7 @@ def test_signal_hunt_prompt_wires_the_campaign_build(tm, aip):
     assert "create_campaign" in p
     assert "contacts argument" in p
     assert "never more than five" in p
-    assert "Posted in the last 30 days".lower() in p.lower()
+    assert "Posted in the last 60 days".lower() in p.lower()
     assert "Use my inboxslide connector: campaign_types, my_campaign_styles, " \
            "tm_mailboxes, campaigns_list, create_campaign." in _flat(p)
     # Research notes are not a create_campaign argument.

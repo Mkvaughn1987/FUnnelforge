@@ -1228,9 +1228,12 @@ def prefill_tm(r, vals, written=None):
 # but are not offered.
 
 # A hiring signal can be an opening that has sat for two months, so the
-# posting window has to reach past that. Mike 2026-10-01.
-TM_POSTING_AGE = POSTING_AGE + ["Posted in the last 90 days",
-                               "Posted in the last 6 months"]
+# posting window has to reach past that. Mike 2026-10-01. Sixty days is the
+# default and thirty is not offered: a thirty-day cap contradicts the
+# two-month signal (Mike 2026-10-02).
+TM_POSTING_AGE = [a for a in POSTING_AGE if "30 days" not in a] + [
+    "Posted in the last 90 days", "Posted in the last 6 months"]
+TM_POSTING_DEFAULT = "Posted in the last 60 days"
 
 
 SEQUENCES = [
@@ -1478,7 +1481,7 @@ ROUTINES = [
                           "manager"),
         ] + _newsletter_fields() + _email_fields("They're Hiring") + _size_fields() + [
             F("posting_age", "How recent the job postings have to be", "size",
-              "select", default="Posted in the last 30 days",
+              "select", default=TM_POSTING_DEFAULT,
               options=TM_POSTING_AGE),
             F("boards", "Where to look for the jobs", "size",
               default=_TM_BOARDS),
@@ -1766,8 +1769,8 @@ ROUTINES = [
             "situation.",
             "{what}",
             "{done_clause}",
-            "Show me the result before acting on anything that leaves this "
-            "machine.",
+            "Before anything leaves this machine, say in one line what is "
+            "going out, then carry on.",
         ],
     },
 ]
@@ -1906,8 +1909,10 @@ STANDING_RULES = [
     "Disqualify before you rank: union shops, work that must be on site, "
     "licensed or physical roles, companies under ten people, and companies "
     "past about a thousand people that already run a captive offshore team "
-    "or a large BPO contract. A vacancy counts as a signal only if it is "
-    "under thirty days old; an announcement, under ninety; a WARN "
+    "or a large BPO contract. A vacancy counts as a signal if it was "
+    "posted in the last sixty days, and one that has sat open two months "
+    "or more, or been reposted, counts too, as its own signal; an "
+    "announcement, under ninety days; a WARN "
     "notice, under one hundred and eighty, since the company is still "
     "rebuilding the team months after the filing.",
     "The ZoomInfo connector is the only ZoomInfo surface you have. Do not "
@@ -2165,6 +2170,8 @@ TM = Catalogue(
     default_routine=DEFAULT_ROUTINE,
     standing_rules=STANDING_RULES,
     unattended_rule=UNATTENDED_RULE,
+    # Every run goes start to finish, scheduled or not (Mike 2026-10-02).
+    run_through=True,
     starters=STARTERS,
     starter_by_id=STARTER_BY_ID,
     sequences=SEQUENCES,
