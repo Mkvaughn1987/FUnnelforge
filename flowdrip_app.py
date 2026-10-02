@@ -14035,6 +14035,69 @@ def _tm_zi_save_contacts(contacts, name=""):
     return stats
 
 
+def _campaign_contact_row(c):
+    """One campaign contact in load_contacts()'s shape, whatever keys the
+    caller used (the API takes agent-built dicts as-is). None if no email."""
+    if not isinstance(c, dict) or c.get("removed"):
+        return None
+
+    def g(*keys):
+        return next((str(c[k]).strip() for k in keys if c.get(k)), "")
+    email = g("email", "Email")
+    if "@" not in email:
+        return None
+    rec = dict(c)
+    rec.update(
+        email=email,
+        first_name=g("first_name", "FirstName", "firstName", "First Name"),
+        last_name=g("last_name", "LastName", "lastName", "Last Name"),
+        company=g("company", "Company", "company_name"),
+        title=g("title", "JobTitle", "job_title", "Title"),
+        phone_mobile=g("phone_mobile", "MobilePhone", "mobile"),
+        phone_office=g("phone_office", "WorkPhone", "phone", "Phone"),
+        linkedin=g("linkedin", "LinkedInPage", "linkedin_url"),
+        city=g("city", "City"), state=g("state", "State"))
+    return rec
+
+
+def _record_campaign_contacts(camp):
+    """Put everyone a campaign is about to email on the Contacts page.
+
+    Contacts uploaded in the app already sit in a saved list, but ones that
+    arrive any other way (Claude's create_campaign, Add One Contact, adding
+    people to a running campaign) were never written anywhere the Contacts
+    page reads. Anyone not already in a saved list or the active list goes
+    into a list named after the campaign, so an uploaded list is never
+    duplicated. Returns how many were added."""
+    rows, seen = [], set()
+    for c in camp.get("contacts") or []:
+        rec = _campaign_contact_row(c)
+        if rec and rec["email"].lower() not in seen:
+            seen.add(rec["email"].lower())
+            rows.append(rec)
+    if not rows:
+        return 0
+    name = re.sub(r"[^A-Za-z0-9 _-]", "", str(camp.get("name") or "")).strip()
+    path = _user_contacts_dir() / ("%s.csv" % (name or "Campaign contacts")[:80])
+    known, on_file = set(), []
+    for p in list(list_saved_contact_lists().values()) + [str(_user_contacts_csv_path())]:
+        try:
+            if not Path(p).exists():
+                continue
+            parsed = _parse_contacts_csv(Path(p).read_text(encoding="utf-8"))
+            known.update((r.get("email") or "").lower() for r in parsed)
+            if Path(p) == path:
+                on_file = parsed
+        except Exception:
+            pass
+    new = [r for r in rows if r["email"].lower() not in known]
+    if not new:
+        return 0
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_csv_text(path, _contacts_csv_text(on_file + new, _CONTACT_COLMAP_SNAKE))
+    return len(new)
+
+
 # ---------------------------------------------------------------------------
 #  Audience filter
 # ---------------------------------------------------------------------------
@@ -17173,6 +17236,12 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
         # reads them directly (there are still a few legacy references)
         # sees this user's paths, not someone else's from a race.
         _switch_to_user_paths(_owner)
+    # Everyone a campaign runs to shows up on the Contacts page, however the
+    # campaign was built. Never allowed to stop the queueing.
+    try:
+        _record_campaign_contacts(camp)
+    except Exception as _rce:
+        print(f"[contacts] could not record campaign contacts: {_rce}")
     # Filter out DNC (emails + domains) and already-responded contacts
     _dnc_list = load_dnc()
     _dnc_emails = {d["email"].lower().strip() for d in _dnc_list if not d.get("email","").startswith("@")}
