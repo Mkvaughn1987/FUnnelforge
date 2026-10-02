@@ -39,3 +39,46 @@ def test_list_css_is_in_the_global_stylesheet():
     css = fa._nl_list_css()
     assert ".fd-nl-row" in css and "@media (max-width:900px)" in css
     assert "{_nl_list_css()}" in inspect.getsource(fa)
+
+
+def test_industry_reads_the_name_first_then_the_niche():
+    ind = fa._nl_industry
+    assert ind({"name": "Kansas Manufacturing"}) == "Manufacturing"
+    assert ind({"name": "Utah Manufacturing", "market_niche": "Aerospace"}) == "Manufacturing"
+    assert ind({"name": "Recruitment Rundown - Package Manufacturing"}) == "Manufacturing"
+    assert ind({"name": "Denver Machine Shop - Tool and Die Maker Campaign"}) == "Manufacturing"
+    assert ind({"name": "Colorado Construction Rundown"}) == "Construction"
+    assert ind({"name": "Utah Heavy Equipment and Construction"}) == "Construction"
+    assert ind({"name": "Mission Critical Construction Rundown"}) == "Construction"
+    assert ind({"name": "S+B James Healthcare Construction Campaign"}) == "Construction"
+    assert ind({"name": "Kentucky Civil Engineering"}) == "Civil & Infrastructure"
+    assert ind({"name": "San Diego Civil Construction Pulse"}) == "Civil & Infrastructure"
+    assert ind({"name": "Denver Water/Wastewater Utility Market Campaign"}) == "Civil & Infrastructure"
+    assert ind({"name": "The Montana Market Minute",
+                "market_niche": "Heavy Civil Contractor"}) == "Civil & Infrastructure"
+    assert ind({"name": "19six Architects - Education & Healthcare Design"}) == "Architecture & Design"
+    assert ind({"name": "The Med Tech Monthly Newsletter"}) == "Healthcare"
+    assert ind({"name": "Okta, Inc. - Programmer & AI Specialist Campaign"}) == "Technology"
+    assert ind({"name": "Nutrien Ag Solutions - Monthly Newsletter"}) == "Agriculture & Food"
+    assert ind({"name": "Offshore Accounting Talent"}) == "Accounting & Finance"
+    assert ind({"name": "Freight Brokerage Brief"}) == "Logistics & Freight"
+    assert ind({"name": "Arena Direct Hire Market Note"}) == "General"
+    assert ind({}) == "General"
+
+
+def test_industry_groups_busiest_first_general_last():
+    def nl(name, n):
+        return {"name": name, "contacts": [{"email": f"{i}@x.com"} for i in range(n)]}
+    groups = fa._nl_industry_groups([
+        nl("Arena Direct Hire Market Note", 2710), nl("Kansas Manufacturing", 109),
+        nl("Colorado Construction Rundown", 569), nl("Utah Manufacturing", 35),
+        nl("Western Manufacturing", 92)])
+    assert [g for g, _ in groups] == ["Construction", "Manufacturing", "General"]
+    assert [c["name"] for c in groups[1][1]] == [
+        "Kansas Manufacturing", "Western Manufacturing", "Utah Manufacturing"]
+
+
+def test_page_renders_a_headline_per_industry():
+    src = inspect.getsource(fa.p_newsletters)
+    assert "_nl_industry_groups(camps)" in src and "fd-nl-group-t" in src
+    assert ".fd-nl-group-t" in fa._nl_list_css()

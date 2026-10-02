@@ -27291,6 +27291,55 @@ def _nl_created_label(camp: dict) -> str:
                           or camp.get("created"))
 
 
+# Newsletters page headlines. First match wins, so the order matters:
+# "Healthcare Construction" is Construction, "Civil Construction" is Civil,
+# "Manufacturing - Accounting" is Manufacturing.
+_NL_INDUSTRIES = (
+    ("Agriculture & Food", r"\bag solutions\b|agricultur|\bfood\b|farm"),
+    ("Manufacturing", r"manuf|manuact|machin|\bcnc\b|aerospace|packag|\bcpg\b"
+                      r"|consumer packaged|tool and die|\bplant\b|fabricat"),
+    ("Civil & Infrastructure", r"\bcivil\b|water|utilit|infrastructure|transportation"),
+    ("Construction", r"construct|\bbuild|contractor|contracting|electric|mission critical"
+                     r"|data cent|superintendent|homebuild|\bhomes\b|residential"
+                     r"|commercial development|\bti\b|fire alarm|\bdsa\b"),
+    ("Architecture & Design", r"architect|\bdesign\b"),
+    ("Healthcare", r"health|medical|med tech|hospital|pharma"),
+    ("Technology", r"software|technology|\btech\b|\bai\b|programmer|\bsaas\b"),
+    ("Accounting & Finance", r"accounting|finance|financial|\bcpa\b|bookkeep|banking"),
+    ("Logistics & Freight", r"logistic|freight|trucking|supply chain|warehous|3pl"),
+    ("Energy", r"energy|\boil\b|\bgas\b|solar|renewable"),
+)
+_NL_INDUSTRY_OTHER = "General"
+
+
+def _nl_industry(camp: dict) -> str:
+    """Headline a newsletter sits under. The name is checked first, so a
+    newsletter called "Utah Manufacturing" with an Aerospace niche still
+    reads as Manufacturing; the niche only decides when the name says
+    nothing (e.g. "Montana Market Minute" / Heavy Civil Contractor)."""
+    for _text in (camp.get("name"), camp.get("market_niche")):
+        _t = str(_text or "").lower()
+        if not _t:
+            continue
+        for _label, _pat in _NL_INDUSTRIES:
+            if re.search(_pat, _t):
+                return _label
+    return _NL_INDUSTRY_OTHER
+
+
+def _nl_industry_groups(camps: list) -> list:
+    """[(industry, [camps busiest first])], busiest industry first and
+    General always last."""
+    _groups = {}
+    for _c in camps:
+        _groups.setdefault(_nl_industry(_c), []).append(_c)
+    for _g in _groups.values():
+        _g.sort(key=lambda c: (-_nl_enrolled_count(c), (c.get("name") or "").lower()))
+    return sorted(_groups.items(), key=lambda kv: (
+        kv[0] == _NL_INDUSTRY_OTHER,
+        -sum(_nl_enrolled_count(c) for c in kv[1]), kv[0]))
+
+
 _NL_DOTS_SVG = ('<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" '
                 'aria-hidden="true"><circle cx="5" cy="12" r="1.8"/>'
                 '<circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>')
@@ -27329,6 +27378,10 @@ def _nl_list_css() -> str:
     and each cell prints its own label."""
     return f"""
 .fd-nl-list{{border:1px solid {C['border']};border-radius:12px;background:{C['card']};overflow:hidden}}
+.fd-nl-group-h{{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:26px 2px 10px}}
+.fd-nl-group-h:first-child{{margin-top:0}}
+.fd-nl-group-t{{font-size:17px;font-weight:700;color:{C['text_l']};font-family:'Nunito',sans-serif}}
+.fd-nl-group-n{{font-size:12.5px;color:{C['muted']}}}
 .fd-nl-row{{display:grid;grid-template-columns:minmax(0,1fr) 84px 118px 118px 140px;align-items:center;
   gap:12px;padding:12px 16px;border-top:1px solid {C['border']};cursor:pointer;transition:background-color .12s}}
 .fd-nl-row:first-child{{border-top:none}}
@@ -27453,17 +27506,26 @@ def p_newsletters(s, rf):
             _render_empty_state(s, rf, "newsletters")
             return
 
-        # One neutral list, busiest newsletter first. The coloured cards
-        # were retired 2026-10-02: the hues meant nothing.
+        # One neutral list per industry, under a headline, busiest first.
+        # The coloured cards were retired 2026-10-02: the hues meant nothing.
         # Whole row opens View / Edit; Regenerate / Settings / Delete live
         # behind the row's ⋯ menu so Enroll is the only visible button.
-        _nl_rows = sorted(camps, key=lambda c: (-_nl_enrolled_count(c),
-                                                 (c.get("name") or "").lower()))
-        with ui.element("div").classes("fd-nl-list"):
-            with ui.element("div").classes("fd-nl-row fd-nl-head"):
-                for _h in ("Name", "Enrolled", "Next issue", "Created", ""):
-                    ui.label(_h).classes("fd-nl-cell")
-            for camp in _nl_rows:
+        # Each row is rendered into its industry's list (_box).
+        _nl_rows = []
+        with ui.element("div").classes("fd-nl-groups"):
+            for _ind, _grp in _nl_industry_groups(camps):
+                _grp_n = sum(_nl_enrolled_count(c) for c in _grp)
+                with ui.element("div").classes("fd-nl-group-h"):
+                    ui.label(_ind).classes("fd-nl-group-t")
+                    ui.label(
+                        f"{len(_grp)} newsletter{'' if len(_grp) == 1 else 's'}"
+                        f" · {_grp_n:,} enrolled").classes("fd-nl-group-n")
+                with ui.element("div").classes("fd-nl-list") as _box:
+                    with ui.element("div").classes("fd-nl-row fd-nl-head"):
+                        for _h in ("Name", "Enrolled", "Next issue", "Created", ""):
+                            ui.label(_h).classes("fd-nl-cell")
+                _nl_rows += [(_box, c) for c in _grp]
+            for _box, camp in _nl_rows:
                 steps = camp.get("emails", []) or []
                 _n_enrolled = _nl_enrolled_count(camp)
                 _next_idx = _find_next_evergreen_step(camp)
@@ -27611,7 +27673,7 @@ def p_newsletters(s, rf):
                 def _open_settings(c=camp):
                     _edit_newsletter_settings_dialog(c, s, rf)
 
-                with ui.element("div").classes("fd-nl-row").on("click", _edit):
+                with _box, ui.element("div").classes("fd-nl-row").on("click", _edit):
                     with ui.element("div").classes("fd-nl-cell fd-nl-name"):
                         ui.label(camp.get("name", "")).classes("fd-nl-title")
                         if _busy:
