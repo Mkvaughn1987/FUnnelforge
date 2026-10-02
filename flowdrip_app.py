@@ -10504,6 +10504,21 @@ def _tint(col, alpha_hex):
     return f"color-mix(in srgb, {col} {pct}%, transparent)"
 
 
+# The DripDrop drop mark (blue-to-teal drop, pale circle, "D"), matching
+# dripdrop_logo.png without its baked-in wordmark.
+_DD_DROP_SVG = (
+    '<svg viewBox="0 0 26 34" aria-hidden="true">'
+    '<defs><linearGradient id="ddDropG" x1="0" y1="0" x2="0" y2="1">'
+    '<stop offset="0" stop-color="#6378EC"/><stop offset="1" stop-color="#1DE9DC"/>'
+    '</linearGradient></defs>'
+    '<path d="M13 .8C10.6 4.6 1.6 15.2 1.6 21.6a11.4 11.4 0 0 0 22.8 0C24.4 15.2 15.4 4.6 13 .8z" '
+    'fill="url(#ddDropG)"/>'
+    '<circle cx="13" cy="21.8" r="7.6" fill="#E8FFFD"/>'
+    '<path d="M10.3 17.6h2.6a4.2 4.2 0 0 1 0 8.4h-2.6z" fill="none" stroke="#5B6CE8" '
+    'stroke-width="2.1" stroke-linejoin="round"/>'
+    '</svg>'
+)
+
 def _sidebar_layout_css() -> str:
     """CSS for the sidebar layout (DRIPDROP_NAV_LAYOUT=sidebar, the default).
     Every rule is scoped to .fd-side / .fd-ph / .fd-shell-side so the
@@ -10523,12 +10538,13 @@ def _sidebar_layout_css() -> str:
 .fd-side .fd-ico{{flex:0 0 auto;opacity:.85}}
 .fd-side-top{{padding:22px 12px 18px;display:flex;flex-direction:column;gap:16px}}
 .fd-side-logo{{display:flex;align-items:center;height:28px;padding:0 6px;cursor:pointer}}
-/* DripDrop mark: the drop from the tall logo (cropped above its wordmark)
+/* DripDrop mark: the logo's drop drawn as SVG (the PNG has the wordmark
+   baked in under it, and cropping it with CSS clipped the drop's edge)
    next to a set wordmark, so it reads at sidebar size. */
 .fd-side-logo.dd{{height:38px}}
 .fd-side-logo.dd > div{{display:flex;align-items:center;gap:8px}}
-.fd-side-drop{{display:block;width:28px;height:38px;overflow:hidden;flex:0 0 auto}}
-.fd-side-drop img{{display:block;width:44px;height:auto;max-width:none;margin-left:-8px}}
+.fd-side-drop{{display:block;width:26px;height:34px;flex:0 0 auto}}
+.fd-side-drop svg{{display:block;width:26px;height:34px}}
 .fd-side-word{{font-family:'Nunito','DM Sans',sans-serif;font-weight:900;font-size:19px;letter-spacing:-.3px;
   color:{C['text_l']};white-space:nowrap;line-height:1}}
 .fd-side-word b{{color:{C['teal']};font-weight:900}}
@@ -13627,7 +13643,7 @@ def _sidebar_v2(s: AppState, rf):
             with ui.element("div").classes("fd-side-logo dd").props(
                     'role="button" tabindex="0" aria-label="Home"').on(
                     "click", lambda: _go("dashboard")):
-                ui.html('<span class="fd-side-drop"><img src="/static/dripdrop_logo.png?v=3" alt="" /></span>'
+                ui.html(f'<span class="fd-side-drop">{_DD_DROP_SVG}</span>'
                         '<span class="fd-side-word">Drip<b>Drip</b>Drop</span>')
             _ws = _sidebar_workspace_name(s)
             _ws_menu = {"m": None}
