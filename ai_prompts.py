@@ -1962,36 +1962,6 @@ STARTERS = [
         "vals": {},
     },
     {
-        "id": "market",
-        "icon": "send",
-        "label": "Take candidates from my Pipeline out to companies hiring "
-                 "them",
-        "sub": "You name the people. The AI pulls them out of the DripDrop "
-               "Pipeline, finds companies with openings they genuinely fit, "
-               "pulls the contacts, and runs the Arena 5x5.",
-        "summary": "Market named candidates out to companies hiring for what "
-                   "they do.",
-        "routine": "market_candidates",
-        "vals": {},
-    },
-    {
-        "id": "sweep",
-        "icon": "travel_explore",
-        "label": "Take one candidate out to every company with a job for them",
-        "sub": "One person, nothing narrowed down. The AI sweeps for every "
-               "live opening that genuinely fits them, however wide that "
-               "goes, and runs the Arena 5x5 at all of it.",
-        "summary": "Sweep for every live opening one candidate fits, and run "
-                   "the Arena 5x5 at all of them.",
-        "routine": "market_candidates",
-        "vals": {
-            "target_company": "any company at all",
-            "breadth": "Every live opening they genuinely fit, however many "
-                       "that is",
-            "companies_each": "10",
-        },
-    },
-    {
         "id": "linkedin",
         "icon": "person_add",
         "label": "Send today's LinkedIn connection requests",
