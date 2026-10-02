@@ -10519,6 +10519,32 @@ _DD_DROP_SVG = (
     '</svg>'
 )
 
+# The Arena mark (two interlocking chevrons around a blue square), traced
+# from ARENALOGO.svg and drawn white-on-navy like Arena's own app icon.
+_ARENA_MARK_SVG = (
+    '<svg viewBox="0 0 100 100" aria-hidden="true">'
+    '<rect width="100" height="100" rx="22" fill="#152136"/>'
+    '<g transform="translate(-19.4 12) scale(0.24)">'
+    '<polygon fill="#fff" points="281.37 104.23 233.08 55.94 130.72 158.29 289.01 316.58 '
+    '337.3 268.29 227.31 158.29 281.37 104.23"/>'
+    '<polygon fill="#fff" points="289.01 0 240.72 48.29 350.72 158.29 296.66 212.35 '
+    '344.95 260.64 447.3 158.29 289.01 0"/>'
+    '<rect fill="#3962A9" x="256.18" y="125.45" width="65.64" height="65.67" '
+    'transform="translate(-27.27 250.72) rotate(-45)"/>'
+    '</g></svg>'
+)
+
+
+def _sidebar_ws_is_arena(s, ws_name: str) -> bool:
+    """True when the sidebar workspace belongs to Arena, so the badge shows
+    Arena's logo instead of the workspace's first letter."""
+    if "arena" in (ws_name or "").lower():
+        return True
+    try:
+        return _team_domain_for(getattr(s, "_user_email", "") or "").startswith("arenastaffing")
+    except Exception:
+        return False
+
 def _sidebar_layout_css() -> str:
     """CSS for the sidebar layout (DRIPDROP_NAV_LAYOUT=sidebar, the default).
     Every rule is scoped to .fd-side / .fd-ph / .fd-shell-side so the
@@ -10555,6 +10581,8 @@ def _sidebar_layout_css() -> str:
 .fd-ws:hover{{background:{C['card_h']};border-color:{C['teal_dim']}}}
 .fd-ws-mark{{width:28px;height:28px;border-radius:8px;background:{C['teal']};color:{C['on_teal']};
   font-weight:800;font-size:14px;display:flex;align-items:center;justify-content:center;flex:0 0 auto}}
+.fd-ws-mark.logo{{width:38px;height:38px;border-radius:9px;background:none;overflow:hidden}}
+.fd-ws-mark.logo svg{{width:100%;height:100%;display:block}}
 .fd-ws-name{{font-size:14px;font-weight:600;line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .fd-ws-sub{{font-size:11px;color:{C['muted']};line-height:1.2}}
 .fd-ws-chev{{display:flex;color:{C['muted']}}}
@@ -13651,7 +13679,10 @@ def _sidebar_v2(s: AppState, rf):
                 if _ws_menu["m"]:
                     _ws_menu["m"].open()
             with ui.element("button").classes("fd-ws").props('type="button" aria-label="Workspace"').on("click", _open_ws):
-                ui.label((_ws[:1] or "W").upper()).classes("fd-ws-mark")
+                if _sidebar_ws_is_arena(s, _ws):
+                    ui.html(f'<span class="fd-ws-mark logo" title="Arena">{_ARENA_MARK_SVG}</span>')
+                else:
+                    ui.label((_ws[:1] or "W").upper()).classes("fd-ws-mark")
                 with ui.element("div").style("flex:1;min-width:0;"):
                     ui.label(_ws).classes("fd-ws-name")
                     ui.label("Workspace").classes("fd-ws-sub")
