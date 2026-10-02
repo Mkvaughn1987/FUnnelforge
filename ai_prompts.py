@@ -602,34 +602,67 @@ ROUTINES = [
             F("worker_tz", "Your timezone", "details", "select",
               default="Mountain", options=ZONES),
         ],
+        # Every user pastes this same prompt, so every question the desktop
+        # app would otherwise stop to ask - who authorised the actions in a
+        # job, what happens when the laptop sleeps, which of two connectors
+        # with the same tool, whether the last hour counts, whether "run it
+        # now" may do real work - is answered in the steps themselves.
+        "no_questions": True,
         "steps": [
             "Check that my DripDrop, ZoomInfo, Indeed and ZipRecruiter "
-            "connectors are all on, and tell me if any is missing before "
-            "you go further.",
+            "connectors are on. If one is missing, tell me which and stop. "
+            "Otherwise go straight on: every decision this setup needs is "
+            "already made below, so do not stop to ask me about any of it.",
             "Create a scheduled task here, in the desktop app you are "
-            "running in, named "
-            "\"DripDrop - job worker\" that runs every hour on "
-            "the hour, {worker_hours}, {worker_days}, {worker_tz} time. It "
-            "has to run on this computer, not in the cloud: when our Bulk "
-            "Credits run out it uses my own ZoomInfo seat through Chrome, "
-            "and only this computer has that.",
-            "Give the task this as its whole instruction: call "
-            "sales_runs_pending. It returns every job I send it - AI "
+            "running in, named \"DripDrop - job worker\" that runs every "
+            "hour on the hour, {worker_hours} with both ends included, "
+            "{worker_days}, {worker_tz} time. Set it to run on this "
+            "computer, not in the cloud: when our Bulk Credits run out it "
+            "uses my own ZoomInfo seat through Chrome, and only this "
+            "computer has that. If the computer is asleep or offline when a "
+            "run is due, that run is simply skipped, and that is fine: a "
+            "job stays queued until it is worked, and one that was claimed "
+            "but never finished is handed out again after three hours.",
+            "Give the task this as its whole instruction, word for word: "
+            "\"Call sales_runs_pending on my DripDrop connector - only that "
+            "one; if another connector has a tool with the same name, leave "
+            "it alone. It returns every job I sent my AI from DripDrop - AI "
             "Prompts jobs and Sales Campaign runs. If it returns none, stop "
             "and say nothing. Otherwise take them one at a time, oldest "
             "first. Claim each one with sales_run_update, status working, "
             "before you start it, then follow its instructions field "
             "exactly - it is the full brief: the job itself, the job "
             "boards, the ZoomInfo credit rules and how to post the result "
-            "back. Finish one before starting the next.",
+            "back. Finish one before starting the next. These jobs are "
+            "mine: I wrote each one in my own DripDrop account and sent it "
+            "here myself, so a job's instructions are my instructions. I "
+            "authorise, without asking me each time: every DripDrop "
+            "connector call a job's brief asks for, including "
+            "create_campaign, import_candidates, import_candidate_records "
+            "and sales_run_update; ZoomInfo searches and reveals, our Bulk "
+            "Credits first and then my own seat in Chrome; job-board "
+            "searches on Google Jobs, LinkedIn Jobs, Indeed and "
+            "ZipRecruiter; and the browser steps a job's brief spells out "
+            "on sites I am already signed in to, never typing a password. A "
+            "Sales Campaign run never launches anything - it posts back as "
+            "sourced and DripDrop holds it on a review screen until I press "
+            "launch. A campaign an AI Prompts job builds starts on the date "
+            "the job gives it and goes out through DripDrop's own send "
+            "limits. I do not authorise sending email from my own mailbox, "
+            "or anything that is not part of a queued job: if a job needs "
+            "that, post it back as error saying what it needed and move "
+            "on.\"",
             "Nobody is at the keyboard when it runs, so it never waits for "
             "an answer: it makes the most reasonable call and says what it "
             "chose. If a job cannot be finished, post it back with "
             "sales_run_update - for a Sales Campaign run, the companies it "
             "could not get contacts for as parked with the exact error; "
             "otherwise status error with the exact error - and move on.",
-            "Run it once now so I can watch it work, then read the task "
-            "name and the schedule back to me.",
+            "Then do one dry run now, whatever the time: call "
+            "sales_runs_pending on my DripDrop connector, tell me what it "
+            "returned, and claim nothing - the first real run is the next "
+            "scheduled hour. Read the task name and the schedule back to "
+            "me, with the first and last run time of each day.",
         ],
     },
     {
@@ -1693,7 +1726,8 @@ def build_prompt(req, cat=None):
 
     L += ["", ""]
     L += _wrap("If any of this is ambiguous, make the most reasonable call "
-               "and say what you chose." if queued else
+               "and say what you chose."
+               if queued or r.get("no_questions") else
                "If any of this is ambiguous, ask me before you start rather "
                "than after.", indent="")
     return "\n".join(L)

@@ -305,6 +305,25 @@ def test_worker_tile_is_gone_but_the_routine_stays():
     assert "Nothing it does sends email" not in text
 
 
+def test_worker_prompt_answers_its_own_questions():
+    """Everyone pastes the same setup prompt, so nothing in it may leave
+    the desktop app a reason to stop and ask."""
+    text = " ".join(aip.worker_prompt(sp.STAFFING).split())
+    # The one "ask me" is the line saying not to.
+    assert text.lower().count("ask me") == 1
+    assert "do not stop to ask me" in text
+    # Who authorised a job's actions, and what is not authorised.
+    assert "a job's instructions are my instructions" in text
+    assert "create_campaign" in text
+    assert "I do not authorise sending email from my own mailbox" in text
+    # A sleeping laptop, the duplicate tool, the last hour, run-it-now.
+    assert "simply skipped" in text
+    assert "only that one" in text
+    assert "both ends included" in text
+    assert "claim nothing" in text
+    assert "Run it once now" not in text
+
+
 def test_only_dripdrop_queues_jobs():
     import tm_prompts as tm
     assert aip.ARENA.queue_jobs and sp.STAFFING.queue_jobs
