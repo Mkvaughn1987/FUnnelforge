@@ -233,7 +233,9 @@ async def create_campaign(spec: dict) -> dict:
         (list of {email, first_name, ...}), contacts_csv (raw CSV text),
         candidates (list of candidate cards, used by the fivebythree
         template), roles, location, industry, website, name, start_date
-        (ISO date, or omitted/"auto" for the upcoming Monday),
+        (ISO date, or omitted/"auto" for the upcoming Monday), start_time
+        (clock time like "8:00 AM" for the first email; omit to keep the
+        template's time),
         enroll_newsletter (newsletter name to also enroll contacts into),
         draft (true = generate and save for review without queueing; the
         response has "status": "draft" and the campaign_id to edit/launch).

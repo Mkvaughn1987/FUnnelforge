@@ -194,8 +194,8 @@ TEMPLATE_KEY = {
     "Arena 4x4": "fourbyfour",
 }
 
-WHEN_OPTIONS = ["Next Monday", "The Monday after next", "As soon as it's built",
-                "A date I'll give Claude"]
+WHEN_OPTIONS = ["Next Monday", "The Monday after next", "8am tomorrow",
+                "As soon as it's built", "A date I'll give Claude"]
 
 POSTING_AGE = ["Posted in the last 7 days", "Posted in the last 14 days",
                "Posted in the last 30 days", "Posted in the last 60 days"]
@@ -941,6 +941,10 @@ def _start_date(r, vals):
         return '"%s"' % (nxt + timedelta(days=7)).isoformat()
     if when.startswith("As soon"):
         return '"%s" (today)' % today.isoformat()
+    if when.startswith("8am tomorrow"):
+        return ('"%s" (tomorrow; if you run this on a later day, use the day '
+                'after that) and start_time "8:00 AM"'
+                % (today + timedelta(days=1)).isoformat())
     if when.startswith("A date"):
         return "the date I give you — ask me for it before you build anything"
     return '"auto", which the server resolves to the upcoming Monday'
