@@ -150,7 +150,10 @@ async def create_campaign(spec: dict) -> dict:
     spec: campaign spec matching DripDrop's /api/v1/campaigns body - at
         minimum {"template": <template key>, "company" or "niche": str},
         except for template "findcandidates" (see below). Optional: contacts
-        (list of {email, first_name, ...}), contacts_csv (raw CSV text),
+        (list of {email, first_name, last_name, company, title, linkedin,
+        phone_mobile, phone_office} - for ZoomInfo contacts always include
+        both numbers when present, so they stay on file), contacts_csv (raw
+        CSV text),
         candidates (list of candidate cards, used by the fivebythree
         and fivebyfive templates - each real person needs "_pool_id" (the
         id from candidates_search) or "name" plus "email" or "phone"
@@ -422,9 +425,12 @@ async def sales_run_update(run_id: str, update: dict) -> dict:
             {"company": str, "state": str, "role": str, "why": str,
              "source": str, "zi_total": int,
              "contacts": [{"email", "first_name", "last_name", "title",
-                           "linkedin", "state", "paid_by"}]}.
+                           "linkedin", "state", "phone_mobile",
+                           "phone_office", "paid_by"}]}.
             paid_by is "bulk" (connector Bulk Credits) or "seat" (the
-            user's own ZoomInfo Talent credits).
+            user's own ZoomInfo Talent credits). phone_mobile is the
+            ZoomInfo mobile and phone_office the work line - send both
+            whenever ZoomInfo has them so they stay on file.
             Contacts are cleaned and deduped on arrival; one with no usable
             email is dropped with a reason rather than silently kept. A
             company below the contact floor is skipped at build time.

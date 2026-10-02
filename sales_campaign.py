@@ -696,11 +696,32 @@ def _name_matches_email(first, last, email):
     return False
 
 
+# Spellings a pulled phone arrives under: ZoomInfo's own field names, the
+# REST path's "mobile", and DripDrop's contact keys. Both numbers are kept on
+# the contact so they stay on file once the campaign launches.
+_MOBILE_KEYS = ("phone_mobile", "mobile", "mobilePhone", "mobile_phone",
+                "MobilePhone", "cell")
+_OFFICE_KEYS = ("phone_office", "phone", "directPhone", "direct_phone",
+                "work_phone", "WorkPhone", "companyPhone", "company_phone")
+
+
+def _norm_phones(c):
+    """Fold every phone spelling into phone_mobile / phone_office."""
+    for dest, keys in (("phone_mobile", _MOBILE_KEYS),
+                       ("phone_office", _OFFICE_KEYS)):
+        val = next((str(c.get(k) or "").strip() for k in keys
+                    if str(c.get(k) or "").strip()), "")
+        if val:
+            c[dest] = val
+    return c
+
+
 def _clean_contacts(rows):
     """Clean in place, attach flags, drop what is unusable. Returns
     (kept, dropped) where each dropped row carries a literal reason."""
     kept, dropped, seen = [], [], set()
     for c in rows:
+        _norm_phones(c)
         email = (c.get("email") or "").strip().lower()
         if not email or "@" not in email:
             dropped.append(dict(c, drop_reason="no email"))
@@ -802,6 +823,7 @@ def _enrich_contacts(zi, contacts, rec):
                 # DNC fields are blocked on this integration. Every mobile
                 # that arrives here is unscreened, and says so from here on.
                 tgt["mobile_dnc_screened"] = False
+            _norm_phones(tgt)
     return contacts
 
 
@@ -1137,9 +1159,13 @@ def handoff_brief(rec):
         '   "contacts": [{"email": "...", "first_name": "...",',
         '                 "last_name": "...", "title": "...",',
         '                 "linkedin": "...", "state": "CO",',
+        '                 "phone_mobile": "...", "phone_office": "...",',
         '                 "paid_by": "bulk"}]}',
         "  Contacts are cleaned and deduped on arrival; a contact with no",
         "  usable email is dropped with a reason rather than silently kept.",
+        "  phone_mobile is the ZoomInfo mobile, phone_office the work line.",
+        "  Send both whenever ZoomInfo has them - they stay on the contact's",
+        "  record in DripDrop.",
     ]
     sched = (t.get("schedule") or {})
     if sched.get("enabled"):
@@ -1804,6 +1830,8 @@ def _contact_payload(c):
         "title": c.get("title", ""),
         "linkedin": c.get("linkedin", ""),
         "state": c.get("state", ""),
+        "phone_mobile": c.get("phone_mobile", ""),
+        "phone_office": c.get("phone_office", ""),
     }
 
 
@@ -2715,8 +2743,11 @@ def _sc_company_block(s, rf, owner, rec, c, on_change):
                     line = ct.get("email", "")
                     if ct.get("tier"):
                         line += "  ·  " + ct["tier"]
-                    if ct.get("mobile"):
-                        line += "  ·  %s (DNC-unscreened)" % ct["mobile"]
+                    _mob = ct.get("phone_mobile") or ct.get("mobile")
+                    if _mob:
+                        line += "  ·  m %s (DNC-unscreened)" % _mob
+                    if ct.get("phone_office"):
+                        line += "  ·  w %s" % ct["phone_office"]
                     ui.label(line).style(
                         f"font-size:11px;color:{C['muted']};display:block;")
                     for fl in ct.get("flags") or []:

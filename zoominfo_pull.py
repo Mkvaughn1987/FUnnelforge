@@ -29,6 +29,19 @@ BOARDS_RULE = (
     "role on more than one board is a stronger signal than one that posted "
     "once.")
 
+# Keep both numbers on file for every contact. On the connector, phone (the
+# direct work line) comes back as a DisallowedOutputFields warning on the
+# current licence; asking anyway costs nothing and starts the work numbers
+# flowing the day the licence adds it.
+ZI_PHONES_RULE = (
+    "Keep both phone numbers on file for every contact: ask enrich_contacts "
+    "for mobilePhone and phone along with the email. A DisallowedOutputFields "
+    "warning on phone is expected and is not an error - the rest still "
+    "comes back. On my seat, copy the mobile and the direct or company phone "
+    "off the profile. Put the mobile in phone_mobile and the work number in "
+    "phone_office on every contact you hand DripDrop, so both stay on the "
+    "contact's record.")
+
 # Appended to every step that pulls contacts out of ZoomInfo.
 ZI_PULL_RULE = (
     "Pull the contacts with the ZoomInfo connector: search_companies to pin "
@@ -43,4 +56,4 @@ ZI_PULL_RULE = (
     "Never type a password; if that tab is signed out, say so. If both "
     "pools are out, keep the company, mark it waiting on ZoomInfo with the "
     "exact error, and carry on with the rest. For every contact, note "
-    "which pool paid for it, bulk or seat.")
+    "which pool paid for it, bulk or seat. " + ZI_PHONES_RULE)
