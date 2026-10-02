@@ -42534,166 +42534,38 @@ def p_dnc(s, rf):
 # ═══════════════════════════════════════════════════════════════════════════
 
 def p_tm_analytics(s, rf):
-    """Outreach analytics for a ThriveModal workspace.
+    """Outreach analytics for a ThriveModal workspace, grouped by campaign
+    type (Standard Outreach, Quick Intro...). Click a type for its emails,
+    who they went to, replies and reply rate per email.
 
-    Every number here was recorded by the send path: the queue, the responded
-    log, the do-not-contact list. Nothing is estimated and nothing is stored -
-    reload the page and it recomputes from the same three files.
-
-    There is no open or click tracking anywhere in this product. Rather than
-    show a plausible open rate, the page says which numbers it does not have:
-    a reporting page that invents its most-quoted figure is worse than one
-    with a gap, because the gap is the only version the user can correct for.
-    """
+    Every number was recorded by the send path: the queue (plus its archive
+    for "All time"), the replies log and the do-not-contact list, joined to
+    the saved campaigns only to learn each campaign's type. Nothing is
+    estimated or stored, and there is no open/click tracking, so the page
+    doesn't pretend to have it. The logic lives in outreach_analytics.py,
+    shared with DripDrop's page."""
     if not _is_thrivemodal():
         return
+    import outreach_analytics as _oa
 
-    _windows = [(7, "7 days"), (30, "30 days"), (None, "All time")]
-    days = getattr(s, "_tm_an_days", 30)
-    if days not in (7, 30, None):
-        days = 30
+    def _sources(days):
+        src = _tm_analytics_sources()
+        queue = src["queue"]
+        if days is None:
+            try:
+                queue = _oa.merge_queue(queue, _load_queue_archive())
+            except Exception:
+                pass
+        try:
+            camps = list(load_campaigns() or [])
+        except Exception:
+            camps = []
+        return {"queue": queue, "responded": src["responded"],
+                "dnc": src["dnc"], "campaigns": camps}
 
-    src = _tm_analytics_sources()
-    queue, responded, dnc = src["queue"], src["responded"], src["dnc"]
-    stats = _tm_outreach_stats(queue, responded, dnc, days=days)
-    camp_rows = _tm_campaign_analytics(queue, responded, days=days)
-    step_rows = _tm_step_analytics(queue, days=days)
-
-    def _pct(val):
-        return f"{val * 100:.1f}%"
-
-    # ── Header + window selector ────────────────────────────────────────
-    with ui.element("div").style(
-            "display:flex;align-items:flex-start;justify-content:space-between;"
-            "gap:16px;margin-bottom:6px;"):
-        with ui.element("div").style("flex:1;min-width:0;"):
-            with ui.element("div").style("display:flex;align-items:center;"):
-                ui.label("Outreach Analytics").classes("fd-h1")
-                _show_page_help(s, rf, "analytics")
-            ui.label("What your campaigns have actually done, counted from the "
-                     "send queue, your replies and your do-not-contact list."
-                     ).classes("fd-sub")
-        with ui.element("div").style("display:flex;gap:8px;flex-shrink:0;"):
-            for _win, _wlbl in _windows:
-                def _pick(win=_win):
-                    s._tm_an_days = win
-                    rf()
-                _on = (_win == days)
-                with ui.element("button").classes("fd-pb" if _on else "fd-gb").style(
-                        "padding:9px 14px;font-size:12px;").on("click", _pick):
-                    ui.label(_wlbl)
-
-    # ── Headline numbers ────────────────────────────────────────────────
-    with ui.element("div").classes("fd-stat-strip").style("margin:14px 0 10px;"):
-        for val, lbl, col in [
-            (str(stats["sent"]),           "Emails sent",    C["text_l"]),
-            (str(stats["contacts"]),       "People reached", C["text_l"]),
-            (str(stats["replies"]),        "Replies",
-             C["good"] if stats["replies"] else C["muted"]),
-            (_pct(stats["reply_rate"]),    "Reply rate",
-             C["good"] if stats["reply_rate"] else C["muted"]),
-            (str(stats["pending"]),        "Scheduled",
-             C["teal"] if stats["pending"] else C["muted"]),
-            (str(stats["optouts"]),        "Opt-outs",
-             C["warn"] if stats["optouts"] else C["muted"]),
-            (str(stats["bounces"]),        "Bounces",
-             C["warn"] if stats["bounces"] else C["muted"]),
-        ]:
-            with ui.element("div").classes("fd-stat-cell"):
-                ui.label(val).classes("fd-sn").style(f"color:{col};")
-                ui.label(lbl).classes("fd-sl")
-
-    _window_label = ("all time" if days is None else f"the last {days} days")
-    ui.label(
-        f"Counted over {_window_label}. Reply rate is replies divided by people "
-        f"reached, not emails sent. Opens and clicks aren't tracked, so they "
-        f"aren't shown."
-    ).style(f"font-size:11px;color:{C['muted']};margin-bottom:18px;")
-
-    # ── Nothing to report yet ───────────────────────────────────────────
-    if not (stats["sent"] or stats["pending"] or stats["replies"]):
-        with ui.element("div").style(
-                f"background:{C['card']};border:1px solid {C['border']};"
-                f"border-radius:10px;padding:28px 24px;text-align:center;"):
-            ui.label("Nothing to report for this window yet.").style(
-                f"font-size:14px;font-weight:600;color:{C['text_l']};"
-                f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
-            ui.label("Numbers appear here once a campaign has emails queued "
-                     "or sent. Try a wider window above.").style(
-                f"font-size:12px;color:{C['muted']};")
-        return
-
-    # ── By campaign ─────────────────────────────────────────────────────
-    _cols = "1fr 70px 70px 80px 70px 80px"
-    ui.label("By campaign").style(
-        f"font-size:14px;font-weight:700;color:{C['text_l']};"
-        f"font-family:'Nunito',sans-serif;margin-bottom:8px;")
-    with ui.element("div").style(
-            f"background:{C['card']};border:1px solid {C['border']};"
-            f"border-radius:10px;overflow:hidden;margin-bottom:8px;"):
-        with ui.element("div").style(
-                f"display:grid;grid-template-columns:{_cols};gap:0;"
-                f"padding:8px 14px;background:{C['surface']};"
-                f"border-bottom:1px solid {C['border']};"):
-            for h in ["Campaign", "Sent", "People", "Scheduled", "Replies", "Reply rate"]:
-                ui.label(h).style(
-                    f"font-size:9px;font-weight:700;color:{C['muted']};"
-                    f"text-transform:uppercase;letter-spacing:.06em;")
-        for row in camp_rows[:40]:
-            with ui.element("div").style(
-                    f"display:grid;grid-template-columns:{_cols};gap:0;"
-                    f"padding:8px 14px;align-items:center;"
-                    f"border-bottom:1px solid {_tint(C['border'],'20')};"):
-                ui.label(row["name"]).style(
-                    f"font-size:12px;font-weight:500;color:{C['text_l']};"
-                    f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
-                ui.label(str(row["sent"])).style(f"font-size:12px;color:{C['muted']};")
-                ui.label(str(row["contacts"])).style(f"font-size:12px;color:{C['muted']};")
-                ui.label(str(row["pending"])).style(
-                    f"font-size:12px;color:{C['teal'] if row['pending'] else C['muted']};")
-                ui.label(str(row["replies"])).style(
-                    f"font-size:12px;color:{C['good'] if row['replies'] else C['muted']};")
-                ui.label(_pct(row["reply_rate"])).style(
-                    f"font-size:12px;color:{C['good'] if row['reply_rate'] else C['muted']};")
-
-    ui.label("Opt-outs and bounces stay workspace-wide: the do-not-contact "
-             "list doesn't record which campaign an address came from, so "
-             "splitting them per campaign would be a guess.").style(
-        f"font-size:11px;color:{C['muted']};margin-bottom:20px;")
-
-    # ── By step ─────────────────────────────────────────────────────────
-    if step_rows:
-        _scols = "1fr 70px 80px 90px"
-        ui.label("By step").style(
-            f"font-size:14px;font-weight:700;color:{C['text_l']};"
-            f"font-family:'Nunito',sans-serif;margin-bottom:8px;")
-        with ui.element("div").style(
-                f"background:{C['card']};border:1px solid {C['border']};"
-                f"border-radius:10px;overflow:hidden;margin-bottom:8px;"):
-            with ui.element("div").style(
-                    f"display:grid;grid-template-columns:{_scols};gap:0;"
-                    f"padding:8px 14px;background:{C['surface']};"
-                    f"border-bottom:1px solid {C['border']};"):
-                for h in ["Step", "Sent", "Scheduled", "Stopped"]:
-                    ui.label(h).style(
-                        f"font-size:9px;font-weight:700;color:{C['muted']};"
-                        f"text-transform:uppercase;letter-spacing:.06em;")
-            for row in step_rows:
-                with ui.element("div").style(
-                        f"display:grid;grid-template-columns:{_scols};gap:0;"
-                        f"padding:8px 14px;align-items:center;"
-                        f"border-bottom:1px solid {_tint(C['border'],'20')};"):
-                    ui.label(f"{row['touch']}. {row['label']}").style(
-                        f"font-size:12px;font-weight:500;color:{C['text_l']};"
-                        f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
-                    ui.label(str(row["sent"])).style(f"font-size:12px;color:{C['muted']};")
-                    ui.label(str(row["pending"])).style(
-                        f"font-size:12px;color:{C['teal'] if row['pending'] else C['muted']};")
-                    ui.label(str(row["cancelled"])).style(
-                        f"font-size:12px;color:{C['muted']};")
-        ui.label("Stopped = remaining steps cancelled for that contact, which "
-                 "is what happens when someone replies, opts out or bounces.").style(
-            f"font-size:11px;color:{C['muted']};margin-bottom:8px;")
+    _types = [(t[0], t[1], t[3]) for t in AICB_CAMPAIGN_TYPES]
+    _oa.render(ui, C, s, rf, _sources, _types,
+               help_fn=lambda: _show_page_help(s, rf, "analytics"))
 
 
 def p_active_clients(s, rf):
