@@ -1341,6 +1341,20 @@ _BUILD_STEP = (
     "back the campaign id, the step count and the queued-contact count for "
     "every one, and tell me about any that came back short.")
 
+# The order the job boards are searched in, and the rule that keeps the AI
+# from jumping to the Indeed/ZipRecruiter connectors first because they are
+# quicker. No braces: both go into str.format_map templates.
+_TM_BOARDS = ("Google Jobs first, then LinkedIn Jobs, then Indeed, then "
+              "ZipRecruiter")
+_TM_BOARDS_RULE = (
+    "Go in that order, one board at a time, and finish each board before "
+    "you start the next. Google Jobs and LinkedIn Jobs are searched in "
+    "Chrome. Indeed and ZipRecruiter have connectors, but they still come "
+    "after Google Jobs and LinkedIn: do not start with the connectors or "
+    "run them alongside the browser searches just because they are faster. "
+    "If Google shows a bot check, do not try to solve it: move to the next "
+    "board and tell me Google was skipped. Search every board either way.")
+
 _SCORE_STEP = (
     "Size about {pool} companies to land {companies} of about "
     "{company_size}. Score each one before you rank it: how strong and how "
@@ -1434,16 +1448,13 @@ ROUTINES = [
               "select", default="Posted in the last 30 days",
               options=TM_POSTING_AGE),
             F("boards", "Where to look for the jobs", "size",
-              default="Google Jobs first, then ZipRecruiter, then LinkedIn, "
-                      "then Indeed"),
+              default=_TM_BOARDS),
         ] + _TM_SKIP_FIELDS,
         "steps": [
             "{vertical_guide}",
             "Search the job boards for {vertical_label} companies in "
             "{location} hiring {roles}, {posting_age_lc}. {boards}. "
-            "{signals_clause} If Google shows a bot check, do not try to "
-            "solve it: drop to ZipRecruiter and tell me Google was skipped. "
-            "Run ZipRecruiter either way.",
+            + _TM_BOARDS_RULE + " {signals_clause}",
             "{skip_clause}",
             _SCORE_STEP,
             _CONTACTS_STEP,
@@ -1521,7 +1532,8 @@ ROUTINES = [
             "A US company posting a Philippines-based role, or describing "
             "an offshore team, is the signal. Note what they seem to be "
             "doing offshore today and whether it is through a provider or "
-            "directly.",
+            "directly. For the job boards, search " + _TM_BOARDS + ". "
+            + _TM_BOARDS_RULE,
             "{skip_clause}",
             "Land {companies} companies. The angle for these is not "
             "whether to go offshore, it is whether they are getting "
@@ -1599,7 +1611,8 @@ ROUTINES = [
             "pages for {vertical_label} companies in {location} of about "
             "{company_size} that are hiring {roles} or talking about the "
             "season ahead. Postings for temporary or seasonal help count "
-            "double.",
+            "double. For the job boards, search " + _TM_BOARDS + ". "
+            + _TM_BOARDS_RULE,
             "{skip_clause}",
             _SCORE_STEP,
             _CONTACTS_STEP,
