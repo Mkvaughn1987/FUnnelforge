@@ -3117,6 +3117,13 @@ def _aip_confirm(s, rf, C):
                             ui.label("Ready to go")
                     _text("Everything is pre-filled. Change anything you like.",
                           C, 11, colour=C["muted"])
+                # Said up front so nobody has to open "Leave these out" to
+                # learn who the run skips. Follows the toggles, so unticking
+                # both drops the line.
+                if any(k in r["field_by_key"] and _flag(r, vals, k)
+                       for k in ("skip_customers", "skip_recruiters")):
+                    _text("Current companies and recruitment firms will not "
+                          "be included.", C, 11, colour=C["muted"])
 
     with ui.element("div").classes("aip-acc"):
         for key, name in _aip_sections_for(r):
