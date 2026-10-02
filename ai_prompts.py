@@ -945,6 +945,101 @@ ROUTINES = [
         ],
     },
     {
+        "key": "zi_seat",
+        "name": "Pull ZoomInfo contacts with my own seat",
+        "blurb": "When the shared Bulk Credits run out, switch to your own "
+                 "ZoomInfo login in Chrome, and say exactly what to fix if "
+                 "something stops it.",
+        "example": "Pull the hiring managers at Summit Mechanical and "
+                   "Front Range Fab, in Colorado",
+        # Bulk Credits are one small pool the whole team shares; each seat
+        # has its own monthly view/export credits, so a "Limit exceeded"
+        # from enrich_contacts says nothing about the seat. Users kept
+        # stopping at that error, or at the browser half, with no idea why.
+        # The troubleshooting step is the point: the run names the cause
+        # and the fix instead of just stopping. ZoomInfo is not a DripDrop
+        # tool, so this declares none.
+        "tools": [],
+        "no_repeat": True,
+        "fields": [
+            F("companies", "Companies to pull contacts for", "details",
+              "textarea",
+              placeholder="Separate them with commas. Leave blank to make "
+                          "this the rule for every job in this chat."),
+            F("who_to_reach", "Who to pull", "details", "textarea",
+              default="C-Level, VP, Director and Manager - the people who "
+                      "own the hiring"),
+            F("zi_state", "Only people in", "details",
+              placeholder="A state, e.g. Colorado. Blank for anywhere."),
+            F("per_company", "Most contacts per company", "size", "number",
+              default="10"),
+        ],
+        "steps": [
+            "Check the setup first: open recruiter-app.zoominfo.com in "
+            "Chrome and confirm I am signed in to ZoomInfo Talent there. "
+            "Never type a password or try to sign in for me.",
+            "{zi_companies_clause}",
+            "Try the ZoomInfo connector first. " + ZI_PULL_RULE,
+            "On my seat, use the Talent search. Company Info > Company "
+            "(Current): type the company name, wait a few seconds, then "
+            "click the matching suggestion - check the industry and the "
+            "city. The company name and its ID show up in the page address "
+            "once it has taken; typing without clicking a suggestion does "
+            "not apply the filter. Candidate Experience > Management Level: "
+            "tick C-Level, VP-Level, Director and Manager.{zi_loc_step} Then "
+            "open the Candidates tab.",
+            'Read the titles and tick only the people who fit, up to '
+            '{per_company} per company. Check the toolbar shows "N selected" '
+            'with the number you meant before you go on - clicking a column '
+            'header re-sorts the rows in the middle of a selection. Then '
+            'Export > Export CSV: the file lands in my Downloads as '
+            'Talent_Candidate_Export_<date>.csv, and Work email is the '
+            'column to use. If you cannot open that file, open each person '
+            'you ticked and read their work email off their profile '
+            'instead. For the next company, change only the Company filter '
+            'rather than rebuilding the search.',
+            "Using my own seat through ZoomInfo's normal screens, for my own "
+            "outreach, is what the seat is for. It is not scraping and it is "
+            "not getting around anything, so do not stop to ask whether it "
+            "is allowed.",
+            "Work emails only - never a personal Gmail, Yahoo, AOL or "
+            "similar address. Drop anyone whose company in the results is "
+            "not the company you searched for, and anyone whose location "
+            "makes no sense for that company.",
+            "If any part of this does not work, do not just stop. Tell me in "
+            "plain words which of these it was, quote the exact error, and "
+            "give me the fix. (1) You cannot control Chrome, or have no "
+            "browser tools: the AI's Chrome extension is not installed or "
+            "not connected - install it, connect it, and keep that Chrome "
+            "window open. (2) A pop-up asks permission to use "
+            "recruiter-app.zoominfo.com: you cannot click it for me - tell "
+            "me to choose Allow all browser actions, or Allow for all "
+            "scheduled runs on that site, so it never asks again. (3) "
+            "ZoomInfo shows a sign-in or password screen: tell me to sign in "
+            "at recruiter-app.zoominfo.com myself and run this again; keep "
+            "going on the connector meanwhile if it still has credits. (4) "
+            "The ZoomInfo tools are missing or give an auth error: the "
+            "ZoomInfo connector is switched off - tell me to turn it on in "
+            "the connector settings. (5) enrich_contacts says Limit exceeded "
+            "or not enough credits: that is not a problem, it is the signal "
+            "to switch to my seat - say so and carry on. (6) My seat is out "
+            "of view or export credits, or Export is greyed out: both pools "
+            "are out - keep the company as waiting on ZoomInfo and tell me, "
+            "because my seat credits reset monthly or my manager can add "
+            "more. (7) search_companies errors: find the company through "
+            "search_contacts by company name and use the company ID from "
+            "that. (8) The page freezes or screenshots time out: read the "
+            "page text instead, and if I am using that Chrome window at the "
+            "same time, tell me to leave it alone while you work. Anything "
+            "else: tell me what you saw and what you tried.",
+            "When you finish, give me a table: name, title, company, work "
+            "email, phone, city and state, LinkedIn URL, and which pool paid "
+            "- bulk or seat. Then one line for each company left waiting on "
+            "ZoomInfo with the exact error, and anything from the list above "
+            "I need to fix before the next run.",
+        ],
+    },
+    {
         "key": "other",
         "name": "Something else",
         "blurb": "Anything that is not one of the above.",
@@ -1394,6 +1489,24 @@ def _derived(r, vals, cat=None):
         "Do not mark anything done in DripDrop. Leave every task open and "
         "give me the list of who the requests went to so I can tick them "
         "off myself.")
+
+    # ── My own ZoomInfo seat ──────────────────────────────────────────────
+    zi_state = d.get("zi_state") or ""
+    d["zi_loc_step"] = (" Candidate Info > Location: %s." % zi_state
+                        if zi_state else "")
+    zi_who = "up to %s per company: %s.%s" % (
+        d.get("per_company") or "10", d.get("who_to_reach") or "",
+        " Only people in %s." % zi_state if zi_state else "")
+    if d.get("companies"):
+        d["zi_companies_clause"] = (
+            "Pull contacts at each company in THE DETAILS, " + zi_who)
+    else:
+        d["zi_companies_clause"] = (
+            "I have not listed companies, so treat everything below as a "
+            "standing rule for the rest of this chat: whenever a job I give "
+            "you needs contacts from ZoomInfo, pull them this way, " + zi_who
+            + " Do the setup check now, tell me it is ready, and use this "
+            "for every job after it.")
 
     done = d.get("done_when") or ""
     d["done_clause"] = ("I will know it worked when %s." % done if done
@@ -1901,6 +2014,23 @@ STARTERS = [
         # than guessed at, and any LinkedIn warning stops the run outright.
         "vals": {"repeat_on": True, "repeat_every": "Every day",
                  "unattended": "Run it all the way through"},
+    },
+    {
+        "id": "zi_seat",
+        "icon": "contact_mail",
+        "label": "Pull ZoomInfo contacts with my own seat when Bulk Credits "
+                 "run out",
+        "sub": "When the shared Bulk Credits say Limit exceeded, the AI "
+               "switches to your own ZoomInfo login in Chrome. List the "
+               "companies, or leave it blank to make it the rule for the "
+               "rest of the chat. Needs the AI's Chrome extension and you "
+               "signed in to recruiter-app.zoominfo.com - if something is "
+               "missing, it tells you what and how to fix it.",
+        "summary": "Pull ZoomInfo contacts - the shared Bulk Credits first, "
+                   "then my own ZoomInfo seat in Chrome when they run out - "
+                   "and tell me exactly what to fix if anything stops it.",
+        "routine": "zi_seat",
+        "vals": {},
     },
     {
         "id": "other",
