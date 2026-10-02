@@ -158,7 +158,9 @@ async def create_campaign(spec: dict) -> dict:
         Pipeline are added. Emails cite them by a stable client alias and
         Ref # (e.g. "Trent K. (Ref #1042)"); real names never reach the
         email. Mark AI-written sample profiles "_synthetic": true), roles, location, industry, website, name, start_date
-        (ISO date, or omitted/"auto" for the upcoming Monday),
+        (ISO date, or omitted/"auto" for the upcoming Monday), start_time
+        (clock time like "8:00 AM" for the first email; omit to keep the
+        template's time),
         enroll_newsletter (newsletter name to also enroll contacts into).
 
         For template "findcandidates": pass job_description (str, the full

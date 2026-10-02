@@ -5140,7 +5140,25 @@ def _validate_campaign_spec(spec: dict):
             date.fromisoformat(sd)
         except Exception:
             return "Invalid 'start_date' — use ISO format YYYY-MM-DD."
+    st = (spec.get("start_time") or "").strip()
+    if st and not _START_TIME_RE.match(st):
+        return "Invalid 'start_time' — use a clock time like \"8:00 AM\"."
     return None
+
+
+_START_TIME_RE = re.compile(r"^(1[0-2]|[1-9]):[0-5]\d (AM|PM)$", re.I)
+
+
+def _apply_start_time(emails: list, raw) -> None:
+    """Set the first email step's send time from a spec's start_time
+    ("8:00 AM"). Later steps keep their own times."""
+    st = (raw or "").strip().upper()
+    if not st:
+        return
+    for step in emails:
+        if (step.get("step_type") or ST.EMAIL_AUTO) in (ST.EMAIL_AUTO, ST.EMAIL_MANUAL):
+            step["time"] = st
+            return
 
 
 def _schedule_from_steps(steps: list, start_date: str) -> list:
@@ -6094,6 +6112,7 @@ async def api_create_campaign(request: Request):
     campaign_data = result["campaign_data"]
     emails = result["emails"]
     start_date = _resolve_start_date(spec.get("start_date"))
+    _apply_start_time(emails, spec.get("start_time"))
 
     camp = {
         "name": (spec.get("name") or campaign_data.get("campaign_name")
