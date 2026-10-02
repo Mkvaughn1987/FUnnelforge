@@ -13014,6 +13014,10 @@ def _render_page_intro_strip(s, rf, page_key: str) -> None:
         return
     if _is_help_strip_dismissed(page_key):
         return
+    # The sidebar layout's header already names the page, so the badge only
+    # took a whole row of its own above the content.
+    if _SIDEBAR_LAYOUT:
+        return
 
     def _on_dismiss():
         _dismiss_help_strip(page_key)
@@ -15418,7 +15422,7 @@ def p_today_combined(s: AppState, rf):
     # is "Mon", not "Tomorrow" (which would be Saturday).
     with ui.element("div").classes("fd-drip-pills").style("display:flex;align-items:center;gap:12px;margin-bottom:4px;"):
         _show_page_help(s, rf, "drip")
-        with ui.element("div").style(f"display:inline-flex;gap:4px;background:{C['surface']};border-radius:10px;padding:4px;"):
+        with ui.element("div").classes("fd-seg lg"):
             pills = []
             for _key in _DAY_KEYS:
                 _offset = _KEY_TO_OFFSET[_key]
@@ -15437,11 +15441,9 @@ def p_today_combined(s: AppState, rf):
                 is_danger = key == "overdue"
                 def _switch(k=key):
                     s.drip_day = k; rf()
-                _on_style = ""
-                if on and is_danger:
-                    _on_style = f"background:{C['danger']};color:#0D1520;border-color:{C['danger']};"
-                with ui.element("button").classes("fd-hub" + (" on" if on else "")).style(
-                        f"border-radius:8px;padding:10px 24px;font-size:15px;font-weight:600;{_on_style}").on("click", _switch):
+                with ui.element("button").classes(
+                        "fd-seg-btn" + (" on" if on else "") + (" danger" if is_danger else "")).props(
+                        'type="button"').on("click", _switch):
                     ui.label(label)
 
 
@@ -15474,9 +15476,9 @@ def p_today_combined(s: AppState, rf):
         if auto_email_count > 0:
             _stats_list.append((str(auto_email_count), "Emails", C["teal"]))
         with ui.element("div").classes("fd-drip-stats"):
-          with ui.element("div").classes("fd-stat-strip").style("margin-bottom:16px;"):
+          with ui.element("div").classes("fd-stat-strip").style("margin:16px 0;"):
             for val, lbl, col in _stats_list:
-                with ui.element("div").classes("fd-stat-cell"):
+                with ui.element("div").classes("fd-stat-cell" + (" zero" if val == "0" else "")):
                     ui.label(val).classes("fd-sn").style(f"color:{col};")
                     ui.label(lbl).classes("fd-sl")
 
@@ -28481,7 +28483,7 @@ def p_dashboard(s: AppState, rf):
                     ui.label(f"{_done} of {_total}").style(
                         f"font-size:12px;color:{C['muted']};font-weight:600;"
                         f"background:{C['surface']};padding:4px 12px;border-radius:12px;"
-                        f"border:1px solid {C['border']};")
+                        f"border:1px solid {C['border']};white-space:nowrap;flex-shrink:0;")
 
                 ui.label("Complete these steps to start sending campaigns that feel personal and on-brand.").style(
                     f"font-size:12px;color:{C['muted']};margin-bottom:14px;display:block;")
@@ -28560,10 +28562,8 @@ def p_dashboard(s: AppState, rf):
                         if _st["cta"] and _st["page"]:
                             def _go_step(page=_st["page"]):
                                 s.sp = page; rf()
-                            with ui.element("button").style(
-                                    f"padding:7px 16px;background:{C['teal']};color:#0D1520;"
-                                    f"border:none;border-radius:7px;font-size:11px;font-weight:700;"
-                                    f"cursor:pointer;font-family:inherit;flex-shrink:0;"
+                            with ui.element("button").classes("fd-pb").props('type="button"').style(
+                                    "padding:8px 16px;font-size:12px;flex-shrink:0;"
                                     ).on("click", _go_step):
                                 ui.label(_st["cta"]).style("pointer-events:none;")
 
@@ -28589,8 +28589,9 @@ def p_dashboard(s: AppState, rf):
             (len(active_camps),     "Active",           C["teal"],      "seq_mgr", None),
             (len(recs),             "Replies",          C["good"],      "responses", None),
         ]:
-            with ui.element("div").classes("fd-stat-cell").style(
-                    "cursor:pointer;").on("click", _stat_nav(target_page, drip_day)):
+            with ui.element("div").classes("fd-stat-cell go" + ("" if val else " zero")).props(
+                    'role="button" tabindex="0"').on("click", _stat_nav(target_page, drip_day)).on(
+                    "keydown.enter", _stat_nav(target_page, drip_day)):
                 ui.label(str(val)).classes("fd-sn").style(f"color:{col};")
                 ui.label(lbl).classes("fd-sl")
 
@@ -28607,23 +28608,21 @@ def p_dashboard(s: AppState, rf):
                 f"font-size:13px;font-weight:600;color:{C['danger']};")
             ui.label("View →").style(f"font-size:12px;color:{C['danger']};font-weight:600;")
     # ── Drip pills (Today / Tomorrow / Overdue) ─────────────────────────────
-    with ui.element("div").style(
-            f"display:inline-flex;gap:4px;background:{C['surface']};border-radius:10px;"
-            f"padding:4px;margin-bottom:16px;"):
+    with ui.element("div").classes("fd-seg").style("margin-bottom:24px;"):
         # None = no pre-selection; the user clicks one to jump to that view.
         drip_tab = getattr(s, "dash_drip_tab", None)
-        for key, label, _col in [
-            ("today",    f"Today ({len(pending_today)})", C["teal"]),
-            ("tomorrow", f"Tomorrow ({len(pending_tomorrow)})", C["teal"]),
-            ("overdue",  f"Overdue ({len(overdue_tasks)})", C["danger"]),
+        for key, label, _danger in [
+            ("today",    f"Today ({len(pending_today)})", False),
+            ("tomorrow", f"Tomorrow ({len(pending_tomorrow)})", False),
+            ("overdue",  f"Overdue ({len(overdue_tasks)})", bool(overdue_tasks)),
         ]:
             on = drip_tab == key
             def _switch(k=key):
                 s.dash_drip_tab = k
                 nav_go(s, rf, hub="sales", page="drip")
-            _on_style = f"background:{_col};color:#0D1520;border-color:{_col};" if on else ""
-            with ui.element("button").classes("fd-hub" + (" on" if on else "")).style(
-                    f"border-radius:8px;padding:6px 16px;font-size:13px;font-weight:600;{_on_style}").on("click", _switch):
+            with ui.element("button").classes(
+                    "fd-seg-btn" + (" on" if on else "") + (" danger" if _danger else "")).props(
+                    'type="button"').on("click", _switch):
                 ui.label(label)
 
     # ── Two columns: Recent Campaigns + Today's Activity ────────────────────
@@ -28654,15 +28653,14 @@ def p_dashboard(s: AppState, rf):
                 key=_camp_recency_ts, reverse=True)
 
             if not active_camps:
-                with ui.element("div").style(
-                        f"background:{C['card']};border:1px solid {C['border']};"
-                        f"border-radius:10px;padding:28px;text-align:center;"):
-                    ui.label("No active campaigns yet.").style(f"font-size:13px;color:{C['muted']};margin-bottom:8px;")
+                with ui.element("div").classes("fd-es wide compact"):
+                    ui.label("No active campaigns yet").classes("fd-es-title").style("font-size:14px;")
+                    ui.label("Launch one and its progress shows up here.").classes("fd-es-body")
                     def _start():
                         nav_go(s, rf, hub="sales", page="start_seq")
-                    with ui.element("button").classes("fd-pb").style(
-                            "padding:8px 20px;font-size:12px;").on("click", _start):
-                        ui.label("+ Start a Campaign")
+                    with ui.element("div").classes("fd-es-actions").style("margin-top:10px;"):
+                        with ui.element("button").classes("fd-pb").props('type="button"').on("click", _start):
+                            ui.label("+ Start a Campaign")
             else:
                 def _render_camp_card(camp, accent_col):
                     cname = camp.get("name", "")
