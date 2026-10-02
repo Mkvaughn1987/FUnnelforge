@@ -4280,8 +4280,8 @@ AICB_CAMPAIGN_TYPES = [
     ("fivebyseven", "Arena 5×7", "10 steps - 4 weeks", "#7C3AED",
      "Arena's longest warm play. Seven emails, two calls and a LinkedIn "
      "touch over about four weeks. Three pipeline-matched candidates are "
-     "introduced on email 3, sent again on email 5, and two of them close "
-     "it out on email 7, with redacted résumés on emails 3 and 5.",
+     "introduced on email 3 as short write-ups, sent again on email 5 with "
+     "their redacted résumés, and two of them close it out on email 7.",
      "Relationship-first BD - 3 candidates - 4 weeks",
      "GLOBAL VOICE: Write warm, personable, and human — NOT salesy. Sound "
      "like a recruiter who talks to people in this market every day and "
@@ -4302,11 +4302,15 @@ AICB_CAMPAIGN_TYPES = [
      "its own: 'Are you involved in the hiring process?'\n"
      "Step 2 - What I'm seeing (delay_days:3, step_type:email_auto) - "
      "Subject like 'What I'm seeing in [market]' (write the market in). "
-     "Share one or two specific things you're seeing in hiring in their "
-     "market right now, picked from: how long roles are sitting open, "
-     "counter offers, pay creeping up at the senior level, what candidates "
-     "ask about in screens. 'Lately I'm seeing...' openers work. No "
-     "candidates, no ask. 80 to 120 words.\n"
+     "Warm and conversational, like a note to someone you'd like to get "
+     "to know, not a market report. Share one or two things you've been "
+     "noticing in hiring in their market lately, in plain words, picked "
+     "from: good people getting harder to find, candidates weighing "
+     "counter offers, what people ask about when they think about a move, "
+     "roles taking longer to fill. NO numbers of any kind: no salaries, "
+     "pay ranges, percentages, day counts or statistics, and cite no data, "
+     "even if market stats are given above. 'Lately I've been noticing...' "
+     "openers work. No candidates, no ask. 70 to 110 words.\n"
      "Step 3 - Follow-up Call (delay_days:0, step_type:call) - SAME DAY as "
      "Step 2, keep delay_days:0. Call script in the body: reference the "
      "emails, ask who handles hiring for the role and whether anything is "
@@ -4322,8 +4326,8 @@ AICB_CAMPAIGN_TYPES = [
      "not 'you should hire these people'. Then EVERY candidate from "
      "CANDIDATE HIGHLIGHTS as a short spotlight: label, title and one line "
      "on what they bring. Close with one line like 'happy to share more on "
-     "any of them'. Do NOT mention attachments (the system adds that "
-     "line).\n"
+     "any of them'. Write-ups only: do NOT mention résumés or "
+     "attachments.\n"
      "Step 6 - How I work (delay_days:3, step_type:email_auto) - Subject "
      "like 'How I work'. Briefly, how you work: you talk to people before "
      "they ever reach the hiring manager's desk, you only bring people who "
@@ -8654,8 +8658,9 @@ def _apply_fivebythree_overrides(camp_type, campaign_data):
 # inboxslide's Standard Outreach). Calls and LinkedIn share their email's day.
 _FIVEBYSEVEN_DELAYS = {1: 0, 2: 3, 3: 0, 4: 0, 5: 3, 6: 3, 7: 4, 8: 0, 9: 4,
                        10: 5}
-# The two emails that carry the candidates' résumés (email 3 and email 5).
-_FIVEBYSEVEN_RESUME_STEPS = (5, 7)
+# The email that carries the candidates' résumés (email 5). Email 3 is
+# write-ups only (Mike, 2026-10-02).
+_FIVEBYSEVEN_RESUME_STEPS = (7,)
 _FIVEBYSEVEN_RESUME_LINE = "<br><br>I've attached their résumés as well."
 
 
@@ -20228,10 +20233,10 @@ CHOOSER_OPTIONS = [
         "title": "Arena 5×7",
         "subtitle": "Seven warm emails, two calls, about four weeks",
         "desc": ("The longest warm play. Three pipeline-matched "
-                 "candidates introduced on email 3, sent again on "
-                 "email 5 and two of them on the close, with redacted "
-                 "résumés on emails 3 and 5, plus a market read, how "
-                 "you work, and two calls."),
+                 "candidates written up on email 3, sent again on "
+                 "email 5 with redacted résumés and two of them on "
+                 "the close, plus a market read, how you work, and "
+                 "two calls."),
         "best_for": ["Relationship-first BD", "3 candidates", "Longer runway"],
         "border": "#7C3AED",
     },

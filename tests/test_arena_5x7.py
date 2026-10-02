@@ -61,17 +61,17 @@ def test_overrides_pin_delays_and_are_scoped():
     assert all(e["delay_days"] == 9 for e in other["emails"])
 
 
-def test_resumes_on_emails_three_and_five_with_line():
+def test_resumes_on_email_five_only_with_line():
     emails = _sample()["emails"]
     fa._attach_resumes_to_emails("fivebyseven", emails, ["a.pdf", "b.pdf", "c.pdf"])
     fa._attach_resumes_to_emails("fivebyseven", emails, ["a.pdf", "b.pdf", "c.pdf"])
     by_step = {fa._fivebyfive_step_no(e["name"]): e for e in emails}
-    for n in (5, 7):
+    for n in (7,):
         assert by_step[n]["attachments"] == ["a.pdf", "b.pdf", "c.pdf"]
         body = by_step[n]["body"]
         assert body.count(fa._FIVEBYSEVEN_RESUME_LINE) == 1
         assert body.endswith("</div>")
-    for n in (1, 2, 3, 4, 6, 8, 9, 10):
+    for n in (1, 2, 3, 4, 5, 6, 8, 9, 10):
         assert not by_step[n].get("attachments")
         assert fa._FIVEBYSEVEN_RESUME_LINE not in by_step[n]["body"]
 
@@ -96,3 +96,12 @@ def test_ai_prompts_dropdown_offers_it():
     assert ai_prompts.TEMPLATE_KEY["Arena 5x7"] == "fivebyseven"
     # The default run stays the 5x5.
     assert ai_prompts.TEMPLATE_KEY["Arena 5x5"] == "fivebyfive"
+
+
+def test_email_three_is_write_ups_and_email_two_has_no_numbers():
+    prompt = _get("fivebyseven")[6]
+    step5 = prompt.split("Step 5 -")[1].split("Step 6 -")[0]
+    assert "Write-ups only" in step5
+    step2 = prompt.split("Step 2 -")[1].split("Step 3 -")[0]
+    assert "NO numbers of any kind" in step2
+    assert "Warm" in step2
