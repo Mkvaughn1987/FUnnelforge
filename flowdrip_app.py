@@ -11418,6 +11418,7 @@ SALES_NAV = [
     ("⬡",  "Home",              "dashboard"),
     ("☼",  "Today's Tasks",     "drip"),
     ("◎",  "Replies",           "responses"),
+    ("📈", "Outreach Analytics", "outreach_analytics"),
     # ── Campaigns ───────────────────────────────
     # Renamed from SEQUENCES 2026-09-09 — the app says "campaign"
     # everywhere else (top bar, Saved Campaigns copy), so the sidebar
@@ -12123,7 +12124,7 @@ def nav_back_label(s: AppState) -> str:
         "dashboard": "Dashboard", "drip": "Today's Drip", "tasks": "Tasks", "responses": "Campaign Radar",
         "start_seq": "Start a Campaign", "contacts": "Contact Lists",
         "active_camps": "Active Campaigns", "evergreen": "Slow Drip", "evergreen_create": "Slow Drip",
-        "queue": "Email Queue",
+        "queue": "Email Queue", "outreach_analytics": "Outreach Analytics",
         "seq_mgr": "Current Campaigns", "signature": "Email Signature",
         "camp_gen": "Campaign Builder",
         "emails_build": "Emails", "sequence": "Sequence",
@@ -30765,6 +30766,31 @@ def p_dnc(s, rf):
 # ═══════════════════════════════════════════════════════════════════════════
 #  ACTIVE CLIENTS (team-shared blocklist)
 # ═══════════════════════════════════════════════════════════════════════════
+
+def p_outreach_analytics(s, rf):
+    """Outreach Analytics: one row per campaign type (Arena 4x4, Quick
+    Sprint...), click in for each email's sends, replies and reply rate.
+    Read-only; counted from the queue (plus archive for "All time"), the
+    replies log and the DNC list. Shared with inboxslide via
+    outreach_analytics.py."""
+    import outreach_analytics as _oa
+
+    def _safe(loader):
+        try:
+            return list(loader() or [])
+        except Exception:
+            return []
+
+    def _sources(days):
+        queue = _safe(_load_queue)
+        if days is None:
+            queue = _oa.merge_queue(queue, _safe(_load_queue_archive))
+        return {"queue": queue, "responded": _safe(load_responded),
+                "dnc": _safe(load_dnc), "campaigns": _safe(load_campaigns)}
+
+    _types = [(t[0], t[1], t[3]) for t in AICB_CAMPAIGN_TYPES]
+    _oa.render(ui, C, s, rf, _sources, _types)
+
 
 def p_active_clients(s, rf):
     """Team-shared list of active client domains. Contacts at these
@@ -52782,6 +52808,7 @@ def render_page(s: AppState, rf):
             elif page == "queue":        p_queue(s, rf)
             elif page == "dnc":          p_dnc(s, rf)
             elif page == "active_clients": p_active_clients(s, rf)
+            elif page == "outreach_analytics": p_outreach_analytics(s, rf)
             elif page == "company_profile": p_company_profile(s, rf)
             elif page == "team_settings": p_team_settings(s, rf)
             elif page == "signature":    p_signature(s, rf)
