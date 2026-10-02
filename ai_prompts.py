@@ -39,12 +39,19 @@ Scheduling is deliberately NOT stored on this side. The user answers the
 cadence here; the generated prompt tells Claude to create the recurring task
 itself with the whole brief baked in. That keeps one schedule in one place —
 Claude's — instead of two that can disagree.
+
+THE CATALOGUE IS SWAPPABLE. Everything product-specific — the routines,
+the starters, the standing rules, the connector's name, the page copy —
+lives in a Catalogue. ARENA is DripDrop's and is what p_ai_prompts binds.
+tm_prompts.py builds inboxslide's and binds it through render_page().
+The engine below reads the active one through _CAT and nothing else.
 """
 import asyncio
 import json
 import re
 import sys
 import uuid
+from dataclasses import dataclass
 from datetime import date, timedelta
 
 from nicegui import ui
@@ -75,26 +82,119 @@ SECTIONS = [
     ("size", "How big this run is", False),
     ("skip", "Leave these out", False),
     ("repeat", "Repeat it", False),
-    ("extra", "Anything else Claude should know", False),
+    ("extra", "Anything else the AI should know", False),
 ]
 SECTION_NAME = {k: n for k, n, _ in SECTIONS}
 
 
 def F(key, label, section="details", type="text", default="", ask=False,
-      hint="", placeholder="", options=None):
+      hint="", placeholder="", options=None, refresh=False, source="",
+      pick_first=False, chips=None, show_if=None):
     """One question on the screen.
 
     ask=True means "only the user can answer this" — left blank it becomes a
     question in the prompt. ask=False means the default is good enough to
     write in without asking, which is what keeps the prompt short.
+
+    refresh=True re-renders the screen when the answer changes. Only worth
+    it for a question other questions are computed from — the vertical on
+    the ThriveModal page decides which signals are on offer below it, and a
+    stale menu under a changed vertical is worse than a flicker.
+
+    type="pick" is a dropdown of the host's own data (source names which:
+    the user's saved audiences, the companies in their contacts) that also
+    takes anything typed. pick_first opens it on the first entry. chips are
+    ready-made answers shown above the box: one click writes the wording
+    in, and it stays editable.
+
+    show_if is `(routine, vals) -> bool`. A question that an earlier answer
+    has already settled is not asked: a run that repeats every day has no
+    day to pick, so the day question is not shown rather than shown and
+    ignored.
     """
     return {"key": key, "label": label, "section": section, "type": type,
             "default": default, "ask": ask, "hint": hint,
-            "placeholder": placeholder, "options": options or []}
+            "placeholder": placeholder, "options": options or [],
+            "refresh": bool(refresh), "source": source or "",
+            "pick_first": bool(pick_first), "chips": list(chips or []),
+            "show_if": show_if}
+
+
+def _visible(r, vals, f):
+    fn = f.get("show_if")
+    return True if not fn else bool(fn(r, vals))
+
+
+def finalize_routines(routines):
+    """Give every routine the schedule and autonomy questions and its
+    field_by_key index, and return the by-key lookup. Idempotent: a routine
+    that already carries field_by_key is left alone, so finalising a
+    catalogue twice cannot double its common fields."""
+    for r in routines:
+        if "field_by_key" in r:
+            continue
+        r["fields"] = list(r["fields"]) + list(COMMON_FIELDS)
+        r["field_by_key"] = {f["key"]: f for f in r["fields"]}
+    return {r["key"]: r for r in routines}
+
+
+@dataclass
+class Catalogue:
+    """Everything about this page that belongs to one product rather than
+    to the engine. ARENA (further down) is DripDrop's; tm_prompts.py builds
+    inboxslide's. The engine reads the active one through _CAT and never
+    names a product itself."""
+    routines: list
+    routine_by_key: dict
+    default_routine: str
+    standing_rules: list
+    unattended_rule: str
+    starters: list
+    starter_by_id: dict
+    sequences: list
+    template_key: dict
+    default_sequence: str
+    default_template: str
+    setups_file: str
+    product: str
+    connector: str
+    assistant: str
+    page_title: str
+    page_sub: str
+    result_copy: str
+    # Optional hook: result_extra(s, rf, C, routine) renders anything the
+    # result screen should add for a particular routine.
+    result_extra: object = None
+    # Optional hook: derive_extra(routine, vals, d) runs at the end of
+    # _derived and may add placeholders or fill blanks with recommended
+    # values before the steps are formatted. None leaves the output alone.
+    derive_extra: object = None
+    # Optional hook: recommend(routine, vals, keys) -> ({key: answer}, why).
+    # A routine that lists field keys under "recommend" gets a button on the
+    # questions screen which fills those boxes in for the run being set up.
+    # `keys` is the subset still worth answering - a box the user typed in
+    # themselves is passed as context instead, never asked for again.
+    # Blocking, so the page awaits it in an executor. None on a catalogue
+    # (Arena's) means no routine there shows the button at all.
+    recommend: object = None
+    # Optional hook: checklist(routine, vals, key) -> [{"id", "label",
+    # "why"}], the whole menu for a "checks" question in display order. It
+    # is worked out from the answers so far rather than read off the field,
+    # because the menu depends on them — which signals are on offer follows
+    # from the vertical picked two boxes up. None means the catalogue never
+    # uses the type.
+    checklist: object = None
+    # Optional hook: prefill(routine, vals, written) -> {key: value}. Runs
+    # before the questions screen renders and writes the recommended answer
+    # into the box itself, so the user reads real text instead of a grey
+    # placeholder. `written` is what it wrote on the last render, which is
+    # how it tells a value it put there from one the user typed over. It
+    # returns the new record, which lives on the request and is never saved.
+    prefill: object = None
 
 
 SEQUENCES = ["Arena 5x5", "Arena 5x3", "Arena 4x4", "One of my saved styles",
-             "Let Claude choose"]
+             "Let the AI choose"]
 
 # Which create_campaign template each sequence name means. The prompt names
 # the template key outright rather than describing the sequence, so Claude
@@ -106,34 +206,69 @@ TEMPLATE_KEY = {
 }
 
 WHEN_OPTIONS = ["Next Monday", "The Monday after next", "As soon as it's built",
-                "A date I'll give Claude"]
+                "A date I'll give the AI"]
 
 POSTING_AGE = ["Posted in the last 7 days", "Posted in the last 14 days",
                "Posted in the last 30 days", "Posted in the last 60 days"]
 
-CADENCE = ["Every weekday", "Every day", "Every week", "Every two weeks",
-           "Every month"]
+CADENCE = ["Every day", "Every other day", "Once a week"]
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 TIMES = ["7:00am", "8:00am", "9:00am", "10:00am", "1:00pm", "3:00pm"]
 ZONES = ["Mountain", "Central", "Eastern", "Pacific"]
 UNATTENDED = ["Stop and check with me first", "Run it all the way through"]
 
+# Cadences saved before the three-option list above. Kept readable rather
+# than dropped: a setup saved months ago still opens with its schedule
+# intact instead of silently resetting to daily.
+CADENCE_LEGACY = {"every week": "Once a week", "weekly": "Once a week",
+                  "daily": "Every day", "every weekday": "Every day"}
+
+
+def _cadence_of(r, vals):
+    return (str(_val(r, vals, "repeat_every") or "").strip().lower()
+            or "once a week")
+
+
+def _if_repeat(r, vals):
+    """Nothing about the schedule is asked until there is a schedule."""
+    return _flag(r, vals, "repeat_on")
+
+
+def _if_many_days(r, vals):
+    return _if_repeat(r, vals) and _cadence_of(r, vals) == "every other day"
+
+
+def _if_one_day(r, vals):
+    # Every day lands on all of them, every other day picks its own set -
+    # everything else (including a legacy fortnightly or monthly setup)
+    # runs on one named day.
+    return (_if_repeat(r, vals)
+            and _cadence_of(r, vals) not in ("every day", "every other day"))
+
 # Asked on every job, whatever it is. Appended to each routine's own list.
 COMMON_FIELDS = [
+    # repeat_on and repeat_every decide which other questions exist, so
+    # changing either redraws the screen and a settled question disappears
+    # straight away instead of sitting there waiting to be ignored.
     F("repeat_on", "Run this again on a schedule", "repeat", "toggle",
-      default=False),
-    F("repeat_every", "How often", "repeat", "select", default="Every week",
-      options=CADENCE),
+      default=False, refresh=True),
+    F("repeat_every", "How often", "repeat", "select", default="Once a week",
+      options=CADENCE, show_if=_if_repeat, refresh=True),
+    F("repeat_days", "Which days", "repeat", "days",
+      default="Monday, Wednesday, Friday", options=DAYS,
+      show_if=_if_many_days,
+      hint="The days it lands on. Three across the week is the usual shape."),
     F("repeat_day", "Which day", "repeat", "select", default="Monday",
-      options=DAYS),
+      options=DAYS, show_if=_if_one_day),
     F("repeat_time", "What time", "repeat", "select", default="8:00am",
-      options=TIMES),
+      options=TIMES, show_if=_if_repeat),
     F("repeat_tz", "Your timezone", "repeat", "select", default="Mountain",
-      options=ZONES),
-    F("unattended", "When it runs on its own, should Claude stop and check "
+      options=ZONES, show_if=_if_repeat),
+    F("unattended", "When it runs on its own, should the AI stop and check "
       "with you, or finish it?", "repeat", "select",
       default="Stop and check with me first", options=UNATTENDED,
-      hint="Nobody is in the chair on a scheduled run. If Claude stops and "
+      show_if=_if_repeat,
+      hint="Nobody is in the chair on a scheduled run. If the AI stops and "
            "waits, the run just sits there until you find it."),
 ]
 
@@ -209,7 +344,7 @@ ROUTINES = [
             F("anonymise", "Hide their names and current employers", "details",
               "toggle", default=True),
             F("company_size", "How big a company", "details",
-              default="50 to 1000 people"),
+              default="25 to 1000 people"),
             F("who_to_reach", "Who to reach", "details",
               default="owners and C-level first, then VPs, then directors, "
                       "then managers, with HR and talent acquisition last",
@@ -218,7 +353,7 @@ ROUTINES = [
               "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
             F("newsletter", "Which newsletter", "details",
               placeholder="Only if you're naming one above",
-              hint="Leave this blank and Claude picks whichever of your "
+              hint="Leave this blank and the AI picks whichever of your "
                    "newsletters is in the same line of work."),
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES),
@@ -272,12 +407,8 @@ ROUTINES = [
             "using {template_clause}, start_date {start_date}, and industry, "
             "location and roles set from THE DETAILS above. Pass that "
             "company's {slate_size} people in the candidates argument, one "
-            "card each, shaped {{\"_pool_id\": the id candidates_search "
-            "returned for that person, \"label\": \"Candidate A\", \"role\": a "
-            "real job title, \"bullets\": three bullets}} - DripDrop uses the "
-            "id to cite them by a client alias and Ref # so a reply can be "
-            "traced back. An AI-built sample profile has no id: give it "
-            "\"_synthetic\": true instead. Each bullet is a "
+            "card each, shaped {{\"label\": \"Candidate A\", \"role\": a real "
+            "job title, \"bullets\": three bullets}} - and each bullet is a "
             "skillset, a notable project, or a company they have worked for. "
             "No years-of-experience, location or salary "
             "bullets.{anon_clause}{name_clause}{newsletter_clause} Read back "
@@ -293,7 +424,7 @@ ROUTINES = [
                  "the people who own the hiring decision, turn them into "
                  "outreach campaigns.",
         "example": "Find commercial construction companies in Colorado hiring "
-                   "project managers and superintendents, 50 to 1000 people, "
+                   "project managers and superintendents, 25 to 1000 people, "
                    "and set up outreach",
         "tools": ["campaign_types", "my_campaign_styles", "candidates_search",
                   "campaigns_list", "create_campaign"],
@@ -305,7 +436,7 @@ ROUTINES = [
             F("roles", "What jobs they're hiring for", "details", ask=True,
               placeholder="e.g. plant managers and maintenance techs"),
             F("company_size", "How big a company", "details",
-              default="50 to 1000 people"),
+              default="25 to 1000 people"),
             F("who_to_reach", "Who to reach", "details",
               default="owners and C-level first, then VPs, then directors, "
                       "then managers, with HR and talent acquisition last",
@@ -314,7 +445,7 @@ ROUTINES = [
               "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
             F("newsletter", "Which newsletter", "details",
               placeholder="Only if you're naming one above",
-              hint="Leave this blank and Claude picks whichever of your "
+              hint="Leave this blank and the AI picks whichever of your "
                    "newsletters is in the same line of work."),
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES),
@@ -394,7 +525,7 @@ ROUTINES = [
               "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
             F("newsletter", "Which newsletter", "details",
               placeholder="Only if you're naming one above",
-              hint="Leave this blank and Claude picks whichever of your "
+              hint="Leave this blank and the AI picks whichever of your "
                    "newsletters is in the same line of work."),
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES),
@@ -585,7 +716,7 @@ ROUTINES = [
                   "create_campaign"],
         "fields": [
             F("who", "Who you're sending to", "details", "textarea", ask=True,
-              placeholder="The list, the file, or where Claude will find it"),
+              placeholder="The list, the file, or where the AI will find it"),
             F("company_niche", "Which company or niche", "details", ask=True,
               placeholder="What the emails are about"),
             F("jd", "If you're emailing candidates, paste the job "
@@ -600,7 +731,7 @@ ROUTINES = [
               "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
             F("newsletter", "Which newsletter", "details",
               placeholder="Only if you're naming one above",
-              hint="Leave this blank and Claude picks whichever of your "
+              hint="Leave this blank and the AI picks whichever of your "
                    "newsletters is in the same line of work."),
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES),
@@ -711,7 +842,7 @@ ROUTINES = [
               "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
             F("newsletter", "Which newsletter", "details",
               placeholder="Only if you're naming one above",
-              hint="Leave this blank and Claude picks whichever of your "
+              hint="Leave this blank and the AI picks whichever of your "
                    "newsletters is in the same line of work."),
         ],
         "steps": [
@@ -726,14 +857,11 @@ ROUTINES = [
     },
 ]
 
-ROUTINE_BY_KEY = {r["key"]: r for r in ROUTINES}
+# Every job also gets the schedule and autonomy questions.
+# finalize_routines does it here rather than in each literal, so the
+# wording is identical everywhere - and a second catalogue gets the same.
+ROUTINE_BY_KEY = finalize_routines(ROUTINES)
 DEFAULT_ROUTINE = "other"
-
-# Every job also gets the schedule and autonomy questions. Doing it here
-# rather than in each literal keeps the wording identical everywhere.
-for _r in ROUTINES:
-    _r["fields"] = list(_r["fields"]) + list(COMMON_FIELDS)
-    _r["field_by_key"] = {f["key"]: f for f in _r["fields"]}
 
 FIELD_KEYS = sorted({f["key"] for r in ROUTINES for f in r["fields"]})
 
@@ -799,6 +927,39 @@ def _flag(r, vals, key):
     return str(v).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _checks_items(r, vals, key, cat=None):
+    """The whole menu for a "checks" question. The catalogue works it out
+    from the answers so far, so there is nothing static on the field to
+    read: pick a different vertical and a different menu comes back."""
+    cat = cat or _CAT
+    hook = getattr(cat, "checklist", None)
+    if not hook:
+        return []
+    try:
+        return [i for i in (hook(r, vals, key) or []) if i.get("id")]
+    except Exception:
+        return []
+
+
+def _checks_ids(r, vals, key, cat=None, items=None):
+    """Which of the menu is ticked, in menu order. A stored id the menu no
+    longer offers is dropped rather than carried along invisibly — switch
+    vertical and the old vertical's signals go with it, which is the same
+    thing the screen shows."""
+    if items is None:
+        items = _checks_items(r, vals, key, cat)
+    on = {p.strip().lower()
+          for p in str(_val(r, vals, key) or "").split(",") if p.strip()}
+    return [i["id"] for i in items if str(i["id"]).lower() in on]
+
+
+def _checks_text(r, vals, key, cat=None):
+    """What the ticked boxes say, as the one sentence the prompt carries."""
+    items = _checks_items(r, vals, key, cat)
+    on = set(_checks_ids(r, vals, key, cat, items))
+    return ", ".join(str(i["label"]) for i in items if i["id"] in on)
+
+
 def _n(r, vals, key, fallback):
     try:
         return max(1, int(float(str(_val(r, vals, key)).strip() or fallback)))
@@ -831,20 +992,22 @@ def _start_date(r, vals):
     return '"auto", which the server resolves to the upcoming Monday'
 
 
-def _template_clause(r, vals):
-    seq = _txt(r, vals, "sequence") or "Arena 5x5"
-    if seq.startswith("Let Claude"):
+def _template_clause(r, vals, cat=None):
+    cat = cat or _CAT
+    seq = _txt(r, vals, "sequence") or cat.default_sequence
+    if seq.startswith(("Let Claude", "Let the AI")):
         return ("whichever template campaign_types shows is the best fit for "
                 "this, and tell me which one you picked and why")
     if seq.startswith("One of my saved"):
         style = _txt(r, vals, "saved_style")
-        base = TEMPLATE_KEY.get(
-            r["field_by_key"]["sequence"]["default"], "fivebyfive")
+        base = cat.template_key.get(
+            r["field_by_key"].get("sequence", {}).get("default", ""),
+            cat.default_template)
         named = ' called "%s"' % style if style else " I point you at"
         return ('template "%s" with style_id set to my saved style%s — call '
                 'my_campaign_styles to get its id, do not guess it'
                 % (base, named))
-    return 'template "%s"' % TEMPLATE_KEY.get(seq, "fivebyfive")
+    return 'template "%s"' % cat.template_key.get(seq, cat.default_template)
 
 
 def _skip_clause(r, vals):
@@ -876,13 +1039,17 @@ CADENCE_KEY = {
 }
 
 
-def _derived(r, vals):
+def _derived(r, vals, cat=None):
     """Everything a step template can ask for: the raw answers by key, plus
     the sentences that only make sense once several answers are read
     together."""
+    cat = cat or _CAT
     d = _Fill()
     for f in r["fields"]:
-        d[f["key"]] = _txt(r, vals, f["key"])
+        # A checks answer is stored as ids; every step template wants the
+        # sentence, so it is resolved here and nowhere else.
+        d[f["key"]] = (_checks_text(r, vals, f["key"], cat)
+                       if f["type"] == "checks" else _txt(r, vals, f["key"]))
 
     unattended = _txt(r, vals, "unattended") or UNATTENDED[0]
     solo = unattended.startswith("Run it all")
@@ -893,7 +1060,7 @@ def _derived(r, vals):
                         if solo else "stop and wait for me to say go")
     d["go_prefix"] = "Then" if solo else "Once I say go,"
 
-    d["template_clause"] = _template_clause(r, vals)
+    d["template_clause"] = _template_clause(r, vals, cat)
     d["start_date"] = _start_date(r, vals)
     d["skip_clause"] = _skip_clause(r, vals)
     d["posting_age_lc"] = (d.get("posting_age") or "").lower()
@@ -975,9 +1142,7 @@ def _derived(r, vals):
 
     d["slate_clause"] = (
         " Pass the exact people I named in the candidates argument so "
-        "DripDrop does not substitute anyone, and put each person's "
-        "candidates_search id on their card as \"_pool_id\" so DripDrop can "
-        "cite them by client alias and Ref #."
+        "DripDrop does not substitute anyone."
         if (d.get("pin_slate") or "").startswith("Send these")
         else " Leave candidates empty and let DripDrop match the best people "
              "itself.")
@@ -1102,7 +1267,46 @@ def _derived(r, vals):
     d["done_clause"] = ("I will know it worked when %s." % done if done
                         else "Tell me plainly whether it worked, and how you "
                              "know.")
+    if cat.derive_extra:
+        cat.derive_extra(r, vals, d)
     return d
+
+
+def _days_list(v):
+    """A multi-day answer as a list. Stored as a comma-joined string so it
+    saves, counts and reads back exactly like every other answer."""
+    parts = list(v) if isinstance(v, (list, tuple)) else str(v or "").split(",")
+    return [p.strip() for p in parts if str(p).strip()]
+
+
+def _and_list(items):
+    items = list(items)
+    if len(items) < 2:
+        return items[0] if items else ""
+    return "%s and %s" % (", ".join(items[:-1]), items[-1])
+
+
+def _migrate_cadence(vals):
+    """A setup saved under the old cadence list opens on the new one."""
+    hit = CADENCE_LEGACY.get(str(vals.get("repeat_every") or "").strip().lower())
+    if hit:
+        vals["repeat_every"] = hit
+
+
+def _repeat_when(r, vals):
+    """The schedule in words. Every day has no day to name, every other day
+    names the days it lands on, and anything else names the single day. A
+    legacy cadence is read through CADENCE_LEGACY so a request that never
+    went through the screen says the same thing the screen would."""
+    cad = _cadence_of(r, vals)
+    cad = CADENCE_LEGACY.get(cad, cad).lower()
+    if cad == "every day":
+        return "every day"
+    if cad == "every other day":
+        days = _days_list(_val(r, vals, "repeat_days")) or \
+            ["Monday", "Wednesday", "Friday"]
+        return "every other day (%s)" % _and_list(days)
+    return "%s on %s" % (cad, _txt(r, vals, "repeat_day") or "Monday")
 
 
 def _open_questions(r, vals, extra=()):
@@ -1120,6 +1324,8 @@ def _open_questions(r, vals, extra=()):
     for f in r["fields"]:
         if not (f.get("ask") or f["key"] in extra):
             continue
+        if not _visible(r, vals, f):
+            continue
         if not str(_val(r, vals, f["key"]) or "").strip():
             qs.append(f["label"])
     if str(_val(r, vals, "start_when") or "").startswith("A date"):
@@ -1134,7 +1340,7 @@ def _catalogue_for_prompt():
     the key names is the whole point: the screen's questions are fixed, so
     the model's only job is to put values against keys that already exist."""
     out = []
-    for r in ROUTINES:
+    for r in _CAT.routines:
         keys = [f for f in r["fields"]
                 if f["section"] in ("details", "emails", "size")
                 and f["key"] not in ("saved_style",)]
@@ -1226,9 +1432,9 @@ def normalise(data, raw):
     screen renders the routine's schema, so a stray key would be written
     into the prompt without ever being shown."""
     key = str(data.get("routine") or "").strip()
-    if key not in ROUTINE_BY_KEY:
-        key = DEFAULT_ROUTINE
-    r = ROUTINE_BY_KEY[key]
+    if key not in _CAT.routine_by_key:
+        key = _CAT.default_routine
+    r = _CAT.routine_by_key[key]
 
     vals = defaults_for(r)
     given = data.get("values")
@@ -1237,7 +1443,7 @@ def normalise(data, raw):
         for k, v in given.items():
             k = str(k or "").strip()
             f = r["field_by_key"].get(k)
-            if not f or k in ("repeat_on", "unattended"):
+            if not f or k in ("repeat_on", "repeat_days", "unattended"):
                 continue
             if f["type"] == "toggle":
                 vals[k] = str(v).strip().lower() in ("1", "true", "yes", "on")
@@ -1306,13 +1512,17 @@ def _bullet(text):
     return lines
 
 
-def build_prompt(req):
+def build_prompt(req, cat=None):
     """The prompt the user copies. The ONLY place this text is assembled — the
-    page renders exactly what comes back from here."""
-    r = ROUTINE_BY_KEY.get(req.get("routine") or "",
-                           ROUTINE_BY_KEY[DEFAULT_ROUTINE])
+    page renders exactly what comes back from here.
+
+    `cat` is the catalogue to build against; it defaults to the one the
+    page is rendering, and tests pass one explicitly."""
+    cat = cat or _CAT
+    r = cat.routine_by_key.get(req.get("routine") or "",
+                           cat.routine_by_key[cat.default_routine])
     vals = dict(req.get("vals") or {})
-    d = _derived(r, vals)
+    d = _derived(r, vals, cat)
     solo = (_txt(r, vals, "unattended") or "").startswith("Run it all")
     # A routine can declare no tools and still be sent to the connector by
     # the newsletter answer - "Something else" is exactly that. Name the
@@ -1327,7 +1537,7 @@ def build_prompt(req):
     # Only claim the connector when the routine actually reaches for it —
     # a research prompt that opens by naming a tool it never calls reads
     # like it was written for someone else.
-    L = ["I need you to do this for me, using my DripDrop connector."
+    L = ["I need you to do this for me, using my %s." % cat.connector
          if tools else "I need you to do this for me.",
          "",
          "WHAT I WANT"]
@@ -1339,7 +1549,9 @@ def build_prompt(req):
     # The scannable table. Only the "details" answers go here: the numbers
     # live in the numbered steps that use them, so there is never a limit
     # stated twice with two different values.
-    rows = [(f["label"], str(_val(r, vals, f["key"]) or "").strip())
+    rows = [(f["label"],
+             str((d.get(f["key"]) if f["type"] == "checks"
+                  else _val(r, vals, f["key"])) or "").strip())
             for f in r["fields"]
             if f["section"] == "details" and f["type"] != "toggle"
             and f["key"] not in NEWSLETTER_KEYS]
@@ -1371,27 +1583,20 @@ def build_prompt(req):
 
     if tools:
         L += ["", "TOOLS"]
-        L += _wrap("Use my DripDrop connector: %s. If a tool is missing or "
+        L += _wrap("Use my %s: %s. If a tool is missing or "
                    "returns an auth error then the connector is not "
                    "connected — stop and tell me, do not work around it."
-                   % ", ".join(tools))
+                   % (cat.connector, ", ".join(tools)))
 
     L += ["", "HOW I WANT YOU TO WORK"]
-    for i, rule in enumerate(STANDING_RULES):
-        L += _bullet(UNATTENDED_RULE if (i == 0 and solo) else rule)
+    for i, rule in enumerate(cat.standing_rules):
+        L += _bullet(cat.unattended_rule if (i == 0 and solo) else rule)
 
     if _flag(r, vals, "repeat_on"):
-        every = (_txt(r, vals, "repeat_every") or "every week").lower()
-        # A daily cadence has no weekday to name - "every weekday on Monday"
-        # reads as a contradiction and leaves Claude to pick which half of it
-        # to believe.
-        when = ("" if every.startswith("every day")
-                or every.startswith("every weekday")
-                else " on %s" % (_txt(r, vals, "repeat_day") or "Monday"))
         L += ["", "THEN MAKE IT REPEAT"]
-        L += _wrap("Run this again %s%s at %s %s time, and keep running "
+        L += _wrap("Run this again %s at %s %s time, and keep running "
                    "it on that schedule."
-                   % (every, when,
+                   % (_repeat_when(r, vals),
                       _txt(r, vals, "repeat_time") or "8:00am",
                       _txt(r, vals, "repeat_tz") or "Mountain"))
         L += _wrap(
@@ -1418,13 +1623,18 @@ def build_prompt(req):
 # a saved setup picks up any later improvement to the wording instead of
 # freezing a prompt written months ago.
 
-def _setups_path():
-    return _ff()._resolve_user_root() / "ai_prompt_setups.json"
+def _setups_path(cat=None):
+    return _ff()._resolve_user_root() / (cat or _CAT).setups_file
 
 
-def _load_setups():
+# Set by the host app: NAVIGATE(page_key) switches pages. The Saved
+# Prompts list uses it to open a saved prompt on the AI Prompt page.
+NAVIGATE = None
+
+
+def _load_setups(cat=None):
     try:
-        p = _setups_path()
+        p = _setups_path(cat)
         if p.exists():
             data = json.loads(p.read_text(encoding="utf-8"))
             return data if isinstance(data, list) else []
@@ -1433,9 +1643,9 @@ def _load_setups():
     return []
 
 
-def _save_setups(rows):
+def _save_setups(rows, cat=None):
     try:
-        p = _setups_path()
+        p = _setups_path(cat)
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(rows, indent=2, default=str),
                      encoding="utf-8")
@@ -1458,9 +1668,10 @@ def _save_setups(rows):
 STARTERS = [
     {
         "id": "slate",
+        "icon": "groups",
         "label": "Find companies hiring in a market and put candidates in "
                  "front of them",
-        "sub": "You give an industry and an area. Claude finds the companies "
+        "sub": "You give an industry and an area. The AI finds the companies "
                "with live openings, pulls three people out of your DripDrop "
                "Pipeline for each of them - and has DripDrop's AI build the "
                "rest of the slate if the bench comes up short - then runs the "
@@ -1472,9 +1683,10 @@ STARTERS = [
     },
     {
         "id": "market",
+        "icon": "send",
         "label": "Take candidates from my Pipeline out to companies hiring "
                  "them",
-        "sub": "You name the people. Claude pulls them out of the DripDrop "
+        "sub": "You name the people. The AI pulls them out of the DripDrop "
                "Pipeline, finds companies with openings they genuinely fit, "
                "pulls the contacts, and runs the Arena 5x5.",
         "summary": "Market named candidates out to companies hiring for what "
@@ -1484,8 +1696,9 @@ STARTERS = [
     },
     {
         "id": "sweep",
+        "icon": "travel_explore",
         "label": "Take one candidate out to every company with a job for them",
-        "sub": "One person, nothing narrowed down. Claude sweeps for every "
+        "sub": "One person, nothing narrowed down. The AI sweeps for every "
                "live opening that genuinely fits them, however wide that "
                "goes, and runs the Arena 5x5 at all of it.",
         "summary": "Sweep for every live opening one candidate fits, and run "
@@ -1500,8 +1713,9 @@ STARTERS = [
     },
     {
         "id": "linkedin",
+        "icon": "person_add",
         "label": "Send today's LinkedIn connection requests",
-        "sub": "Claude opens Today's Tasks, reads every LinkedIn card on it, "
+        "sub": "The AI opens Today's Tasks, reads every LinkedIn card on it, "
                "sends each person the connection request with the note "
                "DripDrop already wrote for that campaign, and marks the task "
                "done on the way back. Needs a browser it can drive and you "
@@ -1518,14 +1732,15 @@ STARTERS = [
         # What review would have caught is handled in the steps instead:
         # the cap stops it at 25, a card it cannot read is skipped rather
         # than guessed at, and any LinkedIn warning stops the run outright.
-        "vals": {"repeat_on": True, "repeat_every": "Every weekday",
+        "vals": {"repeat_on": True, "repeat_every": "Every day",
                  "unattended": "Run it all the way through"},
     },
     {
         "id": "other",
+        "icon": "edit_note",
         "label": "Something else - I'll describe it",
-        "sub": "Anything the four above do not cover. You write the job in "
-               "your own words on the next screen and Claude turns it into "
+        "sub": "Anything the jobs above do not cover. You write the job in "
+               "your own words on the next screen and the AI turns it into "
                "the same kind of prompt, with the same rules on it.",
         # Non-empty on purpose: with the "in one line" box gone this is the
         # only thing left to open WHAT I WANT with. The job itself is the
@@ -1540,10 +1755,74 @@ STARTERS = [
 STARTER_BY_ID = {x["id"]: x for x in STARTERS}
 
 
-def _req_from_starter(st):
+def _arena_result_extra(s, rf, C, r):
+    """The one routine DripDrop can also run itself. Said on the result
+    screen because the page that does it no longer has its own nav row."""
+    if r["key"] != "sales_campaign":
+        return
+    with _card(C):
+        _text("DripDrop can also run this one for you", C, 13, 700,
+              C["text_l"], 4)
+        _text("The Sales Campaign page queues the same run, writes the "
+              "campaigns here and stops at a review screen. The AI still "
+              "does the sourcing — it just hands the result back to "
+              "DripDrop instead of back to you.",
+              C, 12, colour=C["muted"], mb=12)
+
+        def _open_sc():
+            # Same move the sidebar makes: push history, then set the
+            # sales-hub page key.
+            try:
+                s._nav_history.append(_ff()._nav_snapshot(s))
+            except Exception:
+                pass
+            s.hub = "sales"
+            s.sp = "sales_campaign"
+            rf()
+
+        with ui.element("button").classes("fd-gb").style(
+                "padding:9px 18px;font-size:12px;").on("click", _open_sc):
+            ui.label("Open Sales Campaign")
+
+
+# DripDrop's catalogue: the module globals above, unchanged, in one object.
+ARENA = Catalogue(
+    routines=ROUTINES,
+    routine_by_key=ROUTINE_BY_KEY,
+    default_routine=DEFAULT_ROUTINE,
+    standing_rules=STANDING_RULES,
+    unattended_rule=UNATTENDED_RULE,
+    starters=STARTERS,
+    starter_by_id=STARTER_BY_ID,
+    sequences=SEQUENCES,
+    template_key=TEMPLATE_KEY,
+    default_sequence="Arena 5x5",
+    default_template="fivebyfive",
+    setups_file="ai_prompt_setups.json",
+    product="DripDrop",
+    connector="DripDrop connector",
+    assistant="the AI",
+    page_title="AI Prompts",
+    page_sub=("Pick what you want done. DripDrop asks you the questions "
+              "worth asking and writes the message to paste into your AI "
+              "(Claude or ChatGPT) — with everything it needs to do the job "
+              "properly already in it."),
+    result_copy=("Copy it, open Claude or ChatGPT with your DripDrop "
+                 "connector switched on, and paste it as your first "
+                 "message."),
+    result_extra=_arena_result_extra,
+)
+
+# The catalogue the page is currently rendering. render_page() binds it; an
+# instance is pinned to one playbook, so only one is ever bound per process.
+_CAT = ARENA
+
+
+def _req_from_starter(st, cat=None):
     """A starter becomes the same shape the AI parse used to return, so view 2
     and build_prompt() cannot tell the difference."""
-    r = ROUTINE_BY_KEY.get(st["routine"], ROUTINE_BY_KEY[DEFAULT_ROUTINE])
+    cat = cat or _CAT
+    r = cat.routine_by_key.get(st["routine"], cat.routine_by_key[cat.default_routine])
     vals = defaults_for(r)
     preset = {k: v for k, v in (st.get("vals") or {}).items()
               if k in r["field_by_key"]}
@@ -1576,7 +1855,9 @@ def _aip_owner(s):
 
 def _aip_css():
     """The same q-field trim sales_campaign needs, scoped to this page's
-    wrapper so the forty-odd other pages using .fd-input don't move."""
+    wrapper so the forty-odd other pages using .fd-input don't move.
+    sanitize=False because NiceGUI 3 strips <style> from ui.html by
+    default, which silently left this whole block dead."""
     ui.html(
         "<style>"
         ".aip-wrap .fd-input{padding:0 10px !important;}"
@@ -1592,7 +1873,125 @@ def _aip_css():
         "margin:2px 0 10px;}"
         ".aip-wrap .aip-grid{display:grid;gap:14px;"
         "grid-template-columns:repeat(auto-fit,minmax(260px,1fr));}"
-        "</style>")
+        ".aip-wrap{max-width:1080px;}"
+        # A tick list is a menu, not a form field: it runs the full width
+        # of the grid so the why-line under each row has somewhere to go.
+        ".aip-wrap .aip-wide{grid-column:1/-1;}"
+        ".aip-wrap .aip-checks{display:grid;gap:9px;margin-top:6px;"
+        "grid-template-columns:repeat(auto-fill,minmax(310px,1fr));}"
+        ".aip-wrap .aip-check{display:flex;gap:8px;align-items:flex-start;"
+        "padding:9px 12px 10px;border-radius:10px;"
+        "border:1px solid var(--dd-border);background:var(--dd-bg);"
+        "transition:border-color .15s,background .15s;}"
+        ".aip-wrap .aip-check:hover{border-color:var(--dd-teal);}"
+        ".aip-wrap .aip-check.on{border-color:var(--dd-teal);"
+        "background:var(--dd-teal_dim);}"
+        ".aip-wrap .aip-check .q-checkbox{margin:-3px 0 0 -6px;}"
+        ".aip-wrap .aip-tiles{display:grid;gap:12px;"
+        "grid-template-columns:repeat(auto-fill,minmax(240px,1fr));}"
+        ".aip-wrap .aip-tile{position:relative;display:flex;gap:12px;"
+        "align-items:flex-start;padding:14px 16px;border-radius:12px;"
+        "cursor:pointer;border:1px solid var(--dd-border);"
+        "background:var(--dd-bg);transition:border-color .15s,"
+        "background .15s,transform .15s;}"
+        ".aip-wrap .aip-tile:hover{border-color:var(--dd-teal);"
+        "transform:translateY(-1px);}"
+        ".aip-wrap .aip-tile.on{border-color:var(--dd-teal);"
+        "background:var(--dd-teal_dim);"
+        "box-shadow:0 0 0 1px var(--dd-teal) inset;}"
+        ".aip-wrap .aip-ico{flex-shrink:0;width:34px;height:34px;"
+        "border-radius:9px;display:flex;align-items:center;"
+        "justify-content:center;font-size:19px;color:var(--dd-teal);"
+        "background:var(--dd-teal_dim);}"
+        ".aip-wrap .aip-tile.on .aip-ico{background:var(--dd-teal);"
+        "color:var(--dd-card);}"
+        ".aip-wrap .aip-tick{position:absolute;top:10px;right:10px;"
+        "font-size:18px;color:var(--dd-teal);}"
+        # Steps 1-2-3 across the top of every view.
+        ".aip-wrap .aip-steps{display:flex;align-items:center;gap:10px;"
+        "flex-wrap:wrap;margin:0 0 16px;}"
+        ".aip-wrap .aip-step{display:flex;align-items:center;gap:8px;"
+        "font-size:12px;color:var(--dd-muted);}"
+        ".aip-wrap .aip-step .n{width:22px;height:22px;border-radius:50%;"
+        "border:1px solid var(--dd-border);display:flex;align-items:center;"
+        "justify-content:center;font-size:11px;font-weight:700;}"
+        ".aip-wrap .aip-step.on{color:var(--dd-text_l);font-weight:700;}"
+        ".aip-wrap .aip-step.on .n{background:var(--dd-teal);"
+        "border-color:var(--dd-teal);color:var(--dd-card);}"
+        ".aip-wrap .aip-step.done .n{background:var(--dd-teal_dim);"
+        "border-color:var(--dd-teal);color:var(--dd-teal);}"
+        ".aip-wrap .aip-step-line{width:28px;height:1px;"
+        "background:var(--dd-border);}"
+        # Collapsible sections, all in one card.
+        ".aip-wrap .aip-acc{background:var(--dd-card);"
+        "border:1px solid var(--dd-border);border-radius:12px;"
+        "margin-bottom:18px;overflow:hidden;}"
+        ".aip-wrap .aip-acc-row+.aip-acc-row{border-top:1px solid "
+        "var(--dd-border);}"
+        ".aip-wrap .aip-acc-head{display:flex;align-items:center;gap:12px;"
+        "width:100%;padding:15px 20px;background:transparent;border:none;"
+        "cursor:pointer;text-align:left;font-family:inherit;}"
+        ".aip-wrap .aip-acc-head:hover{background:var(--dd-bg);}"
+        ".aip-wrap .aip-acc-head .aip-chev{font-size:20px;"
+        "color:var(--dd-muted);transition:transform .15s;}"
+        ".aip-wrap .aip-acc-row.open .aip-chev{transform:rotate(180deg);"
+        "color:var(--dd-teal);}"
+        ".aip-wrap .aip-acc-body{padding:2px 20px 20px;}"
+        ".aip-wrap .aip-pill{font-size:11px;font-weight:600;"
+        "padding:3px 10px;border-radius:999px;white-space:nowrap;"
+        "background:var(--dd-bg);color:var(--dd-muted);"
+        "border:1px solid var(--dd-border);}"
+        ".aip-wrap .aip-pill.good{background:var(--dd-teal_dim);"
+        "color:var(--dd-teal);border-color:transparent;}"
+        ".aip-wrap .aip-pill.warn{color:var(--dd-warn);"
+        "border-color:var(--dd-warn);background:transparent;}"
+        # Field labels read as questions, not shouty form captions.
+        ".aip-wrap .fd-fl{text-transform:none;letter-spacing:0;"
+        "font-size:12.5px;font-weight:600;color:var(--dd-text_l);}"
+        # The bar with the page's buttons stays in reach on long forms.
+        ".aip-wrap .aip-bar{position:sticky;bottom:12px;z-index:5;"
+        "display:flex;align-items:center;justify-content:space-between;"
+        "gap:12px;flex-wrap:wrap;padding:14px 20px;margin-bottom:18px;"
+        "background:var(--dd-card);border:1px solid var(--dd-border);"
+        "border-radius:12px;box-shadow:0 8px 24px rgba(0,0,0,.18);}"
+        ".aip-wrap .aip-bar-side{display:flex;align-items:center;gap:10px;"
+        "flex-wrap:wrap;}"
+        ".aip-wrap .aip-btn{display:inline-flex;align-items:center;gap:6px;}"
+        ".aip-wrap .aip-btn .q-icon{font-size:16px;}"
+        ".aip-wrap .aip-link{background:transparent;border:none;padding:0;"
+        "cursor:pointer;font-family:inherit;font-size:12px;"
+        "color:var(--dd-muted);display:inline-flex;align-items:center;"
+        "gap:4px;}"
+        ".aip-wrap .aip-link:hover{color:var(--dd-teal);}"
+        # Ready-made answers above a box.
+        ".aip-wrap .aip-chips{display:flex;flex-wrap:wrap;gap:6px;"
+        "margin:2px 0 8px;}"
+        ".aip-wrap .aip-chip{background:var(--dd-bg);cursor:pointer;"
+        "border:1px solid var(--dd-border);border-radius:999px;"
+        "padding:4px 11px;font-family:inherit;font-size:11.5px;"
+        "color:var(--dd-text_l);transition:border-color .15s,"
+        "background .15s;}"
+        ".aip-wrap .aip-chip:hover{border-color:var(--dd-teal);"
+        "background:var(--dd-teal_dim);}"
+        # The finished prompt.
+        ".aip-wrap .aip-prompt{position:relative;background:var(--dd-bg);"
+        "border:1px solid var(--dd-border);border-radius:10px;"
+        "padding:16px 18px;max-height:480px;overflow:auto;"
+        "white-space:pre-wrap;word-break:break-word;font-size:12px;"
+        "line-height:1.6;color:var(--dd-text);"
+        "font-family:ui-monospace,SFMono-Regular,Menlo,monospace;}"
+        # Saved prompts, as cards.
+        ".aip-wrap .aip-saved{display:flex;flex-direction:column;gap:12px;"
+        "padding:16px;border-radius:12px;border:1px solid var(--dd-border);"
+        "background:var(--dd-bg);}"
+        ".aip-wrap .aip-saved-acts{display:flex;align-items:center;gap:8px;"
+        "margin-top:auto;}"
+        ".aip-wrap .aip-iconbtn{margin-left:auto;background:transparent;"
+        "border:none;cursor:pointer;color:var(--dd-muted);padding:4px;"
+        "border-radius:6px;display:flex;}"
+        ".aip-wrap .aip-iconbtn:hover{color:var(--dd-danger);"
+        "background:var(--dd-card);}"
+        "</style>", sanitize=False)
 
 
 def _card(C, accent=None):
@@ -1614,27 +2013,104 @@ def _sec(title, C):
     ui.label(title).classes("aip-sec").style(f"color:{C['teal']};")
 
 
+def _btn(label, on_click, primary=False, icon=None, lead=None, small=False):
+    """One button in the page's two styles. icon trails the label (a
+    forward step), lead sits before it (Back, Copy)."""
+    b = ui.element("button").classes(
+        ("fd-pb" if primary else "fd-gb") + " aip-btn").style(
+        "padding:7px 14px;font-size:12px;" if small
+        else "padding:10px 20px;font-size:13px;").on("click", on_click)
+    with b:
+        if lead:
+            ui.icon(lead)
+        ui.label(label)
+        if icon:
+            ui.icon(icon)
+    return b
+
+
+def _steps(at):
+    """Pick → Answer → Copy, with the current one lit."""
+    with ui.element("div").classes("aip-steps"):
+        for i, name in enumerate(("Pick a job", "Answer the questions",
+                                  "Copy your prompt"), 1):
+            if i > 1:
+                ui.element("div").classes("aip-step-line")
+            state = " on" if i == at else (" done" if i < at else "")
+            with ui.element("div").classes("aip-step" + state):
+                with ui.element("div").classes("n"):
+                    if i < at:
+                        ui.icon("check").style("font-size:13px;")
+                    else:
+                        ui.label(str(i))
+                ui.label(name)
+
+
+def _icon_for(routine_key):
+    """The icon of the starter that opens this routine, so a job looks the
+    same on every screen."""
+    for st in _CAT.starters:
+        if st.get("routine") == routine_key and st.get("icon"):
+            return st["icon"]
+    return "auto_awesome"
+
+
+def _saved_card(C, row, actions):
+    """A saved prompt as a card. actions: (label, handler, primary) tuples;
+    the delete handler goes last as a bin icon."""
+    routine = _CAT.routine_by_key.get(row.get("routine") or "", {})
+    with ui.element("div").classes("aip-saved"):
+        with ui.element("div").style("display:flex;gap:12px;min-width:0;"):
+            with ui.element("div").classes("aip-ico"):
+                ui.icon(_icon_for(row.get("routine") or ""))
+            with ui.element("div").style("min-width:0;"):
+                _text(row.get("name") or "Untitled", C, 13, 700,
+                      C["text_l"], 2)
+                _text(" · ".join(x for x in (
+                    routine.get("name", ""),
+                    "saved " + row["saved_at"] if row.get("saved_at")
+                    else "") if x), C, 11, colour=C["muted"])
+        with ui.element("div").classes("aip-saved-acts"):
+            *btns, delete = actions
+            for label, fn, primary in btns:
+                _btn(label, fn, primary=primary, small=True)
+            with ui.element("button").classes("aip-iconbtn").props(
+                    'title="Delete"').on("click", delete):
+                ui.icon("delete_outline").style("font-size:18px;")
+
+
 def p_ai_prompts(s, rf):
-    """AI Prompts — type what you want, get the prompt to hand Claude."""
+    """AI Prompts — DripDrop's page: pick a job, get the prompt to hand
+    your AI. Renders STAFFING (staffing_prompts.py): ARENA's runs plus the
+    vertical-driven staffing runs. Imported here, not at the top, because
+    staffing_prompts imports this module."""
+    import staffing_prompts
+    render_page(s, rf, staffing_prompts.STAFFING)
+
+
+def render_page(s, rf, cat):
+    """The whole page for one catalogue. Binds it as the active catalogue
+    first, so every helper below reads that product's routines, starters
+    and copy. tm_prompts.p_tm_prompts is the other caller."""
+    global _CAT
+    _CAT = cat
     C = _ff().C
     _aip_owner(s)
 
     with ui.element("div").classes("aip-wrap"):
         _aip_css()
         with ui.element("div").style("margin-bottom:14px;"):
-            ui.label("AI Prompts").classes("fd-h1")
-            ui.label(
-                "Pick what you want done. DripDrop asks you the questions "
-                "worth asking and writes the message to paste into Claude "
-                "— with everything Claude needs to do it properly already "
-                "in it."
-            ).classes("fd-sub")
+            ui.label(cat.page_title).classes("fd-h1")
+            ui.label(cat.page_sub).classes("fd-sub")
 
         if getattr(s, "_aip_prompt", None):
+            _steps(3)
             _aip_result(s, rf, C)
         elif getattr(s, "_aip_req", None):
+            _steps(2)
             _aip_confirm(s, rf, C)
         else:
+            _steps(1)
             _aip_ask(s, rf, C)
 
 
@@ -1648,43 +2124,44 @@ def _aip_ask(s, rf, C):
             _text("That didn't work", C, 14, 700, C["text_l"], 4)
             _text(err, C, 12, colour=C["muted"])
 
-    pick = getattr(s, "_aip_pick", "") or STARTERS[0]["id"]
-    if pick not in STARTER_BY_ID:
-        pick = STARTERS[0]["id"]
-    st = STARTER_BY_ID[pick]
-    r = ROUTINE_BY_KEY.get(st["routine"], ROUTINE_BY_KEY[DEFAULT_ROUTINE])
+    pick = getattr(s, "_aip_pick", "") or _CAT.starters[0]["id"]
+    if pick not in _CAT.starter_by_id:
+        pick = _CAT.starters[0]["id"]
+    st = _CAT.starter_by_id[pick]
+    r = _CAT.routine_by_key.get(st["routine"], _CAT.routine_by_key[_CAT.default_routine])
 
     with _card(C):
-        _sec("What do you want to do?", C)
-        _text("Pick the closest one. The next screen is where you put in the "
-              "specifics — the industry, the area, who to email, how many — "
-              "and you can change every one of them there.",
-              C, 12, colour=C["muted"], mb=12)
+        _text("What do you want to do?", C, 17, 700, C["text_l"], 2)
+        _text("Pick the closest one. You fill in the specifics (industry, "
+              "area, who to email, how many) on the next screen.",
+              C, 12, colour=C["muted"], mb=16)
 
-        def _pick(e):
-            s._aip_pick = e.value or STARTERS[0]["id"]
+        def _pick(key):
+            s._aip_pick = key
             s._aip_err = ""
             rf()
 
-        ui.select(options={x["id"]: x["label"] for x in STARTERS},
-                  value=pick, on_change=_pick).props("dense").classes(
-            "fd-input").style("width:100%;max-width:560px;")
+        with ui.element("div").classes("aip-tiles"):
+            for x in _CAT.starters:
+                on = x["id"] == pick
+                with ui.element("div").classes(
+                        "aip-tile" + (" on" if on else "")).on(
+                        "click", lambda _e, k=x["id"]: _pick(k)):
+                    with ui.element("div").classes("aip-ico"):
+                        ui.icon(x.get("icon") or "auto_awesome")
+                    with ui.element("div").style(
+                            "min-width:0;padding-right:18px;"):
+                        _text(x["label"], C, 13, 700, C["text_l"], 3)
+                        _text(x["sub"], C, 11.5, colour=C["muted"])
+                    if on:
+                        ui.icon("check_circle").classes("aip-tick")
 
-        with ui.element("div").style(
-                f"margin-top:12px;padding:12px 14px;background:{C['bg']};"
-                f"border:1px solid {C['border']};border-radius:10px;"
-                f"max-width:560px;"):
-            _text(st["sub"], C, 12, colour=C["text_l"], mb=6)
-            main = len([f for f in r["fields"] if f["section"] == "details"])
-            rest = len(r["fields"]) - main
-            _text("%d question%s on the next screen, and %d more in the "
-                  "sections under them if you want them."
-                  % (main, "" if main == 1 else "s", rest),
-                  C, 11, colour=C["muted"])
+        main = len([f for f in r["fields"] if f["section"] == "details"])
+        rest = len(r["fields"]) - main
 
         def _go():
-            key = getattr(s, "_aip_pick", "") or STARTERS[0]["id"]
-            starter = STARTER_BY_ID.get(key) or STARTERS[0]
+            key = getattr(s, "_aip_pick", "") or _CAT.starters[0]["id"]
+            starter = _CAT.starter_by_id.get(key) or _CAT.starters[0]
             # Answers left behind by Back are picked up again only for the
             # same job. A different job is a different set of questions, so
             # carrying answers across would be carrying the wrong ones.
@@ -1700,48 +2177,311 @@ def _aip_ask(s, rf, C):
             rf()
 
         with ui.element("div").style(
-                "display:flex;align-items:center;gap:14px;margin-top:16px;"
-                "flex-wrap:wrap;"):
+                "display:flex;align-items:center;justify-content:space-between;"
+                f"gap:14px;margin-top:18px;padding-top:16px;"
+                f"border-top:1px solid {C['border']};flex-wrap:wrap;"):
+            with ui.element("div").style("min-width:0;flex:1 1 280px;"):
+                _text(st["label"], C, 13, 700, C["text_l"], 2)
+                _text("%d question%s next%s. Nothing runs or sends here: "
+                      "you're writing the message to paste into %s."
+                      % (main, "" if main == 1 else "s",
+                         ", %d more optional" % rest if rest else "",
+                         _CAT.assistant),
+                      C, 11, colour=C["muted"])
             with ui.element("button").classes("fd-pb").style(
-                    "padding:11px 24px;font-size:13px;flex-shrink:0;"
+                    "padding:11px 26px;font-size:13px;flex-shrink:0;"
+                    "display:flex;align-items:center;gap:6px;"
                     ).on("click", _go):
                 ui.label("Set this up")
-            _text("Nothing runs and nothing sends here. All you are doing is "
-                  "writing the message you'll paste into Claude.",
-                  C, 11, colour=C["muted"])
+                ui.icon("arrow_forward").style("font-size:16px;")
 
     setups = _load_setups()
     if setups:
         with _card(C):
-            _sec("Pick up where you left off", C)
+            _text("Pick up where you left off", C, 15, 700, C["text_l"], 2)
             _text("Your saved answers. Loading one takes you straight to the "
                   "questions with everything already filled in.",
-                  C, 12, colour=C["muted"], mb=10)
-            with ui.element("div").style(
-                    "display:flex;flex-direction:column;gap:8px;"):
+                  C, 12, colour=C["muted"], mb=14)
+            with ui.element("div").classes("aip-tiles"):
                 for row in setups:
                     _aip_setup_row(s, rf, C, row, setups)
 
 
+def req_from_setup(row, cat=None):
+    """A saved setup back into the request shape the questions screen and
+    build_prompt() use. Shared by the page and the connector."""
+    cat = cat or _CAT
+    key = row.get("routine") or cat.default_routine
+    r = cat.routine_by_key.get(key, cat.routine_by_key[cat.default_routine])
+    vals = defaults_for(r)
+    # Only keys the routine still has. A setup saved before a field was
+    # renamed loads with that one answer missing rather than failing.
+    for k, v in (row.get("vals") or {}).items():
+        if k in r["field_by_key"]:
+            vals[k] = v
+    return {
+        "raw": row.get("raw") or "",
+        "routine": r["key"],
+        "title": row.get("name") or r["name"],
+        "summary": row.get("summary") or "",
+        "vals": vals,
+        "filled": list(vals.keys()),
+        "detail": list(row.get("detail") or []),
+    }
+
+
+def save_setup(req, name, cat=None):
+    """Save a request's answers under `name`, newest first. A setup with the
+    same name (any case) is replaced, and only the 30 newest are kept.
+    Returns the saved row, or None when the file could not be written."""
+    cat = cat or _CAT
+    rows = _load_setups(cat)
+    rows = [x for x in rows
+            if (x.get("name") or "").lower() != name.lower()]
+    row = {
+        "id": uuid.uuid4().hex[:12],
+        "name": name,
+        "routine": req.get("routine") or cat.default_routine,
+        "raw": req.get("raw") or "",
+        "summary": req.get("summary") or "",
+        "vals": dict(req.get("vals") or {}),
+        "detail": list(req.get("detail") or []),
+        "saved_at": date.today().isoformat(),
+    }
+    rows.insert(0, row)
+    return row if _save_setups(rows[:30], cat) else None
+
+
+def delete_setup(setup_id, cat=None):
+    """Remove a saved setup by id. False when there was none to remove."""
+    rows = _load_setups(cat)
+    keep = [x for x in rows if x.get("id") != setup_id]
+    if len(keep) == len(rows):
+        return False
+    return _save_setups(keep, cat)
+
+
+def describe_runs(cat=None, newsletter_names=()):
+    """Every run the first screen offers, with the questions the next screen
+    asks: for callers that never render the page (the connector). Defaults
+    are the starter's own presets, as the questions screen opens with."""
+    cat = cat or _CAT
+    out = []
+    for st in cat.starters:
+        req = _req_from_starter(st, cat)
+        r = cat.routine_by_key[req["routine"]]
+        run_prefill(r, req, cat)
+        must = set(req.get("ask_extra") or ())
+        qs = []
+        for f in r["fields"]:
+            q = {"key": f["key"], "label": f["label"],
+                 "section": SECTION_NAME.get(f["section"], f["section"]),
+                 "type": f["type"], "default": req["vals"].get(f["key"], ""),
+                 "required": bool(f.get("ask") or f["key"] in must)}
+            if f["type"] == "newsletter":
+                q["type"] = "select"
+                q["options"] = [_NL_FIND] + list(newsletter_names) + [_NL_NONE]
+                q["default"] = _NL_FIND
+            elif f["type"] == "checks":
+                # Tick as many as you like: the answer is those ids, comma
+                # separated. The labels and the why-lines travel too, or a
+                # caller that never sees the page is picking blind.
+                items = _checks_items(r, req["vals"], f["key"], cat)
+                q["options"] = [i["id"] for i in items]
+                q["choices"] = [
+                    {"id": i["id"], "label": i["label"],
+                     "why": i.get("why", ""),
+                     "recommended": bool(i.get("rec"))} for i in items]
+                q["default"] = ", ".join(
+                    _checks_ids(r, req["vals"], f["key"], cat, items))
+            elif f["type"] == "pick":
+                # A dropdown off the user's own data that also takes
+                # anything typed: the list is a suggestion, not a rule.
+                q["type"] = "text"
+                names = _pick_names(f.get("source", ""))
+                if names:
+                    q["options"] = names
+                    q["any_text"] = True
+            elif f["options"]:
+                q["options"] = list(f["options"])
+            for k in ("hint", "placeholder"):
+                if f.get(k):
+                    q[k] = f[k]
+            qs.append(q)
+        out.append({"run": st["id"], "label": st["label"], "about": st["sub"],
+                    "routine": r["key"], "questions": qs})
+    return out
+
+
+def run_prefill(r, req, cat=None):
+    """Write the catalogue's recommended answers into a request's boxes.
+
+    Called before the questions are shown and again after a caller's own
+    answers land, so a run whose vertical changed picks up that vertical's
+    recommendations for everything the caller did not speak to. The record
+    of what it wrote is kept on the request — never in vals — so it dies
+    with the screen and cannot reach a saved setup."""
+    cat = cat or _CAT
+    hook = getattr(cat, "prefill", None)
+    if not hook:
+        return req
+    try:
+        req["prefilled"] = dict(
+            hook(r, req.setdefault("vals", {}),
+                 dict(req.get("prefilled") or {})) or {})
+    except Exception:
+        pass
+    vals = req.setdefault("vals", {})
+    for f in r["fields"]:
+        if f["type"] != "pick" or not f.get("pick_first"):
+            continue
+        if str(vals.get(f["key"]) or "").strip():
+            continue
+        names = _pick_names(f.get("source", ""))
+        if names:
+            vals[f["key"]] = names[0]
+            req.setdefault("prefilled", {})[f["key"]] = names[0]
+    return req
+
+
+def apply_answers(r, vals, answers, cat=None):
+    """Write a caller's answers into vals the way the questions screen
+    would, and return what was wrong with them (an empty list is success).
+    A select only takes one of its own options, a toggle only a yes/no, and
+    the newsletter answer sets the same pair the page's dropdown sets."""
+    cat = cat or _CAT
+    errors = []
+    for key, v in (answers or {}).items():
+        f = r["field_by_key"].get(key)
+        if not f:
+            errors.append("%s is not a question on this run" % key)
+            continue
+        if f["type"] == "toggle":
+            if isinstance(v, bool):
+                vals[key] = v
+            elif str(v).strip().lower() in ("1", "true", "yes", "on"):
+                vals[key] = True
+            elif str(v).strip().lower() in ("0", "false", "no", "off", ""):
+                vals[key] = False
+            else:
+                errors.append("%s takes true or false" % key)
+            continue
+        if f["type"] == "checks":
+            # A list is the natural shape here, and so is one comma-joined
+            # string. Anything the menu does not offer is named back rather
+            # than dropped, because a silently ignored tick reads as one
+            # that took.
+            picked = v if isinstance(v, list) else str(v or "").split(",")
+            picked = [str(p).strip() for p in picked if str(p).strip()]
+            items = _checks_items(r, vals, key, cat)
+            by = {}
+            for i in items:
+                by[str(i["id"]).lower()] = i["id"]
+                by[str(i["label"]).lower()] = i["id"]
+            bad = [p for p in picked if p.lower() not in by]
+            if bad:
+                errors.append("%s does not offer: %s" % (key, "; ".join(bad)))
+                continue
+            want = {by[p.lower()] for p in picked}
+            vals[key] = ", ".join(i["id"] for i in items if i["id"] in want)
+            continue
+        if isinstance(v, (dict, list)):
+            errors.append("%s takes text, not a list or object" % key)
+            continue
+        v = "" if v is None else str(v).strip()
+        if f["type"] == "newsletter":
+            low = v.lower()
+            if not v or low in (_NL_FIND.lower(), _NL_FIND_OLD):
+                vals["newsletter_mode"], vals["newsletter"] = NEWSLETTER_MODES[0], ""
+            elif low in (_NL_NONE.lower(), "none", "no"):
+                vals["newsletter_mode"], vals["newsletter"] = NEWSLETTER_MODES[2], ""
+            else:
+                vals["newsletter_mode"], vals["newsletter"] = NEWSLETTER_MODES[1], v
+            continue
+        if f["options"] and v:
+            hit = next((o for o in f["options"] if o.lower() == v.lower()), "")
+            if not hit:
+                errors.append("%s must be one of: %s"
+                              % (key, "; ".join(f["options"])))
+                continue
+            v = hit
+        if f["type"] == "number" and v:
+            try:
+                float(v)
+            except ValueError:
+                errors.append("%s takes a number" % key)
+                continue
+        vals[key] = v
+    return errors
+
+
+def _open_setup(s, row, built=False):
+    """Load a saved setup's answers into the session. built=True also
+    builds the prompt, so the page opens straight on the result."""
+    s._aip_req = req_from_setup(row)
+    s._aip_prompt = build_prompt(s._aip_req) if built else None
+    s._aip_open = None
+    s._aip_saving = False
+    s._aip_err = ""
+
+
+def render_saved_page(s, rf, cat):
+    """Saved Prompts: every prompt this user saved, newest first. Open
+    rebuilds it from the saved answers (so it picks up any wording fixes
+    since) and shows it on the AI Prompt page; Edit opens the answers."""
+    global _CAT
+    _CAT = cat
+    C = _ff().C
+    _aip_owner(s)
+    rows = _load_setups()
+
+    def _go(row, built):
+        _open_setup(s, row, built)
+        if NAVIGATE:
+            NAVIGATE("tm_prompts")
+        else:
+            rf()
+
+    def _delete(row):
+        delete_setup(row.get("id"))
+        ui.notify("Deleted.", type="positive")
+        rf()
+
+    with ui.element("div").classes("aip-wrap"):
+        _aip_css()
+        with ui.element("div").style("margin-bottom:14px;"):
+            ui.label("Saved Prompts").classes("fd-h1")
+            ui.label("Prompts you saved from AI Prompt. Open one to copy it "
+                     "again.").classes("fd-sub")
+        if not rows:
+            with _card(C):
+                with ui.element("div").style(
+                        "display:flex;flex-direction:column;align-items:center;"
+                        "text-align:center;padding:28px 12px;gap:6px;"):
+                    with ui.element("div").classes("aip-ico").style(
+                            "width:52px;height:52px;font-size:28px;"
+                            "border-radius:14px;margin-bottom:8px;"):
+                        ui.icon("bookmark_border")
+                    _text("No saved prompts yet", C, 15, 700, C["text_l"])
+                    _text("Build a prompt on AI Prompt, then press Save "
+                          "prompt. It lands here so you can reuse it.",
+                          C, 12, colour=C["muted"], mb=10)
+                    if NAVIGATE:
+                        _btn("Build a prompt",
+                             lambda: NAVIGATE("tm_prompts"), primary=True,
+                             icon="arrow_forward")
+            return
+        with ui.element("div").classes("aip-tiles"):
+            for row in rows:
+                _saved_card(C, row, [
+                    ("Open", lambda r_=row: _go(r_, True), True),
+                    ("Edit answers", lambda r_=row: _go(r_, False), False),
+                    lambda r_=row: _delete(r_)])
+
+
 def _aip_setup_row(s, rf, C, row, setups):
     def _load():
-        key = row.get("routine") or DEFAULT_ROUTINE
-        r = ROUTINE_BY_KEY.get(key, ROUTINE_BY_KEY[DEFAULT_ROUTINE])
-        vals = defaults_for(r)
-        # Only keys the routine still has. A setup saved before a field was
-        # renamed loads with that one answer missing rather than failing.
-        for k, v in (row.get("vals") or {}).items():
-            if k in r["field_by_key"]:
-                vals[k] = v
-        s._aip_req = {
-            "raw": row.get("raw") or "",
-            "routine": r["key"],
-            "title": row.get("name") or r["name"],
-            "summary": row.get("summary") or "",
-            "vals": vals,
-            "filled": list(vals.keys()),
-            "detail": list(row.get("detail") or []),
-        }
+        s._aip_req = req_from_setup(row)
         s._aip_prompt = None
         s._aip_open = None
         s._aip_saving = False
@@ -1749,28 +2489,11 @@ def _aip_setup_row(s, rf, C, row, setups):
         rf()
 
     def _delete():
-        keep = [x for x in setups if x.get("id") != row.get("id")]
-        _save_setups(keep)
+        delete_setup(row.get("id"))
         ui.notify("Deleted.", type="positive")
         rf()
 
-    with ui.element("div").style(
-            f"display:flex;align-items:center;gap:10px;background:{C['bg']};"
-            f"border:1px solid {C['border']};border-radius:9px;"
-            f"padding:10px 14px;"):
-        with ui.element("div").style("flex:1;min-width:0;"):
-            ui.label(row.get("name") or "Untitled").style(
-                f"font-size:12px;font-weight:700;color:{C['text_l']};"
-                f"display:block;")
-            ui.label(ROUTINE_BY_KEY.get(
-                row.get("routine") or "", {}).get("name", "")).style(
-                f"font-size:11px;color:{C['muted']};display:block;")
-        with ui.element("button").classes("fd-gb").style(
-                "padding:6px 14px;font-size:11px;").on("click", _load):
-            ui.label("Use it")
-        with ui.element("button").classes("fd-gb").style(
-                "padding:6px 12px;font-size:11px;").on("click", _delete):
-            ui.label("Delete")
+    _saved_card(C, row, [("Use it", _load, True), _delete])
 
 
 # ── View 2: the questions ─────────────────────────────────────────────────
@@ -1812,13 +2535,21 @@ def _aip_field(s, rf, C, r, vals, f):
         vals[key] = e.value
 
     if f["type"] == "toggle":
+        def _set_tog(e):
+            _set(e)
+            if f.get("refresh"):
+                rf()
         cb = ui.checkbox(f["label"], value=_flag(r, vals, key),
-                         on_change=_set)
+                         on_change=_set_tog)
         cb.style(f"color:{C['text_l']};font-size:12px;")
         if f["hint"]:
             ui.label(f["hint"]).style(
                 f"font-size:10px;color:{C['muted']};display:block;"
                 f"line-height:1.45;margin:-2px 0 0 32px;")
+        return
+
+    if f["type"] == "checks":
+        _aip_checks(s, rf, C, r, vals, f)
         return
 
     ui.label(f["label"]).classes("fd-fl")
@@ -1831,12 +2562,47 @@ def _aip_field(s, rf, C, r, vals, f):
     # "You didn't say" only told the user off for a box they hadn't reached yet.
 
     cur = str(_val(r, vals, key) or "")
+    if f.get("chips"):
+        _aip_chips(rf, C, vals, f)
+    if f["type"] == "newsletter":
+        _newsletter_picker(s, rf, C, vals)
+        return
+    if f["type"] == "pick":
+        _pick_widget(C, vals, f, cur)
+        return
+    if f["type"] == "days":
+        picked = _days_list(cur)
+
+        def _tick(e, _d=""):
+            sel = set(_days_list(vals.get(key, cur)))
+            if e.value:
+                sel.add(_d)
+            else:
+                sel.discard(_d)
+            # Written back in weekday order, never in click order, so the
+            # prompt reads "Monday, Wednesday and Friday" either way.
+            vals[key] = ", ".join([d for d in f["options"] if d in sel])
+
+        with ui.element("div").style(
+                "display:flex;flex-wrap:wrap;gap:2px 16px;"):
+            for d in f["options"]:
+                ui.checkbox(d, value=(d in picked),
+                            on_change=lambda e, _d=d: _tick(e, _d)).style(
+                    f"color:{C['text_l']};font-size:12px;")
+        return
     if f["type"] == "select":
         opts = list(f["options"])
         if cur and cur not in opts:
             opts = [cur] + opts
+        def _set_sel(e):
+            _set(e)
+            # A question other questions are computed from redraws the
+            # screen: the menu below a changed vertical is the old
+            # vertical's until something asks for it again.
+            if f.get("refresh"):
+                rf()
         ui.select(options=opts, value=cur or (opts[0] if opts else None),
-                  on_change=_set).props("dense").classes("fd-input")
+                  on_change=_set_sel).props("dense").classes("fd-input")
     elif f["type"] == "textarea":
         ui.textarea(value=cur, placeholder=f["placeholder"],
                     on_change=_set).props("dense autogrow").classes(
@@ -1846,6 +2612,190 @@ def _aip_field(s, rf, C, r, vals, f):
                        on_change=_set).props("dense").classes("fd-input")
         if f["type"] == "number":
             inp.props("type=number")
+
+
+def _aip_chips(rf, C, vals, f):
+    """Ready-made answers above a box. One click writes the wording in,
+    and anything the chip also fills (a second box) goes with it; all of
+    it stays editable, so this is a faster way to type, not a different
+    kind of answer."""
+    with ui.element("div").classes("aip-chips"):
+        for chip in f["chips"]:
+            def _pick(_chip=chip):
+                vals[f["key"]] = str(_chip.get("value") or "")
+                for k, v in (_chip.get("also") or {}).items():
+                    vals[k] = v
+                rf()
+            with ui.element("button").classes("aip-chip").on("click", _pick):
+                ui.label(str(chip.get("label") or ""))
+
+
+def _pick_widget(C, vals, f, cur):
+    """A dropdown of the host's own data that also takes anything typed.
+    With nothing to offer it is a plain box, so the question never
+    disappears just because the list behind it is empty."""
+    key = f["key"]
+
+    def _set(e):
+        vals[key] = str(e.value or "")
+
+    names = _pick_names(f.get("source", ""))
+    if not names:
+        ui.input(value=cur, placeholder=f["placeholder"],
+                 on_change=_set).props("dense").classes("fd-input")
+        return
+    opts = list(names)
+    if cur and cur not in opts:
+        opts = [cur] + opts
+    ui.select(options=opts, value=cur or None, with_input=True,
+              new_value_mode="add-unique", clearable=True,
+              on_change=_set).props("dense").classes("fd-input")
+
+
+def _aip_checks(s, rf, C, r, vals, f):
+    """A menu of things to tick, each with the one line that says what it
+    tells you.
+
+    This is the answer to a question the user cannot be expected to already
+    know the answer to. A free-text box asking which signals count only
+    works for someone who could have written the list themselves; everyone
+    else leaves it blank. So the list is shown, the recommendation for what
+    they picked upstream is already ticked, and the line under each row is
+    what turns picking into deciding.
+
+    Ticking does not re-render. It writes the ids back and flips the row's
+    own class, because a full redraw on every tick would fight the mouse
+    and the "answered" count above cannot change anyway — a menu with
+    nothing ticked still answers the question.
+    """
+    key = f["key"]
+    items = _checks_items(r, vals, key)
+    ui.label(f["label"]).classes("fd-fl")
+    if f["hint"]:
+        ui.label(f["hint"]).style(
+            f"font-size:10px;color:{C['muted']};margin-top:-2px;"
+            f"display:block;line-height:1.5;")
+    if not items:
+        # No menu to show, so the question is still answerable by hand
+        # rather than silently disappearing.
+        cur = str(_val(r, vals, key) or "")
+        ui.input(value=cur, placeholder=f["placeholder"],
+                 on_change=lambda e: vals.__setitem__(key, e.value)).props(
+            "dense").classes("fd-input")
+        return
+
+    on = set(_checks_ids(r, vals, key, items=items))
+    rec = [i["id"] for i in items if i.get("rec")]
+
+    def _write():
+        vals[key] = ", ".join(i["id"] for i in items if i["id"] in on)
+
+    with ui.element("div").classes("aip-checks"):
+        for item in items:
+            row = ui.element("div").classes(
+                "aip-check" + (" on" if item["id"] in on else ""))
+
+            def _flip(e, _id=item["id"], _row=row):
+                if e.value:
+                    on.add(_id)
+                    _row.classes(add="on")
+                else:
+                    on.discard(_id)
+                    _row.classes(remove="on")
+                _write()
+
+            with row:
+                ui.checkbox(value=item["id"] in on, on_change=_flip)
+                with ui.element("div").style("flex:1;min-width:0;"):
+                    label = str(item["label"])
+                    ui.label(label[:1].upper() + label[1:]).style(
+                        f"font-size:12.5px;font-weight:600;"
+                        f"color:{C['text_l']};line-height:1.4;display:block;")
+                    if item.get("why"):
+                        ui.label(str(item["why"])).style(
+                            f"font-size:10.5px;color:{C['muted']};"
+                            f"line-height:1.5;display:block;margin-top:2px;")
+
+    def _set_all(ids):
+        on.clear()
+        on.update(ids)
+        _write()
+        rf()
+
+    with ui.element("div").style(
+            "display:flex;gap:14px;margin-top:9px;flex-wrap:wrap;"):
+        if rec and on != set(rec):
+            with ui.element("button").classes("aip-link").on(
+                    "click", lambda: _set_all(rec)):
+                ui.icon("restart_alt").style("font-size:14px;")
+                ui.label("Back to the recommended ones")
+        if len(on) < len(items):
+            with ui.element("button").classes("aip-link").on(
+                    "click", lambda: _set_all([i["id"] for i in items])):
+                ui.icon("done_all").style("font-size:14px;")
+                ui.label("Tick everything")
+        if on:
+            with ui.element("button").classes("aip-link").on(
+                    "click", lambda: _set_all([])):
+                ui.icon("close").style("font-size:14px;")
+                ui.label("Clear them all")
+
+
+# Set by the host app for pages that use a "newsletter" field (ThriveModal):
+# NEWSLETTER_NAMES() -> the user's newsletter names; NEWSLETTER_CREATE(s, rf)
+# opens the app's own Create Newsletter dialog. Arena never uses the type.
+NEWSLETTER_NAMES = None
+NEWSLETTER_CREATE = None
+# Set by the host app for "pick" fields: PICK_OPTIONS[source]() -> the names
+# to offer for that source. Unset, or a source it does not know, renders
+# the question as a plain box. Arena declares no pick fields.
+PICK_OPTIONS = None
+
+
+def _pick_names(source):
+    try:
+        fn = (PICK_OPTIONS or {}).get(source)
+        return [str(x).strip() for x in (fn() if fn else [])
+                if str(x or "").strip()]
+    except Exception:
+        return []
+_NL_FIND, _NL_NONE = "The AI picks the one that fits", "No newsletter"
+_NL_FIND_OLD = "claude picks the one that fits"
+
+
+def _newsletter_picker(s, rf, C, vals):
+    """One dropdown for the newsletter answer: pick-for-me, none, or one of
+    the user's newsletters by name, plus a button to create a new one. Writes
+    the same newsletter_mode / newsletter pair the prompt already reads."""
+    try:
+        names = list(NEWSLETTER_NAMES() if NEWSLETTER_NAMES else [])
+    except Exception:
+        names = []
+    mode = str(vals.get("newsletter_mode") or "").lower()
+    cur = str(vals.get("newsletter") or "").strip()
+    if cur and cur not in names:
+        names = [cur] + names
+    value = _NL_NONE if mode.startswith("no") else (cur or _NL_FIND)
+
+    def _set(e):
+        v = e.value or _NL_FIND
+        if v == _NL_NONE:
+            vals["newsletter_mode"], vals["newsletter"] = NEWSLETTER_MODES[2], ""
+        elif v == _NL_FIND:
+            vals["newsletter_mode"], vals["newsletter"] = NEWSLETTER_MODES[0], ""
+        else:
+            vals["newsletter_mode"], vals["newsletter"] = NEWSLETTER_MODES[1], v
+
+    with ui.element("div").style(
+            "display:flex;align-items:center;gap:8px;"):
+        with ui.element("div").style("flex:1;min-width:0;"):
+            ui.select(options=[_NL_FIND] + names + [_NL_NONE], value=value,
+                      on_change=_set).props("dense").classes("fd-input")
+        if NEWSLETTER_CREATE:
+            ui.button("+ New newsletter",
+                      on_click=lambda: NEWSLETTER_CREATE(s, rf)).props(
+                "flat dense no-caps").style(
+                f"color:{C['teal']};font-size:12px;white-space:nowrap;")
 
 
 def _aip_extra(s, rf, C, req):
@@ -1873,21 +2823,20 @@ def _aip_extra(s, rf, C, req):
                 if 0 <= _i < len(detail):
                     del detail[_i]
                 rf()
-            with ui.element("button").classes("fd-gb").style(
-                    "padding:6px 12px;font-size:11px;flex-shrink:0;"
-                    ).on("click", _drop):
-                ui.label("Remove")
+            with ui.element("button").classes("aip-iconbtn").style(
+                    "margin-left:0;").props('title="Remove"').on(
+                    "click", _drop):
+                ui.icon("close").style("font-size:18px;")
 
     def _add():
         detail.append("")
         rf()
 
-    with ui.element("button").classes("fd-gb").style(
-            "padding:7px 16px;font-size:11px;").on("click", _add):
-        ui.label("Add another")
+    _btn("Add an instruction" if not detail else "Add another", _add,
+         lead="add", small=True)
 
 
-def _aip_save_setup(s, rf, C, req):
+def _aip_save_setup(s, rf, C, req, label="Save these answers"):
     # The name box used to sit here unasked, pre-filled with the job's own
     # one-line description - full width, no label, right under the build
     # button. It read as one more question about the run rather than as a
@@ -1897,36 +2846,23 @@ def _aip_save_setup(s, rf, C, req):
         def _open():
             s._aip_saving = True
             rf()
-        with ui.element("button").classes("fd-gb").style(
-                "padding:8px 18px;font-size:12px;").on("click", _open):
-            ui.label("Save these answers")
+        _btn(label, _open, lead="bookmark_border")
         return
 
     name_box = ui.input(
         placeholder="Name it, e.g. Colorado HVAC weekly"
-    ).props("dense autofocus").classes("fd-input").style("max-width:280px;")
+    ).props("dense autofocus").classes("fd-input").style(
+        "width:240px;max-width:100%;")
 
     def _save():
         name = (name_box.value or "").strip()
         if not name:
             ui.notify("Give it a name first.", type="warning")
             return
-        rows = _load_setups()
-        rows = [x for x in rows
-                if (x.get("name") or "").lower() != name.lower()]
-        rows.insert(0, {
-            "id": uuid.uuid4().hex[:12],
-            "name": name,
-            "routine": req.get("routine") or DEFAULT_ROUTINE,
-            "raw": req.get("raw") or "",
-            "summary": req.get("summary") or "",
-            "vals": dict(req.get("vals") or {}),
-            "detail": list(req.get("detail") or []),
-            "saved_at": date.today().isoformat(),
-        })
-        if _save_setups(rows[:30]):
+        if save_setup(req, name):
             s._aip_saving = False
-            ui.notify("Saved. It'll be on the first screen next time.",
+            ui.notify("Saved. Find it under Saved Prompts." if NAVIGATE
+                      else "Saved. It'll be on the first screen next time.",
                       type="positive")
             rf()
         else:
@@ -1936,21 +2872,111 @@ def _aip_save_setup(s, rf, C, req):
         s._aip_saving = False
         rf()
 
-    with ui.element("button").classes("fd-gb").style(
-            "padding:8px 18px;font-size:12px;").on("click", _save):
-        ui.label("Save")
-    with ui.element("button").classes("fd-gb").style(
-            "padding:8px 14px;font-size:12px;").on("click", _cancel):
-        ui.label("Cancel")
+    _btn("Save", _save, lead="check")
+    _btn("Cancel", _cancel)
+
+
+def _aip_recommend(s, rf, C, r, req, section):
+    """"Recommend these for me" for the questions in one section.
+
+    A routine names the field keys that can be worked out for it under
+    "recommend", and the catalogue's hook answers them for the run being
+    set up, plus one line saying why. The answers go straight into vals and
+    the boxes stay editable, so this is a faster way to fill the form in,
+    not a second kind of answer. A section with none of those keys shows
+    nothing.
+
+    A box the user has typed in themselves is left alone and handed to the
+    hook as context instead: pressing this must never quietly overwrite an
+    answer someone chose. Boxes this button filled last time are fair game
+    again, so pressing it twice re-recommends rather than doing nothing.
+
+    The handler is async and awaits the hook in an executor: the call takes
+    seconds, and ui.notify/rf from a bare thread have no slot to run in, so
+    a threaded worker dies on its own success notify (0f8b435).
+    """
+    if not getattr(_CAT, "recommend", None):
+        return
+    vals = req["vals"]
+    keys = [k for k in (r.get("recommend") or ())
+            if (r["field_by_key"].get(k) or {}).get("section") == section]
+    if not keys:
+        return
+
+    def _untouched(k):
+        cur = str(_val(r, vals, k) or "").strip()
+        default = str((r["field_by_key"].get(k) or {}).get("default") or "")
+        # A value the prefill hook put there is the catalogue's own
+        # recommendation showing through, not an answer the user chose, so
+        # it is fair game. Only what they typed over it is protected.
+        prefilled = str((req.get("prefilled") or {}).get(k) or "").strip()
+        return (not cur or cur == default.strip()
+                or (prefilled and cur == prefilled)
+                or k in set(req.get("rec_wrote") or ()))
+
+    async def _go():
+        if req.get("rec_busy"):
+            return
+        fill = [k for k in keys if _untouched(k)]
+        if not fill:
+            ui.notify("These all have your own answers in them. Clear one "
+                      "and press again to have it recommended.", type="info")
+            return
+        req["rec_busy"] = True
+        ui.notify("Working it out, and checking current sources where it "
+                  "matters. This takes a few seconds.", type="info",
+                  timeout=8000)
+        try:
+            got, why = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: _CAT.recommend(r, dict(vals), list(fill)))
+        except Exception as e:
+            req["rec_busy"] = False
+            ui.notify("Could not work that out: %s" % str(e)[:140],
+                      type="negative")
+            return
+        req["rec_busy"] = False
+        wrote = [k for k in fill if str((got or {}).get(k) or "").strip()]
+        # Nothing readable back leaves every box exactly as it was. A blank
+        # answer still picks up the catalogue's own recommendation when the
+        # prompt is built, so there is nothing here worth rescuing.
+        if not wrote:
+            ui.notify("Nothing came back, so the answers are unchanged.",
+                      type="warning")
+            return
+        for k in wrote:
+            vals[k] = str(got[k]).strip()
+        req["rec_wrote"] = sorted(set(req.get("rec_wrote") or ()) | set(wrote))
+        req["rec_why"] = str(why or "").strip()
+        kept = len(keys) - len(fill)
+        ui.notify("Filled in %d answer%s%s. Change anything you like."
+                  % (len(wrote), "" if len(wrote) == 1 else "s",
+                     ", kept the %d you wrote" % kept if kept else ""),
+                  type="positive")
+        rf()
+
+    with ui.element("div").style("margin-bottom:14px;"):
+        _btn("Recommend these for me", _go, lead="auto_awesome", small=True)
+        why = str(req.get("rec_why") or "")
+        if why:
+            ui.label("Why these: " + why).style(
+                f"font-size:11px;color:{C['muted']};line-height:1.5;"
+                f"display:block;margin-top:7px;")
 
 
 def _aip_confirm(s, rf, C):
     req = s._aip_req
-    r = ROUTINE_BY_KEY.get(req.get("routine") or "",
-                           ROUTINE_BY_KEY[DEFAULT_ROUTINE])
+    r = _CAT.routine_by_key.get(req.get("routine") or "",
+                           _CAT.routine_by_key[_CAT.default_routine])
     vals = req.setdefault("vals", defaults_for(r))
     for f in r["fields"]:
         vals.setdefault(f["key"], f["default"])
+    _migrate_cadence(vals)
+    # Show the recommendation in the box rather than behind a placeholder.
+    # Every render, because the answer it recommends follows from another
+    # answer on the same screen: change the vertical and these follow it.
+    # The record of what it wrote lives on the request, so it dies with the
+    # screen and never reaches a saved setup.
+    run_prefill(r, req)
     opened = _aip_open_state(s, r, req)
 
     def _restart():
@@ -1964,51 +2990,61 @@ def _aip_confirm(s, rf, C):
         s._aip_err = ""
         rf()
 
-    with _card(C, C["teal"]):
+    with _card(C):
         heard = bool((req.get("raw") or "").strip())
         with ui.element("div").style(
-                "display:flex;align-items:baseline;justify-content:space-between;"
-                "gap:12px;flex-wrap:wrap;"):
-            _text("Here's what I understood" if heard else req.get("title")
-                  or "Set this up", C, 15, 700, C["text_l"], 4)
-            # Up here rather than beside "Write my prompt": throwing the
-            # answers away is not a step in filling them in.
-            with ui.element("button").style(
-                    f"font-size:11px;color:{C['muted']};background:transparent;"
-                    f"border:none;cursor:pointer;font-family:inherit;padding:0;"
-                    ).on("click", _restart):
-                ui.label("Start over").style("pointer-events:none;")
-        _text("Everything below is already answered. Change anything you like.",
-              C, 12, colour=C["muted"], mb=16)
+                "display:flex;align-items:flex-start;gap:14px;"):
+            with ui.element("div").classes("aip-ico").style(
+                    "width:42px;height:42px;font-size:22px;border-radius:11px;"):
+                ui.icon(_icon_for(r["key"]))
+            with ui.element("div").style("flex:1;min-width:0;"):
+                with ui.element("div").style(
+                        "display:flex;align-items:baseline;"
+                        "justify-content:space-between;gap:12px;"
+                        "flex-wrap:wrap;"):
+                    _text("Here's what I understood" if heard
+                          else req.get("title") or "Set this up",
+                          C, 17, 700, C["text_l"], 2)
+                    # Up here rather than beside "Write my prompt": throwing
+                    # the answers away is not a step in filling them in.
+                    with ui.element("button").classes("aip-link").on(
+                            "click", _restart):
+                        ui.icon("restart_alt").style("font-size:15px;")
+                        ui.label("Start over")
+                # No job picker here. The job was chosen on the screen before
+                # this one; repeating the choice next to the answers it decides
+                # only invited a change that silently reset them.
+                _text(r["blurb"], C, 12, colour=C["muted"], mb=12)
 
-        # No job picker here. The job was chosen on the screen before this
-        # one; repeating the choice next to the answers it decides only
-        # invited a change that silently reset them. Going back is the way
-        # to pick a different job.
-        _text(r["blurb"], C, 11, colour=C["muted"], mb=16)
+                # Stated as what Claude still needs, not as what the user
+                # failed to provide. Leaving these blank is a valid way to use
+                # the page.
+                unanswered = _open_questions(r, vals, req.get("ask_extra"))
+                with ui.element("div").style(
+                        "display:flex;align-items:center;gap:8px;"
+                        "flex-wrap:wrap;"):
+                    if unanswered:
+                        ui.label(_CAT.assistant[:1].upper()
+                                 + _CAT.assistant[1:] + " will ask for: "
+                                 + ", ".join(unanswered)).classes(
+                            "aip-pill warn").style("white-space:normal;")
+                    else:
+                        with ui.element("span").classes("aip-pill good").style(
+                                "display:inline-flex;align-items:center;"
+                                "gap:4px;"):
+                            ui.icon("check").style("font-size:13px;")
+                            ui.label("Ready to go")
+                    _text("Everything is pre-filled. Change anything you like.",
+                          C, 11, colour=C["muted"])
 
-        # No "in one line" box here either. The blurb above already says what
-        # the job is in a sentence — asking the same question again just
-        # invited two answers that could disagree. The summary still exists,
-        # it just comes from the routine, and the words that are actually the
-        # user's own go in the fields below.
+    with ui.element("div").classes("aip-acc"):
+        for key, name in _aip_sections_for(r):
+            is_open = bool(opened.get(key))
+            rows = [f for f in r["fields"]
+                    if f["section"] == key and _visible(r, vals, f)]
+            count = len([f for f in rows
+                         if str(_val(r, vals, f["key"]) or "").strip()])
 
-        unanswered = _open_questions(r, vals, req.get("ask_extra"))
-        if unanswered:
-            # Stated as what Claude still needs, not as what the user failed to
-            # provide. Leaving these blank is a valid way to use the page.
-            _text("Claude will ask for: " + ", ".join(unanswered) + ".",
-                  C, 11, colour=C["warn"], mb=16)
-        else:
-            _text("Ready to go.", C, 11, colour=C["muted"], mb=16)
-
-    for key, name in _aip_sections_for(r):
-        is_open = bool(opened.get(key))
-        rows = [f for f in r["fields"] if f["section"] == key]
-        count = len([f for f in rows
-                     if str(_val(r, vals, f["key"]) or "").strip()])
-
-        with _card(C):
             def _toggle(_k=key):
                 # Read the state back through the helper: a routine switch
                 # clears it, and a click can land on a screen that hasn't
@@ -2017,60 +3053,59 @@ def _aip_confirm(s, rf, C):
                 state[_k] = not state.get(_k)
                 rf()
 
-            with ui.element("button").style(
-                    "display:flex;align-items:center;gap:10px;width:100%;"
-                    "background:transparent;border:none;padding:0;"
-                    "cursor:pointer;text-align:left;"
-                    ).on("click", _toggle):
-                ui.label("▾" if is_open else "▸").style(
-                    f"font-size:12px;color:{C['teal']};")
-                ui.label(name).classes("aip-sec").style(
-                    f"color:{C['teal']};margin:0;")
-                if not is_open:
+            with ui.element("div").classes(
+                    "aip-acc-row" + (" open" if is_open else "")):
+                with ui.element("button").classes("aip-acc-head").on(
+                        "click", _toggle):
+                    # Names are already sentence case; lowering the rest
+                    # would turn "the AI" into "the ai".
+                    ui.label(name[:1].upper() + name[1:]).style(
+                        f"font-size:14px;font-weight:700;"
+                        f"color:{C['text_l']};flex:1;")
                     ui.label("%d answered" % count if rows
-                             else "nothing yet").style(
-                        f"font-size:10px;color:{C['muted']};"
-                        f"margin-left:auto;")
+                             else "optional").classes(
+                        "aip-pill" + (" good" if count else ""))
+                    ui.icon("expand_more").classes("aip-chev")
 
-            if not is_open:
-                continue
+                if not is_open:
+                    continue
 
-            with ui.element("div").style("margin-top:14px;"):
-                if key == "extra":
-                    _aip_extra(s, rf, C, req)
-                else:
-                    with ui.element("div").classes("aip-grid"):
-                        for f in rows:
-                            with ui.element("div"):
-                                _aip_field(s, rf, C, r, vals, f)
+                with ui.element("div").classes("aip-acc-body"):
+                    if key == "extra":
+                        _aip_extra(s, rf, C, req)
+                    else:
+                        _aip_recommend(s, rf, C, r, req, key)
+                        with ui.element("div").classes("aip-grid"):
+                            for f in rows:
+                                with ui.element("div").classes(
+                                        "aip-wide" if f["type"] == "checks"
+                                        else ""):
+                                    _aip_field(s, rf, C, r, vals, f)
 
-    with _card(C):
-        def _build():
-            s._aip_prompt = build_prompt(req)
-            s._aip_saving = False
-            rf()
+    def _build():
+        s._aip_prompt = build_prompt(req)
+        s._aip_saving = False
+        rf()
 
-        def _back():
-            # Back, not "start over" - the answers are kept, so going out to
-            # read what the other jobs do costs nothing. They come back when
-            # you re-pick the same job. Start over, in the header, is the one
-            # that discards.
-            s._aip_back = s._aip_req
-            s._aip_req = None
-            s._aip_prompt = None
-            s._aip_saving = False
-            s._aip_err = ""
-            rf()
+    def _back():
+        # Back, not "start over" - the answers are kept, so going out to
+        # read what the other jobs do costs nothing. They come back when
+        # you re-pick the same job. Start over, in the header, is the one
+        # that discards.
+        s._aip_back = s._aip_req
+        s._aip_req = None
+        s._aip_prompt = None
+        s._aip_saving = False
+        s._aip_err = ""
+        rf()
 
-        with ui.element("div").style(
-                "display:flex;align-items:center;gap:12px;flex-wrap:wrap;"):
-            with ui.element("button").classes("fd-pb").style(
-                    "padding:11px 24px;font-size:13px;").on("click", _build):
-                ui.label("Write my prompt")
+    with ui.element("div").classes("aip-bar"):
+        with ui.element("div").classes("aip-bar-side"):
+            _btn("Back", _back, lead="arrow_back")
+        with ui.element("div").classes("aip-bar-side"):
             _aip_save_setup(s, rf, C, req)
-            with ui.element("button").classes("fd-gb").style(
-                    "padding:9px 18px;font-size:12px;").on("click", _back):
-                ui.label("← Back")
+            _btn("Write my prompt", _build, primary=True,
+                 icon="arrow_forward")
 
 
 # ── View 3: the prompt ────────────────────────────────────────────────────
@@ -2078,80 +3113,58 @@ def _aip_confirm(s, rf, C):
 def _aip_result(s, rf, C):
     prompt = s._aip_prompt
     req = s._aip_req or {}
-    r = ROUTINE_BY_KEY.get(req.get("routine") or "",
-                           ROUTINE_BY_KEY[DEFAULT_ROUTINE])
+    r = _CAT.routine_by_key.get(req.get("routine") or "",
+                           _CAT.routine_by_key[_CAT.default_routine])
 
-    with _card(C, C["good"]):
+    def _copy():
+        ui.run_javascript("navigator.clipboard.writeText(%s)"
+                          % json.dumps(prompt))
+        ui.notify("Copied. Paste it into %s." % _CAT.assistant,
+                  type="positive")
+
+    def _back():
+        s._aip_prompt = None
+        rf()
+
+    def _restart():
+        s._aip_req = None
+        s._aip_back = None
+        s._aip_prompt = None
+        s._aip_raw = ""
+        s._aip_pick = ""
+        s._aip_open = None
+        s._aip_saving = False
+        s._aip_err = ""
+        rf()
+
+    with _card(C):
         with ui.element("div").style(
-                "display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;"
-                "justify-content:space-between;margin-bottom:4px;"):
-            _text("Paste this into Claude", C, 15, 700, C["text_l"])
-            _text(r["name"], C, 11, 700, C["teal"])
-        _text("Copy it, open Claude with your DripDrop connector switched on, "
-              "and paste it as your first message.",
-              C, 12, colour=C["muted"], mb=14)
+                "display:flex;align-items:flex-start;gap:14px;"
+                "margin-bottom:16px;"):
+            with ui.element("div").classes("aip-ico").style(
+                    "width:42px;height:42px;font-size:22px;border-radius:11px;"):
+                ui.icon("task_alt")
+            with ui.element("div").style("flex:1;min-width:0;"):
+                with ui.element("div").style(
+                        "display:flex;align-items:baseline;gap:12px;"
+                        "flex-wrap:wrap;justify-content:space-between;"):
+                    _text("Your prompt is ready", C, 17, 700, C["text_l"], 2)
+                    ui.label(r["name"]).classes("aip-pill good")
+                _text(_CAT.result_copy, C, 12, colour=C["muted"])
 
-        ui.textarea(value=prompt).props("dense readonly autogrow").classes(
-            "fd-input").style(
-            "width:100%;margin-bottom:14px;font-family:ui-monospace,"
-            "SFMono-Regular,Menlo,monospace;")
+        with ui.element("div").style("position:relative;"):
+            ui.label(prompt).classes("aip-prompt")
+            _btn("Copy", _copy, lead="content_copy", small=True).style(
+                f"position:absolute;top:10px;right:22px;"
+                f"background:{C['card']};")
 
-        def _copy():
-            ui.run_javascript("navigator.clipboard.writeText(%s)"
-                              % json.dumps(prompt))
-            ui.notify("Copied.", type="positive")
+    with ui.element("div").classes("aip-bar"):
+        with ui.element("div").classes("aip-bar-side"):
+            _btn("Change my answers", _back, lead="arrow_back")
+            _btn("Start a new prompt", _restart, lead="add")
+        with ui.element("div").classes("aip-bar-side"):
+            _aip_save_setup(s, rf, C, req, label="Save prompt")
+            _btn("Copy the prompt", _copy, primary=True, lead="content_copy")
 
-        def _back():
-            s._aip_prompt = None
-            rf()
-
-        def _restart():
-            s._aip_req = None
-            s._aip_back = None
-            s._aip_prompt = None
-            s._aip_raw = ""
-            s._aip_pick = ""
-            s._aip_open = None
-            s._aip_saving = False
-            s._aip_err = ""
-            rf()
-
-        with ui.element("div").style(
-                f"border-top:1px solid {C['border']};padding-top:16px;"
-                f"display:flex;align-items:center;gap:12px;flex-wrap:wrap;"):
-            with ui.element("button").classes("fd-pb").style(
-                    "padding:11px 24px;font-size:13px;").on("click", _copy):
-                ui.label("Copy the prompt")
-            with ui.element("button").classes("fd-gb").style(
-                    "padding:9px 18px;font-size:12px;").on("click", _back):
-                ui.label("Change my answers")
-            with ui.element("button").classes("fd-gb").style(
-                    "padding:9px 18px;font-size:12px;").on("click", _restart):
-                ui.label("Ask for something else")
-
-    # The one routine DripDrop can also run itself. Said here because the page
-    # that does it no longer has its own nav row.
-    if r["key"] == "sales_campaign":
-        with _card(C):
-            _text("DripDrop can also run this one for you", C, 13, 700,
-                  C["text_l"], 4)
-            _text("The Sales Campaign page queues the same run, writes the "
-                  "campaigns here and stops at a review screen. Claude still "
-                  "does the sourcing — it just hands the result back to "
-                  "DripDrop instead of back to you.",
-                  C, 12, colour=C["muted"], mb=12)
-
-            def _open_sc():
-                # Same move the sidebar makes: push history, then set the
-                # sales-hub page key.
-                try:
-                    s._nav_history.append(_ff()._nav_snapshot(s))
-                except Exception:
-                    pass
-                s.hub = "sales"
-                s.sp = "sales_campaign"
-                rf()
-
-            with ui.element("button").classes("fd-gb").style(
-                    "padding:9px 18px;font-size:12px;").on("click", _open_sc):
-                ui.label("Open Sales Campaign")
+    if _CAT.result_extra:
+        _CAT.result_extra(s, rf, C, r)
