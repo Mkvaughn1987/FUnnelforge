@@ -1281,7 +1281,8 @@ _TERMS_INTRO = (
 _STATES_INTRO = (
     "Every state that publishes WARN notices is here. The ones where the "
     "vertical you picked concentrates are ticked and listed first, each "
-    "with the reason. Tick any others, or select all.")
+    "with the reason. Tick any others, select all, or have "
+    "Claude check which states have filed the most lately.")
 
 
 def _vertical_field(default=DEFAULT_VERTICAL):
@@ -1589,7 +1590,8 @@ ROUTINES = [
         "fields": [
             _vertical_field(),
             F("states", "Which states' WARN notices to read", "details",
-              "checks", hint=_STATES_INTRO),
+              "checks", hint=_STATES_INTRO,
+              find="Find the states with the most WARN filings"),
             F("lookback", "How far back to look", "details",
               default="the last 90 days"),
         ] + _targeting_fields() + _newsletter_fields() + _email_fields(
@@ -1956,10 +1958,11 @@ _RECOMMENDABLE = {
         "states: which of the states on the menu below to read WARN "
         "notices for, as a comma separated list of their ids",
         "states is the one to search for. Look at what has actually been "
-        "filed recently and pick the states with real, recent WARN "
-        "activity touching this market. Start from the ones marked usual "
-        "for this market and add any other state where recent filings "
-        "show it - ids only. If a search turns up nothing usable, answer "
+        "filed recently and pick the states with the most recent WARN "
+        "filings from companies in this market, busiest first in your "
+        "thinking. Start from the ones marked usual for this market, drop "
+        "any with nothing recent, and add any other state where recent "
+        "filings show it - ids only. If a search turns up nothing usable, answer "
         "with the usual ones and say in `why` that you could not see live "
         "notices."),
     "lookback": (

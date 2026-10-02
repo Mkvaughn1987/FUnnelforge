@@ -89,7 +89,7 @@ SECTION_NAME = {k: n for k, n, _ in SECTIONS}
 
 def F(key, label, section="details", type="text", default="", ask=False,
       hint="", placeholder="", options=None, refresh=False, source="",
-      pick_first=False, chips=None, show_if=None):
+      pick_first=False, chips=None, show_if=None, find=""):
     """One question on the screen.
 
     ask=True means "only the user can answer this" — left blank it becomes a
@@ -109,13 +109,17 @@ def F(key, label, section="details", type="text", default="", ask=False,
 
     show_if is `(routine, vals) -> bool`. A question that an earlier answer
     has already settled is not shown.
+
+    find is a button label on a tick list: pressing it has the catalogue's
+    recommend hook work out this one list afresh (it can search), replacing
+    the ticks. Only shown when the catalogue has a recommend hook.
     """
     return {"key": key, "label": label, "section": section, "type": type,
             "default": default, "ask": ask, "hint": hint,
             "placeholder": placeholder, "options": options or [],
             "refresh": bool(refresh), "source": source or "",
             "pick_first": bool(pick_first), "chips": list(chips or []),
-            "show_if": show_if}
+            "show_if": show_if, "find": find or ""}
 
 
 def _visible(r, vals, f):
@@ -1857,12 +1861,13 @@ def _aip_css():
         ".aip-wrap .aip-check.on{border-color:var(--dd-teal);"
         "background:var(--dd-teal_dim);}"
         ".aip-wrap .aip-check .q-checkbox{margin:-3px 0 0 -6px;}"
-        ".aip-wrap .aip-checks.aip-compact{gap:6px;"
-        "grid-template-columns:repeat(auto-fill,minmax(150px,1fr));}"
-        ".aip-wrap .aip-compact .aip-check{padding:4px 8px 5px;gap:4px;"
-        "border-radius:8px;align-items:center;}"
-        ".aip-wrap .aip-compact .aip-check .q-checkbox{margin:-4px 0 -4px -8px;}"
-        ".aip-wrap .aip-compact .aip-check.aip-why{grid-column:span 2;}"
+        ".aip-wrap .aip-checks.aip-compact{gap:5px;"
+        "grid-template-columns:repeat(auto-fill,minmax(112px,1fr));}"
+        ".aip-wrap .aip-compact .aip-check{padding:1px 6px 1px 2px;gap:0;"
+        "border-radius:7px;align-items:center;min-height:30px;}"
+        ".aip-wrap .aip-compact .aip-check .q-checkbox{margin:0;}"
+        ".aip-wrap .aip-compact .aip-check.aip-why{grid-column:span 2;"
+        "align-items:flex-start;padding-top:3px;padding-bottom:4px;}"
         "@media(max-width:520px){.aip-wrap .aip-compact .aip-check.aip-why"
         "{grid-column:auto;}}"
         ".aip-wrap .aip-tiles{display:grid;gap:12px;"
@@ -2644,6 +2649,8 @@ def _aip_checks(s, rf, C, r, vals, f):
 
     on = set(_checks_ids(r, vals, key, items=items))
     rec = [i["id"] for i in items if i.get("rec")]
+    if f.get("find") and getattr(_CAT, "recommend", None):
+        _aip_find(s, rf, C, r, vals, f)
 
     def _write():
         vals[key] = ", ".join(i["id"] for i in items if i["id"] in on)
@@ -2668,16 +2675,19 @@ def _aip_checks(s, rf, C, r, vals, f):
                 _write()
 
             with row:
-                ui.checkbox(value=item["id"] in on, on_change=_flip)
-                with ui.element("div").style("flex:1;min-width:0;"):
+                ui.checkbox(value=item["id"] in on, on_change=_flip).props(
+                    "dense size=sm" if compact else "")
+                with ui.element("div").style(
+                        "flex:1;min-width:0;"
+                        + ("margin-left:4px;" if compact else "")):
                     label = str(item["label"])
                     ui.label(label[:1].upper() + label[1:]).style(
-                        f"font-size:{'12px' if compact else '12.5px'};"
+                        f"font-size:{'11.5px' if compact else '12.5px'};"
                         f"font-weight:600;"
                         f"color:{C['text_l']};line-height:1.4;display:block;")
                     if item.get("why"):
                         ui.label(str(item["why"])).style(
-                            f"font-size:{'10px' if compact else '10.5px'};"
+                            f"font-size:{'9.5px' if compact else '10.5px'};"
                             f"color:{C['muted']};"
                             f"line-height:1.4;display:block;"
                             f"margin-top:{'0' if compact else '2px'};")
@@ -2705,6 +2715,55 @@ def _aip_checks(s, rf, C, r, vals, f):
                     "click", lambda: _set_all([])):
                 ui.icon("close").style("font-size:14px;")
                 ui.label("Clear them all")
+
+
+def _aip_find(s, rf, C, r, vals, f):
+    """The button on a tick list that has the list worked out afresh.
+
+    Unlike "Recommend these for me" it replaces the ticks outright: the
+    user pressed a button whose whole job is this one list, so there is no
+    typed answer to protect. Same async/executor shape as _aip_recommend
+    (0f8b435). The why-line lives on the request, so it dies with it.
+    """
+    key = f["key"]
+    req = getattr(s, "_aip_req", None) or {}
+    found = req.setdefault("find_why", {})
+    busy = req.setdefault("find_busy", [])
+
+    async def _go():
+        if key in busy:
+            return
+        busy.append(key)
+        ui.notify("Checking recent WARN filings for this market. This takes "
+                  "a few seconds.", type="info", timeout=9000)
+        try:
+            got, why = await asyncio.get_event_loop().run_in_executor(
+                None, lambda: _CAT.recommend(r, dict(vals), [key]))
+        except Exception as e:
+            (key in busy and busy.remove(key))
+            ui.notify("Could not check that: %s" % str(e)[:140],
+                      type="negative")
+            return
+        (key in busy and busy.remove(key))
+        ans = str((got or {}).get(key) or "").strip()
+        if not ans:
+            ui.notify("Nothing came back, so the ticks are unchanged.",
+                      type="warning")
+            return
+        vals[key] = ans
+        found[key] = str(why or "").strip()
+        n = len([x for x in ans.split(",") if x.strip()])
+        ui.notify("Ticked %d. Change anything you like." % n,
+                  type="positive")
+        rf()
+
+    with ui.element("div").style("margin:8px 0 4px;"):
+        _btn(f["find"], _go, lead="travel_explore", small=True)
+        why = str(found.get(key) or "")
+        if why:
+            ui.label("Why these: " + why).style(
+                f"font-size:11px;color:{C['muted']};line-height:1.5;"
+                f"display:block;margin-top:6px;")
 
 
 # Set by the host app for pages that use a "newsletter" field (ThriveModal):

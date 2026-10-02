@@ -1132,3 +1132,22 @@ def test_the_pick_widget_and_chips_render_under_the_stub(aip, tm, monkeypatch):
     aip._pick_widget(_Colours(), vals, f, "")
     chips = tm.ROUTINE_BY_KEY["other"]["field_by_key"]["what"]
     aip._aip_chips(lambda: None, _Colours(), {}, chips)
+
+def test_the_states_list_has_its_own_find_button(tm, aip):
+    """Cost pressure's WARN state list carries a button that has Claude
+    check which states filed the most lately, for that one list only."""
+    import inspect
+    r = tm.ROUTINE_BY_KEY["tm_cost_pressure"]
+    f = r["field_by_key"]["states"]
+    assert f["find"] and "WARN" in f["find"]
+    assert "states" in r["recommend"]
+    # No other field anywhere grows the button by accident, and Arena's
+    # fields carry an empty one.
+    assert [x["key"] for rr in tm.ROUTINES for x in rr["fields"]
+            if x.get("find")] == ["states"]
+    block = inspect.getsource(aip._aip_find)
+    assert "async def _go" in block and "run_in_executor" in block
+    assert "threading" not in block and "Thread(" not in block
+    assert "_aip_find(" in inspect.getsource(aip._aip_checks)
+    # The ask is for the busiest states, not just any recent activity.
+    assert "most recent WARN" in tm._RECOMMENDABLE["states"][1]
