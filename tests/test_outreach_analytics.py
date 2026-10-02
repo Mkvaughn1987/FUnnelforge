@@ -155,3 +155,79 @@ def test_module_writes_nothing_and_imports_no_app():
     import re
     for bad in (r"(?<![\w.])open\(", r"write_text", r"\bsave_", r"json\.dump"):
         assert not re.search(bad, src), bad
+
+
+class _El:
+    """Records what the page draws; every builder call returns itself."""
+    def __init__(self, log, text=""):
+        self.log, self.text, self.handlers = log, text, []
+    def style(self, *_a): return self
+    def classes(self, *_a): return self
+    def props(self, *_a): return self
+    def tooltip(self, *_a): return self
+    def on(self, _evt, fn):
+        self.handlers.append(fn)
+        self.log["clicks"].append(fn)
+        return self
+    def __enter__(self): return self
+    def __exit__(self, *_a): return False
+
+
+class _FakeUI:
+    def __init__(self):
+        self.log = {"labels": [], "clicks": [], "styles": []}
+    def element(self, _tag):
+        return _El(self.log)
+    def label(self, text=""):
+        self.log["labels"].append(str(text))
+        return _El(self.log, text)
+
+
+class _State:
+    pass
+
+
+_C = {k: "#000" for k in ("muted", "text_l", "card", "border", "surface",
+                          "good", "teal", "warn")}
+
+
+def _render_overview(queue):
+    ui, s = _FakeUI(), _State()
+    s._oa_days = None
+    oa.render(ui, _C, s, lambda: None,
+              lambda _d: {"queue": queue, "responded": [], "dnc": [],
+                          "campaigns": CAMPS}, TYPES)
+    return ui, s
+
+
+def test_overview_shows_campaign_emails_and_newsletters_on_first_screen():
+    q = [_q("Fusion Transport", "a@x.com", 1, label="Step 1 - The Signal"),
+         _q("Fusion Transport", "a@x.com", 2, label="Step 2 - Follow up"),
+         _q("Offshore News", "n@x.com", 1)]
+    ui, _s = _render_overview(q)
+    labels = ui.log["labels"]
+    assert "Campaigns" in labels and "Newsletters" in labels
+    assert "1. The Signal" in labels and "2. Follow up" in labels
+    assert "Offshore News" in labels
+    assert "By campaign type" not in labels
+
+
+def test_overview_clicks_drill_into_the_right_place():
+    q = [_q("Fusion Transport", "a@x.com", 1), _q("Fusion Transport", "a@x.com", 2),
+         _q("Offshore News", "n@x.com", 1)]
+    ui, s = _render_overview(q)
+    clicks = ui.log["clicks"]
+    # header card, step 1, step 2, then the newsletter row (window buttons first)
+    seen = []
+    for fn in clicks[3:]:
+        s._oa_type = s._oa_step = s._oa_camp = None
+        fn()
+        seen.append((s._oa_type, s._oa_step, s._oa_camp))
+    assert ("tm_fivebyseven", None, None) in seen
+    assert ("tm_fivebyseven", 2, None) in seen
+    assert (oa.NEWSLETTER, None, "Offshore News") in seen
+
+
+def test_empty_newsletter_section_says_so_plainly():
+    ui, _s = _render_overview([_q("Fusion Transport", "a@x.com", 1)])
+    assert "No newsletters sent in this window." in ui.log["labels"]
