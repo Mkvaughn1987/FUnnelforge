@@ -38128,7 +38128,7 @@ _NL_INDUSTRIES = (
     ("Healthcare", r"health|medical|med tech|hospital|pharma"),
     ("Technology", r"software|technology|\btech\b|\bai\b|programmer|\bsaas\b"),
     ("Accounting & Finance", r"accounting|finance|financial|\bcpa\b|bookkeep|banking"),
-    ("Logistics & Freight", r"logistic|freigh|trucking|supply chain|warehous|3pl|brokerage"),
+    ("Logistics & Freight", r"logistic|freigh|trucking|supply chain|warehous|3pl|brokerage"),
     ("Property & Real Estate", r"property management|real estate|tenant|landlord"),
     ("Energy", r"energy|\boil\b|\bgas\b|solar|renewable"),
 )
