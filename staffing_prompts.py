@@ -519,7 +519,7 @@ def _email_fields(name_default="the company name"):
         F("sequence", "Which sequence", "emails", "select",
           default="Arena 5x5", options=SEQUENCES),
         F("saved_style", "Which saved style", "emails",
-          hint="Only if you picked one of your saved styles above."),
+          hint="Picking one sets the sequence to your saved style."),
         *start_fields(),
         F("campaign_name", "What to call the campaigns", "emails",
           default=name_default),

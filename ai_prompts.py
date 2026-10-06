@@ -405,7 +405,7 @@ ROUTINES = [
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
-              hint="Only if you picked one of your saved styles above."),
+              hint="Picking one sets the sequence to your saved style."),
             *start_fields(),
             F("campaign_name", "What to call the campaigns", "emails",
               default="the company name"),
@@ -494,7 +494,7 @@ ROUTINES = [
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
-              hint="Only if you picked one of your saved styles above."),
+              hint="Picking one sets the sequence to your saved style."),
             *start_fields(),
             F("campaign_name", "What to call the campaigns", "emails",
               default="the company name"),
@@ -572,7 +572,7 @@ ROUTINES = [
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
-              hint="Only if you picked one of your saved styles above."),
+              hint="Picking one sets the sequence to your saved style."),
             F("pin_slate", "Send these exact people, or let DripDrop pick",
               "emails", "select", default="Send these exact people",
               options=["Send these exact people",
@@ -855,7 +855,7 @@ ROUTINES = [
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES),
             F("saved_style", "Which saved style", "emails",
-              hint="Only if you picked one of your saved styles above."),
+              hint="Picking one sets the sequence to your saved style."),
             *start_fields(),
             F("campaign_name", "What to call it", "emails"),
             F("email_cap", "Most emails this run should send", "size",
@@ -2994,6 +2994,9 @@ def _aip_field(s, rf, C, r, vals, f):
     if key == "newsletter" and "newsletter_mode" in r["field_by_key"]:
         _newsletter_name_select(rf, vals, cur)
         return
+    if key == "saved_style":
+        _saved_style_select(rf, vals, cur)
+        return
     if f["type"] == "pick":
         _pick_widget(C, vals, f, cur)
         return
@@ -3355,6 +3358,43 @@ def _newsletter_name_select(rf, vals, cur):
               on_change=_set).props(
         'dense placeholder="Pick one of your newsletters"').classes(
         "fd-input")
+
+
+def _saved_style_names():
+    """The current user's saved campaign styles - the same list
+    my_campaign_styles returns, so a picked name always resolves to an id."""
+    try:
+        out = []
+        for st in _ff()._load_my_campaign_styles():
+            n = str((st or {}).get("name") or "").strip()
+            if n and n not in out:
+                out.append(n)
+        return sorted(out, key=str.lower)
+    except Exception:
+        return []
+
+
+def _saved_style_select(rf, vals, cur):
+    """"Which saved style" as a dropdown of their saved styles. Picking one
+    switches "Which sequence" to "One of my saved styles" so the two never
+    disagree. A name not in the list (an old setup) is kept."""
+    names = _saved_style_names()
+    if cur and cur not in names:
+        names = [cur] + names
+    saved_seq = next(s for s in SEQUENCES if s.startswith("One of my saved"))
+
+    def _set(e):
+        v = str(e.value or "").strip()
+        vals["saved_style"] = v
+        if v and vals.get("sequence") != saved_seq:
+            vals["sequence"] = saved_seq
+            rf()
+
+    ui.select(options=names, value=cur or None, with_input=True,
+              clearable=True, on_change=_set).props(
+        'dense placeholder="%s"' % ("Pick one of your saved styles" if names
+                                    else "You have no saved styles yet")
+    ).classes("fd-input")
 
 
 def _aip_extra(s, rf, C, req):
