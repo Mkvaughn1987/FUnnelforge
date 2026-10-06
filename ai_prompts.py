@@ -218,6 +218,9 @@ TEMPLATE_KEY = {
     "Arena 5x5": "fivebyfive",
     "Arena 5x3": "fivebythree",
     "Arena 4x4": "fourbyfour",
+    # Only offered on "Find Companies Similar to a Client" (staffing_prompts):
+    # its emails need the starting company, which no other job asks for.
+    "Arena Client Lookalike": "clientlookalike",
 }
 
 WHEN_OPTIONS = ["Next Monday", "The Monday after next", "8am tomorrow",

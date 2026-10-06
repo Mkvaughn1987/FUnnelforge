@@ -4104,7 +4104,10 @@ AICB_ROLES = {
 # the Arena house font, resume placement, and PDF-subject (recruiting) behavior.
 # Add new slate variants here to inherit all of it.
 _ARENA_SLATE_TYPES = frozenset({"fourbyfour", "fivebyfive", "fivebythree",
-                                "fivebyseven"})
+                                "fivebyseven", "clientlookalike"})
+# Templates only the API builds: their copy needs spec fields the in-app
+# wizard and the Sales Campaign page have no box for, so neither lists them.
+_API_ONLY_TYPES = frozenset({"clientlookalike"})
 # The slate types whose candidates come from the pipeline (matched to the
 # company when none are given) and whose redacted résumés attach on their own.
 _PIPELINE_SLATE_TYPES = frozenset({"fivebythree", "fivebyseven"})
@@ -4358,7 +4361,71 @@ AICB_CAMPAIGN_TYPES = [
      "CANDIDATE HIGHLIGHTS, one line each. Then: you'll stay in touch about "
      "once a month through your market newsletter, the door's always open, "
      "and invite them to take a chance on one interview. No hard sell."),
-    ("talentdrop", "Candidate-Led Pitch", "7 steps - 2 weeks", "#10B981",
+    # Arena Client Lookalike (Mike, 2026-10-06): the 5×5 for AI Prompts'
+    # "Find Companies Similar to a Client". Email 1 opens on two candidates
+    # coming out of the starting company, one title each. The company and the
+    # titles arrive as SOURCE CANDIDATES (spec source_company/source_titles)
+    # and _apply_clientlookalike_overrides makes sure the line is there.
+    ("clientlookalike", "Arena Client Lookalike", "7 steps - 2 weeks",
+     "#7C3AED",
+     "The Arena 5×5 for companies that look like one you know. Email 1 "
+     "opens on two candidates you're working with from that company, one "
+     "title each; the follow-ups come back to them.",
+     "Lookalike accounts - candidates from a named company - warm",
+     "GLOBAL VOICE: Write warm, personable, and human — NOT salesy. Sound "
+     "like a helpful professional who happens to know great people, not a "
+     "rep working a pitch. Short paragraphs, plain words, no hype, no "
+     "pressure. Refer to the company's OVERALL MARKET (e.g. construction, "
+     "manufacturing) rather than the specific job title wherever a general "
+     "reference reads naturally. The two candidates are only ever described "
+     "by the company they are coming out of and their titles from SOURCE "
+     "CANDIDATES: never invent a name, years, a project, a certification or "
+     "any other detail about them. "
+     + _CAND_NAME_RULE + "\n"
+     "Step 1 - Two candidates (delay_days:0, step_type:email_auto) - "
+     "Subject exactly: 'Quick note for [Company]' (write the real company "
+     "name in). Open with the OPENING LINE from SOURCE CANDIDATES, word for "
+     "word, as the first sentence. Then, in two or three short sentences: "
+     "introduce yourself, say you place people across the company's "
+     "overall market, and that {CompanyName} looked like a place where "
+     "people with that background do well. Do NOT describe the candidates "
+     "beyond their titles and do NOT mention attachments. End the email "
+     "with exactly this line on its own: 'Are you involved in the hiring "
+     "process?'\n"
+     "Step 2 - One of them (delay_days:3, step_type:email_auto) - Subject "
+     "exactly: 'One person worth having on your radar'. Note the best "
+     "people are rarely actively looking. Then come back to the first of "
+     "the two candidates from Step 1. If CANDIDATE HIGHLIGHTS has them, "
+     "spotlight that person in 2-3 warm sentences: background, a standout "
+     "strength, why they'd fit. If it does not, say only that someone with "
+     "that title coming out of the source company tends to know the work "
+     "{CompanyName} does, and offer to share more. Softly offer market "
+     "context. No hard CTA.\n"
+     "Step 3 - Follow-up Call (delay_days:0, step_type:call) - SAME DAY as "
+     "Step 2, keep delay_days:0. Put the call script in the body: mention "
+     "the two candidates from the source company by their titles, ask if "
+     "they had a chance to look, quick-qualify their hiring timeline. "
+     "Conversational, not pushy.\n"
+     "Step 4 - LinkedIn Connect (delay_days:0, step_type:linkedin) - SAME "
+     "DAY as Step 3, keep delay_days:0. Connection message under 300 "
+     "characters: 'Sent you an email, wanted to connect here as well. "
+     "Always sharing industry insights and market data in your space.'\n"
+     "Step 5 - Following-up bump (delay_days:2, step_type:email_auto) - "
+     "Subject exactly: 'Following up'. A very short, warm bump. No "
+     "candidates, no market data. (The system replaces this body verbatim "
+     "after generation.)\n"
+     "Step 6 - Worth a look (delay_days:3, step_type:email_auto) - Subject "
+     "exactly: 'Still think these two are worth a look'. A gentle "
+     "circle-back: inboxes are full, no worries if the timing's off; you "
+     "mostly wanted to say the two candidates from the source company (by "
+     "their titles) are genuinely worth a short conversation. Warm, brief. "
+     "Do NOT mention any attachment (the system adds that line).\n"
+     "Step 7 - Closing the loop (delay_days:4, step_type:email_auto) - "
+     "Subject exactly: 'Closing the loop for now'. A warm, human sign-off: "
+     "you don't want to crowd their inbox; it's been a pleasure; you'll "
+     "add them to your monthly newsletter so useful market news still "
+     "reaches them; the door's always open. No hard sell."),
+    ("talentdrop","Candidate-Led Pitch", "7 steps - 2 weeks", "#10B981",
      "Lead with real candidates. Enter your candidate details and AI builds the outreach "
      "around them  -  intro with profiles, market data follow-ups, and value-add PDFs. "
      "High-touch with candidate-first positioning.",
@@ -5261,6 +5328,13 @@ def _validate_campaign_spec(spec: dict):
         return f"Unknown template '{tmpl}'. Valid: {sorted(_VALID_TEMPLATES)}."
     if not (spec.get("company") or "").strip() and not (spec.get("niche") or "").strip():
         return "Provide at least one of 'company' or 'niche'."
+    if tmpl == "clientlookalike":
+        if not str(spec.get("source_company") or "").strip():
+            return ("Template 'clientlookalike' needs 'source_company': the "
+                    "company the two candidates are coming out of.")
+        st_ = spec.get("source_titles")
+        if st_ is not None and not isinstance(st_, list):
+            return "'source_titles' must be a list of job titles."
     sd = (spec.get("start_date") or "").strip()
     if sd.lower() not in _START_DATE_AUTO:
         try:
@@ -5486,7 +5560,8 @@ def _aicb_research_brief(client, *, camp_type="", company="", website="",
 def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
                                     niche="", industry="", roles=None,
                                     location="", cand_block="",
-                                    candidate_cards=None, byos_desc=""):
+                                    candidate_cards=None, byos_desc="",
+                                    source_company="", source_titles=None):
     """Build + post-process the campaign from an already-fetched brief. Shared
     by the wizard (passes its own brief + pre-built cand_block) and the API.
     Raises RuntimeError if the model returns no parseable JSON."""
@@ -5521,6 +5596,11 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
         "Reference the company's SPECIFIC projects and details from the brief."
     )
 
+    _lookalike_titles = _clientlookalike_titles(source_titles, roles)
+    _source_block = (
+        _clientlookalike_block(source_company, _lookalike_titles)
+        if (camp_type or "").strip() == "clientlookalike" else "")
+
     _stats_block = ""
     if (camp_type or "").strip() in _ARENA_SLATE_TYPES:
         _cited = _fetch_cited_market_stats(_first_role, location_str,
@@ -5538,6 +5618,7 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
         f'- Do NOT mention attachments, PDFs, or "attached" in ANY email. PDFs are attached separately by the system. The email body should never reference them.\n\n'
         f'{"MARKET" if is_niche_mode else "COMPANY"} BRIEF:\n{brief[:2000]}\n\n'
         + (cand_block or "") +
+        _source_block +
         _stats_block +
         f'TARGET ROLES: {roles_str}\n'
         f'TARGET LOCATIONS: {location_str}\n'
@@ -5617,13 +5698,16 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
     _apply_fivebyfive_overrides(camp_type, campaign_data)
     _apply_fivebythree_overrides(camp_type, campaign_data)
     _apply_fivebyseven_overrides(camp_type, campaign_data)
+    _apply_clientlookalike_overrides(camp_type, campaign_data,
+                                     source_company, _lookalike_titles)
     _spread_email_times(campaign_data.get("emails", []))
     return campaign_data
 
 
 def generate_aicb_campaign(client, *, camp_type, company="", website="",
                            niche="", industry="", roles=None, location="",
-                           cand_block="", candidate_cards=None, byos_desc=""):
+                           cand_block="", candidate_cards=None, byos_desc="",
+                           source_company="", source_titles=None):
     """Headless AICB campaign generation — research then build — used by the
     API (and exercised in tests). Returns campaign_data with the brief stashed
     under "_brief". Raises RuntimeError on empty research / unparseable JSON.
@@ -5639,7 +5723,8 @@ def generate_aicb_campaign(client, *, camp_type, company="", website="",
     campaign_data = _aicb_build_campaign_from_brief(
         client, brief=brief, camp_type=camp_type, company=company,
         niche=niche, industry=industry, roles=roles, location=location,
-        cand_block=cand_block, byos_desc=byos_desc)
+        cand_block=cand_block, byos_desc=byos_desc,
+        source_company=source_company, source_titles=source_titles)
     campaign_data["_brief"] = brief
     return campaign_data
 
@@ -6094,6 +6179,8 @@ def _api_create_campaign_blocking(client, spec, owner):
             location=(spec.get("location") or "").strip(),
             candidate_cards=cards,
             byos_desc=byos_desc,
+            source_company=(spec.get("source_company") or "").strip(),
+            source_titles=list(spec.get("source_titles") or []),
         )
     except RuntimeError as ge:
         return {"error": f"generation failed: {ge}", "status": 502}
@@ -8592,8 +8679,9 @@ def _fivebyfive_step_no(name):
 
 def _apply_fivebyfive_overrides(camp_type, campaign_data):
     """Stamp the Arena 5×5's two hand-authored touches and pin its schedule.
+    The Client Lookalike is a 5×5 with its own opener, so it gets them too.
     No-op for any other campaign type. Idempotent."""
-    if (camp_type or "").strip() != "fivebyfive":
+    if (camp_type or "").strip() not in ("fivebyfive", "clientlookalike"):
         return campaign_data
     for em in (campaign_data or {}).get("emails", []) or []:
         n = _fivebyfive_step_no(em.get("name"))
@@ -8611,6 +8699,79 @@ def _apply_fivebyfive_overrides(camp_type, campaign_data):
                                   + _FIVEBYFIVE_INTERVIEW_LINE + "</div>")
                 else:
                     em["body"] = body + _FIVEBYFIVE_INTERVIEW_LINE
+    return campaign_data
+
+
+def _clientlookalike_titles(source_titles, roles):
+    """The two titles Email 1 names: the ones asked for, else the first two
+    target roles. Blanks and repeats dropped."""
+    out = []
+    for t in list(source_titles or []) + list(roles or []):
+        t = str(t or "").strip()
+        if t and t.lower() not in (o.lower() for o in out):
+            out.append(t)
+    return out[:2]
+
+
+def _clientlookalike_opener(source_company, titles):
+    """Email 1's first sentence, e.g. "I'm working with a couple of
+    candidates coming out of Bernard, a Superintendent and a Project
+    Manager, and you came to mind." Empty without a company."""
+    co = (source_company or "").strip()
+    if not co:
+        return ""
+
+    def _a(t):
+        return ("an " if t[:1].lower() in "aeiou" else "a ") + t
+
+    if len(titles) >= 2:
+        who = ", %s and %s," % (_a(titles[0]), _a(titles[1]))
+    elif titles:
+        who = ", both with %s backgrounds," % titles[0]
+    else:
+        who = ""
+    return ("I'm working with a couple of candidates coming out of %s%s and "
+            "you came to mind." % (co, who))
+
+
+def _clientlookalike_block(source_company, titles):
+    """SOURCE CANDIDATES block for the build prompt."""
+    opener = _clientlookalike_opener(source_company, titles)
+    if not opener:
+        return ""
+    return ("SOURCE CANDIDATES:\n"
+            "- Company they are coming out of: %s\n"
+            "- Their titles: %s\n"
+            "- OPENING LINE (Step 1, word for word): %s\n\n"
+            % (source_company.strip(), " and ".join(titles) or "not given",
+               opener))
+
+
+def _apply_clientlookalike_overrides(camp_type, campaign_data,
+                                     source_company="", titles=()):
+    """Make sure Email 1 names the source company. If the model left it out,
+    put the opening line in as the first sentence. No-op for any other type,
+    or without a source company. Idempotent."""
+    if (camp_type or "").strip() != "clientlookalike":
+        return campaign_data
+    co = (source_company or "").strip()
+    opener = _clientlookalike_opener(co, list(titles or []))
+    if not opener:
+        return campaign_data
+    for em in (campaign_data or {}).get("emails", []) or []:
+        if _fivebyfive_step_no(em.get("name")) != 1:
+            continue
+        body = em.get("body") or ""
+        if co.lower() in body.lower():
+            break
+        m = re.search(r"Hi \{FirstName\},?(?:\s*<br\s*/?>)*\s*", body)
+        if m:
+            em["body"] = (body[:m.end()].rstrip() + ("" if m.group().count("<br")
+                          else "<br><br>") + opener + "<br><br>"
+                          + body[m.end():])
+        else:
+            em["body"] = opener + "<br><br>" + body
+        break
     return campaign_data
 
 
@@ -8757,7 +8918,7 @@ def _pdf_campaign_subject(camp):
         camp.get("candidate_role") or camp.get("candidate_name")
         or camp.get("market_niche")
         or (camp.get("_chooser_origin") in ("candidate", "fourbyfour", "fivebyfive", "fivebythree",
-                                            "fivebyseven"))
+                                            "fivebyseven", "clientlookalike"))
         or re.match(r"(?i)^(find candidates|arena\s*[45]|[45]\s*x\s*[45]|mpc)\b",
                     (camp.get("name") or "").strip()))
     if not company and not _is_recruiting:
@@ -38894,7 +39055,8 @@ def p_ai_campaign(s: AppState, rf):
                 if _hide_4x4 and (s.aicb_camp_type or "") == "fourbyfour":
                     s.aicb_camp_type = "byos"
                 _src_types = [ct for ct in AICB_CAMPAIGN_TYPES
-                              if not (_hide_4x4 and ct[0] == "fourbyfour")]
+                              if not (_hide_4x4 and ct[0] == "fourbyfour")
+                              and ct[0] not in _API_ONLY_TYPES]
                 _all_types = [ct for ct in _src_types if ct[0] == "byos"] + \
                              [ct for ct in _src_types if ct[0] != "byos"]
                 for ckey, cname, cmeta, ccolor, cdesc, cbest, cseq in _all_types:

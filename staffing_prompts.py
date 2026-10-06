@@ -368,6 +368,25 @@ def _size_clause(size):
     return "of about %s" % size
 
 
+def _source_clause(r, d):
+    """The Client Lookalike sequence's two extra create_campaign arguments.
+    Nothing for any other job, or once a different sequence is picked."""
+    if "seed" not in r["field_by_key"]:
+        return ""
+    if (d.get("sequence") or LOOKALIKE_SEQUENCE) != LOOKALIKE_SEQUENCE:
+        return ""
+    return (" Set source_company to the company name behind %s, written the "
+            "way people say it, not as a web address, and source_titles to "
+            "two job titles: the two of %s that company is actually hiring "
+            "for, or the first two if you can't tell, each written as one "
+            "person's title (\"Superintendent\", not \"superintendents\"). "
+            "Email 1 opens on two "
+            "candidates coming out of %s, one per title, so never leave "
+            "source_company out." % (d.get("seed") or "the starting company",
+                                     d.get("roles") or "the roles above",
+                                     d.get("seed") or "that company"))
+
+
 def _derive_staffing(r, vals, d):
     """Engine hook. A blank targeting answer means "use the recommendation
     for the market I picked", so the prompt always carries a concrete band,
@@ -384,6 +403,7 @@ def _derive_staffing(r, vals, d):
                 and not str(vals.get(key) or "").strip()):
             d[key] = vals[key] = _rec_for(r, v, key, attr)
     d["size_clause"] = _size_clause(d.get("company_size"))
+    d["source_clause"] = _source_clause(r, d)
     if "signals" in r["field_by_key"]:
         # No key = a request that never saw the screen, which gets the
         # recommendation. An EMPTY key = someone cleared the list on
@@ -514,10 +534,11 @@ def _newsletter_fields():
     ]
 
 
-def _email_fields(name_default="the company name"):
+def _email_fields(name_default="the company name", sequence="Arena 5x5",
+                  sequences=SEQUENCES):
     return [
         F("sequence", "Which sequence", "emails", "select",
-          default="Arena 5x5", options=SEQUENCES),
+          default=sequence, options=sequences),
         F("saved_style", "Which saved style", "emails",
           hint="Picking one sets the sequence to your saved style."),
         *start_fields(),
@@ -568,6 +589,13 @@ _SCORE_STEP = (
     "buyer is reachable. For every pick give the concrete signal that "
     "earned it, the actual fact from what you read, not \"good fit\". For "
     "every reserve give its demerit.")
+
+# "Find Companies Similar to a Client" writes its own sequence by default:
+# email 1 opens on two candidates coming out of the starting company, one
+# title each (Mike, 2026-10-06). It is offered on that job only.
+LOOKALIKE_SEQUENCE = "Arena Client Lookalike"
+_LOOKALIKE_BUILD_STEP = _BUILD_STEP.replace(
+    "{name_clause}", "{name_clause}{source_clause}")
 
 _CAMPAIGN_TOOLS = ["campaign_types", "my_campaign_styles", "campaigns_list",
                    "create_campaign"]
@@ -635,12 +663,14 @@ ROUTINES = [
         "fields": [
             F("seed", "Which company to start from", "details", ask=True,
               hint="A client, or any company that looks like the ones you "
-                   "want more of. It shapes the search and is never named in "
-                   "the emails.",
+                   "want more of. It shapes the search, and the emails open "
+                   "on two candidates you're working with from it.",
               placeholder="A website, e.g. acmemechanical.com"),
             _vertical_field(),
             _location_field(),
-        ] + _targeting_fields() + _newsletter_fields() + _email_fields() + [
+        ] + _targeting_fields() + _newsletter_fields() + _email_fields(
+            sequence=LOOKALIKE_SEQUENCE,
+            sequences=[LOOKALIKE_SEQUENCE] + SEQUENCES) + [
             F("lookalike_pool", "How many lookalikes to pull before scoring",
               "size", "number", default="40"),
         ] + _size_fields("10") + SKIP_FIELDS,
@@ -659,7 +689,7 @@ ROUTINES = [
             "ones with an opening first.",
             _CONTACTS_STEP,
             _SHOW_STEP,
-            _BUILD_STEP,
+            _LOOKALIKE_BUILD_STEP,
         ],
     },
     {

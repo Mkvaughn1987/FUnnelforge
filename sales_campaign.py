@@ -2404,7 +2404,8 @@ def _sc_form(s, rf, owner):
                 # (key, name, duration, colour, ...) - show the duration,
                 # it is the difference the user actually cares about.
                 _tpl_opts = {t[0]: "%s  -  %s" % (t[1], t[2])
-                             for t in ff.AICB_CAMPAIGN_TYPES}
+                             for t in ff.AICB_CAMPAIGN_TYPES
+                             if t[0] not in ff._API_ONLY_TYPES}
                 _tpl = ui.select(
                     options=_tpl_opts,
                     value="fivebyfive" if "fivebyfive" in _tpl_opts
