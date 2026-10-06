@@ -12104,6 +12104,9 @@ SIDEBAR_NAV = [
         ("ai_prompts",  "AI Prompts",      "ai_prompts"),
         ("assets",      "Sales Assets",    "pdf_gen"),
     ]),
+    ("PERFORMANCE", [
+        ("analytics",   "Outreach Analytics", "outreach_analytics"),
+    ]),
 ]
 # Campaigns' views, rendered as sub-rows under the Campaigns row while any of
 # them is open. The third field is a view key, not a page key: Active and
@@ -12138,6 +12141,7 @@ SIDEBAR_PAGE_ROW = {
     "ai_settings": "settings", "company_profile": "settings", "team_settings": "settings",
     "signature": "settings", "e_signature": "settings", "timezone": "settings", "dnc": "settings",
     "admin": "admin",
+    "outreach_analytics": "analytics",
 }
 # Compact page header titles. Fallback: the page key, humanised.
 SIDEBAR_TITLES = {
@@ -12147,6 +12151,7 @@ SIDEBAR_TITLES = {
     "seq_mgr": "Campaigns", "active_camps": "Campaigns", "queue": "Email Queue",
     "evergreen": "Nurture Campaigns", "evergreen_create": "New Nurture Campaign",
     "newsletters": "Newsletters", "pdf_gen": "Sales Assets", "ai_prompts": "AI Prompts",
+    "outreach_analytics": "Outreach Analytics",
     "ai_settings": "Email & AI Setup", "company_profile": "My Profile",
     "team_settings": "Team", "signature": "Signature", "e_signature": "Signature",
     "timezone": "Timezone", "dnc": "Do Not Contact", "admin": "Admin",
@@ -13657,6 +13662,7 @@ _SIDEBAR_ICONS = {
     "logout":     '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" x2="9" y1="12" y2="12"/>',
     "external":   '<path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>',
     "dot":        '<circle cx="12" cy="12" r="3"/>',
+    "analytics":  '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>',
 }
 
 
