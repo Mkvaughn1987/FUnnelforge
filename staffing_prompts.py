@@ -541,9 +541,9 @@ def _email_fields(name_default="the company name", sequence="Arena 5x5",
                   sequences=SEQUENCES):
     return [
         F("sequence", "Which sequence", "emails", "select",
-          default=sequence, options=sequences),
+          default=sequence, options=sequences, refresh=True),
         F("saved_style", "Which saved style", "emails",
-          hint="Picking one sets the sequence to your saved style."),
+          show_if=_e._if_saved_style),
         *start_fields(),
         F("campaign_name", "What to call the campaigns", "emails",
           default=name_default),

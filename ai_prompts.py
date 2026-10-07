@@ -244,7 +244,10 @@ WHEN_OPTIONS = ["Next Monday", "The Monday after next", "8am tomorrow",
 POSTING_AGE = ["Posted in the last 7 days", "Posted in the last 14 days",
                "Posted in the last 30 days", "Posted in the last 60 days"]
 
-CADENCE = ["Every day", "Every other day", "Once a week"]
+# Daily runs flooded the inbox, so the menu starts at weekly. "Every day" and
+# "Every other day" still work for the two cards that open on them (LinkedIn
+# touches, resume sweep): the select keeps a value that is not on its menu.
+CADENCE = ["Once a week", "Once every other week", "Once a month"]
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 TIMES = ["7:00am", "8:00am", "9:00am", "10:00am", "1:00pm", "3:00pm"]
 ZONES = ["Mountain", "Central", "Eastern", "Pacific"]
@@ -265,6 +268,12 @@ def _cadence_of(r, vals):
 def _if_repeat(r, vals):
     """Nothing about the schedule is asked until there is a schedule."""
     return _flag(r, vals, "repeat_on")
+
+
+def _if_saved_style(r, vals):
+    """"Which saved style" is only asked once the sequence says to use one.
+    Shown next to an Arena sequence it read as a second, competing choice."""
+    return str(_val(r, vals, "sequence") or "").startswith("One of my saved")
 
 
 def _if_pick_date(r, vals):
@@ -445,9 +454,9 @@ ROUTINES = [
               hint="Leave this blank and the AI picks whichever of your "
                    "newsletters is in the same line of work."),
             F("sequence", "Which sequence", "emails", "select",
-              default="Arena 5x5", options=SEQUENCES),
+              default="Arena 5x5", options=SEQUENCES, refresh=True),
             F("saved_style", "Which saved style", "emails",
-              hint="Picking one sets the sequence to your saved style."),
+              show_if=_if_saved_style),
             *start_fields(),
             F("campaign_name", "What to call the campaigns", "emails",
               default="the company name"),
@@ -522,9 +531,9 @@ ROUTINES = [
               hint="Leave this blank and the AI picks whichever of your "
                    "newsletters is in the same line of work."),
             F("sequence", "Which sequence", "emails", "select",
-              default="Arena 5x5", options=SEQUENCES),
+              default="Arena 5x5", options=SEQUENCES, refresh=True),
             F("saved_style", "Which saved style", "emails",
-              hint="Picking one sets the sequence to your saved style."),
+              show_if=_if_saved_style),
             *start_fields(),
             F("campaign_name", "What to call the campaigns", "emails",
               default="the company name"),
@@ -600,9 +609,9 @@ ROUTINES = [
               hint="Leave this blank and the AI picks whichever of your "
                    "newsletters is in the same line of work."),
             F("sequence", "Which sequence", "emails", "select",
-              default="Arena 5x5", options=SEQUENCES),
+              default="Arena 5x5", options=SEQUENCES, refresh=True),
             F("saved_style", "Which saved style", "emails",
-              hint="Picking one sets the sequence to your saved style."),
+              show_if=_if_saved_style),
             F("pin_slate", "Send these exact people, or let DripDrop pick",
               "emails", "select", default="Send these exact people",
               options=["Send these exact people",
@@ -883,9 +892,9 @@ ROUTINES = [
               hint="Leave this blank and the AI picks whichever of your "
                    "newsletters is in the same line of work."),
             F("sequence", "Which sequence", "emails", "select",
-              default="Arena 5x5", options=SEQUENCES),
+              default="Arena 5x5", options=SEQUENCES, refresh=True),
             F("saved_style", "Which saved style", "emails",
-              hint="Picking one sets the sequence to your saved style."),
+              show_if=_if_saved_style),
             *start_fields(),
             F("campaign_name", "What to call it", "emails"),
             F("email_cap", "Most emails this run should send", "size",
@@ -1790,7 +1799,10 @@ def _repeat_when(r, vals):
         days = _days_list(_val(r, vals, "repeat_days")) or \
             ["Monday", "Wednesday", "Friday"]
         return "every other day (%s)" % _and_list(days)
-    return "%s on %s" % (cad, _txt(r, vals, "repeat_day") or "Monday")
+    day = _txt(r, vals, "repeat_day") or "Monday"
+    if cad == "once a month":
+        return "once a month, on the first %s of the month" % day
+    return "%s on %s" % (cad, day)
 
 
 def _open_questions(r, vals, extra=()):
@@ -3712,20 +3724,15 @@ def _saved_style_names():
 
 
 def _saved_style_select(rf, vals, cur):
-    """"Which saved style" as a dropdown of their saved styles. Picking one
-    switches "Which sequence" to "One of my saved styles" so the two never
-    disagree. A name not in the list (an old setup) is kept."""
+    """"Which saved style" as a dropdown of their saved styles. Only shown
+    once "Which sequence" is "One of my saved styles" (_if_saved_style). A
+    name not in the list (an old setup) is kept."""
     names = _saved_style_names()
     if cur and cur not in names:
         names = [cur] + names
-    saved_seq = next(s for s in SEQUENCES if s.startswith("One of my saved"))
 
     def _set(e):
-        v = str(e.value or "").strip()
-        vals["saved_style"] = v
-        if v and vals.get("sequence") != saved_seq:
-            vals["sequence"] = saved_seq
-            rf()
+        vals["saved_style"] = str(e.value or "").strip()
 
     ui.select(options=names, value=cur or None, with_input=True,
               clearable=True, on_change=_set).props(
@@ -3906,7 +3913,7 @@ def _aip_schedule_choice(rf, C, vals, on):
                 (False, "looks_one", "Just this once",
                  "Run it now and stop."),
                 (True, "event_repeat", "On a schedule",
-                 "Run it again every day or week.")):
+                 "Run it again every week, two weeks or month.")):
             with ui.element("div").classes(
                     "aip-tile" + (" on" if on == v else "")).on(
                     "click", lambda _e, _v=v: _set(_v)):

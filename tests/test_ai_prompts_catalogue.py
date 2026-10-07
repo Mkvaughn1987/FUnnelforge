@@ -280,10 +280,12 @@ def test_arena_declares_neither_hook_and_never_uses_checks(aip):
             assert f["type"] != "checks", (r["key"], f["key"])
             # The schedule questions redraw the screen (v10: a settled
             # question disappears), and so does the start question (its
-            # date and time boxes appear); nothing else on Arena does.
+            # date and time boxes appear), and so does the sequence (the
+            # saved-style box appears); nothing else on Arena does.
             assert f["refresh"] is (f["key"] in ("repeat_on",
                                                  "repeat_every",
-                                                 "start_when")),                 (r["key"], f["key"])
+                                                 "start_when",
+                                                 "sequence")),                 (r["key"], f["key"])
     # With no hook the engine has no menu, so a checks field falls back to
     # a plain box rather than disappearing.
     r, cat = _checks_cat(aip)
