@@ -235,8 +235,18 @@ WHEN_OPTIONS = ["Next Monday", "The Monday after next", "8am tomorrow",
 POSTING_AGE = ["Posted in the last 7 days", "Posted in the last 14 days",
                "Posted in the last 30 days", "Posted in the last 60 days"]
 
-CADENCE = ["Every weekday", "Every day", "Every week", "Every two weeks",
-           "Every month"]
+# Daily runs flooded the inbox, so the menu starts at weekly (Mike
+# 2026-10-07). A setup saved under the old names opens on the new ones.
+CADENCE = ["Once a week", "Once every other week", "Once a month"]
+CADENCE_LEGACY = {"every week": "Once a week",
+                  "every two weeks": "Once every other week",
+                  "every month": "Once a month"}
+
+
+def _migrate_cadence(vals):
+    hit = CADENCE_LEGACY.get(str(vals.get("repeat_every") or "").strip().lower())
+    if hit:
+        vals["repeat_every"] = hit
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 TIMES = ["7:00am", "8:00am", "9:00am", "10:00am", "1:00pm", "3:00pm"]
 
@@ -276,7 +286,7 @@ UNATTENDED = ["Stop and check with me first", "Run it all the way through"]
 COMMON_FIELDS = [
     F("repeat_on", "Run this again on a schedule", "repeat", "toggle",
       default=False),
-    F("repeat_every", "How often", "repeat", "select", default="Every week",
+    F("repeat_every", "How often", "repeat", "select", default="Once a week",
       options=CADENCE),
     F("repeat_day", "Which day", "repeat", "select", default="Monday",
       options=DAYS),
@@ -1594,13 +1604,15 @@ def build_prompt(req, cat=None):
         L += _bullet(cat.unattended_rule if (i == 0 and solo) else rule)
 
     if _flag(r, vals, "repeat_on"):
-        every = (_txt(r, vals, "repeat_every") or "every week").lower()
+        every = (_txt(r, vals, "repeat_every") or "once a week").lower()
+        every = CADENCE_LEGACY.get(every, every).lower()
         # A daily cadence has no weekday to name - "every weekday on Monday"
         # reads as a contradiction and leaves Claude to pick which half of it
         # to believe.
         when = ("" if every.startswith("every day")
                 or every.startswith("every weekday")
-                else " on %s" % (_txt(r, vals, "repeat_day") or "Monday"))
+                else (", on the first %s of the month" if every == "once a month"
+                      else " on %s") % (_txt(r, vals, "repeat_day") or "Monday"))
         L += ["", "THEN MAKE IT REPEAT"]
         L += _wrap("Run this again %s%s at %s %s time, and keep running "
                    "it on that schedule."
@@ -3164,7 +3176,7 @@ def _aip_schedule_choice(rf, C, vals, on):
                 (False, "looks_one", "Just this once",
                  "Run it now and stop."),
                 (True, "event_repeat", "On a schedule",
-                 "Run it again every day or week.")):
+                 "Run it again every week, two weeks or month.")):
             with ui.element("div").classes(
                     "aip-tile" + (" on" if on == v else "")).on(
                     "click", lambda _e, _v=v: _set(_v)):
@@ -3184,6 +3196,7 @@ def _aip_confirm(s, rf, C):
     vals = req.setdefault("vals", defaults_for(r))
     for f in r["fields"]:
         vals.setdefault(f["key"], f["default"])
+    _migrate_cadence(vals)
     # Show the recommendation in the box rather than behind a placeholder.
     # Every render, because the answer it recommends follows from another
     # answer on the same screen: change the vertical and these follow it.
