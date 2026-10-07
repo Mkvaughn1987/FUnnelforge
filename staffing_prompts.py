@@ -569,7 +569,8 @@ _CONTACTS_STEP = (
     "guessing at addresses.")
 
 _SHOW_STEP = (
-    "Show me the companies, the signal on each one, the contacts and the "
+    "Show me the companies, the signal on each one,{cand_show} the "
+    "contacts and the "
     "total send volume. This run must not send more than {email_cap} emails "
     "- if it would, cut the weakest companies until it doesn't. Then "
     "{gate}.")
@@ -577,7 +578,8 @@ _SHOW_STEP = (
 _BUILD_STEP = (
     "{go_prefix} build one campaign per company with create_campaign using "
     "{template_clause}, start_date {start_date}, and industry, location and "
-    "roles set from THE DETAILS above.{name_clause}{newsletter_clause} Read "
+    "roles set from THE DETAILS above.{cand_pass}{name_clause}"
+    "{newsletter_clause} Read "
     "back the campaign id, the step count and the queued-contact count for "
     "every one, and tell me about any that came back short.")
 
@@ -629,7 +631,8 @@ ROUTINES = [
               "details",
               placeholder="Optional - e.g. they just lost their "
                           "superintendent to a competitor"),
-        ] + _newsletter_fields() + _email_fields() + _size_fields() + [
+        ] + _e.candidate_fields() + _newsletter_fields() + _email_fields() \
+          + _size_fields() + [
             F("posting_age", "How recent the job postings have to be", "size",
               "select", default="Posted in the last 30 days",
               options=STAFF_POSTING_AGE),
@@ -644,6 +647,7 @@ ROUTINES = [
             "{skip_clause}",
             _SCORE_STEP,
             _CONTACTS_STEP,
+            "{cand_step}",
             _SHOW_STEP,
             _BUILD_STEP,
         ],
@@ -668,7 +672,8 @@ ROUTINES = [
               placeholder="A website, e.g. acmemechanical.com"),
             _vertical_field(),
             _location_field(),
-        ] + _targeting_fields() + _newsletter_fields() + _email_fields(
+        ] + _targeting_fields() + _e.candidate_fields() \
+          + _newsletter_fields() + _email_fields(
             sequence=LOOKALIKE_SEQUENCE,
             sequences=[LOOKALIKE_SEQUENCE] + SEQUENCES) + [
             F("lookalike_pool", "How many lookalikes to pull before scoring",
@@ -688,6 +693,7 @@ ROUTINES = [
             "list if it resembles the seed closely, but say so, and rank the "
             "ones with an opening first.",
             _CONTACTS_STEP,
+            "{cand_step}",
             _SHOW_STEP,
             _LOOKALIKE_BUILD_STEP,
         ],
@@ -715,7 +721,8 @@ ROUTINES = [
               "details",
               placeholder="Optional - e.g. the name of an agency you "
                           "compete with"),
-        ] + _newsletter_fields() + _email_fields() + _size_fields() + [
+        ] + _e.candidate_fields() + _newsletter_fields() + _email_fields() \
+          + _size_fields() + [
             F("posting_age", "How recent the job postings have to be", "size",
               "select", default="Posted in the last 30 days",
               options=STAFF_POSTING_AGE),
@@ -738,6 +745,7 @@ ROUTINES = [
             "other agency and never runs it down: it offers to get the role "
             "filled.",
             _CONTACTS_STEP,
+            "{cand_step}",
             _SHOW_STEP,
             _BUILD_STEP,
         ],

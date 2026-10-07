@@ -362,6 +362,38 @@ NEWSLETTER_DEFAULT = NEWSLETTER_MODES[0]
 NEWSLETTER_KEYS = {"newsletter_mode", "newsletter"}
 
 
+# Who goes in front of each company, on every run that carries a candidate
+# slate (Mike, 2026-10-06). One block, read top to bottom in the order the
+# slots fill: the people you picked (only where they fit), then DripDrop's
+# best Pipeline matches for that company's job, then AI candidates for
+# whatever is still open. "Just use AI candidates" on the screen is the
+# shortcut for the last one alone. The MPC run keeps its own picker: there
+# the people ARE the run.
+CAND_MAX = 3
+CAND_KEYS = ("cand_picks", "cand_match", "cand_ai")
+
+
+def candidate_fields():
+    return [
+        F("cand_picks", "Pick from your Pipeline", "details", "people",
+          hint="Optional. Each one only goes to companies whose opening "
+               "they fit.",
+          placeholder="Search your Pipeline"),
+        F("cand_match", "Let DripDrop add the best Pipeline matches for "
+          "each job", "details", "toggle", default=True),
+        F("cand_ai", "Fill any open spots with AI candidates", "details",
+          "toggle", default=True),
+    ]
+
+
+def _migrate_candidates(vals):
+    """A Present Candidates setup saved before the block opens on it: the old
+    "If the Pipeline comes up short" answer becomes the AI box."""
+    old = str(vals.get("ai_fallback") or "")
+    if old and "cand_ai" not in vals:
+        vals["cand_ai"] = old.startswith("Have DripDrop")
+
+
 ROUTINES = [
     {
         "key": "slate_campaign",
@@ -380,17 +412,7 @@ ROUTINES = [
               placeholder="e.g. Colorado and Wyoming"),
             F("roles", "What jobs they're hiring for", "details", ask=True,
               placeholder="e.g. plant managers and maintenance techs"),
-            F("slate_size", "How many candidates to put in front of each "
-              "company", "details", "number", default="3",
-              hint="1 is the fewest, 6 the most a campaign will carry."),
-            F("ai_fallback", "If the Pipeline comes up short", "details",
-              "select", default="Have DripDrop's AI build the rest",
-              options=["Have DripDrop's AI build the rest",
-                       "Send fewer - real bench people only"],
-              hint="The same choice as Create profiles with AI on the "
-                   "Candidates step of the sequence wizard: an anonymous "
-                   "sample profile built from the job title and what the "
-                   "posting is asking for."),
+            *candidate_fields(),
             F("anonymise", "Hide their names and current employers", "details",
               "toggle", default=True),
             F("company_size", "How big a company", "details",
@@ -434,14 +456,7 @@ ROUTINES = [
             "the concrete signal that earned it, the actual fact from the "
             "posting, not \"good fit\". For every reserve give its "
             "demerit.",
-            "Now build the slate. For each company, search the DripDrop "
-            "Pipeline with candidates_search for {slate_size} people who "
-            "genuinely fit the openings you found there. Use a limit of 1 or "
-            "2 per query - the full resume text is large and a wide query "
-            "will blow the context. Score each one against the actual "
-            "posting and say what the evidence was. The same title is not "
-            "the same job.",
-            "{fallback_clause}",
+            "{cand_step}",
             "Pull the buying centre for each company out of ZoomInfo. Aim "
             "for {contacts_each} contacts per company; 3 is the floor that "
             "qualifies a company at all, 15 is the cap. Work down "
@@ -452,13 +467,8 @@ ROUTINES = [
             "companies until it doesn't. Then {gate}.",
             "{go_prefix} build one campaign per company with create_campaign "
             "using {template_clause}, start_date {start_date}, and industry, "
-            "location and roles set from THE DETAILS above. Pass that "
-            "company's {slate_size} people in the candidates argument, one "
-            "card each, shaped {{\"label\": \"Candidate A\", \"role\": a real "
-            "job title, \"bullets\": three bullets}} - and each bullet is a "
-            "skillset, a notable project, or a company they have worked for. "
-            "No years-of-experience, location or salary "
-            "bullets.{anon_clause}{name_clause}{newsletter_clause} Read back "
+            "location and roles set from THE DETAILS above.{cand_pass}"
+            "{anon_clause}{name_clause}{newsletter_clause} Read back "
             "the campaign id, the step count, the queued-contact count and "
             "which slate went out for every one, and tell me about any that "
             "came back short.",
@@ -1373,6 +1383,84 @@ CADENCE_KEY = {
 }
 
 
+def _cand_clauses(r, vals):
+    """The candidate block as three sentences: the step that fills each
+    company's slate, what the build step passes, and a word for the review
+    step. Slots fill in screen order - picked people where they fit,
+    DripDrop's Pipeline matches, then AI candidates - and three picks fill
+    every slot, so the two boxes below them stop counting."""
+    picks = _people_list(_val(r, vals, "cand_picks"))[:CAND_MAX]
+    room = len(picks) < CAND_MAX
+    match = room and _flag(r, vals, "cand_match")
+    ai = room and _flag(r, vals, "cand_ai")
+    out = {"cand_step": "", "cand_show": "", "cand_search": "",
+           "cand_pass": " Send it without candidates: leave the candidates "
+                        "argument out."}
+    if not (picks or match or ai):
+        return out
+
+    if picks or match:
+        out["cand_search"] = "yes"
+    lines = ["Now the candidates: up to %d per company, filled in this "
+             "order." % CAND_MAX]
+    lead = "First,"
+    if picks:
+        lines.append(
+            "%s the people I picked from my Pipeline: %s. Look each one up "
+            "with candidates_search using their Ref # as the query (\"Ref "
+            "#1042\") and a limit of 1 - the full resume text is large - and "
+            "keep the id that comes back. Put a picked person on a company "
+            "only if their background genuinely fits that company's opening "
+            "- the same title is not the same job - and leave them off the "
+            "companies they don't fit." % (lead, PEOPLE_SEP.join(picks)))
+        lead = "Then"
+    if match:
+        lines.append(
+            "%s fill the open spots at each company with the best fits from "
+            "my DripDrop Pipeline: search candidates_search against what "
+            "that company's opening actually asks for, with a limit of 1 or "
+            "2 per query - a wide query will blow the context. Score each "
+            "one against the posting, say what the evidence was, and keep "
+            "the id that comes back. Never put the same person on a company "
+            "twice, and never add someone who does not fit just to fill a "
+            "spot." % lead)
+        lead = "Then"
+    if ai:
+        lines.append(
+            "%s fill %s with an AI candidate, the way DripDrop's own Create "
+            "profiles with AI step does: an anonymous sample profile built "
+            "from the job title and what the posting asks for - the right "
+            "level, the focus, the certifications. Never give one a real "
+            "person's name or employer."
+            % (lead, "every spot still open" if lead == "Then"
+               else "all %d spots at each company" % CAND_MAX))
+    else:
+        lines.append("If a company still has open spots after that, send it "
+                     "with the people you have. Do not invent anyone to fill "
+                     "the slate, and tell me which companies went out light.")
+    out["cand_step"] = " ".join(lines)
+    out["cand_show"] = " the candidates going to each one,"
+
+    real = ("A Pipeline person's card also carries \"_pool_id\": the id from "
+            "candidates_search, so DripDrop sends that exact person."
+            if picks or match else "")
+    fake = ("An AI candidate's card also carries \"_synthetic\": true."
+            if ai else "")
+    kinds = [k for k, on in (("which were people I picked", picks),
+                             ("which were Pipeline matches", match),
+                             ("which were AI candidates", ai)) if on]
+    say = (" In your read-back, say for every company %s." % _and_list(kinds)
+           if len(kinds) > 1 else "")
+    card = ("Pass that company's candidates in the candidates argument in "
+            "that order, one card each, labelled Candidate A, Candidate B, "
+            "Candidate C, shaped {\"label\": \"Candidate A\", \"role\": a "
+            "real job title, \"bullets\": three bullets}. Each bullet is a "
+            "skillset, a notable project, or a company they have worked "
+            "for. No years-of-experience, location or salary bullets.")
+    out["cand_pass"] = " " + " ".join(p for p in (card, real, fake) if p) + say
+    return out
+
+
 def _derived(r, vals, cat=None):
     """Everything a step template can ask for: the raw answers by key, plus
     the sentences that only make sense once several answers are read
@@ -1449,29 +1537,8 @@ def _derived(r, vals, cat=None):
         " Do not use their names or their current employers anywhere in the "
         "outreach. Describe them by what they have actually done."
         if _flag(r, vals, "anonymise") else "")
-    # What to do when the bench cannot fill the slate. "Have DripDrop's AI
-    # build the rest" is the same thing as the wizard's Create profiles with
-    # AI button: an anonymous archetype card, not a real person, and the
-    # read-back has to say which is which.
-    n_slate = _n(r, vals, "slate_size", 3)
-    if (d.get("ai_fallback") or "").startswith("Have DripDrop"):
-        d["fallback_clause"] = (
-            "If a company comes up short - fewer than %d real people in the "
-            "Pipeline who actually fit - do not drop the company and do not "
-            "pad the slate with someone who does not fit. Fill the gap the "
-            "way DripDrop's own Create profiles with AI step does: write "
-            "each missing one as an anonymous sample profile built from the "
-            "job title and what the posting is asking for - the right level, "
-            "the focus, the certifications - and label them Candidate A, "
-            "Candidate B, Candidate C in order. Never give a sample profile "
-            "a real person's name or employer. In your read-back, say for "
-            "every company which slots are real bench people and which are "
-            "AI-built samples." % n_slate)
-    else:
-        d["fallback_clause"] = (
-            "If a company comes up short, send the real people you have and "
-            "nothing else. Do not invent a profile to fill the slate. Tell "
-            "me which companies went out light and how light.")
+    if "cand_picks" in r["field_by_key"]:
+        d.update(_cand_clauses(r, vals))
 
     d["breadth_clause"] = (
         " Sweep for every one you can find rather than stopping at the first "
@@ -1920,6 +1987,7 @@ def build_prompt(req, cat=None):
     r = cat.routine_by_key.get(req.get("routine") or "",
                            cat.routine_by_key[cat.default_routine])
     vals = dict(req.get("vals") or {})
+    _migrate_candidates(vals)
     d = _derived(r, vals, cat)
     solo = (cat.run_through or bool(r.get("solo"))
             or (_txt(r, vals, "unattended") or "").startswith("Run it all"))
@@ -1936,6 +2004,14 @@ def build_prompt(req, cat=None):
             and any("newsletter_" in st for st in r["steps"])
             and "campaigns_list" not in tools):
         tools.append("campaigns_list")
+    # The candidate block decides whether the Pipeline is searched at all:
+    # an AI-candidates-only run never calls candidates_search, so the prompt
+    # does not name it.
+    if "cand_picks" in r["field_by_key"]:
+        if d.get("cand_search") and "candidates_search" not in tools:
+            tools.insert(0, "candidates_search")
+        elif not d.get("cand_search") and "candidates_search" in tools:
+            tools.remove("candidates_search")
 
     # Only claim the connector when the routine actually reaches for it —
     # a research prompt that opens by naming a tool it never calls reads
@@ -2317,6 +2393,20 @@ def _aip_css():
         # A tick list is a menu, not a form field: it runs the full width
         # of the grid so the why-line under each row has somewhere to go.
         ".aip-wrap .aip-wide{grid-column:1/-1;}"
+        # The candidate block: numbered rows in the order the slots fill.
+        ".aip-wrap .aip-cands{border:1px solid var(--dd-border);"
+        "border-radius:12px;background:var(--dd-bg);padding:14px 16px;"
+        "display:flex;flex-direction:column;gap:12px;max-width:640px;}"
+        ".aip-wrap .aip-cands-head{display:flex;align-items:baseline;"
+        "gap:8px;}"
+        ".aip-wrap .aip-cand-row{display:flex;gap:12px;"
+        "align-items:flex-start;}"
+        ".aip-wrap .aip-cand-n{width:22px;height:22px;flex:none;"
+        "border-radius:999px;display:flex;align-items:center;"
+        "justify-content:center;font-size:11px;font-weight:700;"
+        "color:var(--dd-teal);background:var(--dd-teal_dim);}"
+        ".aip-wrap .aip-cands-or{display:flex;align-items:center;gap:10px;"
+        "padding-top:10px;border-top:1px solid var(--dd-border);}"
         ".aip-wrap .aip-checks{display:grid;gap:9px;margin-top:6px;"
         "grid-template-columns:repeat(auto-fill,minmax(310px,1fr));}"
         ".aip-wrap .aip-check{display:flex;gap:8px;align-items:flex-start;"
@@ -2957,6 +3047,11 @@ def _aip_field(s, rf, C, r, vals, f):
     survives its section being collapsed — a collapsed section is not
     rendered at all, and an unsaved widget value would go with it."""
     key = f["key"]
+    # The candidate block draws all three of its answers as one card.
+    if key in CAND_KEYS and "cand_picks" in r["field_by_key"]:
+        if key == "cand_picks":
+            _candidates_block(s, rf, C, r, vals)
+        return
 
     def _set(e):
         vals[key] = e.value
@@ -3141,15 +3236,18 @@ def _pipeline_people(owner, limit=1500):
         return []
 
 
-def _people_widget(s, vals, f, cur):
+def _people_widget(s, vals, f, cur, after=None):
     """Pick up to PEOPLE_MAX people off the Pipeline; type to filter. Stored
-    as one string so it saves and reads back like every other answer."""
+    as one string so it saves and reads back like every other answer.
+    `after(picked)` runs on every change, for a screen that shows the count."""
     key = f["key"]
     picked = _people_list(cur)
     names = _pipeline_people(_aip_owner(s))
     if not names:
         def _set_txt(e):
             vals[key] = str(e.value or "")
+            if after:
+                after(_people_list(vals[key]))
         ui.input(value=cur, placeholder="Names, or Ref #s",
                  on_change=_set_txt).props("dense").classes("fd-input")
         return
@@ -3161,9 +3259,11 @@ def _people_widget(s, vals, f, cur):
         v = [str(x) for x in (e.value or []) if str(x or "").strip()]
         if len(v) > PEOPLE_MAX:
             v = v[:PEOPLE_MAX]
-            ui.notify("Up to %d people per MPC." % PEOPLE_MAX)
+            ui.notify("Up to %d people." % PEOPLE_MAX)
             sel.value = v
         vals[key] = PEOPLE_SEP.join(v)
+        if after:
+            after(v)
 
     # Pick-only: typing filters the list, it never becomes an answer of its
     # own - with free text on, Enter saved the half-typed filter instead of
@@ -3173,6 +3273,73 @@ def _people_widget(s, vals, f, cur):
         'dense use-chips clearable input-debounce=150 '
         'placeholder="%s"' % f["placeholder"]).classes("fd-input").style(
         "width:100%;")
+
+
+def _candidates_block(s, rf, C, r, vals):
+    """Who goes in front of each company: three numbered rows in the order
+    the slots fill, and a one-click way to skip straight to AI candidates.
+
+    Picking does not re-render (a redraw would close the dropdown under the
+    mouse). The count and the two boxes are updated in place: three picks
+    fill every slot, so the boxes grey out and say why."""
+    fb = r["field_by_key"]
+    picks = _people_list(_val(r, vals, "cand_picks"))
+    boxes = []
+
+    def _sync(v):
+        full = len(v) >= CAND_MAX
+        count.set_text("%d of %d" % (min(len(v), CAND_MAX), CAND_MAX))
+        for cb in boxes:
+            cb.disable() if full else cb.enable()
+        note.set_visibility(full)
+
+    def _ai_only():
+        vals["cand_picks"] = ""
+        vals["cand_match"] = False
+        vals["cand_ai"] = True
+        rf()
+
+    with ui.element("div").classes("aip-cands"):
+        with ui.element("div").classes("aip-cands-head"):
+            ui.label("Candidates").classes("fd-fl").style("margin:0;")
+            ui.label("up to %d per company" % CAND_MAX).style(
+                f"font-size:11px;color:{C['muted']};")
+
+        with ui.element("div").classes("aip-cand-row"):
+            ui.label("1").classes("aip-cand-n")
+            with ui.element("div").style("flex:1;min-width:0;"):
+                with ui.element("div").style(
+                        "display:flex;align-items:baseline;gap:8px;"):
+                    ui.label(fb["cand_picks"]["label"]).style(
+                        f"font-size:12.5px;font-weight:600;"
+                        f"color:{C['text_l']};flex:1;")
+                    count = ui.label("").style(
+                        f"font-size:11px;color:{C['muted']};")
+                ui.label(fb["cand_picks"]["hint"]).style(
+                    f"font-size:10px;color:{C['muted']};display:block;"
+                    f"line-height:1.45;margin:1px 0 5px;")
+                _people_widget(s, vals, fb["cand_picks"],
+                               str(_val(r, vals, "cand_picks") or ""),
+                               after=_sync)
+
+        for n, key in ((2, "cand_match"), (3, "cand_ai")):
+            with ui.element("div").classes("aip-cand-row"):
+                ui.label(str(n)).classes("aip-cand-n")
+                cb = ui.checkbox(
+                    fb[key]["label"], value=_flag(r, vals, key),
+                    on_change=lambda e, _k=key: vals.__setitem__(_k, e.value))
+                cb.style(f"color:{C['text_l']};font-size:12.5px;"
+                         f"margin:-6px 0 0 -8px;")
+                boxes.append(cb)
+        note = ui.label("Your %d spots are full." % CAND_MAX).style(
+            f"font-size:11px;color:{C['muted']};display:block;"
+            f"margin:-2px 0 0 34px;")
+
+        with ui.element("div").classes("aip-cands-or"):
+            ui.label("or").style(f"font-size:11px;color:{C['muted']};")
+            _btn("Just use AI candidates", _ai_only, lead="auto_awesome",
+                 small=True)
+    _sync(picks)
 
 
 def _aip_checks(s, rf, C, r, vals, f):
@@ -3570,6 +3737,7 @@ def _aip_confirm(s, rf, C):
     r = _CAT.routine_by_key.get(req.get("routine") or "",
                            _CAT.routine_by_key[_CAT.default_routine])
     vals = req.setdefault("vals", defaults_for(r))
+    _migrate_candidates(vals)
     for f in r["fields"]:
         vals.setdefault(f["key"], f["default"])
     _migrate_cadence(vals)
@@ -3685,8 +3853,12 @@ def _aip_confirm(s, rf, C):
                         _aip_recommend(s, rf, C, r, req, key)
                         with ui.element("div").classes("aip-grid"):
                             for f in rows:
+                                if f["key"] in CAND_KEYS[1:] and \
+                                        "cand_picks" in r["field_by_key"]:
+                                    continue
                                 with ui.element("div").classes(
                                         "aip-wide" if f["type"] == "checks"
+                                        or f["key"] == "cand_picks"
                                         else ""):
                                     _aip_field(s, rf, C, r, vals, f)
 
