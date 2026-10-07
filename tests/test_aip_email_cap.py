@@ -72,3 +72,12 @@ def test_typed_answer_is_capped(mods):
     errors = aip.apply_answers(r, vals, {"email_cap": "900"}, aip.ARENA)
     assert not errors
     assert vals["email_cap"] == "500"
+
+
+def test_every_prompt_carries_the_rule(mods):
+    aip, sp = mods
+    for cat in (aip.ARENA, sp.STAFFING):
+        for r in cat.routines:
+            p = aip.build_prompt({"routine": r["key"],
+                                  "vals": aip.defaults_for(r)}, cat)
+            assert "Never send more than 500 emails in one run." in p, r["key"]

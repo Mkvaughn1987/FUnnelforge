@@ -418,6 +418,9 @@ def candidate_fields():
 # box alone goes out at the ceiling rather than under it.
 EMAIL_CAP_MAX = 500
 EMAIL_CAP_HINT = "Up to %d." % EMAIL_CAP_MAX
+EMAIL_CAP_RULE = ("Never send more than %d emails in one run. If the list "
+                  "comes out bigger, keep the best fits up to that number "
+                  "and tell me how many you left out." % EMAIL_CAP_MAX)
 
 
 def clamp_email_cap(vals):
@@ -1249,6 +1252,7 @@ STANDING_RULES = [
     "not determine. Do not guess at a cause and do not pad around it.",
     "Do not invent a specific. Every company, number and date you give me has "
     "to come from something you actually read.",
+    EMAIL_CAP_RULE,
 ]
 
 # The swap when the user chose to let it run start to finish. Everything else
