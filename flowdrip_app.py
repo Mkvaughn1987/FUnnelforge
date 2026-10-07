@@ -13905,6 +13905,16 @@ def _sidebar_setup_status() -> dict:
     return {"email": True, "company": True, "timezone": True, "ready": True}
 
 
+def _reset_ai_prompts(s):
+    """Back to the AI Prompts job picker: drop the job in progress, its
+    prompt, and the answers Back would have restored."""
+    for attr, v in (("_aip_req", None), ("_aip_prompt", None),
+                    ("_aip_back", None), ("_aip_pick", ""),
+                    ("_aip_open", None), ("_aip_saving", False),
+                    ("_aip_err", ""), ("_aip_from_saved", False)):
+        setattr(s, attr, v)
+
+
 def _sidebar_nav(s, rf, k: str, setup: dict, tab: str = ""):
     """Navigate from the sidebar / page header. Mirrors the classic
     sidebar's _go() exactly: setup gate on New Campaign, back-history
@@ -13923,6 +13933,10 @@ def _sidebar_nav(s, rf, k: str, setup: dict, tab: str = ""):
     s.sp = k
     if k == "dashboard":
         s.launch_result = None
+    if k == "ai_prompts":
+        # The sidebar row always opens on "Pick a job", even from halfway
+        # through a job's questions or its finished prompt.
+        _reset_ai_prompts(s)
     if k == "start_seq" and tab == "saved":
         s._tab = "saved"; s._nav_history.clear(); rf(); return
     if k == "start_seq":
