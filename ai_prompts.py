@@ -2265,10 +2265,9 @@ STARTERS = [
     {
         "id": "other",
         "icon": "edit_note",
-        "label": "Something Else - Describe Your Own Task",
-        "sub": "Anything the jobs above do not cover. You write the job in "
-               "your own words on the next screen and the AI turns it into "
-               "the same kind of prompt, with the same rules on it.",
+        "label": "Go Off Script",
+        "sub": "Got an idea that isn't up there? Describe it and I'll "
+               "create it, and you can save it for future runs.",
         # Non-empty on purpose: with the "in one line" box gone this is the
         # only thing left to open WHAT I WANT with. The job itself is the
         # "What you want done" answer, which reaches the prompt through
@@ -2344,7 +2343,7 @@ ARENA = Catalogue(
         ("Find new business", ["staff_signal", "staff_lookalike",
                                "staff_agency", "mpc", "slate"]),
         ("Daily tasks", ["linkedin", "resume_sweep", "zi_seat"]),
-        ("Something else", ["other"]),
+        ("Off script", ["other"]),
     ],
     tile_short={
         "staff_signal": "Companies whose job posts say they need help hiring.",
@@ -2355,7 +2354,8 @@ ARENA = Catalogue(
         "linkedin": "Send the LinkedIn requests on Today's Tasks.",
         "resume_sweep": "Load the resumes you downloaded into DD and Talent Trekker.",
         "zi_seat": "Use your own ZoomInfo seat when the shared credits run out.",
-        "other": "Describe any other job in your own words.",
+        "other": "Got an idea that isn't up there? Describe it and I'll "
+                 "create it, and you can save it for future runs.",
     },
     connector_how=("Click + under the message box, open Connectors, and "
                    "make sure DripDrop is switched on."),
@@ -4005,7 +4005,9 @@ def _aip_confirm(s, rf, C):
                      icon="arrow_forward")
                 with ui.element("div").style(
                         "display:flex;flex-wrap:wrap;gap:8px;"):
-                    _aip_save_setup(s, rf, C, req)
+                    _aip_save_setup(s, rf, C, req, label=(
+                        "Save for future runs" if r["key"] == "other"
+                        else "Save these answers"))
 
         # Right: the one step on screen.
         with ui.element("div").classes("aip-panel"):
@@ -4127,6 +4129,14 @@ def _aip_result(s, rf, C):
                    "Paste it as your first message. The AI does the rest"
                    + (" from start to finish." if _CAT.run_through else ".")
                    , []))
+        # An off-script job is one the user made up, so the only way to run
+        # it again is to save it. Make that a step rather than a button in
+        # the bottom bar nobody reads.
+        save_step = r["key"] == "other"
+        if save_step:
+            do.append(("Save it for future runs",
+                       "It goes on the first screen, ready to run again "
+                       "with everything filled in.", "save"))
         if _CAT.review_page:
             do.append(("Come back and check the results",
                        "Everything it builds shows up here.",
@@ -4139,7 +4149,11 @@ def _aip_result(s, rf, C):
                         _text(title, C, 14, 700, C["text_l"], 2)
                         if sub:
                             _text(sub, C, 12, colour=C["muted"])
-                        if acts:
+                        if acts == "save":
+                            with ui.element("div").classes("aip-do-acts"):
+                                _aip_save_setup(s, rf, C, req,
+                                                label="Save this prompt")
+                        elif acts:
                             with ui.element("div").classes("aip-do-acts"):
                                 for lbl, fn, primary in acts:
                                     _btn(lbl, fn, primary=primary, small=True,
@@ -4155,8 +4169,9 @@ def _aip_result(s, rf, C):
         with ui.element("div").classes("aip-bar-side"):
             _btn("Back", _back, lead="arrow_back")
             _btn("Start a new prompt", _restart, lead="add")
-        with ui.element("div").classes("aip-bar-side"):
-            _aip_save_setup(s, rf, C, req, label="Save prompt")
+        if not save_step:
+            with ui.element("div").classes("aip-bar-side"):
+                _aip_save_setup(s, rf, C, req, label="Save prompt")
 
     if _CAT.result_extra:
         _CAT.result_extra(s, rf, C, r)

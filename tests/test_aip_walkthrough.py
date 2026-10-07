@@ -32,7 +32,8 @@ def test_every_dd_tile_has_a_short_line():
     short = sp.STAFFING.tile_short
     for x in sp.STAFFING.starters:
         assert short.get(x["id"]), x["id"]
-        assert len(short[x["id"]]) <= 70, x["id"]
+        # Go Off Script carries Mike's own wording, which runs longer.
+        assert len(short[x["id"]]) <= (110 if x["id"] == "other" else 70), x["id"]
 
 
 def test_result_checklist_targets():
