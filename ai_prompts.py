@@ -50,6 +50,7 @@ import asyncio
 import json
 import re
 import sys
+import urllib.parse
 import uuid
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -2109,11 +2110,29 @@ def _btn(label, on_click, primary=False, icon=None, lead=None, small=False):
     return b
 
 
+# Claude and ChatGPT both take a first message in the link (?q=), so the
+# prompt can open already typed in. Both served 64 KB links and refused
+# 100 KB ones (2026-10-07); over this length the chat opens blank and the
+# prompt waits on the clipboard instead. The longest stock prompt encodes to
+# about 15 KB.
+CHAT_LINK_MAX = 32000
+
+
+def chat_link(base, prompt):
+    """(url, filled): a new-chat link with the prompt in it, or the bare
+    link and False when the prompt is too long to ride along."""
+    url = base + ("&" if "?" in base else "?") + "q=" + urllib.parse.quote(
+        prompt, safe="")
+    if len(url) > CHAT_LINK_MAX:
+        return base, False
+    return url, True
+
+
 def _steps(at):
-    """Pick → Answer → Copy, with the current one lit."""
+    """Pick → Answer → Send, with the current one lit."""
     with ui.element("div").classes("aip-steps"):
         for i, name in enumerate(("Pick a job", "Answer the questions",
-                                  "Copy your prompt"), 1):
+                                  "Send it to your AI"), 1):
             if i > 1:
                 ui.element("div").classes("aip-step-line")
             state = " on" if i == at else (" done" if i < at else "")
@@ -2216,8 +2235,8 @@ def _how_it_works():
     steps = (
         ("Pick what you want done", "Choose the job below that's closest."),
         ("Answer a few questions", "We fill in suggestions. Change what you like."),
-        ("Paste it into your AI", "Copy the prompt into %s. The results "
-                                  "show up in %s." % (" or ".join(
+        ("Send it to your AI", "One click opens it in %s. The results "
+                               "show up in %s." % (" or ".join(
                                       n for n, _u in _CAT.open_in), review)),
     )
     with ui.element("div").classes("aip-how"):
@@ -3350,8 +3369,20 @@ def _aip_result(s, rf, C):
         s._aip_err = ""
         rf()
 
-    def _open(url):
-        ui.run_javascript("window.open(%s, '_blank')" % json.dumps(url))
+    def _send(name, base):
+        # Copy as well, so a blank chat (long prompt, or the AI ignoring the
+        # link) is still one Ctrl+V away.
+        url, filled = chat_link(base, prompt)
+        ui.run_javascript(
+            "navigator.clipboard.writeText(%s).catch(function(){});"
+            "window.open(%s, '_blank')" % (json.dumps(prompt), json.dumps(url)))
+        if filled:
+            ui.notify("Opened %s with your prompt in it." % name,
+                      type="positive")
+        else:
+            ui.notify("Opened %s. Your prompt is too long to send over, so "
+                      "it's copied: press Ctrl+V in the chat." % name,
+                      type="positive")
 
     def _review():
         try:
@@ -3382,16 +3413,20 @@ def _aip_result(s, rf, C):
 
         # The whole hand-off as numbered steps, each with its own button, so
         # nobody has to work out what "paste it into your AI" means.
-        do = [("Copy your prompt", "", [("Copy prompt", _copy, True)])]
-        do.append(("Open " + " or ".join(n for n, _u in _CAT.open_in),
-                   "Start a new chat.",
-                   [("Open " + n, lambda u=u: _open(u), False)
-                    for n, u in _CAT.open_in]))
+        # The connector check comes first: the prompt arrives already typed,
+        # and ChatGPT may send it straight away.
+        do = []
         if _CAT.connector_how:
             do.append(("Check %s is switched on" % _CAT.product,
                        _CAT.connector_how, []))
-        do.append(("Paste it and press Enter",
-                   "Paste it as your first message. The AI does the rest"
+        do.append(("Send it to your AI",
+                   "Opens a new chat with your prompt already in it.",
+                   [("Open in " + n, lambda n=n, u=u: _send(n, u),
+                     i == 0, "open_in_new")
+                    for i, (n, u) in enumerate(_CAT.open_in)]
+                   + [("Copy prompt", _copy, False, "content_copy")]))
+        do.append(("Press Enter if it hasn't started",
+                   "The AI does the rest"
                    + (" from start to finish." if _CAT.run_through else ".")
                    , []))
         # An off-script job is one the user made up, so the only way to run
@@ -3407,7 +3442,7 @@ def _aip_result(s, rf, C):
         if _CAT.review_page:
             do.append(("Come back and check the results",
                        "Everything it builds shows up here.",
-                       [(_CAT.review_label or "Open", _review, False)]))
+                       [(_CAT.review_label or "Open", _review, False, None)]))
         with ui.element("div").classes("aip-do"):
             for i, (title, sub, acts) in enumerate(do, 1):
                 with ui.element("div").classes("aip-do-row"):
@@ -3422,10 +3457,9 @@ def _aip_result(s, rf, C):
                                                 label="Save this prompt")
                         elif acts:
                             with ui.element("div").classes("aip-do-acts"):
-                                for lbl, fn, primary in acts:
+                                for lbl, fn, primary, lead in acts:
                                     _btn(lbl, fn, primary=primary, small=True,
-                                         lead="content_copy" if primary
-                                         else None)
+                                         lead=lead)
 
         with ui.element("details").classes("aip-show"):
             with ui.element("summary"):
