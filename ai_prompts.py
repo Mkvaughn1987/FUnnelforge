@@ -2341,14 +2341,13 @@ ARENA = Catalogue(
     run_through=True,
     tile_groups=[
         ("Find new business", ["staff_signal", "staff_lookalike",
-                               "staff_agency", "mpc", "slate"]),
+                               "mpc", "slate"]),
         ("Daily tasks", ["linkedin", "resume_sweep", "zi_seat"]),
         ("Off script", ["other"]),
     ],
     tile_short={
         "staff_signal": "Companies whose job posts say they need help hiring.",
         "staff_lookalike": "Companies that look like a client you've placed with.",
-        "staff_agency": "Roles another staffing firm is already working.",
         "mpc": "Pick up to three candidates. The AI finds companies for them.",
         "slate": "Pitch your bench to companies hiring in a market.",
         "linkedin": "Send the LinkedIn requests on Today's Tasks.",
