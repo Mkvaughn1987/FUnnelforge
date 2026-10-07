@@ -23101,7 +23101,8 @@ def _sidebar_nav(s, rf, k: str, setup: dict, tab: str = "",
 
 
 def _sidebar_v2(s: AppState, rf):
-    """Full-height sidebar: logo, workspace selector, + New Campaign,
+    """Full-height sidebar: logo, workspace selector, Start with AI (or
+    + New Campaign where there is no AI Prompt page),
     grouped nav, then Admin (authorised users only) / Settings / profile
     pinned to the bottom. Rows whose destination has no page are skipped."""
     if s.hub == "today":
@@ -23192,10 +23193,21 @@ def _sidebar_v2(s: AppState, rf):
                         with ui.element("div").classes("fd-menu-item fd-side-mi").on("click", lambda k=key: _go(k)):
                             ui.html(_svg_icon(ik, 16))
                             ui.label(lbl)
-            with ui.element("button").classes("fd-side-cta" + (" on" if active == "new" else "")).props(
-                    'type="button" data-tour="nav-start_seq"').on("click", lambda: _go("start_seq")):
-                ui.html(_svg_icon("plus", 18))
-                ui.label("New Campaign")
+            # Start with AI opens AI Prompt where the workspace has it;
+            # otherwise the button stays New Campaign. Campaigns > Templates
+            # is the campaign chooser either way.
+            _aip_key = _tm_nav_page_key("ai_prompt", None)
+            if _aip_key:
+                with ui.element("button").classes("fd-side-cta").props(
+                        'type="button" data-tour="nav-start_seq"').on(
+                        "click", lambda: _go(_aip_key)):
+                    ui.html(_svg_icon("ai_prompt", 18))
+                    ui.label("Start with AI")
+            else:
+                with ui.element("button").classes("fd-side-cta" + (" on" if active == "new" else "")).props(
+                        'type="button" data-tour="nav-start_seq"').on("click", lambda: _go("start_seq")):
+                    ui.html(_svg_icon("plus", 18))
+                    ui.label("New Campaign")
 
         # ── Grouped navigation ──
         with ui.element("nav").classes("fd-side-nav"):
@@ -23214,11 +23226,14 @@ def _sidebar_v2(s: AppState, rf):
                         badge = _due if _due < 100 else "99+"
                         badge_cls = "hot" if _overdue else ""
                     tour = {"overview": "nav-dashboard", "contacts": "nav-contacts"}.get(ik, "")
-                    _camp_open = ik == "campaigns" and active == "campaigns"
+                    # With Start with AI on top, a campaign wizard page lights
+                    # Campaigns > Templates (where it started) instead.
+                    _wiz = active == "new" and bool(_aip_key)
+                    _camp_open = ik == "campaigns" and (active == "campaigns" or _wiz)
                     _row(ik, lbl, key, on=(active == ik and not _camp_open), open_=_camp_open,
                          badge=badge, badge_cls=badge_cls, tour=tour)
                     if _camp_open:
-                        _view = _sidebar_campaign_view(s)
+                        _view = "templates" if _wiz else _sidebar_campaign_view(s)
                         with ui.element("div").classes("fd-side-subgroup"):
                             for sik, slbl, view in SIDEBAR_CAMPAIGNS:
                                 _row(sik, slbl, "", on=(_view == view), sub=True,
@@ -72098,6 +72113,14 @@ def index():
             "warn": "⚠ Without this, you won't be able to send any campaigns.",
         },
         {
+            "selector": '[data-tour="nav-start_seq"]',
+            "title": "Start with AI",
+            "body": (
+                "Pick a job, answer a few questions, and get the prompt to "
+                "paste into Claude or ChatGPT. To build a campaign by hand, "
+                "use Campaigns > Templates."
+            ),
+        } if _tm_nav_page_key("ai_prompt", None) else {
             "selector": '[data-tour="nav-start_seq"]',
             "title": "Build your first campaign",
             "body": (
