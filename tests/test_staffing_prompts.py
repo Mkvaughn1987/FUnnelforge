@@ -1,8 +1,10 @@
 """DripDrop's staffing catalogue for the AI Prompts page (staffing_prompts.py)
 and the v10 schedule rules ported into the shared engine.
 
-What is pinned: the four markets and the signals Mike signed off on
-(2026-10-01), every new run opening filled in for the market picked, that
+What is pinned: the eight markets (the Arena Running Campaigns industries,
+Mike 2026-10-07) and the signals on each, every new run opening filled in
+for the market picked, that a setup saved against an old market label
+still opens, that
 the old Arena runs still write what they wrote, that nothing in these
 prompts names an assistant (they are pasted into Claude or ChatGPT), that
 nothing reads WARN notices, and that a schedule question settled by an
@@ -59,17 +61,51 @@ def _req(aip, sp, key, **vals):
 
 # ── The markets and the signals ───────────────────────────────────────────
 
-def test_four_markets_in_order(sp):
-    assert sp.VERTICAL_LABELS == ["Construction", "Manufacturing",
-                                  "Trades & building services",
-                                  "Engineering / AEC"]
+MARKETS = ["General Contracting", "Mechanical Contracting",
+           "Electrical Contracting", "Civil & Engineering",
+           "Healthcare Construction", "Data Center / Mission Critical",
+           "Heavy Equipment & Rental", "Manufacturing"]
+
+
+def test_markets_in_order_and_every_one_is_a_running_campaigns_industry(sp):
+    # Mike 2026-10-07: the AI Prompts market list follows the Arena Running
+    # Campaigns industry filter, so a campaign built here lands in its bucket.
+    import team_campaigns as tc
+    assert sp.VERTICAL_LABELS == MARKETS
+    assert sp.DEFAULT_VERTICAL == "General Contracting"
+    for label in sp.VERTICAL_LABELS:
+        assert label in tc.INDUSTRY_CHOICES, label
+
+
+def test_old_market_labels_open_on_the_row_that_replaced_them(sp):
+    assert sp.vertical_for("Construction")["key"] == "gc"
+    assert sp.vertical_for("construction")["key"] == "gc"
+    assert sp.vertical_for("Trades & building services")["key"] == "mechanical"
+    assert sp.vertical_for("Engineering / AEC")["key"] == "civil"
+    assert sp.vertical_for("aec")["key"] == "civil"
+    assert sp.vertical_for("electrical")["key"] == "electrical"
+    assert sp.vertical_for("")["key"] == "gc"
+
+
+def test_every_market_changes_the_whole_page(sp):
+    # Each market carries its own band, buyers, roles, signals, opening
+    # question and agency terms: picking one redraws every box below it.
+    seen = {k: set() for k in ("buyers", "roles", "question")}
+    for v in sp.VERTICALS:
+        for k in seen:
+            assert v[k].strip(), (v["key"], k)
+            seen[k].add(v[k])
+        assert v["signals"] and v["terms"] and v["band"], v["key"]
+    for k, vals in seen.items():
+        assert len(vals) == len(sp.VERTICALS), k
 
 
 def test_signal_counts_match_the_approved_list(sp):
     assert len(sp.UNIVERSAL_SIGNALS) == 8
     got = {v["key"]: len(v["signals"]) for v in sp.VERTICALS}
-    assert got == {"construction": 5, "manufacturing": 5, "trades": 6,
-                   "aec": 5}
+    assert got == {"gc": 5, "mechanical": 6, "electrical": 6, "civil": 6,
+                   "healthcare_construction": 5, "data_center": 5,
+                   "equipment": 5, "manufacturing": 5}
 
 
 def test_every_signal_has_a_why_and_ids_are_unique_per_menu(sp):
@@ -131,9 +167,7 @@ def test_arena_itself_is_untouched(aip, sp):
 
 
 @pytest.mark.parametrize("key", NEW)
-@pytest.mark.parametrize("vertical", ["Construction", "Manufacturing",
-                                      "Trades & building services",
-                                      "Engineering / AEC"])
+@pytest.mark.parametrize("vertical", MARKETS)
 def test_every_run_builds_for_every_market(aip, sp, key, vertical):
     _r, req = _req(aip, sp, key, vertical=vertical, location="Colorado",
                    seed="acme.com", company="Acme Mechanical")
@@ -143,10 +177,20 @@ def test_every_run_builds_for_every_market(aip, sp, key, vertical):
     assert "Market guide for %s" % vertical in flat
     v = sp.vertical_for(vertical)
     assert v["buyers"] in flat
+    assert v["question"] in flat
     if key != "staff_account":
         band = sp._rec_for(sp.STAFFING.routine_by_key[key], v,
                            "company_size", "band")
         assert v["roles"] in flat and band in flat
+        # The campaigns are tagged with the market, so Arena Running
+        # Campaigns files them under it without reading the free text.
+        assert 'industry_category "%s" on every one' % vertical in flat
+    if key == "staff_signal_hunt":
+        for s in v["signals"]:
+            assert s["label"] in flat, (vertical, s["id"])
+    if key == "staff_agency_displace":
+        for t in v["terms"]:
+            assert t["label"] in flat, (vertical, t["id"])
         assert "my DripDrop connector" in flat
 
 
@@ -217,9 +261,11 @@ def test_location_is_asked_not_invented(aip, sp):
 # ── Prefill ───────────────────────────────────────────────────────────────
 
 def test_prefill_fills_and_follows_the_vertical(aip, sp):
-    r, req = _req(aip, sp, "staff_signal_hunt", vertical="Construction")
+    r, req = _req(aip, sp, "staff_signal_hunt",
+                  vertical="General Contracting")
     vals = req["vals"]
-    c, t = sp.vertical_for("Construction"), sp.vertical_for("trades")
+    c = sp.vertical_for("General Contracting")
+    t = sp.vertical_for("Mechanical Contracting")
     assert vals["who_to_reach"] == c["buyers"]
     assert vals["signals"] == ", ".join(sp.signal_ids(c))
     vals["vertical"] = t["label"]

@@ -4,8 +4,9 @@ ai_prompts.py is the engine and ARENA its original catalogue: the recruiting
 runs (slates, marketing candidates, the bench, LinkedIn tasks). This file
 adds the targeting runs inboxslide grew - a hiring-signal hunt, lookalikes,
 winning business from other agencies, researching one account - rewritten
-for direct-hire staffing in the four markets DripDrop recruits for, and
-binds the lot as STAFFING, the catalogue the page actually renders.
+for direct-hire staffing in the markets DripDrop recruits for (the Arena
+Running Campaigns industries), and binds the lot as STAFFING, the
+catalogue the page actually renders.
 
 Same machinery as tm_prompts.py: a verticals table, a tick list of hiring
 signals per vertical with the reason each one matters, every targeting box
@@ -91,10 +92,15 @@ UNIVERSAL_TERMS = [
 ]
 
 
+# The markets, in the order the dropdown shows them. Every label is one of
+# the Arena Running Campaigns industries (team_campaigns.INDUSTRIES), and
+# the prompt passes it to create_campaign as industry_category, so a
+# campaign built here lands in that filter bucket without any guessing
+# from its free text (Mike, 2026-10-07: "change the whole page").
 VERTICALS = [
     {
-        "key": "construction",
-        "label": "Construction",
+        "key": "gc",
+        "label": "General Contracting",
         "band": "25 to 1000 people",
         "buyers": "the President, VP of Operations or Director of "
                   "Construction first, then the Senior Project Manager or "
@@ -132,6 +138,269 @@ VERTICALS = [
               "a construction recruiting firm",
               "The exact seats this run is after, already handed to an "
               "agency."),
+        ],
+    },
+    {
+        "key": "mechanical",
+        "label": "Mechanical Contracting",
+        "band": "25 to 1000 people",
+        "buyers": "the Owner, President or VP of Operations first, then the "
+                  "Project Executive, Construction Manager or Service "
+                  "Manager the role reports to, with HR last",
+        "roles": "mechanical project managers, estimators, superintendents "
+                 "and foremen, BIM and VDC detailers, service managers, and "
+                 "HVAC, plumbing, piping and sheet metal technicians",
+        "signals": [
+            S("mech_pm",
+              "a mechanical project manager or estimator opening",
+              "They are bidding and running more work than the office can "
+              "carry."),
+            S("service_techs",
+              "HVAC, plumbing or refrigeration service technician openings",
+              "Every truck without a tech is service revenue lost."),
+            S("svc_mgr",
+              "a service manager or dispatch manager opening",
+              "Nobody is running the techs and the calls."),
+            S("detailers",
+              "BIM, VDC or detailer openings, or design-build work "
+              "announced",
+              "They are taking on design-assist work and need the drawings "
+              "done in-house."),
+            S("pe_rollup",
+              "recently bought by private equity or a roll-up",
+              "New owners hire managers fast."),
+            S("season",
+              "hiring ahead of cooling or heating season",
+              "They have to be staffed before the rush."),
+        ],
+        "also": ["reposted", "urgent", "several", "agency", "leader",
+                 "expansion"],
+        "question": "Which job or service route is short a lead right now?",
+        "terms": [
+            S("mech_staffing",
+              "HVAC, plumbing or mechanical project roles posted by a trade "
+              "staffing agency",
+              "The seats this run is after, already with an agency."),
+        ],
+    },
+    {
+        "key": "electrical",
+        "label": "Electrical Contracting",
+        "band": "25 to 1000 people",
+        "buyers": "the Owner, President or VP of Operations first, then the "
+                  "Project Executive, General Foreman or Service Manager "
+                  "the role reports to, with HR last",
+        "roles": "electrical project managers, estimators, superintendents "
+                 "and general foremen, journeyman and master electricians, "
+                 "low-voltage and controls technicians, and service managers",
+        "signals": [
+            S("elec_pm",
+              "an electrical project manager or estimator opening",
+              "They are pricing and running more work than they can "
+              "staff."),
+            S("licensed",
+              "journeyman or master electrician openings, or a posting that "
+              "requires the license",
+              "The license is scarce, so the candidate is the product."),
+            S("foreman",
+              "a superintendent or general foreman opening",
+              "Nobody is running the crews in the field."),
+            S("low_voltage",
+              "low-voltage, controls, solar or EV charging openings",
+              "They are moving into work that needs a different bench."),
+            S("award",
+              "a new project award announced - a data center, plant or "
+              "campus job",
+              "The work lands before the crew does."),
+            S("pe_rollup",
+              "recently bought by private equity or a roll-up",
+              "New owners hire managers fast."),
+        ],
+        "also": ["reposted", "urgent", "several", "agency", "leader",
+                 "expansion"],
+        "question": "Which job is waiting on a licensed electrician or a "
+                    "foreman right now?",
+        "terms": [
+            S("elec_staffing",
+              "electrician, electrical project manager or estimator roles "
+              "posted by a trade staffing agency",
+              "The seats this run is after, already with an agency."),
+        ],
+    },
+    {
+        "key": "civil",
+        "label": "Civil & Engineering",
+        "band": "25 to 1000 people",
+        "buyers": "the Principal, Managing Principal or VP of Operations "
+                  "first, then the Office Leader, Department Manager or "
+                  "Construction Manager the role reports to, with HR last",
+        "roles": "licensed professional engineers, project managers and "
+                 "project engineers, civil, structural and MEP engineers, "
+                 "heavy civil superintendents and estimators, and designers "
+                 "and drafters",
+        "signals": [
+            S("pe",
+              "a licensed professional engineer or project manager opening",
+              "Billable, licensed seats that are hard to fill."),
+            S("public",
+              "a public contract or infrastructure funding award, such as a "
+              "DOT, water or municipal job",
+              "They are staffing up to deliver the award."),
+            S("heavy_civil",
+              "a heavy civil superintendent, estimator or project engineer "
+              "opening",
+              "Sitework, roads and utilities run on a few people who can "
+              "price and run them."),
+            S("designers",
+              "several designer, drafter, CAD or Revit openings",
+              "Their production capacity is short."),
+            S("new_office",
+              "a new office in a new region",
+              "They need local hires who bring relationships with them."),
+            S("principal",
+              "a senior or principal departure, or a leadership opening",
+              "Clients and the team are both exposed."),
+        ],
+        "also": ["reposted", "urgent", "several", "agency", "leader",
+                 "expansion"],
+        "question": "Which project is short a licensed engineer or a "
+                    "superintendent right now?",
+        "terms": [
+            S("eng_search",
+              "professional engineer, project engineer or heavy civil "
+              "roles posted by an engineering search firm",
+              "The seats this run is after, already with an agency."),
+        ],
+    },
+    {
+        "key": "healthcare_construction",
+        "label": "Healthcare Construction",
+        "band": "50 to 1500 people",
+        "buyers": "the VP or Director of Healthcare, or the Project "
+                  "Executive over the healthcare group first, then the "
+                  "Senior Project Manager or General Superintendent the "
+                  "role reports to, with HR last",
+        "roles": "healthcare project managers and project executives, "
+                 "superintendents with OSHPD or HCAI experience, "
+                 "preconstruction managers and estimators, MEP coordinators, "
+                 "and ICRA-trained field staff",
+        "signals": [
+            S("hc_pm",
+              "a healthcare project manager or superintendent opening, "
+              "especially one asking for OSHPD or HCAI experience",
+              "Hospital work needs people who have done it, and those are "
+              "scarce."),
+            S("hosp_award",
+              "a hospital, medical office or surgery center project award",
+              "Healthcare jobs run for years and staff up early."),
+            S("precon",
+              "a preconstruction or estimating opening on the healthcare "
+              "side",
+              "They are chasing more healthcare work than they can price."),
+            S("new_group",
+              "a new healthcare group, office or market announced",
+              "A new group starts with an empty org chart."),
+            S("icra",
+              "a posting that asks for ICRA, infection control or "
+              "occupied-facility experience",
+              "The requirement narrows the field to people a recruiter has "
+              "to go and find."),
+        ],
+        "also": ["reposted", "urgent", "several", "agency", "leader",
+                 "expansion"],
+        "question": "Which hospital or medical job is waiting on a "
+                    "superintendent or PM who has done healthcare before?",
+        "terms": [
+            S("hc_search",
+              "healthcare project manager or OSHPD superintendent roles "
+              "posted by a construction search firm",
+              "The seats this run is after, already with an agency."),
+        ],
+    },
+    {
+        "key": "data_center",
+        "label": "Data Center / Mission Critical",
+        "band": "50 to 2000 people",
+        "buyers": "the VP of Mission Critical or Director of Data Center "
+                  "Construction first, then the Project Executive or Senior "
+                  "Project Manager the role reports to, with HR last",
+        "roles": "mission critical project managers and project executives, "
+                 "MEP superintendents and coordinators, commissioning "
+                 "managers and agents, QA/QC managers, and electrical and "
+                 "mechanical estimators",
+        "signals": [
+            S("mc_pm",
+              "a mission critical or data center project manager opening",
+              "The jobs are fast, large and unforgiving, and the PM seat "
+              "cannot sit empty."),
+            S("mep_super",
+              "an MEP superintendent, MEP coordinator or commissioning "
+              "opening",
+              "A data center is mostly MEP, and the people who have "
+              "commissioned one are few."),
+            S("dc_award",
+              "a data center, hyperscale or colocation project award, or a "
+              "campus announcement",
+              "A single award means a hundred hires."),
+            S("travel",
+              "postings that offer travel, per diem or relocation for "
+              "project staff",
+              "They have run out of local people and are paying to bring "
+              "them in."),
+            S("qaqc",
+              "a QA/QC or safety manager opening on a mission critical job",
+              "The owner requires the seat filled before work starts."),
+        ],
+        "also": ["reposted", "urgent", "several", "agency", "leader",
+                 "expansion"],
+        "question": "Which data center job is short an MEP superintendent or "
+                    "a commissioning lead right now?",
+        "terms": [
+            S("mc_search",
+              "mission critical or data center project roles posted by a "
+              "construction search firm",
+              "The seats this run is after, already with an agency."),
+        ],
+    },
+    {
+        "key": "equipment",
+        "label": "Heavy Equipment & Rental",
+        "band": "25 to 1000 people",
+        "buyers": "the General Manager, Branch Manager or VP of Operations "
+                  "first, then the Service Manager, Parts Manager or Rental "
+                  "Manager the role reports to, with HR last",
+        "roles": "diesel and heavy equipment technicians, field service "
+                 "technicians, service and parts managers, shop foremen, "
+                 "branch and rental managers, and equipment sales reps",
+        "signals": [
+            S("techs",
+              "diesel or heavy equipment technician openings, especially "
+              "field service",
+              "Every empty tech seat is machines down and rental revenue "
+              "lost."),
+            S("svc_mgr",
+              "a service manager, shop foreman or parts manager opening",
+              "Nobody is running the shop."),
+            S("branch",
+              "a branch manager or rental manager opening",
+              "A branch without a leader loses customers."),
+            S("new_branch",
+              "a new branch, yard or territory announced, or a new "
+              "equipment line taken on",
+              "A new location opens with an empty org chart."),
+            S("sales",
+              "equipment or rental sales rep openings",
+              "They have territory nobody is covering."),
+        ],
+        "also": ["reposted", "urgent", "several", "agency", "leader",
+                 "expansion"],
+        "question": "How many bays or service trucks are sitting without a "
+                    "tech this month?",
+        "terms": [
+            S("equip_staffing",
+              "diesel technician, service manager or branch manager roles "
+              "posted by an industrial staffing firm",
+              "The seats this run is after, already with an agency."),
         ],
     },
     {
@@ -173,83 +442,6 @@ VERTICALS = [
             S("mfg_staffing",
               "plant, maintenance or quality roles posted by an industrial "
               "staffing firm",
-              "The seats this run is after, already with an agency."),
-        ],
-    },
-    {
-        "key": "trades",
-        "label": "Trades & building services",
-        "band": "25 to 1000 people",
-        "buyers": "the Owner or President first, then the General Manager, "
-                  "Service Manager or Operations Manager, with HR last",
-        "roles": "service technicians, service and operations managers, "
-                 "commercial project managers, estimators and foremen across "
-                 "HVAC, electrical, plumbing and mechanical",
-        "signals": [
-            S("techs",
-              "service technician openings in HVAC, electrical or plumbing",
-              "Every unfilled truck is lost revenue."),
-            S("svc_mgr",
-              "a service manager or operations manager opening",
-              "Nobody is running dispatch and the techs."),
-            S("commercial",
-              "a commercial project manager or estimator opening",
-              "They are moving into bigger work."),
-            S("pe_rollup",
-              "recently bought by private equity or a roll-up",
-              "New owners hire managers fast."),
-            S("license",
-              "a posting that requires a master or journeyman license",
-              "The license is scarce, so the candidate is the product."),
-            S("season",
-              "hiring ahead of cooling or heating season",
-              "They have to be staffed before the rush."),
-        ],
-        "also": ["reposted", "urgent", "several", "agency", "leader",
-                 "expansion"],
-        "question": "How many trucks are sitting without a tech this month?",
-        "terms": [
-            S("trade_staffing",
-              "HVAC, electrical or plumbing roles posted by a trade staffing "
-              "agency",
-              "The seats this run is after, already with an agency."),
-        ],
-    },
-    {
-        "key": "aec",
-        "label": "Engineering / AEC",
-        "band": "25 to 1000 people",
-        "buyers": "the Principal or Managing Principal first, then the "
-                  "Office Leader or Department Manager the role reports to, "
-                  "with HR last",
-        "roles": "licensed professional engineers, project managers, project "
-                 "engineers, civil, structural and MEP engineers, and "
-                 "designers and drafters",
-        "signals": [
-            S("pe",
-              "a licensed professional engineer or project manager opening",
-              "Billable, licensed seats that are hard to fill."),
-            S("public",
-              "a public contract or infrastructure funding award, such as a "
-              "DOT or municipal job",
-              "They are staffing up to deliver the award."),
-            S("designers",
-              "several designer, drafter, CAD or Revit openings",
-              "Their production capacity is short."),
-            S("new_office",
-              "a new office in a new region",
-              "They need local hires who bring relationships with them."),
-            S("principal",
-              "a senior or principal departure, or a leadership opening",
-              "Clients and the team are both exposed."),
-        ],
-        "also": ["reposted", "urgent", "several", "agency", "leader",
-                 "expansion"],
-        "question": "Which project is short a licensed engineer right now?",
-        "terms": [
-            S("eng_search",
-              "professional engineer or project engineer roles posted by an "
-              "engineering search firm",
               "The seats this run is after, already with an agency."),
         ],
     },
@@ -318,14 +510,27 @@ VERTICAL_BY_LABEL = {v["label"]: v for v in VERTICALS}
 VERTICAL_LABELS = [v["label"] for v in VERTICALS]
 DEFAULT_VERTICAL = VERTICALS[0]["label"]
 
+# The markets this list had before 2026-10-07, so a setup saved against one
+# still opens on the row that took its place. Lower-cased: a loose match
+# on "construction" would otherwise land on Healthcare Construction.
+LEGACY_VERTICALS = {
+    "construction": "General Contracting",
+    "trades & building services": "Mechanical Contracting",
+    "trades": "Mechanical Contracting",
+    "engineering / aec": "Civil & Engineering",
+    "aec": "Civil & Engineering",
+}
+
 
 def vertical_for(label):
-    """The row for a picked label, tolerating a key or a loose match, and
-    the first row when nothing matches."""
+    """The row for a picked label, tolerating an old label, a key or a
+    loose match, and the first row when nothing matches."""
     s = (label or "").strip()
     if s in VERTICAL_BY_LABEL:
         return VERTICAL_BY_LABEL[s]
     low = s.lower()
+    if low in LEGACY_VERTICALS:
+        return VERTICAL_BY_LABEL[LEGACY_VERTICALS[low]]
     for v in VERTICALS:
         if low == v["key"] or (low and low in v["label"].lower()):
             return v
@@ -580,8 +785,9 @@ _SHOW_STEP = (
 
 _BUILD_STEP = (
     "{go_prefix} build one campaign per company with create_campaign using "
-    "{template_clause}, start_date {start_date}, and industry, location and "
-    "roles set from THE DETAILS above.{cand_pass}{name_clause}"
+    "{template_clause}, start_date {start_date}, industry_category "
+    "\"{vertical_label}\" on every one, and industry, location and roles "
+    "set from THE DETAILS above.{cand_pass}{name_clause}"
     "{newsletter_clause} Read "
     "back the campaign id, the step count and the queued-contact count for "
     "every one, and tell me about any that came back short.")
