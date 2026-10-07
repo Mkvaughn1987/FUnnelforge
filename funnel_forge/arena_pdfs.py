@@ -121,8 +121,12 @@ class ArenaDoc(BaseDocTemplate):
         canv.setFillColor(SILVER)
         canv.setFont("Helvetica", 7)
         _parts = ["Arena Direct Hire"]
-        if getattr(self, "prepared_by", ""):
-            _parts.append(self.prepared_by)
+        _pb = (getattr(self, "prepared_by", "") or "").strip()
+        # Skip the sender when it is just the firm name again (sig_name
+        # empty falls back to the company name) so the footer never reads
+        # "Arena Direct Hire | Arena Direct Hire".
+        if _pb and _pb.lower() not in {p.lower() for p in _parts}:
+            _parts.append(_pb)
         if getattr(self, "prepared_email", ""):
             _parts.append(self.prepared_email)
         canv.drawCentredString(W/2, 0.30*inch, " | ".join(_parts))
@@ -991,10 +995,15 @@ def build_custom_pdf(output_path, d, cfg=None):
     _para = S("p", fontName="Helvetica", fontSize=11, textColor=NAVY,
               leading=14, spaceAfter=6)
 
+    _cta_heading = "Want to learn more?"
     for sec in (d.get("sections") or []):
         heading = sec.get("heading") or ""
         stype = (sec.get("type") or "bullets").lower()
         items = sec.get("items") or []
+        # The CTA block below already prints "Want to learn more?". Drop a
+        # body section with the same heading so it never appears twice.
+        if d.get("cta") and heading.strip().lower() == _cta_heading.lower():
+            continue
 
         if heading:
             story.extend(section_header(heading))
@@ -1079,11 +1088,40 @@ def build_custom_pdf(output_path, d, cfg=None):
 
     # Optional closing CTA
     if d.get("cta"):
-        story.extend(section_header("Want to learn more?"))
+        story.extend(section_header(_cta_heading))
         story.append(bullet_item(d["cta"]))
+
+    _src_line = sources_line(d.get("sources"))
+    if _src_line:
+        story.append(Spacer(1, 6))
+        story.append(Paragraph(
+            _src_line,
+            S("src", fontName="Helvetica", fontSize=7.5, textColor=GRAY,
+              leading=9.5, spaceBefore=2)))
 
     _build_one_page(doc, story)
     return output_path
+
+
+def sources_line(sources) -> str:
+    """Small 'Sources:' footnote for researched PDFs. Accepts a list of
+    {name, as_of, url} dicts or plain strings. Returns '' when there is
+    nothing to cite. Text is XML-escaped because ReportLab parses it."""
+    from xml.sax.saxutils import escape as _esc
+    bits = []
+    for s in (sources or [])[:6]:
+        if isinstance(s, dict):
+            name = _clean(s.get("name") or "")
+            as_of = _clean(s.get("as_of") or "")
+            if not name:
+                continue
+            bits.append(f"{name} ({as_of})" if as_of else name)
+        elif isinstance(s, str) and s.strip():
+            bits.append(_clean(s))
+    if not bits:
+        return ""
+    return ("Sources: " + _esc("; ".join(bits))
+            + ". Figures marked (est.) are estimates.")
 
 
 # ─────────────────────────────────────────────────────────────────────────
