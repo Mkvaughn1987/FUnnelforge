@@ -182,10 +182,32 @@ def _parse_dnc(path: Path, owner_dir: str) -> list:
     for r in rows if isinstance(rows, list) else []:
         em = (r.get("email") if isinstance(r, dict) else r) or ""
         em = str(em).strip().lower()
+        reason = str((r.get("reason") if isinstance(r, dict) else "") or "Do Not Contact")
+        # Entries the app wrote when OUR send failed say nothing about the
+        # person; they stay on that rep's own list but are not shared.
+        if any(p in reason.lower() for p in _NOT_A_PERSON_REASONS):
+            continue
+        if em.startswith("@"):
+            dom = _clean_domain(em[1:])
+            if not dom:
+                continue
+            em = "@" + dom
         if "@" in em:
-            out.append({"email": em, "reason": (r.get("reason") if isinstance(r, dict) else "") or "Do Not Contact",
-                        "owner_dir": owner_dir})
+            out.append({"email": em, "reason": reason, "owner_dir": owner_dir})
     return out
+
+
+# DNC reasons that record a DripDrop sending error, not a bounce or opt-out.
+_NOT_A_PERSON_REASONS = ("missing email body",)
+
+
+def _clean_domain(raw: str) -> str:
+    """'https://www.loenbro.com/' -> 'loenbro.com'; 'john@x.com' -> 'x.com'."""
+    d = (raw or "").strip().lower()
+    d = re.sub(r"^\w+://", "", d).split("/", 1)[0]
+    d = d.rsplit("@", 1)[-1]
+    d = d[4:] if d.startswith("www.") else d
+    return d if "." in d else ""
 
 
 def _cached(path: Path, owner_dir: str, parser):

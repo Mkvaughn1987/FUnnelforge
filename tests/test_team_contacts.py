@@ -316,11 +316,14 @@ def test_connector_and_prompts_check_the_bank_first():
 
 def test_team_dnc_sets_and_domain_blocks(tmp_path):
     _dnc(tmp_path, "sarah_at_arena_net", [
-        {"email": "Opt@Out.com"}, {"email": "@blocked.com"}, {"email": "@gmail.com"}])
+        {"email": "Opt@Out.com"}, {"email": "@blocked.com"}, {"email": "@gmail.com"},
+        {"email": "@https://www.loenbro.com/"}, {"email": "@www.mtech.com"},
+        {"email": "fine@acme.com", "reason": "Bounced: Missing email body (campaign step body unavailable)"}])
     _dnc(tmp_path, "bob_at_other_com", [{"email": "x@other.com"}])
     emails, domains = tcx.team_dnc(tmp_path, "mike@arena.net")
-    assert emails == {"opt@out.com"}
-    assert domains == {"blocked.com"}          # free-mail domain blocks stay personal
+    assert emails == {"opt@out.com"}           # our own send error is not shared
+    # free-mail domain blocks stay personal; pasted URLs are cleaned
+    assert domains == {"blocked.com", "loenbro.com", "mtech.com"}
     assert tcx.team_dnc_for_dir(tmp_path, "mike_at_arena_net") == (emails, domains)
     assert tcx.team_dnc_for_dir(tmp_path, "nodomain") == (set(), set())
 
