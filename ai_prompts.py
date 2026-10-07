@@ -354,7 +354,7 @@ COMMON_FIELDS = [
 SKIP_FIELDS = [
     F("skip_worked", "Companies someone on the team has already worked",
       "skip", "toggle", default=True),
-    F("skip_customers", "Companies we already do business with", "skip",
+    F("skip_customers", "Current clients", "skip",
       "toggle", default=True),
     F("skip_recruiters", "Other recruiters, job boards and government",
       "skip", "toggle", default=True),

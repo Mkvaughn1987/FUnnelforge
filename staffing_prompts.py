@@ -945,7 +945,7 @@ def _fc_size_fields():
 
 
 _FC_SKIP_FIELDS = [
-    F("skip_customers", "Companies we already do business with", "skip",
+    F("skip_customers", "Current clients", "skip",
       "toggle", default=True),
     F("skip_contacted", "People already in a campaign for this opening",
       "skip", "toggle", default=True),
