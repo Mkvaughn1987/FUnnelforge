@@ -1688,7 +1688,8 @@ ROUTINES = [
             DEFAULT_SEQUENCE, "the audience name") + [
             F("email_cap", "Most people in one campaign", "size", "number",
               default="150",
-              hint="A bigger audience is split into batches of this size."),
+              hint=_e.EMAIL_CAP_HINT + " A bigger audience is split into "
+                   "batches of this size."),
         ],
         "steps": [
             "Call tm_audiences and find the audience called {audience}. "
@@ -1926,6 +1927,7 @@ STANDING_RULES = [
     "Before any create_campaign call, call tm_mailboxes and confirm a "
     "connected sending mailbox is there. If there is none, stop and tell "
     "me: nothing can send without one.",
+    _e.EMAIL_CAP_RULE,
 ]
 UNATTENDED_RULE = _e.UNATTENDED_RULE
 
