@@ -10919,19 +10919,19 @@ def _sidebar_layout_css() -> str:
   cursor:pointer;font-family:inherit;box-shadow:0 1px 2px rgba(0,0,0,.08);transition:filter .12s,transform .12s}}
 .fd-side-cta:hover{{filter:brightness(1.06)}}
 .fd-side-cta:active{{transform:translateY(1px)}}
-.fd-ai-card{{display:flex;align-items:center;gap:16px;max-width:860px;padding:18px 20px;margin-bottom:22px;
+.fd-aistart-card{{display:flex;align-items:center;gap:16px;max-width:860px;padding:18px 20px;margin-bottom:22px;
   background:{C['card']};border:1px solid {C['teal']};border-left:4px solid {C['teal']};
   border-radius:0 12px 12px 0;cursor:pointer}}
-.fd-ai-card:hover{{filter:brightness(1.06)}}
-.fd-ai-card-ico{{width:44px;height:44px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;
+.fd-aistart-card:hover{{filter:brightness(1.06)}}
+.fd-aistart-card-ico{{width:44px;height:44px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;
   justify-content:center;background:{C['teal']};color:{C['on_teal']}}}
-.fd-ai-card-title{{font-size:15px;font-weight:700;color:{C['teal']}}}
-.fd-ai-card-tag{{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:{C['muted']}}}
-.fd-ai-card-sub{{font-size:12px;color:{C['text']};line-height:1.6;margin-top:3px}}
-.fd-ai-btn{{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 16px;border-radius:9px;border:none;
+.fd-aistart-card-title{{font-size:15px;font-weight:700;color:{C['teal']}}}
+.fd-aistart-card-tag{{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:{C['muted']}}}
+.fd-aistart-card-sub{{font-size:12px;color:{C['text']};line-height:1.6;margin-top:3px}}
+.fd-aistart-btn{{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 16px;border-radius:9px;border:none;
   background:{C['teal']};color:{C['on_teal']};font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;
-  white-space:nowrap;flex-shrink:0}}
-.fd-ai-btn:hover{{filter:brightness(1.06)}}
+  white-space:nowrap;flex:0 0 auto;width:auto}}
+.fd-aistart-btn:hover{{filter:brightness(1.06)}}
 .fd-side-cta.on{{box-shadow:0 0 0 3px {C['teal_dim']}}}
 .fd-side-nav{{flex:1 1 auto;min-height:0;overflow-y:auto;padding:4px 12px 8px;display:flex;flex-direction:column}}
 .fd-side-sec{{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
@@ -13939,7 +13939,7 @@ def _open_ai_prompts(s, rf):
 
 
 def _ai_prompts_button(s, rf, label: str = "Create new campaign with AI"):
-    with ui.element("button").classes("fd-ai-btn").props('type="button"').on(
+    with ui.element("button").classes("fd-aistart-btn").props('type="button"').on(
             "click", lambda: _open_ai_prompts(s, rf)):
         ui.html(_svg_icon("ai_prompts", 16))
         ui.label(label)
@@ -13947,18 +13947,18 @@ def _ai_prompts_button(s, rf, label: str = "Create new campaign with AI"):
 
 def _ai_prompts_card(s, rf):
     """Featured first option on the New Campaign chooser: AI Prompts."""
-    with ui.element("div").classes("fd-ai-card").props('role="button" tabindex="0"').on(
+    with ui.element("div").classes("fd-aistart-card").props('role="button" tabindex="0"').on(
             "click", lambda: _open_ai_prompts(s, rf)):
-        with ui.element("div").classes("fd-ai-card-ico"):
+        with ui.element("div").classes("fd-aistart-card-ico"):
             ui.html(_svg_icon("ai_prompts", 22))
         with ui.element("div").style("flex:1;min-width:0;"):
             with ui.element("div").style("display:flex;align-items:center;gap:10px;"):
-                ui.label("Create with AI").classes("fd-ai-card-title")
-                ui.label("Recommended").classes("fd-ai-card-tag")
+                ui.label("Create with AI").classes("fd-aistart-card-title")
+                ui.label("Recommended").classes("fd-aistart-card-tag")
             ui.label("Pick what you want done and answer a few questions. You get a prompt "
                      "to paste into Claude or ChatGPT, and it finds the companies and the "
-                     "people and builds the campaigns for you.").classes("fd-ai-card-sub")
-        with ui.element("div").classes("fd-ai-btn"):
+                     "people and builds the campaigns for you.").classes("fd-aistart-card-sub")
+        with ui.element("div").classes("fd-aistart-btn"):
             ui.label("Create with AI →")
 
 
