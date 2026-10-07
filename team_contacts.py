@@ -213,6 +213,41 @@ def _team_dirs(users_root: Path, owner_email: str):
             yield udir
 
 
+def team_dnc(users_root, owner_email: str) -> tuple:
+    """(emails, domains) on ANY teammate's Do Not Contact list. Domain
+    blocks are stored as "@acme.com" and come back as "acme.com". Used at
+    send time so one rep's opt-out or bounce stops every rep."""
+    return _team_dnc(Path(users_root), _tc.team_suffix(owner_email))
+
+
+def team_dnc_for_dir(users_root, user_dir_name: str) -> tuple:
+    """team_dnc for the scheduler, which knows a user's folder name
+    ('mike_at_arena_net'), not their email."""
+    if "_at_" not in (user_dir_name or ""):
+        return set(), set()
+    return _team_dnc(Path(users_root), "_at_" + user_dir_name.rsplit("_at_", 1)[1])
+
+
+def _team_dnc(users_root: Path, suffix: str) -> tuple:
+    emails, domains = set(), set()
+    if not suffix or not users_root.is_dir():
+        return emails, domains
+    for udir in sorted(users_root.iterdir()):
+        if not (udir.is_dir() and udir.name.endswith(suffix)):
+            continue
+        dnc = udir / "dnc_list.json"
+        if dnc.is_file():
+            for r in _cached(dnc, udir.name, _parse_dnc):
+                if r["email"].startswith("@"):
+                    # A rep blocking "@gmail.com" for themselves must not
+                    # silence every personal address for the whole team.
+                    if r["email"][1:] not in _tc.FREE_MAIL:
+                        domains.add(r["email"][1:])
+                else:
+                    emails.add(r["email"])
+    return emails, domains
+
+
 # ── the bank ────────────────────────────────────────────────────────────
 
 def scan(users_root, owner_email: str) -> dict:
@@ -256,11 +291,12 @@ def scan(users_root, owner_email: str) -> dict:
         for k in [k for k in _cache if k.startswith(str(users_root)) and k not in seen_paths]:
             _cache.pop(k, None)
 
+    blocked_domains = {k[1:] for k in blocked if k.startswith("@")}
     out = []
     excluded = 0
     for em, rec in people.items():
         rep = replies.get(em)
-        if em in blocked:
+        if em in blocked or rec["domain"] in blocked_domains:
             excluded += 1
             continue
         if rep and rep["negative"]:

@@ -7450,19 +7450,41 @@ def _record_soft_bounce(tracker: dict, email: str, message_id: str,
     return e["count"] >= threshold
 
 
+def _dnc_sets(owner: str = None) -> tuple:
+    """(emails, domains) blocked for sending: this rep's own Do Not Contact
+    list plus every teammate's (same email domain). One rep's opt-out,
+    bounce or domain block stops the whole team. Team read failures fall
+    back to the rep's own list so a send never errors on it."""
+    emails, domains = set(), set()
+    for d in load_dnc():
+        entry = str((d.get("email") if isinstance(d, dict) else d) or "").lower().strip()
+        if entry.startswith("@"):
+            domains.add(entry[1:])
+        elif entry:
+            emails.add(entry)
+    if owner is None:
+        try:
+            owner = _CURRENT_USER_EMAIL.get() or ""
+        except Exception:
+            owner = ""
+    if owner and _SERVER_MODE:
+        try:
+            import team_contacts as _tcx
+            te, td = _tcx.team_dnc(_BASE_DATA_DIR / "users", owner)
+            emails |= te
+            domains |= td
+        except Exception as e:
+            print(f"[DNC] team list read failed: {e}", flush=True)
+    return emails, domains
+
+
 def is_on_dnc(email: str) -> bool:
-    """Check if an email or its domain is on the DNC list."""
+    """Check if an email or its domain is on the rep's or any teammate's
+    Do Not Contact list."""
     email = email.lower().strip()
     domain = email.split("@")[1] if "@" in email else ""
-    dnc = load_dnc()
-    for d in dnc:
-        entry = d.get("email", "").lower().strip()
-        if entry == email:
-            return True
-        # Domain block: entries starting with @ match all emails at that domain
-        if entry.startswith("@") and domain == entry[1:]:
-            return True
-    return False
+    emails, domains = _dnc_sets()
+    return email in emails or (bool(domain) and domain in domains)
 
 
 def add_domain_to_dnc(domain: str, company: str = "", reason: str = "Domain block") -> int:
@@ -9839,9 +9861,8 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
         # sees this user's paths, not someone else's from a race.
         _switch_to_user_paths(_owner)
     # Filter out DNC (emails + domains) and already-responded contacts
-    _dnc_list = load_dnc()
-    _dnc_emails = {d["email"].lower().strip() for d in _dnc_list if not d.get("email","").startswith("@")}
-    _dnc_domains = {d["email"].lower().strip()[1:] for d in _dnc_list if d.get("email","").startswith("@")}
+    # Team-wide: any teammate's Do Not Contact entry blocks this send too.
+    _dnc_emails, _dnc_domains = _dnc_sets(_owner or None)
     # Newsletters are opt-in nurture: they keep emailing contacts who once
     # replied (that is the whole point of the 4x4 -> J's Way handoff). Only
     # non-newsletter campaigns skip responders so we don't cold-pitch
@@ -57589,9 +57610,28 @@ def _server_scheduler_tick():
                   f"{len(due)} from {_ncamps} campaign(s) of {_due_before} due "
                   f"(gap {_gap}s/campaign)", flush=True)
 
+        # Team-wide Do Not Contact, checked at send time: an email queued
+        # before a teammate opted the person out (or blocked the domain)
+        # must not go out. Read failures never block sending.
+        try:
+            import team_contacts as _tcx
+            _tdnc_emails, _tdnc_domains = _tcx.team_dnc_for_dir(users_dir, user_dir.name)
+        except Exception as e:
+            print(f"[ServerSend] team DNC read failed: {e}", flush=True)
+            _tdnc_emails, _tdnc_domains = set(), set()
+
         # Send each due item
         changed = False
         for item in due:
+            _to = str(item.get("to") or "").lower().strip()
+            if _to and (_to in _tdnc_emails
+                        or _to.rsplit("@", 1)[-1] in _tdnc_domains):
+                item["status"] = "cancelled"
+                item["cancelled_at"] = datetime.now().isoformat()
+                item["cancel_reason"] = "Do Not Contact (team)"
+                changed = True
+                print(f"[ServerSend] ⊘ {_to}: on a teammate's Do Not Contact list, cancelled", flush=True)
+                continue
             ok, err = _server_send_one(item, config_path, user_dir=user_dir)
             if ok:
                 item["status"] = "sent"

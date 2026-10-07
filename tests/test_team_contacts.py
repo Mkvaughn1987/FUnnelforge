@@ -310,3 +310,66 @@ def test_connector_and_prompts_check_the_bank_first():
     # Every Arena AI Prompt that pulls contacts now carries the rule.
     import ai_prompts as aip
     assert aip.ARENA.zi_rule == zp.ZI_PULL_RULE
+
+
+# ── team-wide Do Not Contact ────────────────────────────────────────────
+
+def test_team_dnc_sets_and_domain_blocks(tmp_path):
+    _dnc(tmp_path, "sarah_at_arena_net", [
+        {"email": "Opt@Out.com"}, {"email": "@blocked.com"}, {"email": "@gmail.com"}])
+    _dnc(tmp_path, "bob_at_other_com", [{"email": "x@other.com"}])
+    emails, domains = tcx.team_dnc(tmp_path, "mike@arena.net")
+    assert emails == {"opt@out.com"}
+    assert domains == {"blocked.com"}          # free-mail domain blocks stay personal
+    assert tcx.team_dnc_for_dir(tmp_path, "mike_at_arena_net") == (emails, domains)
+    assert tcx.team_dnc_for_dir(tmp_path, "nodomain") == (set(), set())
+
+
+def test_domain_block_hides_everyone_at_that_company(tmp_path):
+    _bank(tmp_path)
+    _dnc(tmp_path, "luke_at_arena_net", [{"email": "@coolair.com", "source": "domain-block"}])
+    bank = tcx.scan(tmp_path, "mike@arena.net")
+    assert "jo@coolair.com" not in {c["email"] for c in bank["contacts"]}
+
+
+def test_queue_skips_a_teammates_dnc(with_user, monkeypatch):
+    import flowdrip_app as fa
+    users = fa._BASE_DATA_DIR / "users"
+    _dnc(users, "sarah_at_example_com", [{"email": "gone@acme.com"}, {"email": "@blocked.com"}])
+    monkeypatch.setattr(fa, "_SERVER_MODE", True)
+    emails, domains = fa._dnc_sets("tester@example.com")
+    assert "gone@acme.com" in emails and "blocked.com" in domains
+    monkeypatch.setattr(fa, "_dnc_sets", lambda owner=None: (emails, domains))
+    assert fa.is_on_dnc("GONE@acme.com") and fa.is_on_dnc("anyone@blocked.com")
+    assert not fa.is_on_dnc("fine@acme.com")
+
+
+def test_scheduler_cancels_a_queued_email_a_teammate_opted_out(tmp_path, monkeypatch):
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+    try:
+        ZoneInfo("UTC")
+    except ZoneInfoNotFoundError:
+        pytest.skip("no tz database on this machine (Windows without tzdata)")
+    import flowdrip_app as fa
+    users = tmp_path / "users"
+    mike = users / "mike_at_arena_net"
+    mike.mkdir(parents=True)
+    _dnc(users, "sarah_at_arena_net", [{"email": "gone@acme.com"}])
+    queue = [
+        {"id": "1", "to": "gone@acme.com", "status": "pending", "campaign": "A",
+         "send_dt": "2020-01-01T09:00:00", "subject": "hi"},
+        {"id": "2", "to": "ok@acme.com", "status": "pending", "campaign": "B",
+         "send_dt": "2020-01-01T09:00:00", "subject": "hi"},
+    ]
+    (mike / "scheduled_queue.json").write_text(json.dumps(queue), encoding="utf-8")
+    sent = []
+    monkeypatch.setattr(fa, "_BASE_DATA_DIR", tmp_path)
+    monkeypatch.setattr(fa, "_server_send_one", lambda item, *a, **k: (sent.append(item["to"]) or (True, "")))
+    monkeypatch.setattr(fa, "_maybe_handoff_4x4_graduate", lambda *a, **k: None)
+    monkeypatch.setattr(fa, "_SERVER_INTER_EMAIL_PAUSE", 0, raising=False)
+    fa._next_campaign_send_at.clear()
+    fa._server_scheduler_tick()
+    assert sent == ["ok@acme.com"]
+    after = {q["id"]: q for q in json.loads((mike / "scheduled_queue.json").read_text(encoding="utf-8"))}
+    assert after["1"]["status"] == "cancelled" and after["1"]["cancel_reason"] == "Do Not Contact (team)"
+    assert after["2"]["status"] == "sent"
