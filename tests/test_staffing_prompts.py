@@ -110,13 +110,15 @@ def test_new_runs_come_first_then_every_arena_run(aip, sp):
     assert keys[5:] == [r["key"] for r in aip.ARENA.routines]
     starters = [st["id"] for st in sp.STAFFING.starters]
     # "Research one account" came off the picker (Mike 2026-10-02); its
-    # routine stays so saved setups still open. MPC leads the Arena cards,
-    # and Find Candidates sits right after it (Mike 2026-10-06).
-    assert starters[:5] == ["staff_signal", "staff_lookalike",
-                            "staff_agency", "mpc", "staff_find_candidates"]
+    # routine stays so saved setups still open. Same for "Win Business from
+    # Competing Agencies" (Mike 2026-10-06). MPC leads the Arena cards, and
+    # Find Candidates sits right after it (Mike 2026-10-06).
+    assert starters[:4] == ["staff_signal", "staff_lookalike", "mpc",
+                            "staff_find_candidates"]
     assert "staff_account" not in starters
+    assert "staff_agency" not in starters
     arena = [st["id"] for st in aip.ARENA.starters]
-    assert starters[3:4] + starters[5:] == arena
+    assert starters[2:3] + starters[4:] == arena
     for st in sp.STAFFING.starters:
         assert st.get("icon"), st["id"]
         assert st["routine"] in sp.STAFFING.routine_by_key
@@ -308,7 +310,7 @@ def test_every_recommend_key_is_a_real_box(sp):
 
 # ── The page ──────────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("starter", ["staff_signal", "staff_agency",
+@pytest.mark.parametrize("starter", ["staff_signal", "staff_lookalike",
                                      "linkedin"])
 def test_page_renders_every_view(aip, sp, tmp_path, monkeypatch, starter):
     s = _render_all_views(aip, aip.p_ai_prompts, sp.STAFFING, tmp_path,

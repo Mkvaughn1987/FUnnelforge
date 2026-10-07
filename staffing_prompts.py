@@ -1141,18 +1141,9 @@ STARTERS = [
         "routine": "staff_lookalikes",
         "vals": {},
     },
-    {
-        "id": "staff_agency",
-        "icon": "swap_horiz",
-        "label": "Win Business from Competing Agencies",
-        "sub": "Roles another staffing firm is already working. They have "
-               "decided to pay a recruiter - offer to get it filled.",
-        "summary": "Find roles in my market that other staffing and search "
-                   "firms are working, identify the employers, and offer to "
-                   "get the roles filled.",
-        "routine": "staff_agency_displace",
-        "vals": {},
-    },
+    # "Win Business from Competing Agencies" (staff_agency) came off the
+    # picker 2026-10-06. Its routine stays, so a setup saved against it
+    # still opens.
     # "Research one account" (staff_account) came off the picker 2026-10-02.
     # Its routine stays, so a setup saved against it still opens.
 ]

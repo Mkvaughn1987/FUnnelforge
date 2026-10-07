@@ -11255,6 +11255,19 @@ def _sidebar_layout_css() -> str:
   cursor:pointer;font-family:inherit;box-shadow:0 1px 2px rgba(0,0,0,.08);transition:filter .12s,transform .12s}}
 .fd-side-cta:hover{{filter:brightness(1.06)}}
 .fd-side-cta:active{{transform:translateY(1px)}}
+.fd-aistart-card{{display:flex;align-items:center;gap:16px;max-width:860px;padding:18px 20px;margin-bottom:22px;
+  background:{C['card']};border:1px solid {C['teal']};border-left:4px solid {C['teal']};
+  border-radius:0 12px 12px 0;cursor:pointer}}
+.fd-aistart-card:hover{{filter:brightness(1.06)}}
+.fd-aistart-card-ico{{width:44px;height:44px;border-radius:10px;flex-shrink:0;display:flex;align-items:center;
+  justify-content:center;background:{C['teal']};color:{C['on_teal']}}}
+.fd-aistart-card-title{{font-size:15px;font-weight:700;color:{C['teal']}}}
+.fd-aistart-card-tag{{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:{C['muted']}}}
+.fd-aistart-card-sub{{font-size:12px;color:{C['text']};line-height:1.6;margin-top:3px}}
+.fd-aistart-btn{{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 16px;border-radius:9px;border:none;
+  background:{C['teal']};color:{C['on_teal']};font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;
+  white-space:nowrap;flex:0 0 auto;width:auto}}
+.fd-aistart-btn:hover{{filter:brightness(1.06)}}
 .fd-side-cta.on{{box-shadow:0 0 0 3px {C['teal_dim']}}}
 .fd-side-nav{{flex:1 1 auto;min-height:0;overflow-y:auto;padding:4px 12px 8px;display:flex;flex-direction:column}}
 .fd-side-sec{{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
@@ -12608,8 +12621,10 @@ SIDEBAR_NAV = [
 # Campaigns' views, rendered as sub-rows under the Campaigns row while any of
 # them is open. The third field is a view key, not a page key: Active and
 # Completed are one page (seq_mgr) with a flag, Saved is start_seq's saved
-# tab. (No Templates row: the type chooser is + New Campaign.)
+# tab. New Campaign opens the type chooser (start_seq); the top button is
+# Start with AI, which opens AI Prompts.
 SIDEBAR_CAMPAIGNS = [
+    ("plus",     "New Campaign", "new"),
     ("c_active", "Active",    "active"),
     ("c_done",   "Completed", "completed"),
     ("c_saved",  "Saved",     "saved"),
@@ -12625,7 +12640,7 @@ SIDEBAR_SETTINGS = [
     ("ban",      "Do Not Contact",   "dnc"),
 ]
 # page_key -> sidebar row that lights up. Anything not listed is a campaign
-# wizard / detail page and lights the "+ New Campaign" button instead.
+# wizard / detail page and lights Campaigns > New Campaign instead.
 SIDEBAR_PAGE_ROW = {
     "dashboard": "overview", "market_intel": "overview",
     "drip": "myday", "tasks": "myday",
@@ -14175,12 +14190,12 @@ def _sidebar_current_page(s) -> str:
 
 
 def _sidebar_active(s) -> str:
-    """Which sidebar row is lit for the current page. 'new' = the
-    + New Campaign button (chooser + every wizard/detail page)."""
+    """Which sidebar row is lit for the current page. 'new' = Campaigns >
+    New Campaign (chooser + every wizard/detail page)."""
     page = _sidebar_current_page(s)
     if page == "start_seq":
         # The Saved tab sits under Campaigns; the chooser and every step
-        # past it is the + New Campaign wizard.
+        # past it is the New Campaign wizard.
         return "campaigns" if getattr(s, "_tab", "") == "saved" else "new"
     return SIDEBAR_PAGE_ROW.get(page, "new")
 
@@ -14192,6 +14207,8 @@ def _sidebar_campaign_view(s) -> str:
         return "completed" if getattr(s, "_mgr_show_completed", False) else "active"
     if page == "start_seq" and getattr(s, "_tab", "") == "saved":
         return "saved"
+    if _sidebar_active(s) == "new":
+        return "new"
     return ""
 
 
@@ -14251,6 +14268,36 @@ def _reset_ai_prompts(s):
         setattr(s, attr, v)
 
 
+def _open_ai_prompts(s, rf):
+    """Open AI Prompts on "Pick a job" from inside a page (Campaigns,
+    New Campaign), the same as the sidebar's Start with AI."""
+    _sidebar_nav(s, rf, "ai_prompts", {})
+
+
+def _ai_prompts_button(s, rf, label: str = "Create new campaign with AI"):
+    with ui.element("button").classes("fd-aistart-btn").props('type="button"').on(
+            "click", lambda: _open_ai_prompts(s, rf)):
+        ui.html(_svg_icon("ai_prompts", 16))
+        ui.label(label)
+
+
+def _ai_prompts_card(s, rf):
+    """Featured first option on the New Campaign chooser: AI Prompts."""
+    with ui.element("div").classes("fd-aistart-card").props('role="button" tabindex="0"').on(
+            "click", lambda: _open_ai_prompts(s, rf)):
+        with ui.element("div").classes("fd-aistart-card-ico"):
+            ui.html(_svg_icon("ai_prompts", 22))
+        with ui.element("div").style("flex:1;min-width:0;"):
+            with ui.element("div").style("display:flex;align-items:center;gap:10px;"):
+                ui.label("Create with AI").classes("fd-aistart-card-title")
+                ui.label("Recommended").classes("fd-aistart-card-tag")
+            ui.label("Pick what you want done and answer a few questions. You get a prompt "
+                     "to paste into Claude or ChatGPT, and it finds the companies and the "
+                     "people and builds the campaigns for you.").classes("fd-aistart-card-sub")
+        with ui.element("div").classes("fd-aistart-btn"):
+            ui.label("Create with AI →")
+
+
 def _sidebar_nav(s, rf, k: str, setup: dict, tab: str = ""):
     """Navigate from the sidebar / page header. Mirrors the classic
     sidebar's _go() exactly: setup gate on New Campaign, back-history
@@ -14299,7 +14346,7 @@ def _sidebar_nav(s, rf, k: str, setup: dict, tab: str = ""):
 
 
 def _sidebar_v2(s: AppState, rf):
-    """Full-height sidebar: logo, workspace, + New Campaign, grouped nav,
+    """Full-height sidebar: logo, workspace, Start with AI, grouped nav,
     then Admin (admins only) / Settings / profile pinned to the bottom."""
     if s.hub == "today":
         s.hub = "sales"; s.sp = "dashboard"
@@ -14359,7 +14406,7 @@ def _sidebar_v2(s: AppState, rf):
                 ui.html(f'<span class="fd-side-trail">{_svg_icon(trail, 14)}</span>')
 
     with ui.element("aside").classes("fd-side"):
-        # ── Top: logo, workspace, New Campaign ──
+        # ── Top: logo, workspace, Start with AI ──
         with ui.element("div").classes("fd-side-top"):
             with ui.element("div").classes("fd-side-logo dd").props(
                     'role="button" tabindex="0" aria-label="Home"').on(
@@ -14394,10 +14441,12 @@ def _sidebar_v2(s: AppState, rf):
                         with ui.element("div").classes("fd-menu-item fd-side-mi").on("click", lambda k=key: _go(k)):
                             ui.html(_svg_icon(ik, 16))
                             ui.label(lbl)
-            with ui.element("button").classes("fd-side-cta" + (" on" if active == "new" else "")).props(
-                    'type="button" data-tour="nav-start_seq"').on("click", lambda: _go("start_seq")):
-                ui.html(_svg_icon("plus", 18))
-                ui.label("New Campaign")
+            # Start with AI opens AI Prompts. New Campaign (the manual
+            # chooser) lives under Campaigns now.
+            with ui.element("button").classes("fd-side-cta").props(
+                    'type="button" data-tour="nav-ai_prompts"').on("click", lambda: _go("ai_prompts")):
+                ui.html(_svg_icon("ai_prompts", 18))
+                ui.label("Start with AI")
 
         # ── Grouped navigation ──
         with ui.element("nav").classes("fd-side-nav"):
@@ -14412,7 +14461,7 @@ def _sidebar_v2(s: AppState, rf):
                         badge = _due if _due < 100 else "99+"
                         badge_cls = "hot" if _overdue else ""
                     tour = {"overview": "nav-dashboard", "contacts": "nav-contacts"}.get(ik, "")
-                    _camp_open = ik == "campaigns" and active == "campaigns"
+                    _camp_open = ik == "campaigns" and active in ("campaigns", "new")
                     _row(ik, lbl, key, on=(active == ik and not _camp_open), open_=_camp_open,
                          badge=badge, badge_cls=badge_cls, tour=tour,
                          trail="external" if key == "__ats__" else "")
@@ -20792,7 +20841,9 @@ def _sq_pick(s, rf):
         # autosave continues silently in the background; in-progress
         # wizards now surface under the "Drafts & Saved" card instead
         # of a separate top-of-page banner.
-        ui.label("Choose a Sequence Type").style(
+        # 2026-10-06: AI Prompts is the recommended start, so it sits on top.
+        _ai_prompts_card(s, rf)
+        ui.label("Or choose a Sequence Type").style(
             f"font-size:20px;font-weight:700;color:{C['text_l']};margin-bottom:8px;"
             f"font-family:'Nunito',sans-serif;")
         ui.label(
@@ -31495,6 +31546,8 @@ def p_seq_mgr(s, rf):
     _render_page_intro_strip(s, rf, "seq_mgr")
     camps = load_campaigns()
     if not camps:
+        with ui.element("div").style("margin-bottom:16px;"):
+            _ai_prompts_button(s, rf)
         _render_empty_state(s, rf, "seq_mgr")
         return
     queue = _load_queue()
@@ -31570,7 +31623,8 @@ def p_seq_mgr(s, rf):
             s.sel_camp_name = active[0].get("name", "") if active else ""
         rf()
 
-    with ui.element("div").style("display:flex;gap:6px;margin-bottom:20px;"):
+    with ui.element("div").style("display:flex;align-items:center;gap:10px;margin-bottom:20px;"):
+        _ai_prompts_button(s, rf)
         _comp_cls = " on" if _show_completed else ""
         with ui.element("button").classes("fd-hub" + _comp_cls).style(
                 "border-radius:8px;padding:7px 16px;font-size:12px;").on("click", _toggle_completed):
@@ -56358,13 +56412,12 @@ def index():
             "warn": "⚠ Without this, you won't be able to send any campaigns.",
         },
         {
-            "selector": '[data-tour="nav-start_seq"]',
-            "title": "Build your first campaign",
+            "selector": '[data-tour="nav-ai_prompts"]',
+            "title": "Start with AI",
             "body": (
-                "This is where you create outreach sequences. Pick an AI "
-                "Campaign Builder template, a Recruiting Campaign, or build "
-                "a custom one from scratch  -  DripDrop will walk you through "
-                "each step."
+                "Pick a job, answer a few questions, and DripDrop writes the "
+                "prompt to paste into Claude or ChatGPT. To build a campaign "
+                "by hand, use Campaigns > New Campaign."
             ),
         },
         {
