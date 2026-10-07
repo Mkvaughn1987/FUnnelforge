@@ -413,6 +413,26 @@ def candidate_fields():
     ]
 
 
+# The most emails any one AI Prompts run may send, for every user and every
+# job (Mike, 2026-10-07). It is also the default, so a run that leaves the
+# box alone goes out at the ceiling rather than under it.
+EMAIL_CAP_MAX = 500
+EMAIL_CAP_HINT = "Up to %d." % EMAIL_CAP_MAX
+
+
+def clamp_email_cap(vals):
+    """Pull an email_cap answer above the ceiling (or blanked out) back to
+    the ceiling. A saved setup or a typed 2000 can never reach the prompt."""
+    if "email_cap" not in vals:
+        return
+    v = str(vals.get("email_cap") or "").strip()
+    try:
+        n = int(float(v)) if v else EMAIL_CAP_MAX
+    except ValueError:
+        n = EMAIL_CAP_MAX
+    vals["email_cap"] = str(min(max(n, 1), EMAIL_CAP_MAX))
+
+
 def _migrate_candidates(vals):
     """A Present Candidates setup saved before the block opens on it: the old
     "If the Pipeline comes up short" answer becomes the AI box."""
@@ -467,7 +487,7 @@ ROUTINES = [
               "number", default="7",
               hint="3 is the fewest worth doing, 15 the most."),
             F("email_cap", "Most emails this run should send", "size",
-              "number", default="250"),
+              "number", default=str(EMAIL_CAP_MAX), hint=EMAIL_CAP_HINT),
             F("posting_age", "How recent the job postings have to be", "size",
               "select", default="Posted in the last 30 days",
               options=POSTING_AGE),
@@ -544,7 +564,7 @@ ROUTINES = [
               "number", default="7",
               hint="3 is the fewest worth doing, 15 the most."),
             F("email_cap", "Most emails this run should send", "size",
-              "number", default="250"),
+              "number", default=str(EMAIL_CAP_MAX), hint=EMAIL_CAP_HINT),
             F("posting_age", "How recent the job postings have to be", "size",
               "select", default="Posted in the last 30 days",
               options=POSTING_AGE),
@@ -624,7 +644,7 @@ ROUTINES = [
               "number", default="7",
               hint="3 is the fewest worth doing, 15 the most."),
             F("email_cap", "Most emails this run should send", "size",
-              "number", default="250"),
+              "number", default=str(EMAIL_CAP_MAX), hint=EMAIL_CAP_HINT),
         ] + SKIP_FIELDS,
         "steps": [
             "Pull each of these people out of DripDrop with "
@@ -693,7 +713,7 @@ ROUTINES = [
               "number", default="7",
               hint="3 is the fewest worth doing, 15 the most."),
             F("email_cap", "Most emails this run should send", "size",
-              "number", default="250"),
+              "number", default=str(EMAIL_CAP_MAX), hint=EMAIL_CAP_HINT),
         ] + SKIP_FIELDS,
         "steps": [
             "Pull each of these people out of DripDrop: {candidates}. Look "
@@ -899,7 +919,7 @@ ROUTINES = [
             *start_fields(),
             F("campaign_name", "What to call it", "emails"),
             F("email_cap", "Most emails this run should send", "size",
-              "number", default="250"),
+              "number", default=str(EMAIL_CAP_MAX), hint=EMAIL_CAP_HINT),
         ],
         "steps": [
             "Call campaign_types - and my_campaign_styles if I named a saved "
@@ -2007,6 +2027,7 @@ def build_prompt(req, cat=None):
                            cat.routine_by_key[cat.default_routine])
     vals = dict(req.get("vals") or {})
     _migrate_candidates(vals)
+    clamp_email_cap(vals)
     d = _derived(r, vals, cat)
     solo = (cat.run_through or bool(r.get("solo"))
             or (_txt(r, vals, "unattended") or "").startswith("Run it all"))
@@ -3111,6 +3132,8 @@ def apply_answers(r, vals, answers, cat=None):
                 errors.append("%s takes a number" % key)
                 continue
         vals[key] = v
+        if key == "email_cap":
+            clamp_email_cap(vals)
     return errors
 
 
@@ -3341,7 +3364,8 @@ def _aip_field(s, rf, C, r, vals, f):
         inp = ui.input(value=cur, placeholder=f["placeholder"],
                        on_change=_set).props("dense").classes("fd-input")
         if f["type"] == "number":
-            inp.props("type=number")
+            inp.props("type=number min=1 max=%d" % EMAIL_CAP_MAX
+                      if f["key"] == "email_cap" else "type=number")
         elif f["type"] == "date":
             # The browser's own date picker; the value is YYYY-MM-DD.
             inp.props("type=date min=%s" % date.today().isoformat())

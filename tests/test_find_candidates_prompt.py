@@ -70,7 +70,7 @@ def test_questions_and_defaults(mods):
     assert fb["cand_cadence"]["options"] == list(aip.CADENCE_KEY)
     assert fb["companies"]["default"] == "20"
     assert fb["contacts_each"]["default"] == "5"
-    assert fb["email_cap"]["default"] == "100"
+    assert fb["email_cap"]["default"] == "500"
     # No newsletter and no candidate slate: the people found ARE the run.
     for k in ("newsletter_mode", "newsletter", "cand_picks", "cand_match",
               "cand_ai", "sequence", "saved_style", "skip_recruiters",
@@ -135,7 +135,7 @@ def test_default_prompt_named_seeds_confidential(mods):
             'with campaign_get') in p
     assert "import_candidate_records, one record per person: external_id set to zi-" in p
     # Review then launch: run-through, no "say go".
-    assert "must not send more than 100 emails" in p
+    assert "must not send more than 500 emails" in p
     assert "say go" not in p
     assert 'template "findcandidates": role "Plant Manager", client "Acme Packaging", confidential true' in p
     assert 'location "Windsor, CO"' in p

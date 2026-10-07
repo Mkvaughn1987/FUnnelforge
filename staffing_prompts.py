@@ -24,7 +24,8 @@ from datetime import date
 
 import ai_prompts as _e
 from zoominfo_pull import BOARDS_DEFAULT, BOARDS_RULE, ZI_PULL_RULE
-from ai_prompts import (ARENA, F, NEWSLETTER_DEFAULT, NEWSLETTER_MODES,
+from ai_prompts import (ARENA, EMAIL_CAP_HINT, EMAIL_CAP_MAX, F,
+                        NEWSLETTER_DEFAULT, NEWSLETTER_MODES,
                         POSTING_AGE, SEQUENCES, SKIP_FIELDS, start_fields,
                         finalize_routines)
 
@@ -763,7 +764,7 @@ def _size_fields(companies="5"):
           "number", default="7",
           hint="3 is the fewest worth doing, 15 the most."),
         F("email_cap", "Most emails this run should send", "size", "number",
-          default="250"),
+          default=str(EMAIL_CAP_MAX), hint=EMAIL_CAP_HINT),
     ]
 
 
@@ -935,9 +936,9 @@ def _fc_size_fields():
         F("contacts_each", "How many people at each company", "size",
           "number", default="5"),
         F("email_cap", "Most emails this run should send", "size", "number",
-          default="100",
-          hint="Every person revealed spends a ZoomInfo credit, so this "
-               "caps the spend too."),
+          default=str(EMAIL_CAP_MAX),
+          hint=EMAIL_CAP_HINT + " Every person revealed spends a ZoomInfo "
+               "credit, so this caps the spend too."),
         F("add_to_pipeline", "Add everyone found to my Pipeline", "size",
           "toggle", default=True),
     ]
