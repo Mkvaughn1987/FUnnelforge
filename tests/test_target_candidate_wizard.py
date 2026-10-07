@@ -114,16 +114,22 @@ def test_step_preset_continue_requires_selection():
 
 
 def test_step_generate_emits_campaign_with_correct_cadence():
-    """The generation step source must reference all 3 non-custom
-    preset keys, call save_campaign, and use the JD context (when
-    provided — JD is optional now)."""
+    """The generation step hands the preset and the JD to the shared
+    generator (_generate_findcandidates_emails, which knows all 3
+    non-custom preset keys through _TC_CADENCE_STEPS), calls
+    save_campaign, and uses the JD context (when provided — JD is
+    optional now)."""
     import flowdrip_app as fa
     src = inspect.getsource(fa._tc_render_step_generate)
     assert "one_email" in src
     assert "two_emails_1day" in src
     assert "three_emails_3days" in src
+    assert "_generate_findcandidates_emails" in src
+    assert "tc_preset" in src
     assert "save_campaign" in src
     assert "tc_jd_text" in src or "tc_jd_parsed" in src
+    for key in ("one_email", "two_emails_1day", "three_emails_3days"):
+        assert key in fa._TC_CADENCE_STEPS
 
 
 def test_step_generate_uses_run_as_user_helper():

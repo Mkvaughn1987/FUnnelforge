@@ -4159,7 +4159,7 @@ _ARENA_SLATE_TYPES = frozenset({"fourbyfour", "fivebyfive", "fivebythree",
                                 "fivebyseven", "clientlookalike"})
 # Templates only the API builds: their copy needs spec fields the in-app
 # wizard and the Sales Campaign page have no box for, so neither lists them.
-_API_ONLY_TYPES = frozenset({"clientlookalike"})
+_API_ONLY_TYPES = frozenset({"clientlookalike", "findcandidates"})
 # The slate types whose candidates come from the pipeline (matched to the
 # company when none are given) and whose redacted résumés attach on their own.
 _PIPELINE_SLATE_TYPES = frozenset({"fivebythree", "fivebyseven"})
@@ -4595,6 +4595,16 @@ AICB_CAMPAIGN_TYPES = [
      "channels (email, LinkedIn, call), timing, and style - AI handles the rest.",
      "Custom cadences - unique verticals - specific strategies",
      ""),  # empty  -  user provides their own description
+    ("findcandidates", "Find Candidates", "1-3 steps - up to a week", "#22C55E",
+     "The only template that sends TO candidates instead of about them - "
+     "passive-candidate outreach for one opening. Give it the role, the "
+     "client (named or kept confidential), the location, the pay and the "
+     "reasons someone would move, plus a cadence; the recipients are the "
+     "candidates themselves, not hiring-company contacts.",
+     "Candidate sourcing - passive outreach - filling a specific role",
+     ""),  # empty  -  bypasses the AICB research/prompt pipeline; written
+           # by _generate_findcandidates_emails instead, see the
+           # findcandidates branch in _api_create_campaign_blocking.
 ]
 
 AICB_DOC_DEFS = [
@@ -5378,7 +5388,16 @@ def _validate_campaign_spec(spec: dict):
     tmpl = (spec.get("template") or "").strip()
     if tmpl not in _VALID_TEMPLATES:
         return f"Unknown template '{tmpl}'. Valid: {sorted(_VALID_TEMPLATES)}."
-    if not (spec.get("company") or "").strip() and not (spec.get("niche") or "").strip():
+    if tmpl == "findcandidates":
+        # Recipients are the candidates, so there is no hiring company to
+        # name; the opening itself is described by role/client/pay/etc.
+        cadence = (spec.get("cadence") or "").strip()
+        if cadence and cadence not in _TC_CADENCE_STEPS:
+            return f"Invalid 'cadence'. Valid: {sorted(_TC_CADENCE_STEPS)}."
+        sp_ = spec.get("selling_points")
+        if sp_ is not None and not isinstance(sp_, (list, str)):
+            return "'selling_points' must be a list of strings or one string."
+    elif not (spec.get("company") or "").strip() and not (spec.get("niche") or "").strip():
         return "Provide at least one of 'company' or 'niche'."
     if tmpl == "clientlookalike":
         if not str(spec.get("source_company") or "").strip():
@@ -6068,6 +6087,112 @@ async def api_campaign_styles(request: Request):
     return JSONResponse(_load_my_campaign_styles())
 
 
+def _api_queue_stats(queue: list) -> dict:
+    """Per-campaign pending/sent/failed/cancelled counts from the queue."""
+    out: dict = {}
+    for q in queue:
+        cn = q.get("campaign", "")
+        if not cn:
+            continue
+        stats = out.setdefault(cn, {"pending": 0, "sent": 0, "failed": 0,
+                                    "cancelled": 0})
+        st = q.get("status")
+        if st in stats:
+            stats[st] += 1
+    return out
+
+
+@app.get("/api/v1/campaigns")
+async def api_campaigns_list(request: Request):
+    """List the calling account's own campaigns (tenant-scoped, same as
+    /api/v1/campaign_styles) with lightweight queue stats per campaign -
+    read-only visibility into what's already been launched, so a caller
+    doesn't have to guess before creating a new one."""
+    from starlette.responses import JSONResponse
+    owner, err = _sales_run_owner(request)
+    if err:
+        return err
+
+    def _blocking():
+        _CURRENT_USER_EMAIL.set(owner)
+        try:
+            _switch_to_user_paths(owner)
+        except Exception:
+            pass
+        camps = load_campaigns()
+        _cq = _api_queue_stats(_load_queue())
+        out = []
+        for c in camps:
+            cn = c.get("name", "")
+            stats = _cq.get(cn, {"pending": 0, "sent": 0, "failed": 0,
+                                 "cancelled": 0})
+            out.append({
+                "campaign_id": Path(c.get("_path", "")).stem or cn,
+                "name": cn,
+                "template": c.get("template_key") or c.get("aicb_camp_type") or "",
+                "start_date": c.get("start_date", ""),
+                "steps": len(c.get("emails", [])),
+                "contacts": len(c.get("contacts", [])),
+                "queue": stats,
+            })
+        return out
+
+    try:
+        out = await asyncio.get_event_loop().run_in_executor(None, _blocking)
+    except Exception as ex:
+        return JSONResponse({"error": str(ex)}, status_code=500)
+    return JSONResponse(out)
+
+
+@app.get("/api/v1/campaigns/{campaign_id}")
+async def api_campaign_get(campaign_id: str, request: Request):
+    """Detail view for a single one of the calling account's own campaigns -
+    the full email steps, contacts and queue stats, keyed by the campaign_id
+    returned from POST /api/v1/campaigns and GET /api/v1/campaigns (the
+    campaign name works too)."""
+    from starlette.responses import JSONResponse
+    owner, err = _sales_run_owner(request)
+    if err:
+        return err
+
+    def _blocking():
+        _CURRENT_USER_EMAIL.set(owner)
+        try:
+            _switch_to_user_paths(owner)
+        except Exception:
+            pass
+        camp = next(
+            (c for c in load_campaigns()
+             if Path(c.get("_path", "")).stem == campaign_id
+             or c.get("name") == campaign_id),
+            None,
+        )
+        if not camp:
+            return None
+        cn = camp.get("name", "")
+        stats = _api_queue_stats(_load_queue()).get(
+            cn, {"pending": 0, "sent": 0, "failed": 0, "cancelled": 0})
+        return {
+            "campaign_id": Path(camp.get("_path", "")).stem or cn,
+            "name": cn,
+            "template": camp.get("template_key") or camp.get("aicb_camp_type") or "",
+            "start_date": camp.get("start_date", ""),
+            "synopsis": camp.get("synopsis", ""),
+            "contacts": camp.get("contacts", []),
+            "emails": camp.get("emails", []),
+            "queue": stats,
+        }
+
+    try:
+        detail = await asyncio.get_event_loop().run_in_executor(None, _blocking)
+    except Exception as ex:
+        return JSONResponse({"error": str(ex)}, status_code=500)
+    if detail is None:
+        return JSONResponse({"error": f"no campaign found for id '{campaign_id}'"},
+                            status_code=404)
+    return JSONResponse(detail)
+
+
 # Fields that identify the real person behind a candidate card. They are used to
 # find/add the Pipeline record, then stripped so they never reach the prompt.
 _CARD_IDENTITY_FIELDS = ("name", "first_name", "last_name", "email", "phone",
@@ -6248,6 +6373,26 @@ def _api_create_campaign_blocking(client, spec, owner):
             return {"error": f"unknown style_id '{style_id}'", "status": 400}
         template = "byos"
         byos_desc = (_style.get("description") or "").strip()
+    if template == "findcandidates":
+        # Recipients ARE the candidates: no company research, no slate, no
+        # résumés. One opening in, one short sequence out.
+        jd_text = (spec.get("job_description") or "").strip()
+        cadence = (spec.get("cadence") or "").strip() or "one_email"
+        try:
+            jd_parsed = _tc_parse_jd(jd_text) if jd_text else {}
+            fc_emails = _generate_findcandidates_emails(
+                cadence=cadence, jd_text=jd_text, jd_parsed=jd_parsed,
+                signoff_name=_recruiter_signoff_name(None),
+                opening=_fc_opening_from_spec(spec))
+        except Exception as ge:
+            return {"error": f"generation error: {ge}", "status": 500}
+        role = (spec.get("role") or "").strip() or (jd_parsed.get("role_title") or "").strip()
+        return {"template": template,
+                "campaign_data": {
+                    "emails": fc_emails, "synopsis": "",
+                    "campaign_name": f"Find Candidates - {role}" if role else "Find Candidates",
+                },
+                "emails": fc_emails, "candidate_refs": [], "candidate_warnings": []}
     cards = list(spec.get("candidates") or [])
     if template in _PIPELINE_SLATE_TYPES:
         cards, skip = _api_resolve_5x3_cards(client, spec, owner=owner)
@@ -6460,6 +6605,18 @@ async def api_create_campaign(request: Request):
             "Industry": (spec.get("industry") or "").strip(),
         },
     }
+    if template == "findcandidates":
+        _op = _fc_opening_from_spec(spec)
+        camp["_chooser_origin"] = "candidate"
+        camp["variables"]["TargetRole"] = _op["role"]
+        camp["variables"]["Geography"] = _op["location"]
+        # A confidential search never writes the client's name anywhere a
+        # merge token could reach an email.
+        camp["variables"]["CompanyName"] = "" if _op["confidential"] else _op["client"]
+        camp["synopsis"] = (
+            f"Candidate outreach for {_op['role'] or 'an opening'}"
+            + (f" at {_op['client']}" if _op["client"] and not _op["confidential"] else "")
+            + (f" in {_op['location']}" if _op["location"] else "") + ".")
     if result.get("candidate_refs"):
         camp["candidate_refs"] = result["candidate_refs"]
 
@@ -8458,6 +8615,185 @@ def _tc_parse_jd(jd_text: str) -> dict:
     except Exception as ex:
         print(f"[TCParseJD] AI call failed: {ex}", flush=True)
         return {}
+
+
+# Cadences for Find Candidates outreach. delay_days are RELATIVE gaps (each
+# step's offset from the previous step), NOT absolute offsets from campaign
+# start: the queue's cumulative_delay sums them, so [0, 1, 1] is day 0, day 1,
+# day 2 and [0, 3, 4] is day 0, day 3, day 7.
+_TC_CADENCE_STEPS = {
+    "one_email": [{"delay_days": 0, "time": "9:00 AM"}],
+    "two_emails_1day": [
+        {"delay_days": 0, "time": "9:00 AM"},
+        {"delay_days": 0, "time": "2:00 PM"},
+    ],
+    "three_emails_3days": [
+        {"delay_days": 0, "time": "9:00 AM"},
+        {"delay_days": 1, "time": "9:00 AM"},
+        {"delay_days": 1, "time": "9:00 AM"},
+    ],
+    "three_emails_1week": [
+        {"delay_days": 0, "time": "9:00 AM"},
+        {"delay_days": 3, "time": "9:00 AM"},
+        {"delay_days": 4, "time": "9:00 AM"},
+    ],
+}
+
+# What each email in a Find Candidates sequence is for, by sequence length.
+_TC_STEP_PURPOSES = {
+    1: ["Introduce the opening and ask whether they are open to a conversation."],
+    2: ["Introduce the opening and ask whether they are open to a conversation.",
+        "Add the value: pay, the reasons to move, what the company offers. "
+        "Soft close: a short reply or a time to talk is enough."],
+    3: ["Introduce the opening and ask whether they are open to a conversation.",
+        "Add the value: pay, the reasons to move, what the company offers. "
+        "Reference the first note in one clause, no guilt.",
+        "Soft close with an easy out: if the timing is wrong, say so and you "
+        "will not follow up again, and the door stays open for later."],
+}
+
+
+def _fc_opening_from_spec(spec: dict) -> dict:
+    """The opening a findcandidates spec describes, normalised. Every value
+    is a stripped string except selling_points (list of strings) and
+    confidential (bool, default True)."""
+    spec = spec or {}
+    sp = spec.get("selling_points")
+    if isinstance(sp, str):
+        sp = [p.strip() for p in re.split(r"[\n;]+", sp) if p.strip()]
+    elif isinstance(sp, (list, tuple)):
+        sp = [str(p).strip() for p in sp if str(p).strip()]
+    else:
+        sp = []
+    conf = spec.get("confidential", True)
+    if isinstance(conf, str):
+        conf = conf.strip().lower() not in ("false", "no", "0", "off", "")
+    return {
+        "role": (spec.get("role") or "").strip(),
+        "client": (spec.get("client") or spec.get("company") or "").strip(),
+        "confidential": bool(conf),
+        "location": (spec.get("location") or "").strip(),
+        "pay": (spec.get("pay") or "").strip(),
+        "selling_points": sp,
+    }
+
+
+def _generate_findcandidates_emails(cadence: str, jd_text: str, jd_parsed: dict,
+                                     signoff_name: str, opening: dict = None) -> list:
+    """Shared AI-generation core for "Find Candidates" outreach emails - the
+    recipients ARE the candidates, unlike every other template. Used by the
+    in-app Find Candidates wizard (_tc_render_step_generate, JD and cadence
+    only) and the API/MCP `findcandidates` template, which also passes the
+    opening (role, client or confidential, location, pay, selling points).
+    Returns the emails list; raises on failure so callers surface the error
+    their own way."""
+    jd_parsed = jd_parsed or {}
+    opening = opening or {}
+    steps_meta = _TC_CADENCE_STEPS.get(cadence) or _TC_CADENCE_STEPS["one_email"]
+    n = len(steps_meta)
+    purposes = _TC_STEP_PURPOSES.get(n) or _TC_STEP_PURPOSES[1] * n
+
+    role_title = (opening.get("role") or jd_parsed.get("role_title") or "").strip() or "this role"
+    key_skills = ", ".join((jd_parsed.get("key_skills") or [])[:5])
+    seniority = jd_parsed.get("seniority", "")
+    comp = (opening.get("pay") or jd_parsed.get("comp_range") or "").strip()
+    location = (opening.get("location") or jd_parsed.get("location") or "").strip()
+    client = (opening.get("client") or "").strip()
+    confidential = bool(opening.get("confidential", True))
+    selling = [p for p in (opening.get("selling_points") or []) if p]
+    has_jd = bool((jd_text or "").strip())
+    has_opening = bool(opening.get("role") or client or comp or selling)
+
+    from anthropic import Anthropic
+    client_ai = Anthropic(api_key=ANTHROPIC_API_KEY)
+
+    if has_jd or has_opening:
+        lines = [f"- Title: {role_title}"]
+        if client and not confidential:
+            lines.append(f"- Hiring company: {client} (name it)")
+        elif client:
+            lines.append("- Hiring company: confidential. Never name it; describe "
+                         "it in a phrase (what it does, its size, how it is doing).")
+        if seniority:
+            lines.append(f"- Seniority: {seniority}")
+        if key_skills:
+            lines.append(f"- Key skills: {key_skills}")
+        lines.append(f"- Pay: {comp or 'not specified - do not invent a number'}")
+        lines.append(f"- Location: {location or 'not specified'}")
+        if selling:
+            lines.append("- Why someone would move: " + "; ".join(selling))
+        context_block = "ROLE CONTEXT:\n" + "\n".join(lines) + "\n\n"
+        if has_jd:
+            context_block += f"FULL JD (excerpt):\n{jd_text[:1500]}\n\n"
+    else:
+        context_block = (
+            "NO JD PROVIDED. Write generic-but-warm candidate "
+            "sourcing copy that the recruiter can personalize "
+            "in the editor afterward. Use neutral placeholders "
+            "like 'this role' / 'your background' so the copy "
+            "reads naturally even before edits.\n\n"
+        )
+    span_days = 1 + sum(m["delay_days"] for m in steps_meta)
+    purpose_block = "".join(f"- Email {i + 1}: {p}\n" for i, p in enumerate(purposes))
+    prompt = (
+        f"Write {n} candidate-outreach emails for a recruiter pitching "
+        f"{('the role of ' + role_title) if (has_jd or has_opening) else 'an open role'} "
+        f"to passive candidates who are employed today.\n\n"
+        + context_block +
+        f"CADENCE: {n} emails over {span_days} day(s).\n\n"
+        f"WHAT EACH EMAIL IS FOR:\n{purpose_block}\n"
+        f"STRICT RULES:\n"
+        f"- Address the candidate as {{FirstName}} (exactly that token). "
+        f"Use no other merge tokens.\n"
+        f"- Respectful, no fake urgency. Treat them as a peer who is doing "
+        f"well where they are.\n"
+        f"- Each email under 150 words.\n"
+        f"- Subject lines distinct and specific.\n"
+        f"- DO NOT use emoji or markdown.\n"
+        f"- DO NOT include 'I came across your profile' or "
+        f"similar template-feeling openers.\n"
+        + ("- The hiring company is confidential: never name it or hint at "
+           "its name.\n" if (client and confidential) else "")
+        + "\nReturn ONLY valid JSON:\n"
+        f'{{"emails":['
+        + ",".join(
+            f'{{"name":"Step {i+1}","subject":"...",'
+            f'"body":"Hi {{FirstName}},<br><br>...",'
+            f'"delay_days":{m["delay_days"]},'
+            f'"time":"{m["time"]}",'
+            f'"step_type":"email_auto"}}'
+            for i, m in enumerate(steps_meta)
+        )
+        + "]}}"
+    )
+    msg = _claude_create_with_retry(client_ai,
+        model="claude-haiku-4-5-20251001",
+        max_tokens=3000,
+        messages=[{"role": "user", "content": prompt}])
+    text = "".join(b.text for b in msg.content if hasattr(b, "text"))
+    m = re.search(r'\{[\s\S]*\}', text)
+    if not m:
+        raise ValueError("AI did not return parseable JSON")
+    parsed = json.loads(m.group(0))
+    emails = parsed.get("emails") or []
+    if len(emails) != n:
+        raise ValueError(f"AI returned {len(emails)} emails, expected {n}")
+    # Pin the cadence the caller asked for; the model's copy of the numbers
+    # is not trusted.
+    for em, meta in zip(emails, steps_meta):
+        em["delay_days"] = meta["delay_days"]
+        em["time"] = meta["time"]
+        em["step_type"] = "email_auto"
+    # Replace any {recruiter_name}-style placeholder with the real name, then
+    # strip the AI's sign-off (signature is auto-appended at send) so there's
+    # no double sign-off.
+    _fill_recruiter_placeholders(emails, signoff_name)
+    _normalize_email_merge_tokens(emails)  # {first_name} -> {FirstName}
+    _spread_email_times(emails)  # spread off 9am to ease server load
+    for _em in emails:
+        if _em.get("body"):
+            _em["body"] = _strip_ai_signoff(_em["body"])
+    return emails
 
 
 def _load_signature_text() -> str:
@@ -42249,106 +42585,14 @@ def _tc_render_step_generate(s: AppState, rf):
 
         def _run():
             try:
-                # Build the cadence per preset
-                if s.tc_preset == "one_email":
-                    steps_meta = [{"delay_days": 0, "time": "9:00 AM"}]
-                elif s.tc_preset == "two_emails_1day":
-                    steps_meta = [
-                        {"delay_days": 0, "time": "9:00 AM"},
-                        {"delay_days": 0, "time": "2:00 PM"},
-                    ]
-                elif s.tc_preset == "three_emails_3days":
-                    # delay_days here are RELATIVE gaps (each step's offset
-                    # from the previous step), NOT absolute offsets from
-                    # campaign start. The queue's cumulative_delay sums
-                    # them: [0, 1, 1] -> day 0, day 1, day 2 (one per day
-                    # for 3 days, as advertised).
-                    steps_meta = [
-                        {"delay_days": 0, "time": "9:00 AM"},
-                        {"delay_days": 1, "time": "9:00 AM"},
-                        {"delay_days": 1, "time": "9:00 AM"},
-                    ]
-                else:
-                    steps_meta = [{"delay_days": 0, "time": "9:00 AM"}]
-
                 role_title = s.tc_jd_parsed.get("role_title", "") or "this role"
-                key_skills = ", ".join((s.tc_jd_parsed.get("key_skills") or [])[:5])
-                seniority = s.tc_jd_parsed.get("seniority", "")
-                comp = s.tc_jd_parsed.get("comp_range", "")
                 location = s.tc_jd_parsed.get("location", "")
-                _has_jd = bool((s.tc_jd_text or "").strip())
-
-                from anthropic import Anthropic
-                client = Anthropic(api_key=ANTHROPIC_API_KEY)
-
-                if _has_jd:
-                    _context_block = (
-                        f"ROLE CONTEXT:\n"
-                        f"- Title: {role_title}\n"
-                        f"- Seniority: {seniority}\n"
-                        f"- Key skills: {key_skills}\n"
-                        f"- Comp: {comp or 'not specified'}\n"
-                        f"- Location: {location or 'not specified'}\n\n"
-                        f"FULL JD (excerpt):\n{s.tc_jd_text[:1500]}\n\n"
-                    )
-                else:
-                    _context_block = (
-                        f"NO JD PROVIDED. Write generic-but-warm candidate "
-                        f"sourcing copy that the recruiter can personalize "
-                        f"in the editor afterward. Use neutral placeholders "
-                        f"like 'this role' / 'your background' so the copy "
-                        f"reads naturally even before edits.\n\n"
-                    )
-                prompt = (
-                    f"Write {len(steps_meta)} candidate-outreach emails "
-                    f"for a recruiter pitching {('the role of ' + role_title) if _has_jd else 'an open role'} "
-                    f"to passive candidates.\n\n"
-                    + _context_block +
-                    f"CADENCE: {len(steps_meta)} emails over "
-                    f"{1 + max((m['delay_days'] for m in steps_meta), default=0)} day(s).\n\n"
-                    f"STRICT RULES:\n"
-                    f"- Address candidate as {{FirstName}} (exactly that token).\n"
-                    f"- Respectful, no fake urgency. Treat them as a peer.\n"
-                    f"- Each email under 150 words.\n"
-                    f"- Subject lines distinct and specific.\n"
-                    f"- DO NOT use emoji or markdown.\n"
-                    f"- DO NOT include 'I came across your profile' or "
-                    f"similar template-feeling openers.\n\n"
-                    f"Return ONLY valid JSON:\n"
-                    f'{{"emails":['
-                    + ",".join(
-                        f'{{"name":"Step {i+1}","subject":"...",'
-                        f'"body":"Hi {{FirstName}},<br><br>...",'
-                        f'"delay_days":{m["delay_days"]},'
-                        f'"time":"{m["time"]}",'
-                        f'"step_type":"email_auto"}}'
-                        for i, m in enumerate(steps_meta)
-                    )
-                    + "]}}"
-                )
-                msg = _claude_create_with_retry(client,
-                    model="claude-haiku-4-5-20251001",
-                    max_tokens=3000,
-                    messages=[{"role": "user", "content": prompt}])
-                text = "".join(b.text for b in msg.content if hasattr(b, "text"))
-                m = re.search(r'\{[\s\S]*\}', text)
-                if not m:
-                    raise ValueError("AI did not return parseable JSON")
-                parsed = json.loads(m.group(0))
-                emails = parsed.get("emails") or []
-                if len(emails) != len(steps_meta):
-                    raise ValueError(
-                        f"AI returned {len(emails)} emails, expected {len(steps_meta)}"
-                    )
-                # Replace any {recruiter_name}-style placeholder with the real
-                # name, then strip the AI's sign-off (signature is auto-appended
-                # at send — same as the MPC flow) so there's no double sign-off.
-                _fill_recruiter_placeholders(emails, _recruiter_signoff_name(s))
-                _normalize_email_merge_tokens(emails)  # {first_name} -> {FirstName}
-                _spread_email_times(emails)  # spread off 9am to ease server load
-                for _em in emails:
-                    if _em.get("body"):
-                        _em["body"] = _strip_ai_signoff(_em["body"])
+                # Same generator the API's findcandidates template uses; the
+                # wizard only knows the JD and the cadence.
+                emails = _generate_findcandidates_emails(
+                    cadence=s.tc_preset, jd_text=s.tc_jd_text or "",
+                    jd_parsed=s.tc_jd_parsed or {},
+                    signoff_name=_recruiter_signoff_name(s))
 
                 # Recipients pre-loaded from the ATS (Send a Job Opening), if any.
                 _ats_contacts = list(getattr(s, "tc_contacts", []) or [])
