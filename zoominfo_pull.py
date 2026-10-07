@@ -42,9 +42,22 @@ ZI_PHONES_RULE = (
     "phone_office on every contact you hand DripDrop, so both stay on the "
     "contact's record.")
 
+# Before ZoomInfo: the team's own bank of people already reached.
+BANK_FIRST_RULE = (
+    "Before ZoomInfo, check the Shared Arena Contacts bank: for each company "
+    "call the DripDrop team_contacts tool with the company name or email "
+    "domain. It returns the people our team has already reached there, from "
+    "every campaign and uploaded list, with titles, emails and phones; "
+    "anyone who said not interested or is on a Do Not Contact list is "
+    "already left out, and people who replied are flagged. Use those "
+    "contacts first, replied ones at the top. Only pull from ZoomInfo for "
+    "companies that come back empty or that need more people to reach the "
+    "count. Never re-add a person the bank left out. ")
+
 # Appended to every step that pulls contacts out of ZoomInfo.
 ZI_PULL_RULE = (
-    "Pull the contacts with the ZoomInfo connector: search_companies to pin "
+    BANK_FIRST_RULE +
+    "Pull the rest with the ZoomInfo connector: search_companies to pin "
     "the right company, search_contacts to find the people (free, so search "
     "wide), then enrich_contacts in batches of 10 to reveal them - that "
     "spends our shared Bulk Credits. If enrich_contacts comes back with a "

@@ -205,6 +205,17 @@ class Catalogue:
     # you, or finish it?" question is not asked. DripDrop's users want the
     # job done, not a conversation about it.
     run_through: bool = False
+    # Pick-a-job layout. tile_groups is [(heading, [starter ids])]; a
+    # starter in no group lands in the last one. None draws one flat grid.
+    # tile_short is {starter id: one short line} shown on the tile in place
+    # of the long "sub" (which still opens the questions screen).
+    tile_groups: object = None
+    tile_short: object = None
+    # The result screen's "Do this now" steps: how to check the connector is
+    # switched on, and the page to review the results on afterwards.
+    connector_how: str = ""
+    review_page: str = ""
+    review_label: str = ""
 
 
 SEQUENCES = ["Arena 5x7", "Arena 5x5", "Arena 5x3", "Arena 4x4",
@@ -860,7 +871,7 @@ ROUTINES = [
             F("cand_cadence", "How many emails to the candidates", "details",
               "select", default="One email",
               options=["One email", "Two, a day apart",
-                       "Three, over three days"]),
+                       "Three, over three days", "Three, over a week"]),
             F("newsletter_mode", "Add them to a newsletter", "details",
               "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
             F("newsletter", "Which newsletter", "details",
@@ -1382,6 +1393,7 @@ CADENCE_KEY = {
     "One email": "one_email",
     "Two, a day apart": "two_emails_1day",
     "Three, over three days": "three_emails_3days",
+    "Three, over a week": "three_emails_1week",
 }
 
 
@@ -2029,13 +2041,15 @@ def build_prompt(req, cat=None):
 
     # The scannable table. Only the "details" answers go here: the numbers
     # live in the numbered steps that use them, so there is never a limit
-    # stated twice with two different values.
+    # stated twice with two different values. A question an earlier answer
+    # hid (show_if) stays out too: the zip code typed before switching to
+    # "a whole state" is not part of the run.
     rows = [(f["label"],
              str((d.get(f["key"]) if f["type"] == "checks"
                   else _val(r, vals, f["key"])) or "").strip())
             for f in r["fields"]
             if f["section"] == "details" and f["type"] != "toggle"
-            and f["key"] not in NEWSLETTER_KEYS]
+            and f["key"] not in NEWSLETTER_KEYS and _visible(r, vals, f)]
     rows = [(lbl, v) for lbl, v in rows if v]
     if rows:
         L += ["", "THE DETAILS"]
@@ -2254,10 +2268,9 @@ STARTERS = [
     {
         "id": "other",
         "icon": "edit_note",
-        "label": "Something Else - Describe Your Own Task",
-        "sub": "Anything the jobs above do not cover. You write the job in "
-               "your own words on the next screen and the AI turns it into "
-               "the same kind of prompt, with the same rules on it.",
+        "label": "Go Off Script",
+        "sub": "Got an idea that isn't up there? Describe it and I'll "
+               "create it, and you can save it for future runs.",
         # Non-empty on purpose: with the "in one line" box gone this is the
         # only thing left to open WHAT I WANT with. The job itself is the
         # "What you want done" answer, which reaches the prompt through
@@ -2329,6 +2342,39 @@ ARENA = Catalogue(
     result_extra=_arena_result_extra,
     zi_rule=ZI_PULL_RULE,
     run_through=True,
+    tile_groups=[
+        ("Find new business", ["staff_signal", "staff_lookalike",
+                               "mpc", "staff_find_candidates", "slate"]),
+        ("Daily tasks", ["linkedin", "resume_sweep", "zi_seat"]),
+        ("Off script", ["other"]),
+    ],
+    tile_short={
+        # Sized to the tile: a two-line title leaves room for about four
+        # lines here, a three-line title about three.
+        "staff_signal": "Finds companies whose posts show hiring pain, pulls "
+                        "the managers, and builds a campaign for each.",
+        "staff_lookalike": "Name a client you've placed with. The AI finds "
+                           "look-alikes hiring now and builds campaigns.",
+        "mpc": "Pick up to 3 people. The AI finds companies they fit and "
+               "runs the 5x3.",
+        "staff_find_candidates": "Name the role and the client. The AI finds "
+                                 "people doing it at look-alike companies and "
+                                 "emails them.",
+        "slate": "Name an industry and area. The AI pitches your bench to "
+                 "who's hiring.",
+        "linkedin": "Sends every LinkedIn request on Today's Tasks with "
+                    "DripDrop's note, then marks each one done.",
+        "resume_sweep": "Adds the resumes you downloaded to DD and TT. Skips "
+                        "anyone already in.",
+        "zi_seat": "When the shared credits hit their limit, the AI switches "
+                   "to your own ZoomInfo login in Chrome.",
+        "other": "Got an idea that isn't up there? Describe it and I'll "
+                 "create it, and you can save it for future runs.",
+    },
+    connector_how=("Click + under the message box, open Connectors, and "
+                   "make sure DripDrop is switched on."),
+    review_page="seq_mgr",
+    review_label="Go to Campaigns",
 )
 
 # The catalogue the page is currently rendering. render_page() binds it; an
@@ -2439,6 +2485,33 @@ def _aip_css():
         "color:var(--dd-card);}"
         ".aip-wrap .aip-tick{position:absolute;top:10px;right:10px;"
         "font-size:18px;color:var(--dd-teal);}"
+        # How it works: three numbered cards on the landing page.
+        ".aip-wrap .aip-how{display:grid;gap:12px;margin:0 0 18px;"
+        "grid-template-columns:repeat(auto-fit,minmax(220px,1fr));}"
+        ".aip-wrap .aip-how-step{display:flex;gap:12px;align-items:flex-start;"
+        "padding:14px 16px;border-radius:12px;background:var(--dd-card);"
+        "border:1px solid var(--dd-border);}"
+        ".aip-wrap .aip-how-step.on{border-color:var(--dd-teal);}"
+        ".aip-wrap .aip-how-n{flex:none;width:28px;height:28px;"
+        "border-radius:50%;display:flex;align-items:center;"
+        "justify-content:center;font-size:13px;font-weight:800;"
+        "background:var(--dd-teal_dim);color:var(--dd-teal);}"
+        ".aip-wrap .aip-how-step.on .aip-how-n{background:var(--dd-teal);"
+        "color:var(--dd-card);}"
+        ".aip-wrap .aip-how-t{font-size:14px;font-weight:700;"
+        "color:var(--dd-text_l);margin-bottom:2px;}"
+        ".aip-wrap .aip-how-s{font-size:12px;line-height:1.5;"
+        "color:var(--dd-muted);}"
+        # The result screen's numbered "Do this now" steps.
+        ".aip-wrap .aip-do{display:flex;flex-direction:column;gap:0;}"
+        ".aip-wrap .aip-do-row{display:flex;gap:14px;align-items:flex-start;"
+        "padding:14px 0;border-top:1px solid var(--dd-border);}"
+        ".aip-wrap .aip-do-row:first-child{border-top:none;padding-top:4px;}"
+        ".aip-wrap .aip-do-body{flex:1;min-width:0;}"
+        ".aip-wrap .aip-do-acts{display:flex;gap:8px;flex-wrap:wrap;"
+        "margin-top:8px;}"
+        ".aip-wrap details.aip-show>summary{cursor:pointer;font-size:12px;"
+        "font-weight:600;color:var(--dd-teal);margin:4px 0 10px;}"
         # Steps 1-2-3 across the top of every view.
         ".aip-wrap .aip-steps{display:flex;align-items:center;gap:10px;"
         "flex-wrap:wrap;margin:0 0 16px;}"
@@ -2679,8 +2752,45 @@ def render_page(s, rf, cat):
             _steps(2)
             _aip_confirm(s, rf, C)
         else:
-            _steps(1)
+            _how_it_works()
             _aip_ask(s, rf, C)
+
+
+def _tile_groups():
+    """[(heading, [starter])] for the picker. No tile_groups on the
+    catalogue = one group with no heading. A starter no group names goes
+    in the last group, so a new job can never fall off the page."""
+    if not _CAT.tile_groups:
+        return [("", list(_CAT.starters))]
+    by_id = {x["id"]: x for x in _CAT.starters}
+    out, seen = [], set()
+    for heading, ids in _CAT.tile_groups:
+        rows = [by_id[i] for i in ids if i in by_id]
+        seen.update(x["id"] for x in rows)
+        out.append((heading, rows))
+    left = [x for x in _CAT.starters if x["id"] not in seen]
+    if left:
+        out[-1] = (out[-1][0], out[-1][1] + left)
+    return [(h, rows) for h, rows in out if rows]
+
+
+def _how_it_works():
+    """The landing page's three numbered cards: the whole job in one look,
+    before anything is picked."""
+    review = (_CAT.review_label or "").replace("Go to ", "") or "the app"
+    steps = (
+        ("Pick what you want done", "Choose the job below that's closest."),
+        ("Answer a few questions", "We fill in suggestions. Change what you like."),
+        ("Paste it into your AI", "Copy the prompt into Claude or ChatGPT. "
+                                  "The results show up in %s." % review),
+    )
+    with ui.element("div").classes("aip-how"):
+        for i, (title, sub) in enumerate(steps, 1):
+            with ui.element("div").classes("aip-how-step" + (" on" if i == 1 else "")):
+                ui.label(str(i)).classes("aip-how-n")
+                with ui.element("div").style("min-width:0;"):
+                    ui.label(title).classes("aip-how-t")
+                    ui.label(sub).classes("aip-how-s")
 
 
 # ── View 1: pick a job ────────────────────────────────────────────────────
@@ -2699,10 +2809,8 @@ def _aip_ask(s, rf, C):
 
     with _card(C):
         _text("What do you want to do?", C, 17, 700, C["text_l"], 2)
-        _text("Click the closest one. You fill in the specifics (industry, "
-              "area, who to email, how many) on the next screen. Nothing "
-              "runs or sends here: you're writing the message to paste into "
-              "%s." % _CAT.assistant,
+        _text("Click the closest one. You'll fill in the details on the next "
+              "screen. Nothing runs or sends from this page.",
               C, 12, colour=C["muted"], mb=16)
 
         def _pick(key):
@@ -2722,20 +2830,26 @@ def _aip_ask(s, rf, C):
             s._aip_err = ""
             rf()
 
-        with ui.element("div").classes("aip-tiles"):
-            for x in _CAT.starters:
-                on = x["id"] == pick
-                with ui.element("div").classes(
-                        "aip-tile" + (" on" if on else "")).on(
-                        "click", lambda _e, k=x["id"]: _pick(k)):
-                    with ui.element("div").classes("aip-ico"):
-                        ui.icon(x.get("icon") or "auto_awesome")
-                    with ui.element("div").style(
-                            "min-width:0;padding-right:18px;"):
-                        _text(x["label"], C, 13, 700, C["text_l"], 3)
-                        _text(x["sub"], C, 11.5, colour=C["muted"])
-                    if on:
-                        ui.icon("check_circle").classes("aip-tick")
+        short = _CAT.tile_short or {}
+        for heading, group in _tile_groups():
+            if heading:
+                _sec(heading, C)
+            with ui.element("div").classes("aip-tiles").style(
+                    "margin-bottom:18px;" if heading else ""):
+                for x in group:
+                    on = x["id"] == pick
+                    with ui.element("div").classes(
+                            "aip-tile" + (" on" if on else "")).on(
+                            "click", lambda _e, k=x["id"]: _pick(k)):
+                        with ui.element("div").classes("aip-ico"):
+                            ui.icon(x.get("icon") or "auto_awesome")
+                        with ui.element("div").style(
+                                "min-width:0;padding-right:18px;"):
+                            _text(x["label"], C, 13, 700, C["text_l"], 3)
+                            _text(short.get(x["id"]) or x["sub"], C, 11.5,
+                                  colour=C["muted"])
+                        if on:
+                            ui.icon("check_circle").classes("aip-tick")
 
     setups = _load_setups()
     if setups:
@@ -3905,7 +4019,9 @@ def _aip_confirm(s, rf, C):
                      icon="arrow_forward")
                 with ui.element("div").style(
                         "display:flex;flex-wrap:wrap;gap:8px;"):
-                    _aip_save_setup(s, rf, C, req)
+                    _aip_save_setup(s, rf, C, req, label=(
+                        "Save for future runs" if r["key"] == "other"
+                        else "Save these answers"))
 
         # Right: the one step on screen.
         with ui.element("div").classes("aip-panel"):
@@ -3984,6 +4100,15 @@ def _aip_result(s, rf, C):
         s._aip_err = ""
         rf()
 
+    def _open(url):
+        ui.run_javascript("window.open(%s, '_blank')" % json.dumps(url))
+
+    def _review():
+        try:
+            _ff()._sidebar_nav(s, rf, _CAT.review_page, {})
+        except Exception:
+            s.hub = "sales"; s.sp = _CAT.review_page; rf()
+
     with _card(C):
         with ui.element("div").style(
                 "display:flex;align-items:flex-start;gap:14px;"
@@ -3999,27 +4124,68 @@ def _aip_result(s, rf, C):
                     with ui.element("div").style(
                             "display:flex;align-items:center;gap:12px;"):
                         ui.label(r["name"]).classes("aip-pill good")
-                        # Back sits up here too: the prompt is long, so the
-                        # button row below is off screen when you land.
                         with ui.element("button").classes("aip-back").on(
                                 "click", _back):
                             ui.icon("arrow_back")
                             ui.label("Back")
-                _text(_CAT.result_copy, C, 12, colour=C["muted"])
+                _text("Do these steps in order.", C, 12, colour=C["muted"])
 
-        with ui.element("div").style("position:relative;"):
+        # The whole hand-off as numbered steps, each with its own button, so
+        # nobody has to work out what "paste it into your AI" means.
+        do = [("Copy your prompt", "", [("Copy prompt", _copy, True)])]
+        do.append(("Open Claude or ChatGPT", "Start a new chat.",
+                   [("Open Claude", lambda: _open("https://claude.ai/new"), False),
+                    ("Open ChatGPT", lambda: _open("https://chatgpt.com/"), False)]))
+        if _CAT.connector_how:
+            do.append(("Check %s is switched on" % _CAT.product,
+                       _CAT.connector_how, []))
+        do.append(("Paste it and press Enter",
+                   "Paste it as your first message. The AI does the rest"
+                   + (" from start to finish." if _CAT.run_through else ".")
+                   , []))
+        # An off-script job is one the user made up, so the only way to run
+        # it again is to save it. Make that a step rather than a button in
+        # the bottom bar nobody reads.
+        save_step = r["key"] == "other"
+        if save_step:
+            do.append(("Save it for future runs",
+                       "It goes on the first screen, ready to run again "
+                       "with everything filled in.", "save"))
+        if _CAT.review_page:
+            do.append(("Come back and check the results",
+                       "Everything it builds shows up here.",
+                       [(_CAT.review_label or "Open", _review, False)]))
+        with ui.element("div").classes("aip-do"):
+            for i, (title, sub, acts) in enumerate(do, 1):
+                with ui.element("div").classes("aip-do-row"):
+                    ui.label(str(i)).classes("aip-how-n")
+                    with ui.element("div").classes("aip-do-body"):
+                        _text(title, C, 14, 700, C["text_l"], 2)
+                        if sub:
+                            _text(sub, C, 12, colour=C["muted"])
+                        if acts == "save":
+                            with ui.element("div").classes("aip-do-acts"):
+                                _aip_save_setup(s, rf, C, req,
+                                                label="Save this prompt")
+                        elif acts:
+                            with ui.element("div").classes("aip-do-acts"):
+                                for lbl, fn, primary in acts:
+                                    _btn(lbl, fn, primary=primary, small=True,
+                                         lead="content_copy" if primary
+                                         else None)
+
+        with ui.element("details").classes("aip-show"):
+            with ui.element("summary"):
+                ui.label("Show the prompt").style("display:inline;")
             ui.label(prompt).classes("aip-prompt")
-            _btn("Copy", _copy, lead="content_copy", small=True).style(
-                f"position:absolute;top:10px;right:22px;"
-                f"background:{C['card']};")
 
     with ui.element("div").classes("aip-bar"):
         with ui.element("div").classes("aip-bar-side"):
             _btn("Back", _back, lead="arrow_back")
             _btn("Start a new prompt", _restart, lead="add")
-        with ui.element("div").classes("aip-bar-side"):
-            _aip_save_setup(s, rf, C, req, label="Save prompt")
-            _btn("Copy prompt", _copy, primary=True, lead="content_copy")
+        if not save_step:
+            with ui.element("div").classes("aip-bar-side"):
+                _aip_save_setup(s, rf, C, req, label="Save prompt")
 
     if _CAT.result_extra:
         _CAT.result_extra(s, rf, C, r)

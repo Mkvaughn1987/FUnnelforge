@@ -64,31 +64,20 @@ def test_three_emails_3days_preset_uses_relative_gaps_not_absolute_offsets():
     that convention.
     """
     import flowdrip_app as fa
+    # The wizard and the API template share one cadence table
+    # (_TC_CADENCE_STEPS, 2026-10-06). The preset must produce 3 sends with
+    # relative gaps [0, 1, 1] (which sum cumulatively to [0, 1, 2] = days
+    # 0, 1, 2), never absolute offsets [0, 1, 2].
     src = inspect.getsource(fa._tc_render_step_generate)
-    # The preset must produce 3 sends with relative gaps [0, 1, 1]
-    # (which sum cumulatively to [0, 1, 2] = days 0, 1, 2). Look for
-    # the delay_days values in the steps_meta block.
-    # The fix changes "delay_days": 2 to "delay_days": 1 in the third
-    # entry of the three_emails_3days branch.
-    assert "three_emails_3days" in src
-    # Slice out the three_emails_3days branch
-    marker = 'tc_preset == "three_emails_3days"'
-    if marker not in src:
-        # Try alternate quoting
-        marker = "tc_preset == 'three_emails_3days'"
-    assert marker in src, (
-        "Expected to find the three_emails_3days branch in _tc_render_step_generate"
-    )
-    branch_idx = src.index(marker)
-    branch_window = src[branch_idx: branch_idx + 600]
-    # The third step's delay_days must be 1 (relative gap), NOT 2 (absolute offset)
-    # Count occurrences of "delay_days": 2 in the window — should be 0
-    # because in the relative-gap encoding no individual step delays by 2
-    # (they're each +1 from the previous).
-    assert '"delay_days": 2' not in branch_window, (
+    assert "_generate_findcandidates_emails" in src
+    gaps = [m["delay_days"] for m in fa._TC_CADENCE_STEPS["three_emails_3days"]]
+    assert gaps == [0, 1, 1], (
         "three_emails_3days preset must use RELATIVE gaps. The third "
         "step should be delay_days=1 (1 day after step 2), not "
         "delay_days=2 (which the queue cumulatively sums to day 3, not "
         "day 2). The existing AICB presets (Blitz/Talent Drop) all use "
         "relative gaps; this preset must match."
     )
+    # Same convention on the one-week cadence: days 0, 3 and 7.
+    week = [m["delay_days"] for m in fa._TC_CADENCE_STEPS["three_emails_1week"]]
+    assert week == [0, 3, 4]
