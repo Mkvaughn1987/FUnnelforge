@@ -2083,6 +2083,58 @@ def is_blocklisted_email(email: str, blocklist: list = None,
     return False
 
 
+# ── Current Running Campaigns (team-wide company dedupe) ──────────────────
+# A company that any teammate has in an outbound campaign started in the
+# last 30 days (cancelled ones included) is skipped by new launches. See
+# team_campaigns.py; the list is shown on the Current Running Campaigns page.
+
+def _team_worked_hits(owner_email: str, exclude_path: str = "",
+                      exclude_name: str = "") -> dict:
+    """domain -> campaign record for every company the owner's team is
+    already working, minus the campaign being launched. {} on any error so
+    a scan problem never blocks sending."""
+    owner = (owner_email or "").strip().lower()
+    if not owner:
+        return {}
+    try:
+        import team_campaigns as _tc
+        recs = _tc.team_campaigns(_BASE_DATA_DIR / "users", owner)
+        owner_dir = owner.replace("@", "_at_").replace(".", "_")
+        return _tc.worked_domains(recs, exclude_path=exclude_path,
+                                  exclude_name=exclude_name,
+                                  exclude_owner_dir=owner_dir)
+    except Exception as e:
+        print(f"[TeamDedupe] scan failed, not blocking: {e}", flush=True)
+        return {}
+
+
+def _split_team_worked(contacts: list, hits: dict) -> tuple:
+    """(kept, skipped) where skipped is a list of (contact, record)."""
+    import team_campaigns as _tc
+    kept, skipped = [], []
+    for c in contacts or []:
+        em = (c.get("email") or c.get("Email") or "") if isinstance(c, dict) else ""
+        rec = _tc.match(_tc.email_domain(em), hits) if hits else None
+        if rec:
+            skipped.append((c, rec))
+        else:
+            kept.append(c)
+    return kept, skipped
+
+
+def _team_worked_reason(skipped: list) -> str:
+    """One line per company, e.g. 'Galloway & Company is already in Sarah
+    Henze's campaign "Galloway & Company", started Oct 5.'"""
+    import team_campaigns as _tc
+    seen, lines = set(), []
+    for _c, rec in skipped:
+        if rec["path"] in seen:
+            continue
+        seen.add(rec["path"])
+        lines.append(_tc.describe(rec))
+    return " ".join(lines)
+
+
 def _load_client_blocklist_csv_or_xlsx(file_bytes: bytes, filename: str) -> tuple:
     """Parse a CSV/TSV/XLSX byte buffer into a list of {domain, client_name,
     location, notes} dicts. Auto-detects which columns are which by
@@ -6312,6 +6364,19 @@ async def api_create_campaign(request: Request):
         contacts = _parse_contacts_csv(spec.get("contacts_csv", ""))
     contacts = [_api_contact_phones(c) for c in contacts]
 
+    # Skip companies a teammate (or this user) is already working. Checked
+    # before any AI work so a duplicate costs nothing. Find Candidates
+    # campaigns email candidates, not companies, so they are exempt.
+    import team_campaigns as _tc
+    _team_skipped = []
+    if (spec.get("template") or "").strip() not in _tc.CANDIDATE_TYPES:
+        contacts, _team_skipped = _split_team_worked(
+            contacts, _team_worked_hits(owner, exclude_name=(spec.get("name") or "").strip()))
+    if _team_skipped and not contacts:
+        return JSONResponse({"skipped": True,
+                             "reason": _team_worked_reason(_team_skipped)},
+                            status_code=200)
+
     if not ANTHROPIC_API_KEY:
         return JSONResponse({"error": "AI not configured on server"}, status_code=503)
 
@@ -6395,7 +6460,9 @@ async def api_create_campaign(request: Request):
         resp["candidate_warnings"] = result["candidate_warnings"]
     if queued == 0:
         resp["warning"] = ("no contacts queued (empty list or all filtered by "
-                           "DNC/opt-out/MX)")
+                           "DNC/opt-out/MX/already-worked companies)")
+    if _team_skipped:
+        resp["already_worked"] = _team_worked_reason(_team_skipped)
     if _nl_result is not None:
         resp["newsletter_enrollment"] = _nl_result
     return JSONResponse(resp, status_code=200)
@@ -9459,6 +9526,25 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
         )
     contacts = [_norm_contact(c) for c in camp.get("contacts", [])
                 if not _is_blocked((c.get("email", "") or c.get("Email", "")))]
+    # Current Running Campaigns: skip companies the team already has in an
+    # outbound campaign from the last 30 days. Every launch path (wizard,
+    # AI Prompts, API/connector, Sales Campaign) ends here, so this is the
+    # backstop. Newsletters, slow drips and Find Candidates are exempt.
+    import team_campaigns as _tc
+    if _tc.is_outbound(camp):
+        contacts, _team_skipped = _split_team_worked(
+            contacts, _team_worked_hits(_owner or _CURRENT_USER_EMAIL.get() or "",
+                                        exclude_path=camp.get("_path") or "",
+                                        exclude_name=camp.get("name") or ""))
+        if _team_skipped:
+            _why = _team_worked_reason(_team_skipped)
+            print(f"[Queue] {camp.get('name')!r}: skipped {len(_team_skipped)} "
+                  f"contact(s) at companies already in a campaign. {_why}", flush=True)
+            try:
+                ui.notify(f"Skipped {len(_team_skipped)} contact(s). {_why}",
+                          type="warning", timeout=12000, multi_line=True)
+            except Exception:
+                pass
     # MX record validation  -  drop contacts whose domain has no mail server.
     # Sending to dead domains causes bounces that tank sender reputation.
     _pre_mx = len(contacts)
@@ -12223,6 +12309,7 @@ SALES_NAV = [
     ("📁", "Saved Campaigns",   "drafts_saved"),
     ("≡",  "Contacts",          "contacts"),
     ("🚫", "Do Not Contact",   "dnc"),
+    ("📡", "Current Running Campaigns", "running_campaigns"),
     ("🛡", "Current Clients",  "active_clients"),
     # ── Content & Tools ──────────────────────────
     # Slow Drip removed from sidebar 2026-05-20 — now lives as a section
@@ -12272,6 +12359,7 @@ SIDEBAR_NAV = [
     ("PEOPLE", [
         ("pipeline",    "Pipeline",        "__ats__"),
         ("contacts",    "Contacts",        "contacts"),
+        ("running",     "Current Running Campaigns", "running_campaigns"),
         ("clients",     "Current Clients", "active_clients"),
     ]),
     ("CONTENT", [
@@ -12310,7 +12398,7 @@ SIDEBAR_PAGE_ROW = {
     "drip": "myday", "tasks": "myday",
     "responses": "replies", "e_responses": "replies",
     "contacts": "contacts", "e_contacts": "contacts",
-    "active_clients": "clients",
+    "active_clients": "clients", "running_campaigns": "running",
     "seq_mgr": "campaigns", "active_camps": "campaigns", "queue": "campaigns",
     "evergreen": "campaigns", "evergreen_create": "campaigns", "e_evergreen": "campaigns",
     "newsletters": "newsletters", "pdf_gen": "assets", "ai_prompts": "ai_prompts",
@@ -12324,6 +12412,7 @@ SIDEBAR_TITLES = {
     "dashboard": "Home", "market_intel": "Market Intel",
     "drip": "Today's Tasks", "tasks": "Tasks", "responses": "Replies", "e_responses": "Replies",
     "contacts": "Contacts", "e_contacts": "Contacts", "active_clients": "Current Clients",
+    "running_campaigns": "Current Running Campaigns",
     "seq_mgr": "Campaigns", "active_camps": "Campaigns", "queue": "Email Queue",
     "evergreen": "Nurture Campaigns", "evergreen_create": "New Nurture Campaign",
     "newsletters": "Newsletters", "pdf_gen": "Sales Assets", "ai_prompts": "AI Prompts",
@@ -13808,6 +13897,7 @@ _SIDEBAR_ICONS = {
     "pipeline":   '<path d="M6 5v11"/><path d="M12 5v6"/><path d="M18 5v14"/>',
     "clients":    '<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
     "campaigns":  '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
+    "running":    '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
     "c_active":   '<circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/>',
     "c_done":     '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
     "c_saved":    '<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>',
@@ -32495,6 +32585,116 @@ def p_outreach_analytics(s, rf):
 
     _types = [(t[0], t[1], t[3]) for t in AICB_CAMPAIGN_TYPES]
     _oa.render(ui, C, s, rf, _sources, _types)
+
+
+def p_running_campaigns(s, rf):
+    """Every company the team has in an outbound campaign from the last
+    30 days, cancelled ones included. New launches skip these companies
+    (queue_campaign_emails + the API), as well as Current Clients."""
+    from html import escape as _esc
+    import team_campaigns as _tc
+
+    _user_email = (getattr(s, "_user_email", "") or "").strip().lower()
+    if _user_email:
+        _CURRENT_USER_EMAIL.set(_user_email)
+    owner = _user_email or (_CURRENT_USER_EMAIL.get() or "")
+    try:
+        recs = _tc.team_campaigns(_BASE_DATA_DIR / "users", owner)
+    except Exception as e:
+        print(f"[RunningCampaigns] scan failed: {e}", flush=True)
+        recs = []
+
+    # One row per company (keyed by its first email domain).
+    by_co: dict = {}
+    for r in recs:
+        key = r["domains"][0]
+        row = by_co.setdefault(key, {"company": r["company"], "domains": set(), "camps": []})
+        row["domains"].update(r["domains"])
+        row["camps"].append(r)
+    rows = sorted(by_co.values(),
+                  key=lambda x: max(c["started"] for c in x["camps"]), reverse=True)
+    reps = {r["owner_dir"] for r in recs}
+    _team_dom = _team_domain_for(owner).replace("_", ".") if owner else ""
+
+    ui.label("Current Running Campaigns").classes("fd-h1")
+    ui.label(
+        f"Companies {('the ' + _team_dom + ' team has') if _team_dom else 'your team has'} "
+        f"put in a campaign in the last {_tc.WINDOW_DAYS} days, cancelled ones included. "
+        "New campaigns skip these companies, and Current Clients too."
+    ).classes("fd-sub")
+
+    with ui.element("div").classes("fd-stat-strip").style("margin:14px 0 18px;"):
+        for val, lbl, col in [(len(rows), "Companies", C["teal"]),
+                              (len(recs), "Campaigns", C["text_l"]),
+                              (len(reps), "Reps", C["muted"])]:
+            with ui.element("div").classes("fd-stat-cell"):
+                ui.label(str(val)).classes("fd-sn").style(f"color:{col};")
+                ui.label(lbl).classes("fd-sl")
+
+    def _fmt(d):
+        try:
+            return date.fromisoformat(d).strftime("%b %d, %Y").replace(" 0", " ")
+        except Exception:
+            return d or "—"
+
+    def _table_html(q: str) -> str:
+        q = (q or "").strip().lower()
+        shown = []
+        for row in rows:
+            hay = " ".join([row["company"], *row["domains"]]
+                           + [c["owner"] + " " + c["campaign"] for c in row["camps"]]).lower()
+            if not q or q in hay:
+                shown.append(row)
+        if not shown:
+            msg = ("No company matches that search." if q else
+                   f"No campaigns in the last {_tc.WINDOW_DAYS} days.")
+            return (f'<div style="color:{C["muted"]};font-size:13px;padding:18px 4px;">'
+                    f'{_esc(msg)}</div>')
+        body = ""
+        for row in shown:
+            camps_html = ""
+            for c in sorted(row["camps"], key=lambda c: c["started"], reverse=True):
+                cancelled = c["status"] == "cancelled"
+                pill_col = C["muted"] if cancelled else C["good"]
+                pill = "Cancelled" if cancelled else "Running"
+                camps_html += (
+                    f'<div style="display:flex;align-items:center;gap:8px;margin:2px 0;">'
+                    f'<span style="font-size:10px;font-weight:700;color:{pill_col};'
+                    f'border:1px solid {pill_col}66;border-radius:99px;padding:0 7px;">{pill}</span>'
+                    f'<span style="color:{C["text_l"]};">{_esc(c["owner"])}</span>'
+                    f'<span style="color:{C["muted"]};">· {_esc(c["campaign"])} · {_fmt(c["started"])}</span>'
+                    f'</div>')
+            last = max(c["started"] for c in row["camps"])
+            try:
+                opens = (date.fromisoformat(last) + timedelta(days=_tc.WINDOW_DAYS)).isoformat()
+            except Exception:
+                opens = ""
+            many = len({c["owner_dir"] for c in row["camps"]}) > 1
+            flag = (f' <span style="font-size:10px;color:{C["warn"]};">· {len({c["owner_dir"] for c in row["camps"]})} reps</span>'
+                    if many else "")
+            body += (
+                f'<tr><td style="vertical-align:top;">'
+                f'<div style="color:{C["text_l"]};font-weight:700;">{_esc(row["company"])}{flag}</div>'
+                f'<div style="color:{C["muted"]};font-size:11px;">{_esc(", ".join(sorted(row["domains"])))}</div></td>'
+                f'<td style="vertical-align:top;font-size:12px;">{camps_html}</td>'
+                f'<td style="vertical-align:top;color:{C["muted"]};font-size:12px;white-space:nowrap;">{_fmt(opens)}</td></tr>')
+        return (f'<div style="background:{C["card"]};border:1px solid {C["border"]};'
+                f'border-radius:10px;overflow:auto;">'
+                f'<table class="fd-tbl" style="table-layout:auto;width:100%;"><thead><tr>'
+                f'<th>Company</th><th>Campaigns</th><th>Open again</th>'
+                f'</tr></thead><tbody>{body}</tbody></table></div>')
+
+    search = ui.input(placeholder="Search a company, rep or campaign").classes(
+        "fd-input").style("max-width:360px;margin-bottom:12px;")
+    box = ui.element("div")
+    with box:
+        ui.html(_table_html(""))
+
+    def _filter(e=None):
+        box.clear()
+        with box:
+            ui.html(_table_html(search.value or ""))
+    search.on_value_change(_filter)
 
 
 def p_active_clients(s, rf):
@@ -54539,6 +54739,7 @@ def render_page(s: AppState, rf):
             elif page == "queue":        p_queue(s, rf)
             elif page == "dnc":          p_dnc(s, rf)
             elif page == "active_clients": p_active_clients(s, rf)
+            elif page == "running_campaigns": p_running_campaigns(s, rf)
             elif page == "outreach_analytics": p_outreach_analytics(s, rf)
             elif page == "company_profile": p_company_profile(s, rf)
             elif page == "team_settings": p_team_settings(s, rf)
