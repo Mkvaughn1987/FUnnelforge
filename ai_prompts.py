@@ -1743,10 +1743,9 @@ STARTERS = [
     },
     {
         "id": "other",
-        "label": "Something else - I'll describe it",
-        "sub": "Anything the four above do not cover. You write the job in "
-               "your own words on the next screen and Claude turns it into "
-               "the same kind of prompt, with the same rules on it.",
+        "label": "Go Off Script",
+        "sub": "Got an idea that isn't up there? Describe it and I'll "
+               "create it, and you can save it for future runs.",
         # Non-empty on purpose: with the "in one line" box gone this is the
         # only thing left to open WHAT I WANT with. The job itself is the
         # "What you want done" answer, which reaches the prompt through
@@ -3270,7 +3269,9 @@ def _aip_confirm(s, rf, C):
                      icon="arrow_forward")
                 with ui.element("div").style(
                         "display:flex;flex-wrap:wrap;gap:8px;"):
-                    _aip_save_setup(s, rf, C, req)
+                    _aip_save_setup(s, rf, C, req, label=(
+                        "Save for future runs" if r["key"] == "other"
+                        else "Save these answers"))
 
         # Right: the one step on screen.
         with ui.element("div").classes("aip-panel"):
@@ -3393,6 +3394,16 @@ def _aip_result(s, rf, C):
                    "Paste it as your first message. The AI does the rest"
                    + (" from start to finish." if _CAT.run_through else ".")
                    , []))
+        # An off-script job is one the user made up, so the only way to run
+        # it again is to save it. Make that a step rather than a button in
+        # the bottom bar nobody reads.
+        save_step = r["key"] == "other"
+        if save_step:
+            do.append(("Save it for future runs",
+                       ("It goes under Saved Prompts" if NAVIGATE
+                        else "It goes on the first screen")
+                       + ", ready to run again with everything filled in.",
+                       "save"))
         if _CAT.review_page:
             do.append(("Come back and check the results",
                        "Everything it builds shows up here.",
@@ -3405,7 +3416,11 @@ def _aip_result(s, rf, C):
                         _text(title, C, 14, 700, C["text_l"], 2)
                         if sub:
                             _text(sub, C, 12, colour=C["muted"])
-                        if acts:
+                        if acts == "save":
+                            with ui.element("div").classes("aip-do-acts"):
+                                _aip_save_setup(s, rf, C, req,
+                                                label="Save this prompt")
+                        elif acts:
                             with ui.element("div").classes("aip-do-acts"):
                                 for lbl, fn, primary in acts:
                                     _btn(lbl, fn, primary=primary, small=True,
@@ -3422,7 +3437,8 @@ def _aip_result(s, rf, C):
             _btn(back_label, _back, lead="arrow_back")
             _btn("Start a new prompt", _restart, lead="add")
         with ui.element("div").classes("aip-bar-side"):
-            _aip_save_setup(s, rf, C, req, label="Save prompt")
+            if not save_step:
+                _aip_save_setup(s, rf, C, req, label="Save prompt")
 
     if _CAT.result_extra:
         _CAT.result_extra(s, rf, C, r)

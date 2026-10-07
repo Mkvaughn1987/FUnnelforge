@@ -1868,8 +1868,9 @@ STARTERS = [
     {
         "id": "other",
         "icon": "edit_note",
-        "label": "Create Your Own",
-        "sub": "Describe exactly what you want, in your own words.",
+        "label": "Go Off Script",
+        "sub": "Got an idea that isn't up there? Describe it and I'll "
+               "create it, and you can save it for future runs.",
         "summary": "",
         "routine": "other",
         "vals": {},
@@ -2202,7 +2203,7 @@ TM = Catalogue(
         ("Find new business", ["signal", "lookalike", "displace",
                                "pressure", "season"]),
         ("Use what you have", ["audience", "account"]),
-        ("Something else", ["other"]),
+        ("Off script", ["other"]),
     ],
     tile_short={
         "signal": "Companies showing from the outside that they're short-handed.",
