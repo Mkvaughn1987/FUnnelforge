@@ -121,6 +121,13 @@ INDUSTRIES = (
     ("Automotive", r"automo|dealer|truck center"),
 )
 INDUSTRY_OTHER = "Other"
+# The fixed list a campaign's industry_category (and the AI sort) picks from.
+INDUSTRY_CHOICES = tuple(label for label, _ in INDUSTRIES) + (INDUSTRY_OTHER,)
+_CHOICE_BY_LOWER = {c.lower(): c for c in INDUSTRY_CHOICES}
+# Rows the AI sort offers to place: they name no trade or niche.
+UNSORTED = ("Construction", INDUSTRY_OTHER)
+OVERRIDES_FILE = "industry_overrides.json"
+_overrides_lock = threading.Lock()
 
 KIND_LABELS = {
     "fivebyfive": "Arena 5×5", "fourbyfour": "Arena 4×4", "fivebythree": "Arena 5×3",
@@ -241,9 +248,19 @@ def resolve_state(camp: dict, contacts: list | None = None) -> str:
     return ""
 
 
+def category_label(value) -> str:
+    """'general contracting' -> 'General Contracting'; '' when the value is
+    not on INDUSTRY_CHOICES."""
+    return _CHOICE_BY_LOWER.get(str(value or "").strip().lower(), "")
+
+
 def industry_of(camp: dict) -> str:
-    """Industry bucket: the Industry variable decides when it says
-    something, then the niche, the name and the target roles."""
+    """Industry bucket: the category picked at creation wins, then the
+    Industry variable when it says something, then the niche, the name and
+    the target roles."""
+    picked = category_label(camp.get("industry_category"))
+    if picked:
+        return picked
     v = camp.get("variables") or {}
     for src in (v.get("Industry"), camp.get("market_niche"), camp.get("name"),
                 v.get("TargetRole")):
@@ -312,6 +329,7 @@ def _summarize(path: Path, owner_dir: str) -> dict | None:
         "kind_label": kind_label(kind),
         "geo": (variables.get("Geography") or "").strip(),
         "roles": (variables.get("TargetRole") or "").strip(),
+        "industry_text": str(variables.get("Industry") or camp.get("market_niche") or "").strip(),
     }
 
 
@@ -440,6 +458,138 @@ def group_by_company(records: list) -> list:
         row["running"] = any(c["status"] != "cancelled" for c in camps)
         rows.append(row)
     return sort_rows(rows, "newest")
+
+
+# ── Per-company industry, set by the AI sort ──────────────────────────────
+# One team file, keyed by email domain, so nobody's campaign files are
+# rewritten. Applied to the grouped rows on both team pages.
+
+def overrides_path(users_root, owner_email: str) -> Path | None:
+    """data/users -> data/teams/<team>/industry_overrides.json."""
+    suffix = team_suffix(owner_email)
+    if not suffix:
+        return None
+    return Path(users_root).parent / "teams" / suffix[len("_at_"):] / OVERRIDES_FILE
+
+
+def load_overrides(path) -> dict:
+    """{domain: category}; entries off the list are dropped."""
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for dom, cat in raw.items():
+        label = category_label(cat)
+        if label and isinstance(dom, str) and dom.strip():
+            out[dom.strip().lower()] = label
+    return out
+
+
+def save_overrides(path, picks: dict) -> dict:
+    """Merge picks into the file (atomic write) and return the result."""
+    path = Path(path)
+    with _overrides_lock:
+        merged = load_overrides(path)
+        for dom, cat in (picks or {}).items():
+            label = category_label(cat)
+            if label and isinstance(dom, str) and dom.strip():
+                merged[dom.strip().lower()] = label
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(merged, indent=2, sort_keys=True), encoding="utf-8")
+        tmp.replace(path)
+    return merged
+
+
+def apply_overrides(rows: list, overrides: dict) -> list:
+    """Set row["industry"] from the team file and mark the row sorted."""
+    for row in rows:
+        for d in row.get("domains") or []:
+            if d in overrides:
+                row["industry"] = overrides[d]
+                row["industry_sorted"] = True
+                break
+    return rows
+
+
+def needs_sort(rows: list) -> list:
+    """Rows that name no trade or niche and the AI has not placed yet."""
+    return [r for r in rows if r.get("industry") in UNSORTED and not r.get("industry_sorted")]
+
+
+def sort_schema() -> dict:
+    return {
+        "type": "object",
+        "properties": {"picks": {"type": "array", "items": {
+            "type": "object",
+            "properties": {"id": {"type": "integer"},
+                           "category": {"type": "string", "enum": list(INDUSTRY_CHOICES)}},
+            "required": ["id", "category"],
+            "additionalProperties": False}}},
+        "required": ["picks"],
+        "additionalProperties": False,
+    }
+
+
+def sort_prompt(rows: list) -> str:
+    """One numbered line per company with what the team's campaigns say
+    about it. Ids are 1-based positions in rows."""
+    lines = []
+    for i, row in enumerate(rows, 1):
+        camps = row.get("camps") or []
+        texts = sorted({c.get("industry_text") for c in camps if c.get("industry_text")})
+        roles = sorted({c.get("roles") for c in camps if c.get("roles")})
+        names = [c.get("campaign") for c in camps[:3] if c.get("campaign")]
+        bits = [f"{i}. {row.get('company') or row.get('key')}",
+                f"website: {', '.join(row.get('domains') or [])}"]
+        if texts:
+            bits.append(f"industry as typed: {'; '.join(texts)[:200]}")
+        if roles:
+            bits.append(f"hiring for: {'; '.join(roles)[:200]}")
+        if names:
+            bits.append(f"campaigns: {'; '.join(names)[:200]}")
+        lines.append(" | ".join(bits))
+    return (
+        "Put each company below into the one category that best describes "
+        "what the company itself does. Use what you know about the company "
+        "from its name and website, plus the notes from our campaigns.\n\n"
+        "Categories: " + "; ".join(INDUSTRY_CHOICES) + ".\n\n"
+        "Guidance: a general contractor or construction manager is General "
+        "Contracting. HVAC, plumbing, piping, sheet metal and fire protection "
+        "contractors are Mechanical Contracting; electrical contractors are "
+        "Electrical Contracting. Builders that mainly do hospitals and OSHPD "
+        "work are Healthcare Construction; data center and mission critical "
+        "builders are Data Center / Mission Critical. Equipment dealers and "
+        "rental houses are Heavy Equipment & Rental. Use Construction for a "
+        "builder that fits none of those (specialty trades, homebuilders, "
+        "concrete), and Other only when no category fits.\n\n"
+        "Return one pick per company, using its number as the id.\n\n"
+        + "\n".join(lines))
+
+
+def parse_picks(text: str, rows: list) -> dict:
+    """{row key: category} from the model's JSON. Unknown ids, labels off
+    the list and repeats are dropped."""
+    try:
+        data = json.loads(text)
+    except Exception:
+        return {}
+    out = {}
+    for p in (data.get("picks") if isinstance(data, dict) else None) or []:
+        if not isinstance(p, dict):
+            continue
+        try:
+            i = int(p.get("id"))
+        except Exception:
+            continue
+        label = category_label(p.get("category"))
+        if not label or not 1 <= i <= len(rows):
+            continue
+        out.setdefault(rows[i - 1]["key"], label)
+    return out
 
 
 def filter_rows(rows: list, rep: str = "", state: str = "", industry: str = "",

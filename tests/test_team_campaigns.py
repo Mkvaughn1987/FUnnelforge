@@ -221,6 +221,65 @@ def test_construction_splits_into_trade_buckets():
     assert ind("Electrical Engineering") == "Civil & Engineering"
 
 
+def test_category_picked_at_creation_beats_the_free_text():
+    camp = {"industry_category": "general contracting",
+            "variables": {"Industry": "Construction"}}
+    assert tc.industry_of(camp) == "General Contracting"
+    assert tc.category_label("Mechanical Contracting") == "Mechanical Contracting"
+    assert tc.category_label("  electrical contracting ") == "Electrical Contracting"
+    # Anything off the list is ignored and the free text decides.
+    assert tc.category_label("Roofing") == ""
+    assert tc.industry_of({"industry_category": "Roofing",
+                           "variables": {"Industry": "Construction"}}) == "Construction"
+    assert tc.INDUSTRY_OTHER in tc.INDUSTRY_CHOICES
+    assert "Construction" in tc.INDUSTRY_CHOICES
+
+
+def test_company_overrides_round_trip_and_apply(tmp_path):
+    users = tmp_path / "users"
+    _camp(users, "mike_at_arena_net", "Otto", "2026-10-05", ["a@ottoconstruction.com"],
+          variables={"Industry": "Construction"})
+    _camp(users, "mike_at_arena_net", "Acme", "2026-10-05", ["a@acme.com"],
+          variables={"Industry": "Package Manufacturing"})
+    path = tc.overrides_path(users, "mike@arena.net")
+    assert path == tmp_path / "teams" / "arena_net" / "industry_overrides.json"
+    assert tc.load_overrides(path) == {}
+
+    tc.save_overrides(path, {"ottoconstruction.com": "General Contracting",
+                             "bad.com": "Not A Category"})
+    assert tc.load_overrides(path) == {"ottoconstruction.com": "General Contracting"}
+    tc.save_overrides(path, {"acme.com": "Other"})          # merges, never drops
+    assert set(tc.load_overrides(path)) == {"ottoconstruction.com", "acme.com"}
+
+    rows = tc.group_by_company(tc.team_campaigns(users, "mike@arena.net", today=TODAY))
+    assert [r["industry"] for r in rows if r["key"] == "ottoconstruction.com"] == ["Construction"]
+    assert tc.needs_sort(rows) == [r for r in rows if r["key"] == "ottoconstruction.com"]
+    tc.apply_overrides(rows, tc.load_overrides(path))
+    by = {r["key"]: r["industry"] for r in rows}
+    assert by == {"ottoconstruction.com": "General Contracting", "acme.com": "Other"}
+    # A company the AI already sorted is not offered again, even as Other.
+    assert tc.needs_sort(rows) == []
+
+
+def test_sort_prompt_and_parse_picks():
+    rows = [{"key": "ottoconstruction.com", "company": "Otto Construction",
+             "domains": ["ottoconstruction.com"], "industry": "Construction",
+             "camps": [{"campaign": "Otto - PM", "roles": "Project Manager",
+                        "industry_text": "Construction"}]}]
+    prompt = tc.sort_prompt(rows)
+    assert "Otto Construction" in prompt and "ottoconstruction.com" in prompt
+    assert "Project Manager" in prompt
+    for label in tc.INDUSTRY_CHOICES:
+        assert label in prompt
+    schema = tc.sort_schema()
+    assert schema["properties"]["picks"]["items"]["properties"]["category"]["enum"] == list(tc.INDUSTRY_CHOICES)
+    text = json.dumps({"picks": [{"id": 1, "category": "General Contracting"},
+                                 {"id": 9, "category": "General Contracting"},
+                                 {"id": 1, "category": "Nonsense"}]})
+    assert tc.parse_picks(text, rows) == {"ottoconstruction.com": "General Contracting"}
+    assert tc.parse_picks("not json", rows) == {}
+
+
 def test_summary_carries_state_industry_and_kind(tmp_path):
     _camp(tmp_path, "mike_at_arena_net", "CO - Galloway - Civil PE", "2026-10-05",
           ["a@gallowayus.com"], aicb_camp_type="fivebyfive",
@@ -316,6 +375,43 @@ def test_page_renders_and_filters(with_user, monkeypatch):
     assert "Showing 1 of 2 companies" in text
     state_sel.set_value("")
     assert "Bolt" in _page_text(card)
+    # Acme only says "Construction", so the page offers the AI sort.
+    assert "1 company says only \"Construction\"" in text
+    assert "Sort them with AI" in text
+
+    # Once the team file places it, the row shows the pick and the offer goes.
+    tc.save_overrides(tc.overrides_path(users, "tester@example.com"),
+                      {"acme.com": "General Contracting"})
+    with ui.card() as card2:
+        fa.p_running_campaigns(s, lambda: None)
+    text2 = _page_text(card2)
+    assert "Colorado · General Contracting" in text2
+    assert "Sort them with AI" not in text2
+
+
+def test_ai_sort_reads_structured_picks(monkeypatch):
+    import flowdrip_app as fa
+    calls = []
+
+    class _Block:
+        type = "text"
+        text = json.dumps({"picks": [{"id": 1, "category": "Mechanical Contracting"}]})
+
+    class _Msg:
+        stop_reason = "end_turn"
+        content = [_Block()]
+
+    def _fake_create(client, **kw):
+        calls.append(kw)
+        return _Msg()
+    monkeypatch.setattr(fa, "ANTHROPIC_API_KEY", "test-key")
+    monkeypatch.setattr(fa, "_claude_create_with_retry", _fake_create)
+    rows = [{"key": "acme-mech.com", "company": "Acme Mechanical", "domains": ["acme-mech.com"],
+             "industry": "Construction", "camps": []}]
+    assert fa._rc_ai_sort(rows) == {"acme-mech.com": "Mechanical Contracting"}
+    fmt = calls[0]["extra_body"]["output_config"]["format"]
+    assert fmt["type"] == "json_schema" and fmt["schema"] == tc.sort_schema()
+    assert calls[0]["model"] == fa._RC_SORT_MODEL
 
 
 class _FixedDate(date):

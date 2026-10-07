@@ -161,7 +161,17 @@ async def create_campaign(spec: dict) -> dict:
         (optionally "resume_text", "external_id"); people not yet in the
         Pipeline are added. Emails cite them by a stable client alias and
         Ref # (e.g. "Trent K. (Ref #1042)"); real names never reach the
-        email. Mark AI-written sample profiles "_synthetic": true), roles, location, industry, website, name, start_date
+        email. Mark AI-written sample profiles "_synthetic": true), roles, location, industry, website, name,
+        industry_category (for company campaigns, always set it: the one
+        label below that best describes what THIS company does, judged
+        company by company, not from the run's search terms - "Manufacturing",
+        "Civil & Engineering", "Heavy Equipment & Rental", "Mechanical
+        Contracting", "Electrical Contracting", "Healthcare Construction",
+        "Data Center / Mission Critical", "General Contracting",
+        "Construction" (a builder that fits none of the construction labels
+        above), "Healthcare", "Architecture & Design", "Technology",
+        "Logistics & Freight", "Energy", "Accounting & Finance", "Real
+        Estate", "Automotive", "Other"), start_date
         (ISO date, or omitted/"auto" for the upcoming Monday), start_time
         (clock time like "8:00 AM" for the first email; omit to keep the
         template's time),

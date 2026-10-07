@@ -299,6 +299,28 @@ def test_route_happy_path_owner_from_key(tmp_path, monkeypatch):
     assert cap["camp"]["aicb_camp_type"] == "fourbyfour"
 
 
+def test_route_stores_industry_category_from_the_fixed_list(tmp_path, monkeypatch):
+    _isolate_keys(tmp_path, monkeypatch)
+    cap = _stub_pipeline(monkeypatch)
+    key = fa._mint_api_key("rep@arena.com")
+    spec = dict(_SPEC, industry="Construction", industry_category="mechanical contracting")
+    status, body = _call({"authorization": f"Bearer {key}"}, spec)
+    assert status == 200, body
+    assert cap["camp"]["industry_category"] == "Mechanical Contracting"
+    assert body["industry_category"] == "Mechanical Contracting"
+
+
+def test_route_ignores_a_category_off_the_list(tmp_path, monkeypatch):
+    _isolate_keys(tmp_path, monkeypatch)
+    cap = _stub_pipeline(monkeypatch)
+    key = fa._mint_api_key("rep@arena.com")
+    spec = dict(_SPEC, industry="Package Manufacturing", industry_category="Widgets")
+    status, body = _call({"authorization": f"Bearer {key}"}, spec)
+    assert status == 200, body
+    assert "industry_category" not in cap["camp"]
+    assert body["industry_category"] == "Manufacturing"
+
+
 def test_route_defaults_start_date_to_upcoming_monday(tmp_path, monkeypatch):
     _isolate_keys(tmp_path, monkeypatch)
     cap = _stub_pipeline(monkeypatch)

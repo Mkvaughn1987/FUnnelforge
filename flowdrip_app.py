@@ -6605,6 +6605,12 @@ async def api_create_campaign(request: Request):
             "Industry": (spec.get("industry") or "").strip(),
         },
     }
+    # The category off the fixed list (the Running Campaigns filter). One
+    # off the list is ignored rather than failing a live launch; the free
+    # text then decides.
+    _cat = _tc.category_label(spec.get("industry_category"))
+    if _cat:
+        camp["industry_category"] = _cat
     if template == "findcandidates":
         _op = _fc_opening_from_spec(spec)
         camp["_chooser_origin"] = "candidate"
@@ -6651,6 +6657,8 @@ async def api_create_campaign(request: Request):
         "start_date": start_date,
         "schedule": _schedule_from_steps(emails, start_date),
     }
+    if template != "findcandidates":
+        resp["industry_category"] = _tc.industry_of(camp)
     if result.get("candidate_refs"):
         resp["candidate_refs"] = result["candidate_refs"]
     if result.get("candidate_warnings"):
@@ -33033,6 +33041,44 @@ def _rc_css() -> str:
 """
 
 
+_RC_SORT_MODEL = "claude-opus-5-5"
+_RC_SORT_BATCH = 60
+
+
+def _rc_ai_sort(rows: list) -> dict:
+    """{row key: category} for rows that name no trade or niche, picked by
+    Claude from the fixed list. Runs in a worker thread; a failed batch is
+    skipped and the rest still come back."""
+    import anthropic
+    import team_campaigns as _tc
+    if not ANTHROPIC_API_KEY or not rows:
+        return {}
+    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    picks = {}
+    for i in range(0, len(rows), _RC_SORT_BATCH):
+        batch = rows[i:i + _RC_SORT_BATCH]
+        try:
+            msg = _claude_create_with_retry(
+                client,
+                model=_RC_SORT_MODEL,
+                max_tokens=16000,
+                messages=[{"role": "user", "content": _tc.sort_prompt(batch)}],
+                extra_body={"output_config": {
+                    "effort": "low",
+                    "format": {"type": "json_schema", "schema": _tc.sort_schema()}}},
+            )
+        except Exception as e:
+            print(f"[RunningCampaigns] AI sort batch failed: {e}", flush=True)
+            continue
+        if getattr(msg, "stop_reason", "") == "refusal":
+            print("[RunningCampaigns] AI sort batch declined", flush=True)
+            continue
+        text = "".join(getattr(b, "text", "") for b in (msg.content or [])
+                       if getattr(b, "type", "") == "text")
+        picks.update(_tc.parse_picks(text, batch))
+    return picks
+
+
 def p_running_campaigns(s, rf):
     """Every company the team has in an outbound campaign from the last
     30 days, cancelled ones included, filterable by rep, state, industry,
@@ -33052,6 +33098,10 @@ def p_running_campaigns(s, rf):
         recs = []
 
     rows = _tc.group_by_company(recs)
+    _ov_path = _tc.overrides_path(_BASE_DATA_DIR / "users", owner)
+    if _ov_path:
+        _tc.apply_overrides(rows, _tc.load_overrides(_ov_path))
+    unsorted = _tc.needs_sort(rows)
     rep_names = {}
     for r in recs:
         rep_names.setdefault(r["owner_dir"], r["owner"])
@@ -33178,6 +33228,39 @@ def p_running_campaigns(s, rf):
                 with clear_btn:
                     ui.label("Clear filters")
 
+        # ── AI sort: place companies that only say "Construction" ────────
+        if unsorted and _ov_path:
+            with ui.element("div").classes("fd-rc-row").style("margin:-4px 0 12px;"):
+                n = len(unsorted)
+                ui.label(
+                    f"{n} {'company says' if n == 1 else 'companies say'} only "
+                    "\"Construction\" or nothing specific. Want the AI to put "
+                    f"{'it' if n == 1 else 'each one'} in the right industry?"
+                ).classes("fd-sub").style("margin:0;")
+                sort_btn = ui.element("button").classes("fd-rc-link").props('type="button"')
+                with sort_btn:
+                    sort_lbl = ui.label("Sort them with AI")
+
+                async def _ai_sort(_rows=unsorted, _path=_ov_path):
+                    sort_btn.props("disabled")
+                    sort_lbl.set_text("Sorting…")
+                    try:
+                        picks = await asyncio.get_event_loop().run_in_executor(
+                            None, _rc_ai_sort, _rows)
+                    except Exception as e:
+                        print(f"[RunningCampaigns] AI sort failed: {e}", flush=True)
+                        picks = {}
+                    if not picks:
+                        sort_btn.props(remove="disabled")
+                        sort_lbl.set_text("Sort them with AI")
+                        ui.notify("The AI couldn't sort them just now. Try again in a minute.",
+                                  type="warning")
+                        return
+                    _tc.save_overrides(_path, picks)
+                    ui.notify(f"Sorted {len(picks)} of {len(_rows)} companies.", type="positive")
+                    rf()
+                sort_btn.on("click", _ai_sort)
+
         head = ui.element("div").classes("fd-rc-head")
         results = ui.element("div")
 
@@ -33292,6 +33375,10 @@ def _shared_bank(owner: str) -> dict:
         print(f"[SharedContacts] scan failed: {e}", flush=True)
         bank = {"contacts": [], "excluded": 0, "reps": {}}
     bank["rows"] = _tcx.group_by_company(bank["contacts"])
+    import team_campaigns as _tc
+    _ov_path = _tc.overrides_path(_BASE_DATA_DIR / "users", owner)
+    if _ov_path:
+        _tc.apply_overrides(bank["rows"], _tc.load_overrides(_ov_path))
     return bank
 
 
