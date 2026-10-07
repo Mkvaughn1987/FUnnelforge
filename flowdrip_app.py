@@ -12708,6 +12708,7 @@ SALES_NAV = [
     ("📁", "Saved Campaigns",   "drafts_saved"),
     ("≡",  "Contacts",          "contacts"),
     ("🚫", "Do Not Contact",   "dnc"),
+    (None, "ARENA TEAM",        None),
     ("📡", "Arena Running Campaigns", "running_campaigns"),
     ("🏦", "Shared Arena Contacts", "shared_contacts"),
     ("🛡", "Current Clients",  "active_clients"),
@@ -12759,6 +12760,9 @@ SIDEBAR_NAV = [
     ("PEOPLE", [
         ("pipeline",    "Pipeline",        "__ats__"),
         ("contacts",    "Contacts",        "contacts"),
+    ]),
+    # Team-wide Arena pages, grouped on their own 2026-10-06.
+    ("ARENA TEAM", [
         ("running",     "Arena Running Campaigns", "running_campaigns"),
         ("bank",        "Shared Arena Contacts", "shared_contacts"),
         ("clients",     "Current Clients", "active_clients"),
