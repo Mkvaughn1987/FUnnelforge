@@ -2198,6 +2198,20 @@ TM = Catalogue(
     recommend=recommend_tm,
     checklist=checklist_tm,
     prefill=prefill_tm,
+    tile_groups=[
+        ("Find new business", ["signal", "lookalike", "displace",
+                               "pressure", "season"]),
+        ("Use what you have", ["audience", "account"]),
+        ("Something else", ["other"]),
+    ],
+    tile_short={
+        "signal": "Companies showing from the outside that they're short-handed.",
+    },
+    connector_how=("Click + under the message box, open Connectors, and "
+                   "make sure inboxslide is switched on."),
+    review_page="seq_mgr",
+    review_label="Go to Campaigns",
+    open_in=(("Claude", "https://claude.ai/new"),),
 )
 
 
