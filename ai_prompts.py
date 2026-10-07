@@ -81,7 +81,7 @@ SECTIONS = [
     ("emails", "The emails", False),
     ("size", "How big this run is", False),
     ("skip", "Leave these out", False),
-    ("repeat", "Repeat it", False),
+    ("repeat", "Create a schedule", False),
     ("extra", "Anything else Claude should know", False),
 ]
 SECTION_NAME = {k: n for k, n, _ in SECTIONS}
@@ -2527,6 +2527,11 @@ def _aip_open_state(s, r, req):
         touched = any(f["key"] in filled for f in r["fields"]
                       if f["section"] == key)
         state[key] = bool(always or touched)
+    # The schedule section is open exactly when there is a schedule: a saved
+    # setup that repeats opens on it, and one that doesn't stays shut
+    # rather than opening on an empty body.
+    if "repeat_on" in r["field_by_key"]:
+        state["repeat"] = _flag(r, req.get("vals") or {}, "repeat_on")
     if req.get("detail"):
         state["extra"] = True
     s._aip_open = state
@@ -3093,7 +3098,7 @@ def _aip_confirm(s, rf, C):
         for key, name in _aip_sections_for(r):
             is_open = bool(opened.get(key))
             rows = [f for f in r["fields"] if f["section"] == key
-                    and _visible(r, vals, f)]
+                    and _visible(r, vals, f) and f["key"] != "repeat_on"]
             count = len([f for f in rows
                          if str(_val(r, vals, f["key"]) or "").strip()])
 
@@ -3103,6 +3108,16 @@ def _aip_confirm(s, rf, C):
                 # re-rendered yet.
                 state = _aip_open_state(s, r, req)
                 state[_k] = not state.get(_k)
+                # Opening "Create a schedule" is the yes - its questions
+                # show straight away. Closing it again keeps the schedule;
+                # only "Remove schedule" drops it.
+                if _k == "repeat" and state[_k]:
+                    vals["repeat_on"] = True
+                rf()
+
+            def _unschedule():
+                vals["repeat_on"] = False
+                _aip_open_state(s, r, req)["repeat"] = False
                 rf()
 
             with ui.element("div").classes(
@@ -3131,6 +3146,12 @@ def _aip_confirm(s, rf, C):
                                         "aip-wide" if f["type"] == "checks"
                                         else ""):
                                     _aip_field(s, rf, C, r, vals, f)
+                        if key == "repeat":
+                            with ui.element("div").style("margin-top:10px;"):
+                                with ui.element("button").classes(
+                                        "aip-link").on("click", _unschedule):
+                                    ui.icon("close").style("font-size:14px;")
+                                    ui.label("Remove schedule")
 
     def _build():
         s._aip_prompt = build_prompt(req)
