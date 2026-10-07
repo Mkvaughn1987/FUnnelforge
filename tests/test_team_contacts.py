@@ -271,9 +271,11 @@ def _client():
         Route("/api/v1/team_contacts", fa.api_team_contacts, methods=["GET"])]))
 
 
-def test_api_team_contacts(with_user, _keys):
+def test_api_team_contacts(with_user, _keys, monkeypatch):
     import flowdrip_app as fa
     _bank(fa._BASE_DATA_DIR / "users")
+    # The skip verdict is date-dependent; test_company_check covers it.
+    monkeypatch.setattr(fa, "_skip_check_sources", lambda owner: ([], []))
     assert _client().get("/api/v1/team_contacts?q=galloway").status_code == 401
     key = fa._mint_api_key("mike@arena.net")
     h = {"X-API-Key": key}

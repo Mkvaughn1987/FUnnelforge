@@ -56,7 +56,7 @@ from datetime import date, timedelta
 
 from nicegui import ui
 
-from zoominfo_pull import BOARDS_DEFAULT, BOARDS_RULE, ZI_PULL_RULE
+from zoominfo_pull import BOARDS_DEFAULT, BOARDS_RULE, SKIP_CHECK_RULE, ZI_PULL_RULE
 
 
 def _ff():
@@ -200,6 +200,10 @@ class Catalogue:
     # (inboxslide's) adds nothing: its runs must never fall back onto an
     # Arena ZoomInfo seat.
     zi_rule: str = ""
+    # Follows the "take these out" sentence when the team or client
+    # exclusions are on: how to look them up instead of guessing. Empty
+    # (inboxslide's) adds nothing; its connector has no skip_check tool.
+    skip_rule: str = ""
     # True writes every prompt to run start to finish: no "say go" review
     # points, no questions before it starts, and the "stop and check with
     # you, or finish it?" question is not asked. DripDrop's users want the
@@ -1367,11 +1371,12 @@ def _template_clause(r, vals, cat=None):
     return 'template "%s"' % cat.template_key.get(seq, cat.default_template)
 
 
-def _skip_clause(r, vals):
+def _skip_clause(r, vals, cat=None):
+    rule = (cat.skip_rule if cat else "")
     only = _txt(r, vals, "only_these")
     if only:
         return ("Work only these companies and ignore everything else you "
-                "find: %s." % only)
+                "find: %s.%s" % (only, " " + rule if rule else ""))
     outs = []
     if _flag(r, vals, "skip_worked"):
         outs.append("anything someone on my team has already worked")
@@ -1385,8 +1390,11 @@ def _skip_clause(r, vals):
         outs.append("these by name: %s" % never)
     if not outs:
         return ""
-    return ("Take these out before you go any further: %s. Tell me how many "
+    text = ("Take these out before you go any further: %s. Tell me how many "
             "you dropped and why." % "; ".join(outs))
+    if rule and (_flag(r, vals, "skip_worked") or _flag(r, vals, "skip_customers")):
+        text += " " + rule
+    return text
 
 
 CADENCE_KEY = {
@@ -1503,7 +1511,7 @@ def _derived(r, vals, cat=None):
 
     d["template_clause"] = _template_clause(r, vals, cat)
     d["start_date"] = _start_date(r, vals, cat)
-    d["skip_clause"] = _skip_clause(r, vals)
+    d["skip_clause"] = _skip_clause(r, vals, cat)
     d["posting_age_lc"] = (d.get("posting_age") or "").lower()
 
     # Roughly 2.4 looked at per one landed, which is what the Denver and
@@ -2341,6 +2349,7 @@ ARENA = Catalogue(
                  "message."),
     result_extra=_arena_result_extra,
     zi_rule=ZI_PULL_RULE,
+    skip_rule=SKIP_CHECK_RULE,
     run_through=True,
     tile_groups=[
         ("Find new business", ["staff_signal", "staff_lookalike",

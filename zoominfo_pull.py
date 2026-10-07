@@ -42,11 +42,26 @@ ZI_PHONES_RULE = (
     "phone_office on every contact you hand DripDrop, so both stay on the "
     "contact's record.")
 
+# Follows the "take these out" sentence: the exclusions come from DripDrop's
+# own records, never from the AI's memory of who our clients are.
+SKIP_CHECK_RULE = (
+    "Do not guess who our clients are or what the team has worked: call the "
+    "DripDrop skip_check tool once with every company on your list, names "
+    "or email domains. It answers from DripDrop's own records - our Current "
+    "Clients, and every company anyone on the team put in a campaign in the "
+    "last 30 days, cancelled ones included - with the rep and the date each "
+    "one opens again. Drop every company it marks skip before any research "
+    "or ZoomInfo pull. DripDrop refuses to launch at those companies "
+    "anyway.")
+
 # Before ZoomInfo: the team's own bank of people already reached.
 BANK_FIRST_RULE = (
     "Before ZoomInfo, check the Shared Arena Contacts bank: for each company "
     "call the DripDrop team_contacts tool with the company name or email "
-    "domain. It returns the people our team has already reached there, from "
+    "domain. If it comes back with verdict skip - a Current Client, or a "
+    "company a teammate put in a campaign in the last 30 days - drop that "
+    "company and pull nobody there, from the bank or ZoomInfo. Otherwise it "
+    "returns the people our team has already reached there, from "
     "every campaign and uploaded list, with titles, emails and phones; "
     "anyone who said not interested or is on a Do Not Contact list is "
     "already left out, and people who replied are flagged. Use those "
