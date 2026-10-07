@@ -2346,13 +2346,22 @@ ARENA = Catalogue(
         ("Off script", ["other"]),
     ],
     tile_short={
-        "staff_signal": "Companies whose job posts say they need help hiring.",
-        "staff_lookalike": "Companies that look like a client you've placed with.",
-        "mpc": "Pick up to three candidates. The AI finds companies for them.",
-        "slate": "Pitch your bench to companies hiring in a market.",
-        "linkedin": "Send the LinkedIn requests on Today's Tasks.",
-        "resume_sweep": "Load the resumes you downloaded into DD and Talent Trekker.",
-        "zi_seat": "Use your own ZoomInfo seat when the shared credits run out.",
+        # Sized to the tile: a two-line title leaves room for about four
+        # lines here, a three-line title about three.
+        "staff_signal": "Finds companies whose posts show hiring pain, pulls "
+                        "the managers, and builds a campaign for each.",
+        "staff_lookalike": "Name a client you've placed with. The AI finds "
+                           "look-alikes hiring now and builds campaigns.",
+        "mpc": "Pick up to 3 people. The AI finds companies they fit and "
+               "runs the 5x3.",
+        "slate": "Name an industry and area. The AI pitches your bench to "
+                 "who's hiring.",
+        "linkedin": "Sends every LinkedIn request on Today's Tasks with "
+                    "DripDrop's note, then marks each one done.",
+        "resume_sweep": "Adds the resumes you downloaded to DD and TT. Skips "
+                        "anyone already in.",
+        "zi_seat": "When the shared credits hit their limit, the AI switches "
+                   "to your own ZoomInfo login in Chrome.",
         "other": "Got an idea that isn't up there? Describe it and I'll "
                  "create it, and you can save it for future runs.",
     },
