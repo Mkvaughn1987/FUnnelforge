@@ -86,17 +86,31 @@ _METRO_STATES = (
 )
 
 # Industry buckets for the page filter. First match wins, so the order
-# matters: "Healthcare/OSHPD Construction" is a construction company that
-# builds hospitals, and "Civil Engineering" is Civil, not Construction.
+# matters: "Civil Engineering" is Civil, not Construction, and "Heavy
+# Equipment and Construction" is a dealer, not a builder. Then trades,
+# Mechanical first: "Construction / Mechanical Contracting - Data Centers"
+# is Mechanical and "Commercial Construction / Electrical Contracting" is
+# Electrical. Then the niches (OSHPD hospitals, data centers), then GCs,
+# and Construction keeps whatever is left.
 INDUSTRIES = (
     ("Manufacturing", r"manuf|machin|\bcnc\b|aerospace|packag|\bcpg\b|fabricat|\bplant\b"
                       r"|\bfoods?\b|dairy|farm|agricult|bakery|beverage|brew"),
     ("Civil & Engineering", r"\bcivil\b|engineer|\baec\b|water|utilit|infrastructure"
                             r"|transportation|surveying|pipeline"),
-    ("Construction", r"construct|\bbuild|contractor|contracting|electric|mechanical|hvac"
-                     r"|plumb|data cent|mission critical|superintendent|homebuild"
-                     r"|residential|concrete|roofing|equipment rental|\bgc\b|glazing"
-                     r"|drywall|framing|paving|excavat|demolition|steel"),
+    ("Heavy Equipment & Rental", r"heavy equipment|equipment rental|rental equipment"
+                                 r"|construction equipment|equipment dealer|caterpillar"
+                                 r"|john deere"),
+    ("Mechanical Contracting", r"mechanical|hvac|plumb|pipefit|sheet metal|sprinkler"
+                               r"|fire protection|refrigerat"),
+    ("Electrical Contracting", r"electric"),
+    ("Healthcare Construction", r"oshpd|\bhcai\b|(health ?care|hospital|medical)\W*"
+                                r"(construction|builder)"),
+    ("Data Center / Mission Critical", r"data cent|mission critical"),
+    ("General Contracting", r"general contract|general construction|commercial construction"
+                            r"|construction manag|design.build|\bgc\b|tenant improvement"),
+    ("Construction", r"construct|\bbuild|contractor|contracting|superintendent|homebuild"
+                     r"|residential|concrete|roofing|glazing|drywall|framing|paving"
+                     r"|excavat|demolition|steel"),
     ("Healthcare", r"health|medical|hospital|pharma|senior living"),
     ("Architecture & Design", r"architect|\bdesign\b"),
     ("Technology", r"software|technology|\btech\b|\bsaas\b|\bit\b"),
@@ -104,7 +118,7 @@ INDUSTRIES = (
     ("Energy", r"energy|\boil\b|\bgas\b|solar|renewable|mining"),
     ("Accounting & Finance", r"accounting|finance|financial|\bcpa\b|insurance|banking"),
     ("Real Estate", r"real estate|property|multifamily|development"),
-    ("Automotive & Equipment", r"automo|dealer|truck center|heavy equipment|caterpillar"),
+    ("Automotive", r"automo|dealer|truck center"),
 )
 INDUSTRY_OTHER = "Other"
 
