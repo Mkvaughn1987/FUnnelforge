@@ -14744,7 +14744,8 @@ def _sidebar_v2(s: AppState, rf):
                     if ik == "myday" and _due:
                         badge = _due if _due < 100 else "99+"
                         badge_cls = "hot" if _overdue else ""
-                    tour = {"overview": "nav-dashboard", "contacts": "nav-contacts"}.get(ik, "")
+                    tour = {"overview": "nav-dashboard", "contacts": "nav-contacts",
+                            "campaigns": "nav-campaigns"}.get(ik, "")
                     _camp_open = ik == "campaigns" and active in ("campaigns", "new")
                     _row(ik, lbl, key, on=(active == ik and not _camp_open), open_=_camp_open,
                          badge=badge, badge_cls=badge_cls, tour=tour,
@@ -14815,6 +14816,13 @@ def _sidebar_v2(s: AppState, rf):
                             with ui.element("div").classes("fd-menu-item fd-side-mi").on("click", lambda k=key: _go(k)):
                                 ui.html(_svg_icon(ik, 16))
                                 ui.label(lbl)
+
+                        def _replay_tour(m=_um):
+                            m.close()
+                            ui.run_javascript("if (window.ddStartTour) window.ddStartTour(window._ddTourSteps || []);")
+                        with ui.element("div").classes("fd-menu-item fd-side-mi").on("click", _replay_tour):
+                            ui.html(_svg_icon("c_active", 16))
+                            ui.label("Take the tour")
                         ui.element("div").classes("fd-side-menu-div")
                         with ui.element("div").classes("fd-menu-item fd-side-mi danger").on("click", _logout):
                             ui.html(_svg_icon("logout", 16))
@@ -56596,98 +56604,103 @@ def setup_page():
         return ui.navigate.to("/login")
 
     inject_styles()
-    _name = app.storage.user.get("name", "").split()[0] or "there"
+    _name = (app.storage.user.get("name", "") or "").split()
+    _name = _name[0] if _name else "there"
+    _email = (app.storage.user.get("email") or "").strip().lower()
+    if _email:
+        _switch_to_user_paths(_email)
+    # Same three checks as the Home setup card and the sidebar Setup badge.
+    try:
+        _st = _setup_status()
+    except Exception:
+        _st = {"email": False, "company": False, "timezone": False}
+    _left = sum(1 for k in ("email", "company", "timezone") if not _st.get(k))
+
+    def _go(page):
+        app.storage.user["_pending_page"] = page
+        ui.navigate.to("/")
 
     with ui.element("div").style(
             "min-height:100vh;width:100%;display:flex;align-items:flex-start;justify-content:center;"
-            "background:#1E2B5E;font-family:'DM Sans','Segoe UI',sans-serif;padding:40px 20px;"):
-        with ui.element("div").style(
-                "width:640px;max-width:90vw;margin:0 auto;"):
+            "background:#1E2B5E;font-family:'DM Sans','Segoe UI',sans-serif;padding:40px 16px;"):
+        with ui.element("div").style("width:640px;max-width:100%;margin:0 auto;"):
 
-            # Welcome header
             ui.label(f"Welcome to DripDrop, {_name}!").style(
                 "font-size:28px;font-weight:800;color:#1AE3D9;text-align:center;"
                 "display:block;font-family:'Nunito',sans-serif;margin-bottom:8px;")
-            ui.label("Your account is ready. Two quick things to finish setup.").style(
+            _sub = ("Your account is ready, and setup is done." if not _left else
+                    f"Your account is ready. {_left} quick step{'s' if _left != 1 else ''} "
+                    "before your first campaign.")
+            ui.label(_sub).style(
                 "font-size:14px;color:#8FA3C8;text-align:center;display:block;margin-bottom:32px;")
 
-            # Step 1  -  Account created
-            with ui.element("div").style(
-                    "background:#243264;border:1px solid #2E3D7A;border-left:4px solid #10B981;"
-                    "border-radius:0 12px 12px 0;padding:20px 24px;margin-bottom:16px;"):
-                with ui.element("div").style("display:flex;align-items:center;gap:12px;margin-bottom:8px;"):
-                    ui.label("✓").style("font-size:18px;color:#10B981;font-weight:800;")
-                    ui.label("Account Created").style(
-                        "font-size:16px;font-weight:700;color:#F0F8FF;font-family:'Nunito',sans-serif;")
-                ui.label("You can start browsing campaigns and uploading contacts right now.").style(
-                    "font-size:13px;color:#D8E4F5;line-height:1.6;")
+            _steps = [
+                ("email", "1", "Connect your email",
+                 "DripDrop sends campaigns from your own inbox: Microsoft, Gmail, or SendGrid. "
+                 "You can't send a campaign until this is done.",
+                 "Connect email →", "ai_settings"),
+                ("company", "2", "Fill out your company profile",
+                 "Your company name and description go into every AI-written email and PDF.",
+                 "Open My Profile →", "company_profile"),
+                ("timezone", "3", "Set your timezone",
+                 "So a 9:00 AM send goes out at 9:00 AM where you are.",
+                 "Set timezone →", "timezone"),
+            ]
+            for key, num, title, desc, cta, page in _steps:
+                done = bool(_st.get(key))
+                accent = "#10B981" if done else "#1AE3D9"
+                with ui.element("div").style(
+                        f"background:#243264;border:1px solid #2E3D7A;border-left:4px solid {accent};"
+                        "border-radius:0 12px 12px 0;padding:20px 24px;margin-bottom:16px;"):
+                    with ui.element("div").style(
+                            "display:flex;align-items:center;gap:12px;margin-bottom:8px;"):
+                        ui.label("✓" if done else num).style(
+                            f"width:26px;height:26px;border-radius:50%;flex-shrink:0;"
+                            f"display:flex;align-items:center;justify-content:center;"
+                            f"font-size:13px;font-weight:800;color:#1E2B5E;background:{accent};")
+                        ui.label(title).style(
+                            "font-size:16px;font-weight:700;color:#F0F8FF;font-family:'Nunito',sans-serif;")
+                    if done:
+                        ui.label("Done.").style("font-size:13px;color:#8FA3C8;")
+                    else:
+                        ui.label(desc).style(
+                            "font-size:13px;color:#D8E4F5;line-height:1.6;margin-bottom:14px;")
+                        with ui.element("button").style(
+                                "padding:11px 24px;background:#1AE3D9;color:#1E2B5E;border:none;"
+                                "border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;"
+                                "font-family:inherit;").on("click", lambda p=page: _go(p)):
+                            ui.label(cta)
 
-            # Step 2  -  Connect email (required to send)
-            with ui.element("div").style(
-                    "background:#243264;border:1px solid #2E3D7A;border-left:4px solid #1AE3D9;"
-                    "border-radius:0 12px 12px 0;padding:20px 24px;margin-bottom:16px;"):
-                with ui.element("div").style("display:flex;align-items:center;gap:12px;margin-bottom:10px;"):
-                    ui.label("✉").style("font-size:20px;color:#1AE3D9;")
-                    ui.label("Connect Your Email").style(
-                        "font-size:16px;font-weight:700;color:#F0F8FF;font-family:'Nunito',sans-serif;")
-                ui.label(
-                    "DripDrop sends campaigns from your own email address. Pick from three options: "
-                    "Microsoft (one-click for Outlook users), Gmail, or Twilio SendGrid. "
-                    "You can change this anytime from Email & AI Setup in the sidebar."
-                ).style("font-size:13px;color:#D8E4F5;line-height:1.6;margin-bottom:14px;")
-                def _go_email():
-                    app.storage.user["_pending_page"] = "ai_settings"
-                    ui.navigate.to("/")
-                with ui.element("button").style(
-                        "padding:12px 28px;background:#1AE3D9;color:#1E2B5E;border:none;"
-                        "border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;"
-                        "font-family:inherit;").on("click", _go_email):
-                    ui.label("Open Email & AI Setup →")
-
-            # Step 3  -  Add AI key
+            # What comes after setup
             with ui.element("div").style(
                     "background:#243264;border:1px solid #2E3D7A;border-left:4px solid #6366F1;"
                     "border-radius:0 12px 12px 0;padding:20px 24px;margin-bottom:16px;"):
-                with ui.element("div").style("display:flex;align-items:center;gap:12px;margin-bottom:10px;"):
+                with ui.element("div").style(
+                        "display:flex;align-items:center;gap:12px;margin-bottom:8px;"):
                     ui.label("✦").style("font-size:20px;color:#6366F1;")
-                    ui.label("Add Your AI Key").style(
+                    ui.label("Then: Start with AI").style(
                         "font-size:16px;font-weight:700;color:#F0F8FF;font-family:'Nunito',sans-serif;")
                 ui.label(
-                    "DripDrop uses Anthropic's Claude to generate emails, market analysis, and PDFs. "
-                    "Get a free API key from Anthropic, then paste it in Email & AI Setup. "
-                    "Anthropic gives every new account $5 in free credits  -  enough for hundreds of emails."
-                ).style("font-size:13px;color:#D8E4F5;line-height:1.6;margin-bottom:14px;")
-                with ui.element("div").style("display:flex;gap:10px;flex-wrap:wrap;"):
-                    # Primary: open Anthropic console in a new tab
-                    ui.html(
-                        '<a href="https://console.anthropic.com/settings/keys" target="_blank" '
-                        'rel="noopener noreferrer" '
-                        'style="display:inline-flex;align-items:center;gap:8px;padding:11px 22px;'
-                        'background:#6366F1;color:#FFFFFF;text-decoration:none;'
-                        'border-radius:8px;font-size:13px;font-weight:700;font-family:inherit;">'
-                        '<span>Create Free API Key →</span>'
-                        '</a>'
-                    )
-                    # Secondary: jump to the Email & AI Setup page where they'll paste it
-                    def _go_ai():
-                        app.storage.user["_pending_page"] = "ai_settings"
-                        ui.navigate.to("/")
+                    "Pick a job, answer a few questions, and DripDrop writes the prompt and opens "
+                    "it in Claude or ChatGPT. It's the button at the top of the sidebar."
+                ).style("font-size:13px;color:#D8E4F5;line-height:1.6;" +
+                        ("margin-bottom:14px;" if not _left else ""))
+                if not _left:
                     with ui.element("button").style(
-                            "padding:11px 22px;background:transparent;color:#F0F8FF;"
-                            "border:1px solid #6366F1;border-radius:8px;font-size:13px;"
-                            "font-weight:700;cursor:pointer;font-family:inherit;"
-                            ).on("click", _go_ai):
-                        ui.label("Paste Key in DripDrop →")
+                            "padding:11px 24px;background:#6366F1;color:#FFFFFF;border:none;"
+                            "border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;"
+                            "font-family:inherit;").on("click", lambda: _go("ai_prompts")):
+                        ui.label("Start with AI →")
 
-            # Skip to dashboard
             with ui.element("div").style("text-align:center;margin-top:24px;"):
                 with ui.element("button").style(
                         "padding:10px 28px;background:transparent;color:#8FA3C8;border:1px solid #2E3D7A;"
                         "border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;"
-                        "font-family:inherit;").on("click", lambda: ui.navigate.to("/")):
-                    ui.label("Skip for now  -  go to Dashboard")
-                ui.label("You can finish setup later from the sidebar.").style(
-                    "font-size:11px;color:#8FA3C8;margin-top:10px;display:block;")
+                        "font-family:inherit;").on("click", lambda: _go("dashboard")):
+                    ui.label("Go to Home" if not _left else "Skip for now, go to Home")
+                if _left:
+                    ui.label("You can finish setup anytime from Settings in the sidebar.").style(
+                        "font-size:11px;color:#8FA3C8;margin-top:10px;display:block;")
 
 
 # ── Public Landing Page (marketing front-door) ────────────────────────────
@@ -57426,59 +57439,70 @@ def index():
     # and invoke ddMaybeStartTour() after the DOM settles. The JS itself
     # checks localStorage and no-ops on repeat visits.
     import json as _json
+    # Selectors with a comma cover both nav layouts: the sidebar tags rows by
+    # row key (nav-campaigns), the legacy top-bar layout by page key.
     _tour_steps = [
         {
-            "selector": '[data-tour="avatar"]',
+            "selector": None,
             "title": "Welcome to DripDrop!",
             "body": (
-                "This is your profile menu. Click here anytime to edit your "
-                "name, phone, or photo, connect your email, or sign out."
+                "A one-minute look around. DripDrop sends email campaigns from "
+                "your own inbox and tells you who to call each day."
             ),
         },
         {
             "selector": '[data-tour="nav-ai_settings"]',
-            "title": "Start here: connect your email",
+            "title": "Start here: finish setup",
             "body": (
-                "Before you can send campaigns, DripDrop needs to connect to "
-                "your email. You have three options: Microsoft, Gmail, or "
-                "Twilio SendGrid. You'll also add a free AI key on this page."
+                "Open Settings to connect the email DripDrop sends from "
+                "(Microsoft, Gmail, or SendGrid), fill in your company profile, "
+                "and set your timezone. The Setup badge goes away once all "
+                "three are done."
             ),
-            "warn": "⚠ Without this, you won't be able to send any campaigns.",
+            "warn": "You can't send a campaign until your email is connected.",
         },
         {
             "selector": '[data-tour="nav-ai_prompts"]',
             "title": "Start with AI",
             "body": (
                 "Pick a job, answer a few questions, and DripDrop writes the "
-                "prompt to paste into Claude or ChatGPT. To build a campaign "
-                "by hand, use Campaigns > New Campaign."
+                "prompt and opens it in Claude or ChatGPT. That's the fastest "
+                "way to launch your first campaign."
+            ),
+        },
+        {
+            "selector": '[data-tour="nav-campaigns"], [data-tour="nav-seq_mgr"]',
+            "title": "Your campaigns",
+            "body": (
+                "Active, Completed, and Saved campaigns all live here. Use "
+                "New Campaign under it to build one by hand."
             ),
         },
         {
             "selector": '[data-tour="nav-contacts"]',
-            "title": "Upload your contacts",
+            "title": "Your contacts",
             "body": (
-                "Upload a CSV of the people you want to reach. Each row should "
-                "have at least a name and email. DripDrop will merge their "
-                "details into every campaign email automatically."
+                "Upload a CSV of the people you want to reach, with at least a "
+                "name and email on each row. DripDrop merges their details "
+                "into every campaign email."
             ),
         },
         {
             "selector": '[data-tour="nav-dashboard"]',
-            "title": "Track everything from the Dashboard",
+            "title": "Your day starts on Home",
             "body": (
-                "Your home base. Once campaigns are live, you'll see daily "
-                "tasks, responses, active campaigns, and stats all on this "
-                "page. You can always get back here with the Dashboard link."
+                "Home shows what's due today, new replies, and how your "
+                "campaigns are doing. Today's Tasks and Replies sit right "
+                "under it."
             ),
         },
         {
             "selector": None,
             "title": "You're all set!",
             "body": (
-                "Next up: connect your email in Email & AI Setup, then start "
-                "your first campaign. Every page has a ⓘ help icon next to "
-                "the title  -  click it anytime you're stuck."
+                "Next: finish setup in Settings, then click Start with AI. "
+                "You can replay this tour anytime from your name at the "
+                "bottom of the sidebar."
             ),
         },
     ]
