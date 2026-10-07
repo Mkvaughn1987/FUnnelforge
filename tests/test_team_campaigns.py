@@ -136,7 +136,169 @@ def test_api_checks_before_ai_work():
 def test_sidebar_has_running_campaigns():
     import flowdrip_app as fa
     rows = [r for _g, items in fa.SIDEBAR_NAV for r in items]
-    assert ("running", "Current Running Campaigns", "running_campaigns") in rows
+    assert ("running", tc.PAGE_TITLE, "running_campaigns") in rows
+    assert tc.PAGE_TITLE == "Arena Running Campaigns"
+    assert fa.SIDEBAR_TITLES["running_campaigns"] == tc.PAGE_TITLE
+    assert any(lbl == tc.PAGE_TITLE and key == "running_campaigns"
+               for _i, lbl, key in fa.SALES_NAV)
     assert fa.SIDEBAR_PAGE_ROW["running_campaigns"] == "running"
     assert "running" in fa._SIDEBAR_ICONS
     assert callable(fa.p_running_campaigns)
+    assert "fd-rc" in fa._rc_css()
+
+
+# ── Arena Running Campaigns page: state / industry / filters ──────────────
+
+def test_state_of_reads_codes_names_and_metros():
+    assert tc.state_of("Denver, CO") == "CO"
+    assert tc.state_of("Colorado") == "CO"
+    assert tc.state_of("CA - Tilden-Coil - PM Super - 2026-09-15") == "CA"
+    assert tc.state_of("Arizona - Willmeng - PM-Superintendent (Targeted)") == "AZ"
+    assert tc.state_of("Raleigh, North Carolina") == "NC"
+    assert tc.state_of("Torrance, CA (Los Angeles metro)") == "CA"
+    assert tc.state_of("Sunnyvale / San Francisco, CA") == "CA"
+    assert tc.state_of("Howard Building Corporation - LA County Construction W38") == "CA"
+    assert tc.state_of("Kansas City") == ""          # straddles KS / MO
+    assert tc.state_of("MPCBlast - Empire Cat - Sales") == ""
+    assert tc.state_of("PM Super") == ""              # PM is not a state
+    assert tc.state_of("") == ""
+
+
+def test_resolve_state_prefers_name_prefix_then_geography_then_contacts():
+    assert tc.resolve_state({"name": "TX - Acme - Estimator",
+                             "variables": {"Geography": "Denver, CO"}}) == "TX"
+    assert tc.resolve_state({"name": "Acme - Estimator Campaign",
+                             "variables": {"Geography": "Phoenix, AZ"}}) == "AZ"
+    assert tc.resolve_state({"name": "Acme Campaign", "variables": {},
+                             "contacts": [{"email": "a@acme.com", "city": "Boise", "state": "Idaho"}]}) == "ID"
+    assert tc.resolve_state({"name": "Acme Campaign", "variables": {}}) == ""
+
+
+def test_industry_buckets_free_text_and_falls_back_to_roles():
+    assert tc.industry_of({"variables": {"Industry": "Healthcare/OSHPD Construction"}}) == "Construction"
+    assert tc.industry_of({"variables": {"Industry": "Package Manufacturing"}}) == "Manufacturing"
+    assert tc.industry_of({"variables": {"Industry": "Civil Engineering Consulting"}}) == "Civil & Engineering"
+    assert tc.industry_of({"variables": {"Industry": "Healthcare"}}) == "Healthcare"
+    assert tc.industry_of({"variables": {"Industry": "", "TargetRole": "Plant Manager, Quality Manager"}}) == "Manufacturing"
+    assert tc.industry_of({"name": "Fresca Foods Talent Strategy Campaign", "variables": {}}) == "Manufacturing"
+    assert tc.industry_of({"variables": {"Industry": "Insurance"}}) == "Accounting & Finance"
+    assert tc.industry_of({"name": "__cardcheck__", "variables": {}}) == tc.INDUSTRY_OTHER
+
+
+def test_summary_carries_state_industry_and_kind(tmp_path):
+    _camp(tmp_path, "mike_at_arena_net", "CO - Galloway - Civil PE", "2026-10-05",
+          ["a@gallowayus.com"], aicb_camp_type="fivebyfive",
+          variables={"Industry": "Civil Engineering", "Geography": "Denver, CO",
+                     "TargetRole": "Civil PE"})
+    (rec,) = tc.team_campaigns(tmp_path, "mike@arena.net", today=TODAY)
+    assert rec["state"] == "CO"
+    assert rec["industry"] == "Civil & Engineering"
+    assert rec["kind"] == "fivebyfive" and rec["kind_label"] == "Arena 5×5"
+    assert rec["geo"] == "Denver, CO" and rec["roles"] == "Civil PE"
+
+
+def _rec(company, dom, owner_dir, started, state="CO", industry="Construction",
+         kind="fivebyfive", status="active", campaign=None, roles=""):
+    return {"campaign": campaign or company, "company": company, "domains": [dom],
+            "contacts": 3, "owner_dir": owner_dir, "owner": tc.owner_from_dir(owner_dir),
+            "started": started, "status": status, "path": f"/x/{dom}.json",
+            "state": state, "industry": industry, "kind": kind,
+            "kind_label": tc.kind_label(kind), "geo": "", "roles": roles}
+
+
+def test_group_by_company_merges_campaigns_and_flags_two_reps():
+    recs = [_rec("Acme", "acme.com", "luke_at_arena_net", "2026-10-01"),
+            _rec("Acme", "acme.com", "sarah_at_arena_net", "2026-09-20", status="cancelled",
+                 campaign="Acme again", state=""),
+            _rec("Bolt", "bolt.com", "luke_at_arena_net", "2026-10-03", state="TX",
+                 industry="Manufacturing", kind="fourbyfour")]
+    rows = tc.group_by_company(recs)
+    assert [r["company"] for r in rows] == ["Bolt", "Acme"]
+    acme = rows[1]
+    assert acme["reps"] == ["luke_at_arena_net", "sarah_at_arena_net"]
+    assert acme["state"] == "CO"                       # newest campaign that names one
+    assert acme["opens"] == "2026-10-31"
+    assert acme["running"] is True
+    assert [c["campaign"] for c in acme["camps"]] == ["Acme", "Acme again"]
+
+
+def test_filter_rows_by_rep_state_industry_kind_status_and_search():
+    rows = tc.group_by_company([
+        _rec("Acme", "acme.com", "luke_at_arena_net", "2026-10-01", roles="Estimator"),
+        _rec("Bolt", "bolt.com", "sarah_at_arena_net", "2026-10-03", state="TX",
+             industry="Manufacturing", kind="fourbyfour", status="cancelled"),
+    ])
+    names = lambda rs: sorted(r["company"] for r in rs)
+    assert names(tc.filter_rows(rows, rep="luke_at_arena_net")) == ["Acme"]
+    assert names(tc.filter_rows(rows, state="TX")) == ["Bolt"]
+    assert names(tc.filter_rows(rows, industry="Construction")) == ["Acme"]
+    assert names(tc.filter_rows(rows, kind="fourbyfour")) == ["Bolt"]
+    assert names(tc.filter_rows(rows, status="running")) == ["Acme"]
+    assert names(tc.filter_rows(rows, status="cancelled")) == ["Bolt"]
+    assert names(tc.filter_rows(rows, q="estimator")) == ["Acme"]   # target roles searchable
+    assert names(tc.filter_rows(rows, q="sarah")) == ["Bolt"]
+    assert names(tc.filter_rows(rows, rep="luke_at_arena_net", state="TX")) == []
+
+
+def _page_text(root) -> str:
+    bits = []
+    for el in root.descendants():
+        for attr in ("text", "content"):
+            v = getattr(el, attr, None)
+            if isinstance(v, str):
+                bits.append(v)
+    return "\n".join(bits)
+
+
+def test_page_renders_and_filters(with_user, monkeypatch):
+    import flowdrip_app as fa
+    from nicegui import ui
+    users = fa._BASE_DATA_DIR / "users"
+    _camp(users, "tester_at_example_com", "CO - Acme - Estimator", "2026-10-05",
+          ["a@acme.com"], aicb_camp_type="fivebyfive",
+          variables={"Industry": "Construction", "Geography": "Denver, CO", "TargetRole": "Estimator"})
+    _camp(users, "sarah_at_example_com", "TX - Bolt - Plant Manager", "2026-10-01",
+          ["b@bolt.com"], aicb_camp_type="fourbyfour", status="cancelled",
+          variables={"Industry": "Manufacturing"})
+    monkeypatch.setattr(tc, "date", _FixedDate)
+    s = fa.AppState()
+    s._user_email = "tester@example.com"
+    with ui.card() as card:
+        fa.p_running_campaigns(s, lambda: None)
+    text = _page_text(card)
+    assert "Arena Running Campaigns" in text
+    assert "Acme" in text and "Bolt" in text
+    assert "Colorado · Construction" in text and "Texas · Manufacturing" in text
+    assert "Cancelled" in text and "Running" in text
+    selects = [e for e in card.descendants() if isinstance(e, ui.select)]
+    assert len(selects) == 4                      # state, industry, type, sort
+    state_sel = selects[0]
+    assert "Colorado (1)" in state_sel.options.values()
+    state_sel.set_value("CO")
+    text = _page_text(card)
+    assert "Acme" in text and "Bolt" not in text
+    assert "Showing 1 of 2 companies" in text
+    state_sel.set_value("")
+    assert "Bolt" in _page_text(card)
+
+
+class _FixedDate(date):
+    @classmethod
+    def today(cls):
+        return cls(2026, 10, 6)
+
+
+def test_sort_facets_opening_and_csv():
+    rows = tc.group_by_company([
+        _rec("Acme", "acme.com", "luke_at_arena_net", "2026-10-01"),
+        _rec("Bolt", "bolt.com", "sarah_at_arena_net", "2026-09-08", state="TX"),
+    ])
+    assert [r["company"] for r in tc.sort_rows(rows, "opens")] == ["Bolt", "Acme"]
+    assert [r["company"] for r in tc.sort_rows(rows, "name")] == ["Acme", "Bolt"]
+    assert tc.facet_counts(rows, "state") == {"CO": 1, "TX": 1}
+    assert tc.facet_counts(rows, "reps")["luke_at_arena_net"] == 1
+    # Bolt opens 2026-10-08, two days after TODAY; Acme opens on the 31st.
+    assert [r["company"] for r in tc.opening_within(rows, 7, today=TODAY)] == ["Bolt"]
+    csv_text = tc.rows_csv(rows)
+    assert csv_text.splitlines()[0].startswith("Company,Domains,State,Industry,Rep")
+    assert "Bolt,bolt.com,TX,Construction,Sarah,Bolt,Arena 5×5,Running,2026-09-08,2026-10-08" in csv_text

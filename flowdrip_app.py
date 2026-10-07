@@ -2083,10 +2083,10 @@ def is_blocklisted_email(email: str, blocklist: list = None,
     return False
 
 
-# ── Current Running Campaigns (team-wide company dedupe) ──────────────────
+# ── Arena Running Campaigns (team-wide company dedupe) ──────────────────
 # A company that any teammate has in an outbound campaign started in the
 # last 30 days (cancelled ones included) is skipped by new launches. See
-# team_campaigns.py; the list is shown on the Current Running Campaigns page.
+# team_campaigns.py; the list is shown on the Arena Running Campaigns page.
 
 def _team_worked_hits(owner_email: str, exclude_path: str = "",
                       exclude_name: str = "") -> dict:
@@ -9526,7 +9526,7 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
         )
     contacts = [_norm_contact(c) for c in camp.get("contacts", [])
                 if not _is_blocked((c.get("email", "") or c.get("Email", "")))]
-    # Current Running Campaigns: skip companies the team already has in an
+    # Arena Running Campaigns: skip companies the team already has in an
     # outbound campaign from the last 30 days. Every launch path (wizard,
     # AI Prompts, API/connector, Sales Campaign) ends here, so this is the
     # backstop. Newsletters, slow drips and Find Candidates are exempt.
@@ -11898,6 +11898,7 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
 }}
 {_nl_list_css()}
 {_ct_css()}
+{_rc_css()}
 </style>""")
     # Global JS helper  -  insert text at cursor position in any focused input/textarea
     # or contenteditable (QEditor body). Tracks last-focused input so that
@@ -12309,7 +12310,7 @@ SALES_NAV = [
     ("📁", "Saved Campaigns",   "drafts_saved"),
     ("≡",  "Contacts",          "contacts"),
     ("🚫", "Do Not Contact",   "dnc"),
-    ("📡", "Current Running Campaigns", "running_campaigns"),
+    ("📡", "Arena Running Campaigns", "running_campaigns"),
     ("🛡", "Current Clients",  "active_clients"),
     # ── Content & Tools ──────────────────────────
     # Slow Drip removed from sidebar 2026-05-20 — now lives as a section
@@ -12359,7 +12360,7 @@ SIDEBAR_NAV = [
     ("PEOPLE", [
         ("pipeline",    "Pipeline",        "__ats__"),
         ("contacts",    "Contacts",        "contacts"),
-        ("running",     "Current Running Campaigns", "running_campaigns"),
+        ("running",     "Arena Running Campaigns", "running_campaigns"),
         ("clients",     "Current Clients", "active_clients"),
     ]),
     ("CONTENT", [
@@ -12412,7 +12413,7 @@ SIDEBAR_TITLES = {
     "dashboard": "Home", "market_intel": "Market Intel",
     "drip": "Today's Tasks", "tasks": "Tasks", "responses": "Replies", "e_responses": "Replies",
     "contacts": "Contacts", "e_contacts": "Contacts", "active_clients": "Current Clients",
-    "running_campaigns": "Current Running Campaigns",
+    "running_campaigns": "Arena Running Campaigns",
     "seq_mgr": "Campaigns", "active_camps": "Campaigns", "queue": "Email Queue",
     "evergreen": "Nurture Campaigns", "evergreen_create": "New Nurture Campaign",
     "newsletters": "Newsletters", "pdf_gen": "Sales Assets", "ai_prompts": "AI Prompts",
@@ -32587,9 +32588,47 @@ def p_outreach_analytics(s, rf):
     _oa.render(ui, C, s, rf, _sources, _types)
 
 
+def _rc_css() -> str:
+    """Arena Running Campaigns page: filter card, result table, pills."""
+    return f"""
+.fd-rc{{max-width:1180px}}
+.fd-rc-filters{{background:{C['card']};border:1px solid {C['border']};border-radius:12px;padding:14px 16px;margin:0 0 14px}}
+.fd-rc-row{{display:flex;flex-wrap:wrap;gap:10px;align-items:center}}
+.fd-rc-row + .fd-rc-row{{margin-top:12px}}
+.fd-rc-lbl{{font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:{C['muted']};margin-right:2px}}
+.fd-rc-filters .fd-input{{flex:0 1 210px;min-width:150px}}
+.fd-rc-filters .fd-input.search{{flex:1 1 220px}}
+.fd-rc-filters .fd-seg-btn{{font-size:12.5px;padding:6px 12px}}
+.fd-rc-head{{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0 2px 10px}}
+.fd-rc-count{{font-size:12.5px;color:{C['muted']}}}
+.fd-rc-link{{font-size:12.5px;color:{C['teal']};background:transparent;border:none;cursor:pointer;font-family:inherit;padding:4px 6px;font-weight:600}}
+.fd-rc-link:hover{{text-decoration:underline}}
+.fd-rc-link.quiet{{color:{C['muted']};font-weight:500}}
+.fd-rc-tbl{{background:{C['card']};border:1px solid {C['border']};border-radius:12px;overflow:auto}}
+.fd-rc-tbl .fd-tbl td{{vertical-align:top}}
+.fd-rc-co{{font-weight:700;color:{C['text_l']}}}
+.fd-rc-dom{{font-size:11px;color:{C['muted']}}}
+.fd-rc-meta{{font-size:11.5px;color:{C['text']};margin-top:3px}}
+.fd-rc-camp{{display:flex;align-items:center;gap:8px;margin:2px 0;font-size:12px;white-space:nowrap}}
+.fd-rc-camp .who{{color:{C['text_l']};font-weight:600}}
+.fd-rc-camp .what{{color:{C['muted']}}}
+.fd-rc-pill{{font-size:10px;font-weight:700;border-radius:99px;padding:0 7px;border:1px solid;line-height:16px}}
+.fd-rc-pill.on{{color:{C['good']};border-color:{_tint(C['good'], '66')}}}
+.fd-rc-pill.off{{color:{C['muted']};border-color:{_tint(C['muted'], '66')}}}
+.fd-rc-flag{{font-size:10px;color:{C['warn']};margin-left:6px;font-weight:600}}
+.fd-rc-opens{{color:{C['muted']};font-size:12px;white-space:nowrap}}
+.fd-rc-opens.soon{{color:{C['warn']};font-weight:600}}
+@media (max-width:640px){{
+  .fd-rc-filters .fd-input,.fd-rc-filters .fd-input.search{{flex:1 1 100%}}
+  .fd-rc-camp{{white-space:normal}}
+}}
+"""
+
+
 def p_running_campaigns(s, rf):
     """Every company the team has in an outbound campaign from the last
-    30 days, cancelled ones included. New launches skip these companies
+    30 days, cancelled ones included, filterable by rep, state, industry,
+    campaign type and status. New launches skip these companies
     (queue_campaign_emails + the API), as well as Current Clients."""
     from html import escape as _esc
     import team_campaigns as _tc
@@ -32604,32 +32643,21 @@ def p_running_campaigns(s, rf):
         print(f"[RunningCampaigns] scan failed: {e}", flush=True)
         recs = []
 
-    # One row per company (keyed by its first email domain).
-    by_co: dict = {}
+    rows = _tc.group_by_company(recs)
+    rep_names = {}
     for r in recs:
-        key = r["domains"][0]
-        row = by_co.setdefault(key, {"company": r["company"], "domains": set(), "camps": []})
-        row["domains"].update(r["domains"])
-        row["camps"].append(r)
-    rows = sorted(by_co.values(),
-                  key=lambda x: max(c["started"] for c in x["camps"]), reverse=True)
-    reps = {r["owner_dir"] for r in recs}
-    _team_dom = _team_domain_for(owner).replace("_", ".") if owner else ""
+        rep_names.setdefault(r["owner_dir"], r["owner"])
+    rep_counts = _tc.facet_counts(rows, "reps")
+    state_counts = _tc.facet_counts(rows, "state")
+    industry_counts = _tc.facet_counts(rows, "industry")
+    kind_counts = _tc.facet_counts(rows, "kinds")
+    soon = _tc.opening_within(rows, 7)
+    _today = date.today().isoformat()
+    _soon_end = (date.today() + timedelta(days=7)).isoformat()
 
-    ui.label("Current Running Campaigns").classes("fd-h1")
-    ui.label(
-        f"Companies {('the ' + _team_dom + ' team has') if _team_dom else 'your team has'} "
-        f"put in a campaign in the last {_tc.WINDOW_DAYS} days, cancelled ones included. "
-        "New campaigns skip these companies, and Current Clients too."
-    ).classes("fd-sub")
-
-    with ui.element("div").classes("fd-stat-strip").style("margin:14px 0 18px;"):
-        for val, lbl, col in [(len(rows), "Companies", C["teal"]),
-                              (len(recs), "Campaigns", C["text_l"]),
-                              (len(reps), "Reps", C["muted"])]:
-            with ui.element("div").classes("fd-stat-cell"):
-                ui.label(str(val)).classes("fd-sn").style(f"color:{col};")
-                ui.label(lbl).classes("fd-sl")
+    # Filter state lives on the page; a sidebar click starts fresh.
+    f = {"rep": "", "state": "", "industry": "", "kind": "", "status": "", "q": "",
+         "sort": "newest"}
 
     def _fmt(d):
         try:
@@ -32637,64 +32665,191 @@ def p_running_campaigns(s, rf):
         except Exception:
             return d or "—"
 
-    def _table_html(q: str) -> str:
-        q = (q or "").strip().lower()
-        shown = []
-        for row in rows:
-            hay = " ".join([row["company"], *row["domains"]]
-                           + [c["owner"] + " " + c["campaign"] for c in row["camps"]]).lower()
-            if not q or q in hay:
-                shown.append(row)
+    def _shown():
+        return _tc.sort_rows(_tc.filter_rows(
+            rows, rep=f["rep"], state=f["state"], industry=f["industry"],
+            kind=f["kind"], status=f["status"], q=f["q"]), f["sort"])
+
+    def _table_html(shown: list) -> str:
         if not shown:
-            msg = ("No company matches that search." if q else
-                   f"No campaigns in the last {_tc.WINDOW_DAYS} days.")
-            return (f'<div style="color:{C["muted"]};font-size:13px;padding:18px 4px;">'
-                    f'{_esc(msg)}</div>')
+            if rows:
+                title, body = ("No company matches those filters.",
+                               "Clear a filter or two to widen the list.")
+            else:
+                title, body = (f"No campaigns in the last {_tc.WINDOW_DAYS} days.",
+                               "Companies show up here as soon as a teammate launches a campaign.")
+            return (f'<div class="fd-es compact wide"><div class="fd-es-title">{_esc(title)}</div>'
+                    f'<div class="fd-es-body">{_esc(body)}</div></div>')
         body = ""
         for row in shown:
             camps_html = ""
-            for c in sorted(row["camps"], key=lambda c: c["started"], reverse=True):
+            for c in row["camps"]:
                 cancelled = c["status"] == "cancelled"
-                pill_col = C["muted"] if cancelled else C["good"]
-                pill = "Cancelled" if cancelled else "Running"
+                pill = ('<span class="fd-rc-pill off">Cancelled</span>' if cancelled
+                        else '<span class="fd-rc-pill on">Running</span>')
                 camps_html += (
-                    f'<div style="display:flex;align-items:center;gap:8px;margin:2px 0;">'
-                    f'<span style="font-size:10px;font-weight:700;color:{pill_col};'
-                    f'border:1px solid {pill_col}66;border-radius:99px;padding:0 7px;">{pill}</span>'
-                    f'<span style="color:{C["text_l"]};">{_esc(c["owner"])}</span>'
-                    f'<span style="color:{C["muted"]};">· {_esc(c["campaign"])} · {_fmt(c["started"])}</span>'
-                    f'</div>')
-            last = max(c["started"] for c in row["camps"])
-            try:
-                opens = (date.fromisoformat(last) + timedelta(days=_tc.WINDOW_DAYS)).isoformat()
-            except Exception:
-                opens = ""
-            many = len({c["owner_dir"] for c in row["camps"]}) > 1
-            flag = (f' <span style="font-size:10px;color:{C["warn"]};">· {len({c["owner_dir"] for c in row["camps"]})} reps</span>'
-                    if many else "")
+                    f'<div class="fd-rc-camp">{pill}'
+                    f'<span class="who">{_esc(c["owner"])}</span>'
+                    f'<span class="what">· {_esc(c["campaign"])} · {_esc(c["kind_label"])}'
+                    f' · {_fmt(c["started"])}</span></div>')
+            flag = (f'<span class="fd-rc-flag">{len(row["reps"])} reps</span>'
+                    if len(row["reps"]) > 1 else "")
+            meta_bits = [p for p in (
+                _tc.US_STATES.get(row["state"], row["state"]) if row["state"] else "",
+                row["industry"] if row["industry"] != _tc.INDUSTRY_OTHER else "") if p]
+            meta = (f'<div class="fd-rc-meta">{_esc(" · ".join(meta_bits))}</div>'
+                    if meta_bits else "")
+            soon_cls = " soon" if (row["opens"] and _today <= row["opens"] <= _soon_end) else ""
             body += (
-                f'<tr><td style="vertical-align:top;">'
-                f'<div style="color:{C["text_l"]};font-weight:700;">{_esc(row["company"])}{flag}</div>'
-                f'<div style="color:{C["muted"]};font-size:11px;">{_esc(", ".join(sorted(row["domains"])))}</div></td>'
-                f'<td style="vertical-align:top;font-size:12px;">{camps_html}</td>'
-                f'<td style="vertical-align:top;color:{C["muted"]};font-size:12px;white-space:nowrap;">{_fmt(opens)}</td></tr>')
-        return (f'<div style="background:{C["card"]};border:1px solid {C["border"]};'
-                f'border-radius:10px;overflow:auto;">'
-                f'<table class="fd-tbl" style="table-layout:auto;width:100%;"><thead><tr>'
-                f'<th>Company</th><th>Campaigns</th><th>Open again</th>'
+                f'<tr><td><div class="fd-rc-co">{_esc(row["company"])}{flag}</div>'
+                f'<div class="fd-rc-dom">{_esc(", ".join(row["domains"]))}</div>{meta}</td>'
+                f'<td>{camps_html}</td>'
+                f'<td class="fd-rc-opens{soon_cls}">{_fmt(row["opens"])}</td></tr>')
+        return (f'<div class="fd-rc-tbl"><table class="fd-tbl" style="table-layout:auto;width:100%;">'
+                f'<thead><tr><th>Company</th><th>Campaigns</th><th>Open again</th>'
                 f'</tr></thead><tbody>{body}</tbody></table></div>')
 
-    search = ui.input(placeholder="Search a company, rep or campaign").classes(
-        "fd-input").style("max-width:360px;margin-bottom:12px;")
-    box = ui.element("div")
-    with box:
-        ui.html(_table_html(""))
+    _team_dom = _team_domain_for(owner).replace("_", ".") if owner else ""
 
-    def _filter(e=None):
-        box.clear()
-        with box:
-            ui.html(_table_html(search.value or ""))
-    search.on_value_change(_filter)
+    with ui.element("div").classes("fd-rc"):
+        ui.label(_tc.PAGE_TITLE).classes("fd-h1")
+        ui.label(
+            f"Companies the {_tc.TEAM_LABEL} team has put in a campaign in the last "
+            f"{_tc.WINDOW_DAYS} days, cancelled ones included. New campaigns skip these "
+            "companies, and Current Clients too."
+        ).classes("fd-sub")
+
+        # ── Stat strip ────────────────────────────────────────────────────
+        def _sort_soon():
+            f["sort"] = "opens"
+            sort_sel.set_value("opens")
+            _redraw()
+
+        with ui.element("div").classes("fd-stat-strip").style("margin:14px 0 18px;"):
+            for val, lbl, col, go in [
+                    (len(rows), "Companies", C["teal"], None),
+                    (len(recs), "Campaigns", C["text_l"], None),
+                    (len(rep_counts), "Reps", C["muted"], None),
+                    (len(soon), "Open again this week", C["warn"], _sort_soon)]:
+                cell = ui.element("div").classes("fd-stat-cell" + (" go" if go else "")
+                                                 + (" zero" if not val else ""))
+                if go:
+                    cell.on("click", go)
+                with cell:
+                    ui.label(str(val)).classes("fd-sn").style(f"color:{col};")
+                    ui.label(lbl).classes("fd-sl")
+
+        # ── Filters ───────────────────────────────────────────────────────
+        with ui.element("div").classes("fd-rc-filters"):
+            with ui.element("div").classes("fd-rc-row"):
+                ui.label("Rep").classes("fd-rc-lbl")
+                pills_box = ui.element("div").classes("fd-seg")
+            with ui.element("div").classes("fd-rc-row"):
+                def _opts(counts, label_of, all_label):
+                    opts = {"": all_label}
+                    for k, n in sorted(counts.items(), key=lambda kv: (-kv[1], label_of(kv[0]))):
+                        opts[k] = f"{label_of(k)} ({n})"
+                    return opts
+                state_sel = ui.select(
+                    options=_opts(state_counts, lambda k: _tc.US_STATES.get(k, k), "All states"),
+                    value="").classes("fd-input")
+                industry_sel = ui.select(
+                    options=_opts(industry_counts, lambda k: k, "All industries"),
+                    value="").classes("fd-input")
+                kind_sel = ui.select(
+                    options=_opts(kind_counts, _tc.kind_label, "All campaign types"),
+                    value="").classes("fd-input")
+                status_box = ui.element("div").classes("fd-seg")
+            with ui.element("div").classes("fd-rc-row"):
+                search = ui.input(placeholder="Search a company, rep, campaign, city or role").props(
+                    "dense borderless clearable").classes("fd-input search")
+                sort_sel = ui.select(
+                    options={"newest": "Newest first", "opens": "Opens soonest", "name": "Company A–Z"},
+                    value="newest").classes("fd-input")
+                clear_btn = ui.element("button").classes("fd-rc-link quiet").props('type="button"')
+                with clear_btn:
+                    ui.label("Clear filters")
+
+        head = ui.element("div").classes("fd-rc-head")
+        results = ui.element("div")
+
+        # ── Behaviour ─────────────────────────────────────────────────────
+        def _redraw():
+            shown = _shown()
+            n_camps = sum(len(r["camps"]) for r in shown)
+            head.clear()
+            with head:
+                if len(shown) == len(rows):
+                    msg = f"{len(rows)} companies · {n_camps} campaigns"
+                else:
+                    msg = f"Showing {len(shown)} of {len(rows)} companies · {n_camps} campaigns"
+                ui.label(msg).classes("fd-rc-count")
+                if shown:
+                    def _download(_shown=shown):
+                        data = _tc.rows_csv(_shown).encode("utf-8-sig")
+                        name = f"arena-running-campaigns-{date.today().isoformat()}.csv"
+                        try:
+                            ui.download.content(data, name)
+                        except Exception:
+                            ui.download(data, name)
+                    with ui.element("button").classes("fd-rc-link").props('type="button"').style(
+                            "margin-left:auto;").on("click", _download):
+                        ui.label("Download CSV")
+            results.clear()
+            with results:
+                ui.html(_table_html(shown))
+
+        def _draw_pills():
+            pills_box.clear()
+            with pills_box:
+                choices = [("", f"All ({len(rows)})")] + [
+                    (d, f"{rep_names.get(d, d)} ({n})")
+                    for d, n in sorted(rep_counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+                for key, label in choices:
+                    def _pick(k=key):
+                        f["rep"] = k
+                        _draw_pills(); _redraw()
+                    with ui.element("button").classes(
+                            "fd-seg-btn" + (" on" if f["rep"] == key else "")).props(
+                            'type="button"').on("click", _pick):
+                        ui.label(label)
+
+        def _draw_status():
+            status_box.clear()
+            with status_box:
+                for key, label in (("", "All"), ("running", "Running"), ("cancelled", "Cancelled")):
+                    def _pick(k=key):
+                        f["status"] = k
+                        _draw_status(); _redraw()
+                    with ui.element("button").classes(
+                            "fd-seg-btn" + (" on" if f["status"] == key else "")).props(
+                            'type="button"').on("click", _pick):
+                        ui.label(label)
+
+        def _bind(sel, key):
+            def _on(e, _key=key):
+                f[_key] = (e.value or "") if not isinstance(e.value, dict) else (e.value.get("value") or "")
+                _redraw()
+            sel.on_value_change(_on)
+
+        _bind(state_sel, "state"); _bind(industry_sel, "industry")
+        _bind(kind_sel, "kind"); _bind(sort_sel, "sort")
+
+        def _on_search(e):
+            f["q"] = e.value or ""
+            _redraw()
+        search.on_value_change(_on_search)
+
+        def _clear():
+            f.update({"rep": "", "state": "", "industry": "", "kind": "", "status": "",
+                      "q": "", "sort": "newest"})
+            for sel, v in ((state_sel, ""), (industry_sel, ""), (kind_sel, ""), (sort_sel, "newest")):
+                sel.set_value(v)
+            search.set_value("")
+            _draw_pills(); _draw_status(); _redraw()
+        clear_btn.on("click", _clear)
+
+        _draw_pills(); _draw_status(); _redraw()
 
 
 def p_active_clients(s, rf):

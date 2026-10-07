@@ -20,14 +20,101 @@ Pure file reads, no app imports, so it is unit-testable on its own.
 """
 from __future__ import annotations
 
+import csv
+import io
 import json
 import os
+import re
 import threading
 from collections import Counter
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 WINDOW_DAYS = 30
+
+# The team this build belongs to. The page title and sidebar row use it.
+TEAM_LABEL = "Arena"
+PAGE_TITLE = f"{TEAM_LABEL} Running Campaigns"
+
+US_STATES = {
+    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas",
+    "CA": "California", "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware",
+    "FL": "Florida", "GA": "Georgia", "HI": "Hawaii", "ID": "Idaho",
+    "IL": "Illinois", "IN": "Indiana", "IA": "Iowa", "KS": "Kansas",
+    "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland",
+    "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi",
+    "MO": "Missouri", "MT": "Montana", "NE": "Nebraska", "NV": "Nevada",
+    "NH": "New Hampshire", "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York",
+    "NC": "North Carolina", "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma",
+    "OR": "Oregon", "PA": "Pennsylvania", "RI": "Rhode Island", "SC": "South Carolina",
+    "SD": "South Dakota", "TN": "Tennessee", "TX": "Texas", "UT": "Utah",
+    "VT": "Vermont", "VA": "Virginia", "WA": "Washington", "WV": "West Virginia",
+    "WI": "Wisconsin", "WY": "Wyoming", "DC": "District of Columbia",
+}
+_STATE_NAMES = {v.lower(): k for k, v in US_STATES.items()}
+_STATE_NAME_RE = re.compile(
+    r"\b(" + "|".join(sorted(map(re.escape, _STATE_NAMES), key=len, reverse=True)) + r")\b")
+# A two-letter code counts only at the start of the text ("CA - Tilden-Coil")
+# or right after a comma, slash or bracket ("Denver, CO", "Torrance, CA (LA
+# metro)"). "LA County" and "PM Super" in the middle of a name are not states.
+_STATE_CODE_RE = re.compile(r"(?:^|[,/(]\s*)([A-Z]{2})(?![A-Za-z])")
+# Metro names that show up without a state. Kansas City is left out: it
+# straddles KS and MO.
+_METRO_STATES = (
+    ("CA", ("los angeles", "la county", "orange county", "san diego", "bay area",
+            "san francisco", "sacramento", "inland empire", "san jose", "socal",
+            "southern california", "northern california")),
+    ("CO", ("denver", "front range", "colorado springs", "boulder", "fort collins")),
+    ("AZ", ("phoenix", "tucson", "scottsdale", "tempe")),
+    ("TX", ("dallas", "houston", "austin", "san antonio", "dfw", "fort worth")),
+    ("UT", ("salt lake",)),
+    ("WA", ("seattle", "tacoma", "bellevue")),
+    ("NC", ("raleigh", "charlotte", "durham")),
+    ("IL", ("chicago",)),
+    ("NV", ("las vegas", "reno")),
+    ("OR", ("portland",)),
+    ("OH", ("cincinnati", "columbus", "cleveland")),
+    ("OK", ("oklahoma city", "tulsa")),
+    ("NY", ("new york city", "nyc")),
+    ("MA", ("boston",)),
+    ("GA", ("atlanta",)),
+    ("FL", ("miami", "tampa", "orlando")),
+    ("MN", ("minneapolis",)),
+    ("PA", ("philadelphia", "pittsburgh")),
+    ("MI", ("detroit",)),
+    ("WI", ("milwaukee",)),
+)
+
+# Industry buckets for the page filter. First match wins, so the order
+# matters: "Healthcare/OSHPD Construction" is a construction company that
+# builds hospitals, and "Civil Engineering" is Civil, not Construction.
+INDUSTRIES = (
+    ("Manufacturing", r"manuf|machin|\bcnc\b|aerospace|packag|\bcpg\b|fabricat|\bplant\b"
+                      r"|\bfoods?\b|dairy|farm|agricult|bakery|beverage|brew"),
+    ("Civil & Engineering", r"\bcivil\b|engineer|\baec\b|water|utilit|infrastructure"
+                            r"|transportation|surveying|pipeline"),
+    ("Construction", r"construct|\bbuild|contractor|contracting|electric|mechanical|hvac"
+                     r"|plumb|data cent|mission critical|superintendent|homebuild"
+                     r"|residential|concrete|roofing|equipment rental|\bgc\b|glazing"
+                     r"|drywall|framing|paving|excavat|demolition|steel"),
+    ("Healthcare", r"health|medical|hospital|pharma|senior living"),
+    ("Architecture & Design", r"architect|\bdesign\b"),
+    ("Technology", r"software|technology|\btech\b|\bsaas\b|\bit\b"),
+    ("Logistics & Freight", r"logistic|freight|trucking|supply chain|warehous|3pl|distribut"),
+    ("Energy", r"energy|\boil\b|\bgas\b|solar|renewable|mining"),
+    ("Accounting & Finance", r"accounting|finance|financial|\bcpa\b|insurance|banking"),
+    ("Real Estate", r"real estate|property|multifamily|development"),
+    ("Automotive & Equipment", r"automo|dealer|truck center|heavy equipment|caterpillar"),
+)
+INDUSTRY_OTHER = "Other"
+
+KIND_LABELS = {
+    "fivebyfive": "Arena 5×5", "fourbyfour": "Arena 4×4", "fivebythree": "Arena 5×3",
+    "fivebyseven": "Arena 5×7", "clientlookalike": "Client Lookalike", "byos": "My Style",
+    "blitz": "Blitz", "sidequest": "Side Quest", "talentdrop": "Talent Drop",
+    "__ai_generated__": "AI Generated",
+}
+KIND_OTHER = "Other"
 
 # Personal mailboxes say nothing about the company, so they never match.
 FREE_MAIL = frozenset({
@@ -90,6 +177,80 @@ def owner_from_dir(dirname: str) -> str:
     return " ".join(p.capitalize() for p in local.split("_") if p)
 
 
+def state_of(text) -> str:
+    """'Denver, CO' / 'Colorado' / 'CA - Tilden-Coil - PM' / 'LA County'
+    -> 'CO' / 'CO' / 'CA' / 'CA'. '' when the text names no state."""
+    t = (text or "").strip()
+    if not t:
+        return ""
+    for m in _STATE_CODE_RE.finditer(t):
+        if m.group(1) in US_STATES:
+            return m.group(1)
+    # "Kansas City" is a metro on the KS/MO line, not the state of Kansas.
+    low = re.sub(r"\bkansas city\b", " ", t.lower())
+    m = _STATE_NAME_RE.search(low)
+    if m:
+        return _STATE_NAMES[m.group(1)]
+    for code, metros in _METRO_STATES:
+        if any(re.search(r"\b" + re.escape(x) + r"\b", low) for x in metros):
+            return code
+    return ""
+
+
+def _name_prefix(name: str) -> str:
+    """'CA - Tilden-Coil - PM Super - 2026-09-15' -> 'CA'. '' when the
+    name has no 'X - ' prefix."""
+    m = re.match(r"^\s*([A-Za-z .]+?)\s*-\s", name or "")
+    return m.group(1) if m else ""
+
+
+def resolve_state(camp: dict, contacts: list | None = None) -> str:
+    """Two-letter state for a campaign: the name prefix first ("CA - …"),
+    then the Geography variable, then the whole name, then the first
+    contacts' state or city. '' when nothing names one."""
+    v = camp.get("variables") or {}
+    name = camp.get("name") or ""
+    for src in (_name_prefix(name), v.get("Geography"), v.get("Location"),
+                v.get("location"), camp.get("market_region"), name):
+        st = state_of(src)
+        if st:
+            return st
+    if contacts is None:
+        contacts = [c for c in (camp.get("contacts") or []) if isinstance(c, dict)]
+    for c in contacts[:10]:
+        st = state_of(c.get("state") or c.get("State") or "")
+        if not st:
+            st = state_of(", ".join(p for p in (c.get("city") or c.get("City") or "",
+                                                c.get("state") or c.get("State") or "") if p))
+        if st:
+            return st
+    return ""
+
+
+def industry_of(camp: dict) -> str:
+    """Industry bucket: the Industry variable decides when it says
+    something, then the niche, the name and the target roles."""
+    v = camp.get("variables") or {}
+    for src in (v.get("Industry"), camp.get("market_niche"), camp.get("name"),
+                v.get("TargetRole")):
+        t = str(src or "").lower().strip()
+        if not t:
+            continue
+        for label, pat in INDUSTRIES:
+            if re.search(pat, t):
+                return label
+    return INDUSTRY_OTHER
+
+
+def kind_of(camp: dict) -> str:
+    return (camp.get("aicb_camp_type") or camp.get("template_key")
+            or camp.get("_chooser_origin") or "").strip()
+
+
+def kind_label(kind: str) -> str:
+    return KIND_LABELS.get(kind or "", KIND_OTHER if not kind else kind)
+
+
 def _summarize(path: Path, owner_dir: str) -> dict | None:
     try:
         camp = json.loads(path.read_text(encoding="utf-8"))
@@ -119,6 +280,8 @@ def _summarize(path: Path, owner_dir: str) -> dict | None:
         company = companies.most_common(1)[0][0]
     company = (company or (camp.get("variables") or {}).get("CompanyName")
                or camp.get("name") or path.stem)
+    variables = camp.get("variables") or {}
+    kind = kind_of(camp)
     return {
         "campaign": camp.get("name") or path.stem,
         "company": company,
@@ -129,6 +292,12 @@ def _summarize(path: Path, owner_dir: str) -> dict | None:
         "started": started,
         "status": (camp.get("status") or "active").strip().lower(),
         "path": str(path),
+        "state": resolve_state(camp, contacts),
+        "industry": industry_of(camp),
+        "kind": kind,
+        "kind_label": kind_label(kind),
+        "geo": (variables.get("Geography") or "").strip(),
+        "roles": (variables.get("TargetRole") or "").strip(),
     }
 
 
@@ -217,6 +386,120 @@ def match(domain: str, hits: dict) -> dict | None:
         if domain.endswith("." + d) or d.endswith("." + domain):
             return r
     return None
+
+
+# ── Arena Running Campaigns page: pure helpers ────────────────────────────
+
+def opens_on(started: str, window_days: int = WINDOW_DAYS) -> str:
+    """ISO date a company opens up again after a campaign started on
+    `started`. '' when the date is unusable."""
+    try:
+        return (date.fromisoformat((started or "")[:10]) + timedelta(days=window_days)).isoformat()
+    except Exception:
+        return ""
+
+
+def group_by_company(records: list) -> list:
+    """One row per company (keyed by its first email domain), newest
+    campaign first. Each row carries every campaign at that company plus
+    the state and industry read off the newest campaign that names one."""
+    by_co: dict = {}
+    for r in records:
+        key = r["domains"][0]
+        row = by_co.setdefault(key, {"key": key, "company": r["company"],
+                                     "domains": set(), "camps": []})
+        row["domains"].update(r["domains"])
+        row["camps"].append(r)
+    rows = []
+    for row in by_co.values():
+        camps = sorted(row["camps"], key=lambda c: c["started"], reverse=True)
+        row["camps"] = camps
+        row["domains"] = sorted(row["domains"])
+        row["last_started"] = camps[0]["started"]
+        row["opens"] = opens_on(row["last_started"])
+        row["reps"] = sorted({c["owner_dir"] for c in camps})
+        row["state"] = next((c["state"] for c in camps if c.get("state")), "")
+        row["industry"] = next((c["industry"] for c in camps
+                                if c.get("industry") and c["industry"] != INDUSTRY_OTHER),
+                               INDUSTRY_OTHER)
+        row["kinds"] = sorted({c["kind"] for c in camps if c.get("kind")})
+        row["running"] = any(c["status"] != "cancelled" for c in camps)
+        rows.append(row)
+    return sort_rows(rows, "newest")
+
+
+def filter_rows(rows: list, rep: str = "", state: str = "", industry: str = "",
+                kind: str = "", status: str = "", q: str = "") -> list:
+    """Rows matching every filter that is set. `rep` is an owner_dir,
+    `state` a two-letter code, `kind` a template key, `status` 'running'
+    or 'cancelled'. The search looks at company, domains, reps, campaign
+    names, geography and target roles."""
+    q = (q or "").strip().lower()
+    out = []
+    for row in rows:
+        if rep and rep not in row["reps"]:
+            continue
+        if state and row["state"] != state:
+            continue
+        if industry and row["industry"] != industry:
+            continue
+        if kind and kind not in row["kinds"]:
+            continue
+        if status == "running" and not row["running"]:
+            continue
+        if status == "cancelled" and row["running"]:
+            continue
+        if q:
+            hay = " ".join([row["company"], *row["domains"]] + [
+                " ".join((c["owner"], c["campaign"], c.get("geo", ""), c.get("roles", "")))
+                for c in row["camps"]]).lower()
+            if q not in hay:
+                continue
+        out.append(row)
+    return out
+
+
+def sort_rows(rows: list, how: str = "newest") -> list:
+    if how == "opens":
+        return sorted(rows, key=lambda r: (r["opens"] or "9999", r["company"].lower()))
+    if how == "name":
+        return sorted(rows, key=lambda r: r["company"].lower())
+    return sorted(rows, key=lambda r: (r["last_started"], r["company"].lower()), reverse=True)
+
+
+def facet_counts(rows: list, key: str) -> Counter:
+    """How many rows carry each value of `key` ('reps' and 'kinds' are
+    lists, so a row counts once per value)."""
+    counts: Counter = Counter()
+    for row in rows:
+        val = row.get(key)
+        if isinstance(val, (list, set, tuple)):
+            counts.update(v for v in val if v)
+        elif val:
+            counts[val] += 1
+    return counts
+
+
+def opening_within(rows: list, days: int = 7, today: date | None = None) -> list:
+    """Rows whose company opens up again within `days` of today."""
+    today = today or date.today()
+    end = (today + timedelta(days=days)).isoformat()
+    return [r for r in rows if r["opens"] and today.isoformat() <= r["opens"] <= end]
+
+
+def rows_csv(rows: list) -> str:
+    """One line per campaign, ready for Excel."""
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["Company", "Domains", "State", "Industry", "Rep", "Campaign",
+                "Type", "Status", "Started", "Opens again"])
+    for row in rows:
+        for c in row["camps"]:
+            w.writerow([row["company"], ", ".join(row["domains"]), row["state"],
+                        row["industry"], c["owner"], c["campaign"], c["kind_label"],
+                        "Cancelled" if c["status"] == "cancelled" else "Running",
+                        c["started"], row["opens"]])
+    return buf.getvalue()
 
 
 def describe(rec: dict) -> str:
