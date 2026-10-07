@@ -1729,10 +1729,9 @@ STARTERS = [
     },
     {
         "id": "other",
-        "label": "Something else - I'll describe it",
-        "sub": "Anything the four above do not cover. You write the job in "
-               "your own words on the next screen and Claude turns it into "
-               "the same kind of prompt, with the same rules on it.",
+        "label": "Go Off Script",
+        "sub": "Got an idea that isn't up there? Describe it and I'll "
+               "create it, and you can save it for future runs.",
         # Non-empty on purpose: with the "in one line" box gone this is the
         # only thing left to open WHAT I WANT with. The job itself is the
         # "What you want done" answer, which reaches the prompt through
@@ -3187,7 +3186,9 @@ def _aip_confirm(s, rf, C):
                      icon="arrow_forward")
                 with ui.element("div").style(
                         "display:flex;flex-wrap:wrap;gap:8px;"):
-                    _aip_save_setup(s, rf, C, req)
+                    _aip_save_setup(s, rf, C, req, label=(
+                        "Save for future runs" if r["key"] == "other"
+                        else "Save these answers"))
 
         # Right: the one step on screen.
         with ui.element("div").classes("aip-panel"):
@@ -3289,6 +3290,26 @@ def _aip_result(s, rf, C):
                             ui.label(back_label)
                 _text(_CAT.result_copy, C, 12, colour=C["muted"])
 
+        # An off-script job is one the user made up, so the only way to run
+        # it again is to save it. Offer that up top rather than in the
+        # bottom bar nobody reads.
+        save_step = r["key"] == "other"
+        if save_step:
+            with ui.element("div").style(
+                    f"display:flex;align-items:center;gap:12px;"
+                    f"flex-wrap:wrap;justify-content:space-between;"
+                    f"padding:12px 14px;margin-bottom:14px;"
+                    f"border:1px solid {C['border']};border-radius:10px;"):
+                with ui.element("div").style("min-width:0;"):
+                    _text("Save it for future runs", C, 14, 700,
+                          C["text_l"], 2)
+                    _text("It goes under Saved Prompts, ready to run again "
+                          "with everything filled in.",
+                          C, 12, colour=C["muted"])
+                with ui.element("div").style(
+                        "display:flex;flex-wrap:wrap;gap:8px;"):
+                    _aip_save_setup(s, rf, C, req, label="Save this prompt")
+
         with ui.element("div").style("position:relative;"):
             ui.label(prompt).classes("aip-prompt")
             _btn("Copy", _copy, lead="content_copy", small=True).style(
@@ -3300,7 +3321,8 @@ def _aip_result(s, rf, C):
             _btn(back_label, _back, lead="arrow_back")
             _btn("Start a new prompt", _restart, lead="add")
         with ui.element("div").classes("aip-bar-side"):
-            _aip_save_setup(s, rf, C, req, label="Save prompt")
+            if not save_step:
+                _aip_save_setup(s, rf, C, req, label="Save prompt")
             _btn("Copy the prompt", _copy, primary=True, lead="content_copy")
 
     if _CAT.result_extra:
