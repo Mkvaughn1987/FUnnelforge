@@ -988,12 +988,15 @@ ROUTINES = [
     },
     {
         "key": "zi_seat",
-        "name": "Pull ZoomInfo contacts with my own seat",
-        "blurb": "When the shared Bulk Credits run out, switch to your own "
-                 "ZoomInfo login in Chrome, and say exactly what to fix if "
-                 "something stops it.",
-        "example": "Pull the hiring managers at Summit Mechanical and "
-                   "Front Range Fab, in Colorado",
+        "name": "Teach Claude to Use ZoomInfo",
+        # The blurb is also WHAT I WANT when a request carries no summary,
+        # so it is written to the AI, not to the user.
+        "blurb": "Use ZoomInfo properly for me on every job in this chat "
+                 "that needs it: the shared Bulk Credits through the "
+                 "connector first, then my own ZoomInfo seat in Chrome when "
+                 "they run out, and say exactly what to fix if something "
+                 "stops it.",
+        "example": "Teach my AI to use ZoomInfo properly",
         # Bulk Credits are one small pool the whole team shares; each seat
         # has its own monthly view/export credits, so a "Limit exceeded"
         # from enrich_contacts says nothing about the seat. Users kept
@@ -1001,26 +1004,24 @@ ROUTINES = [
         # The troubleshooting step is the point: the run names the cause
         # and the fix instead of just stopping. ZoomInfo is not a DripDrop
         # tool, so this declares none.
+        #
+        # No questions (Mike, 2026-10-07): this is a lesson, not a run. The
+        # prompt is a standing rule for the rest of the chat, so picking the
+        # card goes straight to the finished prompt. The job that needs the
+        # contacts says which companies and who.
         "tools": [],
         "no_repeat": True,
-        "fields": [
-            F("companies", "Companies to pull contacts for", "details",
-              "textarea",
-              placeholder="Separate them with commas. Leave blank to make "
-                          "this the rule for every job in this chat."),
-            F("who_to_reach", "Who to pull", "details", "textarea",
-              default="C-Level, VP, Director and Manager - the people who "
-                      "own the hiring"),
-            F("zi_state", "Only people in", "details",
-              placeholder="A state, e.g. Colorado. Blank for anywhere."),
-            F("per_company", "Most contacts per company", "size", "number",
-              default="10"),
-        ],
+        "fields": [],
         "steps": [
             "Check the setup first: open recruiter-app.zoominfo.com in "
             "Chrome and confirm I am signed in to ZoomInfo Talent there. "
             "Never type a password or try to sign in for me.",
-            "{zi_companies_clause}",
+            "Treat everything below as a standing rule for the rest of this "
+            "chat: whenever a job I give you needs contacts from ZoomInfo, "
+            "pull them this way, up to 10 per company unless the job says "
+            "otherwise: C-Level, VP, Director and Manager - the people who "
+            "own the hiring. Do the setup check now, tell me it is ready, "
+            "and use this for every job after it.",
             "Try the ZoomInfo connector first. " + ZI_PULL_RULE,
             "On my seat, use the Talent search. Company Info > Company "
             "(Current): type the company name, wait a few seconds, then "
@@ -1028,10 +1029,11 @@ ROUTINES = [
             "city. The company name and its ID show up in the page address "
             "once it has taken; typing without clicking a suggestion does "
             "not apply the filter. Candidate Experience > Management Level: "
-            "tick C-Level, VP-Level, Director and Manager.{zi_loc_step} Then "
-            "open the Candidates tab.",
+            "tick C-Level, VP-Level, Director and Manager. If the job names "
+            "a state, Candidate Info > Location: that state. Then open the "
+            "Candidates tab.",
             'Read the titles and tick only the people who fit, up to '
-            '{per_company} per company. Check the toolbar shows "N selected" '
+            '10 per company. Check the toolbar shows "N selected" '
             'with the number you meant before you go on - clicking a column '
             'header re-sorts the rows in the middle of a selection. Then '
             'Export > Export CSV: the file lands in my Downloads as '
@@ -1701,24 +1703,6 @@ def _derived(r, vals, cat=None):
         "give me the list of who the requests went to so I can tick them "
         "off myself.")
 
-    # ── My own ZoomInfo seat ──────────────────────────────────────────────
-    zi_state = d.get("zi_state") or ""
-    d["zi_loc_step"] = (" Candidate Info > Location: %s." % zi_state
-                        if zi_state else "")
-    zi_who = "up to %s per company: %s.%s" % (
-        d.get("per_company") or "10", d.get("who_to_reach") or "",
-        " Only people in %s." % zi_state if zi_state else "")
-    if d.get("companies"):
-        d["zi_companies_clause"] = (
-            "Pull contacts at each company in THE DETAILS, " + zi_who)
-    else:
-        d["zi_companies_clause"] = (
-            "I have not listed companies, so treat everything below as a "
-            "standing rule for the rest of this chat: whenever a job I give "
-            "you needs contacts from ZoomInfo, pull them this way, " + zi_who
-            + " Do the setup check now, tell me it is ready, and use this "
-            "for every job after it.")
-
     # ── Resumes into DripDrop and Talent Trekker ──────────────────────────
     since = d.get("since") or ""
     if since.startswith("Only the last 7"):
@@ -2194,6 +2178,13 @@ def _save_setups(rows, cat=None):
 # The catalogue still holds the other routines - loading resumes, searching
 # the bench, reading back what is running, writing a brief. They work, they
 # are just not what this dropdown is for. Add one here when it earns a slot.
+
+# The ZoomInfo card is a lesson, not a run, so the tile says who it is for
+# and nothing about how it works. The staffing picker has no tile_short and
+# falls back to the starter's sub, so both read from here.
+ZI_SEAT_PITCH = ("Is ZoomInfo giving you issues? Out of credits? This "
+                 "prompt teaches Claude or ChatGPT to use ZoomInfo properly.")
+
 STARTERS = [
     {
         "id": "mpc",
@@ -2274,15 +2265,12 @@ STARTERS = [
         "id": "zi_seat",
         "icon": "contact_mail",
         "label": "Teach Claude to Use ZoomInfo",
-        "sub": "When the shared Bulk Credits say Limit exceeded, the AI "
-               "switches to your own ZoomInfo login in Chrome. List the "
-               "companies, or leave it blank to make it the rule for the "
-               "rest of the chat. Needs the AI's Chrome extension and you "
-               "signed in to recruiter-app.zoominfo.com - if something is "
-               "missing, it tells you what and how to fix it.",
-        "summary": "Pull ZoomInfo contacts - the shared Bulk Credits first, "
-                   "then my own ZoomInfo seat in Chrome when they run out - "
-                   "and tell me exactly what to fix if anything stops it.",
+        "sub": ZI_SEAT_PITCH,
+        "summary": "Use ZoomInfo properly for me on every job in this chat "
+                   "that needs it: the shared Bulk Credits through the "
+                   "connector first, then my own ZoomInfo seat in Chrome "
+                   "when they run out, and tell me exactly what to fix if "
+                   "anything stops it.",
         "routine": "zi_seat",
         "vals": {},
     },
@@ -2388,8 +2376,7 @@ ARENA = Catalogue(
                     "DripDrop's note, then marks each one done.",
         "resume_sweep": "Adds the resumes you downloaded to DD and TT. Skips "
                         "anyone already in.",
-        "zi_seat": "When the shared credits hit their limit, the AI switches "
-                   "to your own ZoomInfo login in Chrome.",
+        "zi_seat": ZI_SEAT_PITCH,
         "other": "Got an idea that isn't up there? Describe it and I'll "
                  "create it, and you can save it for future runs.",
     },
@@ -2425,6 +2412,16 @@ def _req_from_starter(st, cat=None):
         "filled": list(preset),
         "detail": [],
     }
+
+
+def no_questions(req, cat=None):
+    """True for a request whose routine has nothing to ask - the ZoomInfo
+    lesson. Picking such a job goes straight to the finished prompt, and
+    Back from the prompt goes to the job picker, because the questions
+    screen in between would hold only the empty "anything else" step."""
+    cat = cat or _CAT
+    r = cat.routine_by_key.get((req or {}).get("routine") or "")
+    return bool(r) and not r["fields"]
 
 
 def _aip_owner(s):
@@ -2868,6 +2865,9 @@ def _aip_ask(s, rf, C):
             s._aip_open = None
             s._aip_saving = False
             s._aip_err = ""
+            # Nothing to ask: the prompt is ready the moment it is picked.
+            s._aip_prompt = (build_prompt(s._aip_req)
+                             if no_questions(s._aip_req) else None)
             rf()
 
         short = _CAT.tile_short or {}
@@ -3118,7 +3118,8 @@ def _open_setup(s, row, built=False):
     """Load a saved setup's answers into the session. built=True also
     builds the prompt, so the page opens straight on the result."""
     s._aip_req = req_from_setup(row)
-    s._aip_prompt = build_prompt(s._aip_req) if built else None
+    s._aip_prompt = (build_prompt(s._aip_req)
+                     if built or no_questions(s._aip_req) else None)
     s._aip_open = None
     s._aip_saving = False
     s._aip_err = ""
@@ -3181,7 +3182,8 @@ def render_saved_page(s, rf, cat):
 def _aip_setup_row(s, rf, C, row, setups):
     def _load():
         s._aip_req = req_from_setup(row)
-        s._aip_prompt = None
+        s._aip_prompt = (build_prompt(s._aip_req)
+                         if no_questions(s._aip_req) else None)
         s._aip_open = None
         s._aip_saving = False
         s._aip_err = ""
@@ -4122,6 +4124,11 @@ def _aip_result(s, rf, C):
 
     def _back():
         s._aip_prompt = None
+        if no_questions(req):
+            # No questions screen to go back to: land on the job picker
+            # with this job still highlighted.
+            s._aip_req = None
+            s._aip_back = None
         rf()
 
     def _restart():
