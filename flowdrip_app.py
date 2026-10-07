@@ -12272,8 +12272,10 @@ SIDEBAR_NAV = [
 # Campaigns' views, rendered as sub-rows under the Campaigns row while any of
 # them is open. The third field is a view key, not a page key: Active and
 # Completed are one page (seq_mgr) with a flag, Saved is start_seq's saved
-# tab. (No Templates row: the type chooser is + New Campaign.)
+# tab. New Campaign opens the type chooser (start_seq); the top button is
+# Start with AI, which opens AI Prompts.
 SIDEBAR_CAMPAIGNS = [
+    ("plus",     "New Campaign", "new"),
     ("c_active", "Active",    "active"),
     ("c_done",   "Completed", "completed"),
     ("c_saved",  "Saved",     "saved"),
@@ -12289,7 +12291,7 @@ SIDEBAR_SETTINGS = [
     ("ban",      "Do Not Contact",   "dnc"),
 ]
 # page_key -> sidebar row that lights up. Anything not listed is a campaign
-# wizard / detail page and lights the "+ New Campaign" button instead.
+# wizard / detail page and lights Campaigns > New Campaign instead.
 SIDEBAR_PAGE_ROW = {
     "dashboard": "overview", "market_intel": "overview",
     "drip": "myday", "tasks": "myday",
@@ -13839,12 +13841,12 @@ def _sidebar_current_page(s) -> str:
 
 
 def _sidebar_active(s) -> str:
-    """Which sidebar row is lit for the current page. 'new' = the
-    + New Campaign button (chooser + every wizard/detail page)."""
+    """Which sidebar row is lit for the current page. 'new' = Campaigns >
+    New Campaign (chooser + every wizard/detail page)."""
     page = _sidebar_current_page(s)
     if page == "start_seq":
         # The Saved tab sits under Campaigns; the chooser and every step
-        # past it is the + New Campaign wizard.
+        # past it is the New Campaign wizard.
         return "campaigns" if getattr(s, "_tab", "") == "saved" else "new"
     return SIDEBAR_PAGE_ROW.get(page, "new")
 
@@ -13856,6 +13858,8 @@ def _sidebar_campaign_view(s) -> str:
         return "completed" if getattr(s, "_mgr_show_completed", False) else "active"
     if page == "start_seq" and getattr(s, "_tab", "") == "saved":
         return "saved"
+    if _sidebar_active(s) == "new":
+        return "new"
     return ""
 
 
@@ -13949,7 +13953,7 @@ def _sidebar_nav(s, rf, k: str, setup: dict, tab: str = ""):
 
 
 def _sidebar_v2(s: AppState, rf):
-    """Full-height sidebar: logo, workspace, + New Campaign, grouped nav,
+    """Full-height sidebar: logo, workspace, Start with AI, grouped nav,
     then Admin (admins only) / Settings / profile pinned to the bottom."""
     if s.hub == "today":
         s.hub = "sales"; s.sp = "dashboard"
@@ -14009,7 +14013,7 @@ def _sidebar_v2(s: AppState, rf):
                 ui.html(f'<span class="fd-side-trail">{_svg_icon(trail, 14)}</span>')
 
     with ui.element("aside").classes("fd-side"):
-        # ── Top: logo, workspace, New Campaign ──
+        # ── Top: logo, workspace, Start with AI ──
         with ui.element("div").classes("fd-side-top"):
             with ui.element("div").classes("fd-side-logo dd").props(
                     'role="button" tabindex="0" aria-label="Home"').on(
@@ -14044,10 +14048,12 @@ def _sidebar_v2(s: AppState, rf):
                         with ui.element("div").classes("fd-menu-item fd-side-mi").on("click", lambda k=key: _go(k)):
                             ui.html(_svg_icon(ik, 16))
                             ui.label(lbl)
-            with ui.element("button").classes("fd-side-cta" + (" on" if active == "new" else "")).props(
-                    'type="button" data-tour="nav-start_seq"').on("click", lambda: _go("start_seq")):
-                ui.html(_svg_icon("plus", 18))
-                ui.label("New Campaign")
+            # Start with AI opens AI Prompts. New Campaign (the manual
+            # chooser) lives under Campaigns now.
+            with ui.element("button").classes("fd-side-cta").props(
+                    'type="button" data-tour="nav-ai_prompts"').on("click", lambda: _go("ai_prompts")):
+                ui.html(_svg_icon("ai_prompts", 18))
+                ui.label("Start with AI")
 
         # ── Grouped navigation ──
         with ui.element("nav").classes("fd-side-nav"):
@@ -14062,7 +14068,7 @@ def _sidebar_v2(s: AppState, rf):
                         badge = _due if _due < 100 else "99+"
                         badge_cls = "hot" if _overdue else ""
                     tour = {"overview": "nav-dashboard", "contacts": "nav-contacts"}.get(ik, "")
-                    _camp_open = ik == "campaigns" and active == "campaigns"
+                    _camp_open = ik == "campaigns" and active in ("campaigns", "new")
                     _row(ik, lbl, key, on=(active == ik and not _camp_open), open_=_camp_open,
                          badge=badge, badge_cls=badge_cls, tour=tour,
                          trail="external" if key == "__ats__" else "")
@@ -56100,13 +56106,12 @@ def index():
             "warn": "⚠ Without this, you won't be able to send any campaigns.",
         },
         {
-            "selector": '[data-tour="nav-start_seq"]',
-            "title": "Build your first campaign",
+            "selector": '[data-tour="nav-ai_prompts"]',
+            "title": "Start with AI",
             "body": (
-                "This is where you create outreach sequences. Pick an AI "
-                "Campaign Builder template, a Recruiting Campaign, or build "
-                "a custom one from scratch  -  DripDrop will walk you through "
-                "each step."
+                "Pick a job, answer a few questions, and DripDrop writes the "
+                "prompt to paste into Claude or ChatGPT. To build a campaign "
+                "by hand, use Campaigns > New Campaign."
             ),
         },
         {
