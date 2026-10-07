@@ -228,6 +228,25 @@ def test_overview_clicks_drill_into_the_right_place():
     assert (oa.NEWSLETTER, None, "Offshore News") in seen
 
 
+def test_nothing_sent_is_left_off():
+    q = [_q("Fusion Transport", "a@x.com", 1),
+         _q("Fusion Transport", "a@x.com", 7, status="pending", label="Graceful Exit"),
+         _q("R2 Logistics", "b@x.com", 1, status="pending"),
+         _q("Big List", "c@x.com", 1, status="pending"),
+         _q("Offshore News", "n@x.com", 6, status="pending")]
+    rep = _report(q)
+    assert [r["key"] for r in rep["types"]] == ["tm_fivebyseven"]
+    assert set(rep["details"]) == {"tm_fivebyseven"}
+    det = rep["details"]["tm_fivebyseven"]
+    assert [s["touch"] for s in det["steps"]] == [1]
+    assert [c["name"] for c in det["campaigns"]] == ["Fusion Transport"]
+    assert rep["types"][0]["campaigns"] == 1
+    ui, _s = _render_overview(q)
+    labels = ui.log["labels"]
+    assert "7. Graceful Exit" not in labels and "Offshore News" not in labels
+    assert "No newsletters sent in this window." in labels
+
+
 def test_empty_newsletter_section_says_so_plainly():
     ui, _s = _render_overview([_q("Fusion Transport", "a@x.com", 1)])
     assert "No newsletters sent in this window." in ui.log["labels"]

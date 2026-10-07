@@ -279,14 +279,23 @@ def build_report(queue, responded, dnc, campaigns, types, days=None, now=None):
             _step(key, touch)["replies"] += 1
             replied_keys.add((name.lower(), addr, touch))
 
+    # Only what has actually gone out is reported: a type, campaign or email
+    # with nothing sent yet (scheduled only) is left off the page entirely.
     rows = []
-    for key, trow in tmap.items():
-        trow["campaigns"] = len(trow.pop("_camps"))
-        rows.append(_close(trow))
+    for key, trow in list(tmap.items()):
         det = details[key]
+        if not trow["sent"]:
+            del details[key]
+            continue
+        sent_camps = {low for low, c in det["campaigns"].items() if c["sent"]}
+        trow["campaigns"] = len(sent_camps)
+        trow.pop("_camps")
+        rows.append(_close(trow))
         steps = []
         for touch in sorted(det["steps"]):
             st = det["steps"][touch]
+            if not st["sent"]:
+                continue
             labels = st.pop("_labels")
             st["label"] = (max(labels.items(), key=lambda kv: kv[1])[0]
                            if labels else f"Email {touch}")
@@ -295,7 +304,7 @@ def build_report(queue, responded, dnc, campaigns, types, days=None, now=None):
                                  touch) in replied_keys
             st["emails"].sort(key=lambda e: e["sent_at"], reverse=True)
             steps.append(_close(st))
-        camps = [_close(c) for c in det["campaigns"].values()]
+        camps = [_close(c) for c in det["campaigns"].values() if c["sent"]]
         camps.sort(key=lambda r: (-r["sent"], -r["replies"], r["name"].lower()))
         details[key] = {"type": trow, "steps": steps, "campaigns": camps}
 
@@ -467,8 +476,8 @@ def _render_page(ui, C, s, rf, sources, types, help_fn):
         with ui.element("div").style(card_css + "padding:28px 24px;text-align:center;"):
             ui.label("Nothing to report for this window yet.").style(
                 f"font-size:14px;font-weight:600;color:{text};margin-bottom:4px;")
-            ui.label("Numbers appear here once a campaign has emails queued "
-                     "or sent. Try a wider window above.").style(cell)
+            ui.label("Numbers appear here once a campaign has sent emails. "
+                     "Try a wider window above.").style(cell)
         return
 
     def _open(key, step=None, camp=None):
@@ -526,9 +535,6 @@ def _render_page(ui, C, s, rf, sources, types, help_fn):
                     _rate_label(st["reply_rate"])
                     _num(st["pending"], C["teal"])
                     ui.label("›").style(f"font-size:14px;color:{muted};")
-            if not det["steps"]:
-                ui.label("Replies only; the emails that earned them have aged "
-                         "out of this window.").style(cell + "padding:9px 14px;")
 
     # ── Newsletters: every newsletter on the first screen ───────────────
     ui.label("Newsletters").style(title_css + "margin-top:10px;")
