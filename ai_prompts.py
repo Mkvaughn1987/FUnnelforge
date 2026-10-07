@@ -2694,11 +2694,11 @@ def _btn(label, on_click, primary=False, icon=None, lead=None, small=False):
 
 
 # Claude and ChatGPT both take a first message in the link (?q=), so the
-# prompt can open already typed in. They sit behind Cloudflare, which turns
-# away links much past 16 KB; over this length the chat opens blank and the
+# prompt can open already typed in. Both served 64 KB links and refused
+# 100 KB ones (2026-10-07); over this length the chat opens blank and the
 # prompt waits on the clipboard instead. The longest stock prompt encodes to
-# about 14 KB.
-CHAT_LINK_MAX = 15000
+# about 15 KB.
+CHAT_LINK_MAX = 32000
 
 
 def chat_link(base, prompt):
