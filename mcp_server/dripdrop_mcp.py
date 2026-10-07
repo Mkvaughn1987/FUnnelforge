@@ -350,6 +350,32 @@ async def campaigns_list() -> dict:
 
 @mcp.tool(
     description=(
+        "Shared Arena Contacts: the people the user's whole team has already "
+        "reached at a company, from every campaign and uploaded list, all "
+        "time. Pass a company name or email domain. Anyone who replied not "
+        "interested or is on a Do Not Contact list is already left out, and "
+        "people who replied are flagged. CHECK THIS BEFORE ZOOMINFO: use these "
+        "contacts first and only pull from ZoomInfo for companies that come "
+        "back empty or need more people. Read-only, team-scoped."
+    )
+)
+async def team_contacts(company_or_domain: str, limit: int = 50) -> dict:
+    """Args:
+    company_or_domain: company name ("Galloway") or email domain ("gallowayus.com").
+    limit: max people per company (default 50, max 200).
+    """
+    email = _current_email()
+    try:
+        client = DripDropClient(DATA_DIR, email)
+        return await client.team_contacts(company_or_domain, limit)
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
+@mcp.tool(
+    description=(
         "Get full detail on one of the authenticated DripDrop user's own "
         "campaigns - all email steps (subject/body per step), contacts, "
         "and queue stats. Read-only, tenant-scoped - use campaigns_list "

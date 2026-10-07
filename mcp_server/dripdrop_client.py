@@ -208,6 +208,16 @@ class DripDropClient:
         await self._raise_for_error(resp)
         return resp.json()
 
+    async def team_contacts(self, query: str, limit: int = 50) -> dict:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/team_contacts",
+                params={"q": query, "limit": limit},
+                headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
     async def sales_runs_pending(self) -> dict:
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.get(

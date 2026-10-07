@@ -6008,6 +6008,46 @@ async def api_campaign_types(request: Request):
     return JSONResponse(types)
 
 
+@app.get("/api/v1/team_contacts")
+async def api_team_contacts(request: Request):
+    """Shared Arena Contacts lookup for the connector: the people the
+    caller's team has already reached at a company (by name or email
+    domain), minus anyone who said no or sits on a Do Not Contact list.
+    Read-only, team-scoped (same email domain as the caller)."""
+    import asyncio
+    import team_contacts as _tcx
+    from starlette.responses import JSONResponse
+    auth = request.headers.get("authorization", "")
+    key = (auth[7:].strip() if auth.lower().startswith("bearer ")
+           else request.headers.get("x-api-key", "").strip())
+    owner = _resolve_api_key(key)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    q = (request.query_params.get("q") or "").strip()
+    if not q:
+        return JSONResponse({"error": "pass q = a company name or email domain"}, status_code=400)
+    try:
+        limit = max(1, min(int(request.query_params.get("limit", "50")), 200))
+    except ValueError:
+        limit = 50
+    bank = await asyncio.to_thread(_shared_bank, owner)
+    hits = _tcx.lookup(bank["contacts"], q, limit=limit)
+    companies = [{
+        "company": h["company"], "domains": h["domains"], "state": h["state"],
+        "industry": h["industry"], "last_reached": h["last_seen"],
+        "reps": [bank["reps"].get(d, d) for d in h["reps"]],
+        "contacts": [_tcx.contact_public(c) for c in h["contacts"]],
+    } for h in hits]
+    return JSONResponse({
+        "query": q,
+        "companies": companies,
+        "total_contacts": sum(len(c["contacts"]) for c in companies),
+        "note": ("Use these before ZoomInfo. Anyone who replied not interested or is on a "
+                 "Do Not Contact list is already left out." if companies else
+                 "Nobody at this company is in the bank yet; pull from ZoomInfo."),
+    })
+
+
 @app.get("/api/v1/campaign_styles")
 async def api_campaign_styles(request: Request):
     """List the calling account's own saved custom "My Campaign Styles"
@@ -11899,6 +11939,7 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
 {_nl_list_css()}
 {_ct_css()}
 {_rc_css()}
+{_sc_css()}
 </style>""")
     # Global JS helper  -  insert text at cursor position in any focused input/textarea
     # or contenteditable (QEditor body). Tracks last-focused input so that
@@ -12311,6 +12352,7 @@ SALES_NAV = [
     ("≡",  "Contacts",          "contacts"),
     ("🚫", "Do Not Contact",   "dnc"),
     ("📡", "Arena Running Campaigns", "running_campaigns"),
+    ("🏦", "Shared Arena Contacts", "shared_contacts"),
     ("🛡", "Current Clients",  "active_clients"),
     # ── Content & Tools ──────────────────────────
     # Slow Drip removed from sidebar 2026-05-20 — now lives as a section
@@ -12361,6 +12403,7 @@ SIDEBAR_NAV = [
         ("pipeline",    "Pipeline",        "__ats__"),
         ("contacts",    "Contacts",        "contacts"),
         ("running",     "Arena Running Campaigns", "running_campaigns"),
+        ("bank",        "Shared Arena Contacts", "shared_contacts"),
         ("clients",     "Current Clients", "active_clients"),
     ]),
     ("CONTENT", [
@@ -12399,7 +12442,7 @@ SIDEBAR_PAGE_ROW = {
     "drip": "myday", "tasks": "myday",
     "responses": "replies", "e_responses": "replies",
     "contacts": "contacts", "e_contacts": "contacts",
-    "active_clients": "clients", "running_campaigns": "running",
+    "active_clients": "clients", "running_campaigns": "running", "shared_contacts": "bank",
     "seq_mgr": "campaigns", "active_camps": "campaigns", "queue": "campaigns",
     "evergreen": "campaigns", "evergreen_create": "campaigns", "e_evergreen": "campaigns",
     "newsletters": "newsletters", "pdf_gen": "assets", "ai_prompts": "ai_prompts",
@@ -12413,7 +12456,7 @@ SIDEBAR_TITLES = {
     "dashboard": "Home", "market_intel": "Market Intel",
     "drip": "Today's Tasks", "tasks": "Tasks", "responses": "Replies", "e_responses": "Replies",
     "contacts": "Contacts", "e_contacts": "Contacts", "active_clients": "Current Clients",
-    "running_campaigns": "Arena Running Campaigns",
+    "running_campaigns": "Arena Running Campaigns", "shared_contacts": "Shared Arena Contacts",
     "seq_mgr": "Campaigns", "active_camps": "Campaigns", "queue": "Email Queue",
     "evergreen": "Nurture Campaigns", "evergreen_create": "New Nurture Campaign",
     "newsletters": "Newsletters", "pdf_gen": "Sales Assets", "ai_prompts": "AI Prompts",
@@ -13899,6 +13942,8 @@ _SIDEBAR_ICONS = {
     "clients":    '<path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/><rect width="20" height="14" x="2" y="6" rx="2"/>',
     "campaigns":  '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
     "running":    '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
+    "bank":       '<path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/>'
+                  '<path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/>',
     "c_active":   '<circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/>',
     "c_done":     '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
     "c_saved":    '<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>',
@@ -32850,6 +32895,270 @@ def p_running_campaigns(s, rf):
         clear_btn.on("click", _clear)
 
         _draw_pills(); _draw_status(); _redraw()
+
+
+def _sc_css() -> str:
+    """Shared Arena Contacts page: company rows with their people."""
+    return f"""
+.fd-sc{{max-width:1180px}}
+.fd-sc-tbl .fd-tbl td{{vertical-align:top}}
+.fd-sc-person{{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px;margin:2px 0;font-size:12px}}
+.fd-sc-person .nm{{color:{C['text_l']};font-weight:600}}
+.fd-sc-person .ti{{color:{C['text']}}}
+.fd-sc-person .em{{color:{C['muted']}}}
+.fd-sc-person .em a{{color:{C['teal']};text-decoration:none}}
+.fd-sc-person .em a:hover{{text-decoration:underline}}
+.fd-sc-person .ph{{color:{C['muted']};white-space:nowrap}}
+.fd-sc-when{{color:{C['muted']};font-size:12px;white-space:nowrap}}
+.fd-sc-reps{{font-size:11.5px;color:{C['text']};margin-top:3px}}
+.fd-sc-more{{margin:4px 0 0}}
+.fd-sc-more summary{{cursor:pointer;font-size:12px;color:{C['teal']};font-weight:600;list-style:none}}
+.fd-sc-more summary::-webkit-details-marker{{display:none}}
+.fd-sc-more summary:hover{{text-decoration:underline}}
+.fd-sc-foot{{display:flex;justify-content:center;padding:12px}}
+"""
+
+
+def _shared_bank(owner: str) -> dict:
+    """The team's contact bank for a page or API call: scan (cached by file
+    mtime in team_contacts) plus the company grouping."""
+    import team_contacts as _tcx
+    try:
+        bank = _tcx.scan(_BASE_DATA_DIR / "users", owner)
+    except Exception as e:
+        print(f"[SharedContacts] scan failed: {e}", flush=True)
+        bank = {"contacts": [], "excluded": 0, "reps": {}}
+    bank["rows"] = _tcx.group_by_company(bank["contacts"])
+    return bank
+
+
+def p_shared_contacts(s, rf):
+    """Everyone the team has reached in any campaign or uploaded list, all
+    time, grouped by company. People who replied no and anyone on a
+    teammate's Do Not Contact list are left out. The AI Prompts check this
+    bank (team_contacts tool) before spending ZoomInfo credits."""
+    from html import escape as _esc
+    import team_campaigns as _tc
+    import team_contacts as _tcx
+
+    _user_email = (getattr(s, "_user_email", "") or "").strip().lower()
+    if _user_email:
+        _CURRENT_USER_EMAIL.set(_user_email)
+    owner = _user_email or (_CURRENT_USER_EMAIL.get() or "")
+    bank = _shared_bank(owner)
+    rows = bank["rows"]
+    rep_names = bank["reps"]
+    n_contacts = len(bank["contacts"])
+    n_replied = sum(1 for c in bank["contacts"] if c["replied"])
+    rep_counts = _tcx.facet_counts(rows, "reps")
+    state_counts = _tcx.facet_counts(rows, "state")
+    industry_counts = _tcx.facet_counts(rows, "industry")
+    PAGE = 100
+
+    f = {"rep": "", "state": "", "industry": "", "replied": "", "q": "",
+         "sort": "newest", "limit": PAGE}
+
+    def _fmt(d):
+        try:
+            return date.fromisoformat(d).strftime("%b %d, %Y").replace(" 0", " ")
+        except Exception:
+            return d or "—"
+
+    def _shown():
+        return _tcx.sort_rows(_tcx.filter_rows(
+            rows, rep=f["rep"], state=f["state"], industry=f["industry"],
+            replied=f["replied"], q=f["q"]), f["sort"])
+
+    def _person_html(c: dict) -> str:
+        bits = [f'<span class="nm">{_esc(c["name"] or c["email"])}</span>']
+        if c["title"]:
+            bits.append(f'<span class="ti">{_esc(c["title"])}</span>')
+        bits.append(f'<span class="em"><a href="mailto:{_esc(c["email"])}">{_esc(c["email"])}</a></span>')
+        phones = [p for p in (c["phone_mobile"], c["phone_office"]) if p]
+        if phones:
+            bits.append(f'<span class="ph">{_esc(" · ".join(phones))}</span>')
+        if c["replied"]:
+            bits.append('<span class="fd-rc-pill on">Replied</span>')
+        return f'<div class="fd-sc-person">{"".join(bits)}</div>'
+
+    def _table_html(shown: list) -> str:
+        if not shown:
+            if rows:
+                title, body = ("No company matches those filters.",
+                               "Clear a filter or two to widen the list.")
+            else:
+                title, body = ("No contacts yet.",
+                               "People show up here as soon as a teammate launches a campaign or uploads a list.")
+            return (f'<div class="fd-es compact wide"><div class="fd-es-title">{_esc(title)}</div>'
+                    f'<div class="fd-es-body">{_esc(body)}</div></div>')
+        body = ""
+        for row in shown[:f["limit"]]:
+            people = row["contacts"]
+            head_n = 4
+            people_html = "".join(_person_html(c) for c in people[:head_n])
+            if len(people) > head_n:
+                people_html += (
+                    f'<details class="fd-sc-more"><summary>+{len(people) - head_n} more</summary>'
+                    + "".join(_person_html(c) for c in people[head_n:]) + '</details>')
+            meta_bits = [p for p in (
+                _tc.US_STATES.get(row["state"], row["state"]) if row["state"] else "",
+                row["industry"] if row["industry"] != _tc.INDUSTRY_OTHER else "") if p]
+            meta = (f'<div class="fd-rc-meta">{_esc(" · ".join(meta_bits))}</div>'
+                    if meta_bits else "")
+            reps = ", ".join(rep_names.get(d, _tc.owner_from_dir(d)) for d in row["reps"])
+            flag = (f'<span class="fd-rc-flag">{len(people)} people</span>'
+                    if len(people) > 1 else "")
+            body += (
+                f'<tr><td><div class="fd-rc-co">{_esc(row["company"])}{flag}</div>'
+                f'<div class="fd-rc-dom">{_esc(", ".join(row["domains"]))}</div>{meta}'
+                f'<div class="fd-sc-reps">{_esc(reps)}</div></td>'
+                f'<td>{people_html}</td>'
+                f'<td class="fd-sc-when">{_fmt(row["last_seen"])}</td></tr>')
+        return (f'<div class="fd-rc-tbl fd-sc-tbl"><table class="fd-tbl" style="table-layout:auto;width:100%;">'
+                f'<thead><tr><th>Company</th><th>People</th><th>Last reached</th>'
+                f'</tr></thead><tbody>{body}</tbody></table></div>')
+
+    with ui.element("div").classes("fd-sc"):
+        ui.label(_tcx.PAGE_TITLE).classes("fd-h1")
+        ui.label(
+            f"Everyone the {_tc.TEAM_LABEL} team has reached in any campaign or uploaded "
+            "list, grouped by company. People who said no and anyone on a Do Not Contact "
+            "list are left out. AI Prompts check this bank before spending ZoomInfo credits."
+        ).classes("fd-sub")
+
+        def _show_replied():
+            f["replied"] = "replied" if f["replied"] != "replied" else ""
+            _draw_replied(); _redraw()
+
+        with ui.element("div").classes("fd-stat-strip").style("margin:14px 0 18px;"):
+            for val, lbl, col, go in [
+                    (n_contacts, "People", C["teal"], None),
+                    (len(rows), "Companies", C["text_l"], None),
+                    (n_replied, "Replied", C["good"], _show_replied),
+                    (len(rep_counts), "Reps", C["muted"], None)]:
+                cell = ui.element("div").classes("fd-stat-cell" + (" go" if go else "")
+                                                 + (" zero" if not val else ""))
+                if go:
+                    cell.on("click", go)
+                with cell:
+                    ui.label(str(val)).classes("fd-sn").style(f"color:{col};")
+                    ui.label(lbl).classes("fd-sl")
+
+        with ui.element("div").classes("fd-rc-filters"):
+            with ui.element("div").classes("fd-rc-row"):
+                ui.label("Rep").classes("fd-rc-lbl")
+                pills_box = ui.element("div").classes("fd-seg")
+            with ui.element("div").classes("fd-rc-row"):
+                def _opts(counts, label_of, all_label):
+                    opts = {"": all_label}
+                    for k, n in sorted(counts.items(), key=lambda kv: (-kv[1], label_of(kv[0]))):
+                        opts[k] = f"{label_of(k)} ({n})"
+                    return opts
+                state_sel = ui.select(
+                    options=_opts(state_counts, lambda k: _tc.US_STATES.get(k, k), "All states"),
+                    value="").classes("fd-input")
+                industry_sel = ui.select(
+                    options=_opts(industry_counts, lambda k: k, "All industries"),
+                    value="").classes("fd-input")
+                replied_box = ui.element("div").classes("fd-seg")
+            with ui.element("div").classes("fd-rc-row"):
+                search = ui.input(placeholder="Search a company, person, title, email or city").props(
+                    "dense borderless clearable").classes("fd-input search")
+                sort_sel = ui.select(
+                    options={"newest": "Newest first", "most": "Most people", "name": "Company A–Z"},
+                    value="newest").classes("fd-input")
+                clear_btn = ui.element("button").classes("fd-rc-link quiet").props('type="button"')
+                with clear_btn:
+                    ui.label("Clear filters")
+
+        head = ui.element("div").classes("fd-rc-head")
+        results = ui.element("div")
+
+        def _redraw():
+            shown = _shown()
+            n_people = sum(len(r["contacts"]) for r in shown)
+            head.clear()
+            with head:
+                if len(shown) == len(rows):
+                    msg = f"{len(rows)} companies · {n_people} people"
+                else:
+                    msg = f"Showing {len(shown)} of {len(rows)} companies · {n_people} people"
+                ui.label(msg).classes("fd-rc-count")
+                if shown:
+                    def _download(_shown=shown):
+                        data = _tcx.rows_csv(_shown).encode("utf-8-sig")
+                        name = f"shared-arena-contacts-{date.today().isoformat()}.csv"
+                        try:
+                            ui.download.content(data, name)
+                        except Exception:
+                            ui.download(data, name)
+                    with ui.element("button").classes("fd-rc-link").props('type="button"').style(
+                            "margin-left:auto;").on("click", _download):
+                        ui.label("Download CSV")
+            results.clear()
+            with results:
+                ui.html(_table_html(shown))
+                if len(shown) > f["limit"]:
+                    def _more():
+                        f["limit"] += PAGE
+                        _redraw()
+                    with ui.element("div").classes("fd-sc-foot"):
+                        with ui.element("button").classes("fd-rc-link").props(
+                                'type="button"').on("click", _more):
+                            ui.label(f"Show {min(PAGE, len(shown) - f['limit'])} more companies")
+
+        def _draw_pills():
+            pills_box.clear()
+            with pills_box:
+                choices = [("", f"All ({len(rows)})")] + [
+                    (d, f"{rep_names.get(d, _tc.owner_from_dir(d))} ({n})")
+                    for d, n in sorted(rep_counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+                for key, label in choices:
+                    def _pick(k=key):
+                        f["rep"] = k; f["limit"] = PAGE
+                        _draw_pills(); _redraw()
+                    with ui.element("button").classes(
+                            "fd-seg-btn" + (" on" if f["rep"] == key else "")).props(
+                            'type="button"').on("click", _pick):
+                        ui.label(label)
+
+        def _draw_replied():
+            replied_box.clear()
+            with replied_box:
+                for key, label in (("", "Everyone"), ("replied", "Replied")):
+                    def _pick(k=key):
+                        f["replied"] = k; f["limit"] = PAGE
+                        _draw_replied(); _redraw()
+                    with ui.element("button").classes(
+                            "fd-seg-btn" + (" on" if f["replied"] == key else "")).props(
+                            'type="button"').on("click", _pick):
+                        ui.label(label)
+
+        def _bind(sel, key):
+            def _on(e, _key=key):
+                f[_key] = (e.value or "") if not isinstance(e.value, dict) else (e.value.get("value") or "")
+                f["limit"] = PAGE
+                _redraw()
+            sel.on_value_change(_on)
+
+        _bind(state_sel, "state"); _bind(industry_sel, "industry"); _bind(sort_sel, "sort")
+
+        def _on_search(e):
+            f["q"] = e.value or ""
+            f["limit"] = PAGE
+            _redraw()
+        search.on_value_change(_on_search)
+
+        def _clear():
+            f.update({"rep": "", "state": "", "industry": "", "replied": "", "q": "",
+                      "sort": "newest", "limit": PAGE})
+            for sel, v in ((state_sel, ""), (industry_sel, ""), (sort_sel, "newest")):
+                sel.set_value(v)
+            search.set_value("")
+            _draw_pills(); _draw_replied(); _redraw()
+        clear_btn.on("click", _clear)
+
+        _draw_pills(); _draw_replied(); _redraw()
 
 
 def p_active_clients(s, rf):
@@ -54895,6 +55204,7 @@ def render_page(s: AppState, rf):
             elif page == "dnc":          p_dnc(s, rf)
             elif page == "active_clients": p_active_clients(s, rf)
             elif page == "running_campaigns": p_running_campaigns(s, rf)
+            elif page == "shared_contacts": p_shared_contacts(s, rf)
             elif page == "outreach_analytics": p_outreach_analytics(s, rf)
             elif page == "company_profile": p_company_profile(s, rf)
             elif page == "team_settings": p_team_settings(s, rf)
