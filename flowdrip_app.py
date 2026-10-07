@@ -23037,8 +23037,18 @@ def _sidebar_setup_status() -> dict:
     return {"email": True, "company": True, "timezone": True, "ready": True}
 
 
+def _reset_ai_prompts(s):
+    """Back to the AI Prompt job picker: drop the job in progress, its
+    prompt, and the answers Back would have restored."""
+    for attr, v in (("_aip_req", None), ("_aip_prompt", None),
+                    ("_aip_back", None), ("_aip_pick", ""),
+                    ("_aip_open", None), ("_aip_saving", False),
+                    ("_aip_err", ""), ("_aip_from_saved", False)):
+        setattr(s, attr, v)
+
+
 def _sidebar_nav(s, rf, k: str, setup: dict, tab: str = "",
-                 came_from: str = ""):
+                 came_from: str = "", keep_state: bool = False):
     """Navigate from the sidebar / page header. Mirrors the classic
     sidebar's _go() exactly: setup gate on New Campaign, back-history
     snapshot, draft auto-save + wizard reset when starting a campaign,
@@ -23046,7 +23056,11 @@ def _sidebar_nav(s, rf, k: str, setup: dict, tab: str = "",
 
     came_from names the page a drill-in left, so the page it lands on
     can draw its own "Back to ..." (sidebar pages get no history Back).
-    A plain sidebar click passes nothing and so clears it."""
+    A plain sidebar click passes nothing and so clears it.
+
+    keep_state is for a page opening another page with something already
+    loaded into it (Saved Prompts' "Use it"); a sidebar click never sets
+    it, so clicking AI Prompt always lands on "Pick a job"."""
     if (k == "start_seq" and _SERVER_MODE
             and not setup.get("ready", True)
             and not getattr(s, "_setup_gate_dismissed", False)):
@@ -23059,6 +23073,8 @@ def _sidebar_nav(s, rf, k: str, setup: dict, tab: str = "",
     s._came_from = came_from
     if k == "dashboard":
         s.launch_result = None
+    if k in ("tm_prompts", "ai_prompts") and not keep_state:
+        _reset_ai_prompts(s)
     if k == "start_seq" and tab == "saved":
         s._tab = "saved"; s._nav_history.clear(); rf(); return
     if k == "start_seq":
@@ -70243,7 +70259,8 @@ def render_page(s: AppState, rf):
                     _aip_nl.NEWSLETTER_CREATE = (
                         lambda _s, _rf: _create_newsletter_dialog(_s, _rf))
                     # Saved Prompts "Open" jumps back to the AI Prompt page.
-                    _aip_nl.NAVIGATE = lambda _k: _sidebar_nav(s, rf, _k, {})
+                    _aip_nl.NAVIGATE = lambda _k: _sidebar_nav(s, rf, _k, {},
+                                                               keep_state=True)
                     # The audience and company dropdowns, off their data.
                     _aip_nl.PICK_OPTIONS = _tm_pick_options()
                     if page == "tm_saved_prompts":
