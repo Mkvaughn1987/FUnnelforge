@@ -391,6 +391,9 @@ def _derive_staffing(r, vals, d):
     """Engine hook. A blank targeting answer means "use the recommendation
     for the market I picked", so the prompt always carries a concrete band,
     buyer list and role list."""
+    if "fc_titles" in r["field_by_key"]:
+        _derive_find_candidates(r, vals, d)
+        return
     if "vertical" not in r["field_by_key"]:
         return
     v = vertical_for(d.get("vertical"))
@@ -603,6 +606,328 @@ _CAMPAIGN_TOOLS = ["campaign_types", "my_campaign_styles", "campaigns_list",
                    "create_campaign"]
 
 
+# ── Find Candidates for an Opening ────────────────────────────────────────
+#
+# The one run whose recipients are the candidates (Mike, 2026-10-06). It
+# starts from the companies the user names (expanded with ZoomInfo
+# lookalikes) or from an industry and a size band, finds the people in the
+# titles asked for, adds them to the Pipeline and launches one
+# "findcandidates" campaign to them. No newsletter, no candidate slate: the
+# people found ARE the campaign.
+
+FC_SEED_MODES = ["Companies I name", "An industry and a size band"]
+FC_LEVELS = ["Non-managers and managers", "Managers and directors",
+             "Directors and above", "Any level"]
+# ZoomInfo's managementLevelList values behind each level answer.
+_FC_LEVELS_ZI = {
+    FC_LEVELS[0]: "Non Manager and Manager",
+    FC_LEVELS[1]: "Manager and Director",
+    FC_LEVELS[2]: "Director, VP Level Exec and C Level Exec",
+    FC_LEVELS[3]: "",
+}
+FC_GEO_MODES = ["Within a radius of a zip code", "A whole state",
+                "Anywhere in the United States"]
+FC_RADIUS_DEFAULT = "25"
+FC_CADENCES = list(_e.CADENCE_KEY)
+FC_CADENCE_DEFAULT = "Three, over a week"
+
+
+def _fc_seed_named(r, vals):
+    return str(_e._val(r, vals, "seed_mode") or FC_SEED_MODES[0]).startswith(
+        "Companies")
+
+
+def _fc_seed_industry(r, vals):
+    return not _fc_seed_named(r, vals)
+
+
+def _fc_geo_radius(r, vals):
+    return str(_e._val(r, vals, "geo_mode") or FC_GEO_MODES[0]).startswith(
+        "Within")
+
+
+def _fc_geo_state(r, vals):
+    return str(_e._val(r, vals, "geo_mode") or "").startswith("A whole")
+
+
+def _fc_opening_fields():
+    return [
+        F("role", "The role you are filling", "details", ask=True,
+          placeholder="e.g. Plant Manager"),
+        F("client", "Who the client is", "details", ask=True,
+          placeholder="The hiring company, e.g. Acme Manufacturing"),
+        F("confidential", "Keep the client confidential in the emails",
+          "details", "toggle", default=True),
+        F("location", "Where the job is", "details", ask=True,
+          placeholder="e.g. Windsor, CO"),
+        F("pay", "Pay range", "details",
+          placeholder="Optional, e.g. $120k to $140k plus bonus"),
+        F("selling_points", "Three reasons someone would move", "details",
+          "textarea",
+          placeholder="Optional, one per line - e.g. new line opening "
+                      "next spring; no weekend shifts; owner is retiring "
+                      "and grooming a successor"),
+        F("jd", "The job description", "details", "textarea",
+          placeholder="Optional - paste it in and the emails draw on it"),
+    ]
+
+
+def _fc_where_fields():
+    return [
+        F("seed_mode", "Where to look", "details", "select",
+          default=FC_SEED_MODES[0], options=FC_SEED_MODES, refresh=True),
+        F("target_companies", "Which companies to start from", "details",
+          "textarea", show_if=_fc_seed_named,
+          hint="ZoomInfo finds the companies that look like these, and "
+               "the people come from the lookalikes - never from the "
+               "client.",
+          placeholder="e.g. Northgate Industrial, Summit Packaging"),
+        F("industry", "What kind of company", "details",
+          show_if=_fc_seed_industry,
+          placeholder="e.g. corrugated packaging manufacturers"),
+        F("company_size", "How big a company", "details",
+          default="50 to 1000 people"),
+        F("fc_titles", "Titles to search for", "details", "textarea",
+          ask=True,
+          placeholder="e.g. Plant Manager, Production Manager, "
+                      "Operations Manager"),
+        F("levels", "What level", "details", "select",
+          default=FC_LEVELS[0], options=FC_LEVELS),
+        F("experience", "Years of experience", "details",
+          default="2 to 10"),
+        F("tenure", "Time in their current job", "details",
+          default="2 to 8 years",
+          hint="Long enough to have done something there, not so long "
+               "they will never move."),
+        F("include_alumni", "Include people who have left those companies",
+          "details", "toggle", default=False),
+        F("geo_mode", "How far to look", "details", "select",
+          default=FC_GEO_MODES[0], options=FC_GEO_MODES, refresh=True),
+        F("zip", "Zip code", "details", show_if=_fc_geo_radius,
+          placeholder="e.g. 80550"),
+        F("radius", "Radius in miles", "details", show_if=_fc_geo_radius,
+          placeholder=FC_RADIUS_DEFAULT + " if you leave it blank"),
+        F("state", "Which state", "details", show_if=_fc_geo_state,
+          placeholder="e.g. Colorado"),
+    ]
+
+
+def _fc_email_fields():
+    return [
+        F("cand_cadence", "How many emails", "emails", "select",
+          default=FC_CADENCE_DEFAULT, options=FC_CADENCES),
+        *start_fields(),
+        F("campaign_name", "What to call the campaign", "emails",
+          placeholder="Find Candidates - the role, if you leave it blank"),
+    ]
+
+
+def _fc_size_fields():
+    return [
+        F("companies", "How many companies to search", "size", "number",
+          default="20"),
+        F("contacts_each", "How many people at each company", "size",
+          "number", default="5"),
+        F("email_cap", "Most emails this run should send", "size", "number",
+          default="100",
+          hint="Every person revealed spends a ZoomInfo credit, so this "
+               "caps the spend too."),
+        F("add_to_pipeline", "Add everyone found to my Pipeline", "size",
+          "toggle", default=True),
+    ]
+
+
+_FC_SKIP_FIELDS = [
+    F("skip_customers", "Companies we already do business with", "skip",
+      "toggle", default=True),
+    F("skip_contacted", "People already in a campaign for this opening",
+      "skip", "toggle", default=True),
+    F("never_these", "Never these companies", "skip", "text",
+      hint="The client is always left out.",
+      placeholder="e.g. Acme Industrial, Northgate Group"),
+]
+
+
+def _fc_list(text):
+    """"A, B; C" or one per line -> ["A", "B", "C"]."""
+    return [p.strip() for p in re.split(r"[\n;,]+", str(text or ""))
+            if p.strip()]
+
+
+def _derive_find_candidates(r, vals, d):
+    """The sentences the Find Candidates steps are built from. Every answer
+    that can be blank gets a concrete fallback here, so the prompt never
+    carries an empty filter."""
+    role = d.get("role") or "the role"
+    client = d.get("client") or "the client"
+    conf = _e._flag(r, vals, "confidential")
+    d["client_rule"] = (
+        "The client is confidential: never name %s in the emails or hint "
+        "at who it is - describe it instead." % client if conf else
+        "Name %s in the emails." % client)
+    d["confidential_word"] = "true" if conf else "false"
+
+    radius = str(vals.get("radius") or "").strip() or FC_RADIUS_DEFAULT
+    zip_ = d.get("zip") or "<zip code>"
+    state = d.get("state") or "<state>"
+    if _fc_geo_radius(r, vals):
+        d["geo_words"] = "within %s miles of %s" % (radius, zip_)
+        geo_search = (" Pass zipCode %s with zipCodeRadiusMiles %s."
+                      % (zip_, radius))
+        d["geo_people"] = (", zipCode %s with zipCodeRadiusMiles %s"
+                           % (zip_, radius))
+    elif _fc_geo_state(r, vals):
+        d["geo_words"] = "in %s" % state
+        geo_search = " Pass state %s." % state
+        d["geo_people"] = ", state %s" % state
+    else:
+        d["geo_words"] = "anywhere in the United States"
+        geo_search = ""
+        d["geo_people"] = ""
+    # find_similar_companies has no location filter at all.
+    d["geo_lookalikes"] = (
+        " find_similar_companies has no location filter, so check each "
+        "lookalike's locations and keep only the ones with a site %s; fill "
+        "any gap with search_companies on the same industry and band.%s"
+        % (d["geo_words"], geo_search)) if geo_search else ""
+    d["geo_search"] = geo_search
+
+    companies = _e._n(r, vals, "companies", 20)
+    size = d.get("company_size") or "50 to 1000 people"
+    if _fc_seed_named(r, vals):
+        seeds = _fc_list(vals.get("target_companies"))
+        seed_words = (", ".join(seeds) if seeds
+                      else "<which companies to start from>")
+        d["companies_step"] = (
+            "Pin each of these in ZoomInfo with search_companies: %s. Then "
+            "run find_similar_companies on each one with sameIndustry and "
+            "sameEmployeeRange, and keep going until you have %d companies "
+            "of about %s %s between them.%s Keep the ones that do the same "
+            "kind of work as the seeds, not just the same size. Drop the "
+            "seeds themselves and drop %s: nobody who works there is a "
+            "candidate for its own opening."
+            % (seed_words, companies, size, d["geo_words"],
+               d["geo_lookalikes"], client))
+    else:
+        industry = d.get("industry") or "<what kind of company>"
+        d["companies_step"] = (
+            "Use ZoomInfo's search_companies to find %d %s companies of "
+            "about %s %s.%s Keep the ones whose work matches the opening, "
+            "and drop %s: nobody who works there is a candidate for its own "
+            "opening."
+            % (companies, industry, size, d["geo_words"], geo_search,
+               client))
+
+    titles = _fc_list(vals.get("fc_titles"))
+    d["titles_words"] = (", ".join(titles) if titles
+                         else "<titles to search for>")
+    level_zi = _FC_LEVELS_ZI.get(d.get("levels") or FC_LEVELS[0], "")
+    d["levels_clause"] = (" managementLevelList %s," % level_zi
+                          if level_zi else "")
+    each = _e._n(r, vals, "contacts_each", 5)
+    d["each"] = str(each)
+    d["alumni_clause"] = (
+        " Then a second pass on each company with companyPastOrPresent set "
+        "to past, for the people who left it in the last few years: they "
+        "know the work and have already shown they will move."
+        if _e._flag(r, vals, "include_alumni") else "")
+
+    name = d.get("campaign_name") or "Find Candidates - %s" % role
+    d["campaign_name"] = name
+    d["contacted_clause"] = (
+        "Run campaigns_list, open every campaign called \"%s\" with "
+        "campaign_get, and drop anyone who is already a contact on one of "
+        "them - they have heard about this opening." % name
+        if _e._flag(r, vals, "skip_contacted") else "")
+    d["pipeline_clause"] = (
+        "Add everyone left to my Pipeline with import_candidate_records, "
+        "one record per person: external_id set to zi- followed by their "
+        "ZoomInfo person id, first and last name, email, both phone "
+        "numbers, city, state, current_title, current_employer, "
+        "years_experience where ZoomInfo shows it, and source set to "
+        "\"ZoomInfo - %s\". The external_id is the dedupe key, so running "
+        "this again cannot double anyone." % name
+        if _e._flag(r, vals, "add_to_pipeline") else "")
+
+    d["cadence_key"] = _e.CADENCE_KEY.get(
+        d.get("cand_cadence") or "", "three_emails_1week")
+    d["jd_arg"] = ("the job description from THE DETAILS above, in full"
+                   if d.get("jd") else "left out")
+    d["pay_arg"] = d.get("pay") or ""
+    points = _fc_list(vals.get("selling_points"))
+    d["selling_arg"] = (
+        "selling_points set to [%s]" % ", ".join('"%s"' % p for p in points)
+        if points else "selling_points left out")
+
+
+FC_ROUTINE = {
+    "key": "staff_find_candidates",
+    "name": "Find Candidates for an Opening",
+    "blurb": "You have a role to fill. Name the companies the right people "
+             "work at today, or the kind of company, and the AI has "
+             "ZoomInfo find the lookalikes, pull the people in the titles "
+             "you want, add them to your Pipeline, and email them about "
+             "the opening - the client named or kept confidential, your "
+             "call.",
+    "example": "Find plant managers at packaging manufacturers within 25 "
+               "miles of Windsor, CO and reach out about my client's "
+               "opening",
+    "tools": ["campaigns_list", "campaign_get", "import_candidate_records",
+              "create_campaign"],
+    "fields": (_fc_opening_fields() + _fc_where_fields() + _fc_email_fields()
+               + _fc_size_fields() + _FC_SKIP_FIELDS),
+    "steps": [
+        "The opening is {role} at {client}, {location}. {client_rule} "
+        "Everyone this run emails is a candidate for it, not a buyer: "
+        "treat them as people doing well where they are.",
+        "{companies_step}",
+        "{skip_clause}",
+        "At each company, find the people with search_contacts: "
+        "companyIdList set to that company, jobTitleList with one title "
+        "per entry from {titles_words} (letters and spaces only, no "
+        "punctuation),{levels_clause} {experience} years of experience, "
+        "positionStartDateMin and positionStartDateMax set so they have "
+        "been in their current job {tenure}, requiredFieldsList email, "
+        "contactAccuracyScoreMinimum 80, sorted by contact accuracy"
+        "{geo_people}. Keep the best {each} at each company.{alumni_clause} "
+        "Business email addresses only: skip anyone whose only address is "
+        "personal. Never anyone currently at {client}. " + ZI_PULL_RULE,
+        "{contacted_clause}",
+        "{pipeline_clause}",
+        "Show me the companies, the people at each with their title and "
+        "how long they have been there, which were alumni if any, and the "
+        "total. This run must not send more than {email_cap} emails - if "
+        "it would, cut the weakest companies until it doesn't. Then "
+        "{gate}.",
+        "{go_prefix} launch one campaign with create_campaign using "
+        "template \"findcandidates\": role \"{role}\", client \"{client}\", "
+        "confidential {confidential_word}, location \"{location}\", pay "
+        "\"{pay_arg}\", {selling_arg}, job_description {jd_arg}, cadence "
+        "\"{cadence_key}\", start_date {start_date}, name "
+        "\"{campaign_name}\", and every person as a contact with "
+        "first_name, last_name, email, company, title, phone_mobile and "
+        "phone_office. Read back the campaign id, the step count and the "
+        "queued-contact count, and tell me about anyone who was dropped "
+        "and why.",
+    ],
+}
+
+FC_STARTER = {
+    "id": "staff_find_candidates",
+    "icon": "person_search",
+    "label": "Find Candidates for an Opening",
+    "sub": "Name the companies the right people work at today, or the kind "
+           "of company. ZoomInfo finds the lookalikes and the people in the "
+           "titles you want; they go into your Pipeline and get the "
+           "opening by email, with the client named or kept confidential.",
+    "summary": "Find candidates for an opening I am filling: the people in "
+               "the titles I want at companies like the ones I named, add "
+               "them to my Pipeline, and email them about the role.",
+    "routine": "staff_find_candidates",
+    "vals": {},
+}
+
+
 # ── Routines ─────────────────────────────────────────────────────────────
 
 ROUTINES = [
@@ -785,6 +1110,7 @@ ROUTINES = [
             "emails; I will run a campaign for that.",
         ],
     },
+    FC_ROUTINE,
 ]
 finalize_routines(ROUTINES)
 
@@ -1005,11 +1331,15 @@ def recommend_staffing(r, vals, keys=None):
 
 # ── The catalogue ─────────────────────────────────────────────────────────
 #
-# The new runs first on the picker, then everything ARENA already had. The
-# setups file is ARENA's, so answers saved before this change still open.
+# The new runs first on the picker, then everything ARENA already had, with
+# Find Candidates right after the MPC card (Mike, 2026-10-06): the two
+# candidate-first runs sit together. The setups file is ARENA's, so answers
+# saved before this change still open.
 
 _ALL_ROUTINES = ROUTINES + list(ARENA.routines)
-_ALL_STARTERS = STARTERS + list(ARENA.starters)
+_ARENA_STARTERS = list(ARENA.starters)
+_ALL_STARTERS = (STARTERS + _ARENA_STARTERS[:1] + [FC_STARTER]
+                 + _ARENA_STARTERS[1:])
 
 STAFFING = dataclasses.replace(
     ARENA,

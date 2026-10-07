@@ -141,8 +141,9 @@ async def login_submit(request: Request):
         "authenticated DripDrop user; the campaign is scheduled and queued "
         "immediately, same as posting to /api/v1/campaigns. For the "
         "`findcandidates` template - the only template that emails "
-        "candidates directly instead of companies - pass a job_description "
-        "instead of company/niche/roles."
+        "candidates directly instead of companies - describe the opening "
+        "(role, client, confidential, location, pay, selling_points, "
+        "job_description) instead of company/niche/roles."
     )
 )
 async def create_campaign(spec: dict) -> dict:
@@ -166,10 +167,18 @@ async def create_campaign(spec: dict) -> dict:
         template's time),
         enroll_newsletter (newsletter name to also enroll contacts into).
 
-        For template "findcandidates": pass job_description (str, the full
-        JD text) instead of company/niche/roles, and contacts as the
-        candidates to reach (their emails). Optional cadence: "one_email"
-        (default), "two_emails_1day", or "three_emails_3days".
+        For template "findcandidates": contacts are the candidates to
+        reach (their business emails, with company, title and both phone
+        numbers). Describe the opening instead of company/niche/roles:
+        role (str, the title), client (str, the hiring company),
+        confidential (bool, default true - the emails never name the
+        client; false names it), location (str, where the job is), pay
+        (str, as the recruiter would say it), selling_points (list of
+        strings - why someone would move), job_description (str, optional
+        full JD text). Optional cadence: "one_email" (default),
+        "two_emails_1day", "three_emails_3days", or "three_emails_1week"
+        (days 0, 3 and 7 - the one to use for passive candidates). name
+        defaults to "Find Candidates - <role>".
     """
     email = _current_email()
     try:
@@ -291,9 +300,10 @@ async def candidates_search(q: str = "", status: str = "", limit: int = 20) -> d
 
 @mcp.tool(
     description=(
-        "List DripDrop's 11 built-in campaign templates (blitz, fourbyfour, "
-        "fivebyfive, fivebythree, talentdrop, flood, sidequest, fullstream, "
-        "victorycard, byos, findcandidates) with a description and best-for "
+        "List DripDrop's built-in campaign templates (blitz, fourbyfour, "
+        "fivebyfive, fivebythree, fivebyseven, clientlookalike, talentdrop, "
+        "flood, sidequest, fullstream, victorycard, byos, findcandidates) "
+        "with a description and best-for "
         "guidance for each. Read-only - use this to see what `template` "
         "values create_campaign accepts and pick the right one before "
         "launching."

@@ -860,7 +860,7 @@ ROUTINES = [
             F("cand_cadence", "How many emails to the candidates", "details",
               "select", default="One email",
               options=["One email", "Two, a day apart",
-                       "Three, over three days"]),
+                       "Three, over three days", "Three, over a week"]),
             F("newsletter_mode", "Add them to a newsletter", "details",
               "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
             F("newsletter", "Which newsletter", "details",
@@ -1382,6 +1382,7 @@ CADENCE_KEY = {
     "One email": "one_email",
     "Two, a day apart": "two_emails_1day",
     "Three, over three days": "three_emails_3days",
+    "Three, over a week": "three_emails_1week",
 }
 
 
@@ -2029,13 +2030,15 @@ def build_prompt(req, cat=None):
 
     # The scannable table. Only the "details" answers go here: the numbers
     # live in the numbered steps that use them, so there is never a limit
-    # stated twice with two different values.
+    # stated twice with two different values. A question an earlier answer
+    # hid (show_if) stays out too: the zip code typed before switching to
+    # "a whole state" is not part of the run.
     rows = [(f["label"],
              str((d.get(f["key"]) if f["type"] == "checks"
                   else _val(r, vals, f["key"])) or "").strip())
             for f in r["fields"]
             if f["section"] == "details" and f["type"] != "toggle"
-            and f["key"] not in NEWSLETTER_KEYS]
+            and f["key"] not in NEWSLETTER_KEYS and _visible(r, vals, f)]
     rows = [(lbl, v) for lbl, v in rows if v]
     if rows:
         L += ["", "THE DETAILS"]

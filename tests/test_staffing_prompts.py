@@ -98,21 +98,25 @@ def test_no_warn_anywhere(sp):
 
 # ── The runs ──────────────────────────────────────────────────────────────
 
+# The four market runs. Find Candidates (staff_find_candidates) has no
+# market row: it is covered in tests/test_find_candidates_prompt.py.
 NEW = ["staff_signal_hunt", "staff_lookalikes", "staff_agency_displace",
        "staff_account"]
 
 
 def test_new_runs_come_first_then_every_arena_run(aip, sp):
     keys = [r["key"] for r in sp.STAFFING.routines]
-    assert keys[:4] == NEW
-    assert keys[4:] == [r["key"] for r in aip.ARENA.routines]
+    assert keys[:5] == NEW + ["staff_find_candidates"]
+    assert keys[5:] == [r["key"] for r in aip.ARENA.routines]
     starters = [st["id"] for st in sp.STAFFING.starters]
     # "Research one account" came off the picker (Mike 2026-10-02); its
-    # routine stays so saved setups still open. MPC leads the Arena cards.
-    assert starters[:4] == ["staff_signal", "staff_lookalike",
-                            "staff_agency", "mpc"]
+    # routine stays so saved setups still open. MPC leads the Arena cards,
+    # and Find Candidates sits right after it (Mike 2026-10-06).
+    assert starters[:5] == ["staff_signal", "staff_lookalike",
+                            "staff_agency", "mpc", "staff_find_candidates"]
     assert "staff_account" not in starters
-    assert starters[3:] == [st["id"] for st in aip.ARENA.starters]
+    arena = [st["id"] for st in aip.ARENA.starters]
+    assert starters[3:4] + starters[5:] == arena
     for st in sp.STAFFING.starters:
         assert st.get("icon"), st["id"]
         assert st["routine"] in sp.STAFFING.routine_by_key
@@ -120,7 +124,7 @@ def test_new_runs_come_first_then_every_arena_run(aip, sp):
 
 def test_arena_itself_is_untouched(aip, sp):
     assert aip.ARENA.prefill is None and aip.ARENA.recommend is None
-    assert len(aip.ARENA.routines) == len(sp.STAFFING.routines) - 4
+    assert len(aip.ARENA.routines) == len(sp.STAFFING.routines) - 5
     assert sp.STAFFING.setups_file == aip.ARENA.setups_file
 
 

@@ -81,19 +81,20 @@ def test_types_route_rejects_missing_key(_keys):
     assert r.status_code == 401
 
 
-def test_types_route_returns_all_twelve_known_keys(_keys):
+def test_types_route_returns_all_thirteen_known_keys(_keys):
     key = fa._mint_api_key(_OWNER_A)
     r = _client().get("/api/v1/campaign_types", headers={"X-API-Key": key})
     assert r.status_code == 200
     body = r.json()
     assert isinstance(body, list)
-    assert len(body) == 12
+    assert len(body) == 13
 
     keys = {t["key"] for t in body}
     assert keys == {
         "blitz", "fourbyfour", "fivebyfive", "fivebythree", "fivebyseven",
         "clientlookalike", "talentdrop",
         "flood", "sidequest", "fullstream", "victorycard", "byos",
+        "findcandidates",
     }
     for t in body:
         assert set(t.keys()) == {"key", "display_name", "description", "best_for"}
