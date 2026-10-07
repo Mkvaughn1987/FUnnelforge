@@ -2122,6 +2122,45 @@ def _split_team_worked(contacts: list, hits: dict) -> tuple:
     return kept, skipped
 
 
+def _split_current_clients(contacts: list, owner_email: str) -> tuple:
+    """(kept, skipped) where skipped is a list of (contact, client entry)
+    for contacts at a Current Client's email domain (subdomain-aware).
+    Nothing is skipped on a read problem; queue time checks again."""
+    try:
+        clients = load_client_blocklist(owner_email) if owner_email else []
+    except Exception:
+        clients = []
+    hits = {}
+    for e in clients:
+        d = _normalize_domain(e.get("domain", ""))
+        if d:
+            hits.setdefault(d, e)
+    if not hits:
+        return list(contacts or []), []
+    import team_campaigns as _tc
+    kept, skipped = [], []
+    for c in contacts or []:
+        em = (c.get("email") or c.get("Email") or "") if isinstance(c, dict) else ""
+        e = _tc.match(_tc.email_domain(em), hits)
+        if e:
+            skipped.append((c, e))
+        else:
+            kept.append(c)
+    return kept, skipped
+
+
+def _client_skip_reason(skipped: list) -> str:
+    names = []
+    for _c, e in skipped:
+        n = (e.get("client_name") or e.get("domain") or "").strip()
+        if n and n not in names:
+            names.append(n)
+    if not names:
+        return ""
+    return (f"Dropped {len(skipped)} contact(s) at Current Clients: "
+            f"{', '.join(names)}.")
+
+
 def _team_worked_reason(skipped: list) -> str:
     """One line per company, e.g. 'Galloway & Company is already in Sarah
     Henze's campaign "Galloway & Company", started Oct 5.'"""
@@ -6057,13 +6096,81 @@ async def api_team_contacts(request: Request):
         "reps": [bank["reps"].get(d, d) for d in h["reps"]],
         "contacts": [_tcx.contact_public(c) for c in h["contacts"]],
     } for h in hits]
+    import company_check as _cc
+    clients, records = await asyncio.to_thread(_skip_check_sources, owner)
+    verdict = _cc.check(q, clients, records)
+    if verdict["verdict"] == "skip":
+        note = ("Skip this company: " + verdict["reason"] +
+                " Do not pull anyone here, from the bank or ZoomInfo.")
+    elif companies:
+        note = ("Use these before ZoomInfo. Anyone who replied not interested or is on a "
+                "Do Not Contact list is already left out.")
+    else:
+        note = "Nobody at this company is in the bank yet; pull from ZoomInfo."
     return JSONResponse({
         "query": q,
+        "verdict": verdict["verdict"],
+        "current_client": verdict["current_client"],
+        "already_worked": verdict["already_worked"],
         "companies": companies,
         "total_contacts": sum(len(c["contacts"]) for c in companies),
-        "note": ("Use these before ZoomInfo. Anyone who replied not interested or is on a "
-                 "Do Not Contact list is already left out." if companies else
-                 "Nobody at this company is in the bank yet; pull from ZoomInfo."),
+        "note": note,
+    })
+
+
+def _skip_check_sources(owner: str) -> tuple:
+    """(Current Clients entries, team campaigns from the last 30 days) for
+    company_check. Either comes back empty on a read problem, so a scan
+    error never hides a company - the launch guard still catches it."""
+    import team_campaigns as _tc
+    try:
+        clients = load_client_blocklist(owner)
+    except Exception as e:
+        print(f"[SkipCheck] clients read failed: {e}", flush=True)
+        clients = []
+    try:
+        records = _tc.team_campaigns(_BASE_DATA_DIR / "users", owner)
+    except Exception as e:
+        print(f"[SkipCheck] campaign scan failed: {e}", flush=True)
+        records = []
+    return clients, records
+
+
+@app.post("/api/v1/skip_check")
+async def api_skip_check(request: Request):
+    """Which of these companies to drop before any research: Current
+    Clients, and companies the caller's team put in an outbound campaign
+    in the last 30 days (cancelled included). Read-only, team-scoped."""
+    import asyncio
+    import company_check as _cc
+    from starlette.responses import JSONResponse
+    auth = request.headers.get("authorization", "")
+    key = (auth[7:].strip() if auth.lower().startswith("bearer ")
+           else request.headers.get("x-api-key", "").strip())
+    owner = _resolve_api_key(key)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "body must be valid JSON"}, status_code=400)
+    names = body.get("companies") if isinstance(body, dict) else body
+    if not isinstance(names, list):
+        return JSONResponse({"error": "pass companies = a list of company names or email domains"},
+                            status_code=400)
+    names = [str(n).strip() for n in names if str(n or "").strip()][:300]
+    if not names:
+        return JSONResponse({"error": "companies is empty"}, status_code=400)
+    clients, records = await asyncio.to_thread(_skip_check_sources, owner)
+    results = [_cc.check(n, clients, records) for n in names]
+    skip = [r for r in results if r["verdict"] == "skip"]
+    return JSONResponse({
+        "results": results,
+        "skip_count": len(skip),
+        "ok_count": len(results) - len(skip),
+        "ok": [r["query"] for r in results if r["verdict"] == "ok"],
+        "note": ("Drop every company marked skip and do no research or ZoomInfo pulls "
+                 "for it. Work only the ones under ok."),
     })
 
 
@@ -6557,9 +6664,15 @@ async def api_create_campaign(request: Request):
     if (spec.get("template") or "").strip() not in _tc.CANDIDATE_TYPES:
         contacts, _team_skipped = _split_team_worked(
             contacts, _team_worked_hits(owner, exclude_name=(spec.get("name") or "").strip()))
-    if _team_skipped and not contacts:
+    # Current Clients come out here too (queue time would drop them anyway,
+    # after the AI work), for every template: Find Candidates must not
+    # recruit out of a client either.
+    contacts, _client_skipped = _split_current_clients(contacts, owner)
+    if (_team_skipped or _client_skipped) and not contacts:
         return JSONResponse({"skipped": True,
-                             "reason": _team_worked_reason(_team_skipped)},
+                             "reason": " ".join(x for x in (
+                                 _client_skip_reason(_client_skipped),
+                                 _team_worked_reason(_team_skipped)) if x)},
                             status_code=200)
 
     if not ANTHROPIC_API_KEY:
@@ -6668,6 +6781,8 @@ async def api_create_campaign(request: Request):
                            "DNC/opt-out/MX/already-worked companies)")
     if _team_skipped:
         resp["already_worked"] = _team_worked_reason(_team_skipped)
+    if _client_skipped:
+        resp["current_clients"] = _client_skip_reason(_client_skipped)
     if _nl_result is not None:
         resp["newsletter_enrollment"] = _nl_result
     return JSONResponse(resp, status_code=200)
@@ -34612,10 +34727,10 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"{primary or 'industry'} market for {role_label} right now: demand drivers, job-posting "
             f"activity, talent supply, and what is pressuring this market this quarter.\n"
             f"  2. heading 'Pay Snapshot' — type 'table' — header row plus 3-4 data rows. "
-            f"Columns: ['Position','Experience Level','Base Salary Range','Source']. "
-            f"Use concrete dollar ranges (e.g. '$92,000 - $115,000'). Source is a short publisher "
-            f"name (e.g. 'BLS OEWS 2024') or 'est.'. Do NOT quote salary dollar figures anywhere "
-            f"else in the document.\n"
+            f"Columns: ['Position','Experience Level','Base Salary Range']. "
+            f"Use concrete dollar ranges (e.g. '$92,000 - $115,000'). No source column and no "
+            f"'est.' in table cells; list sources in the top-level sources array. Do NOT quote "
+            f"salary dollar figures anywhere else in the document.\n"
             f"  3. heading 'Talent Market Trends' — type 'bullets' — exactly 3 bullets, each ~2 sentences "
             f"with a specific, sourced stat or trend about supply, demand, or hiring speed.\n"
             f"  4. heading 'Key Hiring Insights' — type 'qa' — exactly 4 Q&A pairs answering: "
@@ -34632,10 +34747,10 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"  1. heading 'Comp Landscape' — type 'paragraph' — 3-4 sentences on the comp environment "
             f"for {role_label} in {location} right now, with at least two specific data points.\n"
             f"  2. heading 'Salary Benchmarks' — type 'table' — header + 5-6 data rows. "
-            f"Columns: ['Position','Experience Level','Base Salary Range','Total Comp','Source']. "
+            f"Columns: ['Position','Experience Level','Base Salary Range','Total Comp']. "
             f"Concrete dollar ranges per row (e.g. '$92,000 - $115,000'); hourly roles may use "
-            f"'$32 - $38/hr'. Source is a short publisher name (e.g. 'BLS OEWS 2024', 'Indeed') "
-            f"or 'est.'. Cover entry, mid (3-5 yrs), senior (5+ yrs) and lead bands.\n"
+            f"'$32 - $38/hr'. No source column and no 'est.' in table cells; list sources in "
+            f"the top-level sources array. Cover entry, mid (3-5 yrs), senior (5+ yrs) and lead bands.\n"
             f"  3. heading 'What is Driving Comp Right Now' — type 'bullets' — 4 bullets, each ~2 sentences, "
             f"each tied to a specific, verifiable event or trend in {location}.\n"
             f"  4. heading 'Near-Term Comp Trends' — type 'bullets' — 3 bullets with specific stats or "
@@ -34705,7 +34820,8 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"  2. heading 'The Real Math' — type 'table' — header + 4-5 rows. "
             f"Columns: ['Cost Category','In-House DIY','With {_prep_company}']. "
             f"Cover sourcing time, screening cost, time-to-fill, vacancy cost, mis-hire risk. The "
-            f"In-House column uses sourced figures or '(est.)'. The {_prep_company} column uses only "
+            f"In-House column uses figures from your research (no 'est.' in table cells; list "
+            f"sources in the top-level sources array). The {_prep_company} column uses only "
             f"the approved facts (e.g. '2-3 weeks typical', 'No cost to review candidates', "
             f"'Replaced at no cost'); write 'Placement fee, quoted per role' for the fee row.\n"
             f"  3. heading 'What {_prep_company} Does Differently' — type 'bullets' — 4 bullets, each "
@@ -34727,8 +34843,8 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"tenure for {role_label}. BLS publishes median tenure by occupation GROUP nationally "
             f"(Employee Tenure Summary); say that plainly rather than presenting it as {location} data.\n"
             f"  2. heading 'Tenure Data' — type 'table' — header + 4-5 rows. "
-            f"Columns: ['Position','Median Tenure','Basis','Hiring Demand']. Basis names the data "
-            f"(e.g. 'BLS 2024, construction & extraction occupations') or 'est.'. Do not invent "
+            f"Columns: ['Position','Median Tenure','Hiring Demand']. No source column and no "
+            f"'est.' in table cells; list sources in the top-level sources array. Do not invent "
             f"talent-pool head counts.\n"
             f"  3. heading 'What This Means for Hiring Filters' — type 'bullets' — 4 bullets, each ~2 sentences, "
             f"showing how hard tenure cutoffs shrink the qualified pool for this role in this market.\n"
@@ -35479,7 +35595,35 @@ def _finalize_pdf_data(kind: str, data: dict) -> dict:
     # Format salary cells in every table section ($XX,XXX - $XX,XXX).
     # Centralized here so every PDF code path benefits.
     _format_pdf_table_salaries(data)
+    _strip_pdf_table_source_cols(data)
     return data
+
+
+_PDF_SOURCE_COL_HEADERS = {"source", "sources", "basis", "data source"}
+_PDF_EST_RE = re.compile(r"\s*(\(\s*est\.?\s*\)|\best\.)\s*$", re.I)
+
+
+def _strip_pdf_table_source_cols(data: dict) -> None:
+    """Mike 2026-10-06: tables must not carry a Source column; it mostly
+    read 'est.'. Drop any Source/Basis column and any trailing '(est.)'
+    in table cells. Sources and the estimate note live in the footnote."""
+    for sec in (data.get("sections") or []):
+        if (sec.get("type") or "").lower() != "table":
+            continue
+        rows = sec.get("items") or []
+        if not rows or not isinstance(rows[0], list):
+            continue
+        drop = {i for i, h in enumerate(rows[0])
+                if str(h).strip().lower() in _PDF_SOURCE_COL_HEADERS}
+        new_rows = []
+        for r in rows:
+            if not isinstance(r, list):
+                new_rows.append(r)
+                continue
+            cells = [c for i, c in enumerate(r) if i not in drop]
+            new_rows.append([_PDF_EST_RE.sub("", c) if isinstance(c, str) and _PDF_EST_RE.sub("", c) else c
+                             for c in cells])
+        sec["items"] = new_rows
 
 
 # ═══════════════════════════════════════════════════════════════════════════

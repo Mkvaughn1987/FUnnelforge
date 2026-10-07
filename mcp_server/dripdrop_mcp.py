@@ -139,7 +139,13 @@ async def login_submit(request: Request):
         "Create and launch a DripDrop outbound email campaign from a spec "
         "(template, company/niche, roles, contacts). Runs as the "
         "authenticated DripDrop user; the campaign is scheduled and queued "
-        "immediately, same as posting to /api/v1/campaigns. For the "
+        "immediately, same as posting to /api/v1/campaigns. Contacts at "
+        "Current Clients, at companies a teammate put in a campaign in the "
+        "last 30 days, or on anyone's Do Not Contact list are dropped: the "
+        "reply says \"skipped\" with a reason when nobody is left, and "
+        "\"current_clients\" / \"already_worked\" name who was dropped - "
+        "report those, do not retry them. Run skip_check first to avoid "
+        "this. For the "
         "`findcandidates` template - the only template that emails "
         "candidates directly instead of companies - describe the opening "
         "(role, client, confidential, location, pay, selling_points, "
@@ -374,7 +380,10 @@ async def campaigns_list() -> dict:
         "reached at a company, from every campaign and uploaded list, all "
         "time. Pass a company name or email domain. Anyone who replied not "
         "interested or is on a Do Not Contact list is already left out, and "
-        "people who replied are flagged. CHECK THIS BEFORE ZOOMINFO: use these "
+        "people who replied are flagged. It also says whether the company is "
+        "off limits: verdict \"skip\" with current_client (a Current Client) "
+        "or already_worked (a teammate's campaign in the last 30 days) means "
+        "drop the company and pull nobody. CHECK THIS BEFORE ZOOMINFO: use these "
         "contacts first and only pull from ZoomInfo for companies that come "
         "back empty or need more people. Read-only, team-scoped."
     )
@@ -388,6 +397,33 @@ async def team_contacts(company_or_domain: str, limit: int = 50) -> dict:
     try:
         client = DripDropClient(DATA_DIR, email)
         return await client.team_contacts(company_or_domain, limit)
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
+@mcp.tool(
+    description=(
+        "Skip check: pass every company on your target list at once (names "
+        "or email domains) and get back which to drop before any research "
+        "or ZoomInfo pull - Current Clients, and companies anyone on the "
+        "team put in an outbound campaign in the last 30 days (cancelled "
+        "ones too), with the rep, campaign and the date it opens again. "
+        "Run it right after you have a list of companies. DripDrop refuses "
+        "to launch at these companies anyway, so skipping them early saves "
+        "credits. Read-only, team-scoped."
+    )
+)
+async def skip_check(companies: list[str]) -> dict:
+    """Args:
+    companies: company names ("Galloway & Company") or email domains
+        ("gallowayus.com"), up to 300.
+    """
+    email = _current_email()
+    try:
+        client = DripDropClient(DATA_DIR, email)
+        return await client.skip_check(companies)
     except NoApiKeyError as e:
         return {"error": str(e)}
     except DripDropApiError as e:
