@@ -345,11 +345,10 @@ def test_queue_skips_a_teammates_dnc(with_user, monkeypatch):
 
 
 def test_scheduler_cancels_a_queued_email_a_teammate_opted_out(tmp_path, monkeypatch):
-    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-    try:
-        ZoneInfo("UTC")
-    except ZoneInfoNotFoundError:
-        pytest.skip("no tz database on this machine (Windows without tzdata)")
+    import zoneinfo
+    from datetime import timezone
+    # Windows without tzdata has no zones; every zone as UTC is enough here.
+    monkeypatch.setattr(zoneinfo, "ZoneInfo", lambda name: timezone.utc)
     import flowdrip_app as fa
     users = tmp_path / "users"
     mike = users / "mike_at_arena_net"
