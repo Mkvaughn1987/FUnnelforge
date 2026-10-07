@@ -1642,6 +1642,76 @@ def _tenant_logo_path(email: str = None) -> str:
     return ""
 
 
+# ── Team profile mirroring ──────────────────────────────────────────────
+# Once someone saves a team default, their company + brand settings ARE
+# the team's: every other user on that email domain reads them in place
+# of their own (load_config overlays them), so a new @arenastaffing.net
+# rep never uploads a logo or types the website. The owner (profile.json
+# "_owner") keeps editing on My Profile, and each Save Profile re-syncs
+# the team copy. Public mail domains never share a team profile.
+_TEAM_PROFILE_KEYS = (
+    "company_name", "company_website", "company_industry",
+    "company_description", "company_phone", "company_linkedin",
+    "company_address", "company_color", "company_tagline",
+)
+_FREEMAIL_DOMAINS = {
+    "gmail_com", "googlemail_com", "yahoo_com", "outlook_com", "hotmail_com",
+    "live_com", "msn_com", "icloud_com", "me_com", "mac_com", "aol_com",
+    "proton_me", "protonmail_com", "gmx_com", "zoho_com", "yandex_com",
+}
+
+
+def _team_profile(email: str = None) -> dict:
+    """The tenant profile this user's domain shares, or {} when there is
+    none (no team default saved yet, no email, or a public mail domain)."""
+    d = _safe_domain(email)
+    if not d or d in _FREEMAIL_DOMAINS:
+        return {}
+    tp = _load_tenant_profile(email)
+    return tp if (tp.get("company_name") or "").strip() else {}
+
+
+def _mirrors_team_profile(email: str = None) -> bool:
+    """True when this user's company/brand settings come from the team
+    profile instead of their own config. Everyone but the owner mirrors;
+    a legacy profile with no owner recorded is mirrored by non-admins."""
+    if not _SERVER_MODE:
+        return False
+    tp = _team_profile(email)
+    if not tp:
+        return False
+    owner = (tp.get("_owner") or "").strip().lower()
+    if owner:
+        return _resolve_email_for_role(email) != owner
+    return not _is_tenant_admin(email)
+
+
+def _sync_team_profile_from(cfg: dict, owner_email: str) -> bool:
+    """Write the owner's company fields + logo as the team profile."""
+    prof = {k: cfg.get(k, "") for k in _TEAM_PROFILE_KEYS}
+    prof["company_color"] = prof.get("company_color") or "#1AE3D9"
+    prof["_owner"] = (owner_email or "").strip().lower()
+    if not _save_tenant_profile(prof, owner_email):
+        return False
+    try:
+        import shutil as _sh
+        _udir = _BASE_DATA_DIR / "users" / (
+            prof["_owner"].replace("@", "_at_").replace(".", "_"))
+        _troot = _tenant_root_for(owner_email)
+        for ext in ("png", "jpg", "jpeg"):
+            _src = _udir / f"company_logo.{ext}"
+            if _src.exists():
+                for old in ("png", "jpg", "jpeg"):
+                    _o = _troot / f"company_logo.{old}"
+                    if _o.exists() and old != ext:
+                        _o.unlink()
+                _sh.copy2(_src, _troot / f"company_logo.{ext}")
+                break
+    except Exception as ex:
+        print(f"[tenant] team logo sync failed: {ex}", flush=True)
+    return True
+
+
 # ── Role helpers ────────────────────────────────────────────────────────
 # Three roles, in increasing power:
 #   user          — sees only their own data; cannot edit tenant settings
@@ -10372,7 +10442,21 @@ def queue_campaign_emails(camp: dict, start_step: int = 0) -> int:
 def load_config() -> dict:
     """Load DripDrop config. Uses the async-safe per-user path accessor,
     NOT the module global _user_config_path(), so concurrent renders don't bleed
-    each other's configs."""
+    each other's configs. Teammates who mirror a team profile get the
+    team's company + brand fields laid over their own."""
+    cfg = _load_own_config()
+    try:
+        if _mirrors_team_profile():
+            tp = _team_profile()
+            for k in _TEAM_PROFILE_KEYS:
+                cfg[k] = tp.get(k) or ("#1AE3D9" if k == "company_color" else "")
+    except Exception as ex:
+        print(f"[tenant] team profile overlay failed: {ex}", flush=True)
+    return cfg
+
+
+def _load_own_config() -> dict:
+    """The user's config file exactly as saved, with no team overlay."""
     cp = _user_config_path()
     if cp.exists():
         try:
@@ -47131,8 +47215,9 @@ def _ensure_spotlight_bullets(data: dict, min_count: int = 3) -> list:
     return bullets[:min_count]
 
 def _strip_cite_tags(text: str) -> str:
-    """Remove <cite ...>...</cite> wrapper tags left by web search results."""
-    return re.sub(r'</?cite[^>]*>', '', text) if text else text
+    """Remove <cite ...>...</cite> wrapper tags left by web search results,
+    including the mangled `(cite index="1-2">` opener models sometimes emit."""
+    return re.sub(r'[<(]?/?\bcite(?:\s+index="[^"]*")?\s*>', '', text) if text else text
 
 
 def _validate_around_town_links(blurbs: list) -> list:
@@ -52922,7 +53007,10 @@ def _get_company_logo_path() -> str:
       3. Empty string (PDF builders fall through to "no logo" rendering).
     Tenant fallback lets new teammates inherit branding without uploading
     their own logo, and crucially keeps tenants isolated from each other —
-    @othercorp.com users can never accidentally render with Arena's logo."""
+    @othercorp.com users can never accidentally render with Arena's logo.
+    Teammates who mirror the team profile always get the team logo."""
+    if _mirrors_team_profile() and _tenant_logo_path():
+        return _tenant_logo_path()
     for ext in ("png", "jpg", "jpeg"):
         p = _user_dir() / f"company_logo.{ext}"
         if p.exists():
@@ -53239,6 +53327,15 @@ def _p_profile_body(s, rf):
     _safe_key = _uemail.lower().strip().replace("@", "_at_").replace(".", "_") if _uemail else ""
     _has_photo = bool(_get_user_photo_path(_uemail)) if _uemail else False
 
+    # Team profile: teammates see the owner's company + brand read-only.
+    _team_tp = _team_profile(_uemail) if (_SERVER_MODE and _uemail) else {}
+    _team_owner = (_team_tp.get("_owner") or "").strip().lower()
+    _i_own_team = bool(_team_owner) and _team_owner == (_uemail or "").lower()
+    _team_locked = bool(_uemail) and _mirrors_team_profile(_uemail)
+    _team_owner_name = ((_get_user_record(_team_owner) or {}).get("name", "")
+                        if _team_owner else "") or _team_owner or "your team admin"
+    _team_domain = _safe_domain(_uemail).replace("_", ".") if _uemail else ""
+
     # Always-editable mode — every section's form inputs are rendered
     # at all times, with per-section Save buttons sitting at the bottom
     # of each one. The old display-vs-edit toggle confused users who
@@ -53329,6 +53426,9 @@ def _p_profile_body(s, rf):
                 data["company_color"] = _extracted
             _save_company_profile(data)
             _saved_parts.append("company")
+            if _i_own_team:
+                _sync_team_profile_from(_load_own_config(), _uemail)
+                _saved_parts.append("team")
 
         # ── Newsletter Sig: personal note ───────────────────────────
         if _refs.get("nl_note") is not None:
@@ -53365,42 +53465,25 @@ def _p_profile_body(s, rf):
                 "team admin to make these changes.",
                 type="warning", timeout=5000)
             return
+        if _uemail:
+            _CURRENT_USER_EMAIL.set(_uemail)
+        if _safe_domain(_uemail) in _FREEMAIL_DOMAINS:
+            ui.notify("Team defaults need a company email domain.", type="warning")
+            return
         try:
-            _cfg = load_config()
-            _profile = {
-                "company_name":        _cfg.get("company_name", ""),
-                "company_website":     _cfg.get("company_website", ""),
-                "company_industry":    _cfg.get("company_industry", ""),
-                "company_description": _cfg.get("company_description", ""),
-                "company_phone":       _cfg.get("company_phone", ""),
-                "company_linkedin":    _cfg.get("company_linkedin", ""),
-                "company_address":     _cfg.get("company_address", ""),
-                "company_color":       _cfg.get("company_color", "#1AE3D9"),
-                "company_tagline":     _cfg.get("company_tagline", ""),
-            }
-            if not (_profile["company_name"] or "").strip():
+            _cfg = _load_own_config()
+            if not (_cfg.get("company_name") or "").strip():
                 ui.notify(
                     "Fill in your Company Name first, then save it as team default.",
                     type="warning"); return
-            ok = _save_tenant_profile(_profile)
-            if not ok:
+            if not _sync_team_profile_from(_cfg, _uemail):
                 ui.notify("Couldn't save tenant profile.", type="negative"); return
-            # Copy the user's logo to the tenant dir if one exists
-            _user_logo = _get_company_logo_path()
-            if _user_logo and Path(_user_logo).exists():
-                try:
-                    import shutil as _sh
-                    _ext = Path(_user_logo).suffix.lstrip(".") or "png"
-                    _tdest = _tenant_root_for() / f"company_logo.{_ext}"
-                    _tdest.parent.mkdir(parents=True, exist_ok=True)
-                    _sh.copy2(_user_logo, _tdest)
-                except Exception as _e:
-                    print(f"[tenant] logo copy failed: {_e}", flush=True)
-            _domain = _safe_domain().replace("_", ".")
+            _domain = _safe_domain(_uemail).replace("_", ".")
             ui.notify(
-                f"✓ Saved as team default for @{_domain}. New teammates from "
-                f"your domain will inherit this branding.",
+                f"✓ Everyone at @{_domain} now uses your company and brand "
+                f"settings. Your future saves update them too.",
                 type="positive", timeout=5000)
+            rf()
         except Exception as ex:
             ui.notify(f"Save failed: {ex}", type="negative")
 
@@ -53413,7 +53496,8 @@ def _p_profile_body(s, rf):
         # (tenant admins only — silently hidden for non-admins so the UI
         # doesn't tease a button they can't use).
         with ui.element("div").style("display:flex;gap:8px;align-items:center;flex-wrap:wrap;"):
-            if _SERVER_MODE and _is_tenant_admin():
+            if (_SERVER_MODE and _is_tenant_admin() and not _i_own_team
+                    and (not _team_owner or _is_super_admin())):
                 with ui.element("button").classes("fd-gb").style(
                         "padding:9px 16px;font-size:12px;"
                         ).on("click", _save_as_team_default):
@@ -53422,12 +53506,19 @@ def _p_profile_body(s, rf):
                     "padding:10px 22px;font-size:14px;font-weight:700;"
                     ).on("click", _save_all_profile):
                 ui.label("\U0001F4BE Save Profile")
-    ui.label(
-        "Edit anything below, then hit Save Profile (top right) — one click saves every "
-        "section. “Save as Team Default” also copies your company name and logo "
-        "to your team's shared profile so new teammates from your domain inherit the "
-        "branding without setup."
-    ).classes("fd-sub")
+    if _team_locked:
+        _sub = (f"Your company info and logo come from {_team_owner_name}, so they're "
+                f"already set for everyone at @{_team_domain}. Your personal info, "
+                f"signatures, and timezone are yours to edit. Hit Save Profile when done.")
+    elif _i_own_team:
+        _sub = (f"Edit anything below, then hit Save Profile (top right). Your company "
+                f"info and logo are shared with everyone at @{_team_domain}, so your "
+                f"saves update theirs too.")
+    else:
+        _sub = ("Edit anything below, then hit Save Profile (top right) — one click saves every "
+                "section. “Save as Team Default” shares your company info and logo with "
+                "everyone from your email domain, so teammates never have to set them up.")
+    ui.label(_sub).classes("fd-sub")
 
     # ── Sections stack vertically inside the sidebar's content column.
     # The old 2-column layout was collapsed to a single column; each major
@@ -53889,6 +53980,8 @@ def _p_profile_body(s, rf):
                     other = _dest_dir / f"company_logo.{'jpg' if ext == 'png' else 'png'}"
                     if other.exists():
                         other.unlink()
+                    if _i_own_team:
+                        _sync_team_profile_from(_load_own_config(), _uemail)
                     ui.notify("Logo uploaded. Click Save Profile to auto-extract the brand color.",
                               type="positive", timeout=4500)
                     rf()
@@ -53908,17 +54001,21 @@ def _p_profile_body(s, rf):
                         f"font-size:14px;font-weight:700;color:{C['teal']};"
                         f"font-family:'Nunito',sans-serif;")
                 ui.label(
+                    (f"Set by {_team_owner_name} for everyone at @{_team_domain}. "
+                     f"Your newsletters, PDFs, and email buttons use this logo and color.")
+                    if _team_locked else
                     "Upload your logo and hit Save  -  we'll auto-extract your "
                     "brand color from it and use both across your newsletters, "
                     "PDFs, and email CTAs. This is the most important field on "
                     "this page."
                 ).style(f"font-size:12px;color:{C['muted']};margin-bottom:12px;line-height:1.5;")
 
-                # Show current logo + current extracted color
+                # Show the logo PDFs/newsletters actually use (own, else team)
                 _logo_exists = False
+                _cur_logo = _get_company_logo_path()
                 for _ext in ("png", "jpg", "jpeg"):
-                    _lp = _logo_dest_dir / f"company_logo.{_ext}"
-                    if _lp.exists():
+                    _lp = Path(_cur_logo) if _cur_logo else None
+                    if _lp and _lp.exists() and _lp.suffix.lstrip(".").lower() == _ext:
                         _logo_exists = True
                         try:
                             import base64 as _b64
@@ -53945,7 +54042,8 @@ def _p_profile_body(s, rf):
                         f"font-size:12px;color:{C['muted']};margin-bottom:10px;")
 
                 with ui.element("div").style(
-                        "display:flex;align-items:center;gap:14px;flex-wrap:wrap;"):
+                        "display:flex;align-items:center;gap:14px;flex-wrap:wrap;" +
+                        ("display:none;" if _team_locked else "")):
                     with ui.element("label").style(
                             f"display:inline-flex;align-items:center;gap:8px;padding:8px 18px;"
                             f"background:{C['teal']}18;border:1px solid {C['teal']}70;"
@@ -53963,6 +54061,7 @@ def _p_profile_body(s, rf):
                 # Manual color override  -  hidden behind a disclosure so the
                 # auto-extract flow stays the primary path.
                 with ui.expansion("Override brand color manually").props("dense").style(
+                        ("display:none;" if _team_locked else "") +
                         f"width:100%;margin-top:12px;color:{C['muted']};"
                         f"font-size:11px;"):
                     with ui.element("div").style(
@@ -53978,7 +54077,7 @@ def _p_profile_body(s, rf):
                         ).style(f"font-size:10px;color:{C['muted']};flex:1;line-height:1.4;")
 
             # ── Auto-fill from website (edit mode only) ──────────────────
-            _skip_autofill = not _edit_mode
+            _skip_autofill = not _edit_mode or _team_locked
             if _skip_autofill:
                 pass  # In display mode we skip the whole block below
             with ui.element("div").style(
@@ -54055,6 +54154,9 @@ def _p_profile_body(s, rf):
                                 match = re.search(r'\{.*\}', clean, re.DOTALL)
                                 if match:
                                     data = json.loads(match.group())
+                                    data = {k: _strip_cite_tags(v) if isinstance(v, str) else v
+                                            for k, v in data.items()
+                                            if k in _TEAM_PROFILE_KEYS}
                                     data["company_website"] = url
                                     _save_company_profile(data)
                                     s._cp_autofill_done = True
@@ -54076,7 +54178,12 @@ def _p_profile_body(s, rf):
 
             # ── Manual form ─────────────────────────────────────────────────────
             with ui.element("div").style("max-width:700px;" + _hide_if("company")):
-                if _edit_mode:
+                if _team_locked:
+                    ui.label(
+                        f"Set by {_team_owner_name} for everyone at @{_team_domain}. "
+                        f"Ask them if something here needs to change."
+                    ).style(f"font-size:12px;color:{C['muted']};margin-bottom:14px;line-height:1.5;")
+                if _edit_mode and not _team_locked:
                     # Company Name
                     ui.label("Company Name").classes("fd-fl")
                     _name_in = ui.input(value=profile.get("company_name", ""),
