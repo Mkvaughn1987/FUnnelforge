@@ -34521,10 +34521,10 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"{primary or 'industry'} market for {role_label} right now: demand drivers, job-posting "
             f"activity, talent supply, and what is pressuring this market this quarter.\n"
             f"  2. heading 'Pay Snapshot' — type 'table' — header row plus 3-4 data rows. "
-            f"Columns: ['Position','Experience Level','Base Salary Range','Source']. "
-            f"Use concrete dollar ranges (e.g. '$92,000 - $115,000'). Source is a short publisher "
-            f"name (e.g. 'BLS OEWS 2024') or 'est.'. Do NOT quote salary dollar figures anywhere "
-            f"else in the document.\n"
+            f"Columns: ['Position','Experience Level','Base Salary Range']. "
+            f"Use concrete dollar ranges (e.g. '$92,000 - $115,000'). No source column and no "
+            f"'est.' in table cells; list sources in the top-level sources array. Do NOT quote "
+            f"salary dollar figures anywhere else in the document.\n"
             f"  3. heading 'Talent Market Trends' — type 'bullets' — exactly 3 bullets, each ~2 sentences "
             f"with a specific, sourced stat or trend about supply, demand, or hiring speed.\n"
             f"  4. heading 'Key Hiring Insights' — type 'qa' — exactly 4 Q&A pairs answering: "
@@ -34541,10 +34541,10 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"  1. heading 'Comp Landscape' — type 'paragraph' — 3-4 sentences on the comp environment "
             f"for {role_label} in {location} right now, with at least two specific data points.\n"
             f"  2. heading 'Salary Benchmarks' — type 'table' — header + 5-6 data rows. "
-            f"Columns: ['Position','Experience Level','Base Salary Range','Total Comp','Source']. "
+            f"Columns: ['Position','Experience Level','Base Salary Range','Total Comp']. "
             f"Concrete dollar ranges per row (e.g. '$92,000 - $115,000'); hourly roles may use "
-            f"'$32 - $38/hr'. Source is a short publisher name (e.g. 'BLS OEWS 2024', 'Indeed') "
-            f"or 'est.'. Cover entry, mid (3-5 yrs), senior (5+ yrs) and lead bands.\n"
+            f"'$32 - $38/hr'. No source column and no 'est.' in table cells; list sources in "
+            f"the top-level sources array. Cover entry, mid (3-5 yrs), senior (5+ yrs) and lead bands.\n"
             f"  3. heading 'What is Driving Comp Right Now' — type 'bullets' — 4 bullets, each ~2 sentences, "
             f"each tied to a specific, verifiable event or trend in {location}.\n"
             f"  4. heading 'Near-Term Comp Trends' — type 'bullets' — 3 bullets with specific stats or "
@@ -34614,7 +34614,8 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"  2. heading 'The Real Math' — type 'table' — header + 4-5 rows. "
             f"Columns: ['Cost Category','In-House DIY','With {_prep_company}']. "
             f"Cover sourcing time, screening cost, time-to-fill, vacancy cost, mis-hire risk. The "
-            f"In-House column uses sourced figures or '(est.)'. The {_prep_company} column uses only "
+            f"In-House column uses figures from your research (no 'est.' in table cells; list "
+            f"sources in the top-level sources array). The {_prep_company} column uses only "
             f"the approved facts (e.g. '2-3 weeks typical', 'No cost to review candidates', "
             f"'Replaced at no cost'); write 'Placement fee, quoted per role' for the fee row.\n"
             f"  3. heading 'What {_prep_company} Does Differently' — type 'bullets' — 4 bullets, each "
@@ -34636,8 +34637,8 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"tenure for {role_label}. BLS publishes median tenure by occupation GROUP nationally "
             f"(Employee Tenure Summary); say that plainly rather than presenting it as {location} data.\n"
             f"  2. heading 'Tenure Data' — type 'table' — header + 4-5 rows. "
-            f"Columns: ['Position','Median Tenure','Basis','Hiring Demand']. Basis names the data "
-            f"(e.g. 'BLS 2024, construction & extraction occupations') or 'est.'. Do not invent "
+            f"Columns: ['Position','Median Tenure','Hiring Demand']. No source column and no "
+            f"'est.' in table cells; list sources in the top-level sources array. Do not invent "
             f"talent-pool head counts.\n"
             f"  3. heading 'What This Means for Hiring Filters' — type 'bullets' — 4 bullets, each ~2 sentences, "
             f"showing how hard tenure cutoffs shrink the qualified pool for this role in this market.\n"
@@ -35388,7 +35389,35 @@ def _finalize_pdf_data(kind: str, data: dict) -> dict:
     # Format salary cells in every table section ($XX,XXX - $XX,XXX).
     # Centralized here so every PDF code path benefits.
     _format_pdf_table_salaries(data)
+    _strip_pdf_table_source_cols(data)
     return data
+
+
+_PDF_SOURCE_COL_HEADERS = {"source", "sources", "basis", "data source"}
+_PDF_EST_RE = re.compile(r"\s*(\(\s*est\.?\s*\)|\best\.)\s*$", re.I)
+
+
+def _strip_pdf_table_source_cols(data: dict) -> None:
+    """Mike 2026-10-06: tables must not carry a Source column; it mostly
+    read 'est.'. Drop any Source/Basis column and any trailing '(est.)'
+    in table cells. Sources and the estimate note live in the footnote."""
+    for sec in (data.get("sections") or []):
+        if (sec.get("type") or "").lower() != "table":
+            continue
+        rows = sec.get("items") or []
+        if not rows or not isinstance(rows[0], list):
+            continue
+        drop = {i for i, h in enumerate(rows[0])
+                if str(h).strip().lower() in _PDF_SOURCE_COL_HEADERS}
+        new_rows = []
+        for r in rows:
+            if not isinstance(r, list):
+                new_rows.append(r)
+                continue
+            cells = [c for i, c in enumerate(r) if i not in drop]
+            new_rows.append([_PDF_EST_RE.sub("", c) if isinstance(c, str) and _PDF_EST_RE.sub("", c) else c
+                             for c in cells])
+        sec["items"] = new_rows
 
 
 # ═══════════════════════════════════════════════════════════════════════════

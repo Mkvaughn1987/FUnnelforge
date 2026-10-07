@@ -1121,7 +1121,7 @@ def sources_line(sources) -> str:
     if not bits:
         return ""
     return ("Sources: " + _esc("; ".join(bits))
-            + ". Figures marked (est.) are estimates.")
+            + ". Pay and market figures are estimates drawn from these sources.")
 
 
 # ─────────────────────────────────────────────────────────────────────────

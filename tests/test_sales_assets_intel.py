@@ -166,6 +166,30 @@ def test_finalize_drops_duplicate_cta_section_and_formats_salaries(fa):
     assert row[3] == "$70,000 - $80,000"
 
 
+def test_finalize_drops_source_column_and_est_marks(fa):
+    d = {"sections": [{"heading": "Pay Snapshot", "type": "table", "items": [
+        ["Position", "Experience Level", "Base Salary Range", "Source"],
+        ["Project Manager", "5 to 10 years", "$120,000 - $165,000 (est.)", "est."],
+        ["Field Lead", "Southwest.", "$90,000 - $110,000", "BLS"],
+    ]}, {"heading": "Tenure Data", "type": "table", "items": [
+        ["Position", "Median Tenure", "Basis", "Hiring Demand"],
+        ["Electrician", "4.1 yrs", "BLS 2024", "High"],
+    ]}]}
+    out = fa._finalize_pdf_data("market_pulse", d)
+    assert out["sections"][0]["items"] == [
+        ["Position", "Experience Level", "Base Salary Range"],
+        ["Project Manager", "5 to 10 years", "$120,000 - $165,000"],
+        ["Field Lead", "Southwest.", "$90,000 - $110,000"],
+    ]
+    assert out["sections"][1]["items"][0] == ["Position", "Median Tenure", "Hiring Demand"]
+
+
+@pytest.mark.parametrize("kind", ["market_pulse", "salary_guide", "tenure_snapshot"])
+def test_table_prompts_have_no_source_column(fa, kind):
+    p = fa._rich_pdf_prompt(kind, CTX)
+    assert "'Source'" not in p and "'Basis'" not in p
+
+
 @pytest.mark.parametrize("cell,expected", [
     ("48000 - 58000", "$48,000 - $58,000"),
     ("64,500 to 72,000", "$64,500 - $72,000"),
