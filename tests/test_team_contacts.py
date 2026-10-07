@@ -201,7 +201,7 @@ def test_cache_follows_file_changes(tmp_path):
 
 def test_sidebar_and_titles_carry_the_page():
     import flowdrip_app as fa
-    assert ("bank", tcx.PAGE_TITLE, "shared_contacts") in dict(fa.SIDEBAR_NAV)["PEOPLE"]
+    assert ("bank", tcx.PAGE_TITLE, "shared_contacts") in dict(fa.SIDEBAR_NAV)["ARENA TEAM"]
     assert fa.SIDEBAR_PAGE_ROW["shared_contacts"] == "bank"
     assert fa.SIDEBAR_TITLES["shared_contacts"] == tcx.PAGE_TITLE
     assert "bank" in fa._SIDEBAR_ICONS
