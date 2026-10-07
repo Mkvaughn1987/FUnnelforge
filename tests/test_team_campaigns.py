@@ -175,7 +175,7 @@ def test_resolve_state_prefers_name_prefix_then_geography_then_contacts():
 
 
 def test_industry_buckets_free_text_and_falls_back_to_roles():
-    assert tc.industry_of({"variables": {"Industry": "Healthcare/OSHPD Construction"}}) == "Construction"
+    assert tc.industry_of({"variables": {"Industry": "Healthcare/OSHPD Construction"}}) == "Healthcare Construction"
     assert tc.industry_of({"variables": {"Industry": "Package Manufacturing"}}) == "Manufacturing"
     assert tc.industry_of({"variables": {"Industry": "Civil Engineering Consulting"}}) == "Civil & Engineering"
     assert tc.industry_of({"variables": {"Industry": "Healthcare"}}) == "Healthcare"
@@ -183,6 +183,42 @@ def test_industry_buckets_free_text_and_falls_back_to_roles():
     assert tc.industry_of({"name": "Fresca Foods Talent Strategy Campaign", "variables": {}}) == "Manufacturing"
     assert tc.industry_of({"variables": {"Industry": "Insurance"}}) == "Accounting & Finance"
     assert tc.industry_of({"name": "__cardcheck__", "variables": {}}) == tc.INDUSTRY_OTHER
+
+
+def test_construction_splits_into_trade_buckets():
+    # Real spellings from the Industry variable on prod.
+    def ind(text):
+        return tc.industry_of({"variables": {"Industry": text}})
+    assert ind("Mechanical Construction") == "Mechanical Contracting"
+    assert ind("Construction / Mechanical Contracting - Data Centers") == "Mechanical Contracting"
+    assert ind("Mechanical and Plumbing Contracting") == "Mechanical Contracting"
+    assert ind("Commercial HVAC Service") == "Mechanical Contracting"
+    assert ind("Commercial Electrical Contracting") == "Electrical Contracting"
+    assert ind("Commercial Construction / Electrical Contracting") == "Electrical Contracting"
+    assert ind("Electrical Contracting / Commercial Construction") == "Electrical Contracting"
+    assert ind("Commercial General Contracting") == "General Contracting"
+    assert ind("General Construction") == "General Contracting"
+    assert ind("Commercial Construction") == "General Contracting"
+    assert ind("Small to midsize general contractors") == "General Contracting"
+    # Plain or specialty construction stays in the Construction bucket.
+    assert ind("Construction") == "Construction"
+    assert ind("Aggregates and ready-mix concrete") == "Construction"
+    # Niches: equipment dealers, OSHPD healthcare builders, data centers.
+    assert ind("Heavy Equipment and Construction") == "Heavy Equipment & Rental"
+    assert ind("Construction equipment rental") == "Heavy Equipment & Rental"
+    assert ind("Construction Equipment (John Deere Dealer)") == "Heavy Equipment & Rental"
+    assert ind("Healthcare/OSHPD Construction") == "Healthcare Construction"
+    assert ind("Healthcare OSHPD HCAI Construction") == "Healthcare Construction"
+    assert tc.industry_of({"name": "Advanced Medical Builders - Healthcare C",
+                           "variables": {}}) == "Healthcare Construction"
+    assert ind("Mission Critical / Data Center Construction") == "Data Center / Mission Critical"
+    assert ind("Commercial Construction / Mission Critical") == "Data Center / Mission Critical"
+    # A trade beats the niche it works in.
+    assert ind("Construction / Mechanical Contracting - Data Centers") == "Mechanical Contracting"
+    assert ind("Car Dealership") == "Automotive"
+    assert ind("Hospital") == "Healthcare"
+    # Engineering firms are not contractors.
+    assert ind("Electrical Engineering") == "Civil & Engineering"
 
 
 def test_summary_carries_state_industry_and_kind(tmp_path):
