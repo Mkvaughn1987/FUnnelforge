@@ -1921,21 +1921,47 @@ def _aip_css():
         "border-color:var(--dd-teal);color:var(--dd-teal);}"
         ".aip-wrap .aip-step-line{width:28px;height:1px;"
         "background:var(--dd-border);}"
-        # Collapsible sections, all in one card.
-        ".aip-wrap .aip-acc{background:var(--dd-card);"
-        "border:1px solid var(--dd-border);border-radius:12px;"
-        "margin-bottom:18px;overflow:hidden;}"
-        ".aip-wrap .aip-acc-row+.aip-acc-row{border-top:1px solid "
-        "var(--dd-border);}"
-        ".aip-wrap .aip-acc-head{display:flex;align-items:center;gap:12px;"
-        "width:100%;padding:15px 20px;background:transparent;border:none;"
-        "cursor:pointer;text-align:left;font-family:inherit;}"
-        ".aip-wrap .aip-acc-head:hover{background:var(--dd-bg);}"
-        ".aip-wrap .aip-acc-head .aip-chev{font-size:20px;"
-        "color:var(--dd-muted);transition:transform .15s;}"
-        ".aip-wrap .aip-acc-row.open .aip-chev{transform:rotate(180deg);"
+        # The questions, one section at a time: a step list on the left
+        # that always holds the way out, the current section on the right
+        # ending in a Next button that names where it goes.
+        ".aip-wrap .aip-wiz{display:grid;gap:18px;align-items:start;"
+        "grid-template-columns:240px minmax(0,1fr);margin-bottom:18px;}"
+        "@media (max-width:820px){.aip-wrap .aip-wiz{"
+        "grid-template-columns:1fr;}.aip-wrap .aip-rail{position:static;}}"
+        ".aip-wrap .aip-rail{position:sticky;top:12px;padding:12px;"
+        "background:var(--dd-card);border:1px solid var(--dd-border);"
+        "border-radius:12px;}"
+        ".aip-wrap .aip-rail-item{display:flex;align-items:center;gap:10px;"
+        "width:100%;padding:9px 10px;border-radius:9px;border:none;"
+        "background:transparent;cursor:pointer;text-align:left;"
+        "font-family:inherit;font-size:13px;color:var(--dd-muted);"
+        "transition:background .15s,color .15s;}"
+        ".aip-wrap .aip-rail-item:hover{background:var(--dd-bg);"
+        "color:var(--dd-text_l);}"
+        ".aip-wrap .aip-rail-item .n{flex-shrink:0;width:24px;height:24px;"
+        "border-radius:50%;border:1px solid var(--dd-border);display:flex;"
+        "align-items:center;justify-content:center;font-size:11px;"
+        "font-weight:700;}"
+        ".aip-wrap .aip-rail-item.on{background:var(--dd-teal_dim);"
+        "color:var(--dd-text_l);font-weight:700;}"
+        ".aip-wrap .aip-rail-item.on .n{background:var(--dd-teal);"
+        "border-color:var(--dd-teal);color:var(--dd-card);}"
+        ".aip-wrap .aip-rail-item.done .n{border-color:var(--dd-teal);"
         "color:var(--dd-teal);}"
-        ".aip-wrap .aip-acc-body{padding:2px 20px 20px;}"
+        ".aip-wrap .aip-rail-foot{margin-top:10px;padding:14px 4px 4px;"
+        "border-top:1px solid var(--dd-border);display:flex;"
+        "flex-direction:column;gap:10px;}"
+        ".aip-wrap .aip-rail-foot .aip-btn{justify-content:center;"
+        "width:100%;}"
+        ".aip-wrap .aip-panel{background:var(--dd-card);"
+        "border:1px solid var(--dd-border);border-radius:12px;"
+        "padding:22px 24px 18px;min-width:0;}"
+        ".aip-wrap .aip-panel .aip-grid{gap:16px 18px;"
+        "grid-template-columns:repeat(auto-fit,minmax(280px,1fr));}"
+        ".aip-wrap .aip-panel-foot{display:flex;align-items:center;"
+        "justify-content:space-between;gap:12px;flex-wrap:wrap;"
+        "margin-top:22px;padding-top:16px;"
+        "border-top:1px solid var(--dd-border);}"
         ".aip-wrap .aip-pill{font-size:11px;font-weight:600;"
         "padding:3px 10px;border-radius:999px;white-space:nowrap;"
         "background:var(--dd-bg);color:var(--dd-muted);"
@@ -2515,27 +2541,37 @@ def _aip_sections_for(r):
             if k in used or k == "extra"]
 
 
-def _aip_open_state(s, r, req):
-    """Which sections start open. The one the user must read is always open;
-    the rest open themselves if the parse put an answer in one, so a value
-    DripDrop chose is never hidden behind a closed heading."""
-    if getattr(s, "_aip_open", None) is not None:
-        return s._aip_open
-    filled = set(req.get("filled") or [])
-    state = {}
-    for key, _name, always in SECTIONS:
-        touched = any(f["key"] in filled for f in r["fields"]
-                      if f["section"] == key)
-        state[key] = bool(always or touched)
-    # The schedule section is open exactly when there is a schedule: a saved
-    # setup that repeats opens on it, and one that doesn't stays shut
-    # rather than opening on an empty body.
-    if "repeat_on" in r["field_by_key"]:
-        state["repeat"] = _flag(r, req.get("vals") or {}, "repeat_on")
-    if req.get("detail"):
-        state["extra"] = True
-    s._aip_open = state
-    return state
+# What the Next button calls the step it goes to.
+SECTION_SHORT = {"details": "the details", "emails": "the emails",
+                 "size": "run size", "skip": "who to leave out",
+                 "repeat": "the schedule", "extra": "anything else"}
+
+# One line under each step's title saying what the step is for.
+SECTION_INTRO = {
+    "details": "Who to go after. Change anything you like.",
+    "emails": "Which sequence goes out, and when it starts.",
+    "size": "How many companies and emails this run covers.",
+    "skip": "Who this run leaves out.",
+    "repeat": "Run it again on a schedule, or just this once.",
+    "extra": "Each line becomes its own instruction at the end. "
+             "Skip this if the steps before already say it.",
+}
+
+
+def _step_rows(r, vals, at):
+    """The questions one step shows. repeat_on is never a box: the
+    schedule step asks it as two choices (a checkbox there got missed)."""
+    return [f for f in r["fields"]
+            if f["section"] == at and _visible(r, vals, f)
+            and f["key"] != "repeat_on"]
+
+
+def _aip_step(req, sections):
+    """The section on screen. Kept on the request, not the session, so it
+    dies with the screen and Back to the same job lands where you were."""
+    keys = [k for k, _ in sections]
+    cur = req.get("step")
+    return cur if cur in keys else keys[0]
 
 
 def _aip_field(s, rf, C, r, vals, f):
@@ -2857,11 +2893,7 @@ def _newsletter_picker(s, rf, C, vals):
 
 def _aip_extra(s, rf, C, req):
     """Anything the fixed questions missed, as numbered steps appended to the
-    end of HOW TO DO IT."""
-    _text("Each line becomes its own instruction at the end of the steps. "
-          "Leave it empty if the questions above already say it.",
-          C, 11, colour=C["muted"], mb=10)
-
+    end of HOW TO DO IT. The step header carries the one-line intro."""
     detail = req.setdefault("detail", [])
 
     def _mk(i):
@@ -3020,6 +3052,30 @@ def _aip_recommend(s, rf, C, r, req, section):
                 f"display:block;margin-top:7px;")
 
 
+def _aip_schedule_choice(rf, C, vals, on):
+    """Once or on a schedule, as two tiles. Picking one is the answer; the
+    schedule's own questions appear under it only once it is on."""
+    def _set(v):
+        vals["repeat_on"] = v
+        rf()
+    with ui.element("div").classes("aip-tiles").style("margin-bottom:18px;"):
+        for v, icon, title, sub in (
+                (False, "looks_one", "Just this once",
+                 "Run it now and stop."),
+                (True, "event_repeat", "On a schedule",
+                 "Run it again every day or week.")):
+            with ui.element("div").classes(
+                    "aip-tile" + (" on" if on == v else "")).on(
+                    "click", lambda _e, _v=v: _set(_v)):
+                with ui.element("div").classes("aip-ico"):
+                    ui.icon(icon)
+                with ui.element("div").style("min-width:0;padding-right:18px;"):
+                    _text(title, C, 13, 700, C["text_l"], 2)
+                    _text(sub, C, 11.5, colour=C["muted"])
+                if on == v:
+                    ui.icon("check_circle").classes("aip-tick")
+
+
 def _aip_confirm(s, rf, C):
     req = s._aip_req
     r = _CAT.routine_by_key.get(req.get("routine") or "",
@@ -3033,14 +3089,16 @@ def _aip_confirm(s, rf, C):
     # The record of what it wrote lives on the request, so it dies with the
     # screen and never reaches a saved setup.
     run_prefill(r, req)
-    opened = _aip_open_state(s, r, req)
-    back_label = _aip_back_label(s, "Back")
+    sections = _aip_sections_for(r)
+    keys = [k for k, _ in sections]
+    at = _aip_step(req, sections)
+    idx = keys.index(at)
+    back_label = _aip_back_label(s, "Change job")
 
     def _back():
         # Back, not "start over" - the answers are kept, so going out to
         # read what the other jobs do costs nothing. They come back when
-        # you re-pick the same job. Defined up here because the header card
-        # renders before the button row and both use it.
+        # you re-pick the same job.
         if _aip_back_to_saved(s, rf):
             return
         s._aip_back = s._aip_req
@@ -3050,8 +3108,24 @@ def _aip_confirm(s, rf, C):
         s._aip_err = ""
         rf()
 
+    def _go(k):
+        req["step"] = k
+        s._aip_saving = False
+        rf()
+        try:
+            _ff()._scroll_content_top()
+        except Exception:
+            pass
+
+    def _build():
+        s._aip_prompt = build_prompt(req)
+        s._aip_saving = False
+        rf()
+
+    # The job, said once. No job picker here: it was chosen on the screen
+    # before, and repeating it next to the answers it decides only invited
+    # a change that silently reset them.
     with _card(C):
-        heard = bool((req.get("raw") or "").strip())
         with ui.element("div").style(
                 "display:flex;align-items:flex-start;gap:14px;"):
             with ui.element("div").classes("aip-ico").style(
@@ -3062,109 +3136,100 @@ def _aip_confirm(s, rf, C):
                         "display:flex;align-items:baseline;"
                         "justify-content:space-between;gap:12px;"
                         "flex-wrap:wrap;"):
-                    _text("Here's what I understood" if heard
-                          else req.get("title") or "Set this up",
+                    _text(req.get("title") or r.get("name") or "Set this up",
                           C, 17, 700, C["text_l"], 2)
                     with ui.element("button").classes("aip-back").on(
                             "click", _back):
-                        ui.icon("arrow_back").style("font-size:15px;")
+                        ui.icon("arrow_back")
                         ui.label(back_label)
-                # No job picker here. The job was chosen on the screen before
-                # this one; repeating the choice next to the answers it decides
-                # only invited a change that silently reset them.
-                _text(r["blurb"], C, 12, colour=C["muted"], mb=12)
+                _text(r["blurb"], C, 12, colour=C["muted"], mb=4)
+                _text("Everything starts with a good answer filled in. Step "
+                      "through and change what you like, or write your "
+                      "prompt now.", C, 11.5, colour=C["muted"])
+                # Said up front so nobody has to open "Leave these out" to
+                # learn who the run skips. Follows the toggles.
+                if any(k in r["field_by_key"] and _flag(r, vals, k)
+                       for k in ("skip_customers", "skip_recruiters")):
+                    _text("Current companies and recruitment firms will not "
+                          "be included.", C, 11.5, colour=C["muted"])
 
-                # Stated as what Claude still needs, not as what the user
-                # failed to provide. Leaving these blank is a valid way to use
-                # the page.
-                unanswered = _open_questions(r, vals, req.get("ask_extra"))
-                with ui.element("div").style(
-                        "display:flex;align-items:center;gap:8px;"
-                        "flex-wrap:wrap;"):
-                    if unanswered:
-                        ui.label(_CAT.assistant + " will ask for: "
-                                 + ", ".join(unanswered)).classes(
-                            "aip-pill warn").style("white-space:normal;")
-                    else:
-                        with ui.element("span").classes("aip-pill good").style(
-                                "display:inline-flex;align-items:center;"
-                                "gap:4px;"):
+    with ui.element("div").classes("aip-wiz"):
+        # Left: every step, clickable, and the finish line always in reach.
+        with ui.element("div").classes("aip-rail"):
+            for i, (k, name) in enumerate(sections):
+                state = " on" if k == at else (" done" if i < idx else "")
+                with ui.element("button").classes(
+                        "aip-rail-item" + state).on(
+                        "click", lambda _e, _k=k: _go(_k)):
+                    with ui.element("div").classes("n"):
+                        if i < idx:
                             ui.icon("check").style("font-size:13px;")
-                            ui.label("Ready to go")
-                    _text("Everything is pre-filled. Change anything you like.",
-                          C, 11, colour=C["muted"])
+                        else:
+                            ui.label(str(i + 1))
+                    ui.label(name[:1].upper() + name[1:])
+            with ui.element("div").classes("aip-rail-foot"):
+                # Stated as what Claude still needs, never as what the user
+                # failed to provide. A blank is a valid answer here.
+                unanswered = _open_questions(r, vals, req.get("ask_extra"))
+                if unanswered:
+                    ui.label(_CAT.assistant[:1].upper()
+                             + _CAT.assistant[1:] + " will ask for: "
+                             + ", ".join(unanswered)).classes(
+                        "aip-pill warn").style(
+                        "white-space:normal;line-height:1.45;")
+                else:
+                    with ui.element("span").classes("aip-pill good").style(
+                            "display:inline-flex;align-items:center;"
+                            "gap:4px;align-self:flex-start;"):
+                        ui.icon("check").style("font-size:13px;")
+                        ui.label("Ready to go")
+                _btn("Write my prompt", _build, primary=True,
+                     icon="arrow_forward")
+                with ui.element("div").style(
+                        "display:flex;flex-wrap:wrap;gap:8px;"):
+                    _aip_save_setup(s, rf, C, req)
 
-    with ui.element("div").classes("aip-acc"):
-        for key, name in _aip_sections_for(r):
-            is_open = bool(opened.get(key))
-            rows = [f for f in r["fields"] if f["section"] == key
-                    and _visible(r, vals, f) and f["key"] != "repeat_on"]
-            count = len([f for f in rows
-                         if str(_val(r, vals, f["key"]) or "").strip()])
+        # Right: the one step on screen.
+        with ui.element("div").classes("aip-panel"):
+            name = dict(sections)[at]
+            ui.label("Step %d of %d" % (idx + 1, len(sections))).classes(
+                "aip-sec").style(f"color:{C['teal']};margin-bottom:4px;")
+            _text(name[:1].upper() + name[1:], C, 18, 700, C["text_l"], 2)
+            intro = SECTION_INTRO.get(at, "")
+            if intro:
+                _text(intro, C, 12, colour=C["muted"], mb=16)
+            if at == "extra":
+                _aip_extra(s, rf, C, req)
+            else:
+                _aip_recommend(s, rf, C, r, req, at)
+                rows = _step_rows(r, vals, at)
+                if at == "repeat" and "repeat_on" in r["field_by_key"]:
+                    on = _flag(r, vals, "repeat_on")
+                    _aip_schedule_choice(rf, C, vals, on)
+                    if not on:
+                        rows = []
+                with ui.element("div").classes("aip-grid"):
+                    for f in rows:
+                        with ui.element("div").classes(
+                                "aip-wide" if f["type"] in ("checks",
+                                                            "textarea")
+                                else ""):
+                            _aip_field(s, rf, C, r, vals, f)
 
-            def _toggle(_k=key):
-                # Read the state back through the helper: a routine switch
-                # clears it, and a click can land on a screen that hasn't
-                # re-rendered yet.
-                state = _aip_open_state(s, r, req)
-                state[_k] = not state.get(_k)
-                # Opening "Create a schedule" is the yes - its questions
-                # show straight away. Closing it again keeps the schedule;
-                # only "Remove schedule" drops it.
-                if _k == "repeat" and state[_k]:
-                    vals["repeat_on"] = True
-                rf()
-
-            def _unschedule():
-                vals["repeat_on"] = False
-                _aip_open_state(s, r, req)["repeat"] = False
-                rf()
-
-            with ui.element("div").classes(
-                    "aip-acc-row" + (" open" if is_open else "")):
-                with ui.element("button").classes("aip-acc-head").on(
-                        "click", _toggle):
-                    ui.label(name[:1].upper() + name[1:].lower()).style(
-                        f"font-size:14px;font-weight:700;"
-                        f"color:{C['text_l']};flex:1;")
-                    ui.label("%d answered" % count if rows
-                             else "optional").classes(
-                        "aip-pill" + (" good" if count else ""))
-                    ui.icon("expand_more").classes("aip-chev")
-
-                if not is_open:
-                    continue
-
-                with ui.element("div").classes("aip-acc-body"):
-                    if key == "extra":
-                        _aip_extra(s, rf, C, req)
-                    else:
-                        _aip_recommend(s, rf, C, r, req, key)
-                        with ui.element("div").classes("aip-grid"):
-                            for f in rows:
-                                with ui.element("div").classes(
-                                        "aip-wide" if f["type"] == "checks"
-                                        else ""):
-                                    _aip_field(s, rf, C, r, vals, f)
-                        if key == "repeat":
-                            with ui.element("div").style("margin-top:10px;"):
-                                with ui.element("button").classes(
-                                        "aip-link").on("click", _unschedule):
-                                    ui.icon("close").style("font-size:14px;")
-                                    ui.label("Remove schedule")
-
-    def _build():
-        s._aip_prompt = build_prompt(req)
-        s._aip_saving = False
-        rf()
-
-    with ui.element("div").classes("aip-bar"):
-        with ui.element("div").classes("aip-bar-side"):
-            _btn(back_label, _back, lead="arrow_back")
-        with ui.element("div").classes("aip-bar-side"):
-            _aip_save_setup(s, rf, C, req)
-            _btn("Write my prompt", _build, primary=True,
-                 icon="arrow_forward")
+            with ui.element("div").classes("aip-panel-foot"):
+                if idx:
+                    _btn("Previous", lambda: _go(keys[idx - 1]),
+                         lead="arrow_back")
+                else:
+                    ui.element("div")
+                if idx + 1 < len(keys):
+                    nxt = keys[idx + 1]
+                    _btn("Next: " + SECTION_SHORT.get(nxt, "next step"),
+                         lambda: _go(nxt), primary=True,
+                         icon="arrow_forward")
+                else:
+                    _btn("Write my prompt", _build, primary=True,
+                         icon="arrow_forward")
 
 
 # ── View 3: the prompt ────────────────────────────────────────────────────
