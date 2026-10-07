@@ -2353,7 +2353,8 @@ ARENA = Catalogue(
     run_through=True,
     tile_groups=[
         ("Find new business", ["staff_signal", "staff_lookalike",
-                               "mpc", "staff_find_candidates", "slate"]),
+                               "mpc", "slate"]),
+        ("Find candidates", ["staff_find_candidates"]),
         ("Daily tasks", ["linkedin", "resume_sweep", "zi_seat"]),
         ("Off script", ["other"]),
     ],
