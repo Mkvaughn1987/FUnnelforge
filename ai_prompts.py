@@ -83,7 +83,7 @@ SECTIONS = [
     ("emails", "The emails", False),
     ("size", "How big this run is", False),
     ("skip", "Leave these out", False),
-    ("repeat", "Repeat it", False),
+    ("repeat", "Create a schedule", False),
     ("extra", "Anything else the AI should know", False),
 ]
 SECTION_NAME = {k: n for k, n, _ in SECTIONS}
@@ -298,6 +298,8 @@ COMMON_FIELDS = [
     # repeat_on and repeat_every decide which other questions exist, so
     # changing either redraws the screen and a settled question disappears
     # straight away instead of sitting there waiting to be ignored.
+    # repeat_on is never drawn as a box: opening "Create a schedule" turns it
+    # on and "Remove schedule" turns it off (a checkbox here got missed).
     F("repeat_on", "Run this again on a schedule", "repeat", "toggle",
       default=False, refresh=True),
     F("repeat_every", "How often", "repeat", "select", default="Once a week",
@@ -2977,6 +2979,14 @@ SECTION_INTRO = {
 }
 
 
+def _step_rows(r, vals, at):
+    """The questions one step shows. repeat_on is never a box: the
+    schedule step asks it as two choices (a checkbox there got missed)."""
+    return [f for f in r["fields"]
+            if f["section"] == at and _visible(r, vals, f)
+            and f["key"] != "repeat_on"]
+
+
 def _aip_step(req, sections):
     """The section on screen. Kept on the request, not the session, so it
     dies with the screen and Back to the same job lands where you were."""
@@ -3594,6 +3604,30 @@ def _aip_recommend(s, rf, C, r, req, section):
                 f"display:block;margin-top:7px;")
 
 
+def _aip_schedule_choice(rf, C, vals, on):
+    """Once or on a schedule, as two tiles. Picking one is the answer; the
+    schedule's own questions appear under it only once it is on."""
+    def _set(v):
+        vals["repeat_on"] = v
+        rf()
+    with ui.element("div").classes("aip-tiles").style("margin-bottom:18px;"):
+        for v, icon, title, sub in (
+                (False, "looks_one", "Just this once",
+                 "Run it now and stop."),
+                (True, "event_repeat", "On a schedule",
+                 "Run it again every day or week.")):
+            with ui.element("div").classes(
+                    "aip-tile" + (" on" if on == v else "")).on(
+                    "click", lambda _e, _v=v: _set(_v)):
+                with ui.element("div").classes("aip-ico"):
+                    ui.icon(icon)
+                with ui.element("div").style("min-width:0;padding-right:18px;"):
+                    _text(title, C, 13, 700, C["text_l"], 2)
+                    _text(sub, C, 11.5, colour=C["muted"])
+                if on == v:
+                    ui.icon("check_circle").classes("aip-tick")
+
+
 def _aip_confirm(s, rf, C):
     req = s._aip_req
     r = _CAT.routine_by_key.get(req.get("routine") or "",
@@ -3718,8 +3752,12 @@ def _aip_confirm(s, rf, C):
                 _aip_extra(s, rf, C, req)
             else:
                 _aip_recommend(s, rf, C, r, req, at)
-                rows = [f for f in r["fields"]
-                        if f["section"] == at and _visible(r, vals, f)]
+                rows = _step_rows(r, vals, at)
+                if at == "repeat" and "repeat_on" in r["field_by_key"]:
+                    on = _flag(r, vals, "repeat_on")
+                    _aip_schedule_choice(rf, C, vals, on)
+                    if not on:
+                        rows = []
                 with ui.element("div").classes("aip-grid"):
                     for f in rows:
                         with ui.element("div").classes(
