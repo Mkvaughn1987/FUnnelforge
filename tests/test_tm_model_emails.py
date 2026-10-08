@@ -10,7 +10,8 @@ TAG_RE = re.compile(r"\(model: ([^)]+)\)")
 
 
 def _steps(key):
-    return REG[key][6].split("\n")
+    """The "Step N - ..." lines; a type may open with a rule line."""
+    return [l for l in REG[key][6].split("\n") if l.startswith("Step ")]
 
 
 def test_the_seven_models_and_their_subjects():
@@ -146,7 +147,9 @@ def test_tagged_steps_get_the_model_subject_word_for_word():
         "More room for the work that matters", "",
         "A clearer scope for the role"]
     assert fa._tm_step_models("tm_twelveweek") == {
-        7: "Role scope", 9: "Economics", 14: "Close"}
+        2: "Capacity", 4: "Economics", 5: "Role scope",
+        6: "After the candidate joins", 9: "Quality and control",
+        15: "Commitment", 16: "Close"}
     arena = {"emails": [{"name": "Step 1 - Capacity", "subject": "keep me",
                          "body": "b", "step_type": "email_auto"}]}
     fa._apply_thrivemodal_overrides("fivebyfive", arena)

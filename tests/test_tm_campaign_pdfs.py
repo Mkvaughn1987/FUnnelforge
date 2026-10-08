@@ -1,6 +1,8 @@
 """ThriveModal campaigns: the PDFs a campaign carries (the Sales Assets set,
 one or two from the top three), where each lands in the sequence, the
 refresh of saved campaigns, and the type lineup."""
+import re
+
 import flowdrip_app as fa
 
 
@@ -52,22 +54,22 @@ def test_clamp_keeps_every_offered_kind_once_and_drops_the_rest():
 
 def test_default_is_the_types_pair_and_one_on_quick_intro():
     assert fa._tm_resolve_pdf_pick(None, "tm_threebythree") == ["tm_cost_compare"]
-    assert fa._tm_resolve_pdf_pick(None, "tm_twelveweek") == [
+    assert fa._tm_resolve_pdf_pick(None, "tm_conversation") == [
         "tm_role_blueprint", "tm_cost_compare"]
     assert fa._tm_resolve_pdf_pick(None, "tm_stay_in_touch") == [
         "tm_cost_compare", "tm_how_it_works"]
     # An explicit pick of the top three wins.
-    assert fa._tm_resolve_pdf_pick(["tm_how_it_works"], "tm_twelveweek") == [
+    assert fa._tm_resolve_pdf_pick(["tm_how_it_works"], "tm_conversation") == [
         "tm_how_it_works"]
     # Never zero: an empty pick, or one holding only kinds campaigns no longer
     # offer, gets the default.
-    assert fa._tm_resolve_pdf_pick([], "tm_twelveweek") == [
+    assert fa._tm_resolve_pdf_pick([], "tm_conversation") == [
         "tm_role_blueprint", "tm_cost_compare"]
-    assert fa._tm_resolve_pdf_pick(["market_pulse"], "tm_twelveweek") == [
+    assert fa._tm_resolve_pdf_pick(["market_pulse"], "tm_conversation") == [
         "market_pulse"]
     # Cleared on purpose because a library PDF is picked: stays empty.
-    assert fa._tm_resolve_pdf_pick([], "tm_twelveweek", allow_empty=True) == []
-    assert fa._tm_resolve_pdf_pick(None, "tm_twelveweek", allow_empty=True) == [
+    assert fa._tm_resolve_pdf_pick([], "tm_conversation", allow_empty=True) == []
+    assert fa._tm_resolve_pdf_pick(None, "tm_conversation", allow_empty=True) == [
         "tm_role_blueprint", "tm_cost_compare"]
     assert fa._tm_resolve_pdf_pick(["tm_logistics"], "tm_threebythree") == [
         "tm_cost_compare"]
@@ -77,7 +79,8 @@ def test_every_offered_type_places_its_default_never_first_or_call():
     for ct in fa._TM_OFFERED_TYPE_KEYS:
         camp = _campaign(ct)
         kinds = fa._tm_default_pdf_kinds(ct, camp["emails"])
-        assert 1 <= len(kinds) <= 3, ct
+        # Long Term Nurture carries all eight (Mike, 2026-10-08).
+        assert 1 <= len(kinds) <= (8 if ct == "tm_twelveweek" else 3), ct
         assert set(kinds) <= set(fa._TM_CAMPAIGN_PDF_OFFERED), ct
         placed = fa._tm_pdf_placement(ct, camp["emails"], kinds)
         assert len(placed) == min(len(kinds), len(
@@ -384,14 +387,68 @@ def test_followon_preloads_the_wizard_on_stay_on_their_radar(monkeypatch):
     assert s._nav_history == [{}]
 
 
-def test_twelve_week_program_is_fifteen_touches_over_twelve_weeks():
-    assert _shape_counts("tm_twelveweek") == (8, 4, 3)
-    assert sorted(fa._TM_STEP_SHAPE["tm_twelveweek"]) == list(range(1, 16))
+def test_long_term_nurture_is_twelve_weekly_emails_over_twelve_weeks():
+    """Mike 2026-10-08: 12 emails, the 4 calls, one LinkedIn connect."""
+    assert _shape_counts("tm_twelveweek") == (12, 4, 1)
+    assert sorted(fa._TM_STEP_SHAPE["tm_twelveweek"]) == list(range(1, 18))
     total = sum(d for d, _ in fa._TM_STEP_SHAPE["tm_twelveweek"].values())
-    assert round(total / 5) == 12
+    assert total == 60 and round(total / 5) == 12
     t = {x[0]: x for x in fa.AICB_CAMPAIGN_TYPES}["tm_twelveweek"]
-    # Candidates here are the KIND of person ThriveModal would recruit.
-    assert "not specific people who are available" in t[6]
+    assert t[2] == "17 steps - 12 weeks"
+    # The cards are placed by code; the writer is not asked for profiles.
+    assert "not specific people who are available" not in t[6]
+    assert t[6].count("Worth a shot line") == 4
+    assert "under $11/hr" in t[6] and "$750" not in t[6]
+
+
+def _nurture_emails():
+    """Long Term Nurture as built: the step names from the registry, model
+    subjects where a step has one, and a made-up subject elsewhere that
+    would mislead keyword placement if the pins did not win."""
+    t = {x[0]: x for x in fa.AICB_CAMPAIGN_TYPES}["tm_twelveweek"]
+    models = fa._tm_step_models("tm_twelveweek")
+    subjects = {n: s for n, s, _p in fa._TM_MODEL_EMAILS}
+    out = []
+    for line in t[6].split("\n"):
+        m = re.match(r"(Step (\d+) - [^(]+?)\s*\(delay_days:\d+, step_type:(\w+)\)",
+                     line)
+        if not m:
+            continue
+        n = int(m.group(2))
+        out.append({"name": m.group(1).strip(),
+                    "subject": subjects.get(models.get(n), "Where to start on security and cost"),
+                    "body": "Hi {FirstName},<br><br>Para one.<br><br>Worth a call?",
+                    "step_type": m.group(3)})
+    return out
+
+
+def test_long_term_nurture_carries_all_eight_pdfs_one_per_step():
+    emails = _nurture_emails()
+    assert len(emails) == 17
+    kinds = fa._tm_resolve_pdf_pick(None, "tm_twelveweek", emails)
+    assert sorted(kinds) == sorted(fa._TM_CAMPAIGN_PDF_OFFERED) and len(kinds) == 8
+    placed = fa._tm_pdf_placement("tm_twelveweek", emails, kinds)
+    where = {k: emails[i]["name"] for k, i in placed.items()}
+    assert where == {
+        "tm_cost_compare": "Step 4 - Economics",
+        "tm_role_blueprint": "Step 5 - Role scope",
+        "tm_myths": "Step 6 - After the candidate joins",
+        "tm_roles_map": "Step 8 - Roles that work offshore",
+        "tm_how_it_works": "Step 10 - How it works",
+        "tm_first_90": "Step 11 - First 90 days",
+        "tm_security": "Step 14 - Security and confidentiality",
+        "market_pulse": "Step 15 - Commitment",
+    }
+    # A caller's own pin still wins over the type's.
+    placed = fa._tm_pdf_placement("tm_twelveweek", emails, ["market_pulse"],
+                                  pinned={"market_pulse": 7})
+    assert placed == {"market_pulse": 7}
+    # A pinned step that already carries a file falls back to keywords.
+    emails[13]["attachments"] = ["x.pdf"]
+    placed = fa._tm_pdf_placement("tm_twelveweek", emails, ["tm_security"])
+    assert placed["tm_security"] != 13
+    # Other types are untouched by the pin table.
+    assert fa._tm_type_pdf_pins("tm_fivebyseven", emails) == {}
 
 
 # ── the opener ─────────────────────────────────────────────────────────────
@@ -487,7 +544,7 @@ def test_pdf_library_lists_newest_first_without_redacted_resumes(tmp_path, monke
 
 def test_wizard_kinds_may_be_empty_only_with_a_library_pick():
     class S:
-        aicb_camp_type = "tm_twelveweek"
+        aicb_camp_type = "tm_conversation"
         aicb_tm_pdfs = []
         aicb_tm_library_pdfs = []
     assert fa._tm_wizard_pdf_kinds(S) == ["tm_role_blueprint", "tm_cost_compare"]

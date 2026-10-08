@@ -5895,81 +5895,101 @@ AICB_CAMPAIGN_TYPES = [
      "warm, plainly the last note. Three options to pick from: a role in "
      "mind, later, not a priority. Say you will still check in about once a "
      "month; no newsletter or list wording."),
-    # The Arena Team West 12-week BD program (15 touchpoints), rewritten for
-    # ThriveModal: the "market pulse" becomes a capacity-and-cost snapshot,
-    # the candidate snapshot becomes the kind of professional ThriveModal
-    # would recruit (never a real or available person), and the case study is
-    # limited to what the approved-proof field allows.
-    ("tm_twelveweek", "Long Term Nurture", "15 steps - 12 weeks", "#F59E0B",
-     "Fifteen touchpoints over twelve weeks: eight emails, four calls and "
-     "three LinkedIn touches. Built so a target account remembers you, sees "
-     "you as the expert on offshore capacity, and takes a 15-minute call. "
-     "Every touch carries one clear ask.",
-     "Named target accounts - long cycles - multi-threading",
+    # Long Term Nurture (Mike, 2026-10-08; it was the Arena Team West 12-week
+    # program rewritten for ThriveModal, then "Top 25 Accounts"): one email a
+    # week for twelve weeks, four calls, one LinkedIn connect. Every third
+    # email carries the candidate profile cards (emails 3, 6, 9 and 12), and
+    # each other follow-up email carries one of the eight Sales Assets PDFs.
+    # The cards and the PDFs are placed by code (_TM_PROFILE_ROUNDS and
+    # _TM_TYPE_PDF_PINS); the step lines only tell the writer what the email
+    # is about. Three threads run through it: the cost saving, reliable and
+    # better people, and "worth a shot" on one role.
+    ("tm_twelveweek", "Long Term Nurture", "17 steps - 12 weeks", "#F59E0B",
+     "One email a week for twelve weeks, with four calls and a LinkedIn "
+     "connect alongside. Candidate profiles every third email, a different "
+     "one-page document on the rest. Built to keep the cost saving, the "
+     "quality of the people and 'worth trying one role' in front of an "
+     "account that is not ready yet.",
+     "Named accounts - long cycles - steady presence",
+     "WORTH A SHOT LINE: Steps 5, 9, 13 and 16 end with one professional "
+     "sentence, before the closing question, saying one role is worth "
+     "trying: most support staff come in under $11/hr (the hourly rates on "
+     "the candidate profiles; the one dollar figure approved for this "
+     "sequence), and the companies that start with one role have mostly "
+     "kept adding. Word it differently each time, no hype, never 'cheap'.\n"
      "Step 1 - LinkedIn Connect (delay_days:0, step_type:linkedin) - Week 1. "
      "Connection note UNDER 300 characters: say you follow the company because "
      "of a SPECIFIC detail from the BRIEF, and that the sender helps companies "
      "like theirs add dedicated team members in the Philippines. Ask if they "
      "are open to connecting. No pitch, no link, no figures.\n"
-     "Step 2 - Insight email (delay_days:1, step_type:email_auto) - Week 1, "
-     "cold first touch. Subject in the shape 'A quick note on covering <work> "
-     "at <Company>'. Open with two short bullets on what is putting pressure "
-     "on teams like theirs right now, drawn from the BRIEF and the playbook's "
-     "target industries; invent no statistic. Then offer a short snapshot of "
-     "which of their roles transfer well and what one would cost. Close: worth "
-     "a 15-minute call this week?\n"
+     "Step 2 - Capacity (delay_days:1, step_type:email_auto) (model: "
+     "Capacity) - Week 1, the first email. Name the recurring work in the "
+     "BRIEF that piles up for teams like theirs and the kind of dedicated "
+     "professional who would take it on.\n"
      "Step 3 - Call 1 + voicemail (delay_days:1, step_type:call) - Week 1. "
      "Opener: reference the email, then ONE question that reveals where the "
      "pressure is - which recurring work is eating their team's week. Add a "
-     "voicemail under 20 seconds offering the snapshot.\n"
-     "Step 4 - Capacity snapshot (delay_days:5, step_type:email_auto) - Week "
-     "2. Two or three bullets and one question: the roles at this company that "
-     "most often move to a dedicated offshore professional, what stays "
-     "onshore, and whether they are planning to add capacity in the next 60 to "
-     "90 days or later.\n"
-     "Step 5 - LinkedIn message (delay_days:5, step_type:linkedin) - Week 3. A "
-     "short direct message: thanks for connecting, then one routing question - "
-     "if they added a team member for that work, who owns the decision: "
-     "Operations, Finance or the department lead? Also like or comment on a "
-     "recent company post.\n"
-     "Step 6 - Call 2, cost of waiting (delay_days:5, step_type:call) - Week "
+     "voicemail under 20 seconds offering a short cost snapshot.\n"
+     "Step 4 - Economics (delay_days:5, step_type:email_auto) (model: "
+     "Economics) - Week 2. The cost email, and the only one that states the "
+     "saving. The Staffing Cost Comparison is attached here.\n"
+     "Step 5 - Role scope (delay_days:5, step_type:email_auto) (model: Role "
+     "scope) - Week 3. Scope one role that fits this company: what the "
+     "candidate would own and what their team keeps. The system adds the "
+     "candidate profiles and the Offshore Role Blueprint here. Worth a shot "
+     "line.\n"
+     "Step 6 - After the candidate joins (delay_days:5, step_type:email_auto) "
+     "(model: After the candidate joins) - Week 4. The sender's own wording, "
+     "as the model has it. Offshore Myths vs Reality is attached here.\n"
+     "Step 7 - Call 2, cost of waiting (delay_days:1, step_type:call) - Week "
      "4. Script: when that work backs up, what breaks first - response times, "
      "overtime, quality or the team's focus on higher-value work? Close: if I "
      "send a one-page breakdown of how the role would work, would a 15-minute "
      "call be useful?\n"
-     "Step 7 - Role scope (delay_days:5, step_type:email_auto) (model: Role "
-     "scope) - Week 5. Scope one role that fits this company: what the person "
-     "would own and what their team keeps.\n"
-     "Step 8 - Who we would recruit (delay_days:5, step_type:email_auto) - "
-     "Week 6. Describe two short profiles of the KIND of professional the "
-     "sender would recruit for one of their roles (three bullets each: "
-     "experience, systems, the work they would own). Say plainly these show "
-     "the profile the sender would recruit for, not specific people who are "
-     "available. Offer a quick fit call.\n"
-     "Step 9 - Economics (delay_days:5, step_type:email_auto) (model: "
-     "Economics) - Week 7. The cost email, and the only one that states the "
-     "saving.\n"
-     "Step 10 - LinkedIn proof note (delay_days:5, step_type:linkedin) - Week "
-     "8. Short message. Cite customer proof ONLY as the approved-proof field "
-     "allows, adding no number, date or result to it; if that field approves "
-     "nothing, describe how a first role usually gets set up instead. Offer to "
-     "share what worked in two minutes.\n"
-     "Step 11 - Call 3, multi-thread (delay_days:5, step_type:call) - Week 9. "
+     "Step 8 - Roles that work offshore (delay_days:5, step_type:email_auto) "
+     "- Week 5. Which roles at a company like theirs move well to a dedicated "
+     "offshore professional, which stay in house, and where companies "
+     "usually start. Two or three short bullets at most, drawn from the "
+     "BRIEF. Roles That Work Offshore is attached here.\n"
+     "Step 9 - Quality and control (delay_days:5, step_type:email_auto) "
+     "(model: Quality and control) - Week 6. Reliable, better people: what "
+     "we screen for before they ever meet a candidate (accredited degree, "
+     "clear written English, judgement about when to escalate), said about "
+     "the candidates ThriveModal presents. The system adds the candidate "
+     "profiles here again. Worth a shot line.\n"
+     "Step 10 - How it works (delay_days:5, step_type:email_auto) - Week 7. "
+     "How an engagement runs: define the role, we recruit, they interview "
+     "and choose, onboarding, monthly check-ins. Terms only as the approved "
+     "pricing and service terms field states them. How We Work Together is "
+     "attached here.\n"
+     "Step 11 - First 90 days (delay_days:5, step_type:email_auto) - Week 8. "
+     "What happens after a yes: the handoff, access, who sets priorities, "
+     "and the first reviews. The First 90 Days Plan is attached here.\n"
+     "Step 12 - Call 3, multi-thread (delay_days:1, step_type:call) - Week 8. "
      "Routing script: who actually owns adding a team member for this work - "
      "Operations, Finance or the department lead - and is the need immediate "
      "or tied to a busy season or a new contract? Close: can we book 15 "
      "minutes to confirm what is realistic?\n"
-     "Step 12 - Industry alert (delay_days:5, step_type:email_auto) - Week 10. "
-     "One trend affecting their industry drawn from the BRIEF (no invented "
-     "statistic), what that means for teams covering that work, and two short "
-     "bullets on what is working. Offer to send a checklist.\n"
-     "Step 13 - Ask for the call (delay_days:5, step_type:email_auto) - Week "
-     "11. No pitch: offer 15 minutes to walk through which of their roles "
-     "would transfer, what it would cost, and how the client interviews and "
-     "chooses. Offer two days as options.\n"
-     "Step 14 - Close (delay_days:5, step_type:email_auto) (model: Close) - "
-     "Week 12. The last email in the sequence; a final call follows.\n"
-     "Step 15 - Final call + referral ask (delay_days:1, step_type:call) - "
+     "Step 13 - The people behind the numbers (delay_days:5, "
+     "step_type:email_auto) - Week 9. The people, not the price: dedicated "
+     "to one client, working U.S. hours inside the client's own systems, "
+     "educated and clear communicators, said about the candidates ThriveModal "
+     "presents and never about Filipinos as a group. The system adds the "
+     "candidate profiles here. Worth a shot line.\n"
+     "Step 14 - Security and confidentiality (delay_days:5, "
+     "step_type:email_auto) - Week 10. How access and data are handled: NDAs, "
+     "one-client dedication, isolated workstations and a secure VPN, "
+     "described as practices, not certifications. Security and "
+     "Confidentiality is attached here.\n"
+     "Step 15 - Commitment (delay_days:5, step_type:email_auto) (model: "
+     "Commitment) - Week 11. As the model does, widen from the target role to "
+     "the whole industry and invite a conversation about where the sender "
+     "could save them money. The Market Pulse is attached here.\n"
+     "Step 16 - Close (delay_days:5, step_type:email_auto) (model: Close) - "
+     "Week 12. The last email in the sequence; a final call follows. The "
+     "system adds two of the candidate profiles here. Worth a shot line, one "
+     "last time.\n"
+     "Step 17 - Final call + referral ask (delay_days:1, step_type:call) - "
      "Week 12. Script: if they are not the right person, who is the best "
      "contact for adding team capacity? Voicemail under 20 seconds with the "
      "same ask."),
@@ -7263,6 +7283,10 @@ _TM_EMAIL_OPENER_RULE = (
     "hire yet, one role is a low-cost way to start. Say it about the "
     "candidates ThriveModal presents, never about Filipinos as a group, and "
     "never call it cheap.\n"
+    "- THE ONE APPROVED DOLLAR FIGURE is 'most support staff under $11/hr', "
+    "the hourly rates on the candidate profiles. Model 4 uses it, and a "
+    "step line may ask for it elsewhere; nothing else states a dollar "
+    "amount.\n"
     "- THE ONBOARDING EMAIL (Model 4, After the candidate joins) is the "
     "sender's own wording and keeps three things as the model has them: it "
     "opens by asking whether they saw the last email, with most support "
@@ -16674,12 +16698,15 @@ _TM_STEP_SHAPE = {
     },
     # 15 touchpoints over 12 weeks: one touch a week (5 business days) after
     # the Week 1 launch, and two in Week 12.
+    # Long Term Nurture: one email a week (5 business days apart, a call the
+    # day after emails 1, 4 and 8, and after the close), 60 business days.
     "tm_twelveweek": {
         1: (0, ST.LINKEDIN),    2: (1, ST.EMAIL_AUTO),  3: (1, ST.CALL),
-        4: (5, ST.EMAIL_AUTO),  5: (5, ST.LINKEDIN),    6: (5, ST.CALL),
-        7: (5, ST.EMAIL_AUTO),  8: (5, ST.EMAIL_AUTO),  9: (5, ST.EMAIL_AUTO),
-        10: (5, ST.LINKEDIN),   11: (5, ST.CALL),       12: (5, ST.EMAIL_AUTO),
-        13: (5, ST.EMAIL_AUTO), 14: (5, ST.EMAIL_AUTO), 15: (1, ST.CALL),
+        4: (5, ST.EMAIL_AUTO),  5: (5, ST.EMAIL_AUTO),  6: (5, ST.EMAIL_AUTO),
+        7: (1, ST.CALL),        8: (5, ST.EMAIL_AUTO),  9: (5, ST.EMAIL_AUTO),
+        10: (5, ST.EMAIL_AUTO), 11: (5, ST.EMAIL_AUTO), 12: (1, ST.CALL),
+        13: (5, ST.EMAIL_AUTO), 14: (5, ST.EMAIL_AUTO), 15: (5, ST.EMAIL_AUTO),
+        16: (5, ST.EMAIL_AUTO), 17: (1, ST.CALL),
     },
 }
 
@@ -29902,8 +29929,9 @@ _TM_CHOOSER_OBJECTIVES = [
         "icon": "🗓️",
         "title": "Long Term Nurture",
         "use_when": "Accounts you want to stay in front of for months, not weeks.",
-        "desc": ("One touch a week for twelve weeks across email, phone and "
-                 "LinkedIn, so they remember you and take a 15-minute call."),
+        "desc": ("One email a week for twelve weeks, four calls and a LinkedIn "
+                 "connect. Candidate profiles every third email, a different "
+                 "one-page document on the rest."),
         "border": "#F59E0B",
     },
     # ── Follow up ──
@@ -48159,6 +48187,11 @@ _TM_TYPE_PDF_DEFAULT = {
     # cost email, the Blueprint on Role scope, Myths on After the candidate
     # joins ("these aren't the typical offshore agents").
     "tm_fivebyseven": ["tm_cost_compare", "tm_role_blueprint", "tm_myths"],
+    # Mike, 2026-10-08: Long Term Nurture carries all eight, one per email,
+    # each on the step written about it (_TM_TYPE_PDF_PINS).
+    "tm_twelveweek": ["tm_cost_compare", "tm_role_blueprint", "tm_myths",
+                      "tm_roles_map", "tm_how_it_works", "tm_first_90",
+                      "tm_security", "market_pulse"],
     "tm_threebythree": ["tm_cost_compare"],
     "tm_stay_in_touch": ["tm_cost_compare", "tm_how_it_works"],
     "tm_reengage": ["tm_cost_compare", "tm_how_it_works"],
@@ -48207,6 +48240,32 @@ _TM_PDF_STEP_WORDS = {
 # Matching order: the narrowest vocabulary claims its step first, so "What the
 # Role Would Cost" goes to the cost PDF rather than the blueprint's "role".
 _TM_PDF_MATCH_ORDER = list(_TM_PDF_STEP_WORDS)
+
+# Types whose step lines say which step carries which PDF: {kind: step
+# number}. Used when the caller pins nothing, so a generated subject can
+# never pull a PDF onto the wrong email. A step that cannot carry one (not
+# an email, already has a file) just falls back to keyword placement.
+_TM_TYPE_PDF_PINS = {
+    "tm_twelveweek": {
+        "tm_cost_compare": 4, "tm_role_blueprint": 5, "tm_myths": 6,
+        "tm_roles_map": 8, "tm_how_it_works": 10, "tm_first_90": 11,
+        "tm_security": 14, "market_pulse": 15,
+    },
+}
+
+
+def _tm_type_pdf_pins(camp_type, emails) -> dict:
+    """{kind: email index} from the type's step-number pins, for the steps
+    present in `emails` (found by their "Step N -" name)."""
+    by_step = _TM_TYPE_PDF_PINS.get((camp_type or "").strip()) or {}
+    if not by_step:
+        return {}
+    index = {}
+    for ei, em in enumerate(emails or []):
+        n = _fivebyfive_step_no(em.get("name"))
+        if n and n not in index:
+            index[n] = ei
+    return {k: index[n] for k, n in by_step.items() if n in index}
 
 
 def _clamp_tm_pdf_kinds(v) -> list:
@@ -48281,6 +48340,8 @@ def _tm_pdf_placement(camp_type, emails, kinds, pinned=None) -> dict:
                 if not emails[ei].get("attachments")]
     placed, used = {}, set()
     kinds = _clamp_tm_pdf_kinds(kinds)
+    if not pinned:
+        pinned = _tm_type_pdf_pins(camp_type, emails)
     for kind, ei in (pinned or {}).items():
         if kind in kinds and ei in eligible and ei not in used:
             placed[kind] = ei
@@ -63421,16 +63482,28 @@ _TM_PROFILES_AGAIN_LEAD = ("Here are those candidate profiles in our pipeline "
 _TM_PROFILES_LAST_LEAD = ("Good candidates in our pipeline get placed, so who "
                           "is available changes. Here are two of the "
                           "candidate profiles I shared, one last time:")
+# Long Term Nurture's third showing, weeks after the second.
+_TM_PROFILES_THIRD_LEAD = ("It has been a few weeks, so here are the "
+                           "candidate profiles in our pipeline for this kind "
+                           "of work once more:")
 _TM_PROFILES_LEADS = (_TM_PROFILES_LEAD, _TM_PROFILES_AGAIN_LEAD,
-                      _TM_PROFILES_LAST_LEAD)
-# type -> ((model subject, email number to fall back on, lead, how many or
-# None for all), ...)
+                      _TM_PROFILES_THIRD_LEAD, _TM_PROFILES_LAST_LEAD)
+# type -> ((model subject or None, email number to fall back on, lead, how
+# many or None for all), ...)
 _TM_PROFILE_ROUNDS = {
     "tm_fivebyseven": (
         ("A clearer scope for the role", 3, _TM_PROFILES_LEAD, None),
         ("What you would assess before hiring", 5, _TM_PROFILES_AGAIN_LEAD,
          None),
         ("Leaving this with you", 7, _TM_PROFILES_LAST_LEAD, 2),
+    ),
+    # Mike, 2026-10-08: every third email, four times, two on the close.
+    "tm_twelveweek": (
+        ("A clearer scope for the role", 3, _TM_PROFILES_LEAD, None),
+        ("What you would assess before hiring", 6, _TM_PROFILES_AGAIN_LEAD,
+         None),
+        (None, 9, _TM_PROFILES_THIRD_LEAD, None),
+        ("Leaving this with you", 12, _TM_PROFILES_LAST_LEAD, 2),
     ),
 }
 
@@ -63617,7 +63690,7 @@ def _tm_profile_rounds(camp_type, emails) -> list:
             if e.get("step_type", "") in ("email_auto", "email")]
     out, used = [], set(mail[:1])
     for subj, num, lead, cnt in rounds:
-        i = next((i for i in mail if i not in used and (
+        i = next((i for i in mail if i not in used and subj and (
             emails[i].get("subject") or "").strip().lower() == subj.lower()),
             None)
         if i is None and len(mail) >= num and mail[num - 1] not in used:

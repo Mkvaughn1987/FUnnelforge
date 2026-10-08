@@ -4,6 +4,7 @@ They must be labelled as samples, carry no pay figure, and leave Arena's
 candidate spotlights untouched."""
 import inspect
 import json
+import re
 
 import flowdrip_app as fa
 
@@ -260,6 +261,42 @@ def test_standard_outreach_shows_the_candidates_three_times():
     # The last lead never claims what happened to the third candidate.
     low = fa._TM_PROFILES_LAST_LEAD.lower()
     assert "placed one" not in low and "lost" not in low and "hired" not in low
+
+
+def test_long_term_nurture_shows_the_candidates_every_third_email():
+    """Mike 2026-10-08: emails 3, 6, 9 and 12, two of them on the close."""
+    t = {x[0]: x for x in fa.AICB_CAMPAIGN_TYPES}["tm_twelveweek"]
+    subjects = {n: s for n, s, _p in fa._TM_MODEL_EMAILS}
+    models = fa._tm_step_models("tm_twelveweek")
+    emails = []
+    for line in t[6].split("\n"):
+        m = re.match(r"(Step (\d+) - [^(]+?)\s*\(delay_days:\d+, step_type:(\w+)\)",
+                     line)
+        if m:
+            emails.append({
+                "name": m.group(1).strip(),
+                "subject": subjects.get(models.get(int(m.group(2))), ""),
+                "body": "Hi {FirstName},<br><br>Para one.<br><br>Worth a call?",
+                "step_type": m.group(3)})
+    camp = {"emails": emails}
+    for _ in range(2):                      # reruns replace, never stack
+        out = fa._tm_add_campaign_profiles(None, camp, 3, "", "",
+                                           profiles=_PROFILES,
+                                           camp_type="tm_twelveweek")
+    # Steps 5, 9, 13 and 16 are emails 3, 6, 9 and 12.
+    assert out["emails"] == [4, 8, 12, 15]
+    b = [e["body"] for e in camp["emails"]]
+    for i, lead, n in ((4, fa._TM_PROFILES_LEAD, 3),
+                       (8, fa._TM_PROFILES_AGAIN_LEAD, 3),
+                       (12, fa._TM_PROFILES_THIRD_LEAD, 3),
+                       (15, fa._TM_PROFILES_LAST_LEAD, 2)):
+        assert b[i].count(lead) == 1, i
+        assert b[i].count("<b>Candidate ") == n, i
+        assert b[i].endswith("<br><br>Worth a call?")
+        assert fa._tm_strip_campaign_profiles(b[i]) == (
+            "Hi {FirstName},<br><br>Para one.<br><br>Worth a call?")
+    others = [b[i] for i in range(len(b)) if i not in (4, 8, 12, 15)]
+    assert not any("<b>Candidate " in x for x in others)
 
 
 def test_other_types_keep_one_profile_email():
