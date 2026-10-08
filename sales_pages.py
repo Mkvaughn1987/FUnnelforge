@@ -980,6 +980,7 @@ def _company_link(s, rf, C, r, meta: str = ""):
         s._co_open = r["key"]
         s._co_q = ""
         s._co_stage = ""
+        s._co_view = "table"      # the opened row only shows in the table
         _go(s, rf, "companies", came_from="sales_dashboard")
     with ui.element("div").style(
             f"display:flex;align-items:center;gap:10px;padding:8px 0;"

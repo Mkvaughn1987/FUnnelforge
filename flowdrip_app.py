@@ -23060,6 +23060,57 @@ def _reset_ai_prompts(s):
         setattr(s, attr, v)
 
 
+# What each sidebar page looks like when you first open it: any drill-in,
+# stage, selection, open editor or tab goes back to these. Window filters
+# (_sd_days, _oa_days) and running work (_pdf_generating) are left alone.
+_PAGE_LANDING = {
+    "dashboard":       (("dash_drip_tab", None), ("launch_result", None)),
+    "drip":            (("drip_day", "today"), ("dash_drip_tab", None)),
+    "responses":       (("_resp_tab", "all"), ("_resp_page", 0)),
+    "seq_mgr":         (("_mgr_show_completed", False), ("sel_camp_name", ""),
+                        ("_mgr_detail_tab", "sequence")),
+    "queue":           (("_queue_tab", "upcoming"),),
+    "newsletters":     (("_nl_active_tab", "market"), ("_roundup_editing_id", None)),
+    "pdf_gen":         (("_pdf_stage", "pick"), ("_pdf_selected", []),
+                        ("_pdf_custom_intent", False), ("_pdf_custom_stage", "closed"),
+                        ("_pdf_custom_outline", None), ("_pdf_custom_previewing", False),
+                        ("_pdf_result", "")),
+    "companies":       (("_co_open", ""), ("_co_view", "table"), ("_co_stage", ""),
+                        ("_co_q", ""), ("_pl_show_lost", False)),
+    "active_clients":  (("_ac_show_add", False), ("_ac_show_upload", False),
+                        ("_ac_upload_pending", None), ("_ac_search", "")),
+    "sales_dashboard": (("_sd_pick", ""),),
+    "tm_analytics":    (("_oa_type", None), ("_oa_step", None), ("_oa_camp", None)),
+    "ai_settings":     (("_ai_panel_open", False), ("_api_key_revealed", False)),
+    "company_profile": (("_profile_section", "personal"),),
+    "team_settings":   (("_team_focus_domain", ""), ("_team_edit_branding", False)),
+    "dnc":             (("_dnc_search", ""),),
+    "admin":           (("_admin_tenant_expanded", set()),),
+}
+
+
+def _reset_page_view(s, k: str):
+    """Put page k back on its landing view, the way a sidebar click should
+    open it, wherever the user was inside it before."""
+    for attr, v in _PAGE_LANDING.get(k, ()):
+        setattr(s, attr, type(v)() if isinstance(v, (list, set)) else v)
+    if k in ("tm_prompts", "ai_prompts"):
+        _reset_ai_prompts(s)
+    elif k == "contacts":
+        # Same as "← All lists": close the open list, but only when it is
+        # a byte-for-byte copy of a saved list, so nothing unsaved is lost.
+        try:
+            active = _user_contacts_csv_path()
+            data = active.read_bytes() if active.exists() else None
+            if data is not None and any(
+                    Path(p).exists() and Path(p).read_bytes() == data
+                    for p in list_saved_contact_lists().values()):
+                active.unlink(missing_ok=True)
+        except Exception:
+            pass
+        s.expanded = {e for e in s.expanded if not str(e).startswith("contact_")}
+
+
 def _ai_prompts_key():
     """The AI Prompt page for this workspace, or None where it has none."""
     return _tm_nav_page_key("ai_prompt", None)
@@ -23096,7 +23147,8 @@ def _ai_prompts_card(s, rf):
 
 
 def _sidebar_nav(s, rf, k: str, setup: dict, tab: str = "",
-                 came_from: str = "", keep_state: bool = False):
+                 came_from: str = "", keep_state: bool = False,
+                 fresh: bool = False):
     """Navigate from the sidebar / page header. Mirrors the classic
     sidebar's _go() exactly: setup gate on New Campaign, back-history
     snapshot, draft auto-save + wizard reset when starting a campaign,
@@ -23108,7 +23160,11 @@ def _sidebar_nav(s, rf, k: str, setup: dict, tab: str = "",
 
     keep_state is for a page opening another page with something already
     loaded into it (Saved Prompts' "Use it"); a sidebar click never sets
-    it, so clicking AI Prompt always lands on "Pick a job"."""
+    it, so clicking AI Prompt always lands on "Pick a job".
+
+    fresh is a sidebar row click: the page opens on its landing view
+    (_reset_page_view), not on the drill-in or stage it was left on.
+    In-page jumps that preset a selection don't pass it."""
     if (k == "start_seq" and _SERVER_MODE
             and not setup.get("ready", True)
             and not getattr(s, "_setup_gate_dismissed", False)):
@@ -23119,6 +23175,8 @@ def _sidebar_nav(s, rf, k: str, setup: dict, tab: str = "",
     s.hub = "sales"      # every sidebar destination lives in the Sales hub
     s.sp = k
     s._came_from = came_from
+    if fresh and not keep_state:
+        _reset_page_view(s, k)
     if k == "dashboard":
         s.launch_result = None
     if k in ("tm_prompts", "ai_prompts") and not keep_state:
@@ -23174,13 +23232,15 @@ def _sidebar_v2(s: AppState, rf):
         pass
 
     def _go(k, tab=""):
-        _sidebar_nav(s, rf, k, _setup, tab)
+        # Every sidebar row opens its page's landing view.
+        _sidebar_nav(s, rf, k, _setup, tab, fresh=True)
 
     def _go_campaign_view(view):
         if view in ("active", "completed"):
+            _reset_page_view(s, "seq_mgr")
             s._mgr_show_completed = view == "completed"
             s.sel_camp_name = ""      # let the manager pick the first of that list
-            _go("seq_mgr")
+            _sidebar_nav(s, rf, "seq_mgr", _setup)
         elif view == "saved":
             _go("start_seq", "saved")
         else:
