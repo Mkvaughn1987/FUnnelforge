@@ -5225,6 +5225,20 @@ AICB_ROLES = {
 # Add new slate variants here to inherit all of it.
 _ARENA_SLATE_TYPES = frozenset({"fourbyfour", "fivebyfive", "fivebythree"})
 
+# Mike, 2026-10-08: the LinkedIn connect that lands on the cost email's day
+# follows two unanswered emails. It must never read as if a conversation
+# already happened ("enjoyed learning about your operation").
+_TM_LI_FOLLOWUP_NOTE = (
+    "Connection note in the body, UNDER 300 characters. It follows the two "
+    "emails already sent and nothing else: never assume a reply, a call or a "
+    "conversation happened. Three beats, in the sender's own words: they "
+    "have emailed a couple of times and wanted to connect here as well; they "
+    "specialize in placing qualified Filipino professionals in the target "
+    "industry (name the industry from the BRIEF, never 'your space'); and "
+    "they thought they might be a resource. Warm and personal, first person, "
+    "plain sentences, no pitch, no link, no figures."
+)
+
 AICB_CAMPAIGN_TYPES = [
     # ── Shortest to longest ──
     ("blitz", "Quick Sprint", "5 steps - 5 days", "#EF4444",
@@ -5607,8 +5621,7 @@ AICB_CAMPAIGN_TYPES = [
      "owns that work today and what it looks like when volume spikes. "
      "Qualifying, not closing.\n"
      "Step 4 - LinkedIn Connect (delay_days:0, step_type:linkedin) - SAME DAY "
-     "as Steps 2 and 3. Connection note in the body, UNDER 300 characters, no "
-     "pitch, no link, no figures.\n"
+     "as Steps 2 and 3. " + _TM_LI_FOLLOWUP_NOTE + "\n"
      "Step 5 - Role scope (delay_days:2, step_type:email_auto) (model: Role "
      "scope) - Name the tasks the person would own in one role that fits this "
      "company and what the client's team keeps. Name the position the way the "
@@ -5793,8 +5806,7 @@ AICB_CAMPAIGN_TYPES = [
      "owns that work today and what the role would need to cover. Qualifying, "
      "not closing.\n"
      "Step 4 - LinkedIn Connect (delay_days:0, step_type:linkedin) - SAME DAY "
-     "as Steps 2 and 3. Connection note in the body, UNDER 300 characters, no "
-     "pitch, no link, no figures.\n"
+     "as Steps 2 and 3. " + _TM_LI_FOLLOWUP_NOTE + "\n"
      "Step 5 - Role scope (delay_days:3, step_type:email_auto) (model: Role "
      "scope) - Name the tasks the person would own in the target role and what "
      "the client's team keeps, drawn from the BRIEF. Name the position the way "
