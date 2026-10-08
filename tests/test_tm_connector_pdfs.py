@@ -113,7 +113,8 @@ def test_set_replaces_sales_assets_and_keeps_hand_uploads():
     assert em[1].get("attachments") == [] and _BLUEPRINT_LINE not in em[1]["body"]
     assert em[3]["attachments"] == ["my_own_upload.pdf"]
     assert em[5]["attachments"] == ["Staffing Cost Comparison Acme.pdf"]
-    assert em[5]["body"].startswith(f"Hi {{FirstName}},<br><br>{_COST_LINE}")
+    # The line closes the email (Mike 2026-10-08), after the body.
+    assert em[5]["body"] == f"Hi {{FirstName}},<br><br>Body.<br><br>{_COST_LINE}"
     assert res["pdfs"] == [{"kind": "tm_cost_compare",
                             "label": "Staffing Cost Comparison",
                             "file": "Staffing Cost Comparison Acme.pdf",
@@ -152,6 +153,8 @@ def test_subject_comes_from_variables_and_overrides_win():
 
 def test_pending_queue_items_pick_up_the_change(monkeypatch, tmp_path):
     monkeypatch.setattr(fa, "_user_pdf_dir", lambda: tmp_path)
+    # Queued bodies carry the signature; the PDF line goes before it.
+    monkeypatch.setattr(fa, "_load_signature_text", lambda: "Sig")
     camp = _saved_campaign()
     fa._tm_set_campaign_pdfs(camp, ["tm_cost_compare"], {"tm_cost_compare": 5},
                              fa._tm_campaign_pdf_subject(camp), build=_stub_build)
@@ -171,9 +174,18 @@ def test_pending_queue_items_pick_up_the_change(monkeypatch, tmp_path):
     assert queue[0]["attachments"] == []
     assert queue[0]["body"] == "Hi Bob,<br><br>Body.<br><br>Sig"
     assert queue[1]["attachments"] == [str(tmp_path / "Staffing Cost Comparison Acme.pdf")]
-    assert queue[1]["body"] == f"Hi Bob,<br><br>{_COST_LINE}<br><br>Body.<br><br>Sig"
+    assert queue[1]["body"] == f"Hi Bob,<br><br>Body.<br><br>{_COST_LINE}<br><br>Sig"
     assert queue[2]["attachments"] == [old_path]
     assert queue[3]["attachments"] == [old_path]
+    # No signature on file: the line simply closes the body.
+    monkeypatch.setattr(fa, "_load_signature_text", lambda: "")
+    assert fa._tm_insert_pdf_line_rendered("Hi Bob,<br><br>Body.", "L") == \
+        "Hi Bob,<br><br>Body.<br><br>L"
+    # A multi-line signature is matched as the queue wrote it.
+    monkeypatch.setattr(fa, "_load_signature_text", lambda: "Mike\nThriveModal")
+    assert fa._tm_insert_pdf_line_rendered(
+        "Hi Bob,<br><br>Body.<br><br>Mike<br>ThriveModal", "L") == \
+        "Hi Bob,<br><br>Body.<br><br>L<br><br>Mike<br>ThriveModal"
 
 
 # ── the route ──────────────────────────────────────────────────────────────

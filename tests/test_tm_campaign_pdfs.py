@@ -22,8 +22,11 @@ def test_campaigns_offer_the_sales_assets_set_top_three_first():
     assert set(kinds) == {"tm_role_blueprint", "tm_cost_compare",
                           "tm_how_it_works", "tm_myths", "tm_roles_map",
                           "tm_first_90", "tm_security", "market_pulse"}
-    for _k, _label, line in fa._TM_CAMPAIGN_PDF_KINDS:
-        assert line.startswith("I've attached")
+    for _k, label, line in fa._TM_CAMPAIGN_PDF_KINDS:
+        # Mike 2026-10-08: "I attached this (Name of PDF) for your review.
+        # It explains why ..."
+        assert line.startswith("I attached ")
+        assert f"{label} for your review. It explains " in line
 
 
 def test_old_arena_and_static_kinds_are_not_offered():
@@ -74,7 +77,7 @@ def test_every_offered_type_places_its_default_never_first_or_call():
     for ct in fa._TM_OFFERED_TYPE_KEYS:
         camp = _campaign(ct)
         kinds = fa._tm_default_pdf_kinds(ct, camp["emails"])
-        assert 1 <= len(kinds) <= 2, ct
+        assert 1 <= len(kinds) <= 3, ct
         assert set(kinds) <= set(fa._TM_CAMPAIGN_PDF_OFFERED), ct
         placed = fa._tm_pdf_placement(ct, camp["emails"], kinds)
         assert len(placed) == min(len(kinds), len(
@@ -109,9 +112,77 @@ def test_attach_adds_file_and_line_only_where_placed():
     assert n == 1
     carrying = [e for e in camp["emails"] if e.get("attachments")]
     assert len(carrying) == 1 and carrying[0] is not camp["emails"][0]
-    assert carrying[0]["body"].startswith("Hi {FirstName},<br><br>I've attached")
+    # The line closes the email, after its question, never after the greeting.
+    assert carrying[0]["body"] == (
+        "Hi {FirstName},<br><br>Body.<br><br>I attached How We Work Together "
+        "for your review. It explains how an engagement runs, from defining "
+        "the role through your interviews and onboarding.")
     # The unbacked-promise scrub keeps the line because the file is attached.
     assert "attached" in fa._tm_drop_unbacked_lines(carrying[0]["body"], True)
+
+
+def test_standard_outreach_carries_three_cost_blueprint_and_myths():
+    """Mike 2026-10-08: three PDFs on Standard Outreach. Cost on the cost
+    email, the Blueprint on Role scope, Myths on After the candidate joins."""
+    assert fa._tm_resolve_pdf_pick(None, "tm_fivebyseven") == [
+        "tm_cost_compare", "tm_role_blueprint", "tm_myths"]
+    steps = {t[0]: t for t in fa.AICB_CAMPAIGN_TYPES}["tm_fivebyseven"][6]
+    subj = {n: s for n, s, _p in fa._TM_MODEL_EMAILS}
+    models = fa._tm_step_models("tm_fivebyseven")
+    emails = []
+    for i, line in enumerate(steps.split("\n"), 1):
+        typ = line.split("step_type:")[1].split(")")[0]
+        emails.append({"name": line.split(" (")[0],
+                       "subject": subj.get(models.get(i), ""),
+                       "body": "Hi {FirstName},<br><br>One.<br><br>Ask?",
+                       "step_type": typ})
+    placed = fa._tm_pdf_placement(
+        "tm_fivebyseven", emails, fa._tm_default_pdf_kinds("tm_fivebyseven"))
+    assert {k: emails[i]["name"] for k, i in placed.items()} == {
+        "tm_cost_compare": "Step 2 - Economics",
+        "tm_role_blueprint": "Step 5 - Role scope",
+        "tm_myths": "Step 6 - After the candidate joins"}
+    # Myths beats How We Work Together for the onboarding email when both
+    # are picked; How We Work Together still finds the Commitment email.
+    both = fa._tm_pdf_placement("tm_fivebyseven", emails,
+                                ["tm_how_it_works", "tm_myths"])
+    assert emails[both["tm_myths"]]["name"] == "Step 6 - After the candidate joins"
+    assert emails[both["tm_how_it_works"]]["name"] == "Step 9 - Commitment"
+
+
+def test_profiles_go_before_the_ask_and_the_pdf_line_stays_last():
+    body = ("Hi {FirstName},<br><br>One.<br><br>Ask?<br><br>I attached the "
+            "Market Pulse for your review. It explains x.")
+    out = fa._tm_insert_profiles(body, "PROFILES")
+    assert out == ("Hi {FirstName},<br><br>One.<br><br>PROFILES<br><br>Ask?"
+                   "<br><br>I attached the Market Pulse for your review. It "
+                   "explains x.")
+    # Without a PDF line the behaviour is unchanged.
+    assert fa._tm_insert_profiles("Hi {FirstName},<br><br>One.<br><br>Ask?",
+                                  "P") == "Hi {FirstName},<br><br>One.<br><br>P<br><br>Ask?"
+
+
+def test_remove_pdf_lines_handles_end_greeting_and_legacy_lines():
+    new = fa._TM_CAMPAIGN_PDF_KINDS[1][2]
+    old = fa._TM_OLD_PDF_LINES[1]
+    assert fa._tm_remove_pdf_lines(f"Hi {{FirstName}},<br><br>Body.<br><br>{new}") == \
+        "Hi {FirstName},<br><br>Body."
+    assert fa._tm_remove_pdf_lines(f"Hi {{FirstName}},<br><br>{old}<br><br>Body.") == \
+        "Hi {FirstName},<br><br>Body."
+    assert fa._tm_remove_pdf_lines(new) == ""
+    # A saved campaign with the old line gets the new one on refresh, once.
+    em = {"name": "Step 2 - Economics", "subject": "", "step_type": "email_auto",
+          "body": f"Hi {{FirstName}},<br><br>{old}<br><br>Body.<br><br>Ask?",
+          "attachments": ["Staffing Cost Comparison X.pdf"]}
+    emails = [{"name": "Step 1 - Capacity", "subject": "", "body": "Hi {FirstName},<br><br>a",
+               "step_type": "email_auto"}, em]
+    fa._tm_strip_campaign_pdfs(emails)
+    assert em["attachments"] == []
+    assert em["body"] == "Hi {FirstName},<br><br>Body.<br><br>Ask?"
+    fa._tm_attach_campaign_pdfs("tm_fivebyseven", {"emails": emails},
+                                {"tm_cost_compare": "Staffing Cost Comparison X.pdf"})
+    assert em["body"] == f"Hi {{FirstName}},<br><br>Body.<br><br>Ask?<br><br>{new}"
+    assert "I've attached" not in em["body"]
 
 
 def test_nothing_built_attaches_nothing():
@@ -137,19 +208,19 @@ def test_refresh_replaces_old_pdfs_and_is_rerunnable():
     for _ in range(2):
         out = fa._tm_refresh_campaign_pdfs(camp, "", "Estimator", "Denver, CO",
                                            build=fake_build)
-    assert calls[-1] == (("tm_role_blueprint", "tm_cost_compare"), "",
-                         "Estimator", "Denver, CO")
+    assert calls[-1] == (("tm_cost_compare", "tm_role_blueprint", "tm_myths"),
+                         "", "Estimator", "Denver, CO")
     atts = [a for e in camp["emails"] for a in (e.get("attachments") or [])]
     assert "Salary_Guide_Construction.pdf" not in atts
     assert "my_upload.docx" in atts  # a hand upload is never touched
-    assert sorted(a for a in atts if a.endswith(".pdf")) == [
-        "Offshore Role Blueprint Estimator.pdf",
-        "Staffing Cost Comparison Estimator.pdf"]
-    assert out["attached"] == 2
+    assert sorted(a for a in atts if a.endswith(".pdf")) == sorted(
+        fa._tm_campaign_pdf_filename(k, "Estimator")
+        for k in ("tm_cost_compare", "tm_role_blueprint", "tm_myths"))
+    assert out["attached"] == 3
     assert not camp["emails"][0].get("attachments")
-    # Running twice does not stack the "I've attached" line.
+    # Running twice does not stack the "I attached" line.
     bodies = " ".join(e["body"] for e in camp["emails"])
-    assert bodies.count("I've attached") == 2
+    assert bodies.count("I attached") == 3
 
 
 def test_thrivemodal_workspace_never_builds_the_old_arena_pdfs():
@@ -338,7 +409,9 @@ def test_opener_keeps_the_savings_claim_inside_the_rules():
     assert "up to sixty to seventy percent" in r
     assert "depending on the role" in r
     assert "no email ever gives a dollar amount" in r
-    assert "$" not in r
+    # The one approved figure is Mike's $11/hr line in the onboarding model
+    # (2026-10-08); nothing else in the rule carries a dollar sign.
+    assert r.count("$") == r.count("$11/hr") > 0
 
 
 def test_arena_types_never_get_the_opener(monkeypatch):
@@ -393,7 +466,8 @@ def test_library_pdfs_attach_as_is_on_the_least_loaded_email(tmp_path, monkeypat
                 if "ThriveModal Onboarding Checklist.pdf" in (e.get("attachments") or [])]
     assert len(carrying) == 1
     assert carrying[0].get("attachments") == ["ThriveModal Onboarding Checklist.pdf"]
-    assert "I've attached ThriveModal Onboarding Checklist" in carrying[0]["body"]
+    assert carrying[0]["body"].endswith(
+        "<br><br>I attached ThriveModal Onboarding Checklist for your review.")
     assert not camp["emails"][0].get("attachments")
     # Attaching again is a no-op.
     assert fa._tm_attach_library_pdfs(

@@ -113,7 +113,7 @@ def test_campaigns_offer_the_new_kinds_and_not_the_interview_guide():
     assert set(fa._TM_CAMPAIGN_PDF_BLURBS) == set(kinds)
     assert set(fa._TM_PDF_STEP_WORDS) == set(kinds)
     for _k, _l, line in fa._TM_CAMPAIGN_PDF_KINDS:
-        assert line.startswith("I've attached")
+        assert line.startswith("I attached ")
 
 
 def test_sales_assets_menu_matches():

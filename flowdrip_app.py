@@ -5637,8 +5637,12 @@ AICB_CAMPAIGN_TYPES = [
      "(model: Quality and control) - Name two or three skills that matter for "
      "the role you scoped in Step 5.\n"
      "Step 9 - Commitment (delay_days:4, step_type:email_auto) (model: "
-     "Commitment) - As the model does, offer to put the scope and current "
-     "commercial terms in front of them for review; do not list the terms.\n"
+     "Commitment) - As the model does, widen from the target role to the "
+     "whole industry: name the kinds of work companies in the BRIEF's "
+     "industry hand to dedicated Philippines-based staff, speak to past "
+     "success in that industry the way the model does (no number, date or "
+     "customer name added), and invite a conversation to see where the "
+     "sender could save them money.\n"
      "Step 10 - Follow-up Call 3 (delay_days:0, step_type:call) - SAME DAY as "
      "Step 9. Direct script: is there one role worth pricing out, yes or no. "
      "Voicemail line under 20 seconds saying one more email is coming.\n"
@@ -5823,8 +5827,12 @@ AICB_CAMPAIGN_TYPES = [
      "Step 7. Script: ask which skill would matter most for the role and who "
      "would interview. Voicemail line under 20 seconds.\n"
      "Step 9 - Commitment (delay_days:4, step_type:email_auto) (model: "
-     "Commitment) - As the model does, offer to put the scope and current "
-     "commercial terms in front of them for review; do not list the terms.\n"
+     "Commitment) - As the model does, widen from the target role to the "
+     "whole industry: name the kinds of work companies in the BRIEF's "
+     "industry hand to dedicated Philippines-based staff, speak to past "
+     "success in that industry the way the model does (no number, date or "
+     "customer name added), and invite a conversation to see where the "
+     "sender could save them money.\n"
      "Step 10 - Close (delay_days:5, step_type:email_auto) (model: Close) - "
      "The last email in the sequence. Honest and warm, no pressure: keep the "
      "model's promise to stay in touch about once a month, say plainly that a "
@@ -7141,14 +7149,22 @@ _TM_MODEL_EMAILS = [
         "moving. Your team still sets the process, makes the approval calls "
         "and handles the exceptions.",
         "Does that sound close to the work you're carrying today?")),
+    # Mike rewrote this one 2026-10-08 ("professional but don't change
+    # anything"): it opens on the hourly rates the profile cards showed in
+    # the email before it, and carries his own placement claim.
     ("After the candidate joins", "After the candidate joins", (
-        "Honestly, choosing the candidate is the easy part. Getting them up "
-        "to speed takes a clear handoff, access to the right systems and "
-        "someone to set priorities for the first few weeks.",
+        "Did you have a chance to look at my last email, with most support "
+        "staff under $11/hr? Honestly, choosing the candidate is the easy "
+        "part. Getting them up to speed takes a clear handoff, access to the "
+        "right systems and someone to set priorities for the first few "
+        "weeks.",
         "We help set that up before day one and stay involved afterwards, "
         "with monthly check-ins and quarterly reviews. Your team directs the "
         "day-to-day work.",
-        "Would a short onboarding checklist be useful?")),
+        "Our team has placed thousands of Filipino professionals who are "
+        "thriving and saving companies money. These aren't the typical "
+        "offshore agents you reach when you call your insurance company.",
+        "Let me know if I can give you more information.")),
     ("Quality and control", "What you would assess before hiring", (
         "Hope your week's going well. I wanted to follow up with something "
         "I'd want to know if I were in your seat.",
@@ -7157,14 +7173,19 @@ _TM_MODEL_EMAILS = [
         "know when to escalate. We recruit against your requirements, and "
         "you interview everyone before choosing.",
         "Which of those would matter most to you?")),
-    ("Commitment", "Start with the role requirements", (
-        "No pressure on this one. You can look at one role without deciding "
-        "anything bigger.",
-        "If you have a job description lying around, that's a good place to "
-        "start. We can talk through the experience, hours and "
-        "responsibilities, then put the scope and current commercial terms "
-        "in front of you to review.",
-        "Is there one you could send over?")),
+    # Mike 2026-10-08: not one job, the whole industry; past success; and
+    # "it wouldn't hurt to have a conversation to see how I can save you
+    # money".
+    ("Commitment", "Worth a quick conversation?", (
+        "No pressure on this one. I don't want to pin this to a single role, "
+        "because the companies we work with in your industry use dedicated "
+        "Philippines-based staff across operations, accounting, customer "
+        "support and back-office work.",
+        "We've placed people in those seats for companies a lot like yours, "
+        "and the ones who started with one role have mostly kept adding. The "
+        "first hire is usually the one that proves it out.",
+        "It wouldn't hurt to have a conversation to see where I could save "
+        "you money. Would a 15-minute call next week work?")),
     ("Close", "Leaving this with you", (
         "I don't want to keep filling your inbox, so this is my last note "
         "for now. I'll still check in about once a month with a short, "
@@ -7242,6 +7263,17 @@ _TM_EMAIL_OPENER_RULE = (
     "hire yet, one role is a low-cost way to start. Say it about the "
     "candidates ThriveModal presents, never about Filipinos as a group, and "
     "never call it cheap.\n"
+    "- THE ONBOARDING EMAIL (Model 4, After the candidate joins) is the "
+    "sender's own wording and keeps three things as the model has them: it "
+    "opens by asking whether they saw the last email, with most support "
+    "staff under $11/hr (the hourly rates on the candidate profiles already "
+    "sent; this one figure is approved and exempt from the no-dollar rule); "
+    "it says our team has placed thousands of Filipino professionals who are "
+    "thriving and saving companies money, and that these aren't the typical "
+    "offshore agents you reach when you call your insurance company (the "
+    "sender's own claim, exempt from the proof rule); and it closes with "
+    "'Let me know if I can give you more information.' rather than a "
+    "question.\n"
     "- THE LAST EMAIL of the campaign says plainly that this is your final "
     "note in this sequence, and that you will still check in about once a "
     "month with a short personal note, as Model 7 does. Never call it a "
@@ -48014,34 +48046,81 @@ def _aicb_attach_pdfs(pdf_data: dict, campaign_data: dict, company: str,
 # Assets page uses, so a campaign never ships a document that disagrees with
 # what the rep would build by hand. Order is priority: the first three are the
 # core set (Mike, 2026-09-19: "the top 3 are the most important").
-# (kind, label, line added to the email that carries it)
+# (kind, label, line added to the END of the email that carries it). Mike,
+# 2026-10-08: the email ends with "I attached the <PDF> for your review. It
+# explains why ...", after the closing question, never after the greeting.
 _TM_CAMPAIGN_PDF_KINDS = [
     ("tm_role_blueprint", "Offshore Role Blueprint",
-     "I've attached a short blueprint for the role: what it covers, the "
-     "skills and systems we recruit for, and how you would oversee it."),
+     "I attached the Offshore Role Blueprint for your review. It explains "
+     "what the role covers, the skills and systems we recruit for, and how "
+     "you would oversee it."),
     ("tm_cost_compare", "Staffing Cost Comparison",
-     "I've attached a one-page cost comparison for the role, a U.S. hire "
-     "beside a dedicated professional in the Philippines."),
+     "I attached the Staffing Cost Comparison for your review. It explains "
+     "where the saving comes from, a U.S. hire beside a dedicated "
+     "professional in the Philippines, line by line."),
     ("tm_how_it_works", "How We Work Together",
-     "I've attached a one-page overview of how an engagement runs, from "
-     "defining the role through your interviews and onboarding."),
+     "I attached How We Work Together for your review. It explains how an "
+     "engagement runs, from defining the role through your interviews and "
+     "onboarding."),
     # Mike, 2026-10-07: four new kinds in place of the Interview Guide.
     ("tm_myths", "Offshore Myths vs Reality",
-     "I've attached a one-pager on the worries people have about offshore "
-     "staffing and how each one is handled in a dedicated engagement."),
+     "I attached Offshore Myths vs Reality for your review. It explains why "
+     "the usual worries about hiring offshore play out differently with a "
+     "dedicated professional, one worry at a time."),
     ("tm_roles_map", "Roles That Work Offshore",
-     "I've attached a short map of which roles in a business like yours "
-     "work well offshore, which stay in house, and where to start."),
+     "I attached Roles That Work Offshore for your review. It explains which "
+     "roles in a business like yours work well offshore, which stay in "
+     "house, and where to start."),
     ("tm_first_90", "First 90 Days Plan",
-     "I've attached a suggested first 90 days plan, so you can see what "
-     "happens after a yes and who does what."),
+     "I attached the First 90 Days Plan for your review. It explains what "
+     "happens after a yes and who does what in the first three months."),
     ("tm_security", "Security and Confidentiality",
-     "I've attached a one-pager on how your systems and data are protected "
-     "when a dedicated team member works inside them."),
+     "I attached Security and Confidentiality for your review. It explains "
+     "how your systems and data are protected when a dedicated team member "
+     "works inside them."),
     ("market_pulse", "Market Pulse",
-     "I've attached a short briefing on why teams in your industry are "
-     "moving roles offshore and which roles fit."),
+     "I attached the Market Pulse for your review. It explains why teams in "
+     "your industry are moving roles offshore and which roles fit."),
 ]
+# The after-greeting lines campaigns carried before 2026-10-08, kept so a
+# refresh or PDF swap still strips them from saved campaigns and queues.
+_TM_OLD_PDF_LINES = (
+    "I've attached a short blueprint for the role: what it covers, the "
+    "skills and systems we recruit for, and how you would oversee it.",
+    "I've attached a one-page cost comparison for the role, a U.S. hire "
+    "beside a dedicated professional in the Philippines.",
+    "I've attached a one-page overview of how an engagement runs, from "
+    "defining the role through your interviews and onboarding.",
+    "I've attached a one-pager on the worries people have about offshore "
+    "staffing and how each one is handled in a dedicated engagement.",
+    "I've attached a one-pager on the worries people have about offshore "
+    "staff augmentation and how each one is handled in a dedicated engagement.",
+    "I've attached a short map of which roles in a business like yours "
+    "work well offshore, which stay in house, and where to start.",
+    "I've attached a suggested first 90 days plan, so you can see what "
+    "happens after a yes and who does what.",
+    "I've attached a one-pager on how your systems and data are protected "
+    "when a dedicated team member works inside them.",
+    "I've attached a short briefing on why teams in your industry are "
+    "moving roles offshore and which roles fit.",
+    "I've attached a short guide to interviewing candidates in the "
+    "Philippines for the role, so you can tell quickly who fits.",
+)
+# A paragraph that announces an attachment, as written by _tm_insert_pdf_line.
+_TM_PDF_LINE_RE = re.compile(r"^\s*I(?:'ve)? attached\b", re.IGNORECASE)
+
+
+def _tm_remove_pdf_lines(body: str) -> str:
+    """Drop every attachment line this module ever wrote, wherever it sits
+    (after the greeting, at the end, or alone), closing the gap it leaves."""
+    body = body or ""
+    for line in [l for _k, _l, l in _TM_CAMPAIGN_PDF_KINDS] + list(_TM_OLD_PDF_LINES):
+        if line not in body:
+            continue
+        body = (body.replace("<br><br>" + line, "")
+                    .replace(line + "<br><br>", "")
+                    .replace(line, ""))
+    return body
 # Kinds campaigns and the Sales Assets page stopped offering, kept so a saved
 # campaign or PDF still shows a readable label. (kind, label)
 _TM_RETIRED_PDF_LABELS = {"interview_guide": "Interview Guide"}
@@ -48076,6 +48155,10 @@ TM_CAMPAIGN_PDF_DEFAULT = ["tm_role_blueprint", "tm_cost_compare"]
 # placement finds a step that fits each PDF. Quick Intro has two emails that
 # can carry a file and is a fast read, so it carries one.
 _TM_TYPE_PDF_DEFAULT = {
+    # Mike, 2026-10-08: Standard Outreach carries three. Cost lands on the
+    # cost email, the Blueprint on Role scope, Myths on After the candidate
+    # joins ("these aren't the typical offshore agents").
+    "tm_fivebyseven": ["tm_cost_compare", "tm_role_blueprint", "tm_myths"],
     "tm_threebythree": ["tm_cost_compare"],
     "tm_stay_in_touch": ["tm_cost_compare", "tm_how_it_works"],
     "tm_reengage": ["tm_cost_compare", "tm_how_it_works"],
@@ -48100,6 +48183,10 @@ _TM_LEGACY_PDF_LABELS = [
 _TM_PDF_STEP_WORDS = {
     "tm_cost_compare": ("cost", "economics", "math", "saving", "budget",
                         "pricing"),
+    # Before How We Work Together so Myths, not it, claims the onboarding
+    # email ("joins") when both are picked.
+    "tm_myths": ("after the candidate joins", "myth", "objection", "worry",
+                 "concern", "doubt", "hesitat", "risk"),
     "tm_how_it_works": ("how it works", "commitment", "control", "terms",
                         "after the hire", "after selection", "joins",
                         "no risk",
@@ -48110,8 +48197,6 @@ _TM_PDF_STEP_WORDS = {
                     "access"),
     "tm_first_90": ("90 days", "first 90", "onboard", "first month",
                     "day one", "ramp", "first weeks"),
-    "tm_myths": ("myth", "objection", "worry", "concern", "doubt",
-                 "hesitat", "risk"),
     "tm_roles_map": ("which roles", "where to start", "roles that",
                      "what to offshore", "seat"),
     "tm_role_blueprint": ("blueprint", "scope", "transfer", "requirement",
@@ -48243,12 +48328,11 @@ def _tm_pdf_placement(camp_type, emails, kinds, pinned=None) -> dict:
 
 
 def _tm_insert_pdf_line(body: str, line: str) -> str:
-    """Put the attachment line right after the greeting."""
-    body = body or ""
-    m = re.match(r'(Hi\s+\{[^}]+\},?\s*(?:<br\s*/?>\s*)*)', body, re.IGNORECASE)
-    if m:
-        return f"{m.group(1)}{line}<br><br>{body[len(m.group(1)):]}"
-    return f"{line}<br><br>{body}"
+    """Put the attachment line at the end of the email, after its closing
+    question (Mike, 2026-10-08; it used to follow the greeting)."""
+    body = (body or "").rstrip()
+    body = re.sub(r"(?:\s*<br\s*/?>)+$", "", body, flags=re.IGNORECASE)
+    return f"{body}<br><br>{line}" if body else line
 
 
 def _tm_attach_campaign_pdfs(camp_type, campaign_data, built: dict,
@@ -48284,7 +48368,7 @@ def _tm_attach_library_pdfs(campaign_data, files) -> int:
         title = _tm_asset_row(p)["title"]
         emails[ei]["attachments"] = list(emails[ei].get("attachments") or []) + [p.name]
         emails[ei]["body"] = _tm_insert_pdf_line(
-            emails[ei].get("body"), f"I've attached {title}, in case it is useful.")
+            emails[ei].get("body"), f"I attached {title} for your review.")
         print(f"[AICB] TM: attached library PDF {p.name} to email {ei + 1}", flush=True)
         n += 1
     return n
@@ -48401,7 +48485,6 @@ _TM_REPLACEABLE_PDF_PREFIXES = tuple(
 def _tm_strip_campaign_pdfs(emails) -> int:
     """Drop replaceable PDFs and the lines that announced them. Returns the
     number of attachments removed."""
-    lines = [line for _k, _l, line in _TM_CAMPAIGN_PDF_KINDS]
     removed = 0
     for em in emails or []:
         atts = em.get("attachments") or []
@@ -48410,10 +48493,7 @@ def _tm_strip_campaign_pdfs(emails) -> int:
         removed += len(atts) - len(keep)
         if len(keep) != len(atts):
             em["attachments"] = keep
-        body = em.get("body") or ""
-        for line in lines:
-            body = body.replace(line + "<br><br>", "").replace(line, "")
-        em["body"] = body
+        em["body"] = _tm_remove_pdf_lines(em.get("body") or "")
     return removed
 
 
@@ -48536,13 +48616,19 @@ def _tm_pdf_report(emails, built) -> list:
 
 def _tm_insert_pdf_line_rendered(body: str, line: str) -> str:
     """_tm_insert_pdf_line for a queued body, where {FirstName} is already
-    the contact's name."""
+    the contact's name and the signature is baked on the end. The line goes
+    after the email's last paragraph and before the signature, matched the
+    way queue_campaign_emails wrote it (body + <br><br> + signature)."""
     body = body or ""
-    m = re.match(r'(Hi\s+[^,<\n]{1,60},?\s*(?:<br\s*/?>\s*)*)', body,
-                 re.IGNORECASE)
-    if m:
-        return f"{m.group(1)}{line}<br><br>{body[len(m.group(1)):]}"
-    return f"{line}<br><br>{body}"
+    try:
+        sig = (_load_signature_text() or "").replace("\n", "<br>").lstrip("<br>")
+    except Exception:
+        sig = ""
+    if sig:
+        idx = body.rfind("<br><br>" + sig)
+        if idx > 0:
+            return _tm_insert_pdf_line(body[:idx], line) + body[idx:]
+    return _tm_insert_pdf_line(body, line)
 
 
 def _tm_sync_queue_pdfs(camp, queue: list) -> int:
@@ -48570,8 +48656,7 @@ def _tm_sync_queue_pdfs(camp, queue: list) -> int:
         body = it.get("body") or ""
         new_body = body
         if body:
-            for line in lines.values():
-                new_body = new_body.replace(line + "<br><br>", "").replace(line, "")
+            new_body = _tm_remove_pdf_lines(new_body)
             for a in step_atts:
                 if a in line_for_file:
                     new_body = _tm_insert_pdf_line_rendered(new_body, line_for_file[a])
@@ -63544,11 +63629,18 @@ def _tm_profile_rounds(camp_type, emails) -> list:
 
 
 def _tm_insert_profiles(body: str, block: str) -> str:
-    """Set the profiles in before the email's closing paragraph (its ask)."""
+    """Set the profiles in before the email's closing paragraph (its ask).
+    An attachment line at the end of the email is not the ask: it stays
+    last, after the question."""
     paras = re.split(r"(?:<br\s*/?>\s*){2,}", body or "")
+    trailing = []
+    while paras and _TM_PDF_LINE_RE.match(paras[-1] or ""):
+        trailing.insert(0, paras.pop())
     if len(paras) >= 3:
-        return "<br><br>".join(paras[:-1] + [block, paras[-1]])
-    return "<br><br>".join([p for p in paras if p.strip()] + [block])
+        out = paras[:-1] + [block, paras[-1]]
+    else:
+        out = [p for p in paras if p.strip()] + [block]
+    return "<br><br>".join(out + trailing)
 
 
 def _tm_add_campaign_profiles(client, campaign_data, n, roles, niche,

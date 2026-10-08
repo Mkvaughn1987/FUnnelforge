@@ -20,7 +20,7 @@ def test_the_seven_models_and_their_subjects():
         ("Role scope", "A clearer scope for the role"),
         ("After the candidate joins", "After the candidate joins"),
         ("Quality and control", "What you would assess before hiring"),
-        ("Commitment", "Start with the role requirements"),
+        ("Commitment", "Worth a quick conversation?"),
         ("Close", "Leaving this with you"),
     ]
 
@@ -35,7 +35,40 @@ def test_models_carry_the_kept_lines_and_nothing_dropped():
         assert "offshore staffing" not in t.lower(), n
         if n != "Economics":
             assert "percent" not in t, n
-        assert "$" not in t, n
+        if n != "After the candidate joins":
+            assert "$" not in t, n
+
+
+def test_onboarding_model_is_mikes_2026_10_08_wording():
+    """Mike: professional, but change nothing. The $11/hr line and the
+    placement claim are his, and the house style exempts them."""
+    text = {n: " ".join(p) for n, _s, p in fa._TM_MODEL_EMAILS}
+    t = text["After the candidate joins"]
+    assert t.startswith("Did you have a chance to look at my last email, "
+                        "with most support staff under $11/hr?")
+    assert "choosing the candidate is the easy part" in t
+    assert "monthly check-ins and quarterly reviews" in t
+    assert ("placed thousands of Filipino professionals who are thriving "
+            "and saving companies money") in t
+    assert "call your insurance company" in t
+    assert t.endswith("Let me know if I can give you more information.")
+    rule = fa._TM_EMAIL_OPENER_RULE
+    assert "THE ONBOARDING EMAIL (Model 4" in rule
+    # Same day: the Commitment email is industry-wide, not one job, talks
+    # about past success and asks for a conversation about saving money.
+    c = text["Commitment"]
+    assert "pin this to a single role" in c
+    assert "companies we work with in your industry" in c
+    assert "placed people in those seats" in c
+    assert "see where I could save you money" in c
+    assert "job description" not in c
+    for key in ("tm_fivebyseven", "tm_conversation"):
+        line = next(s for s in REG[key][6].split("\n")
+                    if s.startswith("Step 9 - Commitment"))
+        assert "widen from the target role to the whole industry" in line
+        assert "commercial terms" not in line
+    assert "exempt from the no-dollar rule" in rule
+    assert "exempt from the proof rule" in rule
 
 
 def test_rule_embeds_every_model():
