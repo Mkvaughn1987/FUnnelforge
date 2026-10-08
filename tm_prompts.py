@@ -1242,21 +1242,17 @@ SEQUENCES = [
     "Priority Account Push",
     "They're Hiring",
     "Long Term Nurture",
-    "Stay on Their Radar",
-    "Revive Old Leads",
-    "After the Call",
-    "One of my saved styles",
     "Let Claude choose",
 ]
+# Stay on Their Radar, Revive Old Leads, After the Call and "One of my saved
+# styles" are no longer offered here (Mike 2026-10-08). A saved setup that
+# still names one falls back to DEFAULT_TEMPLATE.
 TEMPLATE_KEY = {
     "Standard Outreach": "tm_fivebyseven",
     "Quick Intro": "tm_threebythree",
     "Priority Account Push": "tm_conversation",
     "They're Hiring": "tm_hiring_signal",
     "Long Term Nurture": "tm_twelveweek",
-    "Stay on Their Radar": "tm_stay_in_touch",
-    "Revive Old Leads": "tm_reengage",
-    "After the Call": "tm_meeting_followup",
 }
 DEFAULT_SEQUENCE = "Standard Outreach"
 DEFAULT_TEMPLATE = TEMPLATE_KEY[DEFAULT_SEQUENCE]
@@ -1518,97 +1514,6 @@ SEQUENCE_INFO = {
              "seconds with the same ask."),
         ],
     },
-    "Stay on Their Radar": {
-        "tag": "No pressure",
-        "about": ("One useful note every two to three weeks over about "
-                  "twelve weeks, each from a different angle, ending with a "
-                  "genuine door-open close. A finished campaign offers to "
-                  "move the people who never replied into this one. "
-                  + _PROFILES_ONCE),
-        "best": "They fit, but said 'not now' or never replied.",
-        "note": _PDF_NOTE,
-        "steps": [
-            (1, "email", "Not asking for anything today",
-             "One specific observation about their business and one "
-             "sentence on what you do. Says plainly you are not asking for "
-             "anything today. No figures."),
-            (11, "email", "What is putting pressure on teams like yours",
-             "Something genuinely useful about their industry's operating "
-             "pressure. No call ask."),
-            (25, "call", "Check-in call",
-             "Low-key: what would have to change for this to matter."),
-            (35, "email", "What would the role actually cost?",
-             "The cost email, the only one that states the saving. Offers "
-             "the comparison for whenever the moment arrives.", _COST_PDF),
-            (49, "email", "After the candidate joins", _JOINS_WHAT, _HOW_PDF),
-            (63, "email", "Leaving this with you",
-             "Warm, and explicitly the last scheduled note."),
-        ],
-    },
-    "Revive Old Leads": {
-        "tag": "A new angle",
-        "about": ("Comes back from a different angle instead of repeating "
-                  "the old pitch, re-prices the role, keeps the commitment "
-                  "small, and gives them an easy way to say not now. "
-                  + _PROFILES_ONCE),
-        "best": "You talked months ago, or a deal went quiet.",
-        "note": _PDF_NOTE,
-        "steps": [
-            (1, "email", "Something I noticed about {Company}",
-             "No 'just following up'. Leads with a new observation about "
-             "their business or market, and one question."),
-            (6, "email", "What has changed",
-             "One genuine reason the conversation is worth restarting: a "
-             "shift in their market, a new service line, a different role "
-             "shape."),
-            (8, "linkedin", "LinkedIn connect",
-             "Under 300 characters, no pitch, no link, no figures."),
-            (13, "email", "What would the role actually cost?",
-             "Re-anchors on cost without repeating the original pitch. The "
-             "only email that states the saving.", _COST_PDF),
-            (18, "email", "Worth a quick conversation?",
-             "How little they commit to by looking at one role.", _HOW_PDF),
-            (25, "email", "Leaving this with you",
-             "Asks plainly whether this is a this-year or a next-year "
-             "problem, and says either answer is useful."),
-        ],
-    },
-    "After the Call": {
-        "tag": "After a real conversation",
-        "about": ("Recaps what they said, confirms the role shape, covers "
-                  "what happens once they choose someone, puts the "
-                  "commitment in plain terms and moves toward a shortlist. "
-                  + _PROFILES_ONCE),
-        "best": "You have had a real conversation and need to move it "
-                "forward.",
-        "note": _PDF_NOTE,
-        "steps": [
-            (1, "email", "Recap of our conversation",
-             "Three or four lines on what they said they needed, from your "
-             "notes only, and the next step you agreed."),
-            (4, "email", "A clearer scope for the role",
-             "Scopes the role they described and asks them to confirm or "
-             "correct it. No pricing.", _BLUEPRINT_PDF),
-            (4, "call", "Follow-up call",
-             "Walks the requirements list and agrees the interview panel."),
-            (7, "email", "After the candidate joins",
-             "What happens once they choose someone, tied to the next step "
-             "they already agreed."),
-            (11, "email", "Worth a quick conversation?",
-             "Offers to put the scope and current terms in front of them, "
-             "and asks who else needs to see them before they can move.",
-             _HOW_PDF),
-            (17, "email", "Still happy to draft those requirements",
-             "Short check-in if the requirements never came back. Offers to "
-             "draft them from the call instead. One question, no pressure."),
-        ],
-    },
-    "One of my saved styles": {
-        "tag": "Your own",
-        "about": ("A campaign you built and saved in My Campaign Styles. "
-                  "Claude looks it up by name with my_campaign_styles."),
-        "best": "When you have already written the emails you want.",
-    },
     "Let Claude choose": {
         "tag": "Claude picks",
         "about": ("Claude reads each company and picks whichever campaign "
@@ -1804,12 +1709,12 @@ OWN_JOBS = [
               "them, and the order to work it in.",
      "also": {"done_when": "A call list of no more than ten people, in the "
                            "order to work them."}},
-    {"label": "Revive finished campaigns",
+    {"label": "Nurture finished campaigns",
      "value": "Find every campaign that finished more than sixty days ago, "
               "list the contacts who never replied and are not on the "
-              "do-not-contact list, and set up a Revive Old Leads campaign "
+              "do-not-contact list, and set up a Long Term Nurture campaign "
               "for them.",
-     "also": {"done_when": "One Revive Old Leads campaign per finished "
+     "also": {"done_when": "One Long Term Nurture campaign per finished "
                            "campaign, with the contact count read back."}},
     {"label": "Draft this month's newsletter",
      "value": "Draft this month's issue of my newsletter for the vertical "
@@ -2127,9 +2032,8 @@ ROUTINES = [
         "name": "Create Your Own",
         "blurb": "Describe it in your own words and the prompt is built "
                  "around that, with the ThriveModal rules attached.",
-        "example": "Go through my Stay on Their Radar campaigns and tell me "
-        "which "
-                   "contacts have replied",
+        "example": "Go through my Standard Outreach campaigns and tell me "
+                   "which contacts have replied",
         "tools": [],
         "fields": [
             F("what", "What you want done", "details", "textarea", ask=True,

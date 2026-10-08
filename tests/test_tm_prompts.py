@@ -118,11 +118,14 @@ def test_catalogue_is_inboxslide_not_dripdrop(tm):
 def test_sequences_map_to_the_offered_thrivemodal_campaign_types(tm):
     assert set(tm.TEMPLATE_KEY.values()) == {
         "tm_fivebyseven", "tm_threebythree", "tm_conversation",
-        "tm_hiring_signal", "tm_twelveweek", "tm_stay_in_touch",
-        "tm_reengage", "tm_meeting_followup"}
+        "tm_hiring_signal", "tm_twelveweek"}
     for label in tm.TEMPLATE_KEY:
         assert label in tm.SEQUENCES
-    assert tm.SEQUENCES[-2:] == ["One of my saved styles", "Let Claude choose"]
+    assert tm.SEQUENCES[-1] == "Let Claude choose"
+    # Taken off the picker (Mike 2026-10-08).
+    for gone in ("Stay on Their Radar", "Revive Old Leads", "After the Call",
+                 "One of my saved styles"):
+        assert gone not in tm.SEQUENCES and gone not in tm.SEQUENCE_INFO
     assert tm.TM.default_template == "tm_fivebyseven"
     assert tm.DEFAULT_SEQUENCE == "Standard Outreach"
 
