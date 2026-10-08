@@ -4351,8 +4351,9 @@ AICB_CAMPAIGN_TYPES = [
      "you will add them to the ongoing newsletter."),
     ("fivebyfive", "Arena 5×5", "7 steps - 2 weeks", "#7C3AED",
      "Arena's 4×4, warmed up — a softer, more personal slate play with an extra "
-     "day-5 follow-up. Same 5-candidate slate positioning, friendlier voice, and "
-     "a gentle bump that also flushes out the right decision-maker.",
+     "day-5 follow-up. Same 5-candidate slate positioning, friendlier voice, "
+     "a gentle bump that also flushes out the right decision-maker, and a "
+     "salary guide on the day-9 email.",
      "Warm slate outreach - relationship-first - passive candidates",
      "GLOBAL VOICE: Write warm, personable, and human — NOT salesy. Sound like a "
      "helpful professional who happens to know great people, not a rep working a "
@@ -6613,6 +6614,18 @@ def _api_create_campaign_blocking(client, spec, owner):
             _attach_resumes_to_emails(template, emails, pdfs)
         except Exception as _re:
             print(f"[api] {template} résumé attach skipped: {_re}", flush=True)
+    if template in _FIVEBYFIVE_PDF_TYPES and emails:
+        # Step 6 says the salary guide is attached, so build it here: this
+        # path never runs the wizard's five-kind PDF phase.
+        try:
+            _fivebyfive_attach_salary_guide(
+                campaign_data, (spec.get("company") or "").strip(),
+                client=client, roles_str=", ".join(spec.get("roles") or []),
+                location_str=(spec.get("location") or "").strip(),
+                industry=(spec.get("industry") or spec.get("niche") or "").strip(),
+                owner_email=owner)
+        except Exception as _se:
+            print(f"[api] {template} salary guide skipped: {_se}", flush=True)
     warnings = _unlinked_card_warnings(cards) if cards and _ats_allowed(owner) else []
     return {"template": template, "campaign_data": campaign_data, "emails": emails,
             "candidate_refs": refs, "candidate_warnings": warnings}
@@ -9310,22 +9323,29 @@ def _wrap_4x4_font(body_html):
 
 # ── Arena 5×5 hand-authored touches ─────────────────────────────────────
 # The generator is told to use only {FirstName} and never mention attachments,
-# so the verbatim day-5 bump and the day-8 interview-guide line can't come from
+# so the verbatim day-5 bump and the day-9 salary-guide line can't come from
 # the AI. We stamp them after generation, matching steps by name (robust to
-# emails[] ordering) and pinning the canonical relative delays. The injected
-# "interview guide" wording also makes the keyword-based PDF attach put the
-# Interview Guide on that email automatically.
+# emails[] ordering) and pinning the canonical relative delays. The file the
+# line promises is built and pinned by _fivebyfive_attach_salary_guide on
+# every creation path (wizard, API/connector, Sales Campaign); it is never
+# left to the keyword-based topic match. Was an interview guide until
+# 2026-10-08 (Mike: "replace the interview guide with salary guide").
 _FIVEBYFIVE_BUMP_SUBJECT = "Following up"
 _FIVEBYFIVE_BUMP_BODY = (
     "Hi {FirstName} - just a quick follow-up in case this got missed. "
     "Any thoughts on my previous email below? And if hiring isn't your area, "
     "no worries at all, could you point me to whoever owns it?"
 )
-_FIVEBYFIVE_INTERVIEW_LINE = (
-    "<br><br>I've also attached a short interview guide for the role, the "
-    "questions worth asking and what to listen for, so it's handy whether or "
-    "not we end up talking."
+_FIVEBYFIVE_SALARY_LINE = (
+    "<br><br>I've also attached a short salary guide for the role, a quick "
+    "read on what the market is paying right now, so you have it on hand "
+    "whether or not we end up talking."
 )
+# The kind id in _AICB_PDF_KINDS, the step that carries it, and the campaign
+# types that get it (the Client Lookalike is a 5×5 with its own opener).
+_FIVEBYFIVE_PDF_KIND = "salary_guide"
+_FIVEBYFIVE_PDF_STEP = 6
+_FIVEBYFIVE_PDF_TYPES = frozenset({"fivebyfive", "clientlookalike"})
 # Canonical relative delays keyed by the Step-N marker in the step name.
 _FIVEBYFIVE_DELAYS = {1: 0, 2: 3, 3: 0, 4: 0, 5: 2, 6: 3, 7: 4}
 
@@ -9349,14 +9369,14 @@ def _apply_fivebyfive_overrides(camp_type, campaign_data):
             em["subject"] = _FIVEBYFIVE_BUMP_SUBJECT
             em["body"] = _wrap_4x4_font(_strip_dashes(_FIVEBYFIVE_BUMP_BODY))
             em["attachments"] = []
-        elif n == 6:  # append interview-guide line once, inside the font div
+        elif n == _FIVEBYFIVE_PDF_STEP:  # salary-guide line once, inside the font div
             body = em.get("body") or ""
-            if "interview guide" not in body.lower():
+            if "salary guide" not in body.lower():
                 if body.rstrip().endswith("</div>"):
                     em["body"] = (body.rstrip()[:-6]
-                                  + _FIVEBYFIVE_INTERVIEW_LINE + "</div>")
+                                  + _FIVEBYFIVE_SALARY_LINE + "</div>")
                 else:
-                    em["body"] = body + _FIVEBYFIVE_INTERVIEW_LINE
+                    em["body"] = body + _FIVEBYFIVE_SALARY_LINE
     return campaign_data
 
 
@@ -35752,6 +35772,116 @@ def _aicb_pdf_filename(slug_prefix: str, company: str) -> str:
     return f"{slug_prefix}_{slug}.pdf"
 
 
+_AICB_PDF_KIND_META = {k[0]: k for k in _AICB_PDF_KINDS}
+
+
+def _build_named_pdf(kind_id: str, data: dict, company: str,
+                     owner_email: str = "") -> str:
+    """Build ONE branded PDF from already-generated rich data, save its
+    sidecar, publish it, and return the filename ("" if there was nothing
+    to build or the build failed).
+
+    The five-kind attach phase (_aicb_attach_pdfs) and the Arena 5×5's
+    single-kind salary-guide path both land byte-identical files in the
+    same per-user directory. owner_email rebinds the per-user ContextVar
+    for callers running off the request thread (the API path offloads to
+    an executor); the wizard path has already bound it."""
+    if kind_id not in _AICB_PDF_KIND_META:
+        return ""
+    if not ((data or {}).get("sections") or []):
+        return ""
+    try:
+        if owner_email:
+            _CURRENT_USER_EMAIL.set(owner_email)
+    except Exception as _ex:
+        print(f"[AICB] ContextVar rebind failed (build): {_ex}", flush=True)
+    try:
+        import sys as _sys
+        _sys.path.insert(0, str(Path(__file__).resolve().parent / "funnel_forge"))
+        import importlib, arena_pdfs as _ap; importlib.reload(_ap)
+        from arena_pdfs import build_custom_pdf
+    except ImportError:
+        print("[AICB] reportlab not installed - skipping PDF build")
+        return ""
+    _kid, _slug_prefix, _human_label, _intro_tpl = _AICB_PDF_KIND_META[kind_id]
+    try:
+        _cfg = load_config()
+        fname = _aicb_pdf_filename(_slug_prefix, company)
+        fpath = str(_user_pdf_dir() / fname)
+        build = {
+            "title": data.get("title") or f"{_human_label} - {company}",
+            "badge": data.get("badge") or _human_label.upper(),
+            "date": date.today().strftime("%B %d, %Y"),
+            "prepared_by": _cfg.get("sig_name", _get_company_name()) or _get_company_name(),
+            "prepared_email": _cfg.get("sig_email", ""),
+            "logo_path": _get_company_logo_path(),
+            "intro": data.get("intro", ""),
+            "sections": data.get("sections", []),
+            "sources": data.get("sources", []),
+            "cta": data.get("cta", ""),
+        }
+        build_custom_pdf(fpath, build)
+        _save_pdf_sidecar(fpath, build)
+        _publish_pdf(fpath)
+        return fname
+    except Exception as e:
+        print(f"[AICB] {kind_id} build error: {e}", flush=True)
+        return ""
+
+
+def _fivebyfive_attach_salary_guide(campaign_data, company, *, client=None,
+                                    pdf_data=None, roles_str="",
+                                    location_str="", industry="",
+                                    owner_email="") -> str:
+    """Build the salary guide and pin it to the Arena 5×5's Step 6.
+
+    Step 6's body says "I've also attached a short salary guide", so the
+    file has to be there every single time. Before 2026-10-08 the 5×5 relied
+    on the keyword topic match to attach its PDF, and the API path (the MCP
+    connector, AI Prompts, PipelineBlast) and Sales Campaign never ran that
+    phase at all, so every campaign they created shipped Step 6 promising a
+    file that did not exist. This is deterministic: one kind, one file,
+    pinned to the step whose copy promises it. Same shape for the Client
+    Lookalike, which shares the 5×5's Step 6 line.
+
+    Costs one AI call, or none when `pdf_data` already carries the
+    salary-guide payload from the wizard's parallel phase-1 thread.
+    Returns the attached filename, or "" when nothing could be built."""
+    emails = (campaign_data or {}).get("emails") or []
+    if not emails:
+        return ""
+    data = (pdf_data or {}).get(_FIVEBYFIVE_PDF_KIND) or {}
+    if not (data.get("sections") or []) and client is not None:
+        try:
+            data = _generate_rich_pdf_data(
+                client, _FIVEBYFIVE_PDF_KIND,
+                {"company": company, "primary_industry": industry,
+                 "secondary_industries": [], "positions": roles_str,
+                 "location": location_str, "exp_level": ""},
+                research_context="", style_guide=_style_guide_prompt()) or {}
+        except Exception as ex:
+            print(f"[5x5] salary guide generation failed: {ex}", flush=True)
+            return ""
+    fname = _build_named_pdf(_FIVEBYFIVE_PDF_KIND, data, company,
+                             owner_email=owner_email)
+    if not fname:
+        print("[5x5] salary guide not built - Step 6 ships without it",
+              flush=True)
+        return ""
+    target = next((e for e in emails
+                   if _fivebyfive_step_no(e.get("name")) == _FIVEBYFIVE_PDF_STEP),
+                  None)
+    if target is None and len(emails) >= _FIVEBYFIVE_PDF_STEP:
+        target = emails[_FIVEBYFIVE_PDF_STEP - 1]  # positional fallback
+    if target is None:
+        return ""
+    slot = target.setdefault("attachments", [])
+    if fname not in slot:
+        slot.append(fname)
+    print(f"[5x5] Attached {fname} to Step {_FIVEBYFIVE_PDF_STEP}", flush=True)
+    return fname
+
+
 def _aicb_distribute_pdf_placeholders(campaign_data, location_str="", roles_str=""):
     """Pre-distribute '_pending:{Label}' placeholders + value-prop intro lines
     across email steps so the saved campaign + editor view show ⏳ chips
@@ -41185,18 +41315,35 @@ def p_ai_campaign(s: AppState, rf):
                                 # behavior since their preset already
                                 # lists PDFs in its sequence.
                                 _restrict = None
-                                if (s.aicb_camp_type or "").strip() == "byos":
+                                _camp_type_now = (s.aicb_camp_type or "").strip()
+                                if _camp_type_now == "byos":
                                     _restrict = _extract_requested_pdf_kinds(
                                         s.aicb_byos_desc or ""
                                     )
                                     if _restrict is None:
                                         _restrict = set()  # empty desc = no PDFs
+                                elif _camp_type_now in _FIVEBYFIVE_PDF_TYPES:
+                                    # One file, pinned below to the step
+                                    # whose copy promises it. The topic
+                                    # match would hand other kinds to
+                                    # other steps, so it attaches nothing
+                                    # here (it still builds all five for
+                                    # the editor's manual picker).
+                                    _restrict = set()
                                 try:
                                     _aicb_attach_pdfs(_pdf_data_payload, campaign_data,
                                                       pdf_target, appstate=s,
                                                       restrict_kinds=_restrict)
                                 except Exception as _att_ex:
                                     print(f"[AICB] sync attach error: {_att_ex}", flush=True)
+                                if _camp_type_now in _FIVEBYFIVE_PDF_TYPES:
+                                    try:
+                                        _fivebyfive_attach_salary_guide(
+                                            campaign_data, pdf_target,
+                                            pdf_data=_pdf_data_payload,
+                                            owner_email=getattr(s, "_user_email", "") or "")
+                                    except Exception as _sg_ex:
+                                        print(f"[AICB] 5x5 salary guide error: {_sg_ex}", flush=True)
                             # PDFs are attached at this point (single
                             # synchronous call above; no background fallback
                             # any more — see comment about the duplicate-

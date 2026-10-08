@@ -41,13 +41,16 @@ The 4×4 is left untouched for now; it can inherit this voice later.
 | Call (same day as ②) | 3 | call | 0 |
 | LinkedIn connect (same day as ②) | 3 | linkedin | 0 |
 | ③ Email — Following-up bump (NEW) | 5 | email_auto | 2 |
-| ④ Email — Worth a look + Interview Guide | 8 | email_auto | 3 |
+| ④ Email — Worth a look + Salary Guide | 8 | email_auto | 3 |
 | ⑤ Email — Closing the loop + newsletter | 12 | email_auto | 4 |
 
 ## Attachments
 - ③ (day 5): **none** (pure bump).
-- ④ (day 8): **Interview Guide PDF** — built-in `interview_guide` PDF type.
-  Attachment ref: `[AI-GENERATED] {CompanyName}_Interview_Guide.pdf`.
+- ④ (day 8): **Salary Guide PDF** — built-in `salary_guide` PDF type, the only
+  file in the sequence. Built and pinned by `_fivebyfive_attach_salary_guide`
+  on every creation path (wizard, API/connector, Sales Campaign), never left
+  to the keyword topic match. File: `Salary_Guide_{CompanyName}.pdf`.
+  *(Was an Interview Guide until 2026-10-08.)*
 
 ---
 
@@ -105,11 +108,11 @@ Just circling back, gently. I know inboxes are full and hiring is one of a hundr
 
 I mostly wanted to say that Aaron M. is genuinely worth a conversation, and I'm happy to make it as easy as a 10-minute call whenever you have a window.
 
-I've also attached a short interview guide for the role, the questions worth asking and what to listen for, so it's handy whether or not we end up talking.
+I've also attached a short salary guide for the role, a quick read on what the market is paying right now, so you have it on hand whether or not we end up talking.
 
 Either way, I appreciate you reading.
 
-*📎 [AI-GENERATED] {CompanyName}_Interview_Guide.pdf*
+*📎 Salary_Guide_{CompanyName}.pdf*
 
 *[your signature]*
 
@@ -133,7 +136,8 @@ I'll add you to my monthly newsletter so the occasional useful bit of ⟦market�
 - Register `fivebyfive` wherever `fourbyfour` is branched on (chooser origin, camp_type,
   the `_camp_is_4x4` / handoff / font-wrap helpers around L4609–L8184, picker at L18504/L35584).
   Decide per-branch whether the 5×5 should behave identically to the 4×4.
-- Wire the day-8 Interview Guide attachment via the existing `interview_guide` PDF generator.
+- Wire the day-8 Salary Guide attachment via the existing `salary_guide` PDF generator,
+  pinned deterministically (see `_fivebyfive_attach_salary_guide`).
 - CAUTION (from repo memory): `flowdrip_app.py` is the ~60k-line monolith with known
   duplicate-helper shadowing and prod-deploy drift. Ship as a single-file change, baseline
   the 8 pre-existing test failures, and confirm the deploy path before touching prod.

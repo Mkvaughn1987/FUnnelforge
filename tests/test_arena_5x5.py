@@ -104,12 +104,13 @@ def test_overrides_bump_verbatim_and_schedule():
     assert "—" not in bump["body"] and "–" not in bump["body"]
 
 
-def test_overrides_interview_line_once_inside_div():
+def test_overrides_salary_line_once_inside_div():
     import flowdrip_app as fa
     data = fa._apply_fivebyfive_overrides("fivebyfive", _sample_generated())
     worth = next(e for e in data["emails"] if e["name"].startswith("Step 6"))
-    assert "attached a short interview guide" in worth["body"]
+    assert "attached a short salary guide" in worth["body"]
+    assert "interview guide" not in worth["body"].lower()
     assert worth["body"].rstrip().endswith("</div>")  # line kept inside font div
     data2 = fa._apply_fivebyfive_overrides("fivebyfive", data)
     worth2 = next(e for e in data2["emails"] if e["name"].startswith("Step 6"))
-    assert worth2["body"].count("attached a short interview guide") == 1
+    assert worth2["body"].count("attached a short salary guide") == 1

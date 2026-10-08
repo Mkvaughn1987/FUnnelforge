@@ -1589,6 +1589,16 @@ def _build_and_review(owner, rec):
         if cands:
             ff._ensure_candidate_refs_in_emails(emails, cands)
             refs = ff._candidate_refs(cands)
+        if template in ff._FIVEBYFIVE_PDF_TYPES and emails:
+            # Step 6 promises a salary guide; this path has no PDF phase of
+            # its own, so build and pin the one file here.
+            try:
+                ff._fivebyfive_attach_salary_guide(
+                    data, c["company"], client=client, roles_str=role or "",
+                    location_str="", industry=target.get("industry") or "",
+                    owner_email=owner)
+            except Exception as ex:
+                _log(rec, "%s — salary guide skipped: %s" % (c["company"], ex))
         c["campaign"] = {
             "name": _campaign_name(c, target),
             "synopsis": data.get("synopsis", ""),

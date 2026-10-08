@@ -279,8 +279,8 @@ SEQUENCE_INFO = {
         "tag": "Warm slate play",
         "about": "The 4x4 in a warmer, more personal voice. Spotlights one "
                  "candidate, adds a short bump that flushes out the right "
-                 "decision-maker, and closes by adding them to your "
-                 "newsletter.",
+                 "decision-maker, sends a salary guide on email 4, and "
+                 "closes by adding them to your newsletter.",
         "best": "Relationship-first outreach to passive buyers.",
         "steps": [
             (1, "email", "Quick note for {Company}",
@@ -294,7 +294,8 @@ SEQUENCE_INFO = {
             (6, "email", "Following up",
              "A two-line bump. No candidates, no market data."),
             (9, "email", "Still think this one's worth a look",
-             "Gentle circle-back on the spotlighted candidate."),
+             "Gentle circle-back on the spotlighted candidate.",
+             "Salary guide"),
             (13, "email", "Closing the loop for now",
              "Warm sign-off and a spot on your monthly newsletter."),
         ],
@@ -361,7 +362,7 @@ SEQUENCE_INFO = {
             (6, "email", "Following up",
              "A two-line bump. No candidates, no market data."),
             (9, "email", "Still think these two are worth a look",
-             "Gentle circle-back on the two candidates."),
+             "Gentle circle-back on the two candidates.", "Salary guide"),
             (13, "email", "Closing the loop for now",
              "Warm sign-off and a spot on your monthly newsletter."),
         ],
