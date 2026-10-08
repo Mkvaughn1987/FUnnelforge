@@ -6010,6 +6010,16 @@ AICB_CAMPAIGN_TYPES = [
      "Week 12. Script: if they are not the right person, who is the best "
      "contact for adding team capacity? Voicemail under 20 seconds with the "
      "same ask."),
+    # Create Your Own (Mike 2026-10-08): the inboxslide AI Prompt sends its
+    # own step list (spec.steps, _tm_custom_steps), and the build writes
+    # exactly those steps in that order. Empty here on purpose: with no
+    # steps there is nothing to build, so the API refuses it.
+    ("tm_custom", "Create Your Own", "Your steps", "#84BF55",
+     "Your own campaign: every email, call and LinkedIn touch, the day it "
+     "goes out, what it says, and which emails carry a PDF or candidate "
+     "profiles.",
+     "Anything the ready-made campaigns do not cover",
+     ""),
     ("byos", "Custom Build", "You design it", "#F59E0B",
      "Describe what you want and AI will build it. Tell us the number of steps, "
      "channels (email, LinkedIn, call), timing, and style - AI handles the rest.",
@@ -6045,12 +6055,16 @@ _TM_TYPE_KEYS = frozenset({
     "tm_conversation", "tm_hiring_signal", "tm_meeting_followup",
     "tm_reengage", "tm_stay_in_touch", "tm_grow_client",
     "tm_fivebyseven", "tm_threebythree", "tm_fivethreeli", "tm_twelveweek",
+    "tm_custom",
 })
 # Registered (saved campaigns and the API keep working) but not offered.
 # tm_grow_client needs existing clients; tm_fivethreeli merged into Standard
 # Outreach (tm_fivebyseven) on 2026-09-19. Hiring signal, re-engage and
 # after-the-call came back the same day: they are all new-business plays.
-_TM_HIDDEN_TYPE_KEYS = frozenset({"tm_grow_client", "tm_fivethreeli"})
+# tm_custom is built only from a step list (the AI Prompt's Create Your
+# Own), so there is nothing to pick it with in the in-app chooser.
+_TM_HIDDEN_TYPE_KEYS = frozenset({"tm_grow_client", "tm_fivethreeli",
+                                  "tm_custom"})
 _TM_OFFERED_TYPE_KEYS = _TM_TYPE_KEYS - _TM_HIDDEN_TYPE_KEYS
 # Shapes that carry no playbook-specific content: their step instructions say
 # "the sender's company" and name no offer, so they read correctly under either
@@ -6924,6 +6938,107 @@ def _resolve_start_date(raw) -> str:
     return s
 
 
+# ── Create Your Own (tm_custom) ───────────────────────────────────────────
+# The inboxslide AI Prompt's own-campaign builder sends its steps as
+# spec.steps: [{"type": "email"|"call"|"linkedin", "day": business day
+# (1 = first touch), "what": what the step says, "pdf": a PDF kind or "",
+# "profiles": true to show the AI candidate profiles on this email}].
+TM_CUSTOM_MIN_STEPS = 2
+TM_CUSTOM_MAX_STEPS = 12
+TM_CUSTOM_PROFILES_MAX = 6
+_TM_CUSTOM_KIND = {"email": "email_auto", "call": "call",
+                   "linkedin": "linkedin"}
+_TM_CUSTOM_LABEL = {"email": "Email", "call": "Follow-up Call",
+                    "linkedin": "LinkedIn Connect"}
+
+
+def _tm_custom_steps(raw):
+    """(clean steps, "") or (None, why not). The first step is an email on
+    day 1, days never go backwards, and only an email after the first can
+    carry a PDF or the profiles, each PDF on one email."""
+    if not isinstance(raw, list) or not raw:
+        return None, "Create Your Own needs a 'steps' list"
+    if not TM_CUSTOM_MIN_STEPS <= len(raw) <= TM_CUSTOM_MAX_STEPS:
+        return None, (f"a custom campaign has {TM_CUSTOM_MIN_STEPS} to "
+                      f"{TM_CUSTOM_MAX_STEPS} steps")
+    out, prev, seen_pdf = [], 1, set()
+    for n, st in enumerate(raw, 1):
+        if not isinstance(st, dict):
+            return None, f"step {n} must be an object"
+        kind = str(st.get("type") or "email").strip().lower()
+        if kind not in _TM_CUSTOM_KIND:
+            return None, f"step {n}: type is email, call or linkedin"
+        try:
+            day = int(st.get("day") or (1 if n == 1 else prev))
+        except (TypeError, ValueError):
+            return None, f"step {n}: day must be a number"
+        if n == 1 and (kind != "email" or day != 1):
+            return None, "step 1 is an email on day 1"
+        if day < prev:
+            return None, f"step {n}: day {day} comes before step {n - 1}"
+        if day > 130:
+            return None, f"step {n}: day {day} is too far out"
+        pdf = str(st.get("pdf") or "").strip()
+        profiles = bool(st.get("profiles"))
+        if (pdf or profiles) and (kind != "email" or n == 1):
+            return None, (f"step {n}: only an email after the first can "
+                          f"carry a PDF or candidate profiles")
+        if pdf:
+            if pdf not in _TM_CAMPAIGN_PDF_OFFERED:
+                return None, f"step {n}: unknown PDF kind {pdf!r}"
+            if pdf in seen_pdf:
+                return None, f"step {n}: {pdf} is already on another email"
+            seen_pdf.add(pdf)
+        out.append({"type": kind, "day": day,
+                    "what": str(st.get("what") or "").strip()[:800],
+                    "pdf": pdf, "profiles": profiles})
+        prev = day
+    return out, ""
+
+
+def _tm_custom_touch_sequence(steps) -> str:
+    """The steps in the same "Step N - X (delay_days, step_type) - what"
+    form the ready-made types use, so the writer reads them the same way."""
+    lines, prev = [], 1
+    for n, st in enumerate(steps, 1):
+        what = st["what"] or "Write what fits at this point in the campaign."
+        if st["profiles"]:
+            what += (" The system adds the candidate profiles to this email; "
+                     "leave room and do not write any yourself.")
+        lines.append(f"Step {n} - {_TM_CUSTOM_LABEL[st['type']]} "
+                     f"(delay_days:{st['day'] - prev}, "
+                     f"step_type:{_TM_CUSTOM_KIND[st['type']]}) - {what}")
+        prev = st["day"]
+    return (f"The user built this campaign step by step. Write EXACTLY "
+            f"{len(steps)} steps, in this order, with these step types and "
+            f"delay_days. Do not add, drop, merge or reorder steps.\n"
+            + "\n".join(lines))
+
+
+def _tm_custom_pin_shape(steps, campaign_data):
+    """Hold the build to the user's steps: same count, order, types and
+    spacing, and a "Step N - " name on each so later tools can find it."""
+    emails = (campaign_data or {}).get("emails") or []
+    if len(emails) != len(steps):
+        raise RuntimeError(f"custom campaign came back with {len(emails)} "
+                           f"steps, expected {len(steps)}")
+    prev = 1
+    for n, (em, st) in enumerate(zip(emails, steps), 1):
+        em["delay_days"] = st["day"] - prev
+        em["step_type"] = _TM_CUSTOM_KIND[st["type"]]
+        prev = st["day"]
+        name = re.sub(r"^\s*Step\s*\d+\s*[-:]\s*", "", em.get("name") or "")
+        em["name"] = f"Step {n} - {name or _TM_CUSTOM_LABEL[st['type']]}"
+
+
+def _tm_custom_profile_rounds(steps) -> list:
+    """[(email index, lead, None)] for the emails the user put profiles on:
+    the first introduces them, every later one sends them again."""
+    idx = [i for i, st in enumerate(steps) if st["profiles"]]
+    return [(i, _TM_PROFILES_LEAD if r == 0 else _TM_PROFILES_AGAIN_LEAD, None)
+            for r, i in enumerate(idx)]
+
+
 def _validate_campaign_spec(spec: dict):
     """Return an error string if the spec is invalid, else None."""
     if not isinstance(spec, dict):
@@ -6931,6 +7046,10 @@ def _validate_campaign_spec(spec: dict):
     tmpl = (spec.get("template") or "").strip()
     if tmpl not in _VALID_TEMPLATES:
         return f"Unknown template '{tmpl}'. Valid: {sorted(_VALID_TEMPLATES)}."
+    if tmpl == "tm_custom":
+        _steps, _serr = _tm_custom_steps(spec.get("steps"))
+        if _serr:
+            return _serr
     if not (spec.get("company") or "").strip() and not (spec.get("niche") or "").strip():
         return "Provide at least one of 'company' or 'niche'."
     sd = (spec.get("start_date") or "").strip()
@@ -7433,10 +7552,13 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
                                     niche="", industry="", roles=None,
                                     location="", cand_block="",
                                     candidate_cards=None, byos_desc="",
-                                    ai_profiles=None):
+                                    ai_profiles=None, custom_steps=None):
     """Build + post-process the campaign from an already-fetched brief. Shared
     by the wizard (passes its own brief + pre-built cand_block) and the API.
     Raises RuntimeError if the model returns no parseable JSON.
+
+    `custom_steps` (tm_custom only, from _tm_custom_steps): the user's own
+    steps, written exactly as given; profiles go only where they asked.
 
     `ai_profiles` (3-5, ThriveModal types only, None = 3): that many
     AI-written candidate profiles, each with an hourly rate and 2-3 bullets,
@@ -7461,6 +7583,8 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
     # the count, bullets and rates are exact rather than left to the writer.
     _tm_profiles = (not cand_block
                     and (camp_type or "").strip() in _TM_TYPE_KEYS)
+    if custom_steps:
+        _tm_profiles = _tm_profiles and any(st["profiles"] for st in custom_steps)
     if _tm_profiles:
         cand_block = _TM_PROFILES_WRITER_NOTE
 
@@ -7468,6 +7592,8 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
     camp_type_def = next((ct for ct in AICB_CAMPAIGN_TYPES if ct[0] == camp_type),
                          AICB_CAMPAIGN_TYPES[0])
     touch_sequence = camp_type_def[6]
+    if custom_steps:
+        touch_sequence = _tm_custom_touch_sequence(custom_steps)
     target_label = company if company else (niche_str or "Campaign")
     camp_name_suggestion = (
         f"{target_label} - {_first_role} Campaign"
@@ -7555,6 +7681,8 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
     if not json_match:
         raise RuntimeError("campaign generation returned no JSON")
     campaign_data = json.loads(json_match.group())
+    if custom_steps:
+        _tm_custom_pin_shape(custom_steps, campaign_data)
 
     # ── Post-process the generated copy (matches the wizard) ──
     _is_4x4_camp = ((camp_type or "").strip() in _ARENA_SLATE_TYPES)
@@ -7599,7 +7727,9 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
             _tm_add_campaign_profiles(
                 client, campaign_data, ai_profiles, roles_str,
                 niche_str or ind_label or company, company=company,
-                brief=brief, camp_type=camp_type)
+                brief=brief, camp_type=camp_type,
+                rounds=(_tm_custom_profile_rounds(custom_steps)
+                        if custom_steps else None))
         except Exception as ex:
             print(f"[AICB] TM candidate profiles failed: {ex}", flush=True)
     _spread_email_times(campaign_data.get("emails", []))
@@ -7609,7 +7739,8 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
 def generate_aicb_campaign(client, *, camp_type, company="", website="",
                            niche="", industry="", roles=None, location="",
                            cand_block="", candidate_cards=None, byos_desc="",
-                           ai_profiles=None, brief_prefix=""):
+                           ai_profiles=None, brief_prefix="",
+                           custom_steps=None):
     """Headless AICB campaign generation — research then build — used by the
     API (and exercised in tests). Returns campaign_data with the brief stashed
     under "_brief". Raises RuntimeError on empty research / unparseable JSON.
@@ -7627,7 +7758,8 @@ def generate_aicb_campaign(client, *, camp_type, company="", website="",
         client, brief=(brief_prefix or "") + brief, camp_type=camp_type,
         company=company,
         niche=niche, industry=industry, roles=roles, location=location,
-        cand_block=cand_block, byos_desc=byos_desc, ai_profiles=ai_profiles)
+        cand_block=cand_block, byos_desc=byos_desc, ai_profiles=ai_profiles,
+        custom_steps=custom_steps)
     campaign_data["_brief"] = brief
     return campaign_data
 
@@ -7917,12 +8049,24 @@ def _api_create_campaign_blocking(client, spec, owner):
         cards, skip = _api_resolve_5x3_cards(client, spec, owner=owner)
         if skip:
             return {"skip": skip}
+    custom_steps = None
+    if template == "tm_custom":
+        custom_steps, _serr = _tm_custom_steps(spec.get("steps"))
+        if _serr:
+            return {"error": _serr, "status": 400}
     # ThriveModal: the Sales Assets PDFs, as the caller picked them (or the
     # wizard's default when it named none). They only need the role and
     # location, so they build alongside the emails rather than after them.
     tm_pdfs = None
     if _is_thrivemodal():
-        _kinds, _pins, _perr = _tm_parse_pdf_request(spec.get("pdfs"))
+        if custom_steps is not None:
+            # Create Your Own: exactly the PDFs on the steps, none if none.
+            _kinds = [st["pdf"] for st in custom_steps if st["pdf"]]
+            _pins = {st["pdf"]: i for i, st in enumerate(custom_steps)
+                     if st["pdf"]}
+            _perr = ""
+        else:
+            _kinds, _pins, _perr = _tm_parse_pdf_request(spec.get("pdfs"))
         if _perr:
             return {"error": _perr, "status": 400}
         _subj = {
@@ -7966,8 +8110,11 @@ def _api_create_campaign_blocking(client, spec, owner):
             roles=list(spec.get("roles") or []),
             location=(spec.get("location") or "").strip(),
             candidate_cards=cards,
-            ai_profiles=_clamp_ai_profiles(spec.get("ai_profiles")),
+            ai_profiles=_clamp_ai_profiles(
+                spec.get("ai_profiles"),
+                TM_CUSTOM_PROFILES_MAX if custom_steps else None),
             byos_desc=byos_desc,
+            custom_steps=custom_steps,
         )
     except RuntimeError as ge:
         return {"error": f"generation failed: {ge}", "status": 502}
@@ -9916,7 +10063,7 @@ def _api_campaign_record(spec, result, contacts, owner, start_date) -> dict:
     so they cannot drift."""
     template = result["template"]
     campaign_data = result["campaign_data"]
-    return {
+    rec = {
         "name": (spec.get("name") or campaign_data.get("campaign_name")
                  or f"{template} Campaign").strip(),
         "emails": result["emails"],
@@ -9934,6 +10081,10 @@ def _api_campaign_record(spec, result, contacts, owner, start_date) -> dict:
             "Industry": (spec.get("industry") or "").strip(),
         },
     }
+    # Create Your Own keeps the steps it was built from.
+    if template == "tm_custom":
+        rec["tm_custom_steps"] = _tm_custom_steps(spec.get("steps"))[0]
+    return rec
 
 
 def _tm_edit_err(msg, code=400, **extra):
@@ -16818,8 +16969,11 @@ def _apply_thrivemodal_overrides(camp_type, campaign_data):
     """
     key = (camp_type or "").strip()
     shape = _TM_STEP_SHAPE.get(key)
-    if not shape:
+    if not shape and key != "tm_custom":
         return campaign_data
+    # Create Your Own has no fixed shape (_tm_custom_pin_shape held it to
+    # the user's steps) but gets the same scrubbing as every other type.
+    shape = shape or {}
     models = _tm_step_models(key)
     subjects = {name: subj for name, subj, _p in _TM_MODEL_EMAILS}
     for em in (campaign_data or {}).get("emails", []) or []:
@@ -63553,14 +63707,16 @@ TM_CAMPAIGN_PROFILES_MIN = 3
 TM_CAMPAIGN_PROFILES_MAX = 5
 
 
-def _clamp_ai_profiles(v) -> int:
+def _clamp_ai_profiles(v, hi=None) -> int:
     """Candidate profiles in a ThriveModal campaign: at least 3 (Mike,
-    2026-09-19), at most 5. Missing or unreadable means 3."""
+    2026-09-19), at most 5 (6 on Create Your Own, which passes `hi`).
+    Missing or unreadable means 3."""
     try:
         n = int(v)
     except (TypeError, ValueError):
         n = TM_CAMPAIGN_PROFILES_MIN
-    return max(TM_CAMPAIGN_PROFILES_MIN, min(TM_CAMPAIGN_PROFILES_MAX, n))
+    return max(TM_CAMPAIGN_PROFILES_MIN,
+               min(hi or TM_CAMPAIGN_PROFILES_MAX, n))
 
 
 # ── AI candidate profiles inside ThriveModal campaigns ────────────────────
@@ -63861,10 +64017,11 @@ def _tm_insert_profiles(body: str, block: str) -> str:
 
 def _tm_add_campaign_profiles(client, campaign_data, n, roles, niche,
                               company="", brief="", profiles=None,
-                              camp_type="") -> dict:
+                              camp_type="", rounds=None) -> dict:
     """Give a ThriveModal campaign its candidate profiles, replacing any set
     an earlier run added. Returns {"email": index or None, "profiles": [...]}.
-    `profiles` skips the model call (tests, dry runs)."""
+    `profiles` skips the model call (tests, dry runs). `rounds` (Create Your
+    Own) names the emails outright instead of the type's own rounds."""
     emails = (campaign_data or {}).get("emails") or []
     for em in emails:
         if _TM_PROFILES_LEAD_RE.search(em.get("body") or ""):
@@ -63872,7 +64029,10 @@ def _tm_add_campaign_profiles(client, campaign_data, n, roles, niche,
     if profiles is None:
         profiles = _tm_generate_campaign_profiles(
             client, n, roles, niche, company=company, brief=brief)
-    rounds = _tm_profile_rounds(camp_type, emails) if profiles else []
+    if rounds is None:
+        rounds = _tm_profile_rounds(camp_type, emails) if profiles else []
+    elif not profiles:
+        rounds = []
     if rounds:
         shots = _TM_WORTH_A_SHOT_LINES.get((camp_type or "").strip()) or ()
         for r, (i, lead, cnt) in enumerate(rounds):

@@ -263,6 +263,15 @@ async def create_campaign(spec: dict) -> dict:
         call/LinkedIn step). One or two kinds. The response lists where each
         PDF landed under "pdfs"; problems come back under "pdf_notes".
         To change PDFs after launch, use tm_campaign_pdfs.
+
+        ThriveModal only - template "tm_custom" (Create Your Own): pass
+        steps, a list of 2-12 {"type": "email"|"call"|"linkedin", "day":
+        business day (1 = first touch), "what": what that step says, "pdf":
+        a PDF kind or "", "profiles": true to put the AI candidate profiles
+        on that email}. Step 1 is an email on day 1; only a later email can
+        carry a PDF or profiles, each PDF on one email. The campaign is
+        written exactly in that order. ai_profiles (3-6) sets how many
+        candidate profiles; pdfs is ignored (the steps say).
     """
     email = _current_email()
     try:

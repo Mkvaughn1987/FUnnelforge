@@ -242,7 +242,8 @@ def test_offered_lineup():
         "tm_fivebyseven", "tm_threebythree", "tm_conversation",
         "tm_hiring_signal", "tm_twelveweek", "tm_stay_in_touch",
         "tm_reengage", "tm_meeting_followup"}
-    assert fa._TM_HIDDEN_TYPE_KEYS == {"tm_grow_client", "tm_fivethreeli"}
+    assert fa._TM_HIDDEN_TYPE_KEYS == {"tm_grow_client", "tm_fivethreeli",
+                                       "tm_custom"}
     for k in fa._TM_HIDDEN_TYPE_KEYS:
         assert k in {t[0] for t in fa.AICB_CAMPAIGN_TYPES}  # still registered
         assert not fa._type_visible(k, fa.PLAYBOOK_THRIVEMODAL)

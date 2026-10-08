@@ -1105,6 +1105,9 @@ def _derive_tm(r, vals, d):
     for the vertical I picked", so the prompt always carries a concrete
     band, buyer list and role list, and the screen never has to show a
     second, greyed-out set of answers."""
+    if (str(vals.get("sequence") or "") == CUSTOM_SEQUENCE
+            and "sequence" in r["field_by_key"]):
+        d["template_clause"] = _custom_clause(vals)
     if "vertical" not in r["field_by_key"]:
         return
     v = vertical_for(d.get("vertical"))
@@ -1242,8 +1245,13 @@ SEQUENCES = [
     "Priority Account Push",
     "They're Hiring",
     "Long Term Nurture",
+    "Create Your Own",
     "Let Claude choose",
 ]
+# Built step by step on the page (ai_prompts._custom_builder) and sent to
+# create_campaign as template "tm_custom" with the steps themselves, so it
+# has no TEMPLATE_KEY entry. Mike 2026-10-08.
+CUSTOM_SEQUENCE = "Create Your Own"
 # Stay on Their Radar, Revive Old Leads, After the Call and "One of my saved
 # styles" are no longer offered here (Mike 2026-10-08). A saved setup that
 # still names one falls back to DEFAULT_TEMPLATE.
@@ -1514,6 +1522,16 @@ SEQUENCE_INFO = {
              "seconds with the same ask."),
         ],
     },
+    CUSTOM_SEQUENCE: {
+        "tag": "You build it",
+        "about": ("Your own campaign, step by step: every email, call and "
+                  "LinkedIn touch, the day it goes out and what it says. "
+                  "Pick any email's PDF and which emails show the AI-made "
+                  "candidate profiles. It starts on our recommended lineup; "
+                  "change anything."),
+        "best": "When none of the ready-made campaigns is quite right.",
+        "builder": None,  # filled in below, once the lineup exists
+    },
     "Let Claude choose": {
         "tag": "Claude picks",
         "about": ("Claude reads each company and picks whichever campaign "
@@ -1521,6 +1539,152 @@ SEQUENCE_INFO = {
         "best": "Mixed lists where one campaign type will not fit everyone.",
     },
 }
+
+# ── Create Your Own ──────────────────────────────────────────────────────
+# The PDFs an email can carry: flowdrip_app._TM_CAMPAIGN_PDF_KINDS, which
+# tests/test_tm_create_your_own.py holds this list to.
+CUSTOM_PDFS = [
+    ("tm_role_blueprint", _BLUEPRINT_PDF),
+    ("tm_cost_compare", _COST_PDF),
+    ("tm_how_it_works", _HOW_PDF),
+    ("tm_myths", _MYTHS_PDF),
+    ("tm_roles_map", _ROLES_PDF),
+    ("tm_first_90", _FIRST90_PDF),
+    ("tm_security", _SECURITY_PDF),
+    ("market_pulse", _PULSE_PDF),
+]
+CUSTOM_PROFILES = ["3", "4", "5", "6"]
+CUSTOM_PROFILES_DEFAULT = "3"
+CUSTOM_MAX_STEPS = 12
+
+# Recommended angles for each kind of step, taken from what the ready-made
+# campaigns already do. Picking one writes its "what" into the step.
+CUSTOM_ANGLES = {
+    "email": [
+        ("Opener", "One specific observation about their business, what we "
+         "do in one sentence, and one question. No figures."),
+        ("Hiring observation", "Name a role they are hiring for or the work "
+         "it points to, and ask how the search is going."),
+        ("Scope the role", "What the person would own and what their team "
+         "keeps. Asks them to confirm or correct it. No pricing."),
+        ("The cost email", "The only email that states the saving: the "
+         "hourly cost of a U.S. hire beside a dedicated professional in the "
+         "Philippines for the same role."),
+        ("How it works", "How an engagement runs, from defining the role "
+         "through their interviews and onboarding."),
+        ("After the candidate joins", "What support looks like once they "
+         "choose someone: who they talk to, how the work is checked, what "
+         "happens if it is not working."),
+        ("Myths vs reality", "Takes the usual worry about offshore staff "
+         "head on, time zones, quality or control, and answers it plainly."),
+        ("Security and confidentiality", "How their systems and data are "
+         "protected: NDAs, one-client dedication, secure access. Practices, "
+         "not certifications."),
+        ("One role to start", "How little they commit to by pricing out one "
+         "role. Asks whether there is one worth a look."),
+        ("Industry pressure", "Something genuinely useful about the pressure "
+         "on teams in their industry. No call ask."),
+        ("Close", "Short and warm, explicitly the last note. Leaves the door "
+         "open with a question they can answer in one word."),
+    ],
+    "call": [
+        ("Follow-up call", "Is there one role worth pricing out, yes or no? "
+         "Voicemail under 20 seconds saying an email is coming."),
+        ("Check-in call", "Low-key: what would have to change for this to "
+         "matter to them."),
+        ("Referral ask", "If they are not the right person, who is? "
+         "Voicemail under 20 seconds with the same ask."),
+    ],
+    "linkedin": [
+        ("Connection note", "Under 300 characters: you have emailed and "
+         "wanted to connect here too. No pitch, no link, no figures."),
+    ],
+}
+
+
+def _angle(kind, label):
+    return next(w for lab, w in CUSTOM_ANGLES[kind] if lab == label)
+
+
+# The lineup the builder opens on (Mike approved 2026-10-08): seven touches
+# over four weeks, the cost PDF on the cost email, profiles on the email
+# about life after the hire.
+CUSTOM_DEFAULT_STEPS = [
+    {"type": "email", "day": 1, "what": _angle("email", "Opener"),
+     "pdf": "", "profiles": False},
+    {"type": "email", "day": 4, "what": _angle("email", "Hiring observation"),
+     "pdf": "", "profiles": False},
+    {"type": "linkedin", "day": 6,
+     "what": _angle("linkedin", "Connection note"), "pdf": "",
+     "profiles": False},
+    {"type": "email", "day": 9, "what": _angle("email", "The cost email"),
+     "pdf": "tm_cost_compare", "profiles": False},
+    {"type": "call", "day": 9, "what": _angle("call", "Follow-up call"),
+     "pdf": "", "profiles": False},
+    {"type": "email", "day": 14,
+     "what": _angle("email", "After the candidate joins"),
+     "pdf": "tm_how_it_works", "profiles": True},
+    {"type": "email", "day": 19, "what": _angle("email", "Close"),
+     "pdf": "", "profiles": False},
+]
+
+SEQUENCE_INFO[CUSTOM_SEQUENCE]["builder"] = {
+    "default_steps": CUSTOM_DEFAULT_STEPS,
+    "angles": CUSTOM_ANGLES,
+    "pdfs": CUSTOM_PDFS,
+    "profiles": CUSTOM_PROFILES,
+    "profiles_default": CUSTOM_PROFILES_DEFAULT,
+    "max_steps": CUSTOM_MAX_STEPS,
+}
+
+
+def custom_steps(vals):
+    """The builder's steps from the answers, cleaned to what create_campaign
+    accepts (flowdrip_app._tm_custom_steps): step 1 an email on day 1, days
+    never going back, PDFs and profiles only on later emails, each PDF
+    once. Missing or unreadable answers give the recommended lineup."""
+    import copy
+    raw = vals.get("custom_steps")
+    if not isinstance(raw, list) or len(raw) < 2:
+        raw = copy.deepcopy(CUSTOM_DEFAULT_STEPS)
+    pdf_ok = {k for k, _l in CUSTOM_PDFS}
+    out, prev, used = [], 1, set()
+    for n, st in enumerate(raw[:CUSTOM_MAX_STEPS]):
+        if not isinstance(st, dict):
+            continue
+        kind = st.get("type") if st.get("type") in CUSTOM_ANGLES else "email"
+        try:
+            day = int(st.get("day") or prev)
+        except (TypeError, ValueError):
+            day = prev
+        if not out:
+            kind, day = "email", 1
+        day = max(prev, min(day, 130))
+        later_email = kind == "email" and bool(out)
+        pdf = str(st.get("pdf") or "")
+        pdf = pdf if later_email and pdf in pdf_ok and pdf not in used else ""
+        used.add(pdf)
+        out.append({"type": kind, "day": day,
+                    "what": " ".join(str(st.get("what") or "").split()),
+                    "pdf": pdf,
+                    "profiles": bool(st.get("profiles")) and later_email})
+        prev = day
+    return out
+
+
+def _custom_clause(vals):
+    """{template_clause} for Create Your Own: the template plus the steps,
+    written out for Claude to pass to create_campaign as they are."""
+    import json
+    steps = custom_steps(vals)
+    clause = ('template "tm_custom" with steps set to exactly this list, '
+              'copied as it is: %s' % json.dumps(steps, ensure_ascii=False))
+    if any(st["profiles"] for st in steps):
+        n = str(vals.get("custom_profiles") or CUSTOM_PROFILES_DEFAULT)
+        clause += (", ai_profiles %s"
+                   % (n if n in CUSTOM_PROFILES else CUSTOM_PROFILES_DEFAULT))
+    return clause
+
 
 # The sequence step is "Choose your campaign" here: the cards are campaign
 # types, and the sidebar step should say what the user is doing on it.

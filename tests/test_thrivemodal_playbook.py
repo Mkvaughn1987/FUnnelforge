@@ -171,6 +171,11 @@ def test_every_tm_type_agrees_with_itself_on_count_delay_and_step_type():
         if key not in fa._TM_TYPE_KEYS:
             continue
         seen.add(key)
+        if key == "tm_custom":
+            # Create Your Own: the user's steps are its shape
+            # (tests/test_tm_create_your_own.py).
+            assert t[6] == "" and key not in fa._TM_STEP_SHAPE
+            continue
         m = label_re.match(t[2])
         assert m, (key, t[2])
         n_label, weeks_label = int(m.group(1)), int(m.group(2))

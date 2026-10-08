@@ -2177,6 +2177,28 @@ def _aip_css():
         "background:var(--dd-card);}"
         ".aip-wrap .aip-seq-att .q-icon{font-size:13px;"
         "color:var(--dd-teal);}"
+        # Create Your Own: one editable row per step.
+        ".aip-wrap .aip-cb-step{display:grid;align-items:start;"
+        "grid-template-columns:30px minmax(0,1fr) 28px;gap:0 12px;"
+        "padding:12px 0;border-top:1px solid var(--dd-border);}"
+        ".aip-wrap .aip-cb-step:first-child{border-top:none;}"
+        ".aip-wrap .aip-cb-row{display:flex;flex-wrap:wrap;gap:8px;"
+        "align-items:center;margin-bottom:6px;}"
+        ".aip-wrap .aip-cb-row .fd-input{min-width:0;}"
+        ".aip-wrap .aip-cb-day{width:84px;}"
+        ".aip-wrap .aip-cb-kind{width:130px;}"
+        ".aip-wrap .aip-cb-angle{flex:1 1 200px;}"
+        ".aip-wrap .aip-cb-add{flex:1 1 220px;}"
+        ".aip-wrap .aip-cb-del{color:var(--dd-muted);padding-top:4px;"
+        "cursor:pointer;background:none;border:none;}"
+        ".aip-wrap .aip-cb-del:hover{color:var(--dd-text_l);}"
+        ".aip-wrap .aip-cb-more{align-self:flex-start;margin-top:8px;"
+        "font-size:12.5px;font-weight:600;color:var(--dd-teal);"
+        "background:var(--dd-teal_dim);border:none;border-radius:999px;"
+        "padding:6px 14px;cursor:pointer;display:inline-flex;"
+        "align-items:center;gap:6px;}"
+        "@media (max-width:600px){.aip-wrap .aip-cb-day,"
+        ".aip-wrap .aip-cb-kind{width:auto;flex:1 1 110px;}}"
         ".aip-wrap .aip-link.back{font-weight:600;color:var(--dd-teal);"
         "background:var(--dd-teal_dim);padding:4px 12px;"
         "border-radius:999px;}"
@@ -3011,6 +3033,9 @@ def _sequence_picker(rf, C, r, vals, f):
         _text(info.get("about", ""), C, 12.5, colour=C["text_l"], mb=4)
         if info.get("best"):
             _text("Best for: " + info["best"], C, 12, colour=C["muted"])
+        if info.get("builder"):
+            _custom_builder(rf, C, vals, info["builder"])
+            return
         steps = info.get("steps") or []
         if not steps:
             return
@@ -3042,6 +3067,169 @@ def _sequence_picker(rf, C, r, vals, f):
               "Days are business days, counted from the first touch. Every "
               "email is written fresh for the company it goes to; the "
               "subjects above show the shape.", C, 11, colour=C["muted"])
+
+
+_CB_KINDS = {"email": "Email", "call": "Call", "linkedin": "LinkedIn"}
+
+
+def custom_builder_steps(vals, b):
+    """The builder's working list in vals["custom_steps"], started on the
+    catalogue's recommended lineup. Kept as plain dicts so a saved setup
+    stores and reopens it as it is."""
+    import copy
+    steps = vals.get("custom_steps")
+    if not isinstance(steps, list) or len(steps) < 2 or not all(
+            isinstance(st, dict) for st in steps):
+        steps = copy.deepcopy(b["default_steps"])
+        vals["custom_steps"] = steps
+    return steps
+
+
+def _custom_builder(rf, C, vals, b):
+    """Create Your Own: one row per step (kind, day, a recommended angle,
+    what it says) and, on every email after the first, a PDF dropdown and a
+    candidate-profiles dropdown. The catalogue's custom-steps cleaner is
+    what the prompt sends, so a half-edited row can never break the run."""
+    steps = custom_builder_steps(vals, b)
+    pdf_opts = {"": "No PDF"}
+    pdf_opts.update({k: lab for k, lab in b["pdfs"]})
+
+    def _redraw():
+        rf()
+
+    _text("Days are business days, counted from the first touch. Every "
+          "email is written fresh for the company it goes to, from what you "
+          "say here.", C, 11, colour=C["muted"])
+    with ui.element("div").classes("aip-seq-steps"):
+        n_email = 0
+        for i, st in enumerate(steps):
+            kind = st.get("type") if st.get("type") in _CB_KINDS else "email"
+            st["type"] = kind
+            if kind == "email":
+                n_email += 1
+            first = i == 0
+            with ui.element("div").classes("aip-cb-step aip-seq-step " + kind):
+                with ui.element("div").classes("aip-seq-ico"):
+                    ui.icon(_STEP_ICON.get(kind, "mail_outline"))
+                with ui.element("div"):
+                    with ui.element("div").classes("aip-cb-row"):
+                        ui.label(("Email %d" % n_email) if kind == "email"
+                                 else _CB_KINDS[kind]).classes("aip-seq-kind")
+                    with ui.element("div").classes("aip-cb-row"):
+                        def _kind(e, _st=st):
+                            _st["type"] = e.value
+                            if e.value != "email":
+                                _st["pdf"], _st["profiles"] = "", False
+                            _redraw()
+                        ks = ui.select(options=_CB_KINDS, value=kind,
+                                       label="Step", on_change=_kind).props(
+                            "dense").classes("fd-input aip-cb-kind")
+
+                        def _day(e, _i=i):
+                            try:
+                                d = int(float(e.value or 0))
+                            except (TypeError, ValueError):
+                                return
+                            lo = int(steps[_i - 1].get("day") or 1) if _i else 1
+                            steps[_i]["day"] = max(lo, min(d, 130))
+                        dy = ui.input(value=str(st.get("day") or 1),
+                                      label="Day", on_change=_day).props(
+                            "dense type=number min=1 max=130").classes(
+                            "fd-input aip-cb-day")
+                        if first:
+                            # The first touch is always an email on day 1.
+                            st["type"], st["day"] = "email", 1
+                            ks.props("disable")
+                            dy.props("disable")
+
+                        angles = b["angles"].get(kind) or []
+
+                        def _angle(e, _st=st, _a=dict(angles)):
+                            if e.value:
+                                _st["what"] = _a[e.value]
+                                _redraw()
+                        ui.select(options={"": "Recommended"} | {
+                                      lab: lab for lab, _w in angles},
+                                  value="", label="Recommended angle",
+                                  on_change=_angle).props("dense").classes(
+                            "fd-input aip-cb-angle")
+
+                    def _what(e, _st=st):
+                        _st["what"] = e.value
+                    ui.textarea(value=str(st.get("what") or ""),
+                                placeholder="What this step says",
+                                on_change=_what).props(
+                        "dense autogrow").classes(
+                        "fd-input aip-ta").style("width:100%;")
+
+                    if kind == "email" and not first:
+                        with ui.element("div").classes("aip-cb-row").style(
+                                "margin-top:6px;"):
+                            def _pdf(e, _i=i):
+                                for j, o in enumerate(steps):
+                                    # One PDF rides on one email.
+                                    if j != _i and e.value and o.get(
+                                            "pdf") == e.value:
+                                        o["pdf"] = ""
+                                steps[_i]["pdf"] = e.value or ""
+                                _redraw()
+                            cur_pdf = st.get("pdf") or ""
+                            ui.select(options=pdf_opts,
+                                      value=cur_pdf if cur_pdf in pdf_opts
+                                      else "", label="Add a PDF",
+                                      on_change=_pdf).props("dense").classes(
+                                "fd-input aip-cb-add")
+
+                            def _prof(e, _st=st):
+                                _st["profiles"] = e.value == "yes"
+                                _redraw()
+                            ui.select(options={
+                                          "no": "No candidates",
+                                          "yes": "Add candidate profiles"},
+                                      value="yes" if st.get("profiles")
+                                      else "no", label="Add candidates",
+                                      on_change=_prof).props(
+                                "dense").classes("fd-input aip-cb-add")
+                    else:
+                        st["pdf"], st["profiles"] = "", False
+
+                if len(steps) > 2 and not first:
+                    def _del(_i=i):
+                        steps.pop(_i)
+                        _redraw()
+                    with ui.element("button").classes("aip-cb-del").on(
+                            "click", lambda _e, _f=_del: _f()).props(
+                            'title="Remove this step"'):
+                        ui.icon("delete_outline")
+                else:
+                    ui.element("div")
+
+    if len(steps) < b["max_steps"]:
+        def _add():
+            last = int(steps[-1].get("day") or 1)
+            steps.append({"type": "email", "day": last + 3, "what": "",
+                          "pdf": "", "profiles": False})
+            _redraw()
+        with ui.element("button").classes("aip-cb-more").on(
+                "click", lambda _e: _add()):
+            ui.icon("add")
+            ui.label("Add a step")
+
+    with ui.element("div").style("margin-top:12px;"):
+        ui.label("How many candidates").classes("fd-fl")
+        _text("Every candidate is an AI-made profile: the role, an hourly "
+              "rate and two or three lines on their experience, no names. "
+              "The same candidates show on each email you added them to.",
+              C, 11, colour=C["muted"])
+        cur_n = str(vals.get("custom_profiles") or b["profiles_default"])
+
+        def _n(e):
+            vals["custom_profiles"] = e.value
+        ui.select(options=list(b["profiles"]),
+                  value=cur_n if cur_n in b["profiles"]
+                  else b["profiles_default"],
+                  on_change=_n).props("dense").classes("fd-input").style(
+            "max-width:120px;")
 
 
 def _pick_widget(C, vals, f, cur):
