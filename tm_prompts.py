@@ -1860,7 +1860,7 @@ ROUTINES = [
               "select", default=TM_POSTING_DEFAULT,
               options=TM_POSTING_AGE),
             F("boards", "Where to look for the jobs", "size",
-              default=_TM_BOARDS),
+              default=_TM_BOARDS, show_if=_e.never_shown),
         ] + _TM_SKIP_FIELDS,
         "steps": [
             "{vertical_guide}",
