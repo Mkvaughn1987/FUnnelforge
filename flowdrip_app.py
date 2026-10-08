@@ -45588,6 +45588,14 @@ _TM_PDF_KINDS = frozenset({
 })
 
 
+def _is_tm_pdf_kind(kind: str) -> bool:
+    """True when `kind` is written under the ThriveModal playbook rules:
+    the tm_* kinds anywhere, and on ThriveModal also the Interview Guide and
+    Market Pulse, which there are about offshore Filipino staffing."""
+    return kind in _TM_PDF_KINDS or (
+        kind in _TM_SALES_ASSET_EXTRA and _is_thrivemodal())
+
+
 # The playbook ranks markets for the seller ("EXPLORATORY (approved to test,
 # not a priority)", "smaller lists, watched closely"). That is sales planning;
 # on a buyer's page it reads "you are our experiment". Any sentence that still
@@ -45623,7 +45631,9 @@ def _tm_fix_pdf_labels(kind: str, ctx: dict, data: dict) -> None:
     invented both: "White City Construction Offshore Role Blueprint",
     "EXPLORATORY MARKET TEST"), and internal market labels scrubbed."""
     label = {"tm_role_blueprint": "Offshore Role Blueprint",
-             "tm_how_it_works": "How We Work Together"}.get(kind)
+             "tm_how_it_works": "How We Work Together",
+             "interview_guide": "Interviewing Filipino Candidates",
+             "market_pulse": "Offshore Staffing Market Pulse"}.get(kind)
     if label:
         company = str((ctx or {}).get("company") or "").strip()
         data["title"] = f"{label} - {company}" if company else label
@@ -45754,6 +45764,11 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
     # ThriveModal (inboxslide) PDFs are short and bulleted; Arena's keep
     # their full-page shape.
     _skim = _is_thrivemodal()
+    # ThriveModal sells offshore staffing; Arena's construction examples
+    # leaked into its titles (Mike, 2026-10-07).
+    _ex_title = ("Houston Logistics Offshore Staffing Brief" if _skim
+                 else "Sacramento Healthcare Construction Market Pulse")
+    _ex_visit = "attend weekly site visits" if _skim else "attend weekly jobsite visits"
 
     common_rules = (
         "\nAUDIENCE & VOICE:\n"
@@ -45773,7 +45788,7 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
         + "\nDO NOT:\n"
         "- Use procedural / ops language: 'build a sourcing pipeline', "
         "'document sourcing channel effectiveness', 'establish weekly touchpoints', "
-        "'develop standard operating procedures', 'attend weekly jobsite visits'. "
+        f"'develop standard operating procedures', '{_ex_visit}'. "
         "These read as internal training content, not client value.\n"
         "- Address the role-doer in second person ('You'll own…'). Always speak "
         "TO the hiring manager ABOUT what the hire delivers: 'This hire owns…', "
@@ -45798,7 +45813,7 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
         "\nReturn JSON in this exact shape:\n"
         '{\n'
         '  "title": "Location + Industry + document type ONLY. Example: '
-        '\\"Sacramento Healthcare Construction Market Pulse\\". DO NOT '
+        f'\\"{_ex_title}\\". DO NOT '
         'list job titles, roles, or position names in the title — those '
         'belong in the body. Keep it short (6-10 words).",\n'
         '  "badge": "UPPERCASE BADGE 2-4 WORDS",\n'
@@ -45813,7 +45828,99 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
         '  {"heading": "...", "type": "qa",        "items": [{"q":"...","a":"..."}, ...]}\n'
     )
 
-    if kind == "market_pulse":
+    if _skim and kind == "interview_guide":
+        # ThriveModal: how to interview a Philippines-based candidate for
+        # fit (Mike, 2026-10-07). The client interviews the shortlist we send.
+        body = (
+            f"Build an Interview Guide for {company}'s hiring manager, who "
+            f"is about to interview Philippines-based candidates we have "
+            f"shortlisted for {role_label}"
+            + (f" ({industry_str})" if primary else "") + ". The reader "
+            f"has likely never hired an offshore Filipino team member. "
+            f"Give them a practical framework to tell, in one video call, "
+            f"whether this person fits the role and can work remotely for "
+            f"a US team.\n"
+            f"\nREQUIRED SECTIONS (every bullet ONE short sentence, max 20 "
+            f"words):\n"
+            f"  1. heading 'Before the Interview' — type 'bullets' — 3 "
+            f"bullets: book the video call at a time that is reasonable in "
+            f"the Philippines, share the role's day-to-day work in advance, "
+            f"and plan a short live skills task.\n"
+            f"  2. heading 'Must-Ask Questions' — type 'qa' — 5 pairs. q is "
+            f"the question, a is what a strong answer sounds like (1-2 "
+            f"sentences). Cover: hands-on work in the core skills and "
+            f"systems of {role_label}; past remote work with US or overseas "
+            f"clients; working a US-hours shift from the Philippines; their "
+            f"home work setup (dedicated space, stable internet, backup "
+            f"internet and power); how they raise a problem or ask for help "
+            f"when the manager is offline.\n"
+            f"  3. heading 'Fit Checks' — type 'table' — header + 4 rows. "
+            f"Columns: ['What to Check','How to Check It','Strong Signal']. "
+            f"Rows: written English for this role (a short written task); "
+            f"spoken clarity (have them walk you through a process they "
+            f"run); role skills (a live screen-share task in the systems "
+            f"the role uses); shift and setup readiness. Each cell 10 words "
+            f"or fewer.\n"
+            f"  4. heading 'Green Flags and Watch-Outs' — type 'bullets' — "
+            f"4 bullets, two starting 'Green flag:' and two starting "
+            f"'Watch-out:'. Watch-outs are about evidence, e.g. vague "
+            f"answers with no specific example, or no plan for an internet "
+            f"outage.\n"
+            f"  5. heading 'Interviewing Across Time Zones' — type 'bullets' "
+            f"— 3 practical tips for interviewing a remote candidate well: "
+            f"ask open questions and for specific examples rather than "
+            f"yes/no; invite their questions directly and give them room "
+            f"to ask; confirm next steps in writing after the call.\n"
+            f"\nRULES FOR THIS GUIDE:\n"
+            f"- No nationality-based generalizations about Filipino people "
+            f"(English, work ethic, culture, loyalty, attitude to "
+            f"authority). Every tip is about interviewing a remote "
+            f"candidate well, and every check is something the manager "
+            f"verifies in the call.\n"
+            f"- The manager chooses who to hire. After the interview they "
+            f"send us their feedback, and we handle the offer and "
+            f"onboarding. Say this once, in the cta or the last section.\n"
+            f"- Do not mention any named candidate, profile or resume.\n"
+        )
+
+    elif _skim and kind == "market_pulse":
+        # ThriveModal: industry context for the offshore decision, not a
+        # US salary briefing (Mike, 2026-10-07).
+        body = (
+            f"Build an Offshore Staffing Market Pulse for a decision-maker "
+            f"at {company}" + (f" ({industry_str})" if primary else "")
+            + f". The reader is weighing whether to move some roles, such "
+            f"as {role_label}, to a dedicated team member in the "
+            f"Philippines. Explain why businesses like theirs are doing it, "
+            f"which roles fit, and what to plan for.\n"
+            f"\nREQUIRED SECTIONS (every bullet ONE short sentence, max 20 "
+            f"words):\n"
+            f"  1. heading 'What Is Pressuring Teams Like Yours' — type "
+            f"'bullets' — 3 bullets on the US-side hiring and cost pressures "
+            f"a business in this industry faces. Use a figure ONLY if it "
+            f"appears in the research data supplied, and name its source in "
+            f"the sentence; otherwise make the point without a number.\n"
+            f"  2. heading 'Roles That Work Offshore' — type 'table' — "
+            f"header + 4 rows. Columns: ['Role','Work It Covers','Why It "
+            f"Works Remotely']. Back-office, admin, finance, customer "
+            f"service or operations support roles this kind of business "
+            f"actually hires, {role_label} first. Each cell 8 words or "
+            f"fewer.\n"
+            f"  3. heading 'How Offshore Staffing Fits' — type 'bullets' — "
+            f"3 bullets: a dedicated full-time team member, working your "
+            f"hours from the Philippines, managed by you day to day. Take "
+            f"cost and terms ONLY from the approved pricing text below.\n"
+            f"  4. heading 'What to Plan For' — type 'bullets' — 3 honest "
+            f"bullets: manager time for the first weeks, documented "
+            f"processes, and system access and data security.\n"
+            f"  5. heading 'Common Questions' — type 'qa' — 3 pairs, 1-2 "
+            f"sentences each, that a first-time buyer of offshore staffing "
+            f"in this industry asks.\n"
+            f"\nNo US salary tables and no compensation benchmarks: this is "
+            f"about the offshore decision, not what to pay a US hire.\n"
+        )
+
+    elif kind == "market_pulse":
         body = (
             f"Build a rich one-page Market Pulse / Salary Guide for a hiring manager at {company}. "
             f"Reader wants the market reality for {exp_phrase}{role_label} in {location} "
@@ -46066,7 +46173,7 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
         )
 
     out = common_header + body + common_shape + common_rules
-    if kind in _TM_PDF_KINDS:
+    if _is_tm_pdf_kind(kind):
         # Appended LAST so it overrides the common rules it contradicts.
         out += _tm_rich_rules()
     # Last, so it beats the per-kind section specs above ("type 'paragraph'
@@ -46787,7 +46894,7 @@ def _generate_rich_pdf_data(client, kind: str, ctx: dict, research_context: str 
     data.setdefault("intro", "")
     data.setdefault("sections", [])
     data.setdefault("cta", "")
-    if kind in _TM_PDF_KINDS:
+    if _is_tm_pdf_kind(kind):
         _tm_fix_pdf_labels(kind, ctx, data)
     # Format salary cells in every table section ($XX,XXX - $XX,XXX).
     # Centralized here so every PDF code path benefits — no need to wire
@@ -47495,11 +47602,11 @@ _TM_CAMPAIGN_PDF_KINDS = [
      "I've attached a one-page overview of how an engagement runs, from "
      "defining the role through your interviews and onboarding."),
     ("interview_guide", "Interview Guide",
-     "I've attached an interview guide for the role, so the shortlist "
-     "conversations surface real signal quickly."),
+     "I've attached a short guide to interviewing candidates in the "
+     "Philippines for the role, so you can tell quickly who fits."),
     ("market_pulse", "Market Pulse",
-     "I've attached a short market briefing for your industry, with sources "
-     "and dates."),
+     "I've attached a short briefing on why teams in your industry are "
+     "moving roles offshore and which roles fit."),
 ]
 # Mike, 2026-09-21: "give the user the option to add as many PDFs as they
 # want". Every kind above is offered again and the only cap is the list
@@ -47516,8 +47623,8 @@ _TM_CAMPAIGN_PDF_BLURBS = {
                        "Philippines.",
     "tm_how_it_works": "How an engagement runs, from defining the role to "
                        "onboarding.",
-    "interview_guide": "Questions that get real signal from the shortlist.",
-    "market_pulse": "A short, sourced briefing on their industry.",
+    "interview_guide": "How to interview Filipino candidates for fit.",
+    "market_pulse": "Why their industry is moving roles offshore.",
 }
 TM_CAMPAIGN_PDF_DEFAULT = ["tm_role_blueprint", "tm_cost_compare"]
 # Per type, the pair that matches what the sequence's steps talk about, so
@@ -55680,12 +55787,12 @@ def p_pdf_gen(s: AppState, rf):
              "onboarding, and ongoing support from our team.",
              C["indigo"], "🤝"),
             ("interview_guide", "Interview Guide",
-             "For the shortlist stage: a structured framework for interviewing the "
-             "candidates you have been sent.",
+             "How to interview Filipino candidates for fit: must-ask questions, a "
+             "live skills check, and remote-work and shift readiness.",
              C["good"], "🎯"),
             ("market_pulse", "Market Pulse",
-             "Optional industry context for the market you are selling into, with "
-             "sources and dates.",
+             "Why businesses in their industry are moving roles offshore, which "
+             "roles fit the Philippines, and what to plan for.",
              C["teal"], "📊"),
         ]
     else:
@@ -56146,14 +56253,22 @@ def p_pdf_gen(s: AppState, rf):
                         f'Research "{company}" in {location or "their primary market"}.\n\n'
                         + (f'Additional context: {_extra_context}\n\n' if _extra_context else '')
                         + (f'Check their website at {_website} for project details and open positions.\n\n' if _website else '')
-                        + f'Find:\n'
+                        + (f'Find:\n'
+                        f'1. Recent news (last 6 months) - growth, acquisitions, cost pressure, leadership changes\n'
+                        f'2. Current open jobs, especially back-office, admin, finance and customer-service roles like {role}\n'
+                        f'3. Recent hiring activity and headcount trends\n'
+                        f'4. Company size, revenue, locations\n'
+                        f'5. Industry cost and labor challenges\n'
+                        f'6. Any sign they already use remote or offshore staff\n\n'
+                        if _is_thrivemodal() else
+                        f'Find:\n'
                         f'1. Recent news (last 6 months) - expansions, contracts, projects, leadership changes\n'
                         f'2. Current open jobs, especially for {role} or similar positions\n'
                         f'3. Recent hiring activity and headcount trends\n'
                         f'4. Company size, revenue, key projects\n'
                         f'5. Industry challenges and competitive landscape\n'
-                        f'6. Glassdoor/Indeed salary data for {_exp_level + " " if _exp_level else ""}{role} in {location}\n\n'
-                        f'Write a detailed research brief (400-600 words) with specific facts, '
+                        f'6. Glassdoor/Indeed salary data for {_exp_level + " " if _exp_level else ""}{role} in {location}\n\n')
+                        + f'Write a detailed research brief (400-600 words) with specific facts, '
                         f'names, numbers, and dates. Cite real sources.'
                     )
                     research_msg = _claude_create_with_retry(client,
