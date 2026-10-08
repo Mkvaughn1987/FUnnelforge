@@ -693,6 +693,7 @@ def test_create_campaign_draft_saves_without_queueing(monkeypatch):
     queued = []
     code, body, saved = _create(monkeypatch, {
         "template": "tm_fivebyseven", "company": "Acme", "draft": True,
+        "company_phone": "(303) 555-0100",
         "contacts": [{"email": "a@x.com"}], "enroll_newsletter": "CPA Monthly"},
         queued)
     assert code == 200, body
@@ -707,6 +708,7 @@ def test_create_campaign_without_draft_still_launches(monkeypatch):
     queued = []
     code, body, saved = _create(monkeypatch, {
         "template": "tm_fivebyseven", "company": "Acme",
+        "company_phone": "(303) 555-0100",
         "contacts": [{"email": "a@x.com"}]}, queued)
     assert code == 200, body
     assert body["contacts_queued"] == 5 and len(queued) == 1

@@ -6766,6 +6766,38 @@ def _api_contact_phones(c: dict) -> dict:
     return c
 
 
+def _api_require_phones(spec: dict, contacts: list):
+    """Every company contact reaches the call cards with a number. Fills
+    phone_office from spec company_phone (the main line) on contacts sent
+    without one; returns an error string naming whoever still has none,
+    else None. findcandidates mails candidates, not companies - no calls."""
+    if (spec.get("template") or "").strip() == "findcandidates":
+        return None
+    main = str(spec.get("company_phone") or "").strip()
+    missing = []
+    for c in contacts or []:
+        if not isinstance(c, dict):
+            continue
+        if (str(c.get("phone_mobile") or "").strip()
+                or str(c.get("phone_office") or "").strip()):
+            continue
+        if main:
+            c["phone_office"] = main
+        else:
+            missing.append(" ".join(
+                p for p in (c.get("first_name"), c.get("last_name")) if p)
+                or c.get("email") or "?")
+    if not missing or spec.get("no_phone_ok") is True:
+        return None
+    return ("These contacts have no phone number, so their call cards would "
+            "be blank: " + ", ".join(missing[:20])
+            + (f" and {len(missing) - 20} more" if len(missing) > 20 else "")
+            + ". Put the company's main line in company_phone (ask "
+            "enrich_companies for phone, or read it off the company's "
+            "website) and send again. Only if no number exists anywhere, "
+            "pass no_phone_ok: true.")
+
+
 def _parse_contacts_csv(csv_text: str) -> list:
     """Parse raw CSV text into normalized contact dicts (email/first_name/...)."""
     text = (csv_text or "").strip()
@@ -12069,6 +12101,9 @@ async def api_create_campaign(request: Request):
     if not isinstance(contacts, list):
         contacts = _parse_contacts_csv(spec.get("contacts_csv", ""))
     contacts = [_api_contact_phones(c) for c in contacts]
+    err = _api_require_phones(spec, contacts)
+    if err:
+        return JSONResponse({"error": err}, status_code=400)
 
     if not ANTHROPIC_API_KEY:
         return JSONResponse({"error": "AI not configured on server"}, status_code=503)

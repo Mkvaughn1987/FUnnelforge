@@ -1368,7 +1368,9 @@ _CONTACTS_STEP = (
     "DisallowedOutputFields warning on one of them is not an error, take "
     "what comes back. If a person has neither number, put the company's "
     "main line in phone_office - ask enrich_companies for phone, or read it "
-    "off the company's website - so every call card has a number to dial.")
+    "off the company's website - so every call card has a number to dial; "
+    "create_campaign also takes it once as company_phone, and refuses "
+    "contacts that have no number at all.")
 
 _SHOW_STEP = (
     "Show me the companies, the signal on each one, the contacts and the "

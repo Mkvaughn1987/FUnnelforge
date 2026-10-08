@@ -273,7 +273,17 @@ _SPEC = {"template": "fourbyfour", "company": "Acme Manufacturing",
          "location": "Windsor, CO", "start_date": "2026-07-06",
          "candidates": [{"label": "Candidate A", "role": "Plant Manager",
                          "bullets": ["12 yrs"]}],
-         "contacts": [{"email": "vp@acme.com", "first_name": "Dana"}]}
+         "contacts": [{"email": "vp@acme.com", "first_name": "Dana",
+                       "phone_mobile": "(970) 555-0100"}]}
+
+
+def test_route_refuses_contacts_without_a_number(tmp_path, monkeypatch):
+    _isolate_keys(tmp_path, monkeypatch)
+    _stub_pipeline(monkeypatch)
+    key = fa._mint_api_key("rep@arena.com")
+    spec = dict(_SPEC, contacts=[{"email": "vp@acme.com", "first_name": "Dana"}])
+    status, body = _call({"authorization": f"Bearer {key}"}, spec)
+    assert status == 400 and "Dana" in body["error"]
 
 
 def test_route_requires_auth(tmp_path, monkeypatch):

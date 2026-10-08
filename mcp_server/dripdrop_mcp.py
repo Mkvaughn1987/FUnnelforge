@@ -240,6 +240,14 @@ async def create_campaign(spec: dict) -> dict:
         draft (true = generate and save for review without queueing; the
         response has "status": "draft" and the campaign_id to edit/launch).
 
+        Phones: every contact needs a number for the call cards -
+        phone_mobile, phone_office, or both. company_phone (the company's
+        main line) fills phone_office on any contact sent without one. A
+        contact with no number and no company_phone is refused with the
+        names listed; look up the main line (enrich_companies phone, or the
+        company's website) and send again. Only if no number exists anywhere
+        pass no_phone_ok=true.
+
         For template "findcandidates": pass job_description (str, the full
         JD text) instead of company/niche/roles, and contacts as the
         candidates to reach (their emails). Optional cadence: "one_email"
