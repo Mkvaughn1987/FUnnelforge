@@ -32,7 +32,7 @@ def test_internal_market_labels_are_scrubbed_and_title_is_fixed():
     fa._tm_fix_pdf_labels("tm_role_blueprint",
                           {"company": "S+B James Construction"}, data)
     assert data["title"] == "Offshore Role Blueprint - S+B James Construction"
-    assert data["badge"] == "OFFSHORE ROLE BLUEPRINT"
+    assert data["badge"] == "ROLE DESIGN"
     flat = json.dumps(data).lower()
     assert "explorator" not in flat and "test market" not in flat
     assert data["intro"] == "This blueprint outlines the role."
@@ -101,13 +101,69 @@ def test_cost_comparison_names_five_roles_lead_role_first(monkeypatch):
     assert len(roles) == 5 and roles[0] == "Project Coordinator"
     assert "Estimator" in roles  # from the construction list
     assert rows[-1][0] == "All 5 roles"
+    # Hourly, our rate first, then what they pay, then the saving (Mike,
+    # 2026-10-08); the totals row adds up as printed.
+    assert rows[0] == ["Role", "Our Rate / Hour", "In-House Cost / Hour",
+                       "You Save / Hour", "You Save / Year"]
     money = lambda t: float(t.replace("USD", "").replace("$", "").replace(",", ""))
-    assert money(rows[-1][2]) == sum(money(r[2]) for r in rows[1:-1])
-    assert money(rows[-1][4]) == money(rows[-1][2]) - money(rows[-1][3])
-    assert d["badge"] == "STAFFING COST COMPARISON" and d["_worksheet"]
-    how = next(s for s in d["sections"] if s["heading"] == "How This Was Calculated")
+    for r in rows[1:-1]:
+        assert money(r[3]) == money(r[2]) - money(r[1])
+        assert money(r[1]) < money(r[2]) < 100      # per hour, not per year
+        assert money(r[4]) > 10000                   # per year
+    for col in (1, 2, 3, 4):
+        assert money(rows[-1][col]) == sum(money(r[col]) for r in rows[1:-1])
+    assert d["badge"] == fa._TM_COST_BADGE and d["_worksheet"]
+    how = next(s for s in d["sections"] if s["heading"] == "Basis of Calculation")
     assert not any("Philippine" in i for i in how["items"])
+    assert any("2,080" in i for i in how["items"])
     assert "Sources" not in [s["heading"] for s in d["sections"]]
+    assert "Here's" not in json.dumps(d)
+
+
+def test_cost_comparison_for_a_staffing_firm_lists_recruiting_roles(monkeypatch):
+    """A recruiting firm shares the home-care vertical, but its back office
+    is sourcing and recruiting support, not care scheduling."""
+    monkeypatch.setattr(fa, "_is_thrivemodal", lambda cfg=None: True)
+    roles = fa._tm_cost_roles("Sourcer", "Recruiting", "Acme Staffing")
+    assert roles[:3] == ["Sourcer", "Recruiter", "Recruiting Coordinator"]
+    assert "Care Scheduler" not in roles
+    # Every staffing title prices without a model call.
+    for r in fa._TM_STAFFING_COST_ROLES:
+        assert fa._tm_soc_for_role(None, r) is not None, r
+    # Plain "Recruiting" (no vertical keyword) gets the same list.
+    roles = fa._tm_cost_roles("Sourcer", "Recruiting", "")
+    assert roles[1] == "Recruiter" and "Care Scheduler" not in roles
+    # A real home-care agency keeps its own list, even when called a
+    # staffing agency.
+    roles = fa._tm_cost_roles("", "Home Care Staffing", "Comfort Keepers")
+    assert roles[0] == "Care Scheduler"
+    # The customer quote is one bullet, so the renderer cannot split it.
+    secs = {s["heading"]: s for s in fa._tm_cost_extra_sections()}
+    assert secs["What Customers Report"]["type"] == "bullets"
+    assert len(secs["What Customers Report"]["items"]) == 1
+
+
+def test_clause_dashes_become_commas_but_ranges_stay():
+    data = {"intro": "Here is what it looks like—and what lands on you.",
+            "sections": [{"heading": "x", "type": "bullets",
+                          "items": ["Savings of 60-70% - depending on the role.",
+                                    "$40,000 - $50,000 a year"]}],
+            "cta": "Talk to us – today."}
+    fa._tm_fix_pdf_labels("tm_how_it_works", {"company": "Co"}, data)
+    assert data["intro"] == "Here is what it looks like, and what lands on you."
+    assert data["sections"][0]["items"] == [
+        "Savings of 60-70%, depending on the role.", "$40,000 - $50,000 a year"]
+    assert data["cta"] == "Talk to us, today."
+    assert data["badge"] == "ENGAGEMENT OVERVIEW"
+
+
+def test_pdf_date_has_no_leading_zero_on_inboxslide_only(monkeypatch):
+    import datetime
+    monkeypatch.setattr(fa, "_is_thrivemodal", lambda cfg=None: True)
+    assert fa._pdf_date_label(datetime.date(2026, 10, 8)) == "October 8, 2026"
+    assert fa._pdf_date_label(datetime.date(2026, 12, 25)) == "December 25, 2026"
+    monkeypatch.setattr(fa, "_is_thrivemodal", lambda cfg=None: False)
+    assert fa._pdf_date_label(datetime.date(2026, 10, 8)) == "October 08, 2026"
 
 
 def test_cost_comparison_skips_duplicate_occupations(monkeypatch):
@@ -146,7 +202,7 @@ def test_market_campaign_reads_as_a_business_not_a_buyer(monkeypatch):
                                    "United States", "Accounting & Finance",
                                    market_only=True)
     assert d["intro"].startswith(fa._TM_COST_SNAPSHOT
-                                 + " Five roles an Accounting & Finance business")
+                                 + ", for five roles an Accounting & Finance business")
     assert "in United States" not in d["intro"]
     assert "Accounting & Finance's" not in json.dumps(d)
 

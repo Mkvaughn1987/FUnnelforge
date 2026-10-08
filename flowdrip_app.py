@@ -11438,6 +11438,15 @@ def _custom_pdf_outline(client, description, ctx) -> dict:
     return {"error": "Couldn't parse outline."}
 
 
+def _pdf_date_label(d=None) -> str:
+    """inboxslide: 'October 8, 2026', no zero-padded day (strftime's %d
+    gives '08', and Windows has no %-d). Arena keeps its '%B %d, %Y'."""
+    d = d or date.today()
+    if not _is_thrivemodal():
+        return d.strftime("%B %d, %Y")
+    return f"{d:%B} {d.day}, {d.year}"
+
+
 def _custom_pdf_build(client, outline, description, ctx_block, pdf_dir,
                       config_path) -> str:
     """Create Your Own, stage 2: fill the approved outline, render the PDF
@@ -11448,7 +11457,7 @@ def _custom_pdf_build(client, outline, description, ctx_block, pdf_dir,
     from arena_pdfs import build_custom_pdf
     pdf_dir = Path(pdf_dir)
     config_path = Path(config_path)
-    dt = date.today().strftime("%B %d, %Y")
+    dt = _pdf_date_label()
     _cfg = json.loads(config_path.read_text(encoding="utf-8")) if config_path.exists() else {}
     prep = _pdf_prepared_by(_cfg)
     prep_email = _cfg.get("sig_email", "")
@@ -11583,7 +11592,7 @@ def _tm_build_sales_asset(kind, company, role, location, industry="",
     build = {
         "title": data.get("title") or f"{label} - {subject}",
         "badge": data.get("badge") or label.upper(),
-        "date": date.today().strftime("%B %d, %Y"),
+        "date": _pdf_date_label(),
         "prepared_by": _pdf_prepared_by(_cfg),
         "prepared_email": _cfg.get("sig_email", ""),
         "logo_path": _get_company_logo_path(),
@@ -26697,7 +26706,7 @@ def _generate_squeeze_pdfs(v):
                     or _cfg.get("company_industry", "") or "")
     prep     = _pdf_prepared_by(_cfg)
     prep_email = _cfg.get("sig_email", "")
-    dt       = date.today().strftime("%B %d, %Y")
+    dt       = _pdf_date_label()
 
     # Campaign-specific filenames to avoid cross-client contamination
     slug = re.sub(r'[^\w\s-]', '', company).strip().replace(' ', '_')[:40] or "Campaign"
@@ -27782,7 +27791,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                                        or load_config().get("company_industry", "")
                                        or "")
                             _exp_level = v.get("ExpLevel", "") or ""
-                            dt = date.today().strftime("%B %d, %Y")
+                            dt = _pdf_date_label()
                             _cfg = load_config()
                             prep = _pdf_prepared_by(_cfg)
                             prep_email = _cfg.get("sig_email", "")
@@ -44762,6 +44771,7 @@ _TM_SOC_KEYWORDS = (
     ("front office", "436013"), ("medical receptionist", "436013"),
     ("recruiter", "131071"), ("recruiting coordinator", "131071"),
     ("sourcer", "131071"), ("talent acquisition", "131071"),
+    ("onboarding", "131071"), ("onboarding specialist", "131071"),
     ("leasing", "419022"), ("transaction coordinator", "436014"),
     ("property accountant", "132011"), ("property manager", "119141"),
     ("maintenance coordinator", "436014"), ("intake coordinator", "436014"),
@@ -45104,19 +45114,19 @@ def _tm_auto_cost_pdf_data(company: str, role: str, location: str,
     ]
     return {
         "title": f"Staffing Cost Comparison - {company}",
-        "badge": "STAFFING COST COMPARISON",
-        "intro": (f"{_TM_COST_SNAPSHOT} What one {role}{where} costs "
-                  f"{company} in-house for a year, next to the estimated cost "
-                  f"of the same role with us: about "
-                  f"{_tm_money(ws['difference'])} ({pct}) less."),
+        "badge": _TM_COST_BADGE,
+        "intro": (f"{_TM_COST_SNAPSHOT}, for one {role}{where}: an "
+                  f"estimated saving for {company} of about "
+                  f"{_tm_money(ws['difference'])} a year ({pct})."),
         "sections": [
             {"heading": "Cost Comparison", "type": "table", "items": ws["rows"]},
             *_tm_cost_extra_sections(),
             {"heading": "How This Was Calculated", "type": "bullets",
              "items": howto},
         ],
-        "cta": ("Send us your actual salary and benefits figures and we will "
-                "rerun this with your numbers."),
+        "cta": ("To see this with your own figures, send us the current "
+                "salary and benefits for the role and we will rerun the "
+                "comparison."),
         "_worksheet": ws,
     }
 
@@ -45125,34 +45135,92 @@ def _tm_auto_cost_pdf_data(company: str, role: str, location: str,
 # and fill the page with what customers see and what the rate covers. Every
 # line below is copied from _TM_DEF_PROOF / _TM_DEF_PRICING (approved terms,
 # one customer quote word for word), so nothing new is claimed.
-_TM_COST_SNAPSHOT = ("Here's a snapshot of how we can help, and what our "
-                     "current customers are seeing.")
+# Mike, 2026-10-08: professional register, and every PDF sells the people
+# (reliability, education, communication) alongside the saving.
+_TM_COST_SNAPSHOT = ("Our all-inclusive rate beside the fully loaded "
+                     "in-house cost")
+_TM_COST_BADGE = "COST ANALYSIS"
+
+# Hours in a full-time year, for the per-hour columns (Mike, 2026-10-08:
+# "use hourly pay and start with what we charge").
+_TM_HOURS_PER_YEAR = 2080
+
+
+def _tm_hourly(annual) -> int:
+    """Whole dollars per hour for an annual figure."""
+    return int(round(float(annual) / _TM_HOURS_PER_YEAR))
+
+
+# What we recruit for and what clients report, in every cost sheet. The
+# first two bullets describe our screening (approved services text); the
+# third paraphrases the approved Knichel reference without adding to it.
+_TM_TALENT_BULLETS = [
+    "Each professional is recruited for your specific role, with the "
+    "education, experience and software skills it requires, and presented "
+    "with a video pre-screen.",
+    "We screen for clear written and spoken communication and a reliable "
+    "home office before you interview.",
+]
+
+
+def _tm_where(location: str) -> str:
+    """' in Houston, TX', ' on the East Coast', or '' for nationwide."""
+    loc = str(location or "").strip()
+    if not loc or _is_nationwide(loc):
+        return ""
+    low = loc.lower()
+    if "coast" in low or low in ("midwest", "south", "northeast", "west",
+                                 "southeast", "southwest", "northwest"):
+        return f" on the {loc}" if "coast" in low else f" in the {loc}"
+    return f" in {loc}"
 
 
 def _tm_cost_extra_sections() -> list:
     return [
-        {"heading": "What Our Customers Are Seeing", "type": "paragraph",
+        {"heading": "The People We Place", "type": "bullets",
+         "items": list(_TM_TALENT_BULLETS)},
+        # One bullet, so the renderer's paragraph-to-bullets pass cannot
+        # split the quote into three.
+        {"heading": "What Customers Report", "type": "bullets",
          "items": ['"The team Thrivemodal placed with us has been a strong '
                    "fit. We've seen good attendance, strong performance, and "
                    "people who take ownership of their work. That consistency "
                    "allows our leadership team to focus on strategy, "
                    "customers, and relationships instead of constantly having "
-                   'to fill staffing gaps." - Kristy Knichel, CEO and '
+                   'to fill staffing gaps." Kristy Knichel, CEO and '
                    "President, Knichel Logistics"]},
-        {"heading": "What You Get With Us", "type": "bullets", "items": [
-            "One all-inclusive monthly rate per dedicated professional, "
-            "invoiced bi-weekly: compensation, benefits, HR, compliance, "
-            "payroll administration and ongoing support. We are the "
-            "employer of record; you manage the work, not the employment.",
-            "You choose the person from a shortlist of three or more vetted "
-            "candidates with video pre-screens. They arrive plug-and-play, "
-            "with workstation and IT set up before day one, typically about "
-            "ten days from your decision.",
+        {"heading": "Engagement Terms", "type": "bullets", "items": [
+            "One all-inclusive monthly rate per professional covers pay, "
+            "benefits, HR, compliance and payroll; we are the employer of "
+            "record.",
+            "You choose from a shortlist of three or more vetted candidates; "
+            "a typical start is ten days from your decision.",
             "No upfront or placement fees, month-to-month terms, no "
             "cancellation fee, and a lifetime free replacement if the person "
             "does not work out.",
         ]},
     ]
+
+
+# Staffing and recruiting firms share the home-care vertical's knowledge
+# block, but their back office is sourcing and recruiting support, not
+# care scheduling (Mike, 2026-10-08: "care scheduler for recruiting?").
+_TM_STAFFING_TERMS = ("staffing", "recruit", "talent acquisition",
+                      "search firm", "temp agency", "employment agency",
+                      "headhunt")
+# A home-care agency is also a "staffing agency"; its own list stands.
+_TM_HOMECARE_TERMS = ("home care", "homecare", "home health", "senior",
+                      "assisted living", "caregiver", "hospice")
+_TM_STAFFING_COST_ROLES = ["Sourcer", "Recruiter", "Recruiting Coordinator",
+                           "Onboarding Specialist", "Payroll Specialist",
+                           "Accounts Receivable Specialist",
+                           "Data Entry Specialist"]
+
+
+def _tm_is_staffing_buyer(industry: str, company: str) -> bool:
+    low = " ".join([str(industry or ""), str(company or "")]).lower()
+    return (any(t in low for t in _TM_STAFFING_TERMS)
+            and not any(t in low for t in _TM_HOMECARE_TERMS))
 
 
 # The roles each vertical is sold on (the playbook's "Roles:" lists), in the
@@ -45197,9 +45265,12 @@ def _tm_cost_roles(role: str, industry: str, company: str) -> list:
     vert = (_tm_vertical_for(" ".join([str(industry or ""), str(company or ""),
                                        str(role or "")]))
             if _is_thrivemodal() else _TM_VERTICAL_GENERAL)
+    pool = _TM_VERTICAL_COST_ROLES.get(
+        vert, _TM_VERTICAL_COST_ROLES[_TM_VERTICAL_GENERAL])
+    if _is_thrivemodal() and _tm_is_staffing_buyer(industry, company):
+        pool = _TM_STAFFING_COST_ROLES
     out, seen = [], set()
-    for r in own + _TM_VERTICAL_COST_ROLES.get(
-            vert, _TM_VERTICAL_COST_ROLES[_TM_VERTICAL_GENERAL]):
+    for r in own + pool:
         if r.lower() not in seen:
             seen.add(r.lower())
             out.append(r)
@@ -45256,50 +45327,62 @@ def _tm_multi_cost_pdf_data(client, company: str, role: str, location: str,
     tot_dom = sum(p["domestic"] for p in priced)
     tot_tm = sum(p["tm"] for p in priced)
     pct = f"{_TM_AUTO_SAVINGS:.0%}"
-    rows = [["Role", "Base Salary", "In-House Total", "With Us (est.)",
-             "You Save"]]
-    rows += [[p["role"], _tm_money(p["base"]), _tm_money(p["domestic"]),
-              _tm_money(p["tm"]), _tm_money(p["saving"])] for p in priced]
+    # Hourly, our rate first (Mike, 2026-10-08). Per-row hourly figures are
+    # rounded to whole dollars and the totals row sums those, so the page
+    # adds up as printed.
+    for p in priced:
+        p["tm_hr"] = _tm_hourly(p["tm"])
+        p["domestic_hr"] = _tm_hourly(p["domestic"])
+        p["saving_hr"] = p["domestic_hr"] - p["tm_hr"]
+    rows = [["Role", "Our Rate / Hour", "In-House Cost / Hour",
+             "You Save / Hour", "You Save / Year"]]
+    rows += [[p["role"], _tm_money(p["tm_hr"]), _tm_money(p["domestic_hr"]),
+              _tm_money(p["saving_hr"]), _tm_money(p["saving"])]
+             for p in priced]
     if n > 1:
-        rows.append([f"All {n} roles", "", _tm_money(tot_dom),
-                     _tm_money(tot_tm), _tm_money(tot_dom - tot_tm)])
+        rows.append([f"All {n} roles",
+                     _tm_money(sum(p["tm_hr"] for p in priced)),
+                     _tm_money(sum(p["domestic_hr"] for p in priced)),
+                     _tm_money(sum(p["saving_hr"] for p in priced)),
+                     _tm_money(tot_dom - tot_tm)])
     # Where the base salaries come from, each area said once. The
     # role-to-occupation mapping stays off the page (it filled a second one).
     areas = list(dict.fromkeys(p["area"] for p in priced))
-    salary_note = ("Base salary is the BLS median wage for each role's closest "
-                   "occupation (" + "; ".join(areas) + ").")
-    where = (f" in {location}" if location
-             and not _is_nationwide(location) else "")
+    salary_note = ("BLS median wage for each role's closest occupation ("
+                   + "; ".join(areas) + ")")
+    where = _tm_where(location)
     # A market campaign's subject is an industry, not a buyer.
     _mkt = str(industry or company)
     who = (f"{'an' if _mkt[:1].lower() in 'aeiou' else 'a'} {_mkt} business"
            if market_only else company)
     howto = [
-        f"Each in-house figure is one full-time person{where} for 12 months, "
-        f"in U.S. dollars: base salary, plus payroll taxes and benefits at "
-        f"{_TM_BENCH_BURDEN_PCT:.0f}% of wages, plus US-average "
+        f"In-house cost is one full-time person{where}: {salary_note}, "
+        f"plus {_TM_BENCH_BURDEN_PCT:.0f}% payroll taxes and benefits, "
         f"workspace ({_tm_money(_TM_BENCH_OVERHEAD)}) and recruiting "
-        f"({_tm_money(_TM_BENCH_HIRING)}). " + salary_note,
-        f"Our column is an estimate, {pct} below the in-house total, within "
-        f"our published range of up to 60-70% fully burdened. We confirm your "
-        f"quote separately. Swap in your own payroll figures for an exact "
-        f"comparison.",
+        f"({_tm_money(_TM_BENCH_HIRING)}) a year.",
+        f"Hourly figures are the annual cost over {_TM_HOURS_PER_YEAR:,} "
+        f"hours. Our rate is an estimate {pct} below the in-house total, "
+        f"within our published 60-70% range; your quote is confirmed "
+        f"separately.",
     ]
-    lead = ("Five roles" if n == 5 else f"{n} roles" if n > 1 else "One role")
+    lead = ("five roles" if n == 5 else f"{n} roles" if n > 1 else "one role")
     return {
         "title": f"Staffing Cost Comparison - {company}",
-        "badge": "STAFFING COST COMPARISON",
-        "intro": (f"{_TM_COST_SNAPSHOT} {lead} {who} would typically "
-                  f"hire for, in-house{where} versus with us: about "
-                  f"{_tm_money(tot_dom - tot_tm)} a year ({pct}) less."),
+        "badge": _TM_COST_BADGE,
+        "intro": (f"{_TM_COST_SNAPSHOT}, for {lead} {who} would "
+                  f"typically hire for{where}: a saving of about "
+                  f"{_tm_money(tot_dom - tot_tm)} a year ({pct})."),
         "sections": [
-            {"heading": "Cost Comparison by Role", "type": "table", "items": rows},
+            # keep: the renderer's length trim never drops a row (the last
+            # row is the total).
+            {"heading": "Cost Comparison by Role", "type": "table",
+             "items": rows, "keep": True},
             *_tm_cost_extra_sections(),
-            {"heading": "How This Was Calculated", "type": "bullets",
+            {"heading": "Basis of Calculation", "type": "bullets",
              "items": howto},
         ],
-        "cta": ("Tell us which of these roles matters most and send your "
-                "actual salary figures. We'll rerun it with your numbers."),
+        "cta": ("Send us the current salary for any of these roles and we "
+                "will rerun the comparison with your figures."),
         "_worksheet": priced,
     }
 
@@ -45596,7 +45679,7 @@ def _tm_cost_pdf_data(company: str, inputs: dict, seats: int = 1,
 
     return {
         "title": f"Staffing Cost Comparison - {company}",
-        "badge": ("STAFFING COST COMPARISON" if ws["complete"]
+        "badge": (_TM_COST_BADGE if ws["complete"]
                   else "INCOMPLETE WORKSHEET"),
         "intro": intro,
         "sections": sections,
@@ -45667,6 +45750,31 @@ _TM_SOURCES_HEADING_RE = re.compile(
     r"^(?:benchmark |data )?(?:sources?|references|citations)\b", re.I)
 
 
+# Badge = the document's category, so it no longer repeats the title word
+# for word (Mike, 2026-10-08).
+_TM_PDF_BADGES = {"tm_role_blueprint": "ROLE DESIGN",
+                  "tm_how_it_works": "ENGAGEMENT OVERVIEW",
+                  "interview_guide": "HIRING MANAGER GUIDE",
+                  "market_pulse": "MARKET BRIEFING"}
+
+# A dash joining two clauses ("looks like—and what lands on you") reaches
+# the page as a bare hyphen once the renderer strips em dashes. Letters on
+# both sides means a clause join; digits ("60-70%", "$40,000 - $50,000")
+# are ranges and stay.
+_TM_CLAUSE_DASH_RE = re.compile(r"(?<=[A-Za-z,;:)'\"])\s*[—–]\s*(?=[A-Za-z(\"'])"
+                                r"|(?<=[^\d\s$])\s+-\s+(?=[A-Za-z(])")
+
+
+def _tm_unjoin_dashes(val):
+    if isinstance(val, str):
+        return _TM_CLAUSE_DASH_RE.sub(", ", val)
+    if isinstance(val, list):
+        return [_tm_unjoin_dashes(v) for v in val]
+    if isinstance(val, dict):
+        return {k: _tm_unjoin_dashes(v) for k, v in val.items()}
+    return val
+
+
 def _tm_fix_pdf_labels(kind: str, ctx: dict, data: dict) -> None:
     """Fixed title and badge for a model-written ThriveModal PDF (the model
     invented both: "White City Construction Offshore Role Blueprint",
@@ -45678,11 +45786,12 @@ def _tm_fix_pdf_labels(kind: str, ctx: dict, data: dict) -> None:
     if label:
         company = str((ctx or {}).get("company") or "").strip()
         data["title"] = f"{label} - {company}" if company else label
-        data["badge"] = label.upper()
+        data["badge"] = _TM_PDF_BADGES.get(kind, label.upper())
     for key in ("intro", "cta", "sections"):
         if key in data:
             data[key] = _tm_scrub_internal(data[key])
             data[key] = json.loads(_tm_aug_wording(json.dumps(data[key])))
+            data[key] = _tm_unjoin_dashes(data[key])
     data["sections"] = [s for s in data.get("sections") or []
                         if not _TM_SOURCES_HEADING_RE.match(
                             str((s or {}).get("heading") or "").strip())]
@@ -45750,24 +45859,39 @@ def _tm_rich_rules(cfg: dict = None) -> str:
         "exists, and inventing one is a serious error.\n"
         "\nVOICE FOR THIS DOCUMENT (overrides the voice rules above):\n"
         "- Write as the team, in first person plural: 'we recruit', 'our "
-        "team handles', 'we'll work with you'. Never write the company name "
+        "team handles', 'we work with you'. Never write the company name "
         "as the subject of a sentence ('ThriveModal recruits', 'ThriveModal "
         "handles'). The name may appear in the title, and once in the "
         "intro, and nowhere else in the body.\n"
         "- Address the reader as 'you' and 'your team'. In tables, the "
-        "'who' column says 'You', 'Us' or 'Together', never the brand name.\n"
-        "- Warm and partnership-minded: this is a long-term working "
-        "relationship, not a transaction. Say what we take off their "
-        "plate, how we stay with them after the hire, and that we want "
-        "them to succeed. Confident and plainly glad to help, never "
-        "salesy, never corporate.\n"
-        "- Sell our services and the partnership actively: every section "
-        "should leave the reader clearer on what we'd do for them and why "
-        "working with us is easier than going it alone. The honesty rules "
-        "above still apply: warmth never becomes an invented claim.\n"
-        "- The cta is a friendly personal invitation to talk, in the 'we' "
-        "voice, e.g. 'We'd love to hear what your team is carrying right "
-        "now. Let's find 20 minutes.'\n"
+        "owner column says 'Our team', 'Your team' or 'Shared', never the "
+        "brand name.\n"
+        "- Professional business register, as a briefing from one business "
+        "leader to another: direct, specific, confident, concise. Plain "
+        "declarative sentences that state what happens and why it matters. "
+        "No chattiness, no cheerleading, no exclamation marks, no "
+        "rhetorical questions.\n"
+        "- Banned phrasing: 'here's', 'lands on you', 'off your plate', "
+        "'we'd love', 'let's find 20 minutes', 'the short version', "
+        "'glad to help', 'no surprises', 'we've got you', and any sentence "
+        "that opens with 'So' or 'Basically'. Prefer 'provide', "
+        "'confirm', 'manage', 'deliver' to casual verbs.\n"
+        "- Headings are business nouns in Title Case: 'Overview', "
+        "'Engagement Process', 'Client Responsibilities', 'Frequently "
+        "Asked Questions'. Never a conversational heading.\n"
+        "- Sell both the saving and the people. On cost, use only the "
+        "approved pricing text. On the people, state what we recruit for "
+        "and what clients see: relevant education and hands-on experience "
+        "in the role, clear written and spoken communication, a dependable "
+        "home office setup, and the consistent attendance and ownership "
+        "clients report. Describe these as what we screen for and verify, "
+        "never as traits of a nationality.\n"
+        "- Every section should leave the reader clearer on what we do for "
+        "them and why it is a sound business decision. The honesty rules "
+        "above still apply: nothing persuasive becomes an invented claim.\n"
+        "- The cta is one professional next step, in the 'we' voice, e.g. "
+        "'To discuss how this applies to your team, reply to this email or "
+        "schedule a 20-minute call with us.'\n"
     )
 
 
@@ -45881,13 +46005,13 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"Give them a practical framework to tell, in one video call, "
             f"whether this person fits the role and can work remotely for "
             f"a US team.\n"
-            f"\nREQUIRED SECTIONS (every bullet ONE short sentence, max 20 "
+            f"\nREQUIRED SECTIONS (every bullet ONE sentence, max 24 "
             f"words):\n"
-            f"  1. heading 'Before the Interview' — type 'bullets' — 3 "
+            f"  1. heading 'Interview Preparation' — type 'bullets' — 3 "
             f"bullets: book the video call at a time that is reasonable in "
             f"the Philippines, share the role's day-to-day work in advance, "
             f"and plan a short live skills task.\n"
-            f"  2. heading 'Must-Ask Questions' — type 'qa' — 5 pairs. q is "
+            f"  2. heading 'Core Interview Questions' — type 'qa' — 5 pairs. q is "
             f"the question, a is what a strong answer sounds like (1-2 "
             f"sentences). Cover: hands-on work in the core skills and "
             f"systems of {role_label}; past remote work with US or overseas "
@@ -45895,19 +46019,19 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"home work setup (dedicated space, stable internet, backup "
             f"internet and power); how they raise a problem or ask for help "
             f"when the manager is offline.\n"
-            f"  3. heading 'Fit Checks' — type 'table' — header + 4 rows. "
-            f"Columns: ['What to Check','How to Check It','Strong Signal']. "
+            f"  3. heading 'Fit Assessment' — type 'table' — header + 4 rows. "
+            f"Columns: ['Criterion','Method','Strong Signal']. "
             f"Rows: written English for this role (a short written task); "
             f"spoken clarity (have them walk you through a process they "
             f"run); role skills (a live screen-share task in the systems "
             f"the role uses); shift and setup readiness. Each cell 10 words "
             f"or fewer.\n"
-            f"  4. heading 'Green Flags and Watch-Outs' — type 'bullets' — "
-            f"4 bullets, two starting 'Green flag:' and two starting "
-            f"'Watch-out:'. Watch-outs are about evidence, e.g. vague "
+            f"  4. heading 'Positive Signals and Cautions' — type 'bullets' — "
+            f"4 bullets, two starting 'Positive signal:' and two starting "
+            f"'Caution:'. Cautions are about evidence, e.g. vague "
             f"answers with no specific example, or no plan for an internet "
             f"outage.\n"
-            f"  5. heading 'Interviewing Across Time Zones' — type 'bullets' "
+            f"  5. heading 'Remote Interview Practice' — type 'bullets' "
             f"— 3 practical tips for interviewing a remote candidate well: "
             f"ask open questions and for specific examples rather than "
             f"yes/no; invite their questions directly and give them room "
@@ -45934,29 +46058,31 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"as {role_label}, to a dedicated team member in the "
             f"Philippines. Explain why businesses like theirs are doing it, "
             f"which roles fit, and what to plan for.\n"
-            f"\nREQUIRED SECTIONS (every bullet ONE short sentence, max 20 "
+            f"\nREQUIRED SECTIONS (every bullet ONE sentence, max 24 "
             f"words):\n"
-            f"  1. heading 'What Is Pressuring Teams Like Yours' — type "
+            f"  1. heading 'Market Pressures' — type "
             f"'bullets' — 3 bullets on the US-side hiring and cost pressures "
             f"a business in this industry faces. Use a figure ONLY if it "
             f"appears in the research data supplied, and name its source in "
             f"the sentence; otherwise make the point without a number.\n"
-            f"  2. heading 'Roles That Work Offshore' — type 'table' — "
-            f"header + 4 rows. Columns: ['Role','Work It Covers','Why It "
+            f"  2. heading 'Roles Suited to Offshore Staffing' — type "
+            f"'table' — header + 4 rows. Columns: ['Role','Scope','Why It "
             f"Works Remotely']. Back-office, admin, finance, customer "
             f"service or operations support roles this kind of business "
             f"actually hires, {role_label} first. Each cell 8 words or "
             f"fewer.\n"
-            f"  3. heading 'How Offshore Staffing Fits' — type 'bullets' — "
-            f"3 bullets: a dedicated full-time team member, working your "
-            f"hours from the Philippines, managed by you day to day. Take "
-            f"cost and terms ONLY from the approved pricing text below.\n"
-            f"  4. heading 'What to Plan For' — type 'bullets' — 3 honest "
-            f"bullets: manager time for the first weeks, documented "
+            f"  3. heading 'The Dedicated Team Member Model' — type "
+            f"'bullets' — 4 bullets: a dedicated full-time team member, "
+            f"working your hours from the Philippines, managed by you day "
+            f"to day; recruited for the role with the education and "
+            f"experience it requires and screened for clear communication. "
+            f"Take cost and terms ONLY from the approved pricing text below.\n"
+            f"  4. heading 'Planning Considerations' — type 'bullets' — 3 "
+            f"honest bullets: manager time for the first weeks, documented "
             f"processes, and system access and data security.\n"
-            f"  5. heading 'Common Questions' — type 'qa' — 3 pairs, 1-2 "
-            f"sentences each, that a first-time buyer of offshore staffing "
-            f"in this industry asks.\n"
+            f"  5. heading 'Frequently Asked Questions' — type 'qa' — 3 "
+            f"pairs, 1-2 sentences each, that a first-time buyer of offshore "
+            f"staffing in this industry asks.\n"
             f"\nNo US salary tables and no compensation benchmarks: this is "
             f"about the offshore decision, not what to pay a US hire.\n"
         )
@@ -46146,23 +46272,25 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"manage. It is NOT a job advert and NOT a candidate profile. It "
             f"must be skimmable in under a minute: short bullets only, no "
             f"paragraphs.\n"
-            f"\nREQUIRED SECTIONS (every bullet ONE short sentence, max 18 words):\n"
-            f"  1. heading 'What This Role Covers' — type 'bullets' — 3 bullets "
-            f"on the work this role takes off a {industry_str} business's "
-            f"plate.\n"
+            f"\nREQUIRED SECTIONS (every bullet ONE sentence, max 24 words):\n"
+            f"  1. heading 'Role Scope' — type 'bullets' — 3 bullets "
+            f"on the work this role removes from a {industry_str} business's "
+            f"senior staff.\n"
             f"  2. heading 'Responsibilities' — type 'bullets' — 5 bullets on "
             f"the concrete work the role owns.\n"
             f"  3. heading 'Skills and Systems' — type 'table' — header + 4 "
             f"rows. Columns: ['Area','What We Recruit For','Systems']. Each "
-            f"cell 6 words or fewer. Systems means the software a "
-            f"{industry_str} business would expect this role to work in. If "
-            f"you are not confident a named system is actually used in this "
-            f"industry, write the category instead of guessing a product name.\n"
-            f"  4. heading 'Working Hours and Coverage' — type 'bullets' — 2 "
+            f"cell 6 words or fewer. One row covers communication (written "
+            f"and spoken, for this role's audience). Systems means the "
+            f"software a {industry_str} business would expect this role to "
+            f"work in. If you are not confident a named system is actually "
+            f"used in this industry, write the category instead of guessing "
+            f"a product name.\n"
+            f"  4. heading 'Hours and Coverage' — type 'bullets' — 2 "
             f"bullets on how a Philippines-based team member covers "
             f"{location or 'US'} business hours. One must say the specific "
             f"schedule is set with the client, not fixed here.\n"
-            f"  5. heading 'How You Oversee the Role' — type 'bullets' — 3 "
+            f"  5. heading 'Management and Reporting' — type 'bullets' — 3 "
             f"bullets on the client's side: who they report to, cadence, "
             f"tooling access. Be honest that this needs real management "
             f"attention from the client.\n"
@@ -46182,27 +46310,35 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"order, and who does what. The reader's real question is 'how much "
             f"of this lands on me?'. Answer it honestly.\n"
             f"\nREQUIRED SECTIONS:\n"
-            f"  1. heading 'The Short Version' — type 'paragraph' — 3-4 "
+            f"  1. heading 'Overview' — type 'paragraph' — 3-4 "
             f"sentences: we recruit in the Philippines against the client's "
             f"requirements, the client interviews and chooses, we handle "
             f"onboarding, and our team supports the placement afterwards.\n"
-            f"  2. heading 'The Process' — type 'table' — header + exactly 6 "
-            f"rows, one per stage, in this order: Role discovery; Recruiting; "
-            f"Candidate review; Client interviews; Onboarding; Ongoing "
-            f"support from our team. Columns: ['Stage','What Happens','Who "
-            f"Does It']. Do NOT add a duration column and do not state how "
-            f"long any stage takes — no timeline has been approved.\n"
-            f"  3. heading 'What You Decide' — type 'bullets' — 4 bullets on "
-            f"the decisions that stay with the client, starting with which "
-            f"candidate they hire.\n"
-            f"  4. heading 'Ongoing Support From Our Team' — type 'bullets' — 4 "
+            f"  2. heading 'Engagement Process' — type 'table' — header + "
+            f"exactly 6 rows, one per stage, in this order: Role Discovery; "
+            f"Recruiting; Candidate Review; Client Interviews; Onboarding; "
+            f"Ongoing Support. Columns: ['Stage','Activity','Owner']. Owner "
+            f"is 'Our team', 'Your team' or 'Shared'. Do NOT add a duration "
+            f"column and do not state how long any stage takes — no timeline "
+            f"has been approved.\n"
+            f"  3. heading 'The People We Place' — type 'bullets' — 3 bullets "
+            f"on who the client gets: recruited for their specific role with "
+            f"the education, experience and systems skills it requires; "
+            f"screened for clear written and spoken communication and a "
+            f"dependable home office; and the attendance, performance and "
+            f"ownership clients report (approved customer proof only).\n"
+            f"  4. heading 'Client Responsibilities' — type 'bullets' — 4 "
+            f"bullets on the decisions and management that stay with the "
+            f"client, starting with which candidate they hire.\n"
+            f"  5. heading 'Ongoing Support' — type 'bullets' — 4 "
             f"bullets on ongoing support after the person starts. Describe "
             f"only support that appears in the approved services text above; "
             f"if it is not there, do not claim it.\n"
-            f"  5. heading 'Common Questions' — type 'qa' — 3 Q&A pairs, 2-3 "
-            f"sentences each, on the questions a first-time buyer of offshore "
-            f"staffing actually asks. If an honest answer is 'that depends on "
-            f"your setup, let's talk it through', give that answer.\n"
+            f"  6. heading 'Frequently Asked Questions' — type 'qa' — 3 Q&A "
+            f"pairs, 2-3 sentences each, on the questions a first-time buyer "
+            f"of offshore staffing actually asks. If an honest answer is "
+            f"'that depends on your setup', say so and offer to work "
+            f"through it together.\n"
         )
 
     else:
@@ -46231,12 +46367,14 @@ _PDF_LENGTH_RULES = (
     "page. Short and skimmable beats complete.\n"
     "- No paragraphs. Any section described above as type 'paragraph' must be "
     "returned as type 'bullets' with 2-3 bullets.\n"
-    "- Every bullet is ONE sentence of 20 words or fewer. No section has more "
-    "than 5 bullets, whatever a section above asks for.\n"
+    "- Every bullet is one complete sentence of 24 words or fewer, written "
+    "as a business statement, not a fragment or a slogan. No section has "
+    "more than 5 bullets, whatever a section above asks for.\n"
     "- Tables: at most 6 data rows under the header; every cell 8 words or "
     "fewer.\n"
-    "- Q&A: at most 3 pairs; each answer 1-2 short sentences.\n"
-    "- At most 6 sections. intro and cta: one short sentence each.\n"
+    "- Q&A: at most 3 pairs; each answer 1-2 sentences.\n"
+    "- At most 6 sections. intro: one sentence stating what the document "
+    "covers. cta: one sentence naming the next step.\n"
 )
 
 
@@ -46956,10 +47094,13 @@ def _generate_rich_pdf_data(client, kind: str, ctx: dict, research_context: str 
 # prompt asks for these counts; the clamp is what keeps it to ~1 page when
 # the model writes more anyway.
 _TM_BLUEPRINT_CAPS = {
-    "what this role covers": 3,
+    "role scope": 3,
+    "what this role covers": 3,       # pre-2026-10-08 heading, for re-renders
     "responsibilities": 5,
     "skills and systems": 5,          # header + 4 rows
+    "hours and coverage": 2,
     "working hours and coverage": 2,
+    "management and reporting": 3,
     "how you oversee the role": 3,
     "suggested success measures": 3,
 }
@@ -47535,7 +47676,7 @@ def _aicb_attach_pdfs(pdf_data: dict, campaign_data: dict, company: str,
         return 0
 
     _cfg = load_config()
-    dt = date.today().strftime("%B %d, %Y")
+    dt = _pdf_date_label()
     prep = _pdf_prepared_by(_cfg)
     prep_email = _cfg.get("sig_email", "")
 
@@ -47949,7 +48090,7 @@ def _tm_build_campaign_pdfs(kinds, company, role, location, industry="",
             build = {
                 "title": data.get("title") or f"{labels[kind]} - {subject}",
                 "badge": data.get("badge") or labels[kind].upper(),
-                "date": date.today().strftime("%B %d, %Y"),
+                "date": _pdf_date_label(),
                 "prepared_by": _pdf_prepared_by(_cfg),
                 "prepared_email": _cfg.get("sig_email", ""),
                 "logo_path": _get_company_logo_path(),
@@ -56267,7 +56408,7 @@ def p_pdf_gen(s: AppState, rf):
                 s._pdf_generating = False
                 return
 
-            dt = date.today().strftime("%B %d, %Y")
+            dt = _pdf_date_label()
             _cfg = json.loads(_config_path.read_text(encoding="utf-8")) if _config_path.exists() else {}
             prep = _pdf_prepared_by(_cfg)
             prep_email = _cfg.get("sig_email", "")

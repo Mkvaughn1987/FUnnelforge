@@ -579,7 +579,7 @@ def test_complete_pdf_carries_the_computed_table():
                                 included="Recruiting\nPayroll and benefits",
                                 excluded="Software licences",
                                 cfg={"workspace_playbook": fa.PLAYBOOK_THRIVEMODAL})
-    assert data["badge"] == "STAFFING COST COMPARISON"
+    assert data["badge"] == fa._TM_COST_BADGE
     assert "Missing Inputs" not in [s["heading"] for s in data["sections"]]
     table = next(s for s in data["sections"] if s["type"] == "table")
     assert table["items"][-1] == ["Total", "$121,000", "$38,400", "$82,600"]
@@ -994,7 +994,7 @@ def test_benchmark_pdf_labels_lines_without_a_sources_list():
     vals = fa._tm_benchmark_inputs("bookkeeper")
     data = fa._tm_cost_pdf_data("Acme", vals, benchmark_role="bookkeeper",
                                 cfg={"workspace_playbook": fa.PLAYBOOK_THRIVEMODAL})
-    assert data["badge"] == "STAFFING COST COMPARISON"
+    assert data["badge"] == fa._TM_COST_BADGE
     table = next(s for s in data["sections"] if s["type"] == "table")
     labelled = [r[0] for r in table["items"][1:-1]]
     assert all(l.endswith("(benchmark)") for l in labelled), labelled
@@ -1060,11 +1060,13 @@ def test_auto_worksheet_is_a_flat_65_percent_saving():
     assert ws["domestic_total"] == 60000 + 25700 + 6000 + 5475
     assert abs(ws["tm_total"] - round(ws["domestic_total"] * 0.35, -2)) < 1
     assert abs(ws["difference"] / ws["domestic_total"] - 0.65) < 0.01
-    assert d["badge"] == "STAFFING COST COMPARISON"
+    assert d["badge"] == fa._TM_COST_BADGE
     headings = [s["heading"] for s in d["sections"]]
     assert "Sources" not in headings
-    assert "What Our Customers Are Seeing" in headings
-    assert d["intro"].startswith("Here's a snapshot of how we can help")
+    assert "What Customers Report" in headings
+    assert "The People We Place" in headings
+    assert d["intro"].startswith("Our all-inclusive rate beside")
+    assert "Here's" not in repr(d)
     how = " ".join(next(s for s in d["sections"]
                         if s["heading"] == "How This Was Calculated")["items"])
     assert "Houston metro, TX" in how and "estimate" in how
@@ -1138,9 +1140,13 @@ def test_tm_pdfs_never_carry_a_sources_section():
 
 
 def test_cost_extras_only_repeat_approved_playbook_lines():
-    secs = fa._tm_cost_extra_sections()
-    quote = secs[0]["items"][0]
+    secs = {s["heading"]: s for s in fa._tm_cost_extra_sections()}
+    quote = secs["What Customers Report"]["items"][0]
     assert "That consistency allows our leadership team" in quote
-    assert quote.split('" - ')[0].strip('"') in fa._TM_DEF_PROOF.replace("\n", " ")
-    for b in secs[1]["items"]:
+    assert quote.split('" Kristy')[0].strip('"') in fa._TM_DEF_PROOF.replace("\n", " ")
+    for b in secs["Engagement Terms"]["items"] + secs["The People We Place"]["items"]:
         assert not any(ch.isdigit() for ch in b), b
+    # The people bullets sell what we screen for, never a nationality.
+    people = " ".join(secs["The People We Place"]["items"]).lower()
+    assert "communication" in people and "education" in people
+    assert "filipino" not in people and "english" not in people

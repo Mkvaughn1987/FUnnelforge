@@ -1051,7 +1051,8 @@ def build_custom_pdf(output_path, d, cfg=None):
         _tighten_paragraphs(d)
         for _ in range(60):
             pages, fill = _measure_custom(d)
-            if pages < 2 or (pages == 2 and fill <= _MAX_LAST_PAGE_FILL):
+            if pages < 2 or (pages == 2 and
+                             _MIN_LAST_PAGE_FILL <= fill <= _MAX_LAST_PAGE_FILL):
                 break
             if not _trim_one(d):
                 break
@@ -1062,6 +1063,10 @@ def build_custom_pdf(output_path, d, cfg=None):
 
 # Second page may be at most this full: 1 + 0.5 = the 1.5-page cap.
 _MAX_LAST_PAGE_FILL = 0.5
+# ...and at least this full: a second page holding only a closing heading
+# and one line reads as a mistake, so a spill that small is trimmed back
+# onto page one instead.
+_MIN_LAST_PAGE_FILL = 0.1
 # Trimming never takes a section below these counts (table count includes
 # the header row).
 _MIN_ITEMS = {"bullets": 2, "table": 3, "qa": 1}
@@ -1089,7 +1094,8 @@ def _trim_one(d) -> bool:
     False once nothing more can go."""
     best, best_spare = None, 0
     for sec in d.get("sections") or []:
-        if not isinstance(sec, dict):
+        # "keep": every item matters (a cost table ends in its total row).
+        if not isinstance(sec, dict) or sec.get("keep"):
             continue
         stype = (sec.get("type") or "bullets").lower()
         spare = len(sec.get("items") or []) - _MIN_ITEMS.get(stype, 2)
@@ -1264,9 +1270,17 @@ def _custom_doc_story(output_path, d):
                     story.append(bullet_item(b))
             story.append(Spacer(1, 4))
 
-    # Optional closing CTA
+    # Optional closing CTA. inboxslide reads as a business briefing, so its
+    # closing heading is a noun, not a question (Mike, 2026-10-08).
     if d.get("cta"):
-        story.extend(section_header("Want to learn more?"))
+        if _skimmable(d):
+            # One closing sentence needs two lines under its heading, not
+            # the 0.9in a full section needs, or it strands on a new page.
+            story.extend(section_header(d.get("cta_heading") or "Next Step",
+                                        keep_min=0.4*inch))
+        else:
+            story.extend(section_header(d.get("cta_heading") or
+                                        "Want to learn more?"))
         story.append(bullet_item(d["cta"]))
 
     return doc, story

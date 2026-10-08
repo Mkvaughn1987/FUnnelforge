@@ -42,6 +42,30 @@ def test_bloated_pdf_is_capped_at_one_and_a_half_pages(tmp_path):
     assert pages == 1 or (pages == 2 and fill <= ap._MAX_LAST_PAGE_FILL)
 
 
+def test_a_closing_line_alone_on_page_two_is_pulled_back(tmp_path):
+    """Grow a bulleted doc until it just spills a 'Next Step' onto page
+    two; the build trims a bullet instead of leaving that page nearly
+    empty, and never touches a 'keep' table."""
+    tbl = [["Role", "Ours", "Theirs"]] + [["Sourcer", "$20", "$58"]] * 5 + \
+          [["All 5 roles", "$85", "$245"]]
+    for n in range(4, 40):
+        d = {"title": "T", "badge": "B", "intro": _S, "paragraphs_as_bullets": True,
+             "sections": [{"heading": "Table", "type": "table", "items": tbl,
+                           "keep": True},
+                          {"heading": "Trends", "type": "bullets", "items": [_S] * n}],
+             "cta": "Reply to this email to see this with your own figures."}
+        pages, fill = ap._measure_custom(copy.deepcopy(d))
+        if pages == 2 and fill < ap._MIN_LAST_PAGE_FILL:
+            break
+    else:
+        raise AssertionError("could not build a doc that spills one line")
+    ap.build_custom_pdf(str(tmp_path / "x.pdf"), d)
+    pages, fill = ap._measure_custom(copy.deepcopy(d))
+    assert pages == 1
+    assert d["sections"][0]["items"] == tbl       # totals row kept
+    assert len(d["sections"][1]["items"]) < n
+
+
 def test_paragraphs_become_bullets_and_d_is_updated_in_place(tmp_path):
     d = _bloated()
     ap.build_custom_pdf(str(tmp_path / "x.pdf"), d)
