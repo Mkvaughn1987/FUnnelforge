@@ -215,6 +215,12 @@ class Catalogue:
     # The "Open ..." buttons on the result screen: (name, new-chat URL).
     open_in: tuple = (("Claude", "https://claude.ai/new"),
                       ("ChatGPT", "https://chatgpt.com/"))
+    # The hand-built way to start, offered under the job picker where the
+    # sidebar's CTA is Start with AI: (page key, button label). Empty = no
+    # link, which is what DripDrop's catalogue wants (its sidebar already
+    # has New Campaign).
+    build_page: str = ""
+    build_label: str = ""
 
 
 SEQUENCES = ["Arena 5x5", "Arena 5x3", "Arena 4x4", "One of my saved styles",
@@ -2243,6 +2249,29 @@ def render_page(s, rf, cat):
         else:
             _how_it_works()
             _aip_ask(s, rf, C)
+            _hand_build_link(s, rf, C)
+
+
+def _hand_build_link(s, rf, C):
+    """One line under the job picker: the way to build a campaign without
+    AI, for catalogues that name one (build_page). Nothing otherwise."""
+    if not _CAT.build_page:
+        return
+
+    def _go():
+        # Resolved on click, not at render: the page is also rendered by
+        # tests with a stub app module that has no navigator.
+        ff = _ff()
+        ff._sidebar_nav(s, rf, _CAT.build_page, ff._sidebar_setup_status(),
+                        fresh=True)
+    with ui.element("div").style("display:flex;align-items:center;gap:12px;"
+                                 "flex-wrap:wrap;margin:4px 0 8px;"):
+        _text("Rather do it yourself? Pick a sequence, write the emails and "
+              "choose the contacts.", C, 12, colour=C["muted"])
+        with ui.element("button").classes("fd-aistart-btn alt").props(
+                'type="button"').on("click", _go):
+            ui.icon("add").style("font-size:16px;")
+            ui.label(_CAT.build_label or "Build a campaign")
 
 
 def _tile_groups():

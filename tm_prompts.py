@@ -2219,6 +2219,8 @@ TM = Catalogue(
     review_page="seq_mgr",
     review_label="Go to Campaigns",
     open_in=(("Claude", "https://claude.ai/new"),),
+    build_page="start_seq",
+    build_label="Build a campaign",
 )
 
 

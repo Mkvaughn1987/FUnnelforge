@@ -19968,6 +19968,8 @@ def _sidebar_layout_css() -> str:
   background:{C['teal']};color:{C['on_teal']};font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;
   white-space:nowrap;flex:0 0 auto;width:auto}}
 .fd-main .fd-aistart-btn:hover{{filter:brightness(1.06)}}
+.fd-main .fd-aistart-btn.alt{{background:transparent;color:{C['teal']};border:1px solid {C['teal']}}}
+.fd-main .fd-aistart-btn.alt:hover{{background:{C['teal_dim']};filter:none}}
 .fd-side-cta.on{{box-shadow:0 0 0 3px {C['teal_dim']}}}
 .fd-side-nav{{flex:1 1 auto;min-height:0;overflow-y:auto;padding:4px 12px 8px;display:flex;flex-direction:column}}
 .fd-side-sec{{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
@@ -21394,12 +21396,16 @@ SIDEBAR_NAV = [
 # Campaigns' views, rendered as sub-rows under the Campaigns row while any of
 # them is open (they used to be tabs in the page header). The third field is a
 # view key, not a page key: Active/Completed are one page (seq_mgr) with a
-# flag, Drafts is start_seq's saved tab, Templates is the campaign-type chooser.
+# flag, Drafts is start_seq's saved tab, Build a Campaign is the campaign-type
+# chooser (the hand-built path). It sits first, like DripDrop's New Campaign,
+# because with Start with AI as the sidebar CTA this row is the only way to
+# build a campaign without AI (2026-10-08). It replaced "Templates", which
+# opened the same page under a name nobody read as "build a campaign".
 SIDEBAR_CAMPAIGNS = [
+    ("plus",     "Build a Campaign", "new"),
     ("c_active", "Active",    "active"),
     ("c_done",   "Completed", "completed"),
     ("c_saved",  "Drafts",    "saved"),
-    ("c_tpl",    "Templates", "templates"),
 ]
 SIDEBAR_SETTINGS = [
     ("mail",     "Email & AI Setup", "ai_settings"),
@@ -23048,7 +23054,7 @@ def _sidebar_campaign_view(s) -> str:
     if page == "seq_mgr":
         return "completed" if getattr(s, "_mgr_show_completed", False) else "active"
     if page == "start_seq":
-        return {"saved": "saved", "": "templates"}.get(getattr(s, "_tab", ""), "")
+        return {"saved": "saved", "": "new"}.get(getattr(s, "_tab", ""), "")
     return ""
 
 
@@ -23083,6 +23089,8 @@ def _sidebar_page_title(s) -> tuple:
     title = SIDEBAR_TITLES.get(page) or page.replace("_", " ").title()
     if page == "start_seq" and getattr(s, "_tab", "") == "saved":
         title = "Campaigns"
+    elif page == "start_seq":
+        title = _build_campaign_title()
     return crumb, title
 
 
@@ -23171,6 +23179,25 @@ def _ai_prompts_button(s, rf, label: str = "Create new campaign with AI"):
     with ui.element("button").classes("fd-aistart-btn").props('type="button"').on(
             "click", lambda: _open_ai_prompts(s, rf)):
         ui.html(_svg_icon("ai_prompt", 16))
+        ui.label(label)
+
+
+def _build_campaign_title() -> str:
+    """What the campaign chooser page is called. The sidebar layout names
+    its row "Build a Campaign" (the hand-built path next to Start with AI),
+    so the page it opens says the same; the classic layout keeps New
+    Campaign, the name its own sidebar row has."""
+    return "Build a Campaign" if _SIDEBAR_LAYOUT else "New Campaign"
+
+
+def _build_campaign_button(s, rf, label: str = "Build a campaign"):
+    """The hand-built way to start, offered wherever "with AI" is. Goes
+    through the sidebar navigator so the setup gate and the wizard reset
+    apply, exactly as the Campaigns > Build a Campaign row does."""
+    with ui.element("button").classes("fd-aistart-btn alt").props('type="button"').on(
+            "click", lambda: _sidebar_nav(s, rf, "start_seq", _sidebar_setup_status(),
+                                          fresh=True)):
+        ui.html(_svg_icon("plus", 16))
         ui.label(label)
 
 
@@ -23380,13 +23407,13 @@ def _sidebar_v2(s: AppState, rf):
                         badge_cls = "hot" if _overdue else ""
                     tour = {"overview": "nav-dashboard", "contacts": "nav-contacts"}.get(ik, "")
                     # With Start with AI on top, a campaign wizard page lights
-                    # Campaigns > Templates (where it started) instead.
+                    # Campaigns > Build a Campaign (where it started) instead.
                     _wiz = active == "new" and bool(_aip_key)
                     _camp_open = ik == "campaigns" and (active == "campaigns" or _wiz)
                     _row(ik, lbl, key, on=(active == ik and not _camp_open), open_=_camp_open,
                          badge=badge, badge_cls=badge_cls, tour=tour)
                     if _camp_open:
-                        _view = "templates" if _wiz else _sidebar_campaign_view(s)
+                        _view = "new" if _wiz else _sidebar_campaign_view(s)
                         with ui.element("div").classes("fd-side-subgroup"):
                             for sik, slbl, view in SIDEBAR_CAMPAIGNS:
                                 _row(sik, slbl, "", on=(_view == view), sub=True,
@@ -29599,7 +29626,7 @@ def p_seq(s: AppState, rf):
     _saved_view = _SIDEBAR_LAYOUT and s._tab == "saved" and s.sq == 1
     with ui.element("div").style("display:flex;align-items:center;"):
         ui.label("Drafts" if _saved_view
-                 else "New Campaign").classes("fd-h1")
+                 else _build_campaign_title()).classes("fd-h1")
         _show_page_help(s, rf, "start_seq")
     if _saved_view:
         ui.label("Campaigns you saved to reuse. Open one to fill it in and "
@@ -41870,8 +41897,10 @@ def p_seq_mgr(s, rf):
     camps = load_campaigns()
     if not camps:
         if _ai_prompts_key():
-            with ui.element("div").style("margin-bottom:16px;"):
+            with ui.element("div").style("margin-bottom:16px;display:flex;gap:10px;"
+                                         "align-items:center;flex-wrap:wrap;"):
                 _ai_prompts_button(s, rf)
+                _build_campaign_button(s, rf)
         _render_empty_state(s, rf, "seq_mgr")
         return
     queue = _load_queue()
@@ -41947,9 +41976,11 @@ def p_seq_mgr(s, rf):
             s.sel_camp_name = active[0].get("name", "") if active else ""
         rf()
 
-    with ui.element("div").style("display:flex;align-items:center;gap:10px;margin-bottom:20px;"):
+    with ui.element("div").style("display:flex;align-items:center;gap:10px;margin-bottom:20px;"
+                                 "flex-wrap:wrap;"):
         if _ai_prompts_key():
             _ai_prompts_button(s, rf)
+            _build_campaign_button(s, rf)
         _comp_cls = " on" if _show_completed else ""
         with ui.element("button").classes("fd-hub" + _comp_cls).style(
                 "border-radius:8px;padding:7px 16px;font-size:12px;").on("click", _toggle_completed):

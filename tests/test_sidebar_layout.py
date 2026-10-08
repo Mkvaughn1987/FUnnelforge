@@ -154,7 +154,7 @@ def test_page_header_has_search_and_no_section_tabs():
 def test_campaign_views_are_sidebar_subrows():
     import types
     import flowdrip_app as fa
-    assert [r[1] for r in fa.SIDEBAR_CAMPAIGNS] == ["Active", "Completed", "Drafts", "Templates"]
+    assert [r[1] for r in fa.SIDEBAR_CAMPAIGNS] == ["Build a Campaign", "Active", "Completed", "Drafts"]
     for ik, _lbl, _view in fa.SIDEBAR_CAMPAIGNS:
         assert ik in fa._SIDEBAR_ICONS, f"missing icon {ik}"
     src = inspect.getsource(fa._sidebar_v2)
@@ -164,7 +164,7 @@ def test_campaign_views_are_sidebar_subrows():
         return types.SimpleNamespace(hub="sales", sp=sp, ep="", _tab=tab,
                                      _mgr_show_completed=done)
     cases = [(st("seq_mgr"), "active"), (st("seq_mgr", done=True), "completed"),
-             (st("start_seq", "saved"), "saved"), (st("start_seq"), "templates")]
+             (st("start_seq", "saved"), "saved"), (st("start_seq"), "new")]
     for s, view in cases:
         assert fa._sidebar_active(s) == "campaigns"
         assert fa._sidebar_campaign_view(s) == view
