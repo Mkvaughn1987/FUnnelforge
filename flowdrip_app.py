@@ -5892,7 +5892,7 @@ AICB_CAMPAIGN_TYPES = [
     # the candidate snapshot becomes the kind of professional ThriveModal
     # would recruit (never a real or available person), and the case study is
     # limited to what the approved-proof field allows.
-    ("tm_twelveweek", "Top 25 Accounts", "15 steps - 12 weeks", "#F59E0B",
+    ("tm_twelveweek", "Long Term Nurture", "15 steps - 12 weeks", "#F59E0B",
      "Fifteen touchpoints over twelve weeks: eight emails, four calls and "
      "three LinkedIn touches. Built so a target account remembers you, sees "
      "you as the expert on offshore capacity, and takes a 15-minute call. "
@@ -29868,8 +29868,8 @@ _TM_CHOOSER_OBJECTIVES = [
         "key": "tm_twelveweek",
         "group": "new",
         "icon": "🗓️",
-        "title": "Top 25 Accounts",
-        "use_when": "Your dream accounts, where you'll play the long game.",
+        "title": "Long Term Nurture",
+        "use_when": "Accounts you want to stay in front of for months, not weeks.",
         "desc": ("One touch a week for twelve weeks across email, phone and "
                  "LinkedIn, so they remember you and take a 15-minute call."),
         "border": "#F59E0B",
@@ -29959,7 +29959,7 @@ _TM_HELP_Q2 = ("How much effort do you want to put in?", [
     ("A big list: I just want to see who's interested", "tm_threebythree"),
     ("A normal list: emails plus a couple of calls", "tm_fivebyseven"),
     ("A few companies I really want", "tm_conversation"),
-    ("My top accounts: a long, steady program", "tm_twelveweek"),
+    ("A long, steady program I can run for months", "tm_twelveweek"),
 ])
 
 

@@ -186,7 +186,7 @@ def test_names_say_the_situation_not_the_step_count():
         "tm_threebythree": "Quick Intro",
         "tm_conversation": "Priority Account Push",
         "tm_hiring_signal": "They're Hiring",
-        "tm_twelveweek": "Top 25 Accounts",
+        "tm_twelveweek": "Long Term Nurture",
         "tm_stay_in_touch": "Stay on Their Radar",
         "tm_reengage": "Revive Old Leads",
         "tm_meeting_followup": "After the Call",
