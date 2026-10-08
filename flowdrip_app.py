@@ -46873,12 +46873,18 @@ def _generate_rich_pdf_data(client, kind: str, ctx: dict, research_context: str 
                 "before or after the braces, every key/value separated "
                 "by a comma, every string properly quoted.\n\n"
             ) + full
+        _tm_model = _is_tm_pdf_kind(kind)
         msg = _claude_create_with_retry(client,
-            model=_TM_PDF_MODEL if _is_tm_pdf_kind(kind) else "claude-haiku-4-5-20251001",
-            max_tokens=2400,
+            model=_TM_PDF_MODEL if _tm_model else "claude-haiku-4-5-20251001",
+            # Fable thinks before it writes and the thinking counts toward
+            # max_tokens, so it gets more room than Haiku.
+            max_tokens=8000 if _tm_model else 2400,
             messages=[{"role": "user", "content": full}],
         )
-        text = msg.content[0].text
+        # Fable returns a thinking block ahead of the text, so content[0]
+        # has no .text; take every text block.
+        text = "".join(getattr(b, "text", "") or "" for b in msg.content
+                       if getattr(b, "type", "") == "text")
         clean = text.replace("```json", "").replace("```", "").strip()
         match = re.search(r'\{.*\}', clean, re.DOTALL)
         if not match:

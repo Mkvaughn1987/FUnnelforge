@@ -63,22 +63,26 @@ def test_tm_pdf_kinds_are_written_by_fable(monkeypatch):
     seen = []
 
     class _Msg:
-        content = [type("T", (), {"text": '{"title":"t","sections":[]}'})()]
+        # Fable puts a thinking block (no .text) ahead of the text block.
+        content = [type("Th", (), {"type": "thinking", "thinking": ""})(),
+                   type("T", (), {"type": "text",
+                                  "text": '{"title":"t","sections":[]}'})()]
 
     def fake(client, **kw):
-        seen.append(kw["model"])
+        seen.append((kw["model"], kw["max_tokens"]))
         return _Msg()
 
     monkeypatch.setattr(fa, "_claude_create_with_retry", fake)
-    fa._generate_rich_pdf_data(None, "interview_guide", dict(CTX))
+    d = fa._generate_rich_pdf_data(None, "interview_guide", dict(CTX))
+    assert d["title"] == "Interviewing Filipino Candidates - Acme Freight"
     fa._generate_rich_pdf_data(None, "tm_role_blueprint", dict(CTX))
-    assert seen == [fa._TM_PDF_MODEL] * 2
+    assert seen == [(fa._TM_PDF_MODEL, 8000)] * 2
     assert fa._TM_PDF_MODEL.startswith("claude-fable")
 
     monkeypatch.setattr(fa, "_is_thrivemodal", lambda cfg=None: False)
     seen.clear()
     fa._generate_rich_pdf_data(None, "interview_guide", dict(CTX))
-    assert seen == ["claude-haiku-4-5-20251001"]
+    assert seen == [("claude-haiku-4-5-20251001", 2400)]
 
 
 def test_tm_campaign_blurbs_mention_offshore():
