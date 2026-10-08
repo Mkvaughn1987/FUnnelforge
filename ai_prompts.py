@@ -88,6 +88,13 @@ SECTIONS = [
 SECTION_NAME = {k: n for k, n, _ in SECTIONS}
 
 
+def _section_copy(key, part, fallback, cat=None):
+    """A section's name / short / intro, with the catalogue's override
+    (Catalogue.section_copy) taking precedence over the engine's."""
+    over = (getattr(cat or _CAT, "section_copy", None) or {}).get(key) or {}
+    return over.get(part) or fallback
+
+
 def F(key, label, section="details", type="text", default="", ask=False,
       hint="", placeholder="", options=None, refresh=False, source="",
       pick_first=False, chips=None, show_if=None, find="", find_note=""):
@@ -221,6 +228,18 @@ class Catalogue:
     # has New Campaign).
     build_page: str = ""
     build_label: str = ""
+    # What each sequence does, for the cards on the sequence step:
+    # {sequence name: {"tag", "about", "best", "steps": [(business day,
+    # "email" | "call" | "linkedin", subject or title, what it does,
+    # optional attachment label), ...]}}. Day 1 is the first touch. A
+    # sequence with no "steps" (a saved style, "let the AI choose") gets a
+    # card and no timeline. None keeps the plain dropdown, which is what
+    # DripDrop's catalogue on this branch wants.
+    sequence_info: object = None
+    # Per-section copy overrides: {section key: {"name", "short", "intro"}}.
+    # inboxslide calls the sequence step "Choose your campaign" because its
+    # sequences are campaign types; DripDrop keeps the engine's words.
+    section_copy: object = None
 
 
 SEQUENCES = ["Arena 5x5", "Arena 5x3", "Arena 4x4", "One of my saved styles",
@@ -2081,6 +2100,74 @@ def _aip_css():
         ".aip-wrap .aip-back:hover{"
         "background:color-mix(in srgb,var(--dd-teal) 24%,transparent);}"
         ".aip-wrap .aip-back .q-icon{font-size:16px;}"
+        # Choose your campaign: cards, then the picked one's timeline.
+        ".aip-wrap .aip-seq-grid{display:grid;gap:10px;"
+        "grid-template-columns:repeat(auto-fill,minmax(190px,1fr));}"
+        ".aip-wrap .aip-seq-card{display:flex;flex-direction:column;gap:4px;"
+        "text-align:left;cursor:pointer;font-family:inherit;"
+        "padding:12px 14px;border-radius:12px;background:var(--dd-bg);"
+        "border:1px solid var(--dd-border);transition:border-color .15s,"
+        "background .15s,transform .15s;}"
+        ".aip-wrap .aip-seq-card:hover{border-color:var(--dd-teal);"
+        "transform:translateY(-1px);}"
+        ".aip-wrap .aip-seq-card.on{border-color:var(--dd-teal);"
+        "background:var(--dd-teal_dim);"
+        "box-shadow:0 0 0 1px var(--dd-teal) inset;}"
+        ".aip-wrap .aip-seq-top{display:flex;align-items:center;gap:6px;}"
+        ".aip-wrap .aip-seq-name{font-size:14px;font-weight:700;"
+        "color:var(--dd-text_l);}"
+        ".aip-wrap .aip-seq-rec{font-size:9.5px;font-weight:800;"
+        "letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;"
+        "border-radius:999px;color:var(--dd-teal);"
+        "border:1px solid var(--dd-teal);}"
+        ".aip-wrap .aip-seq-radio{font-size:18px;color:var(--dd-muted);}"
+        ".aip-wrap .aip-seq-card.on .aip-seq-radio{color:var(--dd-teal);}"
+        ".aip-wrap .aip-seq-tag{font-size:12px;font-weight:600;"
+        "color:var(--dd-teal);}"
+        ".aip-wrap .aip-seq-meta{font-size:11.5px;line-height:1.45;"
+        "color:var(--dd-muted);}"
+        ".aip-wrap .aip-seq-detail{margin-top:14px;padding:18px 20px;"
+        "border-radius:12px;background:var(--dd-bg);"
+        "border:1px solid var(--dd-border);display:flex;"
+        "flex-direction:column;gap:6px;}"
+        ".aip-wrap .aip-seq-head{display:flex;align-items:center;gap:10px;"
+        "flex-wrap:wrap;margin-bottom:2px;}"
+        ".aip-wrap .aip-seq-dname{font-size:15px;font-weight:700;"
+        "color:var(--dd-text_l);}"
+        ".aip-wrap .aip-seq-steps{display:flex;flex-direction:column;"
+        "margin:10px 0 8px;}"
+        ".aip-wrap .aip-seq-step{display:grid;align-items:start;"
+        "grid-template-columns:52px 30px minmax(0,1fr);gap:0 12px;"
+        "padding:10px 0;border-top:1px solid var(--dd-border);}"
+        ".aip-wrap .aip-seq-step:first-child{border-top:none;}"
+        ".aip-wrap .aip-seq-day{font-size:11px;font-weight:700;"
+        "color:var(--dd-muted);padding-top:6px;white-space:nowrap;}"
+        ".aip-wrap .aip-seq-ico{width:30px;height:30px;border-radius:8px;"
+        "display:flex;align-items:center;justify-content:center;"
+        "font-size:16px;color:var(--dd-teal);background:var(--dd-teal_dim);}"
+        ".aip-wrap .aip-seq-step.call .aip-seq-ico,"
+        ".aip-wrap .aip-seq-step.linkedin .aip-seq-ico{"
+        "color:var(--dd-muted);background:var(--dd-card);"
+        "border:1px solid var(--dd-border);}"
+        ".aip-wrap .aip-seq-line{display:flex;align-items:baseline;gap:8px;"
+        "flex-wrap:wrap;}"
+        ".aip-wrap .aip-seq-kind{font-size:10.5px;font-weight:800;"
+        "letter-spacing:.06em;text-transform:uppercase;"
+        "color:var(--dd-teal);}"
+        ".aip-wrap .aip-seq-step.call .aip-seq-kind,"
+        ".aip-wrap .aip-seq-step.linkedin .aip-seq-kind{"
+        "color:var(--dd-muted);}"
+        ".aip-wrap .aip-seq-subj{font-size:13px;font-weight:600;"
+        "color:var(--dd-text_l);}"
+        ".aip-wrap .aip-seq-what{display:block;font-size:12px;"
+        "line-height:1.5;color:var(--dd-muted);margin-top:2px;}"
+        ".aip-wrap .aip-seq-att{display:inline-flex;align-items:center;"
+        "gap:4px;margin-top:6px;font-size:11px;font-weight:600;"
+        "padding:2px 9px 2px 6px;border-radius:999px;"
+        "color:var(--dd-text_l);border:1px solid var(--dd-border);"
+        "background:var(--dd-card);}"
+        ".aip-wrap .aip-seq-att .q-icon{font-size:13px;"
+        "color:var(--dd-teal);}"
         ".aip-wrap .aip-link.back{font-weight:600;color:var(--dd-teal);"
         "background:var(--dd-teal_dim);padding:4px 12px;"
         "border-radius:999px;}"
@@ -2450,7 +2537,9 @@ def describe_runs(cat=None, newsletter_names=()):
         qs = []
         for f in r["fields"]:
             q = {"key": f["key"], "label": f["label"],
-                 "section": SECTION_NAME.get(f["section"], f["section"]),
+                 "section": _section_copy(
+                     f["section"], "name",
+                     SECTION_NAME.get(f["section"], f["section"]), cat),
                  "type": f["type"], "default": req["vals"].get(f["key"], ""),
                  "required": bool(f.get("ask") or f["key"] in must)}
             if f["type"] == "newsletter":
@@ -2704,7 +2793,7 @@ def _aip_sections_for(r):
     order. "extra" is always last and always present — it is the free-text
     escape hatch for anything the fixed questions did not cover."""
     used = {f["section"] for f in r["fields"]}
-    return [(k, name) for k, name, _ in SECTIONS
+    return [(k, _section_copy(k, "name", name)) for k, name, _ in SECTIONS
             if k in used or k == "extra"]
 
 
@@ -2762,6 +2851,13 @@ def _aip_field(s, rf, C, r, vals, f):
 
     if f["type"] == "checks":
         _aip_checks(s, rf, C, r, vals, f)
+        return
+
+    # Cards, not a dropdown: nobody can pick between "Quick Intro" and
+    # "Standard Outreach" off the names alone. A catalogue with no
+    # descriptions keeps the plain select.
+    if key == "sequence" and any(o in _seq_info() for o in f["options"]):
+        _sequence_picker(rf, C, r, vals, f)
         return
 
     ui.label(f["label"]).classes("fd-fl")
@@ -2824,6 +2920,119 @@ def _aip_chips(rf, C, vals, f):
                 rf()
             with ui.element("button").classes("aip-chip").on("click", _pick):
                 ui.label(str(chip.get("label") or ""))
+
+
+def _seq_info():
+    """The bound catalogue's sequence descriptions, {} when it has none."""
+    return getattr(_CAT, "sequence_info", None) or {}
+
+
+def sequence_counts(name, info=None):
+    """"5 emails, 1 call, 1 LinkedIn, about 2½ weeks" for a sequence card,
+    or "" when the sequence has no fixed steps (saved styles, AI's choice).
+    `info` defaults to the bound catalogue's sequence_info."""
+    info = _seq_info() if info is None else info
+    steps = (info.get(name) or {}).get("steps") or []
+    if not steps:
+        return ""
+    n = {k: sum(1 for st in steps if st[1] == k)
+         for k in ("email", "call", "linkedin")}
+    bits = ["%d email%s" % (n["email"], "" if n["email"] == 1 else "s")]
+    if n["call"]:
+        bits.append("%d call%s" % (n["call"], "" if n["call"] == 1 else "s"))
+    if n["linkedin"]:
+        bits.append("%d LinkedIn" % n["linkedin"])
+    # Business days, so five to a week, rounded to the nearest half week.
+    halves = max(1, int(round(steps[-1][0] / 5.0 * 2)))
+    weeks = str(halves // 2) + ("½" if halves % 2 else "")
+    if weeks.startswith("0"):
+        weeks = weeks[1:]
+    bits.append("about %s week%s" % (weeks, "" if halves <= 2 else "s"))
+    return ", ".join(bits)
+
+
+_STEP_ICON = {"email": "mail_outline", "call": "call",
+              "linkedin": "person_add_alt"}
+
+
+def _sequence_picker(rf, C, r, vals, f):
+    """The sequence as a row of cards, then everything the picked one sends:
+    each email's subject, what it says, what it carries, and the business
+    day it lands."""
+    info_all = _seq_info()
+    cur = str(_val(r, vals, "sequence") or f["default"] or "")
+    opts = list(f["options"])
+    if cur and cur not in opts:
+        opts = [cur] + opts
+
+    def _pick(name):
+        vals["sequence"] = name
+        rf()
+
+    with ui.element("div").classes("aip-seq-grid"):
+        for name in opts:
+            info = info_all.get(name) or {}
+            on = name == cur
+            with ui.element("button").classes(
+                    "aip-seq-card" + (" on" if on else "")).on(
+                    "click", lambda _e, _n=name: _pick(_n)):
+                with ui.element("div").classes("aip-seq-top"):
+                    ui.label(name).classes("aip-seq-name")
+                    if name == f["default"]:
+                        ui.label("Recommended").classes("aip-seq-rec")
+                    ui.element("div").style("flex:1;")
+                    ui.icon("check_circle" if on
+                            else "radio_button_unchecked").classes(
+                        "aip-seq-radio")
+                if info.get("tag"):
+                    ui.label(info["tag"]).classes("aip-seq-tag")
+                counts = sequence_counts(name, info_all)
+                if counts:
+                    ui.label(counts).classes("aip-seq-meta")
+
+    info = info_all.get(cur) or {}
+    if not info:
+        return
+    with ui.element("div").classes("aip-seq-detail"):
+        with ui.element("div").classes("aip-seq-head"):
+            ui.label(cur).classes("aip-seq-dname")
+            counts = sequence_counts(cur, info_all)
+            if counts:
+                ui.label(counts).classes("aip-pill")
+        _text(info.get("about", ""), C, 12.5, colour=C["text_l"], mb=4)
+        if info.get("best"):
+            _text("Best for: " + info["best"], C, 12, colour=C["muted"])
+        steps = info.get("steps") or []
+        if not steps:
+            return
+        n_email = 0
+        with ui.element("div").classes("aip-seq-steps"):
+            for st in steps:
+                day, kind, title, what = st[:4]
+                attach = st[4] if len(st) > 4 else ""
+                if kind == "email":
+                    n_email += 1
+                    head = "Email %d" % n_email
+                    title = "“%s”" % title
+                else:
+                    head = "Call" if kind == "call" else "LinkedIn"
+                with ui.element("div").classes("aip-seq-step " + kind):
+                    ui.label("Day %d" % day).classes("aip-seq-day")
+                    with ui.element("div").classes("aip-seq-ico"):
+                        ui.icon(_STEP_ICON.get(kind, "mail_outline"))
+                    with ui.element("div").classes("aip-seq-body"):
+                        with ui.element("div").classes("aip-seq-line"):
+                            ui.label(head).classes("aip-seq-kind")
+                            ui.label(title).classes("aip-seq-subj")
+                        ui.label(what).classes("aip-seq-what")
+                        if attach:
+                            with ui.element("span").classes("aip-seq-att"):
+                                ui.icon("attach_file")
+                                ui.label(attach)
+        _text(info.get("note") or
+              "Days are business days, counted from the first touch. Every "
+              "email is written fresh for the company it goes to; the "
+              "subjects above show the shape.", C, 11, colour=C["muted"])
 
 
 def _pick_widget(C, vals, f, cur):
@@ -3366,7 +3575,7 @@ def _aip_confirm(s, rf, C):
             ui.label("Step %d of %d" % (idx + 1, len(sections))).classes(
                 "aip-sec").style(f"color:{C['teal']};margin-bottom:4px;")
             _text(name[:1].upper() + name[1:], C, 18, 700, C["text_l"], 2)
-            intro = SECTION_INTRO.get(at, "")
+            intro = _section_copy(at, "intro", SECTION_INTRO.get(at, ""))
             if intro:
                 _text(intro, C, 12, colour=C["muted"], mb=16)
             if at == "extra":
@@ -3384,6 +3593,8 @@ def _aip_confirm(s, rf, C):
                         with ui.element("div").classes(
                                 "aip-wide" if f["type"] in ("checks",
                                                             "textarea")
+                                or (f["key"] == "sequence"
+                                    and _seq_info())
                                 else ""):
                             _aip_field(s, rf, C, r, vals, f)
 
@@ -3395,7 +3606,8 @@ def _aip_confirm(s, rf, C):
                     ui.element("div")
                 if idx + 1 < len(keys):
                     nxt = keys[idx + 1]
-                    _btn("Next: " + SECTION_SHORT.get(nxt, "next step"),
+                    _btn("Next: " + _section_copy(
+                        nxt, "short", SECTION_SHORT.get(nxt, "next step")),
                          lambda: _go(nxt), primary=True,
                          icon="arrow_forward")
                 else:

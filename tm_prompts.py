@@ -1262,6 +1262,374 @@ DEFAULT_SEQUENCE = "Standard Outreach"
 DEFAULT_TEMPLATE = TEMPLATE_KEY[DEFAULT_SEQUENCE]
 
 
+# What each campaign type does, for the cards on the "Choose your campaign"
+# step (Mike 2026-10-08: "choose a campaign type but be able to see exactly
+# what that campaign does"). Steps are (business day, kind, subject or
+# title, what it does, optional attachment), read off flowdrip_app.py's
+# _TM_STEP_SHAPE (days), AICB_CAMPAIGN_TYPES (what each step does),
+# _TM_MODEL_EMAILS (the exact subject of a model-tagged step),
+# _TM_TYPE_PDF_DEFAULT + _TM_PDF_STEP_WORDS (which email carries which PDF
+# by default) and _TM_PROFILE_ROUNDS (where the candidate profiles go).
+# Day 1 is the first touch. tests/test_tm_choose_campaign.py checks the
+# days, kinds and model subjects against the app, so a cadence change
+# that forgets this table fails the suite instead of lying on the card.
+_LI_NOTE = ("Connection note under 300 characters: you have emailed a couple "
+            "of times and wanted to connect here too. No pitch, no link, no "
+            "figures, and it never assumes a reply.")
+_COST_WHAT = ("The cost email, the only one that states the saving. Prices a "
+              "dedicated Philippines-based role next to the fully burdened "
+              "cost of a U.S. hire, says every candidate holds an accredited "
+              "degree and communicates clearly in English, and invites them "
+              "to start with one role.")
+_JOINS_WHAT = ("Onboarding: choosing the person is the easy part. A clear "
+               "handoff, access to the right systems, monthly check-ins and "
+               "quarterly reviews, with their team directing the day-to-day.")
+_COMMIT_WHAT = ("Widens from one role to the kinds of work companies in "
+                "their industry hand to dedicated Philippines-based staff, "
+                "past success there, and a 15-minute call to see where you "
+                "could save them money.")
+_CLOSE_WHAT = ("The last note. Promises a short personal check-in about once "
+               "a month, says one role is an easy way to find out and costs "
+               "a lot less than a local hire (no figure), and asks them to "
+               "take a chance on one.")
+_PROFILES_ONCE = ("Three candidate profiles from your pipeline go into one "
+                  "follow-up email, before its closing question.")
+_COST_PDF = "Staffing Cost Comparison"
+_BLUEPRINT_PDF = "Offshore Role Blueprint"
+_HOW_PDF = "How We Work Together"
+_MYTHS_PDF = "Offshore Myths vs Reality"
+_ROLES_PDF = "Roles That Work Offshore"
+_FIRST90_PDF = "First 90 Days Plan"
+_SECURITY_PDF = "Security and Confidentiality"
+_PULSE_PDF = "Market Pulse"
+_PDF_NOTE = ("Days are business days, counted from the first touch. Every "
+             "email is written fresh for the company it goes to; the "
+             "subjects above show the shape. PDFs shown are this campaign's "
+             "defaults, and the Review step lets you change them.")
+
+SEQUENCE_INFO = {
+    "Standard Outreach": {
+        "tag": "The default for new companies",
+        "about": ("Seven short emails, two calls and a LinkedIn connect over "
+                  "about four weeks: the work, the cost, the role's scope, "
+                  "support after the hire, quality, the commitment and a "
+                  "clean close. Three candidate profiles ride on emails 3 "
+                  "and 5, and two of them on the close."),
+        "best": "Any good-fit company you have not contacted yet.",
+        "note": _PDF_NOTE,
+        "steps": [
+            (1, "email", "More room for the work that matters",
+             "Cold intro. Your track record, 'you might not need anyone "
+             "right now', names the recurring work the role would take on, "
+             "asks for a quick conversation even just to network."),
+            (4, "email", "What would the role actually cost?", _COST_WHAT,
+             _COST_PDF),
+            (4, "call", "Follow-up call",
+             "References the cost email, asks who owns that work today and "
+             "what the role would need to cover. Qualifying, not closing."),
+            (4, "linkedin", "LinkedIn connect", _LI_NOTE),
+            (7, "email", "A clearer scope for the role",
+             "Names the tasks the hire would own and what their team keeps. "
+             "Three candidate profiles go in before the closing question.",
+             _BLUEPRINT_PDF),
+            (10, "email", "After the candidate joins", _JOINS_WHAT,
+             _MYTHS_PDF),
+            (14, "email", "What you would assess before hiring",
+             "Two or three skills that matter for the role. You recruit "
+             "against their requirements and they interview everyone. The "
+             "same three profiles go in again."),
+            (14, "call", "Follow-up call 2",
+             "Which skill would matter most for the role, and who would "
+             "interview. Voicemail under 20 seconds."),
+            (18, "email", "Worth a quick conversation?", _COMMIT_WHAT),
+            (23, "email", "Leaving this with you",
+             _CLOSE_WHAT + " Two of the profiles go in one last time."),
+        ],
+    },
+    "Quick Intro": {
+        "tag": "Fast read, email only",
+        "about": ("Four short emails over about two weeks: the work, the "
+                  "cost, what happens after the hire, then a straight "
+                  "answer. Three candidate profiles from your pipeline go "
+                  "on the cost email."),
+        "best": "Big lists where you want to see who is interested, fast.",
+        "note": _PDF_NOTE,
+        "steps": [
+            (1, "email", "More room for the work that matters",
+             "Cold intro. Names the recurring work the role would take on "
+             "and asks for a quick conversation."),
+            (4, "email", "What would the role actually cost?",
+             "The cost email, the only one that states the saving. Hourly "
+             "dollars only: most support staff under $11/hr beside the "
+             "'up to' percentage, never an annual or monthly figure. Three "
+             "candidate profiles go in before the closing question.",
+             _COST_PDF),
+            (7, "email", "After the candidate joins",
+             "Opens by asking whether they saw the last email (most support "
+             "staff under $11/hr), then the handoff, monthly check-ins and "
+             "quarterly reviews, and the offer of more information."),
+            (11, "email", "Leaving this with you",
+             "The last email. Says so plainly, promises the monthly "
+             "check-in, and asks for a one-word reply, 'now', 'later' or "
+             "'no', and says any of the three helps."),
+        ],
+    },
+    "Priority Account Push": {
+        "tag": "Must-win accounts",
+        "about": ("The Standard Outreach emails, each built around a "
+                  "concrete detail about this one company, with three calls "
+                  "and a LinkedIn connect over about four weeks. "
+                  + _PROFILES_ONCE),
+        "best": "A company you really want, when you will make the calls.",
+        "note": _PDF_NOTE,
+        "steps": [
+            (1, "email", "More room for the work that matters",
+             "Cold first touch built around one detail about the company: "
+             "a project, a location, a service line, a growth signal."),
+            (4, "email", "What would the role actually cost?",
+             "The cost email, the only one that states the saving. Offers "
+             "the comparison for one named role that fits this company.",
+             _COST_PDF),
+            (4, "call", "Follow-up call",
+             "References the cost email, asks who owns that work today and "
+             "what it looks like when volume spikes."),
+            (4, "linkedin", "LinkedIn connect", _LI_NOTE),
+            (6, "email", "A clearer scope for the role",
+             "Names what the hire would own in one role that fits this "
+             "company and what their team keeps.", _BLUEPRINT_PDF),
+            (9, "email", "After the candidate joins", _JOINS_WHAT),
+            (9, "call", "Follow-up call 2",
+             "References the onboarding note, asks which role they would "
+             "add first and who would bring that person up to speed. "
+             "Voicemail under 20 seconds."),
+            (13, "email", "What you would assess before hiring",
+             "Two or three skills that matter for the role scoped in "
+             "email 3."),
+            (17, "email", "Worth a quick conversation?", _COMMIT_WHAT),
+            (17, "call", "Follow-up call 3",
+             "Direct: is there one role worth pricing out, yes or no. "
+             "Voicemail says one more email is coming."),
+            (22, "email", "Leaving this with you", _CLOSE_WHAT),
+        ],
+    },
+    "They're Hiring": {
+        "tag": "While the need is live",
+        "about": ("Opens on the role they posted or the growth they "
+                  "announced, scopes that role, prices it, then asks for the "
+                  "job description they already wrote. " + _PROFILES_ONCE),
+        "best": "They just posted a job, announced growth or opened a "
+                "location.",
+        "note": _PDF_NOTE,
+        "steps": [
+            (1, "email", "More room for the work that matters",
+             "Opens on the specific signal, the posted role or the "
+             "announcement, and the work it points to. No time-to-fill, no "
+             "start date."),
+            (4, "email", "A clearer scope for the role",
+             "Scopes the role they are hiring for: what the person would "
+             "own and what their team keeps.", _BLUEPRINT_PDF),
+            (4, "call", "Follow-up call",
+             "Asks how the search is going and what would have to be true "
+             "for a dedicated offshore hire to be worth trying."),
+            (7, "email", "What would the role actually cost?",
+             "The cost email, the only one that states the saving. Prices "
+             "the role they posted.", _COST_PDF),
+            (11, "email", "Worth a quick conversation?",
+             "Asks for the job description they already wrote for the "
+             "posting."),
+            (16, "email", "Leaving this with you",
+             "Allows that the search may already be filled and leaves the "
+             "door open for the next one."),
+        ],
+    },
+    "Long Term Nurture": {
+        "tag": "Twelve weeks, one email a week",
+        "about": ("Seventeen touches over twelve weeks: one email a week, "
+                  "four calls and a LinkedIn connect. Every follow-up email "
+                  "either carries one of the eight Sales Assets PDFs or the "
+                  "candidate profiles, so each week shows a different reason "
+                  "to talk. Profiles go on emails 3, 6 and 9, and two of "
+                  "them on the close, each with a worth-a-shot line (most "
+                  "support staff under $11/hr)."),
+        "best": "Accounts you want to stay in front of for months, not "
+                "weeks.",
+        "note": _PDF_NOTE,
+        "steps": [
+            (1, "linkedin", "LinkedIn connect",
+             "Says you follow the company because of one specific detail "
+             "and help companies like theirs add dedicated team members in "
+             "the Philippines. No pitch, no link, no figures."),
+            (2, "email", "More room for the work that matters",
+             "Week 1. Names the recurring work that piles up for teams like "
+             "theirs and the kind of dedicated professional who would take "
+             "it on."),
+            (3, "call", "Call 1",
+             "References the email, asks which recurring work is eating "
+             "their team's week. Voicemail under 20 seconds offers a short "
+             "cost snapshot."),
+            (8, "email", "What would the role actually cost?",
+             "Week 2. " + _COST_WHAT, _COST_PDF),
+            (13, "email", "A clearer scope for the role",
+             "Week 3. Scopes one role that fits this company: what the "
+             "person would own and what their team keeps. Three candidate "
+             "profiles go in before the closing question, with the "
+             "worth-a-shot line.", _BLUEPRINT_PDF),
+            (18, "email", "After the candidate joins",
+             "Week 4. " + _JOINS_WHAT, _MYTHS_PDF),
+            (19, "call", "Call 2: the cost of waiting",
+             "When that work backs up, what breaks first? Offers a one-page "
+             "breakdown of how the role would work and a 15-minute call."),
+            (24, "email", "Roles that work offshore",
+             "Week 5. Which roles at a company like theirs move well to a "
+             "dedicated offshore professional, which stay in house, and "
+             "where companies usually start.", _ROLES_PDF),
+            (29, "email", "What you would assess before hiring",
+             "Week 6. What you screen for before they meet a candidate: "
+             "accredited degree, clear written English, judgement about "
+             "when to escalate. The same three profiles go in again, with "
+             "the worth-a-shot line."),
+            (34, "email", "How it works",
+             "Week 7. How an engagement runs: define the role, you recruit, "
+             "they interview and choose, onboarding, monthly check-ins.",
+             _HOW_PDF),
+            (39, "email", "First 90 days",
+             "Week 8. What happens after a yes: the handoff, access, who "
+             "sets priorities and the first reviews.", _FIRST90_PDF),
+            (40, "call", "Call 3: multi-thread",
+             "Who actually owns adding a team member for this work, and is "
+             "the need immediate or tied to a busy season? Asks for 15 "
+             "minutes."),
+            (45, "email", "The people behind the numbers",
+             "Week 9. The people, not the price: dedicated to one client, "
+             "U.S. hours, inside their own systems, educated and clear "
+             "communicators. The profiles go in a third time, with the "
+             "worth-a-shot line."),
+            (50, "email", "Security and confidentiality",
+             "Week 10. How access and data are handled: NDAs, one-client "
+             "dedication, isolated workstations and a secure VPN.",
+             _SECURITY_PDF),
+            (55, "email", "Worth a quick conversation?",
+             "Week 11. " + _COMMIT_WHAT, _PULSE_PDF),
+            (60, "email", "Leaving this with you",
+             "Week 12. " + _CLOSE_WHAT + " Two of the profiles go in one "
+             "last time, with the worth-a-shot line."),
+            (61, "call", "Final call and referral ask",
+             "If they are not the right person, who is? Voicemail under 20 "
+             "seconds with the same ask."),
+        ],
+    },
+    "Stay on Their Radar": {
+        "tag": "No pressure",
+        "about": ("One useful note every two to three weeks over about "
+                  "twelve weeks, each from a different angle, ending with a "
+                  "genuine door-open close. A finished campaign offers to "
+                  "move the people who never replied into this one. "
+                  + _PROFILES_ONCE),
+        "best": "They fit, but said 'not now' or never replied.",
+        "note": _PDF_NOTE,
+        "steps": [
+            (1, "email", "Not asking for anything today",
+             "One specific observation about their business and one "
+             "sentence on what you do. Says plainly you are not asking for "
+             "anything today. No figures."),
+            (11, "email", "What is putting pressure on teams like yours",
+             "Something genuinely useful about their industry's operating "
+             "pressure. No call ask."),
+            (25, "call", "Check-in call",
+             "Low-key: what would have to change for this to matter."),
+            (35, "email", "What would the role actually cost?",
+             "The cost email, the only one that states the saving. Offers "
+             "the comparison for whenever the moment arrives.", _COST_PDF),
+            (49, "email", "After the candidate joins", _JOINS_WHAT, _HOW_PDF),
+            (63, "email", "Leaving this with you",
+             "Warm, and explicitly the last scheduled note."),
+        ],
+    },
+    "Revive Old Leads": {
+        "tag": "A new angle",
+        "about": ("Comes back from a different angle instead of repeating "
+                  "the old pitch, re-prices the role, keeps the commitment "
+                  "small, and gives them an easy way to say not now. "
+                  + _PROFILES_ONCE),
+        "best": "You talked months ago, or a deal went quiet.",
+        "note": _PDF_NOTE,
+        "steps": [
+            (1, "email", "Something I noticed about {Company}",
+             "No 'just following up'. Leads with a new observation about "
+             "their business or market, and one question."),
+            (6, "email", "What has changed",
+             "One genuine reason the conversation is worth restarting: a "
+             "shift in their market, a new service line, a different role "
+             "shape."),
+            (8, "linkedin", "LinkedIn connect",
+             "Under 300 characters, no pitch, no link, no figures."),
+            (13, "email", "What would the role actually cost?",
+             "Re-anchors on cost without repeating the original pitch. The "
+             "only email that states the saving.", _COST_PDF),
+            (18, "email", "Worth a quick conversation?",
+             "How little they commit to by looking at one role.", _HOW_PDF),
+            (25, "email", "Leaving this with you",
+             "Asks plainly whether this is a this-year or a next-year "
+             "problem, and says either answer is useful."),
+        ],
+    },
+    "After the Call": {
+        "tag": "After a real conversation",
+        "about": ("Recaps what they said, confirms the role shape, covers "
+                  "what happens once they choose someone, puts the "
+                  "commitment in plain terms and moves toward a shortlist. "
+                  + _PROFILES_ONCE),
+        "best": "You have had a real conversation and need to move it "
+                "forward.",
+        "note": _PDF_NOTE,
+        "steps": [
+            (1, "email", "Recap of our conversation",
+             "Three or four lines on what they said they needed, from your "
+             "notes only, and the next step you agreed."),
+            (4, "email", "A clearer scope for the role",
+             "Scopes the role they described and asks them to confirm or "
+             "correct it. No pricing.", _BLUEPRINT_PDF),
+            (4, "call", "Follow-up call",
+             "Walks the requirements list and agrees the interview panel."),
+            (7, "email", "After the candidate joins",
+             "What happens once they choose someone, tied to the next step "
+             "they already agreed."),
+            (11, "email", "Worth a quick conversation?",
+             "Offers to put the scope and current terms in front of them, "
+             "and asks who else needs to see them before they can move.",
+             _HOW_PDF),
+            (17, "email", "Still happy to draft those requirements",
+             "Short check-in if the requirements never came back. Offers to "
+             "draft them from the call instead. One question, no pressure."),
+        ],
+    },
+    "One of my saved styles": {
+        "tag": "Your own",
+        "about": ("A campaign you built and saved in My Campaign Styles. "
+                  "Claude looks it up by name with my_campaign_styles."),
+        "best": "When you have already written the emails you want.",
+    },
+    "Let Claude choose": {
+        "tag": "Claude picks",
+        "about": ("Claude reads each company and picks whichever campaign "
+                  "type above suits it best."),
+        "best": "Mixed lists where one campaign type will not fit everyone.",
+    },
+}
+
+# The sequence step is "Choose your campaign" here: the cards are campaign
+# types, and the sidebar step should say what the user is doing on it.
+SECTION_COPY = {
+    "emails": {
+        "name": "Choose your campaign",
+        "short": "your campaign",
+        "intro": ("Pick the campaign every company gets. Each card shows "
+                  "every email, call and LinkedIn touch in it, what each "
+                  "one says, and the day it goes out."),
+    },
+}
+
+
 # ── Shared field groups ───────────────────────────────────────────────────
 
 _REC = ("What we'd recommend for the vertical you picked. Change it to "
@@ -2189,6 +2557,8 @@ TM = Catalogue(
     template_key=TEMPLATE_KEY,
     default_sequence=DEFAULT_SEQUENCE,
     default_template=DEFAULT_TEMPLATE,
+    sequence_info=SEQUENCE_INFO,
+    section_copy=SECTION_COPY,
     setups_file="tm_prompt_setups.json",
     product="inboxslide",
     connector="inboxslide connector",
