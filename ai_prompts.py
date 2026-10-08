@@ -81,7 +81,7 @@ MODEL = "claude-haiku-4-5-20251001"
 # so a value the model chose is never hidden behind a closed heading.
 SECTIONS = [
     ("details", "The details", True),
-    ("emails", "The emails", False),
+    ("emails", "Choose your sequence", False),
     ("size", "How big this run is", False),
     ("skip", "Leave these out", False),
     ("repeat", "Create a schedule", False),
@@ -238,6 +238,182 @@ TEMPLATE_KEY = {
     # its emails need the starting company, which no other job asks for.
     "Arena Client Lookalike": "clientlookalike",
 }
+
+# What each sequence does, for the cards on the "Choose your sequence" step.
+# Steps are (business day, kind, subject or title, what it does), copied from
+# the step outlines and delay tables in flowdrip_app.py (AICB_CAMPAIGN_TYPES,
+# _FIVEBY*_DELAYS). Day 1 is the day the first email goes out. Change those
+# and change this, or the card describes a sequence that no longer exists.
+SEQUENCE_INFO = {
+    "Arena 5x7": {
+        "tag": "Longest runway",
+        "about": "Seven warm emails, two calls and a LinkedIn touch. Opens "
+                 "on the market, brings in three matched candidates on "
+                 "email 3, sends them again with redacted resumes on email "
+                 "5, and closes on two of them.",
+        "best": "Accounts worth a month of patient follow-up.",
+        "steps": [
+            (1, "email", "Quick note for {Company}",
+             "Introduces you and the roles you place. No candidates yet."),
+            (4, "email", "What I'm seeing in {market}",
+             "One or two things you're seeing in hiring in their market."),
+            (4, "call", "Follow-up call",
+             "Asks who handles hiring and whether anything is open."),
+            (4, "linkedin", "LinkedIn connect",
+             "Short connection request that points back to your email."),
+            (7, "email", "A few candidates for {Company}",
+             "Three matched candidates as short write-ups."),
+            (10, "email", "How I work",
+             "How you vet people and stay in touch after the start date."),
+            (14, "email", "Those candidates again",
+             "The same three, one new line each.", "Redacted resumes"),
+            (14, "call", "Follow-up call 2",
+             "Asks whether any of them are worth a conversation."),
+            (18, "email", "Right person to ask?",
+             "Checks you're talking to the person who owns hiring."),
+            (23, "email", "Closing the loop for now",
+             "Two of the candidates one last time, then a warm sign-off."),
+        ],
+    },
+    "Arena 5x5": {
+        "tag": "Warm slate play",
+        "about": "The 4x4 in a warmer, more personal voice. Spotlights one "
+                 "candidate, adds a short bump that flushes out the right "
+                 "decision-maker, and closes by adding them to your "
+                 "newsletter.",
+        "best": "Relationship-first outreach to passive buyers.",
+        "steps": [
+            (1, "email", "Quick note for {Company}",
+             "Introduces you and the slate you're working with."),
+            (4, "email", "One person worth having on your radar",
+             "Spotlights your strongest candidate in a few warm lines."),
+            (4, "call", "Follow-up call",
+             "References the spotlight and asks about hiring timeline."),
+            (4, "linkedin", "LinkedIn connect",
+             "Short connection request that points back to your email."),
+            (6, "email", "Following up",
+             "A two-line bump. No candidates, no market data."),
+            (9, "email", "Still think this one's worth a look",
+             "Gentle circle-back on the spotlighted candidate."),
+            (13, "email", "Closing the loop for now",
+             "Warm sign-off and a spot on your monthly newsletter."),
+        ],
+    },
+    "Arena 5x3": {
+        "tag": "Pipeline-matched slate",
+        "about": "Five warm emails built around three candidates matched "
+                 "from your Pipeline. Redacted resumes go on emails 2 and "
+                 "4, an interview guide on email 3.",
+        "best": "A company hiring a role you have real people for.",
+        "steps": [
+            (1, "email", "Quick note for {Company}",
+             "Introduces you and the role you place."),
+            (4, "email", "A few candidates who caught my eye",
+             "Short spotlight on each of the three candidates.",
+             "Redacted resumes"),
+            (7, "email", "An interview guide, in case it helps",
+             "A ready-to-use interview guide for the role.",
+             "Interview guide"),
+            (9, "email", "Following up",
+             "A short bump with the resumes attached again.",
+             "Redacted resumes"),
+            (12, "email", "Closing the loop for now",
+             "Warm sign-off and a spot on your monthly newsletter."),
+        ],
+    },
+    "Arena 4x4": {
+        "tag": "Signature slate play",
+        "about": "Arena's original BD play. Leads with a real role they "
+                 "advertised and your candidate slate, then follows with "
+                 "market data, proven results and trends. Candidates on "
+                 "every email.",
+        "best": "Hot roles where you already have a full slate.",
+        "steps": [
+            (1, "email", "{Role} Candidates Available",
+             "Names the role they're hiring and presents your slate."),
+            (4, "email", "Top Talent Insights",
+             "Three or four real market facts, then the same slate."),
+            (4, "call", "Follow-up call",
+             "Asks if they saw the profiles and qualifies the timeline."),
+            (4, "linkedin", "LinkedIn connect",
+             "Short connection request that points back to your email."),
+            (8, "email", "Thoughts on this?",
+             "Your fill rate, contingency terms and replacement guarantee."),
+            (12, "email", "Market Trends and Hiring Solutions for {Role}",
+             "Market updates and a soft, no-pressure close."),
+        ],
+    },
+    "Arena Client Lookalike": {
+        "tag": "Built for lookalikes",
+        "about": "The 5x5 for companies that look like one you know. Email "
+                 "1 opens on two candidates you're working with from the "
+                 "starting company, and the follow-ups come back to them.",
+        "best": "Finding more companies like a client you already have.",
+        "steps": [
+            (1, "email", "Quick note for {Company}",
+             "Opens on two candidates from the starting company."),
+            (4, "email", "One person worth having on your radar",
+             "Comes back to the first of those two candidates."),
+            (4, "call", "Follow-up call",
+             "Mentions both candidates and asks about hiring timeline."),
+            (4, "linkedin", "LinkedIn connect",
+             "Short connection request that points back to your email."),
+            (6, "email", "Following up",
+             "A two-line bump. No candidates, no market data."),
+            (9, "email", "Still think these two are worth a look",
+             "Gentle circle-back on the two candidates."),
+            (13, "email", "Closing the loop for now",
+             "Warm sign-off and a spot on your monthly newsletter."),
+        ],
+    },
+    "One of my saved styles": {
+        "tag": "Your own",
+        "about": "A sequence you built and saved in My Campaign Styles. "
+                 "Pick which one below.",
+        "best": "When you've already written the emails you want.",
+    },
+    "Let the AI choose": {
+        "tag": "AI picks",
+        "about": "The AI reads each company and picks whichever Arena "
+                 "sequence above suits it best.",
+        "best": "Mixed lists where one sequence won't fit everyone.",
+    },
+}
+
+
+def sequence_counts(name):
+    """"5 emails, 1 call, 1 LinkedIn, about 2½ weeks" for a sequence card, or
+    "" when the sequence has no fixed steps (saved styles, AI's choice)."""
+    steps = (SEQUENCE_INFO.get(name) or {}).get("steps") or []
+    if not steps:
+        return ""
+    n = {k: sum(1 for st in steps if st[1] == k)
+         for k in ("email", "call", "linkedin")}
+    bits = ["%d email%s" % (n["email"], "" if n["email"] == 1 else "s")]
+    if n["call"]:
+        bits.append("%d call%s" % (n["call"], "" if n["call"] == 1 else "s"))
+    if n["linkedin"]:
+        bits.append("%d LinkedIn" % n["linkedin"])
+    # Business days, so five to a week, rounded to the nearest half week.
+    halves = max(1, int(round(steps[-1][0] / 5.0 * 2)))
+    weeks = str(halves // 2) + ("½" if halves % 2 else "")
+    if weeks.startswith("0"):
+        weeks = weeks[1:]
+    bits.append("about %s week%s" % (weeks, "" if halves <= 2 else "s"))
+    return ", ".join(bits)
+
+
+# Every campaign a run builds is named the same way, and the user is not
+# asked: a name typed per run drifted ("Acme", "acme v2", "Denver HVAC") and
+# made the Running Campaigns list unreadable. Location, industry, company.
+CAMPAIGN_NAME_FORMAT = "City, ST - Industry - Company"
+CAMPAIGN_NAME_EXAMPLE = "Denver, CO - Commercial Construction - Acme Builders"
+NAME_RULE = (
+    " Name every campaign \"<City>, <ST> - <Industry> - <Company>\": the "
+    "company's own city and two-letter state, the industry this run "
+    "targets in THE DETAILS (the company's own industry if THE DETAILS do "
+    "not name one), then the company name, e.g. \"%s\". Use that format "
+    "exactly; do not add or drop parts." % CAMPAIGN_NAME_EXAMPLE)
 
 WHEN_OPTIONS = ["Next Monday", "The Monday after next", "8am tomorrow",
                 "As soon as it's built", "Pick a date and time"]
@@ -482,8 +658,6 @@ ROUTINES = [
             F("saved_style", "Which saved style", "emails",
               show_if=_if_saved_style),
             *start_fields(),
-            F("campaign_name", "What to call the campaigns", "emails",
-              default="the company name"),
             F("companies", "How many companies you want to end up with",
               "size", "number", default="5"),
             F("contacts_each", "How many people at each company", "size",
@@ -559,8 +733,6 @@ ROUTINES = [
             F("saved_style", "Which saved style", "emails",
               show_if=_if_saved_style),
             *start_fields(),
-            F("campaign_name", "What to call the campaigns", "emails",
-              default="the company name"),
             F("companies", "How many companies you want to end up with",
               "size", "number", default="5"),
             F("contacts_each", "How many people at each company", "size",
@@ -670,7 +842,8 @@ ROUTINES = [
             "volume - it must not exceed {email_cap} emails - and {gate}.",
             "{go_prefix} build one campaign per company with create_campaign "
             "using {template_clause}, start_date "
-            "{start_date}.{slate_clause}{newsletter_clause} Read back the "
+            "{start_date}.{slate_clause}{name_clause}{newsletter_clause} Read "
+            "back the "
             "campaign id and the queued-contact count for every one.",
         ],
     },
@@ -746,7 +919,8 @@ ROUTINES = [
             "one card each, shaped {{\"_pool_id\": the id from "
             "candidates_search, \"label\": \"Candidate A\", \"role\": a real "
             "job title, \"bullets\": the three bullets}}, so DripDrop sends "
-            "these exact people and nobody else.{newsletter_clause} Read "
+            "these exact people and nobody else.{name_clause}"
+            "{newsletter_clause} Read "
             "back the campaign id and the queued-contact count for every "
             "one.",
         ],
@@ -920,7 +1094,6 @@ ROUTINES = [
             F("saved_style", "Which saved style", "emails",
               show_if=_if_saved_style),
             *start_fields(),
-            F("campaign_name", "What to call it", "emails"),
             F("email_cap", "Most emails this run should send", "size",
               "number", default=str(EMAIL_CAP_MAX), hint=EMAIL_CAP_HINT),
         ],
@@ -1556,8 +1729,8 @@ def _derived(r, vals, cat=None):
     want = _n(r, vals, "companies", 5)
     d["pool"] = str(max(want + 3, int(round(want * 2.4))))
 
-    name = d.get("campaign_name") or ""
-    d["name_clause"] = " Name each campaign after %s." % name if name else ""
+    # Never the user's choice: an old saved setup's campaign_name is ignored.
+    d["name_clause"] = NAME_RULE
     # Newsletter. Three answers, and "find the one that fits" is the default:
     # Claude looks at what is already there rather than being handed a name
     # that has to be typed exactly right, and an unnamed newsletter is left
@@ -2649,6 +2822,79 @@ def _aip_css():
         ".aip-wrap .aip-back:hover{"
         "background:color-mix(in srgb,var(--dd-teal) 24%,transparent);}"
         ".aip-wrap .aip-back .q-icon{font-size:16px;}"
+        # Choose your sequence: cards, then the picked one's timeline.
+        ".aip-wrap .aip-seq-grid{display:grid;gap:10px;"
+        "grid-template-columns:repeat(auto-fill,minmax(190px,1fr));}"
+        ".aip-wrap .aip-seq-card{display:flex;flex-direction:column;gap:4px;"
+        "text-align:left;cursor:pointer;font-family:inherit;"
+        "padding:12px 14px;border-radius:12px;background:var(--dd-bg);"
+        "border:1px solid var(--dd-border);transition:border-color .15s,"
+        "background .15s,transform .15s;}"
+        ".aip-wrap .aip-seq-card:hover{border-color:var(--dd-teal);"
+        "transform:translateY(-1px);}"
+        ".aip-wrap .aip-seq-card.on{border-color:var(--dd-teal);"
+        "background:var(--dd-teal_dim);"
+        "box-shadow:0 0 0 1px var(--dd-teal) inset;}"
+        ".aip-wrap .aip-seq-top{display:flex;align-items:center;gap:6px;}"
+        ".aip-wrap .aip-seq-name{font-size:14px;font-weight:700;"
+        "color:var(--dd-text_l);}"
+        ".aip-wrap .aip-seq-rec{font-size:9.5px;font-weight:800;"
+        "letter-spacing:.06em;text-transform:uppercase;padding:2px 7px;"
+        "border-radius:999px;color:var(--dd-teal);"
+        "border:1px solid var(--dd-teal);}"
+        ".aip-wrap .aip-seq-radio{font-size:18px;color:var(--dd-muted);}"
+        ".aip-wrap .aip-seq-card.on .aip-seq-radio{color:var(--dd-teal);}"
+        ".aip-wrap .aip-seq-tag{font-size:12px;font-weight:600;"
+        "color:var(--dd-teal);}"
+        ".aip-wrap .aip-seq-meta{font-size:11.5px;line-height:1.45;"
+        "color:var(--dd-muted);}"
+        ".aip-wrap .aip-seq-detail{margin-top:14px;padding:18px 20px;"
+        "border-radius:12px;background:var(--dd-bg);"
+        "border:1px solid var(--dd-border);display:flex;"
+        "flex-direction:column;gap:6px;}"
+        ".aip-wrap .aip-seq-head{display:flex;align-items:center;gap:10px;"
+        "flex-wrap:wrap;margin-bottom:2px;}"
+        ".aip-wrap .aip-seq-dname{font-size:15px;font-weight:700;"
+        "color:var(--dd-text_l);}"
+        ".aip-wrap .aip-seq-steps{display:flex;flex-direction:column;"
+        "margin:10px 0 8px;}"
+        ".aip-wrap .aip-seq-step{display:grid;align-items:start;"
+        "grid-template-columns:52px 30px minmax(0,1fr);gap:0 12px;"
+        "padding:10px 0;border-top:1px solid var(--dd-border);}"
+        ".aip-wrap .aip-seq-step:first-child{border-top:none;}"
+        ".aip-wrap .aip-seq-day{font-size:11px;font-weight:700;"
+        "color:var(--dd-muted);padding-top:6px;white-space:nowrap;}"
+        ".aip-wrap .aip-seq-ico{width:30px;height:30px;border-radius:8px;"
+        "display:flex;align-items:center;justify-content:center;"
+        "font-size:16px;color:var(--dd-teal);background:var(--dd-teal_dim);}"
+        ".aip-wrap .aip-seq-step.call .aip-seq-ico,"
+        ".aip-wrap .aip-seq-step.linkedin .aip-seq-ico{"
+        "color:var(--dd-muted);background:var(--dd-card);"
+        "border:1px solid var(--dd-border);}"
+        ".aip-wrap .aip-seq-line{display:flex;align-items:baseline;gap:8px;"
+        "flex-wrap:wrap;}"
+        ".aip-wrap .aip-seq-kind{font-size:10.5px;font-weight:800;"
+        "letter-spacing:.06em;text-transform:uppercase;"
+        "color:var(--dd-teal);}"
+        ".aip-wrap .aip-seq-step.call .aip-seq-kind,"
+        ".aip-wrap .aip-seq-step.linkedin .aip-seq-kind{"
+        "color:var(--dd-muted);}"
+        ".aip-wrap .aip-seq-subj{font-size:13px;font-weight:600;"
+        "color:var(--dd-text_l);}"
+        ".aip-wrap .aip-seq-what{display:block;font-size:12px;"
+        "line-height:1.5;color:var(--dd-muted);margin-top:2px;}"
+        ".aip-wrap .aip-seq-att{display:inline-flex;align-items:center;"
+        "gap:4px;margin-top:6px;font-size:11px;font-weight:600;"
+        "padding:2px 9px 2px 6px;border-radius:999px;"
+        "color:var(--dd-text_l);border:1px solid var(--dd-border);"
+        "background:var(--dd-card);}"
+        ".aip-wrap .aip-seq-att .q-icon{font-size:13px;"
+        "color:var(--dd-teal);}"
+        ".aip-wrap .aip-seq-name-note{display:flex;gap:12px;"
+        "align-items:flex-start;margin-top:18px;padding:12px 14px;"
+        "border-radius:10px;border:1px dashed var(--dd-border);}"
+        ".aip-wrap .aip-seq-name-note>.q-icon{font-size:18px;"
+        "color:var(--dd-teal);margin-top:1px;}"
         # Ready-made answers above a box.
         ".aip-wrap .aip-chips{display:flex;flex-wrap:wrap;gap:6px;"
         "margin:2px 0 8px;}"
@@ -3236,14 +3482,15 @@ def _aip_sections_for(r):
 
 
 # What the Next button calls the step it goes to.
-SECTION_SHORT = {"details": "the details", "emails": "the emails",
+SECTION_SHORT = {"details": "the details", "emails": "your sequence",
                  "size": "run size", "skip": "who to leave out",
                  "repeat": "the schedule", "extra": "anything else"}
 
 # One line under each step's title saying what the step is for.
 SECTION_INTRO = {
     "details": "Who to go after. Change anything you like.",
-    "emails": "Which sequence goes out, and when it starts.",
+    "emails": "Pick the sequence every company gets. Each card shows every "
+              "email and call in it, and the day it goes out.",
     "size": "How many companies and emails this run covers.",
     "skip": "Who this run leaves out.",
     "repeat": "Run it again on a schedule, or just this once.",
@@ -3298,6 +3545,13 @@ def _aip_field(s, rf, C, r, vals, f):
 
     if f["type"] == "checks":
         _aip_checks(s, rf, C, r, vals, f)
+        return
+
+    # Cards, not a dropdown: nobody can pick between "Arena 5x3" and "Arena
+    # 5x5" off the names alone. A catalogue with no descriptions keeps the
+    # plain select.
+    if key == "sequence" and any(o in SEQUENCE_INFO for o in f["options"]):
+        _sequence_picker(rf, C, r, vals, f)
         return
 
     ui.label(f["label"]).classes("fd-fl")
@@ -3389,6 +3643,102 @@ def _aip_chips(rf, C, vals, f):
                 rf()
             with ui.element("button").classes("aip-chip").on("click", _pick):
                 ui.label(str(chip.get("label") or ""))
+
+
+# Runs that build one campaign around a role rather than one per company,
+# and so keep their own name (Find Candidates: "Find Candidates - <role>").
+_OWN_NAME_ROUTINES = ("staff_find_candidates",)
+
+_STEP_ICON = {"email": "mail_outline", "call": "call",
+              "linkedin": "person_add_alt"}
+
+
+def _sequence_picker(rf, C, r, vals, f):
+    """The sequence as a row of cards, then everything the picked one sends:
+    each email's subject, what it says, and the business day it lands."""
+    cur = str(_val(r, vals, "sequence") or f["default"] or "")
+    opts = list(f["options"])
+    if cur and cur not in opts:
+        opts = [cur] + opts
+
+    def _pick(name):
+        vals["sequence"] = name
+        rf()
+
+    with ui.element("div").classes("aip-seq-grid"):
+        for name in opts:
+            info = SEQUENCE_INFO.get(name) or {}
+            on = name == cur
+            with ui.element("button").classes(
+                    "aip-seq-card" + (" on" if on else "")).on(
+                    "click", lambda _e, _n=name: _pick(_n)):
+                with ui.element("div").classes("aip-seq-top"):
+                    ui.label(name).classes("aip-seq-name")
+                    if name == f["default"]:
+                        ui.label("Recommended").classes("aip-seq-rec")
+                    ui.element("div").style("flex:1;")
+                    ui.icon("check_circle" if on
+                            else "radio_button_unchecked").classes(
+                        "aip-seq-radio")
+                if info.get("tag"):
+                    ui.label(info["tag"]).classes("aip-seq-tag")
+                counts = sequence_counts(name)
+                if counts:
+                    ui.label(counts).classes("aip-seq-meta")
+
+    info = SEQUENCE_INFO.get(cur) or {}
+    if not info:
+        return
+    with ui.element("div").classes("aip-seq-detail"):
+        with ui.element("div").classes("aip-seq-head"):
+            ui.label(cur).classes("aip-seq-dname")
+            counts = sequence_counts(cur)
+            if counts:
+                ui.label(counts).classes("aip-pill")
+        _text(info.get("about", ""), C, 12.5, colour=C["text_l"], mb=4)
+        if info.get("best"):
+            _text("Best for: " + info["best"], C, 12, colour=C["muted"])
+        steps = info.get("steps") or []
+        if not steps:
+            return
+        n_email = 0
+        with ui.element("div").classes("aip-seq-steps"):
+            for st in steps:
+                day, kind, title, what = st[:4]
+                attach = st[4] if len(st) > 4 else ""
+                if kind == "email":
+                    n_email += 1
+                    head = "Email %d" % n_email
+                    title = "“%s”" % title
+                else:
+                    head = "Call" if kind == "call" else "LinkedIn"
+                with ui.element("div").classes("aip-seq-step " + kind):
+                    ui.label("Day %d" % day).classes("aip-seq-day")
+                    with ui.element("div").classes("aip-seq-ico"):
+                        ui.icon(_STEP_ICON.get(kind, "mail_outline"))
+                    with ui.element("div").classes("aip-seq-body"):
+                        with ui.element("div").classes("aip-seq-line"):
+                            ui.label(head).classes("aip-seq-kind")
+                            ui.label(title).classes("aip-seq-subj")
+                        ui.label(what).classes("aip-seq-what")
+                        if attach:
+                            with ui.element("span").classes("aip-seq-att"):
+                                ui.icon("attach_file")
+                                ui.label(attach)
+        _text("Days are business days, counted from the first email. Every "
+              "email is written fresh for the company it goes to; the "
+              "subjects above show the shape.", C, 11, colour=C["muted"])
+
+
+def _campaign_name_note(C):
+    """The name every campaign gets. Shown, not asked."""
+    with ui.element("div").classes("aip-seq-name-note"):
+        ui.icon("label_outline")
+        with ui.element("div"):
+            ui.label("Campaign name").classes("fd-fl")
+            _text("Set for you on every campaign: " + CAMPAIGN_NAME_FORMAT
+                  + ". For example, " + CAMPAIGN_NAME_EXAMPLE + ".",
+                  C, 12, colour=C["muted"])
 
 
 def _pick_widget(C, vals, f, cur):
@@ -4116,9 +4466,12 @@ def _aip_confirm(s, rf, C):
                         with ui.element("div").classes(
                                 "aip-wide" if f["type"] in ("checks",
                                                             "textarea")
-                                or f["key"] == "cand_picks"
+                                or f["key"] in ("cand_picks", "sequence")
                                 else ""):
                             _aip_field(s, rf, C, r, vals, f)
+                if at == "emails" and "create_campaign" in r.get("tools", ()) \
+                        and r["key"] not in _OWN_NAME_ROUTINES:
+                    _campaign_name_note(C)
 
             with ui.element("div").classes("aip-panel-foot"):
                 if idx:

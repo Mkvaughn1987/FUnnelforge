@@ -743,16 +743,15 @@ def _newsletter_fields():
     ]
 
 
-def _email_fields(name_default="the company name", sequence="Arena 5x5",
-                  sequences=SEQUENCES):
+def _email_fields(sequence="Arena 5x5", sequences=SEQUENCES):
+    """The sequence step. No campaign-name box: every campaign is named
+    "City, ST - Industry - Company" by the prompt (NAME_RULE)."""
     return [
         F("sequence", "Which sequence", "emails", "select",
           default=sequence, options=sequences, refresh=True),
         F("saved_style", "Which saved style", "emails",
           show_if=_e._if_saved_style),
         *start_fields(),
-        F("campaign_name", "What to call the campaigns", "emails",
-          default=name_default),
     ]
 
 
