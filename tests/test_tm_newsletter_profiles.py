@@ -286,17 +286,54 @@ def test_long_term_nurture_shows_the_candidates_every_third_email():
     # Steps 5, 9, 13 and 16 are emails 3, 6, 9 and 12.
     assert out["emails"] == [4, 8, 12, 15]
     b = [e["body"] for e in camp["emails"]]
-    for i, lead, n in ((4, fa._TM_PROFILES_LEAD, 3),
-                       (8, fa._TM_PROFILES_AGAIN_LEAD, 3),
-                       (12, fa._TM_PROFILES_THIRD_LEAD, 3),
-                       (15, fa._TM_PROFILES_LAST_LEAD, 2)):
+    shots = fa._TM_WORTH_A_SHOT_LINES["tm_twelveweek"]
+    for r, (i, lead, n) in enumerate(((4, fa._TM_PROFILES_LEAD, 3),
+                                      (8, fa._TM_PROFILES_AGAIN_LEAD, 3),
+                                      (12, fa._TM_PROFILES_THIRD_LEAD, 3),
+                                      (15, fa._TM_PROFILES_LAST_LEAD, 2))):
         assert b[i].count(lead) == 1, i
         assert b[i].count("<b>Candidate ") == n, i
         assert b[i].endswith("<br><br>Worth a call?")
+        # The worth-a-shot line leads into the cards; stripping the cards
+        # leaves it in place.
         assert fa._tm_strip_campaign_profiles(b[i]) == (
-            "Hi {FirstName},<br><br>Para one.<br><br>Worth a call?")
+            "Hi {FirstName},<br><br>Para one.<br><br>" + shots[r]
+            + "<br><br>Worth a call?")
     others = [b[i] for i in range(len(b)) if i not in (4, 8, 12, 15)]
     assert not any("<b>Candidate " in x for x in others)
+
+
+def test_long_term_nurture_card_emails_say_one_role_is_worth_a_shot():
+    """The writer gets asked for the line; when it leaves the figure out the
+    round's own wording goes in after the cards, before the closing
+    question. A body that already carries the figure is left alone."""
+    lines = fa._TM_WORTH_A_SHOT_LINES["tm_twelveweek"]
+    assert len(lines) == 4 and len(set(lines)) == 4
+    for l in lines:
+        assert "$11/hr" in l and "cheap" not in l.lower() and "$750" not in l
+    emails = [{"name": f"Step {n} - x", "subject": "",
+               "body": "Hi {FirstName},<br><br>Para one.<br><br>Worth a call?",
+               "step_type": "email_auto"} for n in range(1, 13)]
+    emails[8]["body"] = ("Hi {FirstName},<br><br>Most support staff are "
+                         "under $11/hr here.<br><br>Worth a call?")
+    camp = {"emails": emails}
+    for _ in range(2):
+        fa._tm_add_campaign_profiles(None, camp, 3, "", "",
+                                     profiles=_PROFILES,
+                                     camp_type="tm_twelveweek")
+    b = [e["body"] for e in camp["emails"]]
+    for r, i in enumerate((2, 5, 11)):
+        l = lines[r if r < 2 else 3]
+        assert b[i].count(l) == 1, i
+        assert b[i].index("Para one.") < b[i].index(l) < b[i].index("<b>Candidate ")
+        assert b[i].endswith("<br><br>Worth a call?")
+    # Email 9 already had the figure: no added line.
+    assert not any(l in b[8] for l in lines) and b[8].count("$11/hr") == 1
+    # Standard Outreach is untouched.
+    camp = _std_camp()
+    fa._tm_add_campaign_profiles(None, camp, 3, "", "", profiles=_PROFILES,
+                                 camp_type="tm_fivebyseven")
+    assert not any("$11/hr" in e["body"] for e in camp["emails"])
 
 
 def test_other_types_keep_one_profile_email():

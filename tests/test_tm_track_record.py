@@ -25,7 +25,7 @@ def test_line_reads_naturally():
 def test_rule_is_tm_only_and_carries_the_line():
     r = fa._tm_track_record_rule("tm_threebythree", "Dispatcher", "Logistics")
     assert fa._tm_track_record_line("Dispatcher", "Logistics") in r
-    assert "Model 1" in r and "No other email uses the number" in r
+    assert "Model 1" in r and "No other email, LinkedIn note or call uses the number" in r
     assert fa._tm_track_record_rule("fivebyfive", "Dispatcher", "Logistics") == ""
 
 
@@ -53,6 +53,28 @@ def test_backstop_leaves_model_copy_alone_and_is_idempotent():
         fa._tm_ensure_track_record("tm_threebythree", c, "Dispatcher", "Logistics")
     assert [e["body"] for e in c["emails"]] == [
         first, "Hi {FirstName},<br><br>Second.", third]
+
+
+def test_linkedin_note_ahead_of_the_first_email_loses_the_line():
+    """Long Term Nurture opens on a LinkedIn connect; a live run put the
+    track-record line on the note too. It belongs to the first email only."""
+    line = fa._tm_track_record_line("Dispatcher", "Logistics")
+    c = {"emails": [
+        {"name": "Step 1 - LinkedIn Connect", "step_type": "linkedin",
+         "body": "Hi {FirstName},<br><br>" + line + " I follow Acme. Open to connecting?"},
+        {"name": "Step 2 - Capacity", "step_type": "email_auto",
+         "body": "Hi {FirstName},<br><br>" + line + " We do offshore staff augmentation."},
+        {"name": "Step 3 - Call 1", "step_type": "call",
+         "body": "Hi {FirstName}, this is me. " + line + " Quick question."},
+    ]}
+    for _ in range(2):
+        fa._tm_ensure_track_record("tm_twelveweek", c, "Dispatcher", "Logistics")
+    assert c["emails"][0]["body"] == "Hi {FirstName},<br><br>I follow Acme. Open to connecting?"
+    assert c["emails"][1]["body"].count("100+") == 1
+    assert c["emails"][2]["body"] == "Hi {FirstName}, this is me. Quick question."
+    assert "100+" not in c["emails"][0]["body"]
+    assert "\n- No other email, LinkedIn note or call uses the number." in \
+        fa._tm_track_record_rule("tm_twelveweek", "Dispatcher", "Logistics")
 
 
 def test_not_applied_outside_thrivemodal():

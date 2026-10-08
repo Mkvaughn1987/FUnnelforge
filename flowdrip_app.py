@@ -5988,7 +5988,7 @@ AICB_CAMPAIGN_TYPES = [
      "Step 16 - Close (delay_days:5, step_type:email_auto) (model: Close) - "
      "Week 12. The last email in the sequence; a final call follows. The "
      "system adds two of the candidate profiles here. Worth a shot line, one "
-     "last time.\n"
+     "last time, and the model's closing question stays the last line.\n"
      "Step 17 - Final call + referral ask (delay_days:1, step_type:call) - "
      "Week 12. Script: if they are not the right person, who is the best "
      "contact for adding team capacity? Voicemail under 20 seconds with the "
@@ -7357,11 +7357,12 @@ def _tm_track_record_rule(camp_type, role: str, industry: str) -> str:
         "SENDER TRACK RECORD (approved by the sender; this one placement "
         "figure is exempt from the proof rule's ban on placement numbers, "
         "and no other number may be added to it):\n"
-        f"- The FIRST email opens, right after 'Hi {{FirstName}},', with this "
-        f"line, word for word: \"{line}\" Then it carries on as Model 1 "
+        f"- The FIRST EMAIL step opens, right after 'Hi {{FirstName}},', with "
+        f"this line, word for word: \"{line}\" Then it carries on as Model 1 "
         "does: you may not need anyone now but it's worth connecting, what "
-        "we do, one question.\n"
-        "- No other email uses the number.\n\n")
+        "we do, one question. A LinkedIn note or a call script that comes "
+        "before the first email does NOT carry it.\n"
+        "- No other email, LinkedIn note or call uses the number.\n\n")
 
 
 def _tm_ensure_track_record(camp_type, campaign_data, role: str,
@@ -7385,6 +7386,18 @@ def _tm_ensure_track_record(camp_type, campaign_data, role: str,
     if _TM_TRACK_RECORD_COUNT not in _tm_scrub_line(first.get("body") or ""):
         first["body"] = _after_greeting(first.get("body") or "",
                                         _tm_track_record_line(role, industry))
+    # A LinkedIn note or call script ahead of the first email (Long Term
+    # Nurture opens on a connect) is not the first email: the writer put the
+    # line there anyway in a live run, pushing the note past 300 characters.
+    line = _tm_track_record_line(role, industry)
+    for em in (campaign_data or {}).get("emails", []) or []:
+        body = em.get("body") or ""
+        if em.get("step_type") in (ST.LINKEDIN, ST.CALL) and line in body:
+            body = (body.replace("<br><br>" + line + " ", "<br><br>")
+                        .replace(" " + line + " ", " ")
+                        .replace(line + " ", "").replace(" " + line, "")
+                        .replace(line, ""))
+            em["body"] = body.strip()
 
 
 def _tm_opener_rule(camp_type) -> str:
@@ -63507,6 +63520,29 @@ _TM_PROFILE_ROUNDS = {
     ),
 }
 
+# Mike, 2026-10-08: each card email in Long Term Nurture says one role is
+# worth a shot, with the one approved dollar figure. The prompt asks for it;
+# a live run put it on one email of four, so the round's line goes in by
+# code (after the cards, before the closing question) when the writer left
+# the figure out. One wording per round, so the four never read the same.
+_TM_WORTH_A_SHOT_FIGURE = "$11/hr"
+_TM_WORTH_A_SHOT_LINES = {
+    "tm_twelveweek": (
+        "If you have not tried a role like this offshore, it is worth a "
+        "look: most support staff come in under $11/hr, and the companies "
+        "that start with one role have mostly kept adding.",
+        "One role is a reasonable way to see it for yourself. Most support "
+        "staff come in under $11/hr, and few companies stop at one once the "
+        "first is working.",
+        "It is worth trying one role. Most support staff come in under "
+        "$11/hr, and the companies that start there have mostly gone on to "
+        "add more.",
+        "One role is an easy way to find out: most support staff come in "
+        "under $11/hr, and the companies that start with one have mostly "
+        "kept adding.",
+    ),
+}
+
 # One profile set as written by _tm_profiles_html, for rerunnable removal.
 _TM_PROFILES_BLOCK_RE = re.compile(
     r"(?:<br\s*/?>\s*)*(?:"
@@ -63731,7 +63767,14 @@ def _tm_add_campaign_profiles(client, campaign_data, n, roles, niche,
             client, n, roles, niche, company=company, brief=brief)
     rounds = _tm_profile_rounds(camp_type, emails) if profiles else []
     if rounds:
-        for i, lead, cnt in rounds:
+        shots = _TM_WORTH_A_SHOT_LINES.get((camp_type or "").strip()) or ()
+        for r, (i, lead, cnt) in enumerate(rounds):
+            # The line goes in first, so it leads into the cards and a rerun
+            # (which strips and re-places only the cards) keeps the order.
+            if (r < len(shots) and _TM_WORTH_A_SHOT_FIGURE
+                    not in _tm_scrub_line(emails[i].get("body") or "")):
+                emails[i]["body"] = _tm_insert_profiles(emails[i].get("body"),
+                                                        shots[r])
             emails[i]["body"] = _tm_insert_profiles(
                 emails[i].get("body"),
                 _tm_profiles_html(profiles[:cnt] if cnt else profiles, lead))
