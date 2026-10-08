@@ -53332,8 +53332,10 @@ def _p_profile_body(s, rf):
     _team_owner = (_team_tp.get("_owner") or "").strip().lower()
     _i_own_team = bool(_team_owner) and _team_owner == (_uemail or "").lower()
     _team_locked = bool(_uemail) and _mirrors_team_profile(_uemail)
-    _team_owner_name = ((_get_user_record(_team_owner) or {}).get("name", "")
-                        if _team_owner else "") or _team_owner or "your team admin"
+    # "Arena default settings": the team's brand word, never a person.
+    _team_words = [w for w in (_team_tp.get("company_name") or "").split()
+                   if w.lower() != "the"]
+    _team_defaults = f"{_team_words[0]} default settings" if _team_words else "team default settings"
     _team_domain = _safe_domain(_uemail).replace("_", ".") if _uemail else ""
 
     # Always-editable mode — every section's form inputs are rendered
@@ -53507,7 +53509,7 @@ def _p_profile_body(s, rf):
                     ).on("click", _save_all_profile):
                 ui.label("\U0001F4BE Save Profile")
     if _team_locked:
-        _sub = (f"Your company info and logo come from {_team_owner_name}, so they're "
+        _sub = (f"Your company info and logo use the {_team_defaults}, so they're "
                 f"already set for everyone at @{_team_domain}. Your personal info, "
                 f"signatures, and timezone are yours to edit. Hit Save Profile when done.")
     elif _i_own_team:
@@ -54001,7 +54003,7 @@ def _p_profile_body(s, rf):
                         f"font-size:14px;font-weight:700;color:{C['teal']};"
                         f"font-family:'Nunito',sans-serif;")
                 ui.label(
-                    (f"Set by {_team_owner_name} for everyone at @{_team_domain}. "
+                    (f"Using the {_team_defaults}. "
                      f"Your newsletters, PDFs, and email buttons use this logo and color.")
                     if _team_locked else
                     "Upload your logo and hit Save  -  we'll auto-extract your "
@@ -54180,8 +54182,8 @@ def _p_profile_body(s, rf):
             with ui.element("div").style("max-width:700px;" + _hide_if("company")):
                 if _team_locked:
                     ui.label(
-                        f"Set by {_team_owner_name} for everyone at @{_team_domain}. "
-                        f"Ask them if something here needs to change."
+                        f"Using the {_team_defaults}. "
+                        f"Ask your admin if something here needs to change."
                     ).style(f"font-size:12px;color:{C['muted']};margin-bottom:14px;line-height:1.5;")
                 if _edit_mode and not _team_locked:
                     # Company Name
