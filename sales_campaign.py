@@ -1599,6 +1599,15 @@ def _build_and_review(owner, rec):
                     owner_email=owner)
             except Exception as ex:
                 _log(rec, "%s — salary guide skipped: %s" % (c["company"], ex))
+        if template in ff._FOURBYFOUR_PDF_TYPES and emails:
+            # Step 6 promises a market snapshot; same deal.
+            try:
+                ff._fourbyfour_attach_market_pulse(
+                    data, c["company"], client=client, roles_str=role or "",
+                    location_str="", industry=target.get("industry") or "",
+                    owner_email=owner)
+            except Exception as ex:
+                _log(rec, "%s — market snapshot skipped: %s" % (c["company"], ex))
         c["campaign"] = {
             "name": _campaign_name(c, target),
             "synopsis": data.get("synopsis", ""),

@@ -4348,7 +4348,9 @@ AICB_CAMPAIGN_TYPES = [
      "Subject 'Market Trends and Hiring Solutions for <Role>' using the actual role (write "
      "the real role in — no literal brackets). Share a few genuine market "
      "updates, a warm soft close ('if now is not the right time, that's ok too'), and mention "
-     "you will add them to the ongoing newsletter."),
+     "you will add them to the ongoing newsletter. Do NOT mention any attachment: a market "
+     "snapshot PDF is attached to this email for you and a line about it is added after "
+     "generation."),
     ("fivebyfive", "Arena 5×5", "7 steps - 2 weeks", "#7C3AED",
      "Arena's 4×4, warmed up — a softer, more personal slate play with an extra "
      "day-5 follow-up. Same 5-candidate slate positioning, friendlier voice, "
@@ -5876,6 +5878,7 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
         _em["body"] = _b
         _em["subject"] = _s
 
+    _apply_fourbyfour_overrides(camp_type, campaign_data)
     _apply_fivebyfive_overrides(camp_type, campaign_data)
     _apply_fivebythree_overrides(camp_type, campaign_data)
     _apply_fivebyseven_overrides(camp_type, campaign_data)
@@ -6626,6 +6629,17 @@ def _api_create_campaign_blocking(client, spec, owner):
                 owner_email=owner)
         except Exception as _se:
             print(f"[api] {template} salary guide skipped: {_se}", flush=True)
+    if template in _FOURBYFOUR_PDF_TYPES and emails:
+        # Step 6 says the market snapshot is attached; same reason as above.
+        try:
+            _fourbyfour_attach_market_pulse(
+                campaign_data, (spec.get("company") or "").strip(),
+                client=client, roles_str=", ".join(spec.get("roles") or []),
+                location_str=(spec.get("location") or "").strip(),
+                industry=(spec.get("industry") or spec.get("niche") or "").strip(),
+                owner_email=owner)
+        except Exception as _mp:
+            print(f"[api] {template} market snapshot skipped: {_mp}", flush=True)
     warnings = _unlinked_card_warnings(cards) if cards and _ats_allowed(owner) else []
     return {"template": template, "campaign_data": campaign_data, "emails": emails,
             "candidate_refs": refs, "candidate_warnings": warnings}
@@ -9370,13 +9384,54 @@ def _apply_fivebyfive_overrides(camp_type, campaign_data):
             em["body"] = _wrap_4x4_font(_strip_dashes(_FIVEBYFIVE_BUMP_BODY))
             em["attachments"] = []
         elif n == _FIVEBYFIVE_PDF_STEP:  # salary-guide line once, inside the font div
-            body = em.get("body") or ""
-            if "salary guide" not in body.lower():
-                if body.rstrip().endswith("</div>"):
-                    em["body"] = (body.rstrip()[:-6]
-                                  + _FIVEBYFIVE_SALARY_LINE + "</div>")
-                else:
-                    em["body"] = body + _FIVEBYFIVE_SALARY_LINE
+            _stamp_attachment_line(em, _FIVEBYFIVE_SALARY_LINE, "salary guide")
+    return campaign_data
+
+
+def _stamp_attachment_line(em, line, marker):
+    """Append `line` to an email body once (skipped when `marker` is already
+    in the body), inside the closing font div when there is one."""
+    body = em.get("body") or ""
+    if marker in body.lower():
+        return
+    if body.rstrip().endswith("</div>"):
+        em["body"] = body.rstrip()[:-6] + line + "</div>"
+    else:
+        em["body"] = body + line
+
+
+# ── Arena 4×4 market snapshot ───────────────────────────────────────────
+# Step 6 ("Market Trends and Hiring Solutions for <Role>") carries the Market
+# Pulse PDF. The API path (connector, AI Prompts, PipelineBlast) and Sales
+# Campaign never ran the wizard's keyword topic match, so every 4×4 they built
+# went out with no PDF at all (2026-10-08, 311 of 311 in 120 days). Now one
+# file, built and pinned to Step 6 on every path, with this line stamped on
+# the body after generation (the prompt tells the AI not to mention it).
+_FOURBYFOUR_MARKET_LINE = (
+    "<br><br>I've also attached a short market snapshot for the role, a quick "
+    "read on demand, pay and what's moving candidates right now, so you have "
+    "it on hand whether or not now is the right time."
+)
+_FOURBYFOUR_PDF_KIND = "market_pulse"
+_FOURBYFOUR_PDF_STEP = 6
+_FOURBYFOUR_PDF_TYPES = frozenset({"fourbyfour"})
+
+
+def _apply_fourbyfour_overrides(camp_type, campaign_data):
+    """Stamp the market-snapshot line on the Arena 4×4's Step 6. Matches the
+    step by name, falling back to the sixth step when the names drift.
+    No-op for any other campaign type. Idempotent."""
+    if (camp_type or "").strip() not in _FOURBYFOUR_PDF_TYPES:
+        return campaign_data
+    emails = (campaign_data or {}).get("emails", []) or []
+    target = next((e for e in emails
+                   if _fivebyfive_step_no(e.get("name")) == _FOURBYFOUR_PDF_STEP),
+                  None)
+    if target is None and len(emails) >= _FOURBYFOUR_PDF_STEP:
+        target = emails[_FOURBYFOUR_PDF_STEP - 1]
+    if target is not None and (target.get("step_type") or "email_auto") in (
+            "email_auto", "email"):
+        _stamp_attachment_line(target, _FOURBYFOUR_MARKET_LINE, "market snapshot")
     return campaign_data
 
 
@@ -35847,38 +35902,65 @@ def _fivebyfive_attach_salary_guide(campaign_data, company, *, client=None,
     Costs one AI call, or none when `pdf_data` already carries the
     salary-guide payload from the wizard's parallel phase-1 thread.
     Returns the attached filename, or "" when nothing could be built."""
+    return _pin_sequence_pdf(
+        campaign_data, company, kind=_FIVEBYFIVE_PDF_KIND,
+        step=_FIVEBYFIVE_PDF_STEP, tag="5x5", label="salary guide",
+        client=client, pdf_data=pdf_data, roles_str=roles_str,
+        location_str=location_str, industry=industry, owner_email=owner_email)
+
+
+def _fourbyfour_attach_market_pulse(campaign_data, company, *, client=None,
+                                    pdf_data=None, roles_str="",
+                                    location_str="", industry="",
+                                    owner_email="") -> str:
+    """Build the Market Pulse PDF and pin it to the Arena 4×4's Step 6, the
+    "Market Trends and Hiring Solutions" email whose body says the snapshot
+    is attached. Same shape and same reasons as the 5×5's salary guide."""
+    return _pin_sequence_pdf(
+        campaign_data, company, kind=_FOURBYFOUR_PDF_KIND,
+        step=_FOURBYFOUR_PDF_STEP, tag="4x4", label="market snapshot",
+        client=client, pdf_data=pdf_data, roles_str=roles_str,
+        location_str=location_str, industry=industry, owner_email=owner_email)
+
+
+def _pin_sequence_pdf(campaign_data, company, *, kind, step, tag, label,
+                      client=None, pdf_data=None, roles_str="",
+                      location_str="", industry="", owner_email="") -> str:
+    """Build ONE PDF of `kind` and pin it to the email named "Step {step} -",
+    falling back to the step-th email when the names drift. Uses the
+    `pdf_data` payload when it already carries that kind (the wizard's
+    phase-1 thread), otherwise makes one AI call on `client`, or none at
+    all when there is no client. Idempotent. Returns the filename or ""."""
     emails = (campaign_data or {}).get("emails") or []
     if not emails:
         return ""
-    data = (pdf_data or {}).get(_FIVEBYFIVE_PDF_KIND) or {}
+    data = (pdf_data or {}).get(kind) or {}
     if not (data.get("sections") or []) and client is not None:
         try:
             data = _generate_rich_pdf_data(
-                client, _FIVEBYFIVE_PDF_KIND,
+                client, kind,
                 {"company": company, "primary_industry": industry,
                  "secondary_industries": [], "positions": roles_str,
                  "location": location_str, "exp_level": ""},
                 research_context="", style_guide=_style_guide_prompt()) or {}
         except Exception as ex:
-            print(f"[5x5] salary guide generation failed: {ex}", flush=True)
+            print(f"[{tag}] {label} generation failed: {ex}", flush=True)
             return ""
-    fname = _build_named_pdf(_FIVEBYFIVE_PDF_KIND, data, company,
-                             owner_email=owner_email)
+    fname = _build_named_pdf(kind, data, company, owner_email=owner_email)
     if not fname:
-        print("[5x5] salary guide not built - Step 6 ships without it",
+        print(f"[{tag}] {label} not built - Step {step} ships without it",
               flush=True)
         return ""
     target = next((e for e in emails
-                   if _fivebyfive_step_no(e.get("name")) == _FIVEBYFIVE_PDF_STEP),
-                  None)
-    if target is None and len(emails) >= _FIVEBYFIVE_PDF_STEP:
-        target = emails[_FIVEBYFIVE_PDF_STEP - 1]  # positional fallback
+                   if _fivebyfive_step_no(e.get("name")) == step), None)
+    if target is None and len(emails) >= step:
+        target = emails[step - 1]  # positional fallback
     if target is None:
         return ""
     slot = target.setdefault("attachments", [])
     if fname not in slot:
         slot.append(fname)
-    print(f"[5x5] Attached {fname} to Step {_FIVEBYFIVE_PDF_STEP}", flush=True)
+    print(f"[{tag}] Attached {fname} to Step {step}", flush=True)
     return fname
 
 
@@ -41322,7 +41404,8 @@ def p_ai_campaign(s: AppState, rf):
                                     )
                                     if _restrict is None:
                                         _restrict = set()  # empty desc = no PDFs
-                                elif _camp_type_now in _FIVEBYFIVE_PDF_TYPES:
+                                elif (_camp_type_now in _FIVEBYFIVE_PDF_TYPES
+                                      or _camp_type_now in _FOURBYFOUR_PDF_TYPES):
                                     # One file, pinned below to the step
                                     # whose copy promises it. The topic
                                     # match would hand other kinds to
@@ -41344,6 +41427,14 @@ def p_ai_campaign(s: AppState, rf):
                                             owner_email=getattr(s, "_user_email", "") or "")
                                     except Exception as _sg_ex:
                                         print(f"[AICB] 5x5 salary guide error: {_sg_ex}", flush=True)
+                                if _camp_type_now in _FOURBYFOUR_PDF_TYPES:
+                                    try:
+                                        _fourbyfour_attach_market_pulse(
+                                            campaign_data, pdf_target,
+                                            pdf_data=_pdf_data_payload,
+                                            owner_email=getattr(s, "_user_email", "") or "")
+                                    except Exception as _mp_ex:
+                                        print(f"[AICB] 4x4 market snapshot error: {_mp_ex}", flush=True)
                             # PDFs are attached at this point (single
                             # synchronous call above; no background fallback
                             # any more — see comment about the duplicate-

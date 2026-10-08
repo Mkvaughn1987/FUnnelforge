@@ -334,7 +334,7 @@ SEQUENCE_INFO = {
         "about": "Arena's original BD play. Leads with a real role they "
                  "advertised and your candidate slate, then follows with "
                  "market data, proven results and trends. Candidates on "
-                 "every email.",
+                 "every email, and a market snapshot PDF on the last one.",
         "best": "Hot roles where you already have a full slate.",
         "steps": [
             (1, "email", "{Role} Candidates Available",
@@ -348,7 +348,8 @@ SEQUENCE_INFO = {
             (8, "email", "Thoughts on this?",
              "Your fill rate, contingency terms and replacement guarantee."),
             (12, "email", "Market Trends and Hiring Solutions for {Role}",
-             "Market updates and a soft, no-pressure close."),
+             "Market updates and a soft, no-pressure close.",
+             "Market snapshot"),
         ],
     },
     "Arena Client Lookalike": {
