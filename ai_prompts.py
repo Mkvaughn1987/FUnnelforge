@@ -574,6 +574,22 @@ NEWSLETTER_DEFAULT = NEWSLETTER_MODES[0]
 NEWSLETTER_KEYS = {"newsletter_mode", "newsletter"}
 
 
+def _nl_picker(r):
+    """True when the routine asks the newsletter as one picker box, whose
+    answer also lives in vals["newsletter_mode"]."""
+    f = r["field_by_key"].get("newsletter")
+    return bool(f and f["type"] == "newsletter")
+
+
+def newsletter_field():
+    """One box for the newsletter, the way inboxslide asks it: the AI picks,
+    one of yours by name, or none, plus "+ New newsletter" beside it. It
+    writes the newsletter_mode / newsletter pair the prompt reads."""
+    return F("newsletter", "Add them to a newsletter", "details", "newsletter",
+             hint="Pick one of yours, let the AI match one by line of work, "
+                  "or create a new one.")
+
+
 # Who goes in front of each company, on every run that carries a candidate
 # slate (Mike, 2026-10-06). One block, read top to bottom in the order the
 # slots fill: the people you picked (only where they fit), then DripDrop's
@@ -656,12 +672,7 @@ ROUTINES = [
               default="owners and C-level first, then VPs, then directors, "
                       "then managers, with HR and talent acquisition last",
               hint="Never the person whose own job the opening is."),
-            F("newsletter_mode", "Add them to a newsletter", "details",
-              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
-            F("newsletter", "Which newsletter", "details",
-              placeholder="Only if you're naming one above",
-              hint="Leave this blank and the AI picks whichever of your "
-                   "newsletters is in the same line of work."),
+            newsletter_field(),
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES, refresh=True),
             F("saved_style", "Which saved style", "emails",
@@ -731,12 +742,7 @@ ROUTINES = [
               default="owners and C-level first, then VPs, then directors, "
                       "then managers, with HR and talent acquisition last",
               hint="Never the person whose own job the opening is."),
-            F("newsletter_mode", "Add them to a newsletter", "details",
-              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
-            F("newsletter", "Which newsletter", "details",
-              placeholder="Only if you're naming one above",
-              hint="Leave this blank and the AI picks whichever of your "
-                   "newsletters is in the same line of work."),
+            newsletter_field(),
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES, refresh=True),
             F("saved_style", "Which saved style", "emails",
@@ -807,12 +813,7 @@ ROUTINES = [
             F("who_to_reach", "Who to reach", "details",
               default="owners and C-level first, then VPs, then directors, "
                       "then HR and talent acquisition"),
-            F("newsletter_mode", "Add them to a newsletter", "details",
-              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
-            F("newsletter", "Which newsletter", "details",
-              placeholder="Only if you're naming one above",
-              hint="Leave this blank and the AI picks whichever of your "
-                   "newsletters is in the same line of work."),
+            newsletter_field(),
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES, refresh=True),
             F("saved_style", "Which saved style", "emails",
@@ -885,12 +886,7 @@ ROUTINES = [
             F("who_to_reach", "Who to reach", "details",
               default="hiring managers first, then owners and C-level, then "
                       "VPs and directors, then HR and talent acquisition"),
-            F("newsletter_mode", "Add them to a newsletter", "details",
-              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
-            F("newsletter", "Which newsletter", "details",
-              placeholder="Only if you're naming one above",
-              hint="Leave this blank and the AI picks whichever of your "
-                   "newsletters is in the same line of work."),
+            newsletter_field(),
             *start_fields(),
             F("companies_each", "How many companies", "size", "number",
               default="3"),
@@ -1092,12 +1088,7 @@ ROUTINES = [
               "select", default="One email",
               options=["One email", "Two, a day apart",
                        "Three, over three days", "Three, over a week"]),
-            F("newsletter_mode", "Add them to a newsletter", "details",
-              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
-            F("newsletter", "Which newsletter", "details",
-              placeholder="Only if you're naming one above",
-              hint="Leave this blank and the AI picks whichever of your "
-                   "newsletters is in the same line of work."),
+            newsletter_field(),
             F("sequence", "Which sequence", "emails", "select",
               default="Arena 5x5", options=SEQUENCES, refresh=True),
             F("saved_style", "Which saved style", "emails",
@@ -1397,12 +1388,7 @@ ROUTINES = [
             F("what", "What you want done", "details", "textarea", ask=True),
             F("done_when", "How you'll know it worked", "details",
               placeholder="What you want to be holding at the end"),
-            F("newsletter_mode", "Add them to a newsletter", "details",
-              "select", default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
-            F("newsletter", "Which newsletter", "details",
-              placeholder="Only if you're naming one above",
-              hint="Leave this blank and the AI picks whichever of your "
-                   "newsletters is in the same line of work."),
+            newsletter_field(),
         ],
         "steps": [
             "Work out what is actually being asked before starting, and tell "
@@ -1712,6 +1698,10 @@ def _derived(r, vals, cat=None):
         # sentence, so it is resolved here and nowhere else.
         d[f["key"]] = (_checks_text(r, vals, f["key"], cat)
                        if f["type"] == "checks" else _txt(r, vals, f["key"]))
+    # The one-box newsletter picker stores its answer as newsletter_mode,
+    # which is not a field of its own.
+    if _nl_picker(r):
+        d["newsletter_mode"] = str(vals.get("newsletter_mode") or "")
 
     unattended = _txt(r, vals, "unattended") or UNATTENDED[0]
     solo = cat.run_through or unattended.startswith("Run it all")
@@ -3196,7 +3186,8 @@ def req_from_setup(row, cat=None):
     # Only keys the routine still has. A setup saved before a field was
     # renamed loads with that one answer missing rather than failing.
     for k, v in (row.get("vals") or {}).items():
-        if k in r["field_by_key"]:
+        if k in r["field_by_key"] or (k == "newsletter_mode"
+                                      and _nl_picker(r)):
             vals[k] = v
     return {
         "raw": row.get("raw") or "",
@@ -3581,9 +3572,6 @@ def _aip_field(s, rf, C, r, vals, f):
         _aip_chips(rf, C, vals, f)
     if f["type"] == "newsletter":
         _newsletter_picker(s, rf, C, vals)
-        return
-    if key == "newsletter" and "newsletter_mode" in r["field_by_key"]:
-        _newsletter_name_select(rf, vals, cur)
         return
     if key == "saved_style":
         _saved_style_select(rf, vals, cur)
@@ -4021,9 +4009,9 @@ def _aip_checks(s, rf, C, r, vals, f):
                 ui.label("Clear them all")
 
 
-# Set by the host app for pages that use a "newsletter" field (ThriveModal):
+# Set by the host app for pages that use a "newsletter" field (both apps):
 # NEWSLETTER_NAMES() -> the user's newsletter names; NEWSLETTER_CREATE(s, rf)
-# opens the app's own Create Newsletter dialog. Arena never uses the type.
+# opens the app's own Create Newsletter dialog.
 NEWSLETTER_NAMES = None
 NEWSLETTER_CREATE = None
 # Set by the host app for "pick" fields: PICK_OPTIONS[source]() -> the names
@@ -4076,48 +4064,6 @@ def _newsletter_picker(s, rf, C, vals):
                       on_click=lambda: NEWSLETTER_CREATE(s, rf)).props(
                 "flat dense no-caps").style(
                 f"color:{C['teal']};font-size:12px;white-space:nowrap;")
-
-
-def _newsletter_names():
-    """The current user's newsletters (evergreen campaigns) - the same list
-    create_campaign's enroll_newsletter matches against, so a picked name
-    always lands."""
-    try:
-        if NEWSLETTER_NAMES:
-            names = NEWSLETTER_NAMES()
-        else:
-            names = [c.get("name") for c in _ff().load_campaigns()
-                     if c.get("evergreen_only")]
-        out = []
-        for n in names:
-            n = str(n or "").strip()
-            if n and n not in out:
-                out.append(n)
-        return sorted(out, key=str.lower)
-    except Exception:
-        return []
-
-
-def _newsletter_name_select(rf, vals, cur):
-    """"Which newsletter" as a dropdown of their newsletters. Typing still
-    works (a name not in the list is kept), and picking one switches "Add
-    them to a newsletter" to the named answer so the two never disagree."""
-    names = _newsletter_names()
-    if cur and cur not in names:
-        names = [cur] + names
-
-    def _set(e):
-        v = str(e.value or "").strip()
-        vals["newsletter"] = v
-        if v and vals.get("newsletter_mode") != NEWSLETTER_MODES[1]:
-            vals["newsletter_mode"] = NEWSLETTER_MODES[1]
-            rf()
-
-    ui.select(options=names, value=cur or None, with_input=True,
-              new_value_mode="add-unique", clearable=True,
-              on_change=_set).props(
-        'dense placeholder="Pick one of your newsletters"').classes(
-        "fd-input")
 
 
 def _saved_style_names():

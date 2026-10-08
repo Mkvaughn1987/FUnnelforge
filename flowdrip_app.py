@@ -56115,6 +56115,13 @@ def render_page(s: AppState, rf):
                 # module takes out one page, not the whole app.
                 try:
                     import ai_prompts as _aip
+                    # Newsletter dropdown: the user's evergreen newsletters,
+                    # and "+ New newsletter" opens the usual create dialog.
+                    _aip.NEWSLETTER_NAMES = lambda: [
+                        c.get("name") for c in load_campaigns()
+                        if c.get("evergreen_only") and c.get("name")]
+                    _aip.NEWSLETTER_CREATE = (
+                        lambda _s, _rf: _create_newsletter_dialog(_s, _rf))
                     _aip.p_ai_prompts(s, rf)
                 except Exception as _aip_ex:
                     print(f"[AIPrompts] page failed: {_aip_ex}", flush=True)

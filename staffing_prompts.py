@@ -25,7 +25,6 @@ from datetime import date
 import ai_prompts as _e
 from zoominfo_pull import BOARDS_DEFAULT, BOARDS_RULE, ZI_PULL_RULE
 from ai_prompts import (ARENA, EMAIL_CAP_HINT, EMAIL_CAP_MAX, F,
-                        NEWSLETTER_DEFAULT, NEWSLETTER_MODES,
                         POSTING_AGE, SEQUENCES, SKIP_FIELDS, start_fields,
                         finalize_routines)
 
@@ -733,14 +732,7 @@ def _targeting_fields():
 
 
 def _newsletter_fields():
-    return [
-        F("newsletter_mode", "Add them to a newsletter", "details", "select",
-          default=NEWSLETTER_DEFAULT, options=NEWSLETTER_MODES),
-        F("newsletter", "Which newsletter", "details",
-          placeholder="Only if you're naming one above",
-          hint="Leave this blank and the AI picks whichever of your "
-               "newsletters is in the same line of work."),
-    ]
+    return [_e.newsletter_field()]
 
 
 def _email_fields(sequence="Arena 5x5", sequences=SEQUENCES):
