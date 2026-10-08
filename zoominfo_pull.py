@@ -40,7 +40,9 @@ ZI_PHONES_RULE = (
     "comes back. On my seat, copy the mobile and the direct or company phone "
     "off the profile. Put the mobile in phone_mobile and the work number in "
     "phone_office on every contact you hand DripDrop, so both stay on the "
-    "contact's record.")
+    "contact's record. If a person has neither number, put the company's "
+    "main line in phone_office - ask enrich_companies for phone, or read it "
+    "off the company's website - so every call card has a number to dial.")
 
 # Follows the "take these out" sentence: the exclusions come from DripDrop's
 # own records, never from the AI's memory of who our clients are.

@@ -15,6 +15,13 @@ def test_pull_rule_asks_for_both_numbers():
     assert "{" not in ZI_PULL_RULE and "}" not in ZI_PULL_RULE
 
 
+def test_pull_rule_falls_back_to_company_main_line():
+    # The connector licence blocks direct dials and many people have no
+    # mobile; the company main line keeps the call card dialable.
+    assert "main line in phone_office" in ZI_PHONES_RULE
+    assert "enrich_companies" in ZI_PHONES_RULE
+
+
 def test_handoff_brief_shows_both_phone_keys():
     brief = sc.handoff_brief({"run_id": "sc_x", "target": {"roles": ["PM"]}})
     assert '"phone_mobile"' in brief and '"phone_office"' in brief
