@@ -10,6 +10,45 @@ def test_option_is_offered():
     assert "8am tomorrow" in aip.WHEN_OPTIONS
 
 
+def test_default_is_8am_tomorrow():
+    # Mike 2026-10-08: a run built today sends tomorrow morning unless the
+    # user says otherwise. First on the menu and the default.
+    assert aip.WHEN_OPTIONS[0] == "8am tomorrow"
+    f = {x["key"]: x for x in aip.start_fields()}
+    assert f["start_when"]["default"] == "8am tomorrow"
+    r = {"fields": aip.start_fields(), "field_by_key": f}
+    out = aip._start_date(r, {})
+    want = _next_weekday(date.today() + timedelta(days=1))
+    assert '"%s"' % want.isoformat() in out
+    assert 'start_time "8:00 AM"' in out
+
+
+def test_start_question_is_asked_with_the_details():
+    # Mike 2026-10-08: "when would you like this to send" goes on the first
+    # page, with the details, not on the sequence step.
+    for f in aip.start_fields():
+        assert f["section"] == "details", f["key"]
+    for r in aip.ARENA.routines:
+        if "start_when" in r["field_by_key"]:
+            assert r["field_by_key"]["start_when"]["section"] == "details", \
+                r["key"]
+            assert all(f["section"] == "details" for f in r["fields"]
+                       if f["key"] in aip.START_KEYS), r["key"]
+
+
+def test_start_answer_stays_out_of_the_details_table():
+    # The date is resolved in the numbered step; the table must not also
+    # carry a relative "8am tomorrow" that reads differently on another day.
+    r = aip.ARENA.routine_by_key["slate_campaign"]
+    req = {"routine": r["key"], "raw": "x", "vals": {
+        "industry": "packaging", "location": "Denver", "roles": "techs",
+        "start_when": "8am tomorrow"}}
+    p = " ".join(aip.build_prompt(req, aip.ARENA).split())
+    assert "THE DETAILS" in p
+    assert "When the first email goes out" not in p
+    assert 'start_time "8:00 AM"' in p
+
+
 def _next_weekday(d):
     while d.weekday() >= 5:
         d += timedelta(days=1)

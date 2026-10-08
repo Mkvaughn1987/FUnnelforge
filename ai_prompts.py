@@ -415,8 +415,12 @@ NAME_RULE = (
     "not name one), then the company name, e.g. \"%s\". Use that format "
     "exactly; do not add or drop parts." % CAMPAIGN_NAME_EXAMPLE)
 
-WHEN_OPTIONS = ["Next Monday", "The Monday after next", "8am tomorrow",
+# "8am tomorrow" leads and is the default (Mike 2026-10-08): a run built
+# today should be sending tomorrow morning, not sitting until Monday.
+WHEN_OPTIONS = ["8am tomorrow", "Next Monday", "The Monday after next",
                 "As soon as it's built", "Pick a date and time"]
+WHEN_DEFAULT = WHEN_OPTIONS[0]
+START_KEYS = ("start_when", "start_on", "start_at")
 
 POSTING_AGE = ["Posted in the last 7 days", "Posted in the last 14 days",
                "Posted in the last 30 days", "Posted in the last 60 days"]
@@ -460,13 +464,17 @@ def _if_pick_date(r, vals):
 def start_fields():
     """"When the first email goes out", plus the date and time boxes that
     only show once "Pick a date and time" is chosen. Every run type uses
-    this one set, so the choices cannot drift between them."""
+    this one set, so the choices cannot drift between them.
+
+    It sits on the first step, with the details (Mike 2026-10-08): the
+    sequence step is for choosing the emails, and the question of when
+    they start belongs with what the run is about, where it is seen."""
     return [
-        F("start_when", "When the first email goes out", "emails", "select",
-          default="Next Monday", options=WHEN_OPTIONS, refresh=True),
-        F("start_on", "Date", "emails", "date", show_if=_if_pick_date,
+        F("start_when", "When the first email goes out", "details", "select",
+          default=WHEN_DEFAULT, options=WHEN_OPTIONS, refresh=True),
+        F("start_on", "Date", "details", "date", show_if=_if_pick_date,
           hint="A Saturday or Sunday moves to Monday."),
-        F("start_at", "Time", "emails", "select", default="8:00am",
+        F("start_at", "Time", "details", "select", default="8:00am",
           options=TIMES, show_if=_if_pick_date),
     ]
 
@@ -1530,7 +1538,7 @@ def _start_date(r, vals, cat=None):
     """create_campaign takes an ISO date or the literal "auto", which the
     server resolves to the upcoming Monday. Say which one and why, so the
     date in the prompt cannot be read as a typo for another week."""
-    when = _txt(r, vals, "start_when") or "Next Monday"
+    when = _txt(r, vals, "start_when") or WHEN_DEFAULT
     today = date.today()
     if when.startswith("The Monday after"):
         nxt = today + timedelta(days=(7 - today.weekday()) % 7 or 7)
@@ -2246,13 +2254,16 @@ def build_prompt(req, cat=None):
     # live in the numbered steps that use them, so there is never a limit
     # stated twice with two different values. A question an earlier answer
     # hid (show_if) stays out too: the zip code typed before switching to
-    # "a whole state" is not part of the run.
+    # "a whole state" is not part of the run. The start question is asked
+    # with the details but lives in the build step as a resolved date, so
+    # "8am tomorrow" is never left for the model to work out on its own.
     rows = [(f["label"],
              str((d.get(f["key"]) if f["type"] == "checks"
                   else _val(r, vals, f["key"])) or "").strip())
             for f in r["fields"]
             if f["section"] == "details" and f["type"] != "toggle"
-            and f["key"] not in NEWSLETTER_KEYS and _visible(r, vals, f)]
+            and f["key"] not in NEWSLETTER_KEYS
+            and f["key"] not in START_KEYS and _visible(r, vals, f)]
     rows = [(lbl, v) for lbl, v in rows if v]
     if rows:
         L += ["", "THE DETAILS"]
@@ -3488,7 +3499,8 @@ SECTION_SHORT = {"details": "the details", "emails": "your sequence",
 
 # One line under each step's title saying what the step is for.
 SECTION_INTRO = {
-    "details": "Who to go after. Change anything you like.",
+    "details": "Who to go after, and when the first email goes out. Change "
+               "anything you like.",
     "emails": "Pick the sequence every company gets. Each card shows every "
               "email and call in it, and the day it goes out.",
     "size": "How many companies and emails this run covers.",
