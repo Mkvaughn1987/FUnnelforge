@@ -443,25 +443,32 @@ def test_settings_on_a_recruiting_workspace(nl, monkeypatch):
 def test_sales_assets_lists_every_page_kind(api):
     kinds = [k["kind"] for k in api["call"]("get", "/api/v1/tm/sales_assets").json()["kinds"]]
     assert kinds == ["tm_role_blueprint", "tm_cost_compare", "tm_how_it_works",
-                     "interview_guide", "market_pulse", "custom"]
+                     "tm_myths", "tm_roles_map", "tm_first_90", "tm_security",
+                     "market_pulse", "custom"]
 
 
-def test_interview_guide_builds_through_the_page_builder(api, monkeypatch):
+def test_market_pulse_builds_through_the_page_builder(api, monkeypatch):
     seen = {}
 
     def _build(kind, company, role, location, industry="", client=None):
         seen.update(kind=kind, company=company, role=role, location=location)
-        (api["pdfs"] / "Interview_Guide_Acme.pdf").write_bytes(b"%PDF")
-        return "Interview_Guide_Acme.pdf"
+        (api["pdfs"] / "Market_Pulse_Acme.pdf").write_bytes(b"%PDF")
+        return "Market_Pulse_Acme.pdf"
     monkeypatch.setattr(fa, "_tm_build_sales_asset", _build)
     r = api["call"]("post", "/api/v1/tm/sales_assets", {
-        "kind": "interview_guide", "company": "Acme", "role": "AP Clerk",
+        "kind": "market_pulse", "company": "Acme", "role": "AP Clerk",
         "location": "Nationwide"})
     assert r.status_code == 200, r.text
-    assert r.json()["path"] == "/pdfs/Interview_Guide_Acme.pdf"
-    assert r.json()["kind"] == "interview_guide"
-    assert seen == {"kind": "interview_guide", "company": "Acme",
+    assert r.json()["path"] == "/pdfs/Market_Pulse_Acme.pdf"
+    assert r.json()["kind"] == "market_pulse"
+    assert seen == {"kind": "market_pulse", "company": "Acme",
                     "role": "AP Clerk", "location": "Nationwide"}
+
+
+def test_retired_interview_guide_is_rejected(api):
+    r = api["call"]("post", "/api/v1/tm/sales_assets", {
+        "kind": "interview_guide", "company": "Acme", "role": "AP Clerk"})
+    assert r.status_code == 400 and "tm_myths" in r.json()["error"]
 
 
 def test_custom_pdf_outlines_then_fills(api, monkeypatch):
@@ -499,7 +506,7 @@ def test_custom_pdf_reports_an_unreadable_outline(api, monkeypatch):
 
 def test_unknown_kind_lists_the_choices(api):
     r = api["call"]("post", "/api/v1/tm/sales_assets", {"kind": "brochure", "role": "x"})
-    assert r.status_code == 400 and len(r.json()["choices"]) == 6
+    assert r.status_code == 400 and len(r.json()["choices"]) == 9
 
 
 # ── PDF editor ─────────────────────────────────────────────────────────────

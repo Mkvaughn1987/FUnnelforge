@@ -9184,7 +9184,7 @@ async def api_tm_sales_assets(request: Request):
 @app.post("/api/v1/tm/sales_assets")
 async def api_tm_sales_asset_build(request: Request):
     """Build one Sales Assets PDF. Body: {"kind", "company", "role",
-    "location", "industry"}, as on the page. kind is any of the page's five
+    "location", "industry"}, as on the page. kind is any of the page's eight
     (a cost comparison that finds no wage data comes back as How We Work
     Together instead, as in campaigns) or "custom" (Create Your Own) with a
     "description" of the PDF wanted: the outline is drafted and filled in
@@ -11552,9 +11552,10 @@ def _custom_pdf_build(client, outline, description, ctx_block, pdf_dir,
     return fname
 
 
-# The ThriveModal Sales Assets page offers these two beside the three a
-# campaign may carry (campaigns stopped offering them 2026-09-19).
-_TM_SALES_ASSET_EXTRA = ("interview_guide", "market_pulse")
+# The ThriveModal Sales Assets page offers Market Pulse beside the kinds a
+# campaign may carry (campaigns stopped offering it 2026-09-19). The Interview
+# Guide left this list 2026-10-07 when Mike retired it on ThriveModal.
+_TM_SALES_ASSET_EXTRA = ("market_pulse",)
 
 
 def _tm_sales_asset_menu() -> list:
@@ -11567,16 +11568,16 @@ def _tm_sales_asset_menu() -> list:
 
 def _tm_build_sales_asset(kind, company, role, location, industry="",
                           client=None) -> str:
-    """Build one Interview Guide or Market Pulse the way the Sales Assets
-    page does (same prompt, same renderer, editor sidecar saved). Returns the
-    filename. Caller has the user's paths bound."""
+    """Build one Market Pulse the way the Sales Assets page does (same
+    prompt, same renderer, editor sidecar saved). Returns the filename.
+    Caller has the user's paths bound."""
     import sys as _sys
     _sys.path.insert(0, str(Path(__file__).resolve().parent / "funnel_forge"))
     from arena_pdfs import build_custom_pdf
     if client is None:
         import anthropic
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    label = next((l for k, l, _ in _TM_CAMPAIGN_PDF_KINDS if k == kind), kind)
+    label = _tm_pdf_label(kind)
     subject = ((company or "").strip() or (industry or "").strip()
                or (role or "").strip())
     ctx = {"company": subject, "primary_industry": industry or "",
@@ -45703,6 +45704,12 @@ _TM_PDF_KINDS = frozenset({
     "tm_role_blueprint",
     "tm_cost_compare",
     "tm_how_it_works",
+    # Mike, 2026-10-07: the Interview Guide retired on ThriveModal; these
+    # four took its place on the Sales Assets page and in campaigns.
+    "tm_myths",
+    "tm_roles_map",
+    "tm_first_90",
+    "tm_security",
 })
 
 
@@ -45714,8 +45721,9 @@ _TM_PDF_MODEL = os.environ.get("DRIPDROP_TM_PDF_MODEL", "claude-fable-5-1")
 
 def _is_tm_pdf_kind(kind: str) -> bool:
     """True when `kind` is written under the ThriveModal playbook rules:
-    the tm_* kinds anywhere, and on ThriveModal also the Interview Guide and
-    Market Pulse, which there are about offshore Filipino staffing."""
+    the tm_* kinds anywhere, and on ThriveModal also Market Pulse (and the
+    retired Interview Guide, re-rendered from saved PDFs), which there are
+    about offshore Filipino staffing."""
     return kind in _TM_PDF_KINDS or (
         kind in _TM_SALES_ASSET_EXTRA and _is_thrivemodal())
 
@@ -45781,6 +45789,10 @@ def _tm_fix_pdf_labels(kind: str, ctx: dict, data: dict) -> None:
     "EXPLORATORY MARKET TEST"), and internal market labels scrubbed."""
     label = {"tm_role_blueprint": "Offshore Role Blueprint",
              "tm_how_it_works": "How We Work Together",
+             "tm_myths": "Offshore: Myths vs Reality",
+             "tm_roles_map": "Roles That Work Offshore",
+             "tm_first_90": "First 90 Days Plan",
+             "tm_security": "Security and Confidentiality",
              "interview_guide": "Interviewing Filipino Candidates",
              "market_pulse": "Offshore Staffing Market Pulse"}.get(kind)
     if label:
@@ -46339,6 +46351,170 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"of offshore staffing actually asks. If an honest answer is "
             f"'that depends on your setup', say so and offer to work "
             f"through it together.\n"
+        )
+
+    elif kind == "tm_myths":
+        # The objections a first-time buyer holds but rarely says out loud,
+        # answered from the playbook only (Mike, 2026-10-07).
+        body = (
+            f"Build an 'Offshore: Myths vs Reality' one-pager for a "
+            f"decision-maker at {company}"
+            + (f" ({industry_str})" if primary else "") + ". The reader "
+            f"is weighing a dedicated team member in the Philippines for "
+            f"work such as {role_label} and has heard things about offshore "
+            f"staffing that make them hesitate. Take each worry seriously "
+            f"and answer it honestly from how we actually work.\n"
+            f"\nREQUIRED SECTIONS (every bullet ONE short sentence, max 20 "
+            f"words):\n"
+            f"  1. heading 'Why This Page' — type 'paragraph' — 2 sentences: "
+            f"most hesitation comes from how offshore work was done badly "
+            f"elsewhere, so here is how each concern is handled in a "
+            f"dedicated, managed engagement.\n"
+            f"  2. heading 'Myths vs Reality' — type 'table' — header + 6 "
+            f"rows. Columns: ['The Myth','The Reality']. One row each on: "
+            f"quality of work; communication and English in a US team; "
+            f"security of systems and data; losing control of the work; "
+            f"working US hours; what happens if it does not work out. Each "
+            f"cell 12 words or fewer. Every Reality cell must describe "
+            f"something we do or the client controls, taken from the "
+            f"approved services text below. Never a statistic.\n"
+            f"  3. heading 'What Makes the Difference' — type 'bullets' — 3 "
+            f"bullets: a dedicated full-time person rather than a shared "
+            f"pool; the client interviews and chooses; our team supports the "
+            f"placement after the start.\n"
+            f"  4. heading 'What Is Fair to Expect' — type 'bullets' — 3 "
+            f"honest bullets on what still takes work: the client's "
+            f"management time in the first weeks, documented processes, "
+            f"and clear system access. No promise of outcomes.\n"
+            f"  5. heading 'Common Questions' — type 'qa' — 3 pairs, 1-2 "
+            f"sentences each, from a buyer who is still not sure.\n"
+            f"\nRULES FOR THIS DOCUMENT:\n"
+            f"- No nationality-based generalizations about Filipino people "
+            f"(English, work ethic, culture, loyalty). Answer each myth with "
+            f"how the engagement is run and what the client verifies, never "
+            f"with a claim about a nationality.\n"
+            f"- Do not quote a retention rate, satisfaction score, or any "
+            f"number that is not in the approved text below.\n"
+        )
+
+    elif kind == "tm_roles_map":
+        # Which of the reader's seats fit a dedicated team member in the
+        # Philippines and which do not, seeded with the roles the cost
+        # comparison already uses for this vertical (Mike, 2026-10-07).
+        _rm_roles = _tm_cost_roles(positions_str, primary, company)[:8]
+        body = (
+            f"Build a 'Roles That Work Offshore' one-pager for a "
+            f"decision-maker at {company}"
+            + (f" ({industry_str})" if primary else "") + ". The reader "
+            f"wants to know which seats in a business like theirs a "
+            f"dedicated team member in the Philippines can hold well, which "
+            f"should stay in house, and where to start.\n"
+            f"\nCANDIDATE ROLES, best first (the reader's own role is first; "
+            f"use these titles, do not invent others): "
+            + "; ".join(_rm_roles) + ".\n"
+            f"\nREQUIRED SECTIONS (every bullet ONE short sentence, max 20 "
+            f"words):\n"
+            f"  1. heading 'How to Read This' — type 'paragraph' — 2 "
+            f"sentences: a role works offshore when its work is defined, "
+            f"runs in systems the client already uses, and is managed by "
+            f"the client day to day.\n"
+            f"  2. heading 'Roles That Work Offshore' — type 'table' — "
+            f"header + 6 rows from the candidate roles above, {role_label} "
+            f"first. Columns: ['Role','Work It Covers','What You Would "
+            f"Hand Over First']. Each cell 8 words or fewer.\n"
+            f"  3. heading 'What Stays With You' — type 'bullets' — 3 "
+            f"bullets on work that should stay in house: decisions that "
+            f"need to be made in the room, relationships the owner holds, "
+            f"anything that needs a physical presence at the client's site.\n"
+            f"  4. heading 'Where to Start' — type 'bullets' — 3 bullets. "
+            f"Every one MUST start 'Suggested:' and propose a first seat, "
+            f"why that one, and what to document before the person starts.\n"
+            f"  5. heading 'Common Questions' — type 'qa' — 3 pairs, 1-2 "
+            f"sentences each, on scoping a role for offshore work.\n"
+            f"\nNo salaries, no savings figures, no headcount statistics. "
+            f"This is about fit, not price.\n"
+        )
+
+    elif kind == "tm_first_90":
+        # What the first three months look like, as a proposal to agree,
+        # never a promise (Mike, 2026-10-07).
+        body = (
+            f"Build a 'First 90 Days Plan' one-pager for the manager at "
+            f"{company}" + (f" ({industry_str})" if primary else "")
+            + f" who will oversee a dedicated team member in the Philippines "
+            f"in a role such as {role_label}. The reader wants to know what "
+            f"happens after they say yes, who does what, and when they "
+            f"should expect the person to be fully productive.\n"
+            f"\nREQUIRED SECTIONS (every bullet ONE short sentence, max 20 "
+            f"words):\n"
+            f"  1. heading 'The Short Version' — type 'paragraph' — 2-3 "
+            f"sentences: the first month is setup and learning, the second "
+            f"is working with oversight, the third is owning the role. All "
+            f"of it is a proposal to agree with the client.\n"
+            f"  2. heading 'The Plan' — type 'table' — header + 3 rows, one "
+            f"per window: 'Days 1-30', 'Days 31-60', 'Days 61-90'. Columns: "
+            f"['Window','Us','You','Checkpoint']. Us: recruiting, "
+            f"onboarding and our team's support. You: access, training "
+            f"time, feedback. Each cell 10 words or fewer. Every Checkpoint "
+            f"cell MUST start 'Suggested:'.\n"
+            f"  3. heading 'Before Day One' — type 'bullets' — 4 bullets on "
+            f"what the client prepares: system access, a documented "
+            f"process or two, a point of contact, and the hours the person "
+            f"will work.\n"
+            f"  4. heading 'What Good Looks Like at 90 Days' — type "
+            f"'bullets' — 3 bullets. Every one MUST start 'Suggested:' and "
+            f"be a measure to agree, not a promise. No target number unless "
+            f"the reader supplied it.\n"
+            f"  5. heading 'If Something Is Off' — type 'bullets' — 2 "
+            f"bullets: tell our team early, and what our team does next, "
+            f"taken only from the approved services text below.\n"
+            f"\nState no time to hire and no start date. The plan begins "
+            f"when the person starts, whenever that is.\n"
+        )
+
+    elif kind == "tm_security":
+        # How systems and data are protected: practices the client can
+        # verify, never a certification we have not approved (Mike,
+        # 2026-10-07).
+        body = (
+            f"Build a 'Security and Confidentiality' one-pager for a "
+            f"decision-maker at {company}"
+            + (f" ({industry_str})" if primary else "") + ". The reader "
+            f"is weighing a dedicated team member in the Philippines for "
+            f"work such as {role_label} and needs to know how their "
+            f"systems, customer data and confidential information are "
+            f"protected.\n"
+            f"\nREQUIRED SECTIONS (every bullet ONE short sentence, max 20 "
+            f"words):\n"
+            f"  1. heading 'The Principle' — type 'paragraph' — 2 "
+            f"sentences: the person works inside the client's systems "
+            f"under the client's access rules, and nothing leaves them.\n"
+            f"  2. heading 'How Access Works' — type 'table' — header + 4 "
+            f"rows. Columns: ['Area','How It Is Handled']. Rows: accounts "
+            f"and permissions (client-issued, least access needed); "
+            f"connection (VPN or remote desktop into the client's "
+            f"environment); workstation (a dedicated, isolated workstation "
+            f"for the role); confidentiality (NDA signed before access). "
+            f"Each cell 12 words or fewer. Describe only what appears in "
+            f"the approved services and differentiators text below.\n"
+            f"  3. heading 'What You Control' — type 'bullets' — 4 bullets: "
+            f"which systems the person can reach, when access is granted "
+            f"and removed, what can be downloaded or printed, and who "
+            f"reviews activity.\n"
+            f"  4. heading 'Practices, Not Badges' — type 'bullets' — 3 "
+            f"bullets on everyday practice: no shared logins, no local "
+            f"copies of customer data, immediate revocation when the "
+            f"engagement changes.\n"
+            f"  5. heading 'Common Questions' — type 'qa' — 3 pairs, 1-2 "
+            f"sentences each, on data and confidentiality from a first-time "
+            f"buyer.\n"
+            f"\nRULES FOR THIS DOCUMENT:\n"
+            f"- Name NO certification, audit or standard (SOC 2, ISO 27001, "
+            f"HIPAA, GDPR, PCI) unless it appears word for word in the "
+            f"approved text below. Where a reader might expect one, say the "
+            f"client's own policies and tools apply.\n"
+            f"- Do not promise that a breach cannot happen. Describe the "
+            f"controls and who holds them.\n"
         )
 
     else:
@@ -47789,13 +47965,31 @@ _TM_CAMPAIGN_PDF_KINDS = [
     ("tm_how_it_works", "How We Work Together",
      "I've attached a one-page overview of how an engagement runs, from "
      "defining the role through your interviews and onboarding."),
-    ("interview_guide", "Interview Guide",
-     "I've attached a short guide to interviewing candidates in the "
-     "Philippines for the role, so you can tell quickly who fits."),
+    # Mike, 2026-10-07: four new kinds in place of the Interview Guide.
+    ("tm_myths", "Offshore Myths vs Reality",
+     "I've attached a one-pager on the worries people have about offshore "
+     "staffing and how each one is handled in a dedicated engagement."),
+    ("tm_roles_map", "Roles That Work Offshore",
+     "I've attached a short map of which roles in a business like yours "
+     "work well offshore, which stay in house, and where to start."),
+    ("tm_first_90", "First 90 Days Plan",
+     "I've attached a suggested first 90 days plan, so you can see what "
+     "happens after a yes and who does what."),
+    ("tm_security", "Security and Confidentiality",
+     "I've attached a one-pager on how your systems and data are protected "
+     "when a dedicated team member works inside them."),
     ("market_pulse", "Market Pulse",
      "I've attached a short briefing on why teams in your industry are "
      "moving roles offshore and which roles fit."),
 ]
+# Kinds campaigns and the Sales Assets page stopped offering, kept so a saved
+# campaign or PDF still shows a readable label. (kind, label)
+_TM_RETIRED_PDF_LABELS = {"interview_guide": "Interview Guide"}
+
+
+def _tm_pdf_label(kind) -> str:
+    return next((l for k, l, _ in _TM_CAMPAIGN_PDF_KINDS if k == kind),
+                _TM_RETIRED_PDF_LABELS.get(kind, kind))
 # Mike, 2026-09-21: "give the user the option to add as many PDFs as they
 # want". Every kind above is offered again and the only cap is the list
 # itself (2026-09-19 had it at one or two of the top three). A campaign still
@@ -47811,7 +48005,10 @@ _TM_CAMPAIGN_PDF_BLURBS = {
                        "Philippines.",
     "tm_how_it_works": "How an engagement runs, from defining the role to "
                        "onboarding.",
-    "interview_guide": "How to interview Filipino candidates for fit.",
+    "tm_myths": "The worries about offshore staffing, answered honestly.",
+    "tm_roles_map": "Which of their roles work offshore and where to start.",
+    "tm_first_90": "What the first three months look like, who does what.",
+    "tm_security": "How their systems and data stay protected.",
     "market_pulse": "Why their industry is moving roles offshore.",
 }
 TM_CAMPAIGN_PDF_DEFAULT = ["tm_role_blueprint", "tm_cost_compare"]
@@ -47847,10 +48044,19 @@ _TM_PDF_STEP_WORDS = {
                         "after the hire", "after selection", "joins",
                         "no risk",
                         "offer", "commercial", "quality", "process"),
+    # The four 2026-10-07 kinds sit before the blueprint so "which roles"
+    # and "security" claim their steps ahead of the blueprint's bare "role".
+    "tm_security": ("security", "confidential", "nda", "data security",
+                    "access"),
+    "tm_first_90": ("90 days", "first 90", "onboard", "first month",
+                    "day one", "ramp", "first weeks"),
+    "tm_myths": ("myth", "objection", "worry", "concern", "doubt",
+                 "hesitat", "risk"),
+    "tm_roles_map": ("which roles", "where to start", "roles that",
+                     "what to offshore", "seat"),
     "tm_role_blueprint": ("blueprint", "scope", "transfer", "requirement",
                           "what we need",
                           "expert asset", "role fit", "role would", "role"),
-    "interview_guide": ("interview", "shortlist", "selection", "candidate"),
     "market_pulse": ("market", "signal", "industry", "insight", "alert"),
 }
 # Matching order: the narrowest vocabulary claims its step first, so "What the
@@ -48027,7 +48233,7 @@ def _tm_attach_library_pdfs(campaign_data, files) -> int:
 def _tm_campaign_pdf_filename(kind, subject) -> str:
     """Label + company (or role). Prospects see this name, so it is cut on a
     word boundary, never mid-word."""
-    label = next((l for k, l, _ in _TM_CAMPAIGN_PDF_KINDS if k == kind), kind)
+    label = _tm_pdf_label(kind)
     words = re.sub(r'[^A-Za-z0-9]+', ' ', subject or "").split()
     slug = ""
     for w in words:
@@ -55974,10 +56180,22 @@ def p_pdf_gen(s: AppState, rf):
              "The engagement end to end: role discovery, recruiting, your interviews, "
              "onboarding, and ongoing support from our team.",
              C["indigo"], "🤝"),
-            ("interview_guide", "Interview Guide",
-             "How to interview Filipino candidates for fit: must-ask questions, a "
-             "live skills check, and remote-work and shift readiness.",
-             C["good"], "🎯"),
+            ("tm_myths", "Offshore: Myths vs Reality",
+             "The worries a first-time buyer has about quality, communication, "
+             "security and control, each answered from how we actually work.",
+             C["good"], "⚖️"),
+            ("tm_roles_map", "Roles That Work Offshore",
+             "Which seats in their business a dedicated team member in the "
+             "Philippines can hold well, which stay in house, and where to start.",
+             C["call_col"], "🗺️"),
+            ("tm_first_90", "First 90 Days Plan",
+             "What happens after they say yes: a suggested month-by-month plan, "
+             "who does what, and what to prepare before day one.",
+             C["task_col"], "🗓️"),
+            ("tm_security", "Security and Confidentiality",
+             "How their systems and data are protected: client-issued access, "
+             "VPN, an isolated workstation, and an NDA before access.",
+             C["sms_col"], "🔒"),
             ("market_pulse", "Market Pulse",
              "Why businesses in their industry are moving roles offshore, which "
              "roles fit the Philippines, and what to plan for.",

@@ -80,7 +80,7 @@ def test_unpinned_pdfs_still_place_around_a_pin():
 @pytest.mark.parametrize("pins,needle", [
     ({"tm_cost_compare": 0}, "step 1 cannot"),
     ({"tm_cost_compare": 2}, "step 3 cannot"),      # the call step
-    ({"tm_cost_compare": 3, "interview_guide": 3}, "pinned for both"),
+    ({"tm_cost_compare": 3, "tm_how_it_works": 3}, "pinned for both"),
     ({"tm_cost_compare": 9}, "step 10 cannot"),
 ])
 def test_bad_pins_are_explained(pins, needle):

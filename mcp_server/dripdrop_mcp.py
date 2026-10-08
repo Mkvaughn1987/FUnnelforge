@@ -197,10 +197,14 @@ _PDF_KINDS_DOC = (
     "and systems, how the client oversees it), tm_cost_compare (Staffing Cost "
     "Comparison: a U.S. hire beside a dedicated professional in the "
     "Philippines), tm_how_it_works (How We Work Together: how an engagement "
-    "runs from defining the role to onboarding), interview_guide (Interview "
-    "Guide for the shortlist stage), market_pulse (Market Pulse: industry "
-    "context with sources). A campaign carries at least one and may carry "
-    "any number of these."
+    "runs from defining the role to onboarding), tm_myths (Offshore Myths vs "
+    "Reality: the buyer's worries answered from how we work), tm_roles_map "
+    "(Roles That Work Offshore: which seats fit, which stay in house, where "
+    "to start), tm_first_90 (First 90 Days Plan: a suggested month-by-month "
+    "plan and who does what), tm_security (Security and Confidentiality: how "
+    "the client's systems and data are protected), market_pulse (Market "
+    "Pulse: why the industry is moving roles offshore). A campaign carries "
+    "at least one and may carry any number of these."
 )
 
 

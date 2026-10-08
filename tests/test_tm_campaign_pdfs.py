@@ -20,7 +20,8 @@ def test_campaigns_offer_the_sales_assets_set_top_three_first():
     kinds = [k for k, *_ in fa._TM_CAMPAIGN_PDF_KINDS]
     assert kinds[:3] == ["tm_role_blueprint", "tm_cost_compare", "tm_how_it_works"]
     assert set(kinds) == {"tm_role_blueprint", "tm_cost_compare",
-                          "tm_how_it_works", "interview_guide", "market_pulse"}
+                          "tm_how_it_works", "tm_myths", "tm_roles_map",
+                          "tm_first_90", "tm_security", "market_pulse"}
     for _k, _label, line in fa._TM_CAMPAIGN_PDF_KINDS:
         assert line.startswith("I've attached")
 
@@ -32,14 +33,15 @@ def test_old_arena_and_static_kinds_are_not_offered():
 
 
 def test_clamp_keeps_every_offered_kind_once_and_drops_the_rest():
-    # Mike, 2026-09-21: as many PDFs as the user wants, all five offered.
+    # Mike, 2026-09-21: as many PDFs as the user wants, every kind offered.
+    # interview_guide was retired 2026-10-07 and is dropped like "bogus".
     assert fa._clamp_tm_pdf_kinds(
         ["market_pulse", "bogus", "interview_guide", "tm_cost_compare",
-         "tm_cost_compare", "tm_how_it_works", "tm_role_blueprint"]) == [
-        "market_pulse", "interview_guide", "tm_cost_compare",
-        "tm_how_it_works", "tm_role_blueprint"]
+         "tm_cost_compare", "tm_how_it_works", "tm_myths", "tm_role_blueprint"]) == [
+        "market_pulse", "tm_cost_compare",
+        "tm_how_it_works", "tm_myths", "tm_role_blueprint"]
     assert fa._clamp_tm_pdf_kinds(None) == []
-    assert fa.TM_CAMPAIGN_PDF_MIN == 1 and fa.TM_CAMPAIGN_PDF_MAX == 5
+    assert fa.TM_CAMPAIGN_PDF_MIN == 1 and fa.TM_CAMPAIGN_PDF_MAX == 8
     assert fa._TM_CAMPAIGN_PDF_OFFERED == tuple(
         k for k, *_ in fa._TM_CAMPAIGN_PDF_KINDS)
     assert set(fa._TM_CAMPAIGN_PDF_BLURBS) == set(fa._TM_CAMPAIGN_PDF_OFFERED)
