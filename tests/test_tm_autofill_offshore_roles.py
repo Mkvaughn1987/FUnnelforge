@@ -73,7 +73,7 @@ def test_thrivemodal_autofill_fills_open_roles_and_ticks_offshore_fit(monkeypatc
                                 "AP/AR Specialist",
                                 "Customer Service Representative",
                                 "Data Entry Specialist"]
-    assert s.aicb_sel_locations == ["Nationwide"]
+    assert s.aicb_sel_locations == ["USA"]
     # First call is the untouched company lookup.
     assert "offshore" not in calls[0]["messages"][0]["content"]
     prompt = calls[1]["messages"][0]["content"]

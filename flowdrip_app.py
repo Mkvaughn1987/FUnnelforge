@@ -5020,7 +5020,10 @@ def _render_region_picker(s, rf, *, state_key: str,
         existing = cur_values if multi else ([cur_values] if cur_values else [])
         for v in existing:
             if v and v not in opt_dict:
-                opt_dict = {v: f"{v} (custom)", **opt_dict}
+                # The ThriveModal default (USA) is not a one-off, so no
+                # "(custom)" tag on it.
+                _lbl = v if v == _TM_NATIONWIDE else f"{v} (custom)"
+                opt_dict = {v: _lbl, **opt_dict}
 
         _other_flag_attr = f"_{state_key}_region_other_mode"
         in_other_mode = bool(getattr(s, _other_flag_attr, False))
@@ -9035,7 +9038,7 @@ async def api_tm_newsletter_create(request: Request):
         return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
     nl_name = str(body.get("name") or "").strip()
     skey = str(body.get("sector") or "").strip()
-    region = str(body.get("region") or "").strip() or "Nationwide"
+    region = str(body.get("region") or "").strip() or _TM_NATIONWIDE
     if not nl_name:
         return JSONResponse({"error": "name is required"}, status_code=400)
     if skey not in _TM_NEWSLETTER_SECTORS:
@@ -27910,7 +27913,7 @@ def _sq_loaded_campaign(s: AppState, rf):
                             _pc, _pr, _pl, _pi = _pdf_campaign_subject(camp)
                             s._pdf_company = _pc
                             s._pdf_role = _pr
-                            s._pdf_location = _pl
+                            s._pdf_location = _pl or _tm_default_location()
                             s._pdf_industry = _pi
                             s._pdf_exp_level = v.get("ExpLevel", "") or ""
                             rf()
@@ -45004,13 +45007,15 @@ def _tm_bls_local_salary(client, role: str, location: str) -> dict | None:
     return None
 
 
-# ThriveModal professionals work offshore, so a campaign's or newsletter's
-# location defaults to Nationwide everywhere (Mike, 2026-09-21). The field
-# stays editable; only the auto-filled value changes. Arena is untouched.
-_TM_NATIONWIDE = "Nationwide"
-_NATIONWIDE_WORDS = ("nationwide", "national", "united states", "usa", "u.s.",
-                     "us", "anywhere", "anywhere in the united states",
-                     "remote", "the united states")
+# ThriveModal professionals work offshore and can serve any company in the
+# United States, so every location in the app defaults to "USA" (Mike,
+# 2026-09-21 as "Nationwide"; renamed USA 2026-10-08). The field stays
+# editable; only the pre-filled value changes. Arena is untouched.
+_TM_NATIONWIDE = "USA"
+_NATIONWIDE_WORDS = ("nationwide", "nationwide us", "national", "united states",
+                     "usa", "u.s.", "u.s.a", "us", "anywhere",
+                     "anywhere in the united states", "remote",
+                     "the united states")
 
 
 def _tm_nationwide() -> bool:
@@ -45021,10 +45026,16 @@ def _tm_nationwide() -> bool:
 
 
 def _default_locations(found) -> list:
-    """Auto-filled locations: ["Nationwide"] on ThriveModal, else `found`."""
+    """Auto-filled locations: ["USA"] on ThriveModal, else `found`."""
     if _tm_nationwide():
         return [_TM_NATIONWIDE]
     return list(found or [])
+
+
+def _tm_default_location() -> str:
+    """What a blank single-value location field starts as: "USA" on
+    ThriveModal, empty elsewhere. Use `value or _tm_default_location()`."""
+    return _TM_NATIONWIDE if _tm_nationwide() else ""
 
 
 def _is_nationwide(location: str) -> bool:
@@ -55964,7 +55975,7 @@ def _pdf_autofill_fields(current: dict, data: dict, picks) -> dict:
     """What the Sales Assets Autofill writes into the form: only fields
     left blank, so nothing the user typed is overwritten. The one
     exception is a company typed as a domain, which becomes the official
-    name. Location follows _default_locations (Nationwide on ThriveModal).
+    name. Location follows _default_locations (USA on ThriveModal).
     Returns {field: value} for company / website / industry / location /
     role, without the fields left alone."""
     cur = {k: str((current or {}).get(k) or "").strip()
@@ -56125,6 +56136,10 @@ def p_pdf_gen(s: AppState, rf):
             s._pdf_industry = _eff["industry_label"] or (_eff["niche"] if _eff["mode"] == "market" else "")
             s._pdf_website  = _eff["website"]  # blank in market mode
             _pulled_from_targets = True
+    # ThriveModal: a blank Location starts as USA (editable), so the form
+    # never asks for a city that does not matter for offshore staff.
+    if not s._pdf_location:
+        s._pdf_location = _tm_default_location()
 
     # Pull primary + secondary industries from the same source as campaign
     # creation (_sq_*) so PDFs use the exact Company / Primary / Secondary /
@@ -56146,7 +56161,8 @@ def p_pdf_gen(s: AppState, rf):
         s._pdf_tm_cost = {}
 
     def _clear_pdf():
-        s._pdf_company = ""; s._pdf_role = ""; s._pdf_location = ""
+        s._pdf_company = ""; s._pdf_role = ""
+        s._pdf_location = _tm_default_location()
         s._pdf_industry = ""; s._pdf_website = ""; s._pdf_exp_level = ""
         s._pdf_tm_cost = {}
         s._pdf_open_roles = []; s._pdf_af_picks = []; s._pdf_af_err = ""
@@ -56428,7 +56444,10 @@ def p_pdf_gen(s: AppState, rf):
                 pdf_co = ui.input(value=s._pdf_company, placeholder="Company name or market niche").classes("fd-input")
             with ui.element("div"):
                 ui.label("Location *").classes("fd-fl")
-                pdf_loc = ui.input(value=s._pdf_location, placeholder="City, State").classes("fd-input")
+                pdf_loc = ui.input(
+                    value=s._pdf_location,
+                    placeholder=(_TM_NATIONWIDE if _tm_nationwide() else "City, State"),
+                ).classes("fd-input")
 
         def _commit_pdf_form():
             """Copy what is typed into state, so a re-render keeps it.
@@ -66620,7 +66639,7 @@ def p_market_intel(s: AppState, rf):
                     _w_name = ui.input(placeholder="Market name").classes("fd-input")
                 with ui.element("div"):
                     if not hasattr(s, "mi_w_location"):
-                        s.mi_w_location = ""
+                        s.mi_w_location = _tm_default_location()
                     _render_region_picker(
                         s, rf,
                         state_key="mi_w_location",
@@ -66685,7 +66704,7 @@ def p_market_intel(s: AppState, rf):
                 # Reset both pickers for the next watch
                 s.mi_w_primary_industry = ""
                 s.mi_w_secondary_industries = []
-                s.mi_w_location = ""
+                s.mi_w_location = _tm_default_location()
                 rf()
             with ui.element("div").style("margin-top:16px;"):
                 with ui.element("button").classes("fd-pb").style(

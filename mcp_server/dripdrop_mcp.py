@@ -838,7 +838,7 @@ async def tm_newsletters() -> dict:
 
 @mcp.tool(description=(
     "Create a monthly newsletter. sector is a key from tm_newsletters "
-    "(e.g. 'logistics'); region defaults to Nationwide; start_date "
+    "(e.g. 'logistics'); region defaults to USA; start_date "
     "YYYY-MM-DD (default today); count = months (default 12); style "
     "'full_send' (with pictures) or 'j_way' (organic, text only); "
     "profiles=true adds candidate profile cards. The first issue is written "

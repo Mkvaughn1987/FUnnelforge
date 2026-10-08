@@ -345,7 +345,7 @@ def test_create_newsletter_saves_and_writes_the_first_issue(api, monkeypatch):
                     {"name": "Freight Notes", "sector": "logistics", "count": 2})
     assert r.status_code == 200, r.text
     assert api["saved"][-1]["name"] == "Freight Notes"
-    assert api["saved"][-1]["market_region"] == "Nationwide"
+    assert api["saved"][-1]["market_region"] == "USA"
     assert ran == [_OWNER]
     c = api["call"]
     assert c("post", "/api/v1/tm/newsletters",

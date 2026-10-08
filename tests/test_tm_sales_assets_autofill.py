@@ -42,7 +42,7 @@ def test_autofill_fills_only_blank_fields(monkeypatch):
             "industry": "construction", "location": "Tysons, VA"}
     out = fa._pdf_autofill_fields(cur, data, ["VDC Coordinator", "Estimator"])
     assert out == {"company": "M.C. Dean", "website": "mcdean.com",
-                   "industry": "Construction", "location": "Nationwide",
+                   "industry": "Construction", "location": "USA",
                    "role": "VDC Coordinator, Estimator"}
 
 
@@ -65,7 +65,7 @@ def test_autofill_replaces_a_company_typed_as_a_domain(monkeypatch):
             "industry": "construction", "location": "Tysons, VA"}
     out = fa._pdf_autofill_fields(cur, data, [])
     assert out["company"] == "M.C. Dean"
-    # Arena keeps the real city; only ThriveModal goes Nationwide.
+    # Arena keeps the real city; only ThriveModal goes USA.
     assert out["location"] == "Tysons, VA"
     assert "role" not in out
 
@@ -127,7 +127,7 @@ def test_runner_fills_the_form_and_the_chips(monkeypatch):
     assert s._pdf_company == "M.C. Dean"
     assert s._pdf_website == "www.mcdean.com"      # typed, kept
     assert s._pdf_industry == "Construction"
-    assert s._pdf_location == "Nationwide"
+    assert s._pdf_location == "USA"
     assert s._pdf_role == "VDC Coordinator, Estimator, AP Specialist"
     # Electrician is on-site work, so it never becomes a chip.
     assert s._pdf_open_roles == ["VDC Coordinator", "Estimator",
