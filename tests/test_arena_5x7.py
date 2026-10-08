@@ -61,25 +61,10 @@ def test_overrides_pin_delays_and_are_scoped():
     assert all(e["delay_days"] == 9 for e in other["emails"])
 
 
-def test_resumes_on_email_five_only_with_line():
+def test_no_resumes_ever():
     emails = _sample()["emails"]
-    fa._attach_resumes_to_emails("fivebyseven", emails, ["a.pdf", "b.pdf", "c.pdf"])
-    fa._attach_resumes_to_emails("fivebyseven", emails, ["a.pdf", "b.pdf", "c.pdf"])
-    by_step = {fa._fivebyfive_step_no(e["name"]): e for e in emails}
-    for n in (7,):
-        assert by_step[n]["attachments"] == ["a.pdf", "b.pdf", "c.pdf"]
-        body = by_step[n]["body"]
-        assert body.count(fa._FIVEBYSEVEN_RESUME_LINE) == 1
-        assert body.endswith("</div>")
-    for n in (1, 2, 3, 4, 5, 6, 8, 9, 10):
-        assert not by_step[n].get("attachments")
-        assert fa._FIVEBYSEVEN_RESUME_LINE not in by_step[n]["body"]
-
-
-def test_no_resumes_means_no_line():
-    emails = _sample()["emails"]
-    fa._attach_resumes_to_emails("fivebyseven", emails, [])
-    assert all(fa._FIVEBYSEVEN_RESUME_LINE not in e["body"] for e in emails)
+    fa._attach_resumes_to_emails("fivebyseven", emails, ["a.pdf", "b.pdf"])
+    assert all(not e.get("attachments") for e in emails)
 
 
 def test_chooser_tile_and_routing():

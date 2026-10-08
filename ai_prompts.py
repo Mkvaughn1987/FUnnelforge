@@ -256,14 +256,16 @@ SEQUENCE_INFO = {
         "tag": "Longest runway",
         "about": "Seven warm emails, two calls and a LinkedIn touch. Opens "
                  "on the market, brings in three matched candidates on "
-                 "email 3, sends them again with redacted resumes on email "
-                 "5, and closes on two of them.",
+                 "email 3, sends them again on email 5, and closes on two "
+                 "of them. A market pulse, interview guide and salary "
+                 "guide ride on emails 2, 4 and 5. No resumes.",
         "best": "Accounts worth a month of patient follow-up.",
         "steps": [
             (1, "email", "Quick note for {Company}",
              "Introduces you and the roles you place. No candidates yet."),
             (4, "email", "What I'm seeing in {market}",
-             "One or two things you're seeing in hiring in their market."),
+             "One or two things you're seeing in hiring in their market.",
+             "Market pulse"),
             (4, "call", "Follow-up call",
              "Asks who handles hiring and whether anything is open."),
             (4, "linkedin", "LinkedIn connect",
@@ -271,9 +273,10 @@ SEQUENCE_INFO = {
             (7, "email", "A few candidates for {Company}",
              "Three matched candidates as short write-ups."),
             (10, "email", "How I work",
-             "How you vet people and stay in touch after the start date."),
+             "How you vet people and stay in touch after the start date.",
+             "Interview guide"),
             (14, "email", "Those candidates again",
-             "The same three, one new line each.", "Redacted resumes"),
+             "The same three, one new line each.", "Salary guide"),
             (14, "call", "Follow-up call 2",
              "Asks whether any of them are worth a conversation."),
             (18, "email", "Right person to ask?",
@@ -310,21 +313,22 @@ SEQUENCE_INFO = {
     "Arena 5x3": {
         "tag": "Pipeline-matched slate",
         "about": "Five warm emails built around three candidates matched "
-                 "from your Pipeline. Redacted resumes go on emails 2 and "
-                 "4, an interview guide on email 3.",
+                 "from your Pipeline. A market pulse goes on email 2, an "
+                 "interview guide on email 3 and a salary guide on email "
+                 "4. No resumes.",
         "best": "A company hiring a role you have real people for.",
         "steps": [
             (1, "email", "Quick note for {Company}",
              "Introduces you and the role you place."),
             (4, "email", "A few candidates who caught my eye",
-             "Short spotlight on each of the three candidates.",
-             "Redacted resumes"),
+             "An in-depth write-up on each of the three candidates.",
+             "Market pulse"),
             (7, "email", "An interview guide, in case it helps",
              "A ready-to-use interview guide for the role.",
              "Interview guide"),
             (9, "email", "Following up",
-             "A short bump with the resumes attached again.",
-             "Redacted resumes"),
+             "A short bump that checks you have the right person.",
+             "Salary guide"),
             (12, "email", "Closing the loop for now",
              "Warm sign-off and a spot on your monthly newsletter."),
         ],

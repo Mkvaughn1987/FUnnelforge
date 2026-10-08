@@ -1599,6 +1599,12 @@ def _build_and_review(owner, rec):
                     owner_email=owner)
             except Exception as ex:
                 _log(rec, "%s — salary guide skipped: %s" % (c["company"], ex))
+        if template in ff._SEQUENCE_PDF_TYPES and emails:
+            # 5x3/5x7: three PDFs on three emails, no résumés.
+            ff._attach_sequence_pdfs(
+                template, data, c["company"], client=client,
+                roles_str=role or "", location_str="",
+                industry=target.get("industry") or "", owner_email=owner)
         if template in ff._FOURBYFOUR_PDF_TYPES and emails:
             # Step 6 promises a market snapshot; same deal.
             try:

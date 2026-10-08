@@ -78,16 +78,15 @@ def test_build_slate_all_real_when_three_clear_floor():
     assert [c["_pool_id"] for c in cards] == ["c1", "c2", "c3"]   # tier order = score order
 
 
-def test_build_slate_fills_when_shortfall():
+def test_build_slate_real_people_only_on_shortfall():
     import flowdrip_app as fa
     scored = [{"id": "c1", "score": 90, "reason": ""},
               {"id": "c2", "score": 20, "reason": ""},   # below floor
               {"id": "c3", "score": 10, "reason": ""}]   # below floor
     cards = fa._build_slate_cards(_pool3(), scored, "Healthcare PM")
-    assert len(cards) == 3
-    assert cards[0]["_pool_id"] == "c1"
-    assert "_pool_id" not in cards[1] and "_pool_id" not in cards[2]  # fills
-    assert cards[1]["label"] == "Candidate B"
+    # No made-up "representative" fill cards (Mike, 2026-10-08).
+    assert [c["_pool_id"] for c in cards] == ["c1"]
+    assert not any(c.get("_synthetic") for c in cards)
 
 
 def test_build_slate_empty_when_none_clear_floor():
@@ -111,9 +110,8 @@ def test_match_pipeline_to_company_end_to_end(monkeypatch):
     cards = fa._match_pipeline_to_company(_StubClient(payload), "Swinerton",
                                           "Healthcare PM", "Construction",
                                           owner="mike@dripdrop.ai")
-    assert len(cards) == 3
+    assert len(cards) == 1                        # only 1 cleared the floor
     assert cards[0]["_pool_id"] == "c1"           # real top match
-    assert "_pool_id" not in cards[2]             # filled (only 1 cleared floor)
 
 
 def test_match_pipeline_skips_when_no_fit(monkeypatch):
@@ -158,7 +156,7 @@ def test_api_resolve_matches_when_absent(monkeypatch):
         {"company": "Acme", "roles": ["Project Manager"], "industry": "Construction"},
         owner="mike@dripdrop.ai")
     assert skip is None
-    assert len(cards) == 3 and cards[0]["_pool_id"] == "c1"
+    assert len(cards) == 1 and cards[0]["_pool_id"] == "c1"  # real only
 
 
 def test_api_resolve_skips_when_no_fit(monkeypatch):

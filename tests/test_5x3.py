@@ -32,7 +32,6 @@ def test_fivebythree_in_slate_family():
     import flowdrip_app as fa
     assert "fivebythree" in fa._ARENA_SLATE_TYPES
     assert fa._camp_is_4x4({"aicb_camp_type": "fivebythree"}) is True
-    assert fa._resume_attach_indices("fivebythree", 5) == [1, 3]
 
 
 def _sample_5x3_generated():
@@ -63,15 +62,17 @@ def test_5x3_overrides_noop_for_other_types():
     assert "AI DRIFT TEXT" in bump["body"]
 
 
-def test_5x3_bump_verbatim_keeps_attachments_and_schedule():
+def test_5x3_bump_verbatim_drops_resumes_and_pins_schedule():
     import flowdrip_app as fa
     data = fa._apply_fivebythree_overrides("fivebythree", _sample_5x3_generated())
     bump = next(e for e in data["emails"] if e["name"].startswith("Step 4"))
     assert bump["subject"] == "Following up"
     assert "AI DRIFT TEXT" not in bump["body"]
-    assert "review the résumés" in bump["body"] or "look over the résumés" in bump["body"]
-    # 5x3 bump RE-ATTACHES resumes — must NOT be cleared (unlike the 5x5)
-    assert bump["attachments"] == ["Resume_Candidate_A_Redacted.pdf"]
+    assert "look over the candidates" in bump["body"]
+    assert "résumé" not in bump["body"]
+    # No résumés on the 5x3 any more (Mike, 2026-10-08)
+    assert bump["attachments"] == []
+    assert "I attached a salary guide for your review." in bump["body"]
     assert bump["delay_days"] == 2  # pinned from a drifted 9
     assert "—" not in bump["body"] and "–" not in bump["body"]
 
@@ -247,15 +248,13 @@ def _emails_n(n):
     return [{"name": f"Step {i+1}", "attachments": []} for i in range(n)]
 
 
-def test_attach_5x3_all_resumes_on_both_slate_emails():
+def test_5x3_and_5x7_never_get_resumes():
     import flowdrip_app as fa
-    emails = _emails_n(5)
     pdfs = ["Resume_A_Redacted.pdf", "Resume_B_Redacted.pdf", "Resume_C_Redacted.pdf"]
-    fa._attach_resumes_to_emails("fivebythree", emails, pdfs)
-    assert emails[1]["attachments"] == pdfs   # email 2: all 3
-    assert emails[3]["attachments"] == pdfs   # email 4: all 3
-    assert emails[0]["attachments"] == []
-    assert emails[2]["attachments"] == []
+    for ct, n in (("fivebythree", 5), ("fivebyseven", 10)):
+        emails = _emails_n(n)
+        fa._attach_resumes_to_emails(ct, emails, pdfs)
+        assert all(e["attachments"] == [] for e in emails), ct
 
 
 def test_attach_legacy_positional_pairing_unchanged():
