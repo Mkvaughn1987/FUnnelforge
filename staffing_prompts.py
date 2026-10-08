@@ -1160,7 +1160,7 @@ ROUTINES = [
               "select", default="Posted in the last 30 days",
               options=STAFF_POSTING_AGE),
             F("boards", "Where to look for the jobs", "size",
-              default=BOARDS_DEFAULT),
+              default=BOARDS_DEFAULT, show_if=_e.never_shown),
         ] + SKIP_FIELDS,
         "steps": [
             "{vertical_guide}",

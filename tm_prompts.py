@@ -1434,7 +1434,7 @@ ROUTINES = [
               options=TM_POSTING_AGE),
             F("boards", "Where to look for the jobs", "size",
               default="Google Jobs first, then ZipRecruiter, then LinkedIn, "
-                      "then Indeed"),
+                      "then Indeed", show_if=_e.never_shown),
         ] + _TM_SKIP_FIELDS,
         "steps": [
             "{vertical_guide}",

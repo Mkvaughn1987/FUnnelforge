@@ -128,6 +128,13 @@ def _visible(r, vals, f):
     return True if not fn else bool(fn(r, vals))
 
 
+def never_shown(r, vals):
+    """show_if for a question everyone leaves on its default. The field
+    stays on the routine so the default still reaches the prompt; it just
+    never appears as a question on any step."""
+    return False
+
+
 def finalize_routines(routines):
     """Give every routine the schedule and autonomy questions and its
     field_by_key index, and return the by-key lookup. Idempotent: a routine
@@ -689,7 +696,7 @@ ROUTINES = [
               "select", default="Posted in the last 30 days",
               options=POSTING_AGE),
             F("boards", "Where to look for the jobs", "size",
-              default=BOARDS_DEFAULT),
+              default=BOARDS_DEFAULT, show_if=never_shown),
         ] + SKIP_FIELDS,
         "steps": [
             "Search the job boards for companies hiring {roles} in "
@@ -759,7 +766,7 @@ ROUTINES = [
               "select", default="Posted in the last 30 days",
               options=POSTING_AGE),
             F("boards", "Where to look for the jobs", "size",
-              default=BOARDS_DEFAULT),
+              default=BOARDS_DEFAULT, show_if=never_shown),
         ] + SKIP_FIELDS,
         "steps": [
             "Search the job boards for companies hiring {roles} in "
