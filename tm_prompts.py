@@ -1366,7 +1366,9 @@ _CONTACTS_STEP = (
     "mobilePhone and phone as well, and keep both numbers on every contact "
     "as phone_mobile and phone_office so they stay on file; a "
     "DisallowedOutputFields warning on one of them is not an error, take "
-    "what comes back.")
+    "what comes back. If a person has neither number, put the company's "
+    "main line in phone_office - ask enrich_companies for phone, or read it "
+    "off the company's website - so every call card has a number to dial.")
 
 _SHOW_STEP = (
     "Show me the companies, the signal on each one, the contacts and the "
