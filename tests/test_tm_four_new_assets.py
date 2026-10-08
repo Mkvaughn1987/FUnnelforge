@@ -45,14 +45,37 @@ def test_roles_map_is_seeded_with_the_cost_roles(monkeypatch):
                                                "Freight Billing Specialist"])
     p = fa._rich_pdf_prompt("tm_roles_map", CTX)
     assert "Dispatcher" in p and "Freight Billing Specialist" in p
-    assert "What Stays With You" in p
+    assert "Retained Functions" in p
 
 
 def test_first_90_is_a_proposal_not_a_promise(monkeypatch):
     _tm(monkeypatch)
     p = fa._rich_pdf_prompt("tm_first_90", CTX)
     assert "Suggested:" in p and "1-30" in p and "61-90" in p
-    assert "Us" in p and "You" in p
+    assert "['Window','Our Team','Your Team','Checkpoint']" in p
+    assert "'Us'," not in p and ",'You'," not in p
+
+
+# 2026-10-08: the four kinds were written before the business-voice rules
+# (19dfb25). Their section headings must be the business nouns that voice
+# asks for, and none may be a phrase the voice bans ("the short version").
+def test_new_prompt_headings_follow_the_business_voice(monkeypatch):
+    import re
+    _tm(monkeypatch)
+    rules = fa._tm_rich_rules()
+    banned = re.findall(r"'([^']+)'", rules.split("Banned phrasing:")[1]
+                        .split("\n")[0])
+    for k in NEW:
+        head = fa._rich_pdf_prompt(k, CTX).split("THRIVEMODAL PLAYBOOK")[0]
+        headings = re.findall(r"heading '([^']+)'", head)
+        assert headings, k
+        for h in headings:
+            assert h.lower() not in banned, (k, h)
+            for w in h.split():
+                assert w[0].isupper() or w[0].isdigit() or w in (
+                    "and", "vs", "the", "of", "to", "at"), (k, h)
+            assert not h.startswith(("What ", "Why ", "How ", "If ", "The ")), (k, h)
+        assert "Frequently Asked Questions" in headings or k == "tm_first_90", k
 
 
 def test_security_names_practices_not_certifications(monkeypatch):
@@ -60,20 +83,24 @@ def test_security_names_practices_not_certifications(monkeypatch):
     p = fa._rich_pdf_prompt("tm_security", CTX)
     for word in ("NDA", "VPN", "isolated workstation", "certification"):
         assert word in p
-    assert "What You Control" in p
+    assert "Client Controls" in p
 
 
-def test_fixed_titles_for_the_new_kinds(monkeypatch):
+def test_fixed_titles_and_badges_for_the_new_kinds(monkeypatch):
     _tm(monkeypatch)
-    want = {"tm_myths": "Offshore: Myths vs Reality",
-            "tm_roles_map": "Roles That Work Offshore",
-            "tm_first_90": "First 90 Days Plan",
-            "tm_security": "Security and Confidentiality"}
-    for k, label in want.items():
-        d = {"title": "Houston Construction Something", "sections": []}
+    want = {"tm_myths": ("Offshore: Myths vs Reality", "BUYER FAQ"),
+            "tm_roles_map": ("Roles That Work Offshore", "ROLE PLANNING"),
+            "tm_first_90": ("First 90 Days Plan", "ONBOARDING PLAN"),
+            "tm_security": ("Security and Confidentiality",
+                            "DATA PROTECTION")}
+    for k, (label, badge) in want.items():
+        d = {"title": "Houston Construction Something",
+             "badge": "EXPLORATORY MARKET TEST", "sections": []}
         fa._tm_fix_pdf_labels(k, CTX, d)
         assert d["title"] == f"{label} - Acme Freight", k
-        assert d["badge"] == label.upper(), k
+        # The badge is the category, never the title in caps (19dfb25).
+        assert d["badge"] == badge, k
+        assert d["badge"] != label.upper(), k
 
 
 def test_campaigns_offer_the_new_kinds_and_not_the_interview_guide():
