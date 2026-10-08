@@ -45588,6 +45588,12 @@ _TM_PDF_KINDS = frozenset({
 })
 
 
+# ThriveModal PDFs are written by Fable (Mike, 2026-10-07: "run it through
+# fable"). Haiku kept the sections but broke playbook rules the buyer would
+# hold us to (a time-to-hire promise, a shift that contradicted itself).
+_TM_PDF_MODEL = os.environ.get("DRIPDROP_TM_PDF_MODEL", "claude-fable-5-1")
+
+
 def _is_tm_pdf_kind(kind: str) -> bool:
     """True when `kind` is written under the ThriveModal playbook rules:
     the tm_* kinds anywhere, and on ThriveModal also the Interview Guide and
@@ -46868,7 +46874,7 @@ def _generate_rich_pdf_data(client, kind: str, ctx: dict, research_context: str 
                 "by a comma, every string properly quoted.\n\n"
             ) + full
         msg = _claude_create_with_retry(client,
-            model="claude-haiku-4-5-20251001",
+            model=_TM_PDF_MODEL if _is_tm_pdf_kind(kind) else "claude-haiku-4-5-20251001",
             max_tokens=2400,
             messages=[{"role": "user", "content": full}],
         )
