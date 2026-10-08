@@ -5840,19 +5840,36 @@ AICB_CAMPAIGN_TYPES = [
      "figure in this email), and invite them to take a chance on one role. "
      "The system adds two candidate profiles to this email before its "
      "question."),
-    ("tm_threebythree", "Quick Intro", "3 steps - 2 weeks", "#EF4444",
-     "Three short emails over about a week and a half, email only: the work, "
-     "the cost, then a straight answer. For big lists where you want a fast "
-     "read on who is interested.",
+    # Mike, 2026-10-08: four emails, not three. The cost email talks in
+    # hourly dollars only, the onboarding email (his own Model 4 wording)
+    # points back at those rates, and the close asks for one word.
+    ("tm_threebythree", "Quick Intro", "4 steps - 2 weeks", "#EF4444",
+     "Four short emails over about two weeks, email only: the work, the cost "
+     "in hourly terms, what happens after the candidate joins, then a "
+     "straight answer. For big lists where you want a fast read on who is "
+     "interested.",
      "Big lists - see who bites - email only",
      "Step 1 - Capacity (delay_days:0, step_type:email_auto) (model: Capacity) "
      "- Cold first touch. Name the recurring work outright, taken from the "
      "BRIEF for the target role.\n"
      "Step 2 - Economics (delay_days:3, step_type:email_auto) (model: "
-     "Economics) - The cost email, and the only one that states the saving.\n"
-     "Step 3 - Close (delay_days:4, step_type:email_auto) (model: Close) - The "
-     "last email. Its question asks for a one-word reply, 'now', 'later' or "
-     "'no', and says any answer is useful."),
+     "Economics) - The cost email, and the only one that states the saving. "
+     "Dollar figures in this email are HOURLY ONLY: state the one approved "
+     "figure, most support staff under $11/hr, beside the 'up to' "
+     "percentage. Never an annual salary, a monthly rate, a '$60K' figure or "
+     "any other dollar amount; the candidate profiles the system adds carry "
+     "the hourly rates.\n"
+     "Step 3 - After the candidate joins (delay_days:3, step_type:email_auto) "
+     "(model: After the candidate joins) - The sender's own wording, as the "
+     "house style says: it opens by asking whether they saw the last email "
+     "with most support staff under $11/hr (the candidate profiles on Step "
+     "2), then the handoff, the monthly check-ins and quarterly reviews, the "
+     "placement claim, and the offer of more information.\n"
+     "Step 4 - Close (delay_days:4, step_type:email_auto) (model: Close) - The "
+     "last email. It says plainly this is the last note in the sequence and "
+     "promises the monthly check-in, as Model 7 does, but its closing "
+     "question is different from the model's: ask for a one-word reply, "
+     "'now', 'later' or 'no', and say any of the three helps."),
     ("tm_fivethreeli", "5 Emails, 3 Calls + LinkedIn", "9 steps - 3 weeks", "#8B5CF6",
      "The full multichannel push: five emails, three calls and a LinkedIn "
      "connect over three weeks. Every call follows an email on the same "
@@ -16698,10 +16715,13 @@ _TM_STEP_SHAPE = {
         7: (4, ST.EMAIL_AUTO), 8: (0, ST.CALL),       9: (4, ST.EMAIL_AUTO),
         10: (5, ST.EMAIL_AUTO),
     },
-    # Quick Intro: email only, business days 0 / 3 / 7. Three cold emails in
-    # five days read as pushy and draw spam complaints; this spacing doesn't.
+    # Quick Intro: email only, business days 0 / 3 / 6 / 10, two weeks.
+    # Cold emails three days apart read as attentive; closer draws spam
+    # complaints. Mike, 2026-10-08: a fourth email (After the candidate
+    # joins) between the cost email and the close.
     "tm_threebythree": {
-        1: (0, ST.EMAIL_AUTO), 2: (3, ST.EMAIL_AUTO), 3: (4, ST.EMAIL_AUTO),
+        1: (0, ST.EMAIL_AUTO), 2: (3, ST.EMAIL_AUTO), 3: (3, ST.EMAIL_AUTO),
+        4: (4, ST.EMAIL_AUTO),
     },
     # 5 emails, 3 calls, 1 LinkedIn; each call on the day of the email before.
     "tm_fivethreeli": {
@@ -16814,7 +16834,10 @@ def _apply_thrivemodal_overrides(camp_type, campaign_data):
                 em["subject"] = subjects[models[n]]
         has_att = bool(em.get("attachments"))
         em["body"] = _tm_drop_unbacked_lines(em.get("body") or "", has_att)
+        if em.get("step_type") in (None, "", ST.EMAIL_AUTO, ST.EMAIL_MANUAL):
+            em["body"] = _tm_hourly_dollars_only(em.get("body") or "")
     _tm_ensure_offshore_and_monthly(campaign_data)
+    _tm_ensure_one_word_close(key, campaign_data)
     return campaign_data
 
 
@@ -16883,6 +16906,83 @@ def _tm_ensure_offshore_and_monthly(campaign_data) -> None:
     text = _tm_scrub_line(body).replace("month-to-month", "")
     if not _TM_MONTHLY_RE.search(text):
         last["body"] = body.rstrip() + "<br><br>" + _TM_MONTHLY_LINE
+
+
+# Mike, 2026-10-08 (Quick Intro walkthrough): the cost email wrote "$55,000
+# to $65,000 annually" and "another $60K desk" although the house style
+# allows no dollar amount but the hourly rates. Hourly figures ("$11/hr",
+# "$9 to $11 an hour") stay; a sentence carrying any other dollar figure
+# goes, sentence by sentence inside each <br>-separated line so the markup
+# around it survives. Backstop for the rule in _TM_EMAIL_OPENER_RULE.
+_TM_HOURLY_DOLLAR_RE = re.compile(
+    r"\$\s?\d[\d,]*(?:\.\d+)?"
+    r"(?:\s*(?:to|-|–|and)\s*\$?\s?\d[\d,]*(?:\.\d+)?)?"
+    r"\s*(?:/\s?(?:hr|hour)\b|per hour\b|an hour\b|hourly\b|/h\b)", re.I)
+_TM_ANY_DOLLAR_RE = re.compile(r"\$\s?\d")
+# Sentence ends: ". ", "? ", "! " but not after an initial ("U.S. hire").
+_TM_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.?!])(?<![A-Z]\.)\s+")
+
+
+def _tm_hourly_dollars_only(body: str) -> str:
+    """Drop every sentence whose dollar figures are not all hourly."""
+    if not body or "$" not in body:
+        return body
+    parts = re.split(r"(?i)(<br\s*/?>)", body)
+    out = []
+    for chunk in parts:
+        if re.match(r"(?i)^<br\s*/?>$", chunk or "") or "$" not in (chunk or ""):
+            out.append(chunk)
+            continue
+        kept = []
+        for s in _TM_SENTENCE_SPLIT_RE.split(chunk):
+            if _TM_ANY_DOLLAR_RE.search(_TM_HOURLY_DOLLAR_RE.sub("", s)):
+                continue
+            kept.append(s)
+        out.append(" ".join(x for x in kept if x.strip()))
+    joined = "".join(out)
+    # A line dropped whole leaves its <br> pair behind; keep paragraph gaps
+    # at two.
+    return re.sub(r"(?i)(?:\s*<br\s*/?>\s*){3,}", "<br><br>", joined)
+
+
+# Quick Intro's close asks for one word. The chooser card promised it from
+# the start, but Model 7's own question ("Would you be open to taking a
+# chance on one?") won every time, so the step line now says the question
+# differs from the model's and this backstop makes sure of it.
+_TM_ONE_WORD_CLOSE_TYPES = {"tm_threebythree"}
+_TM_ONE_WORD_ASK = ("Could you reply with one word, now, later or no? Any of "
+                    "the three helps me, and no is a perfectly good answer.")
+_TM_ONE_WORD_RE = re.compile(
+    r"\bnow\b[^.?!]{0,60}\blater\b[^.?!]{0,60}\bno\b", re.I)
+
+
+def _tm_ensure_one_word_close(camp_type, campaign_data) -> None:
+    """The last email of a one-word-close type ends on the now/later/no ask.
+    A short closing question the model wrote is replaced; anything longer is
+    kept and the ask goes after it. The monthly check-in line and an
+    attachment line stay last, as they do everywhere else."""
+    if (camp_type or "").strip() not in _TM_ONE_WORD_CLOSE_TYPES:
+        return
+    emails = [e for e in (campaign_data or {}).get("emails", []) or []
+              if e.get("step_type") in (None, "", ST.EMAIL_AUTO)]
+    if not emails:
+        return
+    last = emails[-1]
+    body = last.get("body") or ""
+    if _TM_ONE_WORD_RE.search(_tm_scrub_line(body)):
+        return
+    paras = re.split(r"(?:<br\s*/?>\s*){2,}", body)
+    trailing = []
+    while paras and (_TM_PDF_LINE_RE.match(paras[-1] or "")
+                     or (paras[-1] or "").strip() == _TM_MONTHLY_LINE):
+        trailing.insert(0, paras.pop())
+    paras = [p for p in paras if p.strip()]
+    tail = _tm_scrub_line(paras[-1]).strip() if paras else ""
+    if len(paras) > 1 and tail.endswith("?") and len(tail) <= 160:
+        paras[-1] = _TM_ONE_WORD_ASK
+    else:
+        paras.append(_TM_ONE_WORD_ASK)
+    last["body"] = "<br><br>".join(paras + trailing)
 
 
 def _resume_attach_indices(camp_type, n_emails):
@@ -29912,8 +30012,9 @@ _TM_CHOOSER_OBJECTIVES = [
         "icon": "⚡",
         "title": "Quick Intro",
         "use_when": "You have a big list and want to see who's interested, fast.",
-        "desc": ("Email only. Names the work, shows the cost, then asks for "
-                 "a one-word reply: now, later or no."),
+        "desc": ("Email only. Names the work, shows the cost by the hour, "
+                 "says what happens after the candidate joins, then asks "
+                 "for a one-word reply: now, later or no."),
         "border": "#EF4444",
     },
     {
@@ -48193,8 +48294,8 @@ _TM_CAMPAIGN_PDF_BLURBS = {
 }
 TM_CAMPAIGN_PDF_DEFAULT = ["tm_role_blueprint", "tm_cost_compare"]
 # Per type, the pair that matches what the sequence's steps talk about, so
-# placement finds a step that fits each PDF. Quick Intro has two emails that
-# can carry a file and is a fast read, so it carries one.
+# placement finds a step that fits each PDF. Quick Intro is a fast read, so
+# it carries one, the Cost Comparison on its cost email.
 _TM_TYPE_PDF_DEFAULT = {
     # Mike, 2026-10-08: Standard Outreach carries three. Cost lands on the
     # cost email, the Blueprint on Role scope, Myths on After the candidate
@@ -63517,6 +63618,12 @@ _TM_PROFILE_ROUNDS = {
          None),
         (None, 9, _TM_PROFILES_THIRD_LEAD, None),
         ("Leaving this with you", 12, _TM_PROFILES_LAST_LEAD, 2),
+    ),
+    # Mike, 2026-10-08: Quick Intro shows them once, on the cost email, so
+    # the After the candidate joins email can point back at "my last email,
+    # with most support staff under $11/hr".
+    "tm_threebythree": (
+        ("What would the role actually cost?", 2, _TM_PROFILES_LEAD, None),
     ),
 }
 

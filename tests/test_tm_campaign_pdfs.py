@@ -284,14 +284,15 @@ def _shape_counts(key):
 def test_new_shapes_match_what_was_asked_for():
     # Standard Outreach went to 7 emails (Mike, 2026-09-21), 22 business days.
     assert _shape_counts("tm_fivebyseven") == (7, 2, 1)
-    assert _shape_counts("tm_threebythree") == (3, 0, 0)
+    assert _shape_counts("tm_threebythree") == (4, 0, 0)
     assert _shape_counts("tm_fivethreeli") == (5, 3, 1)
     assert _shape_counts("tm_stay_in_touch") == (5, 1, 0)
-    # Quick Intro lands on days 0, 3 and 7.
+    # Quick Intro lands on days 0, 3, 6 and 10 (Mike, 2026-10-08: a fourth
+    # email between the cost email and the close).
     assert sum(d for d, _ in fa._TM_STEP_SHAPE["tm_fivebyseven"].values()) == 22
     assert sum(d for d, _ in fa._TM_STEP_SHAPE["tm_fivethreeli"].values()) == 15
     assert [d for _n, (d, _st) in sorted(
-        fa._TM_STEP_SHAPE["tm_threebythree"].items())] == [0, 3, 4]
+        fa._TM_STEP_SHAPE["tm_threebythree"].items())] == [0, 3, 3, 4]
     assert round(sum(d for d, _ in fa._TM_STEP_SHAPE[
         "tm_stay_in_touch"].values()) / 5) == 12
 
@@ -307,9 +308,9 @@ def test_card_summary_and_week_strip_come_from_the_shape():
     assert fa._tm_shape_summary("tm_fivebyseven") == (
         "7 emails · 2 calls · 1 LinkedIn · about 4 weeks")
     assert fa._tm_shape_summary("tm_threebythree") == (
-        "3 emails only · about 2 weeks")
+        "4 emails only · about 2 weeks")
     E, C_, L = fa.ST.EMAIL_AUTO, fa.ST.CALL, fa.ST.LINKEDIN
-    assert fa._tm_shape_weeks("tm_threebythree") == [[E, E], [E]]
+    assert fa._tm_shape_weeks("tm_threebythree") == [[E, E], [E, E]]
     assert fa._tm_shape_weeks("tm_fivebyseven") == [
         [E, E, C_, L], [E, E], [E, C_], [E, E]]
     for k in fa._TM_OFFERED_TYPE_KEYS:
