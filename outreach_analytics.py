@@ -279,14 +279,23 @@ def build_report(queue, responded, dnc, campaigns, types, days=None, now=None):
             _step(key, touch)["replies"] += 1
             replied_keys.add((name.lower(), addr, touch))
 
+    # Only what has actually gone out is reported: a type, campaign or email
+    # with nothing sent yet (scheduled only) is left off the page entirely.
     rows = []
-    for key, trow in tmap.items():
-        trow["campaigns"] = len(trow.pop("_camps"))
-        rows.append(_close(trow))
+    for key, trow in list(tmap.items()):
         det = details[key]
+        if not trow["sent"]:
+            del details[key]
+            continue
+        sent_camps = {low for low, c in det["campaigns"].items() if c["sent"]}
+        trow["campaigns"] = len(sent_camps)
+        trow.pop("_camps")
+        rows.append(_close(trow))
         steps = []
         for touch in sorted(det["steps"]):
             st = det["steps"][touch]
+            if not st["sent"]:
+                continue
             labels = st.pop("_labels")
             st["label"] = (max(labels.items(), key=lambda kv: kv[1])[0]
                            if labels else f"Email {touch}")
@@ -295,7 +304,7 @@ def build_report(queue, responded, dnc, campaigns, types, days=None, now=None):
                                  touch) in replied_keys
             st["emails"].sort(key=lambda e: e["sent_at"], reverse=True)
             steps.append(_close(st))
-        camps = [_close(c) for c in det["campaigns"].values()]
+        camps = [_close(c) for c in det["campaigns"].values() if c["sent"]]
         camps.sort(key=lambda r: (-r["sent"], -r["replies"], r["name"].lower()))
         details[key] = {"type": trow, "steps": steps, "campaigns": camps}
 
@@ -358,12 +367,20 @@ def _fmt_date(ts):
 
 
 _WINDOWS = [(7, "7 days"), (30, "30 days"), (None, "All time")]
+# Tables this narrow read as one block; stretched across a wide monitor the
+# numbers sit a screen-width away from the name they belong to.
+PAGE_MAX_PX = 1240
 
 
 def render(ui, C, s, rf, sources, types, help_fn=None):
     """Draw the page. `sources` is a callable(days) -> dict(queue, responded,
     dnc, campaigns); it is called once per render so "All time" can pull the
     archive without the shorter windows paying for it."""
+    with ui.element("div").style(f"max-width:{PAGE_MAX_PX}px;width:100%;"):
+        _render_page(ui, C, s, rf, sources, types, help_fn)
+
+
+def _render_page(ui, C, s, rf, sources, types, help_fn):
     days = getattr(s, "_oa_days", 30)
     if days not in (7, 30, None):
         days = 30
@@ -418,8 +435,8 @@ def render(ui, C, s, rf, sources, types, help_fn=None):
                 ui.label("Outreach Analytics").classes("fd-h1")
                 if help_fn:
                     help_fn()
-            ui.label("How each kind of campaign is performing. Click a campaign "
-                     "type to see every email in it, who it went to and who "
+            ui.label("How your campaigns and newsletters are performing. Click "
+                     "a campaign to see who each email went to and who "
                      "replied.").classes("fd-sub")
         with ui.element("div").style("display:flex;gap:8px;flex-shrink:0;"):
             for win, wlbl in _WINDOWS:
@@ -459,39 +476,94 @@ def render(ui, C, s, rf, sources, types, help_fn=None):
         with ui.element("div").style(card_css + "padding:28px 24px;text-align:center;"):
             ui.label("Nothing to report for this window yet.").style(
                 f"font-size:14px;font-weight:600;color:{text};margin-bottom:4px;")
-            ui.label("Numbers appear here once a campaign has emails queued "
-                     "or sent. Try a wider window above.").style(cell)
+            ui.label("Numbers appear here once a campaign has sent emails. "
+                     "Try a wider window above.").style(cell)
         return
 
-    cols = "minmax(0,1fr) 80px 60px 60px 74px 60px 74px 18px"
-    ui.label("By campaign type").style(title_css)
-    with ui.element("div").style(card_css):
-        with ui.element("div").style(_grid(cols, head_row)):
-            for h in ["Campaign type", "Campaigns", "Sent", "People",
-                      "Scheduled", "Replies", "Reply rate", ""]:
-                ui.label(h).style(hdr_css)
-        for row in report["types"]:
-            def _open(key=row["key"]):
-                s._oa_type = key
-                s._oa_step = None
-                s._oa_camp = None
-                rf()
+    def _open(key, step=None, camp=None):
+        s._oa_type = key
+        s._oa_step = step
+        s._oa_camp = camp
+        rf()
+
+    def _rate_label(val):
+        ui.label(_pct(val)).style(
+            f"font-size:12px;color:{C['good'] if val else muted};")
+
+    # ── Campaigns: one card per type, its emails listed right here ──────
+    camp_rows = [r for r in report["types"] if r["key"] != NEWSLETTER]
+    ui.label("Campaigns").style(title_css)
+    if not camp_rows:
+        ui.label("No campaign emails in this window.").style(cell + "margin-bottom:18px;")
+    cols = "minmax(0,1fr) 44px 52px 56px 66px 12px"
+    # Two cards per row; one per row once a card would be too narrow to read.
+    pair = ui.element("div").style(
+        "display:grid;grid-template-columns:repeat(auto-fit,minmax(min(440px,100%),1fr));"
+        "gap:12px;align-items:start;margin-bottom:12px;")
+    for row in camp_rows:
+        det = report["details"][row["key"]]
+        n = row["campaigns"]
+        with pair, ui.element("div").style(card_css + "margin-bottom:0;"):
             with _hover(ui.element("div").style(
-                    _grid(cols, body_row + "cursor:pointer;")), C).on("click", _open):
-                with ui.element("div").style(
-                        "display:flex;align-items:center;gap:8px;min-width:0;"):
-                    _dot(row["color"])
-                    ui.label(row["name"]).style(
-                        f"font-size:13px;font-weight:600;color:{text};"
+                    f"display:flex;align-items:center;gap:10px;flex-wrap:wrap;"
+                    f"padding:11px 14px;border-bottom:1px solid {C['border']};"
+                    f"cursor:pointer;"), C).on(
+                    "click", lambda key=row["key"]: _open(key)):
+                _dot(row["color"])
+                ui.label(row["name"]).style(
+                    f"font-size:14px;font-weight:700;color:{text};")
+                ui.label(f"{n} campaign{'s' if n != 1 else ''} · {row['sent']} sent"
+                         f" · {row['contacts']} people · {row['replies']} "
+                         f"repl{'ies' if row['replies'] != 1 else 'y'} "
+                         f"({_pct(row['reply_rate'])})"
+                         + (f" · {row['pending']} scheduled" if row["pending"] else "")
+                         ).style(cell + "flex:1;min-width:200px;")
+                ui.label("Details ›").style(
+                    f"font-size:12px;font-weight:600;color:{C['teal']};")
+            with ui.element("div").style(_grid(cols, head_row)):
+                for h in ["Email", "Sent", "Replies", "Rate", "Scheduled", ""]:
+                    ui.label(h).style(hdr_css)
+            for st in det["steps"]:
+                with _hover(ui.element("div").style(
+                        _grid(cols, body_row + "cursor:pointer;")), C).on(
+                        "click", lambda key=row["key"], t=st["touch"]: _open(key, step=t)):
+                    ui.label(f"{st['touch']}. {st['label']}").style(
+                        f"font-size:12px;font-weight:600;color:{text};"
                         f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
-                _num(row["campaigns"])
-                _num(row["sent"])
-                _num(row["contacts"])
-                _num(row["pending"], C["teal"])
-                _num(row["replies"], C["good"])
-                ui.label(_pct(row["reply_rate"])).style(
-                    f"font-size:12px;color:{C['good'] if row['reply_rate'] else muted};")
-                ui.label("›").style(f"font-size:16px;color:{muted};")
+                    _num(st["sent"])
+                    _num(st["replies"], C["good"])
+                    _rate_label(st["reply_rate"])
+                    _num(st["pending"], C["teal"])
+                    ui.label("›").style(f"font-size:14px;color:{muted};")
+
+    # ── Newsletters: every newsletter on the first screen ───────────────
+    ui.label("Newsletters").style(title_css + "margin-top:10px;")
+    nl = report["details"].get(NEWSLETTER)
+    if not nl or not nl["campaigns"]:
+        ui.label("No newsletters sent in this window.").style(cell + "margin-bottom:18px;")
+    else:
+        cols = "minmax(0,1fr) 56px 64px 64px 76px 76px 18px"
+        with ui.element("div").style(card_css + "margin-bottom:12px;"):
+            with ui.element("div").style(_grid(cols, head_row)):
+                for h in ["Newsletter", "Sent", "People", "Replies",
+                          "Reply rate", "Scheduled", ""]:
+                    ui.label(h).style(hdr_css)
+            for c in nl["campaigns"]:
+                with _hover(ui.element("div").style(
+                        _grid(cols, body_row + "cursor:pointer;")), C).on(
+                        "click", lambda name=c["name"]: _open(NEWSLETTER, camp=name)):
+                    with ui.element("div").style(
+                            "display:flex;align-items:center;gap:8px;min-width:0;"):
+                        _dot(_GROUP_COLORS[NEWSLETTER])
+                        ui.label(c["name"]).style(
+                            f"font-size:12px;font-weight:600;color:{text};"
+                            f"white-space:nowrap;overflow:hidden;text-overflow:ellipsis;")
+                    _num(c["sent"])
+                    _num(c["contacts"])
+                    _num(c["replies"], C["good"])
+                    _rate_label(c["reply_rate"])
+                    _num(c["pending"], C["teal"])
+                    ui.label("›").style(f"font-size:14px;color:{muted};")
     ui.label("Opt-outs and bounces stay workspace-wide: the do-not-contact list "
              "doesn't record which campaign an address came from.").style(
         f"font-size:11px;color:{muted};margin-bottom:20px;")
@@ -516,7 +588,7 @@ def _render_type(ui, C, s, rf, report, key, window_label, _strip, _grid, _num,
 
     with ui.element("button").classes("fd-gb").style(
             "padding:6px 12px;font-size:12px;margin:10px 0 4px;").on("click", _back):
-        ui.label("← All campaign types")
+        ui.label("← Back to overview")
 
     with ui.element("div").style("display:flex;align-items:center;gap:10px;margin-top:8px;"):
         _dot(trow["color"])
