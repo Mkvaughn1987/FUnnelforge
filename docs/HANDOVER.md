@@ -51,6 +51,62 @@ is removed until its replacement is live.
 
 ---
 
+## Part 1b - What it costs, and moving the bills
+
+After the handover, every bill below is the new owner's. Mike pays for
+none of it. Figures are from 2026-10-08; check each provider's billing page
+for the real invoice.
+
+| Cost | About | Billed by | How it is billed |
+|---|---|---|---|
+| Server (droplet `563901245`, region `sfo3`, 1 CPU / 2 GB / 25 GB disk) | $12 a month (+$2.40 if weekly backups are on) | DigitalOcean | Monthly invoice on the 1st, for the hours used the month before, charged to the card on the account |
+| AI (Claude API) | Was $50-65 a month May-Sept; October is on pace for ~$230 (research PDFs now use a larger model plus web search) | Anthropic | Prepaid credits on the org, or auto-reload from its card. Every AI feature in the app draws from the key in `.env` |
+| Domain `dripdripdrop.ai` | .ai names have a 2-year minimum; paid through 2028-04-09 | Cloudflare Registrar | Renews from the card on the Cloudflare account that holds the domain |
+| DNS, HTTPS, GitHub, Google sign-in, Microsoft app, Unsplash | $0 | various | Free tiers |
+
+Not part of the server bill: each user's own Claude, ZoomInfo and email
+accounts. Email goes out through each user's own Gmail or Outlook, so there
+is no sending service to pay for.
+
+The app logs every AI call with its cost in
+`/opt/dripdrop/data/ai_usage.jsonl` (also on the admin AI-usage page). The
+Anthropic console is the real bill: web-search fees and anything outside
+the app do not appear in that log.
+
+### Moving each bill
+**DigitalOcean.** A droplet cannot be moved straight to another person's
+account. Two ways to hand it over:
+1. *Hand over the team (simplest, no downtime).* In DigitalOcean every
+   account is a "team". If the team holding this droplet holds nothing else
+   of Mike's, invite the new owner, make them owner, they add their card,
+   Mike removes his card and leaves the team.
+2. *Rebuild in their account.* Take a snapshot, have DigitalOcean support
+   move it, or build a fresh 2 GB droplet and copy `/opt/dripdrop` across.
+   Then point the Cloudflare DNS record at the new IP. More work, and a few
+   minutes of downtime.
+
+Either way, the invoice on the 1st covers the month before and goes to
+whichever card is on file that day. Settle the handover month between you.
+
+**Anthropic.** Simplest: the new owner opens their own Anthropic account,
+buys credits, makes a key, and it replaces `ANTHROPIC_API_KEY` in `.env`
+(restart both colors). Then Mike deletes the old key and turns off
+auto-reload on his org. Until the old key is deleted, any use of it bills
+Mike.
+
+**Cloudflare.** Moving `dripdripdrop.ai` to the new owner's Cloudflare
+account moves its renewal with it. Check after the move that the domain
+shows in their account with auto-renew on, before Mike removes his card.
+
+### Mike's "stop paying" check, after the day
+- DigitalOcean: his card removed, or he has left the team. Next invoice
+  shows nothing for the droplet.
+- Anthropic: old DripDrop key deleted, auto-reload off, no new usage.
+- Cloudflare: `dripdripdrop.ai` gone from his account.
+- His own Claude routines that run against DripDrop turned off.
+
+---
+
 ## Part 2 - Inventory (live server, 2026-10-08)
 
 - Ubuntu 24.04, 1 vCPU, 2 GB RAM. Keep 2 GB minimum: the app loads large
