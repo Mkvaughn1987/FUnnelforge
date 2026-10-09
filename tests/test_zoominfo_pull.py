@@ -1,7 +1,7 @@
 """The shared ZoomInfo / job-board rules, and Sales Campaign parking.
 
 Rules: every Arena and staffing step that sources companies or pulls
-contacts carries them; inboxslide's tm_prompts never does.
+contacts carries them.
 Parking: a company both credit pools could not pay for waits two days,
 comes back as a contacts-only follow-up run, and is dropped after
 PARK_MAX_ATTEMPTS tries instead of retrying forever.
@@ -63,13 +63,6 @@ def test_board_order_is_google_linkedin_indeed_ziprecruiter():
              ("Google Jobs", "LinkedIn Jobs", "Indeed", "ZipRecruiter")]
     assert order == sorted(order)
 
-
-def test_tm_prompts_never_fall_back_to_a_seat():
-    import tm_prompts as tm
-    for r in tm.TM.routines:
-        text = _prompt(tm.TM, r["key"])
-        assert ZI_PULL_RULE not in text, r["key"]
-        assert "recruiter-app.zoominfo.com" not in text, r["key"]
 
 
 # -- Parking ------------------------------------------------------------------
@@ -276,23 +269,14 @@ def test_dripdrop_hides_the_stop_or_finish_question():
         aip._CAT = old
 
 
-def test_inboxslide_still_stops_for_review():
-    import tm_prompts as tm
-    assert not tm.TM.run_through
-    hits = [r["key"] for r in tm.TM.routines
-            if "wait for me to say go" in _prompt(tm.TM, r["key"])]
-    assert hits
-
 
 def test_job_queue_and_worker_are_gone():
     """The "Send to my AI" queue and the hourly worker were removed on
     2026-10-02: every prompt is copied and pasted."""
-    import tm_prompts as tm
     assert "sc_worker" not in sp.STAFFING.routine_by_key
     assert not hasattr(aip, "worker_prompt")
     assert not hasattr(aip.ARENA, "queue_jobs")
     assert sp.STAFFING.zi_rule == ZI_PULL_RULE
-    assert not tm.TM.zi_rule
 
 
 def test_claim_run_saves_working(ff):
