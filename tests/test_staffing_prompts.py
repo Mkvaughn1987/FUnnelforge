@@ -21,7 +21,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from test_tm_prompts import (  # noqa: E402  (shared stubs)
+from _prompt_stubs import (  # noqa: E402  (shared stubs)
     _Colours, _fake_anthropic, _fake_ff, _render_all_views, _Session,
     _stub_nicegui)
 
