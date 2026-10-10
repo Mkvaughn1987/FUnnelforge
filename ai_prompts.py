@@ -444,6 +444,24 @@ POSTING_AGE = ["Posted in the last 7 days", "Posted in the last 14 days",
 CADENCE = ["Once a week", "Once every other week", "Once a month"]
 DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
 TIMES = ["7:00am", "8:00am", "9:00am", "10:00am", "1:00pm", "3:00pm"]
+
+# The Indeed card's own schedule question, asked with the details. The
+# first entry is the recommendation and the default; the last is the way
+# to say "just this once".
+IND_SCHEDULES = [
+    "Every Tuesday and Thursday (recommended)",
+    "Every Monday, Wednesday and Friday",
+    "Every weekday",
+    "Once a week, on Monday",
+    "Just this once - no schedule",
+]
+IND_SCHEDULE_WHEN = {
+    IND_SCHEDULES[0]: "every Tuesday and Thursday",
+    IND_SCHEDULES[1]: "every Monday, Wednesday and Friday",
+    IND_SCHEDULES[2]: "every weekday",
+    IND_SCHEDULES[3]: "once a week, on Monday",
+}
+IND_BACKLOG = ["50 people", "100 people", "200 people", "Everyone waiting"]
 ZONES = ["Mountain", "Central", "Eastern", "Pacific"]
 UNATTENDED = ["Stop and check with me first", "Run it all the way through"]
 
@@ -1406,6 +1424,19 @@ ROUTINES = [
         # is Talent Trekker only.
         "tools": ["candidates_count", "candidates_search",
                   "import_candidates"],
+        # The schedule is asked here, on the details step, not on the
+        # generic "Create a schedule" step (Mike, 2026-10-10): the first run
+        # clears a backlog, and the schedule is the other half of what this
+        # job IS, so the two sit side by side. no_repeat keeps the common
+        # schedule questions off; the routine's own step writes the
+        # recurring task instead of THEN MAKE IT REPEAT.
+        "no_repeat": True,
+        "intro": {
+            "details": "The first run clears a backlog off the Interested "
+                       "list. After that it runs on the schedule you pick "
+                       "and takes only the people who are new since the "
+                       "last run.",
+        },
         "fields": [
             F("ind_project", "Your Indeed Smart Sourcing project", "details",
               default="Default",
@@ -1414,12 +1445,20 @@ ROUTINES = [
               default="DripDrop and Talent Trekker",
               options=["DripDrop and Talent Trekker",
                        "Talent Trekker only", "DripDrop only"]),
-            F("ind_count", "How many new people to add", "details", "select",
-              default="Everyone new",
-              options=["Everyone new", "10", "25", "50"],
-              hint="People already in do not count toward the number."),
+            F("ind_backlog", "First run: clear a backlog of", "details",
+              "select", default=IND_BACKLOG[1], options=IND_BACKLOG,
+              hint="People with a resume who are not in yet. Anyone "
+                   "already in does not count."),
+            F("ind_schedule", "Then keep running it", "details", "select",
+              default=IND_SCHEDULES[0], options=IND_SCHEDULES,
+              hint="Each scheduled run takes everyone new since the last "
+                   "one."),
+            F("ind_time", "At what time", "details", "select",
+              default="3:00pm", options=TIMES,
+              show_if=lambda r, vals: not str(
+                  vals.get("ind_schedule") or "").startswith("Just")),
             F("ind_owner", "Owner on the Talent Trekker record", "details",
-              placeholder="Leave blank for you",
+              placeholder="Your name in Talent Trekker - blank means you",
               show_if=lambda r, vals: not str(
                   vals.get("ind_dest") or "").startswith("DripDrop only")),
         ],
@@ -1453,15 +1492,13 @@ ROUTINES = [
             "warning, stop the whole run and quote it to me word for word. "
             "If a candidate page freezes, close that tab, open a new one "
             "and carry on from the same person.",
-            "{ind_count_clause}",
+            "{ind_backlog_clause}",
             "{ind_dd_step}",
             "{ind_tt_step}",
             "Only mark a person as in {ind_where} in the ledger once you "
             "have seen them land there. If something failed, leave it "
             "unmarked so the next run picks it up.",
-            "This job uses my Chrome and the resumes it downloads to this "
-            "computer, so when you make it repeat, make it a scheduled task "
-            "that runs on this computer, not one that runs in the cloud.",
+            "{ind_schedule_step}",
             "Do not ask me anything in the middle of the run except to sign "
             "in. When you finish, give me the counts - added, skipped as "
             "already there, skipped as profile only, flagged - then each "
@@ -2045,18 +2082,35 @@ def _derived(r, vals, cat=None):
         d["ind_project_clause"] = (
             "In Indeed Smart Sourcing, open Projects and open the one "
             "called %s." % project)
-    count = (d.get("ind_count") or "").strip()
-    if count.isdigit():
-        d["ind_count_clause"] = (
-            "Stop once %s new people have been added. Someone skipped as "
-            "already there or as profile only does not count toward the "
-            "%s, so keep going onto later pages until you reach it or the "
-            "list runs out." % (count, count))
+    backlog = (d.get("ind_backlog") or "").split()[0] if d.get(
+        "ind_backlog") else ""
+    if backlog.isdigit():
+        d["ind_backlog_clause"] = (
+            "This first run clears a backlog: stop once %s new people have "
+            "been added. Someone skipped as already there or as profile "
+            "only does not count toward the %s, so keep going onto later "
+            "pages until you reach it or the list runs out. Every run after "
+            "this one takes only the people who are new since the last "
+            "run, however many that is." % (backlog, backlog))
     else:
-        d["ind_count_clause"] = (
-            "Work through everyone on the Interested list who is not "
-            "already in the ledger. On the first run, with no ledger yet, "
-            "tell me how many that is before you start adding.")
+        d["ind_backlog_clause"] = (
+            "This first run clears the whole backlog: everyone on the "
+            "Interested list who is not already in the ledger. Tell me how "
+            "many that is before you start adding. Every run after this "
+            "one takes only the people who are new since the last run.")
+    sched = (d.get("ind_schedule") or "").strip()
+    when = IND_SCHEDULE_WHEN.get(sched, "")
+    if when:
+        d["ind_schedule_step"] = (
+            "Once the backlog is done, make this repeat: create a recurring "
+            "task that runs %s at %s my local time, with this whole brief "
+            "baked into it so a scheduled run needs nothing from me. It "
+            "uses my Chrome and the resumes it downloads to this computer, "
+            "so it has to be a task that runs on this computer, not in the "
+            "cloud. Read the name and the schedule back to me once you "
+            "have made it." % (when, _txt(r, vals, "ind_time") or "3:00pm"))
+    else:
+        d["ind_schedule_step"] = ""
     d["ind_tt_setup"] = (
         ", and open arena.talent-trekker.com to confirm I am signed in "
         "there too" if ind_tt else "")
@@ -2074,6 +2128,8 @@ def _derived(r, vals, cat=None):
         "Take a candidates_count afterwards and tell me if the difference "
         "does not match what the imports said." if ind_dd else "")
     owner = (d.get("ind_owner") or "").strip()
+    if owner.lower().rstrip(".") in ("me", "myself", "mine", "my name"):
+        owner = ""
     d["ind_tt_step"] = (
         "Talent Trekker, one person at a time. First check they are not "
         "already there: search their email (a Gmail address with or "
@@ -2632,26 +2688,25 @@ STARTERS = [
     {
         "id": "indeed_interested",
         "icon": "how_to_reg",
-        "label": "Load Indeed Interested Candidates to DD & TT "
-                 "(Tuesday and Thursday)",
-        "sub": "Every Tuesday and Thursday the AI opens your Indeed Smart "
-               "Sourcing project, takes everyone who answered Interested "
-               "and has a resume, skips anyone already in, and adds the new "
-               "people to your DripDrop Pipeline and to Talent Trekker with "
-               "the resume, email and phone. Runs on your computer, so it "
-               "needs the AI's Chrome extension and you signed in to "
-               "Indeed and Talent Trekker.",
+        "label": "Load Indeed Interested Candidates to DD & TT",
+        "sub": "The AI opens your Indeed Smart Sourcing project, takes "
+               "everyone who answered Interested and has a resume, skips "
+               "anyone already in, and adds the new people to your DripDrop "
+               "Pipeline and to Talent Trekker with the resume, email and "
+               "phone. The first run clears a backlog of 100; after that it "
+               "runs every Tuesday and Thursday and takes only who is new. "
+               "Runs on your computer, so it needs the AI's Chrome "
+               "extension and you signed in to Indeed and Talent Trekker.",
         "summary": "Take the people who answered Interested in my Indeed "
                    "Smart Sourcing project, download their resumes and add "
                    "the new ones to my recruiting systems, skipping anyone "
-                   "already there.",
+                   "already there. Clear a backlog first, then keep it "
+                   "running on a schedule.",
         "routine": "indeed_interested",
-        # Scheduled and unattended like the resume sweep: the safety net
-        # is the email/phone check against each system. Tuesday and
-        # Thursday so it lands the day before the Downloads sweep.
-        "vals": {"repeat_on": True, "repeat_every": "Every other day",
-                 "repeat_days": "Tuesday, Thursday", "repeat_time": "3:00pm",
-                 "unattended": "Run it all the way through"},
+        # The schedule and the backlog are the routine's own details
+        # questions, defaulted to Tuesday/Thursday and 100, so there is
+        # nothing to preset here.
+        "vals": {},
     },
     {
         "id": "zi_seat",
@@ -2769,8 +2824,9 @@ ARENA = Catalogue(
                     "DripDrop's note, then marks each one done.",
         "resume_sweep": "Adds the resumes you downloaded to DD and TT. Skips "
                         "anyone already in.",
-        "indeed_interested": "Adds everyone who answered Interested on "
-                             "Indeed to DD and TT, resume attached.",
+        "indeed_interested": "Clears a backlog of 100 Indeed Interested "
+                             "candidates into DD and TT, then runs every "
+                             "Tuesday and Thursday.",
         "zi_seat": ZI_SEAT_PITCH,
         "other": "Got an idea that isn't up there? Describe it and I'll "
                  "create it, and you can save it for future runs.",
@@ -4598,7 +4654,9 @@ def _aip_confirm(s, rf, C):
             ui.label("Step %d of %d" % (idx + 1, len(sections))).classes(
                 "aip-sec").style(f"color:{C['teal']};margin-bottom:4px;")
             _text(name[:1].upper() + name[1:], C, 18, 700, C["text_l"], 2)
-            intro = SECTION_INTRO.get(at, "")
+            # A routine can say what its own step is for; the table is
+            # written for campaign runs and reads wrong on a load job.
+            intro = (r.get("intro") or {}).get(at) or SECTION_INTRO.get(at, "")
             if intro:
                 _text(intro, C, 12, colour=C["muted"], mb=16)
             if at == "extra":

@@ -1,7 +1,8 @@
 """AI Prompts "Indeed Interested into DD & TT" run (Mike 2026-10-10).
 
-His indeed-to-tt run with the DripDrop half added: Tuesday and Thursday,
-resume-bearing Interested candidates only, deduped against each system.
+His indeed-to-tt run with the DripDrop half added: the first run clears a
+backlog (100 by default), then it repeats on a schedule picked on the
+details step (Tuesday and Thursday recommended), taking only who is new.
 """
 import sys
 from pathlib import Path
@@ -35,14 +36,46 @@ def test_card_is_on_the_arena_and_staffing_pickers(aip):
     assert "indeed_interested" in sp.STAFFING.starter_by_id
     groups = dict(aip.ARENA.tile_groups)
     assert "indeed_interested" in groups["Daily tasks"]
-    assert "indeed_interested" in aip.ARENA.tile_short
+    assert "100" in aip.ARENA.tile_short["indeed_interested"]
 
 
-def test_repeats_tuesday_and_thursday_on_this_computer(aip):
+def test_schedule_is_asked_with_the_details_not_on_its_own_step(aip):
+    r = aip.ROUTINE_BY_KEY["indeed_interested"]
+    assert r["no_repeat"]
+    assert "repeat_on" not in r["field_by_key"]
+    assert [k for k, _ in aip._aip_sections_for(r)] == ["details", "extra"]
+    f = r["field_by_key"]["ind_schedule"]
+    assert f["section"] == "details"
+    assert f["default"].startswith("Every Tuesday and Thursday")
+    assert "recommended" in f["default"]
+    assert r["intro"]["details"].startswith("The first run clears a backlog")
+
+
+def test_backlog_of_100_then_tuesday_and_thursday(aip):
     p = _prompt(aip)
-    assert "THEN MAKE IT REPEAT" in p
-    assert "Tuesday and Thursday" in p
-    assert "not one that runs in the cloud" in p
+    assert "This first run clears a backlog: stop once 100 new people" in p
+    assert "Every run after this one takes only the people who are new" in p
+    assert "runs every Tuesday and Thursday at 3:00pm my local time" in p
+    assert "runs on this computer, not in the cloud" in p
+    assert "THEN MAKE IT REPEAT" not in p
+    assert "Clear a backlog first" in p
+
+
+def test_other_schedules_and_just_once(aip):
+    p = _prompt(aip, ind_schedule=aip.IND_SCHEDULES[1], ind_time="8:00am")
+    assert "every Monday, Wednesday and Friday at 8:00am" in p
+    p = _prompt(aip, ind_schedule=aip.IND_SCHEDULES[-1])
+    assert "recurring task" not in p
+    r = aip.ROUTINE_BY_KEY["indeed_interested"]
+    assert not aip._visible(r, {"ind_schedule": aip.IND_SCHEDULES[-1]},
+                            r["field_by_key"]["ind_time"])
+
+
+def test_backlog_sizes(aip):
+    assert "stop once 50 new people" in _prompt(aip, ind_backlog="50 people")
+    p = _prompt(aip, ind_backlog="Everyone waiting")
+    assert "clears the whole backlog" in p
+    assert "Tell me how many that is before you start adding" in p
 
 
 def test_both_destinations_and_their_dedupe(aip):
@@ -88,11 +121,11 @@ def test_project_by_name_or_link(aip):
     assert "project at %s" % link in _prompt(aip, ind_project=link)
 
 
-def test_count_and_owner(aip):
-    assert "who is not already in the ledger" in _prompt(aip)
-    p = _prompt(aip, ind_count="25", ind_owner="Mike Vaughn")
-    assert "Stop once 25 new people have been added" in p
-    assert "Owner set to Mike Vaughn" in p
+def test_owner(aip):
+    assert "Owner set to Mike Vaughn" in _prompt(aip, ind_owner="Mike Vaughn")
+    # "Me" typed into the box means the same as leaving it blank.
+    assert "Owner set to me, the person signed in" in _prompt(aip,
+                                                              ind_owner="Me")
 
 
 def test_stops_on_an_indeed_warning_and_never_signs_in(aip):
