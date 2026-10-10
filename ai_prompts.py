@@ -1391,6 +1391,87 @@ ROUTINES = [
         ],
     },
     {
+        "key": "indeed_interested",
+        "name": "Load Indeed Interested candidates into DripDrop and "
+                "Talent Trekker",
+        "blurb": "Take the people who answered Interested in Indeed Smart "
+                 "Sourcing, download their resumes and add the new ones to "
+                 "the DripDrop Pipeline and Talent Trekker.",
+        "example": "Load my Indeed Interested candidates into DripDrop and TT",
+        # Mike's indeed-to-tt run (2026-10-09) with the DripDrop half added.
+        # Indeed and Talent Trekker are both Chrome work; DripDrop is the
+        # connector. Same shape as resume_sweep: one ledger, each place
+        # tracked on its own, so a person who reached only one is retried
+        # for the other. build_prompt drops the connector when the answer
+        # is Talent Trekker only.
+        "tools": ["candidates_count", "candidates_search",
+                  "import_candidates"],
+        "fields": [
+            F("ind_project", "Your Indeed Smart Sourcing project", "details",
+              default="Default",
+              hint="The project's name, or paste its link."),
+            F("ind_dest", "Where they go", "details", "select",
+              default="DripDrop and Talent Trekker",
+              options=["DripDrop and Talent Trekker",
+                       "Talent Trekker only", "DripDrop only"]),
+            F("ind_count", "How many new people to add", "details", "select",
+              default="Everyone new",
+              options=["Everyone new", "10", "25", "50"],
+              hint="People already in do not count toward the number."),
+            F("ind_owner", "Owner on the Talent Trekker record", "details",
+              placeholder="Leave blank for you",
+              show_if=lambda r, vals: not str(
+                  vals.get("ind_dest") or "").startswith("DripDrop only")),
+        ],
+        "steps": [
+            "If you have a skill called indeed-to-tt, load it and follow it "
+            "for the click-by-click detail. Everything below still applies.",
+            "Check the setup first. You need to control my Chrome: open "
+            "resumes.indeed.com and confirm I am signed in to Indeed"
+            "{ind_tt_setup}{ind_dd_setup}. Never type a password or try to "
+            "sign in for me. If you cannot control Chrome, tell me to "
+            "install and connect the AI's Chrome extension and keep that "
+            "window open. If a site shows a sign-in page, stop and tell me "
+            "which one to sign in to.",
+            "{ind_project_clause} Switch it to the Interested filter and "
+            "work the list newest first, page by page, using the page "
+            "buttons at the bottom rather than editing the address.",
+            "Keep a ledger file called .indeed_interested_ledger.json in my "
+            "Downloads folder: the time of the last run, and one entry per "
+            "person with name, email, phone, their Indeed link, and whether "
+            "they are in {ind_where}. Create it if it is not there. Anyone "
+            "the ledger already shows as done is skipped without opening "
+            "them again.",
+            "Open each person. Read their name, email and phone from the "
+            "bar at the top of their page. Open the download menu: only "
+            "someone with Download resume qualifies - download it, and it "
+            "lands in my Downloads folder. Someone with only Download "
+            "profile has no resume: skip them, log them as profile only, "
+            "and never create a record for them.",
+            "Go at the pace a person would, one candidate at a time. If "
+            "Indeed shows a captcha, an unusual-activity notice or a limit "
+            "warning, stop the whole run and quote it to me word for word. "
+            "If a candidate page freezes, close that tab, open a new one "
+            "and carry on from the same person.",
+            "{ind_count_clause}",
+            "{ind_dd_step}",
+            "{ind_tt_step}",
+            "Only mark a person as in {ind_where} in the ledger once you "
+            "have seen them land there. If something failed, leave it "
+            "unmarked so the next run picks it up.",
+            "This job uses my Chrome and the resumes it downloads to this "
+            "computer, so when you make it repeat, make it a scheduled task "
+            "that runs on this computer, not one that runs in the cloud.",
+            "Do not ask me anything in the middle of the run except to sign "
+            "in. When you finish, give me the counts - added, skipped as "
+            "already there, skipped as profile only, flagged - then each "
+            "person added with where they went and their Talent ID if they "
+            "have one, each duplicate with the record it matched, and any "
+            "failures with the exact error. Put anything I need to decide "
+            "under ACTION FOR ME at the end.",
+        ],
+    },
+    {
         "key": "other",
         "name": "Something else",
         "blurb": "Anything that is not one of the above.",
@@ -1949,6 +2030,78 @@ def _derived(r, vals, cat=None):
         d["tt_setup_clause"] = "."
         d["tt_step"] = ""
 
+    # ── Indeed Interested into DripDrop and Talent Trekker ────────────────
+    dest = d.get("ind_dest") or ""
+    ind_tt = not dest.startswith("DripDrop only")
+    ind_dd = not dest.startswith("Talent Trekker only")
+    d["no_connector"] = r["key"] == "indeed_interested" and not ind_dd
+    d["ind_where"] = ("DripDrop and in Talent Trekker" if ind_tt and ind_dd
+                      else "Talent Trekker" if ind_tt else "DripDrop")
+    project = (d.get("ind_project") or "").strip() or "Default"
+    if project.lower().startswith("http"):
+        d["ind_project_clause"] = (
+            "Open my Indeed Smart Sourcing project at %s." % project)
+    else:
+        d["ind_project_clause"] = (
+            "In Indeed Smart Sourcing, open Projects and open the one "
+            "called %s." % project)
+    count = (d.get("ind_count") or "").strip()
+    if count.isdigit():
+        d["ind_count_clause"] = (
+            "Stop once %s new people have been added. Someone skipped as "
+            "already there or as profile only does not count toward the "
+            "%s, so keep going onto later pages until you reach it or the "
+            "list runs out." % (count, count))
+    else:
+        d["ind_count_clause"] = (
+            "Work through everyone on the Interested list who is not "
+            "already in the ledger. On the first run, with no ledger yet, "
+            "tell me how many that is before you start adding.")
+    d["ind_tt_setup"] = (
+        ", and open arena.talent-trekker.com to confirm I am signed in "
+        "there too" if ind_tt else "")
+    d["ind_dd_setup"] = (
+        ". Take a candidates_count so there is a before number"
+        if ind_dd else "")
+    d["ind_dd_step"] = (
+        "DripDrop: before importing anyone, run candidates_search on their "
+        "email, then their phone, and skip them if they are already in the "
+        "Pipeline. Import the rest with import_candidates - each resume as "
+        "filename and content_base64, about 10 files a call, each under "
+        "10MB - and read the status it gives back for every file. If you "
+        "cannot read the downloaded files to send them that way, upload "
+        "them in Chrome instead: dripdripdrop.ai/ats, Upload Candidates. "
+        "Take a candidates_count afterwards and tell me if the difference "
+        "does not match what the imports said." if ind_dd else "")
+    owner = (d.get("ind_owner") or "").strip()
+    d["ind_tt_step"] = (
+        "Talent Trekker, one person at a time. First check they are not "
+        "already there: search their email (a Gmail address with or "
+        "without dots, or with a +tag, is the same address), their phone "
+        "by its last 10 digits, and their name. Someone with the same "
+        "email or phone is already there - skip them and log the record "
+        "it matched. The same name on a record with no email or phone is "
+        "not proof: add the new person and flag the pair for me. For each "
+        "new person go to Talents, click Create Talent, attach their "
+        "resume and wait for it to read the resume. Every record needs "
+        "the resume file, email, phone, Source set to Indeed, Talent Rank "
+        "set to 3 and Owner set to %s - Create does nothing if Source or "
+        "Talent Rank is empty, without saying so. Fill in anything the "
+        "resume reader left blank from what Indeed showed, then click "
+        "Create. A resume over about 1MB will not attach from that "
+        "window: create the record, then attach the file on the person's "
+        "page under Resumes & Documents, shrinking a scanned resume under "
+        "1MB first if it still refuses. If a Potential Duplicate box "
+        "comes up: under a 90%% match, create anyway. At 90%% or more, "
+        "open the matched records and create only if every one has "
+        "different contact details; otherwise cancel and flag it for me. "
+        "Afterwards find the record by the person's name and today's "
+        "date to confirm it has the resume, email and phone on it - "
+        "teammates create records at the same time, so never assume the "
+        "newest record is yours - and fix anything missing."
+        % (owner or "me, the person signed in")
+        if ind_tt else "")
+
     done = d.get("done_when") or ""
     d["done_clause"] = ("I will know it worked when %s." % done if done
                         else "Tell me plainly whether it worked, and how you "
@@ -2240,6 +2393,9 @@ def build_prompt(req, cat=None):
             tools.insert(0, "candidates_search")
         elif not d.get("cand_search") and "candidates_search" in tools:
             tools.remove("candidates_search")
+    # Indeed into Talent Trekker only is all browser work.
+    if d.get("no_connector"):
+        tools = []
 
     # Only claim the connector when the routine actually reaches for it —
     # a research prompt that opens by naming a tool it never calls reads
@@ -2474,6 +2630,30 @@ STARTERS = [
                  "unattended": "Run it all the way through"},
     },
     {
+        "id": "indeed_interested",
+        "icon": "how_to_reg",
+        "label": "Load Indeed Interested Candidates to DD & TT "
+                 "(Tuesday and Thursday)",
+        "sub": "Every Tuesday and Thursday the AI opens your Indeed Smart "
+               "Sourcing project, takes everyone who answered Interested "
+               "and has a resume, skips anyone already in, and adds the new "
+               "people to your DripDrop Pipeline and to Talent Trekker with "
+               "the resume, email and phone. Runs on your computer, so it "
+               "needs the AI's Chrome extension and you signed in to "
+               "Indeed and Talent Trekker.",
+        "summary": "Take the people who answered Interested in my Indeed "
+                   "Smart Sourcing project, download their resumes and add "
+                   "the new ones to my recruiting systems, skipping anyone "
+                   "already there.",
+        "routine": "indeed_interested",
+        # Scheduled and unattended like the resume sweep: the safety net
+        # is the email/phone check against each system. Tuesday and
+        # Thursday so it lands the day before the Downloads sweep.
+        "vals": {"repeat_on": True, "repeat_every": "Every other day",
+                 "repeat_days": "Tuesday, Thursday", "repeat_time": "3:00pm",
+                 "unattended": "Run it all the way through"},
+    },
+    {
         "id": "zi_seat",
         "icon": "contact_mail",
         "label": "Teach Claude to Use ZoomInfo",
@@ -2567,7 +2747,8 @@ ARENA = Catalogue(
         ("Find new business", ["staff_signal", "staff_lookalike",
                                "mpc", "slate"]),
         ("Find candidates", ["staff_find_candidates"]),
-        ("Daily tasks", ["linkedin", "resume_sweep", "zi_seat"]),
+        ("Daily tasks", ["linkedin", "resume_sweep", "indeed_interested",
+                         "zi_seat"]),
         ("Off script", ["other"]),
     ],
     tile_short={
@@ -2588,6 +2769,8 @@ ARENA = Catalogue(
                     "DripDrop's note, then marks each one done.",
         "resume_sweep": "Adds the resumes you downloaded to DD and TT. Skips "
                         "anyone already in.",
+        "indeed_interested": "Adds everyone who answered Interested on "
+                             "Indeed to DD and TT, resume attached.",
         "zi_seat": ZI_SEAT_PITCH,
         "other": "Got an idea that isn't up there? Describe it and I'll "
                  "create it, and you can save it for future runs.",
