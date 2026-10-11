@@ -66,6 +66,11 @@ UNIVERSAL_SIGNALS = [
       "one of the platforms this market runs on named in a job ad",
       "Confirms it is the right kind of company before you spend a contact "
       "on it."),
+    S("remote",
+      "a posting for a fully remote or work-from-home role, not a hybrid "
+      "one",
+      "They have already decided the job does not need to be in the "
+      "building, so offshore is a question of where, not whether."),
 ]
 
 
@@ -563,7 +568,7 @@ VERTICALS = [
               "Project accounting, steady and repeatable, and rarely why "
               "they hire locally."),
         ],
-        "also": ["reposted", "software"],
+        "also": ["reposted", "software", "remote"],
         "workload": "takeoffs and submittal tracking",
         "question": "How much of your estimators' week is takeoffs and "
                     "tracking rather than pricing?",
@@ -599,6 +604,65 @@ VERTICALS = [
               "Charlotte and Raleigh growth contractors."),
             S("co", "Colorado",
               "Denver contractors and AEC firms."),
+        ],
+    },
+    {
+        "key": "manufacturing",
+        "label": "Manufacturing",
+        "band": "25 to 1000 people",
+        "buyers": "the Owner or President first, then the Controller, the "
+                  "Operations Manager and the Customer Service Manager",
+        "roles": "order entry, customer service, purchasing support, "
+                 "production scheduling support, accounts payable, CAD "
+                 "drafting and quoting support",
+        "signals": [
+            S("mfg_orders",
+              "an order entry, inside sales or customer service opening",
+              "Keyed work that sits beside the plant, not in it, and moves "
+              "cleanly to a dedicated person."),
+            S("mfg_sched",
+              "a purchasing or production scheduling coordinator opening",
+              "Desk work done in the ERP all day, steady and repeatable."),
+            S("mfg_plant",
+              "a new plant, a new line or a contract win announced",
+              "Volume arriving before the office staff to carry it was "
+              "hired."),
+        ],
+        "also": ["reposted", "software", "remote"],
+        "workload": "order entry and purchasing follow-up",
+        "question": "How much of your office team's day is keying orders "
+                    "and chasing suppliers rather than serving customers?",
+        "tells": "Epicor, Infor, SAP, NetSuite or JobBOSS in a posting",
+        "season": "year-round",
+        "exploratory": True,
+        "location": "Ohio, Michigan, Indiana, Illinois, Wisconsin, "
+                    "Pennsylvania, Texas and the Carolinas (where mid-size "
+                    "plants concentrate)",
+        "seed": "pridgeonandclay.com",
+        "terms": [
+            S("mfg_ph",
+              "order entry, purchasing or CAD drafting support with a "
+              "Philippines location",
+              "Plant office work already offshore, by title."),
+            S("mfg_stack",
+              "Epicor, Infor, SAP, NetSuite or JobBOSS",
+              "The ERPs a remote order-entry or purchasing desk works in."),
+        ],
+        "states": [
+            S("oh", "Ohio",
+              "Dense with mid-size plants and their suppliers."),
+            S("mi", "Michigan",
+              "Automotive suppliers, where cost pressure shows first."),
+            S("in", "Indiana",
+              "The highest share of manufacturing jobs in the country."),
+            S("il", "Illinois",
+              "Chicago's ring of metal, food and plastics plants."),
+            S("wi", "Wisconsin",
+              "Machinery, paper and food manufacturers."),
+            S("pa", "Pennsylvania",
+              "Legacy industrial plants under margin pressure."),
+            S("tx", "Texas",
+              "The most plants and the most notices."),
         ],
     },
     {

@@ -1188,3 +1188,24 @@ def test_the_states_list_has_its_own_find_button(tm, aip):
     assert "_aip_find(" in inspect.getsource(aip._aip_checks)
     # The ask is for the busiest states, not just any recent activity.
     assert "most recent WARN" in tm._RECOMMENDABLE["states"][1]
+
+
+def test_the_work_from_home_signal_starts_ticked_for_two_verticals(tm):
+    # Mike 2026-10-11: a company hiring remote staff has already decided
+    # the work need not be in the building. Hybrid does not count.
+    sig = next(s for s in tm.UNIVERSAL_SIGNALS if s["id"] == "remote")
+    assert "work-from-home" in sig["label"] and "not a hybrid" in sig["label"]
+    ticked = {v["key"] for v in tm.VERTICALS
+              if "remote" in tm.signal_ids(v)}
+    assert ticked == {"construction_aec", "manufacturing"}
+    for v in tm.VERTICALS:
+        assert "remote" in tm.signal_ids(v, recommended_only=False)
+    mfg = tm.vertical_for("Manufacturing")
+    assert mfg["key"] == "manufacturing" and mfg["exploratory"]
+    r = tm.ROUTINE_BY_KEY["tm_signal_hunt"]
+    p = _flat(tm.build_prompt({"routine": r["key"],
+                                   "vals": {"vertical": "Manufacturing"}}))
+    assert _flat(sig["label"]) in p
+    p = _flat(tm.build_prompt({"routine": r["key"],
+                                   "vals": {"vertical": "Logistics / 3PL"}}))
+    assert _flat(sig["label"]) not in p
