@@ -32773,7 +32773,8 @@ def p_seq_mgr(s, rf):
                                         f'border:1px solid {C["muted"]};color:{C["muted"]};'
                                         f'font-size:11px;">Upcoming</span>')
                             _st_td = "\u2014"; _f_td = "\u2014"
-                        _sname_e = esc(_step.get("subject","") or _step.get("name","Step"))
+                        # ui.label escapes on its own; pre-escaping showed apostrophes as &#39;
+                        _sname_e = _step.get("subject","") or _step.get("name","Step")
                         _row_opacity = "opacity:0.4;" if (_is_past and _sc == 0) else ""
                         _qatts = _atts_by_subject.get(_step_subj)
                         if _qatts is None:
