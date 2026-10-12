@@ -16280,7 +16280,7 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
                     "display:flex;justify-content:space-between;align-items:flex-start;"
                     "gap:12px;margin-bottom:12px;"):
                 ui.html(
-                    "<div style='font-size:13px;line-height:1.55;color:#222;"
+                    f"<div style='font-size:13px;line-height:1.55;color:{C['text']};"
                     "white-space:pre-wrap;'>"
                     + _script_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                     + "</div>"
@@ -16354,7 +16354,7 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
                     "display:flex;justify-content:space-between;align-items:flex-start;"
                     "gap:12px;margin-bottom:12px;"):
                 ui.html(
-                    "<div style='font-size:13px;line-height:1.55;color:#222;"
+                    f"<div style='font-size:13px;line-height:1.55;color:{C['text']};"
                     "white-space:pre-wrap;'>"
                     + _vm_script.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
                     + "</div>"
