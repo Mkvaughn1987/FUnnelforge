@@ -34011,6 +34011,12 @@ def _t10_css() -> str:
 .fd-t10-pill.sig{{background:{C['teal_dim']};color:{C['teal']}}}
 .fd-t10-pill.st{{background:{C['card_h']};color:{C['text']}}}
 .fd-t10-pill.camp{{background:transparent;border:1px solid {C['good']};color:{C['good']};font-weight:600}}
+.fd-t10-pill.pipe{{background:{C['indigo']};color:#fff;text-decoration:none}}
+.fd-t10-pill.pipe:hover{{filter:brightness(1.15)}}
+.fd-t10-pill.pipe.zero{{background:{C['card_h']};color:{C['muted']}}}
+.fd-t10-pill.pipe-btn{{background:transparent;border:1px dashed {C['border']};color:{C['text']};
+  font:inherit;font-size:10.5px;font-weight:700;cursor:pointer;line-height:1.3}}
+.fd-t10-pill.pipe-btn:hover{{border-color:{C['indigo']};color:{C['text_l']}}}
 .fd-t10-meta{{font-size:12px;color:{C['muted']};margin-top:3px}}
 .fd-t10-acts{{display:flex;align-items:center;gap:2px;margin-left:auto;flex-shrink:0;opacity:.6}}
 .fd-t10-card:hover .fd-t10-acts{{opacity:1}}
@@ -34126,6 +34132,23 @@ def _top10_start_scan(s, email: str, rf, ids=None) -> None:
     _run_as_user(email, _run, name="my_top10_signal_scan")
 
 
+def _top10_pipeline_count(query: str, loc: str) -> int:
+    """How many Pipeline candidates match a company's posting, within 50
+    miles of its city when one is known. Keyword search is local SQLite,
+    so this is fast enough to run on click."""
+    import ats
+    if not (query or "").strip():
+        return 0
+    rows = ats.keyword_search(query, limit=200, location=loc or None,
+                              radius_mi=ats.LINK_RADIUS_MI if loc else None)
+    return len(rows)
+
+
+def _top10_pipeline_url(query: str, loc: str) -> str:
+    from urllib.parse import urlencode
+    return "/ats?" + urlencode({"q": query, **({"loc": loc} if loc else {})})
+
+
 def _top10_reply_domains() -> dict:
     """email domain -> replies, from the user's responded.json."""
     import team_campaigns as _tc
@@ -34187,6 +34210,32 @@ def p_my_top10(s, rf):
     hits = _tt.campaign_hits(data["companies"], team_recs)
     act, back = _tt.active(data), _tt.backups(data)
     fresh = _tt.freshest(data)
+    pipeline_ok = _ats_allowed(owner)
+
+    def _check_pipeline(cids: list, notify=True):
+        """Count Pipeline matches for each company and remember them."""
+        done = 0
+        for c in data["companies"]:
+            if c["id"] not in cids:
+                continue
+            q, loc = _tt.pipeline_query(c)
+            if not q:
+                continue
+            try:
+                n = _top10_pipeline_count(q, loc)
+            except Exception as e:
+                print(f"[MyTop10] pipeline check {c['company']}: {e}", flush=True)
+                continue
+            _tt.record_pipeline(c, n, q, loc)
+            done += 1
+        _tt.save(path, data)
+        if notify and done == 1:
+            c = next(x for x in data["companies"] if x["id"] in cids)
+            ui.notify(f"{c['pipeline']['n']} in your pipeline for {c['pipeline']['query']}"
+                      + (f" near {c['pipeline']['loc']}" if c["pipeline"]["loc"] else ""))
+        elif notify:
+            ui.notify(f"Pipeline checked for {done} compan{'y' if done == 1 else 'ies'}.")
+        rf()
     n_fresh_cos = sum(1 for c in act if _tt.fresh_jobs(c))
     n_signals = sum(len(c["signals"]) for c in act)
 
@@ -34399,6 +34448,9 @@ def p_my_top10(s, rf):
                             _top10_start_scan(s, owner, rf, [c["id"] for c in act])
                             rf()
                         _link("Check all now", _recheck_all, "fd-rc-link quiet")
+                    if pipeline_ok and act:
+                        _link("Check pipeline for all",
+                              lambda: _check_pipeline([c["id"] for c in act]), "fd-rc-link quiet")
                     if len(act) < _tt.ACTIVE_MAX or len(back) < _tt.BACKUP_MAX:
                         def _fill():
                             n = _top10_fill(data, owner)
@@ -34472,7 +34524,27 @@ def p_my_top10(s, rf):
                         if hit:
                             pills += (f'<span class="fd-t10-pill camp" title="{_esc(hit["campaign"])}">'
                                       f'In a campaign · {_esc(hit["owner"])}</span>')
-                        ui.html(f'<div class="fd-t10-name"><span class="fd-t10-co">{name}</span>{pills}</div>')
+                        with ui.element("div").classes("fd-t10-name"):
+                            ui.html(f'<span class="fd-t10-co">{name}</span>{pills}')
+                            if pipeline_ok:
+                                pq, ploc = _tt.pipeline_query(c)
+                                pp = c.get("pipeline") or {}
+                                if pp.get("checked") and pp.get("query"):
+                                    n = pp["n"]
+                                    ui.html(f'<a class="fd-t10-pill pipe{" zero" if not n else ""}" '
+                                            f'href="{_esc(_top10_pipeline_url(pp["query"], pp["loc"]))}" '
+                                            f'target="_blank" rel="noopener" title="Pipeline search: '
+                                            f'{_esc(pp["query"])}{" near " + _esc(pp["loc"]) if pp["loc"] else ""}">'
+                                            f'{n} in pipeline ↗</a>')
+                                    with ui.element("button").classes("fd-t10-pill pipe-btn").props(
+                                            'type="button" title="Run the pipeline check again"').on(
+                                            "click", lambda cid=cid: _check_pipeline([cid])):
+                                        ui.label("↻")
+                                elif pq:
+                                    with ui.element("button").classes("fd-t10-pill pipe-btn").props(
+                                            f'type="button" title="Search your Pipeline for {_esc(pq)}"').on(
+                                            "click", lambda cid=cid: _check_pipeline([cid])):
+                                        ui.label("Check pipeline")
                         meta = [p for p in (_where(c), c["lane"], _tt.short_roles(c["req"])) if p]
                         if c["source"] == "auto" and c["why"]:
                             meta.append(c["why"].replace("From your outreach: ", ""))

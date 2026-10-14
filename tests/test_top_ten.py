@@ -211,6 +211,36 @@ def test_apply_check_keeps_user_edits_and_last_good_on_failure(tmp_path):
     assert got["signal_summary"] == "s" and got["signals_error"] == "timeout"
 
 
+def test_pipeline_query_prefers_newest_posting_then_req():
+    d = _data()
+    c, _ = tt.add(d, {"company": "Shaw", "city": "Denver", "state": "CO",
+                      "req": "Project Manager, Superintendent"})
+    assert tt.pipeline_query(c) == ("Project Manager", "Denver, CO")
+    c["jobs"] = [{"title": "Senior/Lead Estimator", "age_days": None},
+                 {"title": "Field Engineer (Civil)", "age_days": 3}]
+    assert tt.pipeline_query(c) == ("Field Engineer Civil", "Denver, CO")
+    c["city"] = ""
+    assert tt.pipeline_query(c)[1] == ""                     # bare state does not geocode
+    tt.record_pipeline(c, 4, "Field Engineer Civil", "")
+    assert c["pipeline"]["n"] == 4 and c["pipeline"]["checked"]
+
+
+def test_ats_search_link_runs_the_search(monkeypatch):
+    import ats
+    seen = {}
+    def _ks(q, **kw):
+        seen.update(q=q, **kw); return [{"id": 1, "name": "A"}], {"origin": None}
+    monkeypatch.setattr(ats, "keyword_search", _ks)
+    monkeypatch.setattr(ats, "score_results", lambda q, rows: rows)
+    st = {"view": "dashboard", "tearsheet_id": 9}
+    ats._apply_search_link(st, " superintendent ", "Denver, CO")
+    assert st["view"] == "candidates" and st["query"] == "superintendent"
+    assert st["query_draft"] == "superintendent" and st["location"] == "Denver, CO"
+    assert st["radius"] == ats.LINK_RADIUS_MI and "tearsheet_id" not in st
+    assert seen["location"] == "Denver, CO" and seen["radius_mi"] == ats.LINK_RADIUS_MI
+    assert len(st["results"]) == 1
+
+
 def test_campaign_hits_by_name_or_domain():
     d = _data()
     a, _ = tt.add(d, {"company": "Shaw Construction"})
@@ -258,6 +288,8 @@ def test_page_seeds_from_outreach_and_starts_signal_scan(with_user, monkeypatch)
         encoding="utf-8")
     started = []
     monkeypatch.setattr(fa, "_top10_start_scan", lambda s, email, rf, ids=None: started.append(email))
+    monkeypatch.setattr(fa, "_ats_allowed", lambda e: True)
+    monkeypatch.setattr(fa, "_top10_pipeline_count", lambda q, loc: 7)
     s = fa.AppState()
     s._user_email = "tester@example.com"
     with ui.card() as card:
@@ -265,6 +297,17 @@ def test_page_seeds_from_outreach_and_starts_signal_scan(with_user, monkeypatch)
     text = _page_text(card)
     assert "My Top 10" in text and "Shaw Construction" in text
     assert "1 campaign" in text and "NEW POSTINGS" in text and "Top targets" in text
-    assert started == ["tester@example.com"]
+    assert text.count("Check pipeline") == 2 and "in pipeline" not in text   # toolbar + card pill
+    # Once a check is recorded the pill becomes a link into the Pipeline search.
+    p = users / "tester_at_example_com" / tt.FILE_NAME
+    d = tt.load(p)
+    tt.record_pipeline(d["companies"][0], 4, "Superintendent", "Denver, CO")
+    tt.save(p, d)
+    with ui.card() as card2:
+        fa.p_my_top10(s, lambda: None)
+    text2 = _page_text(card2)
+    assert "4 in pipeline" in text2 and "/ats?q=Superintendent&amp;loc=Denver%2C+CO" in text2
+    assert text2.count("Check pipeline") == 1                # only the toolbar's "for all"
+    assert started == ["tester@example.com"] * 2            # one scan start per render
     saved = tt.load(users / "tester_at_example_com" / tt.FILE_NAME)
     assert saved["seeded"] and saved["companies"][0]["source"] == "auto"

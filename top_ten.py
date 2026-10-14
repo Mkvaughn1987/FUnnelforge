@@ -88,6 +88,8 @@ def _clean(c: dict) -> dict:
         "why": str(c.get("why") or "").strip(),
         "signals": c.get("signals") if isinstance(c.get("signals"), list) else [],
         "jobs": c.get("jobs") if isinstance(c.get("jobs"), list) else [],
+        # {"n", "query", "loc", "checked"} from the last Pipeline check.
+        "pipeline": c.get("pipeline") if isinstance(c.get("pipeline"), dict) else {},
         "signal_summary": str(c.get("signal_summary") or ""),
         "signals_checked": str(c.get("signals_checked") or ""),
         "signals_error": str(c.get("signals_error") or ""),
@@ -380,6 +382,32 @@ def freshest(data: dict, days: int = FRESH_DAYS, limit: int = 12) -> list:
             out.append((c, j))
     out.sort(key=lambda cj: (cj[1]["age_days"], cj[0]["company"].lower()))
     return out[:limit]
+
+
+def pipeline_query(c: dict) -> tuple:
+    """(keywords, location) to look up the user's Pipeline for people who
+    fit what this company is hiring: the newest posting's title first,
+    else the first role the recruiter is targeting. The location is the
+    company's city and state when both are known (a bare state does not
+    geocode), else empty."""
+    jobs = c.get("jobs") or []
+    title = ""
+    for j in fresh_jobs(c) + [j for j in jobs if j not in fresh_jobs(c)]:
+        if j.get("title"):
+            title = j["title"]
+            break
+    if not title:
+        parts = [p.strip() for p in re.split(r"[,;/]| and ", c.get("req") or "") if p.strip()]
+        title = parts[0] if parts else ""
+    title = re.sub(r"[^\w\s-]+", " ", title)
+    title = re.sub(r"\s+", " ", title).strip()
+    loc = f"{c['city']}, {c['state']}" if c.get("city") and c.get("state") else ""
+    return title, loc
+
+
+def record_pipeline(c: dict, n: int, query: str, loc: str, now: datetime | None = None) -> None:
+    c["pipeline"] = {"n": int(n), "query": query, "loc": loc,
+                     "checked": (now or datetime.now()).isoformat(timespec="seconds")}
 
 
 def short_roles(req: str, keep: int = 2) -> str:

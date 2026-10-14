@@ -4777,6 +4777,30 @@ def _render_app(ff, st, refresh):
                 _view_stub(ff, st, "Settings", "Pipeline settings.")
 
 
+LINK_RADIUS_MI = 50
+
+
+def _apply_search_link(st: dict, q: str, loc: str = "") -> None:
+    """Put a keyword search from a deep link on screen: Candidates view,
+    the query in the box, results already fetched. A location narrows to
+    LINK_RADIUS_MI miles, the same filter the page's own City box applies."""
+    q = (q or "").strip()[:120]
+    loc = (loc or "").strip()[:80]
+    st.update({"mode": "keywords", "query": q, "query_draft": q, "terms": _terms(q),
+               "crit": {}, "view": "candidates", "location": loc, "meta": {}})
+    st.pop("tearsheet_id", None); st.pop("job_title", None); st.pop("job_id", None)
+    if loc:
+        st["radius"] = LINK_RADIUS_MI
+    try:
+        rows, meta = keyword_search(q, location=loc or None,
+                                    radius_mi=LINK_RADIUS_MI if loc else None, with_meta=True)
+        st["results"] = score_results(q, rows)
+        st["meta"] = meta
+    except Exception as e:
+        print(f"[ATS] search link failed: {e}", flush=True)
+        st["results"] = []
+
+
 @ui.page("/ats")
 def ats_page():
     """Full-screen Arena ATS. Gated to the ATS allowlist (single source =
@@ -4810,6 +4834,15 @@ def ats_page():
         _tid = 0
     if _tid and get_one(_tid):
         st.update({"sel": _tid, "tab": "resume", "view": "profile"})
+    # /ats?q=superintendent&loc=Denver, CO opens the Candidates view with
+    # that search already run (the "N in pipeline" pill on My Top 10).
+    try:
+        _qp = ui.context.client.request.query_params
+        _q, _loc = (_qp.get("q") or ""), (_qp.get("loc") or "")
+    except Exception:
+        _q, _loc = "", ""
+    if _q.strip():
+        _apply_search_link(st, _q, _loc)
     root = ui.element("div").style(
         f"position:fixed;inset:0;overflow:hidden;display:flex;flex-direction:column;"
         f"background:{_c(ff.C,'surface','#0E1726')};")
