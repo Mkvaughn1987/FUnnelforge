@@ -12646,6 +12646,7 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
 {_ct_css()}
 {_rc_css()}
 {_sc_css()}
+{_t10_css()}
 </style>""")
     # Global JS helper  -  insert text at cursor position in any focused input/textarea
     # or contenteditable (QEditor body). Tracks last-focused input so that
@@ -13060,6 +13061,7 @@ SALES_NAV = [
     (None, "ARENA TEAM",        None),
     ("📡", "Arena Running Campaigns", "running_campaigns"),
     ("🏦", "Shared Arena Contacts", "shared_contacts"),
+    ("🎯", "My Top 10",         "my_top10"),
     ("🛡", "Current Clients",  "active_clients"),
     # ── Content & Tools ──────────────────────────
     # Slow Drip removed from sidebar 2026-05-20 — now lives as a section
@@ -13115,6 +13117,8 @@ SIDEBAR_NAV = [
         ("running",     "Arena Running Campaigns", "running_campaigns"),
         ("bank",        "Shared Arena Contacts", "shared_contacts"),
         ("clients",     "Current Clients", "active_clients"),
+        # Private per user, despite the section name (2026-10-14).
+        ("top10",       "My Top 10",       "my_top10"),
     ]),
     ("CONTENT", [
         ("ai_prompts",  "AI Prompts",      "ai_prompts"),
@@ -13153,6 +13157,7 @@ SIDEBAR_PAGE_ROW = {
     "responses": "replies", "e_responses": "replies",
     "contacts": "contacts", "e_contacts": "contacts",
     "active_clients": "clients", "running_campaigns": "running", "shared_contacts": "bank",
+    "my_top10": "top10",
     "seq_mgr": "campaigns", "active_camps": "campaigns", "queue": "campaigns",
     "evergreen": "campaigns", "evergreen_create": "campaigns", "e_evergreen": "campaigns",
     "newsletters": "newsletters", "pdf_gen": "assets", "ai_prompts": "ai_prompts",
@@ -13167,6 +13172,7 @@ SIDEBAR_TITLES = {
     "drip": "Today's Tasks", "tasks": "Tasks", "responses": "Replies", "e_responses": "Replies",
     "contacts": "Contacts", "e_contacts": "Contacts", "active_clients": "Current Clients",
     "running_campaigns": "Arena Running Campaigns", "shared_contacts": "Shared Arena Contacts",
+    "my_top10": "My Top 10",
     "seq_mgr": "Campaigns", "active_camps": "Campaigns", "queue": "Email Queue",
     "evergreen": "Nurture Campaigns", "evergreen_create": "New Nurture Campaign",
     "newsletters": "Newsletters", "pdf_gen": "Sales Assets", "ai_prompts": "AI Prompts",
@@ -14654,6 +14660,7 @@ _SIDEBAR_ICONS = {
     "running":    '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
     "bank":       '<path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/>'
                   '<path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/>',
+    "top10":      '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
     "c_active":   '<circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/>',
     "c_done":     '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
     "c_saved":    '<path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/>',
@@ -33960,6 +33967,360 @@ def p_shared_contacts(s, rf):
         clear_btn.on("click", _clear)
 
         _draw_pills(); _draw_replied(); _redraw()
+
+
+def _t10_css() -> str:
+    """My Top 10 page: one card per target company, signals underneath."""
+    return f"""
+.fd-t10{{max-width:1180px}}
+.fd-t10-focus{{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:14px 0 6px}}
+.fd-t10-focus .fd-input{{min-width:200px}}
+.fd-t10-bar{{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:10px 0 14px}}
+.fd-t10-scan{{display:flex;align-items:center;gap:8px;font-size:12px;color:{C['warn']};font-weight:600}}
+.fd-t10-h2{{font-size:13px;font-weight:700;letter-spacing:.06em;color:{C['muted']};margin:22px 0 8px}}
+.fd-t10-card{{border:1px solid {C['border']};border-radius:10px;padding:12px 14px;margin:0 0 10px;background:{C['card']}}}
+.fd-t10-top{{display:flex;align-items:flex-start;gap:12px}}
+.fd-t10-rank{{font-size:18px;font-weight:700;color:{C['teal']};min-width:28px}}
+.fd-t10-co{{font-size:15px;font-weight:600;color:{C['text_l']}}}
+.fd-t10-meta{{font-size:12px;color:{C['muted']};margin-top:2px}}
+.fd-t10-why{{font-size:11.5px;color:{C['text']};margin-top:3px}}
+.fd-t10-camp{{font-size:11.5px;color:{C['good']};margin-top:3px}}
+.fd-t10-acts{{display:flex;flex-wrap:wrap;gap:4px 10px;margin-left:auto;align-items:center}}
+.fd-t10-sig{{margin:10px 0 0 40px;font-size:12.5px;color:{C['text']}}}
+.fd-t10-sum{{color:{C['text_l']};margin-bottom:4px}}
+.fd-t10-sig ul{{margin:4px 0 0;padding-left:18px}}
+.fd-t10-sig li{{margin:2px 0}}
+.fd-t10-sig a{{color:{C['teal']};text-decoration:none}}
+.fd-t10-sig a:hover{{text-decoration:underline}}
+.fd-t10-tag{{display:inline-block;font-size:10.5px;padding:1px 7px;border-radius:99px;background:{C['teal_dim']};color:{C['teal']};margin-right:6px}}
+.fd-t10-when{{font-size:11px;color:{C['muted']};margin-top:4px}}
+.fd-t10-back{{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:8px 12px;border-bottom:1px solid {C['border']};font-size:13px}}
+.fd-t10-back .nm{{font-weight:600;color:{C['text_l']}}}
+.fd-t10-back .mt{{color:{C['muted']};font-size:12px}}
+@media (max-width:640px){{.fd-t10-sig{{margin-left:0}}.fd-t10-acts{{margin-left:0}}.fd-t10-top{{flex-wrap:wrap}}}}
+"""
+
+
+# user email -> {"running": bool, "done": int, "total": int}
+_TOP10_SCANS: dict = {}
+_TOP10_SCAN_LOCK = threading.Lock()
+
+
+def _top10_path(email: str) -> Path:
+    import top_ten as _tt
+    safe = (email or "").lower().strip().replace("@", "_at_").replace(".", "_")
+    return _tt.path_for(_BASE_DATA_DIR / "users" / safe)
+
+
+def _top10_check_one(client, company: dict, focus: dict) -> dict:
+    """One company's hiring signals: web search on the research model,
+    parsed and with any URL the search never returned dropped."""
+    import top_ten as _tt
+    from staffing_prompts import UNIVERSAL_SIGNALS
+    prompt = _tt.signal_prompt(company, UNIVERSAL_SIGNALS, date.today().isoformat(), focus)
+    final, urls = _pdf_research_message(client, prompt, company.get("website", ""))
+    if final is None:
+        raise RuntimeError("search returned nothing")
+    return _tt.parse_signals(final, UNIVERSAL_SIGNALS, urls)
+
+
+def _top10_start_scan(s, email: str, rf, ids=None) -> None:
+    """Check hiring signals in the background: the stale top 10 by default,
+    or exactly `ids` when the user asks for a re-check. One scan per user
+    at a time; three companies in flight at once."""
+    import top_ten as _tt
+    email = (email or "").strip().lower()
+    if not email or not ANTHROPIC_API_KEY:
+        return
+    path = _top10_path(email)
+    data = _tt.load(path)
+    targets = ([c for c in data["companies"] if c["id"] in set(ids)] if ids
+               else _tt.due_for_signals(data))
+    if not targets:
+        return
+    with _TOP10_SCAN_LOCK:
+        st = _TOP10_SCANS.get(email)
+        if st and st["running"]:
+            return
+        st = {"running": True, "done": 0, "total": len(targets)}
+        _TOP10_SCANS[email] = st
+    focus = dict(data.get("focus") or {})
+
+    def _run():
+        from concurrent.futures import ThreadPoolExecutor
+        try:
+            import anthropic as _anth
+            client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+            def _one(c):
+                try:
+                    result = _top10_check_one(client, c, focus)
+                    _tt.apply_check(path, c["id"], result)
+                except Exception as e:
+                    print(f"[MyTop10] {c['company']}: {e}", flush=True)
+                    _tt.apply_check(path, c["id"], None, str(e))
+                finally:
+                    st["done"] += 1
+
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                list(pool.map(_one, targets))
+        except Exception as e:
+            _log_exception(e, context="my_top10.scan")
+        finally:
+            st["running"] = False
+
+    _run_as_user(email, _run, name="my_top10_signal_scan")
+
+
+def _top10_reply_domains() -> dict:
+    """email domain -> replies, from the user's responded.json."""
+    import team_campaigns as _tc
+    out: dict = {}
+    try:
+        rows = json.loads(_user_responded_json_path().read_text(encoding="utf-8"))
+    except Exception:
+        return out
+    for r in rows if isinstance(rows, list) else []:
+        dom = _tc.email_domain((r or {}).get("email", "")) if isinstance(r, dict) else ""
+        if dom:
+            out[dom] = out.get(dom, 0) + 1
+    return out
+
+
+def _top10_fill(data: dict, owner: str) -> int:
+    import team_campaigns as _tc
+    import top_ten as _tt
+    try:
+        recs = _tc.team_campaigns(_BASE_DATA_DIR / "users", owner,
+                                  window_days=_tt.SEED_WINDOW_DAYS)
+    except Exception as e:
+        print(f"[MyTop10] campaign scan failed: {e}", flush=True)
+        recs = []
+    owner_dir = _top10_path(owner).parent.name
+    ranked = _tt.rank_outreach(recs, owner_dir, data["focus"], _tc.state_of,
+                               _top10_reply_domains())
+    return _tt.fill_from_outreach(data, ranked)
+
+
+def p_my_top10(s, rf):
+    """The user's own ten target companies plus ten backups. Empty on first
+    visit? Filled from the companies they have campaigned most, inside their
+    focus market and industry. Every visit re-checks hiring signals for any
+    top-10 company not checked in the last day."""
+    from html import escape as _esc
+    import team_campaigns as _tc
+    import top_ten as _tt
+
+    _user_email = (getattr(s, "_user_email", "") or "").strip().lower()
+    if _user_email:
+        _CURRENT_USER_EMAIL.set(_user_email)
+    owner = _user_email or (_CURRENT_USER_EMAIL.get() or "")
+    path = _top10_path(owner)
+    data = _tt.load(path)
+
+    if _tt.needs_seed(data):
+        _top10_fill(data, owner)
+        _tt.save(path, data)
+
+    _top10_start_scan(s, owner, rf)
+    scan = _TOP10_SCANS.get(owner) or {}
+
+    try:
+        team_recs = _tc.team_campaigns(_BASE_DATA_DIR / "users", owner)
+    except Exception:
+        team_recs = []
+    hits = _tt.campaign_hits(data["companies"], team_recs)
+
+    def _commit(msg: str = ""):
+        _tt.save(path, data)
+        if msg:
+            ui.notify(msg)
+        rf()
+
+    def _ago(iso: str) -> str:
+        try:
+            d = datetime.now() - datetime.fromisoformat(iso)
+        except Exception:
+            return ""
+        h = int(d.total_seconds() // 3600)
+        if h < 1:
+            return "just now"
+        return f"{h}h ago" if h < 48 else f"{h // 24} days ago"
+
+    def _signals_html(c: dict) -> str:
+        if c["signals_checked"]:
+            parts = []
+            if c["signal_summary"]:
+                parts.append(f'<div class="fd-t10-sum">{_esc(c["signal_summary"])}</div>')
+            if c["signals"]:
+                items = ""
+                for sg in c["signals"]:
+                    title = _esc(sg.get("title") or sg.get("label") or "")
+                    if sg.get("url"):
+                        title = f'<a href="{_esc(sg["url"])}" target="_blank" rel="noopener">{title}</a>'
+                    bits = [f'<span class="fd-t10-tag">{_esc(sg.get("label", ""))}</span>{title}']
+                    if sg.get("detail"):
+                        bits.append(f' &middot; {_esc(sg["detail"])}')
+                    if sg.get("date"):
+                        bits.append(f' <span style="color:{C["muted"]}">({_esc(sg["date"])})</span>')
+                    items += f'<li>{"".join(bits)}</li>'
+                parts.append(f"<ul>{items}</ul>")
+            elif not c["signal_summary"]:
+                parts.append("<div>No hiring signals found right now.</div>")
+            parts.append(f'<div class="fd-t10-when">Checked {_esc(_ago(c["signals_checked"]))}</div>')
+            return "".join(parts)
+        if c["signals_error"]:
+            return "<div>The signal check didn't finish. It will try again on your next visit.</div>"
+        return '<div style="opacity:.7">Checking hiring signals&hellip;</div>'
+
+    def _edit_dialog(c: dict | None):
+        with ui.dialog() as dlg, ui.card().style("min-width:min(520px,92vw);"):
+            ui.label("Edit company" if c else "Add a company").classes("fd-h2")
+            vals = c or {}
+            fields = {}
+            for key, label in (("company", "Company"), ("website", "Website"),
+                               ("city", "City"), ("state", "State (2 letters)"),
+                               ("lane", "Industry / lane"), ("req", "Role you're targeting"),
+                               ("notes", "Notes")):
+                fields[key] = ui.input(label, value=vals.get(key, "")).classes("fd-input w-full")
+            status = ui.select(list(_tt.STATUSES), value=vals.get("status") or _tt.STATUSES[0],
+                               label="Status").classes("fd-input w-full")
+
+            def _save():
+                got = {k: (f.value or "") for k, f in fields.items()}
+                got["status"] = status.value
+                if c:
+                    _tt.update(data, c["id"], got)
+                    dlg.close()
+                    _commit(f"Saved {got['company'] or c['company']}.")
+                    return
+                new, msg = _tt.add(data, got)
+                if not new:
+                    ui.notify(msg, type="warning")
+                    return
+                _tt.update(data, new["id"], {"status": got["status"]})
+                dlg.close()
+                _commit(msg)
+                _top10_start_scan(s, owner, rf, [new["id"]])
+
+            with ui.element("div").style("display:flex;gap:8px;justify-content:flex-end;margin-top:10px;"):
+                ui.button("Cancel", on_click=dlg.close).props("flat")
+                ui.button("Save", on_click=_save).props("unelevated color=primary")
+        dlg.open()
+
+    def _link(label, fn):
+        with ui.element("button").classes("fd-rc-link").props('type="button"').on("click", fn):
+            ui.label(label)
+
+    with ui.element("div").classes("fd-t10"):
+        ui.label(_tt.PAGE_TITLE).classes("fd-h1")
+        ui.label(
+            "Your ten target companies and ten backups. Only you see this list. "
+            "Hiring signals are checked every time you open it (once a day per company)."
+        ).classes("fd-sub")
+
+        # ── focus ────────────────────────────────────────────────────
+        with ui.element("div").classes("fd-t10-focus"):
+            ui.label("Focus").classes("fd-rc-lbl")
+            market_in = ui.input(placeholder="Market, e.g. Denver, CO",
+                                 value=data["focus"]["market"]).props("dense").classes("fd-input")
+            ind_opts = {"": "Any industry", "Construction": "Construction (all trades)"}
+            for lbl in _tc.INDUSTRY_CHOICES:
+                if lbl not in ind_opts and lbl != _tc.INDUSTRY_OTHER:
+                    ind_opts[lbl] = lbl
+            ind_sel = ui.select(ind_opts, value=data["focus"]["industry"]
+                                if data["focus"]["industry"] in ind_opts else "").classes("fd-input")
+
+            def _save_focus():
+                _tt.set_focus(data, market_in.value or "", ind_sel.value or "")
+                _commit("Focus saved.")
+            _link("Save focus", _save_focus)
+
+        # ── action bar ───────────────────────────────────────────────
+        n_act, n_back = len(_tt.active(data)), len(_tt.backups(data))
+        with ui.element("div").classes("fd-t10-bar"):
+            ui.button("Add a company", on_click=lambda: _edit_dialog(None)).props(
+                "unelevated color=primary")
+
+            def _fill():
+                n = _top10_fill(data, owner)
+                _commit(f"Added {n} compan{'y' if n == 1 else 'ies'} from your campaigns."
+                        if n else "No more companies from your campaigns match your focus.")
+                _top10_start_scan(s, owner, rf)
+            if n_act < _tt.ACTIVE_MAX or n_back < _tt.BACKUP_MAX:
+                _link("Fill open spots from my campaigns", _fill)
+
+            def _recheck_all():
+                _top10_start_scan(s, owner, rf, [c["id"] for c in _tt.active(data)])
+                rf()
+            if n_act and not scan.get("running"):
+                _link("Check all signals now", _recheck_all)
+
+            if scan.get("running"):
+                with ui.element("div").classes("fd-t10-scan"):
+                    ui.spinner("dots", size="16px", color=C["warn"])
+                    ui.label(f"Checking hiring signals… {scan['done']} of {scan['total']}")
+                ui.timer(5.0, rf, once=True)
+
+        if not data["companies"]:
+            ui.html(
+                '<div class="fd-es compact wide"><div class="fd-es-title">Your list is empty.</div>'
+                '<div class="fd-es-body">Add your target companies, or set a focus and fill '
+                'from your campaigns once you have run a few.</div></div>')
+            return
+
+        # ── top 10 ───────────────────────────────────────────────────
+        ui.label(f"TOP {n_act}" if n_act < _tt.ACTIVE_MAX else "TOP 10").classes("fd-t10-h2")
+        for i, c in enumerate(_tt.active(data)):
+            with ui.element("div").classes("fd-t10-card"):
+                with ui.element("div").classes("fd-t10-top"):
+                    ui.label(str(i + 1)).classes("fd-t10-rank")
+                    with ui.element("div").style("flex:1;min-width:0;"):
+                        ui.label(c["company"]).classes("fd-t10-co")
+                        meta = [p for p in (", ".join(x for x in (c["city"], c["state"]) if x),
+                                            c["lane"], c["req"], c["status"]) if p]
+                        ui.label(" · ".join(meta)).classes("fd-t10-meta")
+                        if c["source"] == "auto" and c["why"]:
+                            ui.label(c["why"]).classes("fd-t10-why")
+                        hit = hits.get(c["id"])
+                        if hit:
+                            ui.label(f"In a campaign: {hit['campaign']} ({hit['owner']}, "
+                                     f"started {hit['started']})").classes("fd-t10-camp")
+                        if c["notes"]:
+                            ui.label(c["notes"]).classes("fd-t10-why")
+                    with ui.element("div").classes("fd-t10-acts"):
+                        cid = c["id"]
+                        if i > 0:
+                            _link("↑", lambda cid=cid: (_tt.move(data, cid, -1), _commit()))
+                        if i < n_act - 1:
+                            _link("↓", lambda cid=cid: (_tt.move(data, cid, 1), _commit()))
+                        _link("Edit", lambda c=c: _edit_dialog(c))
+                        _link("Re-check", lambda cid=cid: (_top10_start_scan(s, owner, rf, [cid]), rf()))
+                        _link("To backups", lambda cid=cid: _commit(_tt.demote(data, cid)))
+                        _link("Remove", lambda cid=cid, nm=c["company"]: (
+                            _tt.remove(data, cid), _commit(f"Removed {nm}.")))
+                ui.html(f'<div class="fd-t10-sig">{_signals_html(c)}</div>')
+
+        # ── backups ──────────────────────────────────────────────────
+        if n_back:
+            ui.label(f"BACKUPS ({n_back})").classes("fd-t10-h2")
+            with ui.element("div").classes("fd-t10-card").style("padding:0;"):
+                for c in _tt.backups(data):
+                    with ui.element("div").classes("fd-t10-back"):
+                        ui.label(c["company"]).classes("nm")
+                        meta = [p for p in (", ".join(x for x in (c["city"], c["state"]) if x),
+                                            c["lane"]) if p]
+                        if meta:
+                            ui.label(" · ".join(meta)).classes("mt")
+                        if c["signals_checked"]:
+                            n = len(c["signals"])
+                            ui.label(f"{n} signal{'s' if n != 1 else ''}").classes("mt")
+                        with ui.element("div").classes("fd-t10-acts"):
+                            cid = c["id"]
+                            _link("Move to top 10", lambda cid=cid: _commit(_tt.promote(data, cid)))
+                            _link("Edit", lambda c=c: _edit_dialog(c))
+                            _link("Remove", lambda cid=cid, nm=c["company"]: (
+                                _tt.remove(data, cid), _commit(f"Removed {nm}.")))
 
 
 def p_active_clients(s, rf):
@@ -56369,6 +56730,7 @@ def render_page(s: AppState, rf):
             elif page == "active_clients": p_active_clients(s, rf)
             elif page == "running_campaigns": p_running_campaigns(s, rf)
             elif page == "shared_contacts": p_shared_contacts(s, rf)
+            elif page == "my_top10": p_my_top10(s, rf)
             elif page == "outreach_analytics": p_outreach_analytics(s, rf)
             elif page == "company_profile": p_company_profile(s, rf)
             elif page == "team_settings": p_team_settings(s, rf)
