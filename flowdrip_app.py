@@ -4376,8 +4376,9 @@ AICB_CAMPAIGN_TYPES = [
     ("fivebyfive", "Arena 5×5", "7 steps - 2 weeks", "#7C3AED",
      "Arena's 4×4, warmed up — a softer, more personal slate play with an extra "
      "day-5 follow-up. Same 5-candidate slate positioning, friendlier voice, "
-     "a gentle bump that also flushes out the right decision-maker, and a "
-     "salary guide on the day-9 email.",
+     "the whole slate with a market pulse on the day-4 email, a gentle bump "
+     "that also flushes out the right decision-maker, and one line on each "
+     "candidate again with a salary guide on the day-9 email.",
      "Warm slate outreach - relationship-first - passive candidates",
      "GLOBAL VOICE: Write warm, personable, and human — NOT salesy. Sound like a "
      "helpful professional who happens to know great people, not a rep working a "
@@ -4395,16 +4396,18 @@ AICB_CAMPAIGN_TYPES = [
      "reference any candidates and do NOT mention attachments. End the "
      "email with exactly this line on its own: 'Are you involved in the "
      "hiring process?'\n"
-     "Step 2 - Top Talent Insights spotlight (delay_days:3, step_type:email_auto) - "
-     "Subject exactly: 'One person worth having on your radar'. Note the best "
-     "people are rarely actively looking. Then spotlight ONE candidate only (the "
-     "anchor, same alias as Step 1) in 2-3 warm sentences: background, a standout "
-     "strength, why they'd fit. Do NOT list the whole slate. Softly offer to share "
-     "market context. No hard CTA.\n"
+     "Step 2 - The slate (delay_days:3, step_type:email_auto) - Subject "
+     "exactly: 'A few people worth having on your radar'. Note the best "
+     "people are rarely actively looking. Then present the WHOLE slate from "
+     "CANDIDATE HIGHLIGHTS using the alias rule above: a full profile per "
+     "person, title plus 3 to 4 bullets per the CANDIDATE DEPTH rule, every "
+     "candidate, in order. Do NOT use bracketed placeholders. Softly offer "
+     "to share market context. Do NOT mention any attachment (the system "
+     "adds that line). No hard CTA.\n"
      "Step 3 - Follow-up Call (delay_days:0, step_type:call) - SAME DAY as Step 2, "
      "keep delay_days:0. Put the call script in the body: reference the emails and "
-     "the spotlighted person, ask if they had a chance to look, quick-qualify their "
-     "hiring timeline. Conversational, not pushy.\n"
+     "the people you sent over, ask if they had a chance to look, quick-qualify "
+     "their hiring timeline. Conversational, not pushy.\n"
      "Step 4 - LinkedIn Connect (delay_days:0, step_type:linkedin) - SAME DAY as "
      "Step 3, keep delay_days:0. Connection message under 300 characters: 'Sent you "
      "an email, wanted to connect here as well. Always sharing industry insights "
@@ -4413,10 +4416,12 @@ AICB_CAMPAIGN_TYPES = [
      "exactly: 'Following up'. A very short, warm bump. No candidates, no market "
      "data. (The system replaces this body verbatim after generation.)\n"
      "Step 6 - Worth a look (delay_days:3, step_type:email_auto) - Subject exactly: "
-     "'Still think this one's worth a look'. A gentle circle-back: inboxes are "
-     "full, no worries if the timing's off; you mostly wanted to say the "
-     "spotlighted person (same alias) is genuinely worth a short conversation. "
-     "Warm, brief. Do NOT mention any attachment (the system adds that line).\n"
+     "'Still think these are worth a look'. A gentle circle-back: inboxes are "
+     "full, no worries if the timing's off; you mostly wanted to say the people "
+     "from Step 2 are genuinely worth a short conversation. Then ONE line per "
+     "candidate (same aliases as Step 2, all of them): the single most relevant "
+     "project, company or system for each. Warm, brief. Do NOT mention any "
+     "attachment (the system adds that line).\n"
      "Step 7 - Closing the loop (delay_days:4, step_type:email_auto) - Subject "
      "exactly: 'Closing the loop for now'. A warm, human sign-off: you don't want "
      "to crowd their inbox; it's been a pleasure; you'll add them to your monthly "
@@ -4454,8 +4459,10 @@ AICB_CAMPAIGN_TYPES = [
      "chat.\n"
      "Step 3 - Interview Guide (delay_days:3, step_type:email_auto) - "
      "Subject exactly: 'An interview guide, in case it helps'. Offer a "
-     "short interview guide for the role; do NOT re-list the candidates. "
-     "Keep it brief and helpful. Do NOT say it is attached (the system "
+     "short interview guide for the role, then come back to the slate: "
+     "ONE line per candidate (same aliases as Step 2, all of them), the "
+     "single most relevant project, company or system for each. Keep it "
+     "brief and helpful. Do NOT say the guide is attached (the system "
      "adds that line).\n"
      "Step 4 - Following up (delay_days:2, step_type:email_auto) - Subject "
      "exactly: 'Following up'. A very short, warm bump. No candidates, no "
@@ -4595,7 +4602,8 @@ AICB_CAMPAIGN_TYPES = [
      "strength, why they'd fit. If it does not, say only that someone with "
      "that title coming out of the source company tends to know the work "
      "{CompanyName} does, and offer to share more. Softly offer market "
-     "context. No hard CTA.\n"
+     "context. Do NOT mention any attachment (the system adds that line). "
+     "No hard CTA.\n"
      "Step 3 - Follow-up Call (delay_days:0, step_type:call) - SAME DAY as "
      "Step 2, keep delay_days:0. Put the call script in the body: mention "
      "the two candidates from the source company by their titles, ask if "
@@ -6657,8 +6665,18 @@ def _api_create_campaign_blocking(client, spec, owner):
             industry=(spec.get("industry") or spec.get("niche") or "").strip(),
             owner_email=owner)
     if template in _FIVEBYFIVE_PDF_TYPES and emails:
-        # Step 6 says the salary guide is attached, so build it here: this
-        # path never runs the wizard's five-kind PDF phase.
+        # Step 2 says the market pulse is attached and Step 6 the salary
+        # guide, so build both here: this path never runs the wizard's
+        # five-kind PDF phase.
+        try:
+            _fivebyfive_attach_market_pulse(
+                campaign_data, (spec.get("company") or "").strip(),
+                client=client, roles_str=", ".join(spec.get("roles") or []),
+                location_str=(spec.get("location") or "").strip(),
+                industry=(spec.get("industry") or spec.get("niche") or "").strip(),
+                owner_email=owner)
+        except Exception as _mp:
+            print(f"[api] {template} market pulse skipped: {_mp}", flush=True)
         try:
             _fivebyfive_attach_salary_guide(
                 campaign_data, (spec.get("company") or "").strip(),
@@ -9399,6 +9417,17 @@ _FIVEBYFIVE_SALARY_LINE = (
 _FIVEBYFIVE_PDF_KIND = "salary_guide"
 _FIVEBYFIVE_PDF_STEP = 6
 _FIVEBYFIVE_PDF_TYPES = frozenset({"fivebyfive", "clientlookalike"})
+# Mike, 2026-10-14: a Market Pulse rides on Step 2 (the slate email) as well,
+# so the 5×5 carries two PDFs on two emails like the 5×3 does. Same shape:
+# the line is stamped after generation, the file is pinned on every path by
+# _fivebyfive_attach_market_pulse.
+_FIVEBYFIVE_MARKET_LINE = (
+    "<br><br>I've also attached a short market pulse for the role, a quick "
+    "read on demand and what's moving candidates in your market right now, "
+    "in case it's useful."
+)
+_FIVEBYFIVE_MARKET_KIND = "market_pulse"
+_FIVEBYFIVE_MARKET_STEP = 2
 # Canonical relative delays keyed by the Step-N marker in the step name.
 _FIVEBYFIVE_DELAYS = {1: 0, 2: 3, 3: 0, 4: 0, 5: 2, 6: 3, 7: 4}
 
@@ -9409,9 +9438,10 @@ def _fivebyfive_step_no(name):
 
 
 def _apply_fivebyfive_overrides(camp_type, campaign_data):
-    """Stamp the Arena 5×5's two hand-authored touches and pin its schedule.
-    The Client Lookalike is a 5×5 with its own opener, so it gets them too.
-    No-op for any other campaign type. Idempotent."""
+    """Stamp the Arena 5×5's hand-authored touches (the verbatim bump, the
+    market-pulse line on Step 2, the salary-guide line on Step 6) and pin its
+    schedule. The Client Lookalike is a 5×5 with its own opener, so it gets
+    them too. No-op for any other campaign type. Idempotent."""
     if (camp_type or "").strip() not in ("fivebyfive", "clientlookalike"):
         return campaign_data
     for em in (campaign_data or {}).get("emails", []) or []:
@@ -9422,6 +9452,8 @@ def _apply_fivebyfive_overrides(camp_type, campaign_data):
             em["subject"] = _FIVEBYFIVE_BUMP_SUBJECT
             em["body"] = _wrap_4x4_font(_strip_dashes(_FIVEBYFIVE_BUMP_BODY))
             em["attachments"] = []
+        elif n == _FIVEBYFIVE_MARKET_STEP:  # market-pulse line once, inside the font div
+            _stamp_attachment_line(em, _FIVEBYFIVE_MARKET_LINE, "market pulse")
         elif n == _FIVEBYFIVE_PDF_STEP:  # salary-guide line once, inside the font div
             _stamp_attachment_line(em, _FIVEBYFIVE_SALARY_LINE, "salary guide")
     return campaign_data
@@ -21303,8 +21335,9 @@ CHOOSER_OPTIONS = [
         "subtitle": "Warmer 4×4 with an extra day-5 follow-up",
         "desc": ("The 4×4, softened. Same 5-candidate slate play in a "
                  "warmer, more personal voice, plus a gentle day-5 bump "
-                 "that flushes out the right decision-maker and an "
-                 "interview guide on the day-8 touch."),
+                 "that flushes out the right decision-maker. A market "
+                 "pulse rides with the slate on email 2 and a salary guide "
+                 "on email 4."),
         "best_for": ["Relationship-first BD", "Warm slate outreach", "Passive candidates"],
         "border": "#7C3AED",
     },
@@ -36613,6 +36646,21 @@ def _fivebyfive_attach_salary_guide(campaign_data, company, *, client=None,
         location_str=location_str, industry=industry, owner_email=owner_email)
 
 
+def _fivebyfive_attach_market_pulse(campaign_data, company, *, client=None,
+                                    pdf_data=None, roles_str="",
+                                    location_str="", industry="",
+                                    owner_email="") -> str:
+    """Build the Market Pulse PDF and pin it to the Arena 5×5's Step 2, the
+    slate email whose body says the pulse is attached (Mike, 2026-10-14).
+    Same shape and same reasons as the salary guide on Step 6; the Client
+    Lookalike shares the line."""
+    return _pin_sequence_pdf(
+        campaign_data, company, kind=_FIVEBYFIVE_MARKET_KIND,
+        step=_FIVEBYFIVE_MARKET_STEP, tag="5x5", label="market pulse",
+        client=client, pdf_data=pdf_data, roles_str=roles_str,
+        location_str=location_str, industry=industry, owner_email=owner_email)
+
+
 def _fourbyfour_attach_market_pulse(campaign_data, company, *, client=None,
                                     pdf_data=None, roles_str="",
                                     location_str="", industry="",
@@ -42247,6 +42295,13 @@ def p_ai_campaign(s: AppState, rf):
                                 except Exception as _att_ex:
                                     print(f"[AICB] sync attach error: {_att_ex}", flush=True)
                                 if _camp_type_now in _FIVEBYFIVE_PDF_TYPES:
+                                    try:
+                                        _fivebyfive_attach_market_pulse(
+                                            campaign_data, pdf_target,
+                                            pdf_data=_pdf_data_payload,
+                                            owner_email=getattr(s, "_user_email", "") or "")
+                                    except Exception as _mp_ex:
+                                        print(f"[AICB] 5x5 market pulse error: {_mp_ex}", flush=True)
                                     try:
                                         _fivebyfive_attach_salary_guide(
                                             campaign_data, pdf_target,
@@ -53939,6 +53994,24 @@ def _aicb_candidate_weave_block(camp_type):
             '  - Email 3: Why they fit this role/market — 3 bullets per candidate\n'
             '  - Email 4: Availability & urgency (competing interest, closing window) — 3 bullets per candidate\n'
             'Do NOT leave any email without the candidate slate.\n'
+        )
+    # Mike, 2026-10-14: the 5×5 and 5×3 feature the candidates on exactly
+    # two emails. Whole slate first, one line each the second time.
+    if (camp_type or "").strip() == "fivebyfive":
+        return (
+            'Candidates go on exactly two emails. Email 2: the WHOLE slate, '
+            'a full profile per candidate (title plus 3 to 4 bullets). '
+            'Email 4: ALL of them again, one line each (the single most '
+            'relevant project, company or system). Emails 1, 3 and 5 carry '
+            'no candidates.\n'
+        )
+    if (camp_type or "").strip() == "fivebythree":
+        return (
+            'Candidates go on exactly two emails. Email 2: the WHOLE slate, '
+            'a full profile per candidate (title plus 3 to 4 bullets). '
+            'Email 3: ALL of them again, one line each (the single most '
+            'relevant project, company or system). Emails 1, 4 and 5 carry '
+            'no candidates.\n'
         )
     return (
         'Weave candidates into EVERY OTHER email '

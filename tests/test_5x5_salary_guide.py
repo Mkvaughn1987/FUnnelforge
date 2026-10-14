@@ -137,7 +137,8 @@ def test_sequence_cards_show_the_guide():
     import ai_prompts as aip
     for name in ("Arena 5x5", "Arena Client Lookalike"):
         steps = aip.SEQUENCE_INFO[name]["steps"]
-        with_pdf = [st for st in steps if len(st) > 4]
-        assert len(with_pdf) == 1, name
-        assert with_pdf[0][0] == 9 and with_pdf[0][4] == "Salary guide", name
+        # Day 9 carries the salary guide (the market pulse on day 4 is
+        # covered by tests/test_5x5_market_pulse.py).
+        guide = [st for st in steps if len(st) > 4 and st[4] == "Salary guide"]
+        assert len(guide) == 1 and guide[0][0] == 9, name
     assert "salary guide" in aip.SEQUENCE_INFO["Arena 5x5"]["about"].lower()

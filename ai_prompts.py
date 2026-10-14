@@ -287,24 +287,25 @@ SEQUENCE_INFO = {
     },
     "Arena 5x5": {
         "tag": "Warm slate play",
-        "about": "The 4x4 in a warmer, more personal voice. Spotlights one "
-                 "candidate, adds a short bump that flushes out the right "
-                 "decision-maker, sends a salary guide on email 4, and "
-                 "closes by adding them to your newsletter.",
+        "about": "The 4x4 in a warmer, more personal voice. Sends your "
+                 "whole slate with a market pulse on email 2, adds a short "
+                 "bump that flushes out the right decision-maker, comes "
+                 "back to each candidate with a salary guide on email 4, "
+                 "and closes by adding them to your newsletter.",
         "best": "Relationship-first outreach to passive buyers.",
         "steps": [
             (1, "email", "Quick note for {Company}",
-             "Introduces you and the slate you're working with."),
-            (4, "email", "One person worth having on your radar",
-             "Spotlights your strongest candidate in a few warm lines."),
+             "Introduces you and the roles you place. No candidates yet."),
+            (4, "email", "A few people worth having on your radar",
+             "Your whole slate, a short write-up on each.", "Market pulse"),
             (4, "call", "Follow-up call",
-             "References the spotlight and asks about hiring timeline."),
+             "References the slate and asks about hiring timeline."),
             (4, "linkedin", "LinkedIn connect",
              "Short connection request that points back to your email."),
             (6, "email", "Following up",
              "A two-line bump. No candidates, no market data."),
-            (9, "email", "Still think this one's worth a look",
-             "Gentle circle-back on the spotlighted candidate.",
+            (9, "email", "Still think these are worth a look",
+             "Gentle circle-back, one line on each candidate again.",
              "Salary guide"),
             (13, "email", "Closing the loop for now",
              "Warm sign-off and a spot on your monthly newsletter."),
@@ -324,8 +325,8 @@ SEQUENCE_INFO = {
              "An in-depth write-up on each of the three candidates.",
              "Market pulse"),
             (7, "email", "An interview guide, in case it helps",
-             "A ready-to-use interview guide for the role.",
-             "Interview guide"),
+             "A ready-to-use interview guide for the role, then one line "
+             "on each candidate again.", "Interview guide"),
             (9, "email", "Following up",
              "A short bump that checks you have the right person.",
              "Salary guide"),
@@ -360,13 +361,16 @@ SEQUENCE_INFO = {
         "tag": "Built for lookalikes",
         "about": "The 5x5 for companies that look like one you know. Email "
                  "1 opens on two candidates you're working with from the "
-                 "starting company, and the follow-ups come back to them.",
+                 "starting company, and the follow-ups come back to them. "
+                 "A market pulse rides on email 2 and a salary guide on "
+                 "email 4.",
         "best": "Finding more companies like a client you already have.",
         "steps": [
             (1, "email", "Quick note for {Company}",
              "Opens on two candidates from the starting company."),
             (4, "email", "One person worth having on your radar",
-             "Comes back to the first of those two candidates."),
+             "Comes back to the first of those two candidates.",
+             "Market pulse"),
             (4, "call", "Follow-up call",
              "Mentions both candidates and asks about hiring timeline."),
             (4, "linkedin", "LinkedIn connect",
