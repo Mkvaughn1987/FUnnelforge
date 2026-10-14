@@ -148,6 +148,35 @@ def test_prompt_names_company_focus_and_signals():
     p = tt.signal_prompt(c, SIGS, "2026-10-14", {"market": "Denver, CO", "industry": "Construction"})
     assert "Shaw" in p and "Denver, CO" in p and "Construction" in p
     assert "- reposted: role reposted" in p and "Superintendent" in p and "Never" in p
+    assert f"last {tt.FRESH_DAYS} days" in p and '"age_days"' in p
+
+
+def test_parse_jobs_newest_first_with_age_from_date_or_board():
+    from datetime import date
+    reply = json.dumps({"summary": "", "jobs": [
+        {"title": "Estimator", "location": "Denver, CO", "age_days": None, "date": "",
+         "url": "https://www.indeed.com/viewjob?jk=2"},
+        {"title": "Superintendent", "location": "Denver, CO", "age_days": 2, "pay": "$80k-$120k",
+         "url": "https://www.indeed.com/viewjob?jk=1"},
+        {"title": "Project Manager", "date": "2026-10-01", "url": "https://fake.example/x"},
+        {"title": ""},
+    ], "signals": []})
+    out = tt.parse_signals(reply, SIGS, ["https://indeed.com/"], today=date(2026, 10, 14))
+    assert [j["title"] for j in out["jobs"]] == ["Superintendent", "Project Manager", "Estimator"]
+    assert [j["age_days"] for j in out["jobs"]] == [2, 13, None]
+    assert out["jobs"][1]["url"] == ""                       # host never retrieved
+    c = {"jobs": out["jobs"]}
+    assert [j["title"] for j in tt.fresh_jobs(c)] == ["Superintendent"]
+
+
+def test_freshest_across_top_ten_and_short_roles():
+    d = _data()
+    a, _ = tt.add(d, {"company": "Shaw"}); b, _ = tt.add(d, {"company": "Acme"})
+    a["jobs"] = [{"title": "Super", "age_days": 5}, {"title": "PM", "age_days": 30}]
+    b["jobs"] = [{"title": "Estimator", "age_days": 1}, {"title": "APM", "age_days": None}]
+    assert [(c["company"], j["title"]) for c, j in tt.freshest(d)] == [("Acme", "Estimator"), ("Shaw", "Super")]
+    assert tt.short_roles("Project Manager, Superintendent, APM, Senior PM, CM") == "Project Manager, Superintendent +3"
+    assert tt.short_roles("Superintendent") == "Superintendent"
 
 
 def test_parse_drops_unknown_ids_and_unseen_urls():
@@ -231,7 +260,7 @@ def test_page_seeds_from_outreach_and_starts_signal_scan(with_user, monkeypatch)
         fa.p_my_top10(s, lambda: None)
     text = _page_text(card)
     assert "My Top 10" in text and "Shaw Construction" in text
-    assert "From your outreach" in text
+    assert "1 campaign" in text and "NEW POSTINGS" in text and "Top targets" in text
     assert started == ["tester@example.com"]
     saved = tt.load(users / "tester_at_example_com" / tt.FILE_NAME)
     assert saved["seeded"] and saved["companies"][0]["source"] == "auto"

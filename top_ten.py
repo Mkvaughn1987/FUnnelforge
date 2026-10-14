@@ -87,6 +87,7 @@ def _clean(c: dict) -> dict:
         "source": "auto" if c.get("source") == "auto" else "manual",
         "why": str(c.get("why") or "").strip(),
         "signals": c.get("signals") if isinstance(c.get("signals"), list) else [],
+        "jobs": c.get("jobs") if isinstance(c.get("jobs"), list) else [],
         "signal_summary": str(c.get("signal_summary") or ""),
         "signals_checked": str(c.get("signals_checked") or ""),
         "signals_error": str(c.get("signals_error") or ""),
@@ -256,24 +257,47 @@ def signal_prompt(c: dict, signal_defs: list, today: str, focus: dict | None = N
         facts.append(f"Role the recruiter is targeting: {c['req']}")
     return (
         f"Today is {today}. A staffing recruiter is tracking this company as a "
-        "target client and wants to know if it is showing hiring signals right now.\n\n"
+        "target client and wants two things: the jobs it posted most recently, and "
+        "any hiring signals.\n\n"
         + "\n".join(facts) + "\n\n"
         "Search the web for this exact company (check the location so you do not "
-        "confuse it with a similarly named firm). Look for these signals from the "
-        "last 60 days:\n" + lines + "\n\n"
+        "confuse it with a similarly named firm).\n\n"
+        f"FIRST, find its job postings from the last {FRESH_DAYS} days. Job boards "
+        "show 'Posted 3 days ago' or a date; use that. A posting with no visible date "
+        "is still worth listing, with age left empty. List the newest first, up to 8.\n\n"
+        "SECOND, look for these signals from the last 60 days:\n" + lines + "\n\n"
         "Only report what you actually found on a page the search returned. Never "
-        "invent a posting, a date or a URL. If you find nothing, return an empty list.\n\n"
+        "invent a posting, a date or a URL. If you find nothing, return empty lists.\n\n"
         "Reply with ONLY a JSON object, no prose before or after:\n"
         '{"summary": "<one plain sentence a recruiter can read in two seconds>", '
-        '"signals": [{"id": "<signal id from the list>", "title": "<what you saw, '
-        'e.g. Senior Estimator posting>", "detail": "<one short sentence>", '
-        '"date": "<YYYY-MM-DD or empty>", "url": "<source url>"}]}'
+        '"jobs": [{"title": "<job title>", "location": "<city, state>", '
+        '"age_days": <whole number of days since posted, or null when the page shows none>, '
+        '"date": "<YYYY-MM-DD or empty>", "pay": "<posted pay or empty>", "url": "<posting url>"}], '
+        '"signals": [{"id": "<signal id from the list>", "title": "<what you saw>", '
+        '"detail": "<one short sentence>", "date": "<YYYY-MM-DD or empty>", "url": "<source url>"}]}'
     )
 
 
-def parse_signals(text: str, signal_defs: list, retrieved_urls: list | None = None) -> dict:
-    """{"summary", "signals"} from the model's reply. Drops unknown ids and,
-    when retrieved_urls is given, any url the search never returned."""
+def _age_days(job: dict, today) -> int | None:
+    """Days since posted: the board's 'N days ago' first, else the date."""
+    a = job.get("age_days")
+    if isinstance(a, (int, float)) and not isinstance(a, bool) and a >= 0:
+        return int(a)
+    d = str(job.get("date") or "").strip()[:10]
+    if d:
+        try:
+            from datetime import date as _date
+            return max(0, (today - _date.fromisoformat(d)).days)
+        except ValueError:
+            pass
+    return None
+
+
+def parse_signals(text: str, signal_defs: list, retrieved_urls: list | None = None,
+                  today=None) -> dict:
+    """{"summary", "jobs", "signals"} from the model's reply. Drops unknown
+    signal ids and, when retrieved_urls is given, any url the search never
+    returned. Jobs come back newest first."""
     known = {s["id"]: s["label"] for s in signal_defs}
     m = re.search(r"\{.*\}", text or "", re.S)
     if not m:
@@ -282,6 +306,27 @@ def parse_signals(text: str, signal_defs: list, retrieved_urls: list | None = No
     hosts = None
     if retrieved_urls is not None:
         hosts = {_host(u) for u in retrieved_urls if u}
+    today = today or datetime.now().date()
+
+    def _url(u) -> str:
+        u = str(u or "").strip()
+        if u and hosts is not None and _host(u) not in hosts:
+            return ""
+        return u if u.startswith(("http://", "https://")) else ""
+
+    jobs = []
+    for j in raw.get("jobs") or []:
+        if not isinstance(j, dict) or not str(j.get("title") or "").strip():
+            continue
+        jobs.append({
+            "title": str(j.get("title") or "").strip()[:120],
+            "location": str(j.get("location") or "").strip()[:80],
+            "age_days": _age_days(j, today),
+            "date": str(j.get("date") or "").strip()[:10],
+            "pay": str(j.get("pay") or "").strip()[:60],
+            "url": _url(j.get("url")),
+        })
+    jobs.sort(key=lambda j: (j["age_days"] is None, j["age_days"] or 0))
     out = []
     for s in raw.get("signals") or []:
         if not isinstance(s, dict):
@@ -289,18 +334,44 @@ def parse_signals(text: str, signal_defs: list, retrieved_urls: list | None = No
         sid = str(s.get("id") or "").strip()
         if sid not in known:
             continue
-        url = str(s.get("url") or "").strip()
-        if url and hosts is not None and _host(url) not in hosts:
-            url = ""
         out.append({
             "id": sid,
             "label": known[sid],
             "title": str(s.get("title") or "").strip()[:160],
             "detail": str(s.get("detail") or "").strip()[:300],
             "date": str(s.get("date") or "").strip()[:10],
-            "url": url if url.startswith(("http://", "https://")) else "",
+            "url": _url(s.get("url")),
         })
-    return {"summary": str(raw.get("summary") or "").strip()[:300], "signals": out}
+    return {"summary": str(raw.get("summary") or "").strip()[:300],
+            "jobs": jobs[:8], "signals": out}
+
+
+FRESH_DAYS = 10
+
+
+def fresh_jobs(c: dict, days: int = FRESH_DAYS) -> list:
+    """The company's postings dated within `days`, newest first."""
+    return [j for j in c.get("jobs") or []
+            if j.get("age_days") is not None and j["age_days"] <= days]
+
+
+def freshest(data: dict, days: int = FRESH_DAYS, limit: int = 12) -> list:
+    """(company, job) across the top 10, newest first, for the page's
+    'posted in the last N days' strip."""
+    out = []
+    for c in active(data):
+        for j in fresh_jobs(c, days):
+            out.append((c, j))
+    out.sort(key=lambda cj: (cj[1]["age_days"], cj[0]["company"].lower()))
+    return out[:limit]
+
+
+def short_roles(req: str, keep: int = 2) -> str:
+    """'PM, Superintendent, APM, Senior PM, CM' -> 'PM, Superintendent +3'."""
+    parts = [p.strip() for p in re.split(r"[,;/]| and ", req or "") if p.strip()]
+    if len(parts) <= keep:
+        return ", ".join(parts)
+    return ", ".join(parts[:keep]) + f" +{len(parts) - keep}"
 
 
 def _host(url: str) -> str:
@@ -316,6 +387,7 @@ def record_signals(c: dict, result: dict | None, error: str = "",
     c["signals_tried"] = stamp
     if result is not None:
         c["signals"] = result["signals"]
+        c["jobs"] = result.get("jobs") or []
         c["signal_summary"] = result["summary"]
         c["signals_checked"] = stamp
         c["signals_error"] = ""

@@ -33970,36 +33970,90 @@ def p_shared_contacts(s, rf):
 
 
 def _t10_css() -> str:
-    """My Top 10 page: one card per target company, signals underneath."""
+    """My Top 10 page: new postings strip, then one card per company with
+    recent postings on the left and signals on the right."""
     return f"""
-.fd-t10{{max-width:1180px}}
-.fd-t10-focus{{display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;margin:14px 0 6px}}
-.fd-t10-focus .fd-input{{min-width:200px}}
-.fd-t10-bar{{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;margin:10px 0 14px}}
+.fd-t10{{max-width:1080px}}
+.fd-t10-bar{{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin:14px 0 16px}}
+.fd-t10-focus{{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border:1px solid {C['border']};
+  border-radius:99px;font-size:12.5px;color:{C['text']};background:{C['card']}}}
+.fd-t10-focus b{{color:{C['text_l']};font-weight:600}}
+.fd-t10-focus-edit{{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 14px}}
+.fd-t10-focus-edit .fd-input{{width:220px;max-width:100%}}
+.fd-t10-right{{display:flex;align-items:center;gap:14px;margin-left:auto}}
 .fd-t10-scan{{display:flex;align-items:center;gap:8px;font-size:12px;color:{C['warn']};font-weight:600}}
-.fd-t10-h2{{font-size:13px;font-weight:700;letter-spacing:.06em;color:{C['muted']};margin:22px 0 8px}}
-.fd-t10-card{{border:1px solid {C['border']};border-radius:10px;padding:12px 14px;margin:0 0 10px;background:{C['card']}}}
-.fd-t10-top{{display:flex;align-items:flex-start;gap:12px}}
-.fd-t10-rank{{font-size:18px;font-weight:700;color:{C['teal']};min-width:28px}}
-.fd-t10-co{{font-size:15px;font-weight:600;color:{C['text_l']}}}
-.fd-t10-meta{{font-size:12px;color:{C['muted']};margin-top:2px}}
-.fd-t10-why{{font-size:11.5px;color:{C['text']};margin-top:3px}}
-.fd-t10-camp{{font-size:11.5px;color:{C['good']};margin-top:3px}}
-.fd-t10-acts{{display:flex;flex-wrap:wrap;gap:4px 10px;margin-left:auto;align-items:center}}
-.fd-t10-sig{{margin:10px 0 0 40px;font-size:12.5px;color:{C['text']}}}
-.fd-t10-sum{{color:{C['text_l']};margin-bottom:4px}}
-.fd-t10-sig ul{{margin:4px 0 0;padding-left:18px}}
-.fd-t10-sig li{{margin:2px 0}}
-.fd-t10-sig a{{color:{C['teal']};text-decoration:none}}
-.fd-t10-sig a:hover{{text-decoration:underline}}
-.fd-t10-tag{{display:inline-block;font-size:10.5px;padding:1px 7px;border-radius:99px;background:{C['teal_dim']};color:{C['teal']};margin-right:6px}}
-.fd-t10-when{{font-size:11px;color:{C['muted']};margin-top:4px}}
-.fd-t10-back{{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;padding:8px 12px;border-bottom:1px solid {C['border']};font-size:13px}}
-.fd-t10-back .nm{{font-weight:600;color:{C['text_l']}}}
-.fd-t10-back .mt{{color:{C['muted']};font-size:12px}}
-@media (max-width:640px){{.fd-t10-sig{{margin-left:0}}.fd-t10-acts{{margin-left:0}}.fd-t10-top{{flex-wrap:wrap}}}}
+.fd-t10-h2{{font-size:11.5px;font-weight:700;letter-spacing:.08em;color:{C['muted']};margin:24px 0 8px;
+  display:flex;align-items:baseline;gap:10px}}
+.fd-t10-h2 span{{font-weight:500;letter-spacing:0;text-transform:none}}
+.fd-t10-box{{border:1px solid {C['border']};border-radius:10px;background:{C['card']};overflow:hidden}}
+.fd-t10-new{{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:6px 14px;
+  padding:9px 14px;border-bottom:1px solid {C['border']};font-size:13px}}
+.fd-t10-new:last-child{{border-bottom:none}}
+.fd-t10-new .co{{color:{C['muted']};font-size:12px;white-space:nowrap}}
+.fd-t10-new .ti{{color:{C['text_l']};font-weight:600}}
+.fd-t10-new .ti a{{color:inherit;text-decoration:none}}
+.fd-t10-new .ti a:hover{{color:{C['teal']}}}
+.fd-t10-new .mt{{color:{C['muted']};font-size:12px;font-weight:400;margin-left:8px}}
+.fd-t10-age{{display:inline-block;min-width:34px;text-align:center;font-size:11px;font-weight:700;
+  padding:2px 7px;border-radius:6px;background:{C['card_h']};color:{C['muted']};font-variant-numeric:tabular-nums}}
+.fd-t10-age.hot{{background:{C['good']};color:#fff}}
+.fd-t10-age.warm{{background:{C['teal_dim']};color:{C['teal']}}}
+.fd-t10-card{{border:1px solid {C['border']};border-radius:10px;background:{C['card']};margin:0 0 10px;padding:14px 16px}}
+.fd-t10-head{{display:flex;align-items:flex-start;gap:12px}}
+.fd-t10-rank{{width:26px;height:26px;border-radius:50%;background:{C['card_h']};color:{C['text_l']};
+  font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}}
+.fd-t10-name{{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px}}
+.fd-t10-co{{font-size:15px;font-weight:700;color:{C['text_l']}}}
+.fd-t10-co a{{color:inherit;text-decoration:none}}
+.fd-t10-co a:hover{{color:{C['teal']}}}
+.fd-t10-pill{{font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:99px;letter-spacing:.02em}}
+.fd-t10-pill.new{{background:{C['good']};color:#fff}}
+.fd-t10-pill.sig{{background:{C['teal_dim']};color:{C['teal']}}}
+.fd-t10-pill.st{{background:{C['card_h']};color:{C['text']}}}
+.fd-t10-pill.camp{{background:transparent;border:1px solid {C['good']};color:{C['good']};font-weight:600}}
+.fd-t10-meta{{font-size:12px;color:{C['muted']};margin-top:3px}}
+.fd-t10-acts{{display:flex;align-items:center;gap:2px;margin-left:auto;flex-shrink:0;opacity:.6}}
+.fd-t10-card:hover .fd-t10-acts{{opacity:1}}
+.fd-t10-acts button{{border:none;background:transparent;color:{C['muted']};font:inherit;font-size:12px;
+  padding:3px 7px;border-radius:6px;cursor:pointer}}
+.fd-t10-acts button:hover{{color:{C['text_l']};background:{C['card_h']}}}
+.fd-t10-acts button.danger:hover{{color:{C['danger']}}}
+.fd-t10-body{{display:grid;grid-template-columns:3fr 2fr;gap:12px 28px;margin:12px 0 0 38px}}
+.fd-t10-col h4{{margin:0 0 6px;font-size:11px;font-weight:700;letter-spacing:.08em;color:{C['muted']}}}
+.fd-t10-job{{display:flex;align-items:baseline;gap:10px;padding:4px 0;font-size:13px}}
+.fd-t10-job .ti{{color:{C['text_l']};font-weight:600}}
+.fd-t10-job .ti a{{color:inherit;text-decoration:none}}
+.fd-t10-job .ti a:hover{{color:{C['teal']}}}
+.fd-t10-job .mt{{color:{C['muted']};font-size:12px}}
+.fd-t10-none{{font-size:12.5px;color:{C['muted']};padding:4px 0}}
+.fd-t10-chips{{display:flex;flex-wrap:wrap;gap:6px}}
+.fd-t10-chip{{font-size:12px;padding:3px 9px;border-radius:99px;background:{C['teal_dim']};color:{C['teal']};
+  font-weight:600;text-decoration:none;cursor:default}}
+.fd-t10-chip[href]{{cursor:pointer}}
+.fd-t10-chip[href]:hover{{text-decoration:underline}}
+.fd-t10-more{{margin-top:8px}}
+.fd-t10-more summary{{cursor:pointer;font-size:12px;color:{C['muted']};list-style:none}}
+.fd-t10-more summary::-webkit-details-marker{{display:none}}
+.fd-t10-more summary:hover{{color:{C['text_l']}}}
+.fd-t10-more p{{margin:6px 0 0;font-size:12.5px;color:{C['text']};line-height:1.5}}
+.fd-t10-more li{{font-size:12.5px;color:{C['text']};margin:3px 0}}
+.fd-t10-when{{font-size:11px;color:{C['muted']};margin:8px 0 0 38px}}
+.fd-t10-bk{{display:grid;grid-template-columns:28px 1fr auto auto;align-items:center;gap:6px 14px;
+  padding:9px 14px;border-bottom:1px solid {C['border']};font-size:13px}}
+.fd-t10-bk:last-child{{border-bottom:none}}
+.fd-t10-bk .n{{color:{C['muted']};font-size:12px;font-variant-numeric:tabular-nums}}
+.fd-t10-bk .nm{{color:{C['text_l']};font-weight:600}}
+.fd-t10-bk .mt{{color:{C['muted']};font-size:12px;margin-left:8px}}
+@media (max-width:760px){{
+  .fd-t10-body{{grid-template-columns:1fr;margin-left:0}}
+  .fd-t10-when{{margin-left:0}}
+  .fd-t10-head{{flex-wrap:wrap}}
+  .fd-t10-acts{{margin-left:38px;opacity:1}}
+  .fd-t10-new{{grid-template-columns:auto 1fr}}
+  .fd-t10-new .co{{grid-column:2}}
+  .fd-t10-bk{{grid-template-columns:28px 1fr}}
+}}
 """
-
 
 # user email -> {"running": bool, "done": int, "total": int}
 _TOP10_SCANS: dict = {}
@@ -34105,8 +34159,9 @@ def _top10_fill(data: dict, owner: str) -> int:
 def p_my_top10(s, rf):
     """The user's own ten target companies plus ten backups. Empty on first
     visit? Filled from the companies they have campaigned most, inside their
-    focus market and industry. Every visit re-checks hiring signals for any
-    top-10 company not checked in the last day."""
+    focus market and industry. Every visit re-checks postings and hiring
+    signals for any top-10 company not checked in the last day. Newest
+    postings lead: a strip across the top, then first in every card."""
     from html import escape as _esc
     import team_campaigns as _tc
     import top_ten as _tt
@@ -34130,6 +34185,10 @@ def p_my_top10(s, rf):
     except Exception:
         team_recs = []
     hits = _tt.campaign_hits(data["companies"], team_recs)
+    act, back = _tt.active(data), _tt.backups(data)
+    fresh = _tt.freshest(data)
+    n_fresh_cos = sum(1 for c in act if _tt.fresh_jobs(c))
+    n_signals = sum(len(c["signals"]) for c in act)
 
     def _commit(msg: str = ""):
         _tt.save(path, data)
@@ -34147,31 +34206,83 @@ def p_my_top10(s, rf):
             return "just now"
         return f"{h}h ago" if h < 48 else f"{h // 24} days ago"
 
-    def _signals_html(c: dict) -> str:
-        if c["signals_checked"]:
-            parts = []
-            if c["signal_summary"]:
-                parts.append(f'<div class="fd-t10-sum">{_esc(c["signal_summary"])}</div>')
-            if c["signals"]:
-                items = ""
-                for sg in c["signals"]:
-                    title = _esc(sg.get("title") or sg.get("label") or "")
-                    if sg.get("url"):
-                        title = f'<a href="{_esc(sg["url"])}" target="_blank" rel="noopener">{title}</a>'
-                    bits = [f'<span class="fd-t10-tag">{_esc(sg.get("label", ""))}</span>{title}']
-                    if sg.get("detail"):
-                        bits.append(f' &middot; {_esc(sg["detail"])}')
-                    if sg.get("date"):
-                        bits.append(f' <span style="color:{C["muted"]}">({_esc(sg["date"])})</span>')
-                    items += f'<li>{"".join(bits)}</li>'
-                parts.append(f"<ul>{items}</ul>")
-            elif not c["signal_summary"]:
-                parts.append("<div>No hiring signals found right now.</div>")
-            parts.append(f'<div class="fd-t10-when">Checked {_esc(_ago(c["signals_checked"]))}</div>')
-            return "".join(parts)
-        if c["signals_error"]:
-            return "<div>The signal check didn't finish. It will try again on your next visit.</div>"
-        return '<div style="opacity:.7">Checking hiring signals&hellip;</div>'
+    def _age_html(days) -> str:
+        if days is None:
+            return '<span class="fd-t10-age">—</span>'
+        cls = "hot" if days <= 3 else ("warm" if days <= _tt.FRESH_DAYS else "")
+        txt = "Today" if days == 0 else f"{days}d"
+        return f'<span class="fd-t10-age {cls}">{txt}</span>'
+
+    def _job_title(j: dict) -> str:
+        t = _esc(j["title"])
+        if j.get("url"):
+            t = f'<a href="{_esc(j["url"])}" target="_blank" rel="noopener">{t} ↗</a>'
+        return t
+
+    def _job_meta(j: dict, with_loc=True) -> str:
+        bits = []
+        if with_loc and j.get("location"):
+            bits.append(_esc(j["location"]))
+        if j.get("pay"):
+            bits.append(_esc(j["pay"]))
+        return " · ".join(bits)
+
+    def _where(c: dict) -> str:
+        return ", ".join(x for x in (c["city"], c["state"]) if x)
+
+    def _card_body(c: dict) -> str:
+        """Recent postings left, signals right."""
+        jobs = c.get("jobs") or []
+        fresh_j = _tt.fresh_jobs(c)
+        rest = [j for j in jobs if j not in fresh_j][:3]
+        left = f'<h4>POSTINGS · LAST {_tt.FRESH_DAYS} DAYS</h4>'
+        if not c["signals_checked"]:
+            left += ('<div class="fd-t10-none">' + (
+                "The check didn't finish. It will try again on your next visit."
+                if c["signals_error"] else "Checking…") + "</div>")
+        elif not fresh_j and not rest:
+            left += '<div class="fd-t10-none">No postings found.</div>'
+        else:
+            if not fresh_j:
+                left += f'<div class="fd-t10-none">Nothing dated in the last {_tt.FRESH_DAYS} days.</div>'
+            for j in fresh_j:
+                left += (f'<div class="fd-t10-job">{_age_html(j["age_days"])}'
+                         f'<span class="ti">{_job_title(j)}</span>'
+                         f'<span class="mt">{_job_meta(j)}</span></div>')
+            if rest:
+                items = "".join(
+                    f'<li>{_age_html(j["age_days"])} {_job_title(j)}'
+                    + (f' <span class="mt" style="color:{C["muted"]}">· {_job_meta(j)}</span>'
+                       if _job_meta(j) else "") + "</li>" for j in rest)
+                left += (f'<details class="fd-t10-more"><summary>Older or undated ({len(rest)})</summary>'
+                         f'<ul style="margin:6px 0 0;padding-left:16px">{items}</ul></details>')
+        right = "<h4>SIGNALS</h4>"
+        if c["signals"]:
+            chips = ""
+            for sg in c["signals"]:
+                label = _esc(sg.get("title") or sg.get("label") or "")
+                tip = _esc(sg.get("detail") or sg.get("label") or "")
+                if sg.get("url"):
+                    chips += (f'<a class="fd-t10-chip" href="{_esc(sg["url"])}" target="_blank" '
+                              f'rel="noopener" title="{tip}">{label}</a>')
+                else:
+                    chips += f'<span class="fd-t10-chip" title="{tip}">{label}</span>'
+            right += f'<div class="fd-t10-chips">{chips}</div>'
+            details = "".join(
+                f'<li><b>{_esc(sg.get("title") or sg.get("label") or "")}.</b> {_esc(sg.get("detail") or "")}'
+                + (f' ({_esc(sg["date"])})' if sg.get("date") else "") + "</li>"
+                for sg in c["signals"] if sg.get("detail"))
+            if details or c["signal_summary"]:
+                right += ('<details class="fd-t10-more"><summary>What we found</summary>'
+                          + (f'<p>{_esc(c["signal_summary"])}</p>' if c["signal_summary"] else "")
+                          + (f'<ul style="margin:6px 0 0;padding-left:16px">{details}</ul>' if details else "")
+                          + "</details>")
+        elif c["signals_checked"]:
+            right += '<div class="fd-t10-none">None in the last 60 days.</div>'
+        else:
+            right += '<div class="fd-t10-none">—</div>'
+        return (f'<div class="fd-t10-body"><div class="fd-t10-col">{left}</div>'
+                f'<div class="fd-t10-col">{right}</div></div>')
 
     def _edit_dialog(c: dict | None):
         with ui.dialog() as dlg, ui.card().style("min-width:min(520px,92vw);"):
@@ -34180,7 +34291,7 @@ def p_my_top10(s, rf):
             fields = {}
             for key, label in (("company", "Company"), ("website", "Website"),
                                ("city", "City"), ("state", "State (2 letters)"),
-                               ("lane", "Industry / lane"), ("req", "Role you're targeting"),
+                               ("lane", "Industry / lane"), ("req", "Roles you're targeting"),
                                ("notes", "Notes")):
                 fields[key] = ui.input(label, value=vals.get(key, "")).classes("fd-input w-full")
             status = ui.select(list(_tt.STATUSES), value=vals.get("status") or _tt.STATUSES[0],
@@ -34208,59 +34319,90 @@ def p_my_top10(s, rf):
                 ui.button("Save", on_click=_save).props("unelevated color=primary")
         dlg.open()
 
-    def _link(label, fn):
-        with ui.element("button").classes("fd-rc-link").props('type="button"').on("click", fn):
+    def _link(label, fn, cls="fd-rc-link"):
+        with ui.element("button").classes(cls).props('type="button"').on("click", fn):
             ui.label(label)
+
+    def _act(label, fn, danger=False, title=""):
+        b = ui.element("button").classes("danger" if danger else "").props(
+            'type="button"' + (f' title="{title}"' if title else "")).on("click", fn)
+        with b:
+            ui.label(label)
+
+    focus_open = {"on": not (data["focus"]["market"] or data["focus"]["industry"])}
 
     with ui.element("div").classes("fd-t10"):
         ui.label(_tt.PAGE_TITLE).classes("fd-h1")
-        ui.label(
-            "Your ten target companies and ten backups. Only you see this list. "
-            "Hiring signals are checked every time you open it (once a day per company)."
-        ).classes("fd-sub")
+        ui.label("Your ten target companies and ten backups, with their newest job postings "
+                 "and hiring signals. Only you see this list."
+                 ).classes("fd-sub")
 
-        # ── focus ────────────────────────────────────────────────────
-        with ui.element("div").classes("fd-t10-focus"):
-            ui.label("Focus").classes("fd-rc-lbl")
-            market_in = ui.input(placeholder="Market, e.g. Denver, CO",
-                                 value=data["focus"]["market"]).props("dense").classes("fd-input")
-            ind_opts = {"": "Any industry", "Construction": "Construction (all trades)"}
-            for lbl in _tc.INDUSTRY_CHOICES:
-                if lbl not in ind_opts and lbl != _tc.INDUSTRY_OTHER:
-                    ind_opts[lbl] = lbl
-            ind_sel = ui.select(ind_opts, value=data["focus"]["industry"]
-                                if data["focus"]["industry"] in ind_opts else "").classes("fd-input")
+        # ── toolbar: focus pill · add · check all ─────────────────────
+        bar = ui.element("div").classes("fd-t10-bar")
+        focus_row = ui.element("div").classes("fd-t10-focus-edit")
 
-            def _save_focus():
-                _tt.set_focus(data, market_in.value or "", ind_sel.value or "")
-                _commit("Focus saved.")
-            _link("Save focus", _save_focus)
+        def _draw_focus_row():
+            focus_row.clear()
+            focus_row.style("display:flex;" if focus_open["on"] else "display:none;")
+            with focus_row:
+                market_in = ui.input(placeholder="Market, e.g. Denver, CO",
+                                     value=data["focus"]["market"]).props("dense outlined").classes("fd-input")
+                ind_opts = {"": "Any industry", "Construction": "Construction (all trades)"}
+                for lbl in _tc.INDUSTRY_CHOICES:
+                    if lbl not in ind_opts and lbl != _tc.INDUSTRY_OTHER:
+                        ind_opts[lbl] = lbl
+                ind_sel = ui.select(ind_opts, value=data["focus"]["industry"]
+                                    if data["focus"]["industry"] in ind_opts else "").props(
+                    "dense outlined").classes("fd-input")
 
-        # ── action bar ───────────────────────────────────────────────
-        n_act, n_back = len(_tt.active(data)), len(_tt.backups(data))
-        with ui.element("div").classes("fd-t10-bar"):
-            ui.button("Add a company", on_click=lambda: _edit_dialog(None)).props(
-                "unelevated color=primary")
+                def _save_focus():
+                    _tt.set_focus(data, market_in.value or "", ind_sel.value or "")
+                    focus_open["on"] = False
+                    _commit("Focus saved.")
+                ui.button("Save", on_click=_save_focus).props("unelevated color=primary dense")
+                if data["focus"]["market"] or data["focus"]["industry"]:
+                    def _cancel():
+                        focus_open["on"] = False
+                        _draw_bar(); _draw_focus_row()
+                    ui.button("Cancel", on_click=_cancel).props("flat dense")
 
-            def _fill():
-                n = _top10_fill(data, owner)
-                _commit(f"Added {n} compan{'y' if n == 1 else 'ies'} from your campaigns."
-                        if n else "No more companies from your campaigns match your focus.")
-                _top10_start_scan(s, owner, rf)
-            if n_act < _tt.ACTIVE_MAX or n_back < _tt.BACKUP_MAX:
-                _link("Fill open spots from my campaigns", _fill)
+        def _draw_bar():
+            bar.clear()
+            with bar:
+                with ui.element("div").classes("fd-t10-focus"):
+                    f = data["focus"]
+                    if f["market"] or f["industry"]:
+                        txt = " · ".join(p for p in (f["market"], f["industry"] + (
+                            " (all trades)" if f["industry"] == "Construction" else "")) if p)
+                        ui.html(f"Focus&nbsp; <b>{_esc(txt)}</b>")
+                    else:
+                        ui.html("Focus&nbsp; <b>not set</b>")
 
-            def _recheck_all():
-                _top10_start_scan(s, owner, rf, [c["id"] for c in _tt.active(data)])
-                rf()
-            if n_act and not scan.get("running"):
-                _link("Check all signals now", _recheck_all)
-
-            if scan.get("running"):
-                with ui.element("div").classes("fd-t10-scan"):
-                    ui.spinner("dots", size="16px", color=C["warn"])
-                    ui.label(f"Checking hiring signals… {scan['done']} of {scan['total']}")
-                ui.timer(5.0, rf, once=True)
+                    def _toggle():
+                        focus_open["on"] = not focus_open["on"]
+                        _draw_focus_row()
+                    _link("Change", _toggle, "fd-rc-link quiet")
+                with ui.element("div").classes("fd-t10-right"):
+                    if scan.get("running"):
+                        with ui.element("div").classes("fd-t10-scan"):
+                            ui.spinner("dots", size="16px", color=C["warn"])
+                            ui.label(f"Checking {scan['done']} of {scan['total']}")
+                        ui.timer(5.0, rf, once=True)
+                    elif act:
+                        def _recheck_all():
+                            _top10_start_scan(s, owner, rf, [c["id"] for c in act])
+                            rf()
+                        _link("Check all now", _recheck_all, "fd-rc-link quiet")
+                    if len(act) < _tt.ACTIVE_MAX or len(back) < _tt.BACKUP_MAX:
+                        def _fill():
+                            n = _top10_fill(data, owner)
+                            _commit(f"Added {n} compan{'y' if n == 1 else 'ies'} from your campaigns."
+                                    if n else "No more companies from your campaigns match your focus.")
+                            _top10_start_scan(s, owner, rf)
+                        _link("Fill from my campaigns", _fill, "fd-rc-link quiet")
+                    ui.button("Add a company", on_click=lambda: _edit_dialog(None)).props(
+                        "unelevated color=primary")
+        _draw_bar(); _draw_focus_row()
 
         if not data["companies"]:
             ui.html(
@@ -34269,59 +34411,104 @@ def p_my_top10(s, rf):
                 'from your campaigns once you have run a few.</div></div>')
             return
 
+        # ── stat strip ───────────────────────────────────────────────
+        with ui.element("div").classes("fd-stat-strip").style("margin:0 0 6px;"):
+            for val, lbl, col in [
+                    (len(act), "Top targets", C["text_l"]),
+                    (n_fresh_cos, f"Posted jobs in {_tt.FRESH_DAYS} days", C["good"]),
+                    (n_signals, "Hiring signals", C["teal"]),
+                    (len(back), "Backups", C["muted"])]:
+                with ui.element("div").classes("fd-stat-cell" + (" zero" if not val else "")):
+                    ui.label(str(val)).classes("fd-sn").style(f"color:{col};")
+                    ui.label(lbl).classes("fd-sl")
+
+        # ── newest postings across the top 10 ────────────────────────
+        with ui.element("div").classes("fd-t10-h2"):
+            ui.label(f"NEW POSTINGS · LAST {_tt.FRESH_DAYS} DAYS")
+            if fresh:
+                ui.label(f"{len(fresh)} across {n_fresh_cos} compan{'y' if n_fresh_cos == 1 else 'ies'}")
+        if fresh:
+            rows = "".join(
+                f'<div class="fd-t10-new">{_age_html(j["age_days"])}'
+                f'<span class="ti">{_job_title(j)}'
+                + (f'<span class="mt">{_job_meta(j)}</span>' if _job_meta(j) else "")
+                + f'</span><span class="co">{_esc(c["company"])}</span></div>'
+                for c, j in fresh)
+            ui.html(f'<div class="fd-t10-box">{rows}</div>')
+        else:
+            ui.html('<div class="fd-t10-box"><div class="fd-t10-none" style="padding:12px 14px">'
+                    + ("Checking your companies now…" if scan.get("running") else
+                       f"Nothing dated in the last {_tt.FRESH_DAYS} days. Older and undated "
+                       "postings sit inside each company card.") + "</div></div>")
+
         # ── top 10 ───────────────────────────────────────────────────
-        ui.label(f"TOP {n_act}" if n_act < _tt.ACTIVE_MAX else "TOP 10").classes("fd-t10-h2")
-        for i, c in enumerate(_tt.active(data)):
+        with ui.element("div").classes("fd-t10-h2"):
+            ui.label("TOP 10" if len(act) >= _tt.ACTIVE_MAX else f"TOP {len(act)}")
+        for i, c in enumerate(act):
+            cid = c["id"]
             with ui.element("div").classes("fd-t10-card"):
-                with ui.element("div").classes("fd-t10-top"):
+                with ui.element("div").classes("fd-t10-head"):
                     ui.label(str(i + 1)).classes("fd-t10-rank")
                     with ui.element("div").style("flex:1;min-width:0;"):
-                        ui.label(c["company"]).classes("fd-t10-co")
-                        meta = [p for p in (", ".join(x for x in (c["city"], c["state"]) if x),
-                                            c["lane"], c["req"], c["status"]) if p]
-                        ui.label(" · ".join(meta)).classes("fd-t10-meta")
-                        if c["source"] == "auto" and c["why"]:
-                            ui.label(c["why"]).classes("fd-t10-why")
-                        hit = hits.get(c["id"])
+                        name = _esc(c["company"])
+                        if c["website"]:
+                            site = c["website"] if c["website"].startswith("http") else "https://" + c["website"]
+                            name = f'<a href="{_esc(site)}" target="_blank" rel="noopener">{name}</a>'
+                        pills = ""
+                        nf = len(_tt.fresh_jobs(c))
+                        if nf:
+                            pills += f'<span class="fd-t10-pill new">{nf} new job{"s" if nf != 1 else ""}</span>'
+                        elif c["signals"]:
+                            pills += f'<span class="fd-t10-pill sig">{len(c["signals"])} signal{"s" if len(c["signals"]) != 1 else ""}</span>'
+                        if c["status"] != _tt.STATUSES[0]:
+                            pills += f'<span class="fd-t10-pill st">{_esc(c["status"])}</span>'
+                        hit = hits.get(cid)
                         if hit:
-                            ui.label(f"In a campaign: {hit['campaign']} ({hit['owner']}, "
-                                     f"started {hit['started']})").classes("fd-t10-camp")
+                            pills += (f'<span class="fd-t10-pill camp" title="{_esc(hit["campaign"])}">'
+                                      f'In a campaign · {_esc(hit["owner"])}</span>')
+                        ui.html(f'<div class="fd-t10-name"><span class="fd-t10-co">{name}</span>{pills}</div>')
+                        meta = [p for p in (_where(c), c["lane"], _tt.short_roles(c["req"])) if p]
+                        if c["source"] == "auto" and c["why"]:
+                            meta.append(c["why"].replace("From your outreach: ", ""))
+                        ui.html(f'<div class="fd-t10-meta" title="{_esc(c["req"])}">{_esc(" · ".join(meta))}</div>')
                         if c["notes"]:
-                            ui.label(c["notes"]).classes("fd-t10-why")
+                            ui.html(f'<div class="fd-t10-meta">{_esc(c["notes"])}</div>')
                     with ui.element("div").classes("fd-t10-acts"):
-                        cid = c["id"]
                         if i > 0:
-                            _link("↑", lambda cid=cid: (_tt.move(data, cid, -1), _commit()))
-                        if i < n_act - 1:
-                            _link("↓", lambda cid=cid: (_tt.move(data, cid, 1), _commit()))
-                        _link("Edit", lambda c=c: _edit_dialog(c))
-                        _link("Re-check", lambda cid=cid: (_top10_start_scan(s, owner, rf, [cid]), rf()))
-                        _link("To backups", lambda cid=cid: _commit(_tt.demote(data, cid)))
-                        _link("Remove", lambda cid=cid, nm=c["company"]: (
-                            _tt.remove(data, cid), _commit(f"Removed {nm}.")))
-                ui.html(f'<div class="fd-t10-sig">{_signals_html(c)}</div>')
+                            _act("↑", lambda cid=cid: (_tt.move(data, cid, -1), _commit()), title="Move up")
+                        if i < len(act) - 1:
+                            _act("↓", lambda cid=cid: (_tt.move(data, cid, 1), _commit()), title="Move down")
+                        _act("Edit", lambda c=c: _edit_dialog(c))
+                        _act("Re-check", lambda cid=cid: (_top10_start_scan(s, owner, rf, [cid]), rf()))
+                        _act("Backup", lambda cid=cid: _commit(_tt.demote(data, cid)), title="Move to backups")
+                        _act("Remove", lambda cid=cid, nm=c["company"]: (
+                            _tt.remove(data, cid), _commit(f"Removed {nm}.")), danger=True)
+                ui.html(_card_body(c))
+                if c["signals_checked"]:
+                    ui.html(f'<div class="fd-t10-when">Checked {_esc(_ago(c["signals_checked"]))}</div>')
 
         # ── backups ──────────────────────────────────────────────────
-        if n_back:
-            ui.label(f"BACKUPS ({n_back})").classes("fd-t10-h2")
-            with ui.element("div").classes("fd-t10-card").style("padding:0;"):
-                for c in _tt.backups(data):
-                    with ui.element("div").classes("fd-t10-back"):
-                        ui.label(c["company"]).classes("nm")
-                        meta = [p for p in (", ".join(x for x in (c["city"], c["state"]) if x),
-                                            c["lane"]) if p]
-                        if meta:
-                            ui.label(" · ".join(meta)).classes("mt")
-                        if c["signals_checked"]:
-                            n = len(c["signals"])
-                            ui.label(f"{n} signal{'s' if n != 1 else ''}").classes("mt")
-                        with ui.element("div").classes("fd-t10-acts"):
-                            cid = c["id"]
-                            _link("Move to top 10", lambda cid=cid: _commit(_tt.promote(data, cid)))
-                            _link("Edit", lambda c=c: _edit_dialog(c))
-                            _link("Remove", lambda cid=cid, nm=c["company"]: (
-                                _tt.remove(data, cid), _commit(f"Removed {nm}.")))
-
+        if back:
+            with ui.element("div").classes("fd-t10-h2"):
+                ui.label(f"BACKUPS")
+                ui.label(f"{len(back)} of {_tt.BACKUP_MAX} · next in line when a target signs or goes quiet")
+            with ui.element("div").classes("fd-t10-box"):
+                for i, c in enumerate(back):
+                    cid = c["id"]
+                    with ui.element("div").classes("fd-t10-bk"):
+                        ui.html(f'<span class="n">{i + 1}</span>')
+                        meta = [p for p in (_where(c), c["lane"]) if p]
+                        nf = len(_tt.fresh_jobs(c))
+                        ui.html(f'<span><span class="nm">{_esc(c["company"])}</span>'
+                                + (f'<span class="mt">{_esc(" · ".join(meta))}</span>' if meta else "")
+                                + "</span>")
+                        ui.html(f'<span class="fd-t10-pill new">{nf} new job{"s" if nf != 1 else ""}</span>'
+                                if nf else "<span></span>")
+                        with ui.element("div").classes("fd-t10-acts").style("opacity:1;"):
+                            _act("Move to top 10", lambda cid=cid: _commit(_tt.promote(data, cid)))
+                            _act("Edit", lambda c=c: _edit_dialog(c))
+                            _act("Remove", lambda cid=cid, nm=c["company"]: (
+                                _tt.remove(data, cid), _commit(f"Removed {nm}.")), danger=True)
 
 def p_active_clients(s, rf):
     """Team-shared list of active client domains. Contacts at these
