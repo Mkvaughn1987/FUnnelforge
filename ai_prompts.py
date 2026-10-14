@@ -565,19 +565,24 @@ COMMON_FIELDS = [
 ]
 
 # The three exclusions nearly every outbound job wants, kept identical
-# across routines so the generated wording is identical too.
+# across routines so the generated wording is identical too. Never asked:
+# every run leaves these out, so there is no "Leave these out" step and the
+# defaults go straight into the prompt. A company named in the opening
+# sentence still reaches never_these / only_these through the parse.
 SKIP_FIELDS = [
     F("skip_worked", "Companies someone on the team has already worked",
-      "skip", "toggle", default=True),
+      "skip", "toggle", default=True, show_if=never_shown),
     F("skip_customers", "Current clients", "skip",
-      "toggle", default=True),
+      "toggle", default=True, show_if=never_shown),
     F("skip_recruiters", "Other recruiters, job boards and government",
-      "skip", "toggle", default=True),
+      "skip", "toggle", default=True, show_if=never_shown),
     F("never_these", "Never these companies", "skip", "text",
-      placeholder="e.g. Acme Industrial, Northgate Group"),
+      placeholder="e.g. Acme Industrial, Northgate Group",
+      show_if=never_shown),
     F("only_these", "Only these companies", "skip", "text",
       hint="Fill this in and everything else is ignored.",
-      placeholder="Leave blank unless you have a fixed list"),
+      placeholder="Leave blank unless you have a fixed list",
+      show_if=never_shown),
 ]
 
 
@@ -3730,7 +3735,9 @@ def _aip_sections_for(r):
     """The sections this routine actually has something in, in SECTIONS
     order. "extra" is always last and always present — it is the free-text
     escape hatch for anything the fixed questions did not cover."""
-    used = {f["section"] for f in r["fields"]}
+    # A question that is never shown does not make a step on its own.
+    used = {f["section"] for f in r["fields"]
+            if f.get("show_if") is not never_shown}
     return [(k, name) for k, name, _ in SECTIONS
             if k in used or k == "extra"]
 
@@ -4603,12 +4610,13 @@ def _aip_confirm(s, rf, C):
                 _text("Everything starts with a good answer filled in. Step "
                       "through and change what you like, or write your "
                       "prompt now.", C, 11.5, colour=C["muted"])
-                # Said up front so nobody has to open "Leave these out" to
-                # learn who the run skips. Follows the toggles.
+                # The exclusions are never asked, so this line is the only
+                # place the user learns who the run skips.
                 if any(k in r["field_by_key"] and _flag(r, vals, k)
                        for k in ("skip_customers", "skip_recruiters")):
-                    _text("Current companies and recruitment firms will not "
-                          "be included.", C, 11.5, colour=C["muted"])
+                    _text("Companies your team has already worked, current "
+                          "clients and recruitment firms will not be "
+                          "included.", C, 11.5, colour=C["muted"])
 
     with ui.element("div").classes("aip-wiz"):
         # Left: every step, clickable, and the finish line always in reach.
