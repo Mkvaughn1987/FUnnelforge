@@ -84,3 +84,47 @@ def test_strip_cite_passes_falsy_through():
     """
     assert fa._strip_cite_tags("") == ""
     assert fa._strip_cite_tags(None) is None
+
+
+# ── Step 1 list parsing: open jobs + news ─────────────────────────────
+# 2026-10-14: the overview/HQ/offices were stripped at store time, but the
+# open_jobs and news lists were not — so Recent news headlines rendered on
+# the call card as literal `<cite index="31-3,31-5">…</cite>` text (the
+# renderer escapes HTML on purpose). Strip every text field of both lists.
+
+def test_briefing_lists_strip_cites_from_news_and_jobs():
+    raw = {
+        "open_jobs": [
+            {"title": '<cite index="2-1">Project Manager</cite>',
+             "location": '<cite index="2-1">Denver, CO</cite>',
+             "url": "https://example.com/jobs/1"},
+        ],
+        "news": [
+            {"headline": '<cite index="31-3,31-5">Haselden launched a '
+                         'roofing subsidiary.</cite>',
+             "date": '<cite index="31-7">September 2026</cite>',
+             "url": "https://example.com/news/1"},
+        ],
+    }
+    jobs, news = fa._parse_briefing_search_lists(raw)
+    assert jobs == [{"title": "Project Manager", "location": "Denver, CO",
+                     "url": "https://example.com/jobs/1"}]
+    assert news == [{"headline": "Haselden launched a roofing subsidiary.",
+                     "date": "September 2026",
+                     "url": "https://example.com/news/1"}]
+
+
+def test_briefing_lists_skip_blank_and_malformed_items():
+    raw = {
+        "open_jobs": ["junk", None, {"title": "", "location": "x"},
+                      {"title": "  Estimator "}],
+        "news": [{"headline": '<cite index="1-1"></cite>'}, {"headline": "Real"}],
+    }
+    jobs, news = fa._parse_briefing_search_lists(raw)
+    assert jobs == [{"title": "Estimator", "location": "", "url": ""}]
+    assert news == [{"headline": "Real", "date": "", "url": ""}]
+
+
+def test_briefing_lists_handle_missing_keys():
+    assert fa._parse_briefing_search_lists({}) == ([], [])
+    assert fa._parse_briefing_search_lists({"open_jobs": None, "news": None}) == ([], [])

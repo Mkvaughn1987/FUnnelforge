@@ -16474,8 +16474,10 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
                 for j in open_jobs:
                     if not isinstance(j, dict):
                         continue
-                    title = (j.get("title") or "").strip()
-                    loc = (j.get("location") or "").strip()
+                    # _strip_cite_tags: briefings cached before 2026-10-14
+                    # still carry <cite ...> markup in these fields.
+                    title = _strip_cite_tags(j.get("title") or "").strip()
+                    loc = _strip_cite_tags(j.get("location") or "").strip()
                     url = _safe_url(j.get("url") or "", allow_tel=False, allow_mailto=False)
                     if not title:
                         continue
@@ -16512,8 +16514,8 @@ def _render_call_briefing_card(camp: dict, s: AppState, rf):
                 for n in news:
                     if not isinstance(n, dict):
                         continue
-                    headline = (n.get("headline") or "").strip()
-                    date_str = (n.get("date") or "").strip()
+                    headline = _strip_cite_tags(n.get("headline") or "").strip()
+                    date_str = _strip_cite_tags(n.get("date") or "").strip()
                     url = _safe_url(n.get("url") or "", allow_tel=False, allow_mailto=False)
                     if not headline:
                         continue
@@ -48345,6 +48347,35 @@ def _strip_cite_tags(text: str) -> str:
     return re.sub(r'[<(]?/?\bcite(?:\s+index="[^"]*")?\s*>', '', text) if text else text
 
 
+def _parse_briefing_search_lists(ws_result: dict) -> tuple:
+    """Normalize the `open_jobs` and `news` lists from the call-briefing
+    web-search step into clean dicts, stripping <cite> markup from every
+    text field. The call card escapes HTML when it renders these, so any
+    tag left in a headline shows up as literal `(cite index=...>` text
+    (observed live 2026-10-14 on Recent news). Non-dict items and items
+    with no title/headline are dropped. Returns (open_jobs, news)."""
+    def _t(v) -> str:
+        return _strip_cite_tags(str(v or "")).strip()
+
+    open_jobs: list = []
+    for j in ((ws_result or {}).get("open_jobs") or []):
+        if not isinstance(j, dict):
+            continue
+        title = _t(j.get("title"))
+        if title:
+            open_jobs.append({"title": title, "location": _t(j.get("location")),
+                              "url": str(j.get("url") or "").strip()})
+    news: list = []
+    for n in ((ws_result or {}).get("news") or []):
+        if not isinstance(n, dict):
+            continue
+        headline = _t(n.get("headline"))
+        if headline:
+            news.append({"headline": headline, "date": _t(n.get("date")),
+                         "url": str(n.get("url") or "").strip()})
+    return open_jobs, news
+
+
 def _validate_around_town_links(blurbs: list) -> list:
     """Check each around_town blurb's `link` field and clear it if the URL
     is malformed, 404s, times out, or otherwise unreachable. The blurb is
@@ -51283,22 +51314,12 @@ def _generate_call_briefing_for_campaign(camp: dict, force_refresh: bool = False
                     ws_result = json.loads(m.group())
                 except json.JSONDecodeError:
                     ws_result = json.loads(re.sub(r',(\s*[}\]])', r'\1', m.group()))
-                for j in (ws_result.get("open_jobs") or []):
-                    if not isinstance(j, dict):
-                        continue
-                    title = str(j.get("title", "")).strip()
-                    loc = str(j.get("location", "")).strip()
-                    url = str(j.get("url", "")).strip()
-                    if title:
-                        open_jobs.append({"title": title, "location": loc, "url": url})
-                for n in (ws_result.get("news") or []):
-                    if not isinstance(n, dict):
-                        continue
-                    headline = str(n.get("headline", "")).strip()
-                    date_str = str(n.get("date", "")).strip()
-                    url = str(n.get("url", "")).strip()
-                    if headline:
-                        news.append({"headline": headline, "date": date_str, "url": url})
+                # Both lists go through the same cite-stripping parser as
+                # the prose fields below: news headlines came back wrapped
+                # in <cite index="31-3,31-5">...</cite> live (2026-10-14).
+                _jobs_parsed, _news_parsed = _parse_briefing_search_lists(ws_result)
+                open_jobs.extend(_jobs_parsed)
+                news.extend(_news_parsed)
                 # Strip <cite index="..."> markup before storing: these
                 # render via ui.label(), which escapes HTML, so the tags
                 # would show up as literal text on the call card. Observed
