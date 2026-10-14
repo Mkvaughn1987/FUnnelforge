@@ -34134,14 +34134,23 @@ def _top10_start_scan(s, email: str, rf, ids=None) -> None:
 
 def _top10_pipeline_count(query: str, loc: str) -> int:
     """How many Pipeline candidates match a company's posting, within 50
-    miles of its city when one is known. Keyword search is local SQLite,
-    so this is fast enough to run on click."""
+    miles of its city when one is known. Same query, cap and radius as the
+    /ats deep link the pill opens, so the number matches what the page
+    shows. Keyword search is local SQLite, so this is fast enough to run
+    on click."""
     import ats
     if not (query or "").strip():
         return 0
-    rows = ats.keyword_search(query, limit=200, location=loc or None,
+    rows = ats.keyword_search(query, limit=ats.LINK_LIMIT, location=loc or None,
                               radius_mi=ats.LINK_RADIUS_MI if loc else None)
     return len(rows)
+
+
+def _top10_pipeline_label(n: int) -> str:
+    """'80+' once the search hits the page's cap; the pill never claims an exact
+    count it does not have."""
+    import ats
+    return f"{n}+" if n >= ats.LINK_LIMIT else str(n)
 
 
 def _top10_pipeline_url(query: str, loc: str) -> str:
@@ -34231,7 +34240,7 @@ def p_my_top10(s, rf):
         _tt.save(path, data)
         if notify and done == 1:
             c = next(x for x in data["companies"] if x["id"] in cids)
-            ui.notify(f"{c['pipeline']['n']} in your pipeline for {c['pipeline']['query']}"
+            ui.notify(f"{_top10_pipeline_label(c['pipeline']['n'])} in your pipeline for {c['pipeline']['query']}"
                       + (f" near {c['pipeline']['loc']}" if c["pipeline"]["loc"] else ""))
         elif notify:
             ui.notify(f"Pipeline checked for {done} compan{'y' if done == 1 else 'ies'}.")
@@ -34535,7 +34544,7 @@ def p_my_top10(s, rf):
                                             f'href="{_esc(_top10_pipeline_url(pp["query"], pp["loc"]))}" '
                                             f'target="_blank" rel="noopener" title="Pipeline search: '
                                             f'{_esc(pp["query"])}{" near " + _esc(pp["loc"]) if pp["loc"] else ""}">'
-                                            f'{n} in pipeline ↗</a>')
+                                            f'{_top10_pipeline_label(n)} in pipeline ↗</a>')
                                     with ui.element("button").classes("fd-t10-pill pipe-btn").props(
                                             'type="button" title="Run the pipeline check again"').on(
                                             "click", lambda cid=cid: _check_pipeline([cid])):

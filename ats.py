@@ -4778,6 +4778,7 @@ def _render_app(ff, st, refresh):
 
 
 LINK_RADIUS_MI = 50
+LINK_LIMIT = 80   # rows a deep-linked search shows; the Top 10 pill counts with the same cap
 
 
 def _apply_search_link(st: dict, q: str, loc: str = "") -> None:
@@ -4792,7 +4793,7 @@ def _apply_search_link(st: dict, q: str, loc: str = "") -> None:
     if loc:
         st["radius"] = LINK_RADIUS_MI
     try:
-        rows, meta = keyword_search(q, location=loc or None,
+        rows, meta = keyword_search(q, limit=LINK_LIMIT, location=loc or None,
                                     radius_mi=LINK_RADIUS_MI if loc else None, with_meta=True)
         st["results"] = score_results(q, rows)
         st["meta"] = meta

@@ -238,7 +238,23 @@ def test_ats_search_link_runs_the_search(monkeypatch):
     assert st["query_draft"] == "superintendent" and st["location"] == "Denver, CO"
     assert st["radius"] == ats.LINK_RADIUS_MI and "tearsheet_id" not in st
     assert seen["location"] == "Denver, CO" and seen["radius_mi"] == ats.LINK_RADIUS_MI
+    assert seen["limit"] == ats.LINK_LIMIT
     assert len(st["results"]) == 1
+
+
+def test_pipeline_count_shares_the_link_cap(monkeypatch):
+    """The pill counts with the same cap the /ats deep link shows, and says
+    '80+' rather than an exact number once it hits that cap."""
+    import ats, flowdrip_app as fa
+    seen = {}
+    def _ks(q, **kw):
+        seen.update(q=q, **kw); return [{"id": i} for i in range(kw["limit"])]
+    monkeypatch.setattr(ats, "keyword_search", _ks)
+    assert fa._top10_pipeline_count("Project Engineer", "") == ats.LINK_LIMIT
+    assert seen["limit"] == ats.LINK_LIMIT and seen["location"] is None and seen["radius_mi"] is None
+    assert fa._top10_pipeline_label(ats.LINK_LIMIT) == f"{ats.LINK_LIMIT}+"
+    assert fa._top10_pipeline_label(4) == "4" and fa._top10_pipeline_label(0) == "0"
+    assert fa._top10_pipeline_count("", "Denver, CO") == 0
 
 
 def test_campaign_hits_by_name_or_domain():
