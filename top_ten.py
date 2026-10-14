@@ -262,9 +262,12 @@ def signal_prompt(c: dict, signal_defs: list, today: str, focus: dict | None = N
         + "\n".join(facts) + "\n\n"
         "Search the web for this exact company (check the location so you do not "
         "confuse it with a similarly named firm).\n\n"
-        f"FIRST, find its job postings from the last {FRESH_DAYS} days. Job boards "
-        "show 'Posted 3 days ago' or a date; use that. A posting with no visible date "
-        "is still worth listing, with age left empty. List the newest first, up to 8.\n\n"
+        f"FIRST, find its job postings from the last {FRESH_DAYS} days. Check the "
+        f"company's own careers page and its company page on Indeed and ZipRecruiter "
+        f"(search '{c['company']} jobs' and '{c['company']} careers'). Job boards show "
+        "'Posted 3 days ago' or a date; use that. A posting with no visible date is "
+        "still worth listing, with age left empty: an undated posting beats an empty "
+        "list. Newest first, up to 8.\n\n"
         "SECOND, look for these signals from the last 60 days:\n" + lines + "\n\n"
         "Only report what you actually found on a page the search returned. Never "
         "invent a posting, a date or a URL. If you find nothing, return empty lists.\n\n"
@@ -347,6 +350,19 @@ def parse_signals(text: str, signal_defs: list, retrieved_urls: list | None = No
 
 
 FRESH_DAYS = 10
+
+# Two-or-three-word chip text per signal id; the model's own title and
+# detail sit behind the chip.
+SIGNAL_SHORT = {
+    "reposted": "Reposted / stale role", "urgent": "Urgent hire",
+    "several": "Several openings", "agency": "Agency-posted",
+    "leader": "Leadership seat open", "recruiter": "Hiring a recruiter",
+    "expansion": "Expansion news", "reviews": "Turnover complaints",
+}
+
+
+def chip_text(sig: dict) -> str:
+    return SIGNAL_SHORT.get(sig.get("id", ""), (sig.get("label") or sig.get("title") or "")[:28])
 
 
 def fresh_jobs(c: dict, days: int = FRESH_DAYS) -> list:
@@ -468,6 +484,17 @@ def rank_outreach(records: list, owner_dir: str, focus: dict, state_of,
                   reverse=True)
 
 
+def _city_of(geo: str) -> str:
+    """'Denver, CO' -> 'Denver'; 'Colorado Front Range (Denver metro, CO)'
+    and 'Denver / Henderson, CO' -> '' (a region, not a city)."""
+    if "," not in geo:
+        return ""
+    head = geo.split(",", 1)[0].strip()
+    if "(" in head or "/" in head or len(head) > 24 or not head:
+        return ""
+    return head
+
+
 def _why(row: dict) -> str:
     bits = [f"{row['campaigns']} campaign{'s' if row['campaigns'] != 1 else ''}",
             f"{row['contacts']} people reached"]
@@ -483,10 +510,7 @@ def fill_from_outreach(data: dict, ranked: list, today: str = "") -> int:
     for row in ranked:
         if len(active(data)) >= ACTIVE_MAX and len(backups(data)) >= BACKUP_MAX:
             break
-        city = ""
-        geo = row.get("geo") or ""
-        if "," in geo:
-            city = geo.split(",", 1)[0].strip()
+        city = _city_of(row.get("geo") or "")
         site = next((d for d in sorted(row["domains"])), "")
         c, _msg = add(data, {"company": row["company"], "website": site, "city": city,
                              "state": row["state"], "lane": row["industry"],

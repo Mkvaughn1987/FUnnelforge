@@ -34243,13 +34243,19 @@ def p_my_top10(s, rf):
         elif not fresh_j and not rest:
             left += '<div class="fd-t10-none">No postings found.</div>'
         else:
-            if not fresh_j:
-                left += f'<div class="fd-t10-none">Nothing dated in the last {_tt.FRESH_DAYS} days.</div>'
             for j in fresh_j:
                 left += (f'<div class="fd-t10-job">{_age_html(j["age_days"])}'
                          f'<span class="ti">{_job_title(j)}</span>'
                          f'<span class="mt">{_job_meta(j)}</span></div>')
-            if rest:
+            if not fresh_j:
+                # Nothing dated: the older/undated ones are the only content,
+                # so they sit inline instead of behind a toggle.
+                left += f'<div class="fd-t10-none">Nothing dated in the last {_tt.FRESH_DAYS} days. Older or undated:</div>'
+                for j in rest:
+                    left += (f'<div class="fd-t10-job">{_age_html(j["age_days"])}'
+                             f'<span class="ti">{_job_title(j)}</span>'
+                             f'<span class="mt">{_job_meta(j)}</span></div>')
+            elif rest:
                 items = "".join(
                     f'<li>{_age_html(j["age_days"])} {_job_title(j)}'
                     + (f' <span class="mt" style="color:{C["muted"]}">· {_job_meta(j)}</span>'
@@ -34260,8 +34266,8 @@ def p_my_top10(s, rf):
         if c["signals"]:
             chips = ""
             for sg in c["signals"]:
-                label = _esc(sg.get("title") or sg.get("label") or "")
-                tip = _esc(sg.get("detail") or sg.get("label") or "")
+                label = _esc(_tt.chip_text(sg))
+                tip = _esc(sg.get("title") or sg.get("detail") or sg.get("label") or "")
                 if sg.get("url"):
                     chips += (f'<a class="fd-t10-chip" href="{_esc(sg["url"])}" target="_blank" '
                               f'rel="noopener" title="{tip}">{label}</a>')
@@ -34269,9 +34275,9 @@ def p_my_top10(s, rf):
                     chips += f'<span class="fd-t10-chip" title="{tip}">{label}</span>'
             right += f'<div class="fd-t10-chips">{chips}</div>'
             details = "".join(
-                f'<li><b>{_esc(sg.get("title") or sg.get("label") or "")}.</b> {_esc(sg.get("detail") or "")}'
+                f'<li><b>{_esc(sg.get("title") or _tt.chip_text(sg))}.</b> {_esc(sg.get("detail") or "")}'
                 + (f' ({_esc(sg["date"])})' if sg.get("date") else "") + "</li>"
-                for sg in c["signals"] if sg.get("detail"))
+                for sg in c["signals"] if sg.get("detail") or sg.get("title"))
             if details or c["signal_summary"]:
                 right += ('<details class="fd-t10-more"><summary>What we found</summary>'
                           + (f'<p>{_esc(c["signal_summary"])}</p>' if c["signal_summary"] else "")

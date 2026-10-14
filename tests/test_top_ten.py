@@ -111,6 +111,8 @@ def test_fill_from_outreach_seeds_once_and_marks_auto():
     c = tt.active(d)[0]
     assert c["source"] == "auto" and c["why"].startswith("From your outreach")
     assert c["city"] == "Denver" and c["state"] == "CO" and c["website"].endswith(".com")
+    assert tt._city_of("Colorado Front Range (Denver metro, CO)") == ""
+    assert tt._city_of("Denver / Henderson, CO") == "" and tt._city_of("Boulder, CO") == "Boulder"
     for x in list(d["companies"]):
         tt.remove(d, x["id"])
     assert not tt.needs_seed(d)            # emptied by hand: stays empty
@@ -177,6 +179,8 @@ def test_freshest_across_top_ten_and_short_roles():
     assert [(c["company"], j["title"]) for c, j in tt.freshest(d)] == [("Acme", "Estimator"), ("Shaw", "Super")]
     assert tt.short_roles("Project Manager, Superintendent, APM, Senior PM, CM") == "Project Manager, Superintendent +3"
     assert tt.short_roles("Superintendent") == "Superintendent"
+    assert tt.chip_text({"id": "several", "title": "A very long sentence about openings"}) == "Several openings"
+    assert tt.chip_text({"id": "custom", "label": "x"}) == "x"
 
 
 def test_parse_drops_unknown_ids_and_unseen_urls():
