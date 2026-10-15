@@ -15571,7 +15571,8 @@ def _tm_analytics_sources():
 # to everyone with page_key None, so Arena keeps rendering exactly what it
 # rendered before this file changed.
 _TM_NAV_PAGES = {"analytics": "tm_analytics",
-                 "ai_prompt": "tm_prompts", "saved_prompts": "tm_saved_prompts"}
+                 "ai_prompt": "tm_prompts", "saved_prompts": "tm_saved_prompts",
+                 "signals": "tm_signals"}
 
 
 def _tm_nav_page_key(row_key, page_key):
@@ -21727,6 +21728,7 @@ SIDEBAR_NAV = [
         ("assets",       "Sales Assets",     "pdf_gen"),
         ("ai_prompt",    "AI Prompt",        None),   # ThriveModal only: _tm_nav_page_key
         ("saved_prompts", "Saved Prompts",   None),   # ThriveModal only: _tm_nav_page_key
+        ("signals",      "Buying Signals",   None),   # ThriveModal only: _tm_nav_page_key
     ]),
     ("CRM", [
         ("companies",  "Companies",          "companies"),   # sales_pages.p_companies (Table | Board)
@@ -21776,7 +21778,7 @@ SIDEBAR_PAGE_ROW = {
     "seq_mgr": "campaigns", "active_camps": "campaigns", "queue": "campaigns",
     "evergreen": "campaigns", "evergreen_create": "campaigns", "e_evergreen": "campaigns",
     "newsletters": "newsletters", "pdf_gen": "assets", "tm_prompts": "ai_prompt",
-    "tm_saved_prompts": "saved_prompts",
+    "tm_saved_prompts": "saved_prompts", "tm_signals": "signals",
     "ai_settings": "settings", "company_profile": "settings", "team_settings": "settings",
     "signature": "settings", "e_signature": "settings", "timezone": "settings", "dnc": "settings",
     "tm_analytics": "analytics",
@@ -21792,6 +21794,7 @@ SIDEBAR_TITLES = {
     "evergreen": "Nurture Campaigns", "evergreen_create": "New Nurture Campaign",
     "newsletters": "Newsletters", "pdf_gen": "Sales Assets",
     "tm_prompts": "AI Prompt", "tm_saved_prompts": "Saved Prompts",
+    "tm_signals": "Buying News & Signals",
     "ai_settings": "Email & AI Setup", "company_profile": "Company Profile",
     "team_settings": "Team", "signature": "Signature", "e_signature": "Signature",
     "timezone": "Timezone", "dnc": "Do Not Contact", "admin": "Admin",
@@ -23372,6 +23375,10 @@ _SIDEBAR_ICONS.update({
     "assets":        _SIDEBAR_ICONS["present"],
     "ai_prompt":     _SIDEBAR_ICONS["sparkle"],
     "saved_prompts": _SIDEBAR_ICONS["c_saved"],
+    # Buying Signals: a radio pulse.
+    "signals":       '<path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/>'
+                     '<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/>'
+                     '<path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/>',
 })
 
 
@@ -23473,6 +23480,8 @@ _PAGE_LANDING = {
                         ("_mgr_detail_tab", "sequence")),
     "queue":           (("_queue_tab", "upcoming"),),
     "newsletters":     (("_nl_active_tab", "market"), ("_roundup_editing_id", None)),
+    # Buying Signals re-reads the saved settings on a fresh sidebar click.
+    "tm_signals":      (("_tms_fresh", True), ("_tms_msg", ""), ("_tms_open", "")),
     "pdf_gen":         (("_pdf_stage", "pick"), ("_pdf_selected", []),
                         ("_pdf_custom_intent", False), ("_pdf_custom_stage", "closed"),
                         ("_pdf_custom_outline", None), ("_pdf_custom_previewing", False),
@@ -71424,6 +71433,17 @@ def render_page(s: AppState, rf):
             # session with a stale page key never reaches the function.
             elif page == "tm_analytics" and _is_thrivemodal():
                 p_tm_analytics(s, rf)
+            elif page == "tm_signals" and _is_thrivemodal():
+                # Buying News & Signals: the Tuesday/Thursday email and its
+                # issues. Companion module, lazy like ai_prompts, so a
+                # failure in it takes out one page, not the app.
+                try:
+                    import tm_signals as _tms
+                    _tms.render_page(s, rf)
+                except Exception as _tms_ex:
+                    print(f"[Signals] page failed: {_tms_ex}", flush=True)
+                    ui.label(f"Buying Signals is unavailable: {_tms_ex}").style(
+                        f"font-size:14px;color:{C['warn']};padding:20px 0;")
             elif page == "active_clients": p_active_clients(s, rf)
             elif page == "company_profile": p_company_profile(s, rf)
             elif page == "team_settings": p_team_settings(s, rf)
@@ -73116,6 +73136,12 @@ def index():
     if _qs_initial.get("edit_newsletter"):
         s.sp = "newsletters"
         s.hub = "sales"
+    # Deep link from the Buying Signals email: ?open=tm_signals|tm_prompts.
+    # A fixed whitelist, and only where the playbook has those pages.
+    _open = str(_qs_initial.get("open") or "")
+    if _open in ("tm_signals", "tm_prompts") and _is_thrivemodal():
+        s.sp = _open
+        s.hub = "sales"
 
     # SortableJS: loaded once here at top-level page render (NOT inside
     # p_seq_builder, which re-renders on every rf() — re-injecting a
@@ -74065,6 +74091,13 @@ def _am_i_leader() -> bool:
     return True
 
 
+def _tm_signals_tick():
+    """One scheduler pass for Buying News & Signals. Lazy import, like the
+    page: the module is ThriveModal-only and must never cost Arena a boot."""
+    import tm_signals as _tms
+    _tms.scheduler_tick()
+
+
 def _start_server_scheduler():
     """Start the server-only email scheduler as a background daemon thread.
     Wakes every _SERVER_SEND_INTERVAL seconds, scans per-user queues,
@@ -74103,6 +74136,13 @@ def _start_server_scheduler():
                             _auto_refresh_newsletter_tick()
                         except Exception as e:
                             print(f"[NewsletterAutoRefresh] Tick error: {e}", flush=True)
+                    # Buying News & Signals (ThriveModal): the module
+                    # throttles itself to one real pass every five minutes
+                    # and only ever touches users who opted in.
+                    try:
+                        _tm_signals_tick()
+                    except Exception as e:
+                        print(f"[Signals] Tick error: {e}", flush=True)
                 # Passive side: silently skip. Heartbeat updates happen in
                 # _am_i_leader(), which still runs so handoff works.
             except Exception as e:
