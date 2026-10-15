@@ -25932,7 +25932,7 @@ def _offer_newsletter_enroll(to_email: str, name: str, rf):
 
         _opts = {c.get("name", "Untitled"): c.get("name", "Untitled")
                  for c in _newsletters}
-        _opts["__new_jway__"] = "✍️ New J's Way note"
+        _opts["__new_jway__"] = "✍️ New organic newsletter"
         _radio = ui.radio(_opts, value="__new_jway__").props("dense").style(
             f"color:{C['text_l']};")
 
@@ -26332,8 +26332,8 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
         # Format: The J's Way (plain text) vs Full Send (current rich/branded).
         ui.label("Newsletter Style").classes("fd-fl")
         _style_toggle = ui.toggle(
-            {"full_send": "🚀 Full with pictures", "j_way": "✍️ Organic, text only"},
-            value=(prefill.get("newsletter_style") or "full_send")).props(
+            {"j_way": "✍️ Organic, text only", "full_send": "🚀 Full with pictures"},
+            value=(prefill.get("newsletter_style") or "j_way")).props(
             "no-caps").style("margin:2px 0 4px 0;")
         _style_desc = ui.label("").style(
             f"font-size:11px;color:{C['muted']};margin-bottom:16px;line-height:1.5;")
@@ -26763,7 +26763,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                 evergreen_only=True,
                 market_analysis=True,
                 newsletter_name=nl_name,
-                newsletter_style=(_style_toggle.value or "full_send"),
+                newsletter_style=(_style_toggle.value or "j_way"),
                 newsletter_candidates=_picked_cands,
                 market_sector=sector,
                 market_sector_key=_sector_key,
