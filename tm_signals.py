@@ -124,6 +124,9 @@ GROUPS = (("first", "Already using Filipino or offshore staff"),
 # How far back a signal may be dated and still make an issue, and how long
 # a company stays out of later issues once it has been sent.
 FRESH_DAYS = 14
+# The offshore tell is about what a company already does, not a news
+# event, so a Philippines posting may be this old and still count.
+OFFSHORE_FRESH_DAYS = 90
 REPEAT_DAYS = 30
 # Issues kept per user (newest first), and the local hour the email goes.
 KEEP_ISSUES = 8
@@ -156,6 +159,9 @@ NEWS_DOMAINS = [
     "homehealthcarenews.com", "multifamilydive.com", "modernhealthcare.com",
     "retaildive.com", "industryweek.com", "achrnews.com", "contractormag.com",
     "mdm.com", "adweek.com", "travelweekly.com", "digitalcommerce360.com",
+    # Philippines job boards: where US companies that already use Filipino
+    # staff post their roles. Live-checked 2026-10-15 (no 400, real hits).
+    "onlinejobs.ph", "jobstreet.com", "kalibrr.com",
 ]
 
 
@@ -301,9 +307,14 @@ def scan_prompt(vertical, location, today):
         "offshore staff: a Manila, Cebu or Clark office, job postings in the "
         "Philippines, a BPO or virtual-assistant vendor, 'US hours' or "
         "'night shift' postings, back-office staff located in the "
-        "Philippines on LinkedIn. Search for those tells in this industry "
-        "and location before anything else, then check which of them show a "
-        "signal from the list. A company with both goes first.\n\n"
+        "Philippines on LinkedIn. Spend your first searches on onlinejobs.ph, "
+        "jobstreet.com, kalibrr.com, linkedin.com and glassdoor.com for this "
+        "industry's roles posted by US companies for workers in the "
+        "Philippines, then check which of those companies show a signal from "
+        "the list. A company with both goes first. A company whose only "
+        "signal is the offshore tell is still worth returning: use the "
+        f"posting or the office as the event, and it may be up to "
+        f"{OFFSHORE_FRESH_DAYS} days old.\n\n"
         "Return 6 to 12 companies, the strongest first. For each one:\n"
         "- company: the legal or trading name\n"
         "- location: city and state\n"
@@ -327,8 +338,8 @@ def scan_prompt(vertical, location, today):
         "thirty words), source_url.\n\n"
         "Rules:\n"
         "- Only events you actually found in a search result. No guesses.\n"
-        f"- Nothing older than {FRESH_DAYS} days. Drop it rather than stretch "
-        "the date.\n"
+        f"- Nothing older than {FRESH_DAYS} days (the offshore tell: "
+        f"{OFFSHORE_FRESH_DAYS}). Drop it rather than stretch the date.\n"
         "- Direct employers only, not staffing agencies or BPOs.\n"
         "- Plain sentences, no markdown, no citation markup inside values.\n\n"
         "Return ONLY this JSON, no prose:\n"
@@ -384,11 +395,11 @@ def parse_scan(text, today):
     if not isinstance(data, dict):
         return {"companies": [], "news": []}
 
-    def fresh(d):
+    def fresh(d, limit=FRESH_DAYS):
         if d is None:
             return False
         age = (today - d).days
-        return -1 <= age <= FRESH_DAYS
+        return -1 <= age <= limit
 
     rows_in = data.get("companies")
     news_in = data.get("news")
@@ -403,7 +414,8 @@ def parse_scan(text, today):
         sig = str(row.get("signal") or "").strip().lower()
         d = _parse_date(row.get("date"))
         url = _ok_url(row.get("source_url"))
-        if not name or sig not in SIGNAL_BY_ID or not fresh(d) or not url:
+        limit = OFFSHORE_FRESH_DAYS if sig in FIRST_IDS else FRESH_DAYS
+        if not name or sig not in SIGNAL_BY_ID or not fresh(d, limit) or not url:
             continue
         key = name.lower()
         if key in seen:

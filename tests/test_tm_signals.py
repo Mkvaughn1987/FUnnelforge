@@ -560,3 +560,20 @@ def test_page_rows_use_the_same_groups_and_why_label(tms):
     assert "Why it is a buying signal:" in src and "Already offshore:" in src
     page = inspect.getsource(tms.render_page)
     assert '"First"' in page and "What counts as a signal, and why" in page
+
+
+def test_offshore_tell_may_be_ninety_days_old_other_signals_fourteen(tms):
+    text = json.dumps({"companies": [
+        _row("Old Offshore", "offshore", 60),
+        _row("Too Old Offshore", "offshore", 100),
+        _row("Old PE", "pe", 60),
+        _row("Fresh PE", "pe", 10),
+    ], "news": []})
+    got = [r["company"] for r in tms.parse_scan(text, TODAY)["companies"]]
+    assert got == ["Old Offshore", "Fresh PE"]
+    assert tms.OFFSHORE_FRESH_DAYS == 90
+    for d in ("onlinejobs.ph", "jobstreet.com", "kalibrr.com"):
+        assert d in tms.NEWS_DOMAINS
+    v = {"label": "Logistics / 3PL", "band": "", "buyers": "", "roles": "", "tells": ""}
+    p = tms.scan_prompt(v, "USA", TODAY)
+    assert "onlinejobs.ph" in p and "up to 90 days old" in p
