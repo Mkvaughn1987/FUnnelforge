@@ -451,9 +451,11 @@ def test_host_routes_page_and_ticks_scheduler():
     assert fa._SIDEBAR_ICONS.get("signals")
 
 
-def test_save_shows_saved_settings_as_pills(tms):
+def test_settings_are_pills_that_save_on_click(tms):
     src = inspect.getsource(tms.render_page)
-    assert "s._tms_just_saved = True" in src and "_saved_panel(" in src
-    panel = inspect.getsource(tms._saved_panel)
-    for bit in ("tms-pill", "Industries", "Location", "Next issue", "Saved."):
+    assert "_settings_panel(" in src
+    assert "ui.switch(" not in src and 'ui.label("Save")' not in src
+    panel = inspect.getsource(tms._settings_panel)
+    for bit in ("tms-pill", "tms-x", "drop(k)", "add(k)", "ui.menu()",
+                "loc_dlg.open", "Next issue", "save()"):
         assert bit in panel

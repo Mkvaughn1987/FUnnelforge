@@ -731,63 +731,132 @@ def _css():
         ".tms-wrap .tms-badge{display:inline-block;color:#fff;font-size:10px;font-weight:700;"
         "padding:2px 8px;border-radius:999px;margin-right:8px;}"
         ".tms-wrap a{color:var(--dd-teal);text-decoration:none;font-weight:600;}"
-        ".tms-wrap .tms-saved{margin-top:18px;padding:14px 16px;border-radius:10px;"
-        "border:1px solid var(--dd-border);background:var(--dd-bg);}"
-        ".tms-wrap .tms-saved.just{border-color:var(--dd-good);"
-        "background:color-mix(in srgb,var(--dd-good) 8%,var(--dd-card));}"
-        ".tms-wrap .tms-saved-h{display:flex;align-items:center;gap:6px;font-size:13px;"
-        "font-weight:700;color:var(--dd-text_l);margin-bottom:10px;}"
-        ".tms-wrap .tms-kv{display:grid;grid-template-columns:96px 1fr;gap:8px 12px;"
+        ".tms-wrap .tms-kv{display:grid;grid-template-columns:96px 1fr;gap:10px 12px;"
         "align-items:center;}"
         ".tms-wrap .tms-k{font-size:11px;font-weight:700;color:var(--dd-muted);"
         "text-transform:uppercase;letter-spacing:.06em;}"
-        ".tms-wrap .tms-pills{display:flex;flex-wrap:wrap;gap:6px;}"
-        ".tms-wrap .tms-pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;"
-        "font-weight:600;padding:4px 11px;border-radius:999px;line-height:1.3;"
-        "border:1px solid var(--dd-border);background:var(--dd-card);color:var(--dd-text_l);}"
+        ".tms-wrap .tms-pills{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}"
+        ".tms-wrap .tms-pill{display:inline-flex;align-items:center;gap:6px;font-size:13px;"
+        "font-weight:600;padding:6px 13px;border-radius:999px;line-height:1.3;"
+        "border:1px solid var(--dd-border);background:var(--dd-card);color:var(--dd-text_l);"
+        "font-family:inherit;}"
+        ".tms-wrap button.tms-pill{cursor:pointer;transition:filter .12s,border-color .12s;}"
+        ".tms-wrap button.tms-pill:hover{filter:brightness(.96);border-color:var(--dd-teal);}"
         ".tms-wrap .tms-pill.on{border-color:var(--dd-good);color:var(--dd-good);"
         "background:color-mix(in srgb,var(--dd-good) 12%,var(--dd-card));}"
         ".tms-wrap .tms-pill.off{color:var(--dd-muted);}"
-        ".tms-wrap .tms-pill.ind{border-color:var(--dd-teal);"
+        ".tms-wrap .tms-pill.ind{border-color:var(--dd-teal);padding-right:6px;"
         "background:color-mix(in srgb,var(--dd-teal) 10%,var(--dd-card));}"
-        ".tms-wrap .tms-pill .material-icons{font-size:14px;}"
+        ".tms-wrap .tms-pill.add{border-style:dashed;color:var(--dd-teal);}"
+        ".tms-wrap .tms-pill .q-icon{font-size:16px;}"
+        ".tms-wrap .tms-pill .tms-edit{font-size:13px;color:var(--dd-muted);}"
+        ".tms-wrap .tms-x{display:inline-flex;align-items:center;justify-content:center;"
+        "width:20px;height:20px;border-radius:50%;border:0;padding:0;cursor:pointer;"
+        "background:transparent;color:var(--dd-muted);}"
+        ".tms-wrap .tms-x:hover{background:var(--dd-danger);color:#fff;}"
+        ".tms-wrap .tms-x .q-icon{font-size:14px;}"
+        ".tms-wrap .tms-note{display:flex;align-items:center;gap:6px;margin-top:14px;"
+        "font-size:12px;color:var(--dd-muted);}"
+        ".tms-wrap .tms-note.good{color:var(--dd-good);font-weight:700;}"
+        ".tms-wrap .tms-note .q-icon{font-size:16px;}"
         "@media (max-width:520px){.tms-wrap .tms-kv{grid-template-columns:1fr;gap:4px;}"
-        ".tms-wrap .tms-k{margin-top:6px;}}"
+        ".tms-wrap .tms-k{margin-top:8px;}}"
         "</style>", sanitize=False)
 
 
-def _saved_panel(C, settings, labels, when, just_saved):
-    """What is saved, as pills, so a press of Save visibly lands."""
-    on = bool(settings.get("enabled"))
-    inds = [labels[k] for k in labels if k in (settings.get("industries") or [])]
-    loc = (settings.get("location") or "USA").strip() or "USA"
+def _settings_panel(s, ff, C, labels, when, just_saved, save):
+    """The email settings as pills. Each pill is its own control and every
+    change saves at once, so there is no form and no Save button to miss."""
+    on = bool(s._tms_enabled)
+    picked = [k for k in labels if k in (s._tms_industries or [])]
+    loc = (s._tms_location or "").strip() or "USA"
 
-    def pill(text, cls="", icon=""):
-        ic = f'<i class="material-icons">{icon}</i>' if icon else ""
-        return f'<span class="tms-pill {cls}">{ic}{_e(text)}</span>'
+    def set_on():
+        s._tms_enabled = not on
+        save()
 
-    with ui.element("div").classes("tms-saved" + (" just" if just_saved else "")):
-        with ui.element("div").classes("tms-saved-h"):
-            if just_saved:
-                ui.icon("check_circle").style(f"color:{C['good']};font-size:18px;")
-                ui.label("Saved. Here is what you will get:")
-            else:
-                ui.icon("bookmark").style(f"color:{C['muted']};font-size:16px;")
-                ui.label("Your saved settings")
-        rows = [("Email", pill("On, Tue and Thu at 7am", "on", "notifications_active") if on
-                 else pill("Off", "off", "notifications_off"))]
-        rows.append(("Industries", "".join(pill(i, "ind") for i in inds)
-                     or pill("None picked yet", "off")))
-        rows.append(("Location", pill(loc, "", "place")))
-        if on and inds:
-            rows.append(("Next issue", pill(when, "", "event")))
-        with ui.element("div").classes("tms-kv"):
-            for k, v in rows:
-                ui.label(k).classes("tms-k")
-                ui.html(f'<div class="tms-pills">{v}</div>', sanitize=False)
-        if not (on and inds):
-            _text("Turn the switch on and pick an industry, then press Save to get the email.",
-                  C, 12, colour=C["muted"], mb=0)
+    def drop(k):
+        s._tms_industries = [x for x in picked if x != k]
+        save()
+
+    def add(k):
+        s._tms_industries = picked + [k]
+        save()
+
+    regions = ff._region_options()
+    if loc not in regions:
+        regions = [loc] + regions
+    if "USA" not in regions:
+        regions = ["USA"] + regions
+    with ui.dialog() as loc_dlg, ui.card().style("min-width:340px;max-width:92vw;"):
+        ui.label("Location").classes("fd-fl")
+        loc_sel = ui.select(options=regions, value=loc, with_input=True,
+                            new_value_mode="add-unique").classes("fd-input").style("width:100%;")
+        _text("USA for a nationwide sweep, or one state or metro. Type to search or "
+              "add your own.", C, 11, colour=C["muted"])
+
+        def set_loc():
+            s._tms_location = (loc_sel.value or "").strip() or "USA"
+            loc_dlg.close()
+            save()
+        with ui.element("div").style("display:flex;gap:8px;justify-content:flex-end;"
+                                     "width:100%;margin-top:8px;"):
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:8px 16px;font-size:13px;").on("click", loc_dlg.close):
+                ui.label("Cancel")
+            with ui.element("button").classes("fd-pb").style(
+                    "padding:8px 16px;font-size:13px;").on("click", set_loc):
+                ui.label("Save")
+
+    with ui.element("div").classes("tms-kv"):
+        ui.label("Email").classes("tms-k")
+        with ui.element("div").classes("tms-pills"):
+            with ui.element("button").classes("tms-pill " + ("on" if on else "off")).on(
+                    "click", set_on):
+                ui.icon("notifications_active" if on else "notifications_off")
+                ui.label("On: every Tuesday and Thursday, 7am" if on
+                         else "Off: click to turn it on")
+
+        ui.label("Industries").classes("tms-k")
+        with ui.element("div").classes("tms-pills"):
+            for k in picked:
+                with ui.element("span").classes("tms-pill ind"):
+                    ui.label(labels[k])
+                    with ui.element("button").classes("tms-x").props(
+                            f'title="Remove {_e(labels[k])}"').on(
+                            "click", lambda k=k: drop(k)):
+                        ui.icon("close")
+            rest = [k for k in labels if k not in picked]
+            if rest:
+                with ui.element("button").classes("tms-pill add"):
+                    ui.icon("add")
+                    ui.label("Add industry" if picked else "Pick an industry")
+                    with ui.menu():
+                        for k in rest:
+                            ui.menu_item(labels[k], on_click=lambda k=k: add(k))
+
+        ui.label("Location").classes("tms-k")
+        with ui.element("div").classes("tms-pills"):
+            with ui.element("button").classes("tms-pill").props(
+                    'title="Change location"').on("click", loc_dlg.open):
+                ui.icon("place")
+                ui.label(loc)
+                ui.icon("edit").classes("tms-edit")
+
+        if on and picked:
+            ui.label("Next issue").classes("tms-k")
+            with ui.element("div").classes("tms-pills"):
+                with ui.element("span").classes("tms-pill"):
+                    ui.icon("event")
+                    ui.label(when)
+
+    if just_saved:
+        with ui.element("div").classes("tms-note good"):
+            ui.icon("check_circle")
+            ui.label("Saved.")
+    elif not (on and picked):
+        with ui.element("div").classes("tms-note"):
+            ui.label("Turn the email on and pick at least one industry to get it.")
 
 
 def _state(s, settings):
@@ -879,7 +948,6 @@ def render_page(s, rf):
         save_settings(settings)
         if notify:
             s._tms_just_saved = True
-            ui.notify("Saved.", type="positive")
         rf()
 
     def _send_now():
@@ -919,33 +987,13 @@ def render_page(s, rf):
 
         with ui.element("div").classes("tms-card"):
             ui.label("Your email").classes("tms-sec").style(f"color:{C['teal']};")
-            with ui.element("div").style("display:flex;align-items:center;gap:10px;margin-bottom:14px;"):
-                def _toggle(e):
-                    s._tms_enabled = bool(e.value)
-                ui.switch("Email me every Tuesday and Thursday", value=bool(s._tms_enabled),
-                          on_change=_toggle)
-            with ui.element("div").classes("tms-grid"):
-                with ui.element("div"):
-                    ui.label("Industries").classes("fd-fl")
-                    def _ind(e):
-                        s._tms_industries = list(e.value or [])
-                    ui.select(options=labels, value=list(s._tms_industries), multiple=True,
-                              on_change=_ind).props(
-                        'use-chips use-input input-debounce="200"').classes(
-                        "fd-input").style("width:100%;")
-                    _text("Pick as many as you sell into. Each one gets its own section.",
-                          C, 11, colour=C["muted"])
-                with ui.element("div"):
-                    ff._render_region_picker(s, rf, state_key="_tms_location",
-                                             multi=False, container_style="margin-bottom:0;",
-                                             label="Location")
-                    _text("USA for a nationwide sweep, or one state or metro.",
-                          C, 11, colour=C["muted"])
+            when = next_send(_user_now(ff, ff.load_config() or {}))
+            when_txt = when.strftime("%A %d %b, %I%p").replace(" 0", " ").lstrip("0")
+            just_saved = bool(getattr(s, "_tms_just_saved", False))
+            s._tms_just_saved = False
+            _settings_panel(s, ff, C, labels, when_txt, just_saved, _save)
             with ui.element("div").style("display:flex;gap:10px;align-items:center;"
                                          "flex-wrap:wrap;margin-top:16px;"):
-                with ui.element("button").classes("fd-pb").style(
-                        "padding:10px 20px;font-size:13px;").on("click", lambda: _save()):
-                    ui.label("Save")
                 if s._tms_running:
                     with ui.element("div").style("display:flex;align-items:center;gap:8px;"):
                         ui.spinner("dots", size="sm")
@@ -966,11 +1014,6 @@ def render_page(s, rf):
                         ui.label("Send me one now")
                     if s._tms_msg:
                         _text(s._tms_msg, C, 12, colour=C["muted"])
-            when = next_send(_user_now(ff, ff.load_config() or {}))
-            when_txt = when.strftime("%A %d %b, %I%p").replace(" 0", " ").lstrip("0")
-            just_saved = bool(getattr(s, "_tms_just_saved", False))
-            s._tms_just_saved = False
-            _saved_panel(C, settings, labels, when_txt, just_saved)
 
         with ui.element("div").classes("tms-card"):
             ui.label("What counts as a signal").classes("tms-sec").style(f"color:{C['teal']};")
