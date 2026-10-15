@@ -849,14 +849,14 @@ async def tm_newsletters() -> dict:
     "Create a monthly newsletter. sector is a key from tm_newsletters "
     "(e.g. 'logistics'); region defaults to USA; start_date "
     "YYYY-MM-DD (default today); count = months (default 12); style "
-    "'full_send' (with pictures) or 'j_way' (organic, text only); "
+    "'j_way' (organic, text only; the default) or 'full_send' (with pictures); "
     "profiles=true adds candidate profile cards. The first issue is written "
     "in the background; enrol people afterwards with tm_campaign_contacts."
 ))
 async def tm_newsletter_create(name: str, sector: str, region: str = "",
                                niche: str = "", start_date: str = "",
                                count: int = 12, time: str = "9:00 AM",
-                               style: str = "full_send",
+                               style: str = "j_way",
                                profiles: bool = True) -> dict:
     return await _tm_call("tm_newsletter_create", {
         "name": name, "sector": sector, "region": region, "niche": niche,

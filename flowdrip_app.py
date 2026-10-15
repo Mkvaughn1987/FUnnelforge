@@ -457,6 +457,8 @@ _ATS_ENABLED = _env_str("DRIPDROP_ATS_ENABLED", "1").strip().lower() not in (
 # those surfaces branch on. Arena leaves ATS on, so _SALES_MODE is False
 # there and nothing it shows changes.
 _SALES_MODE = not _ATS_ENABLED
+# New newsletters start Organic (text only) on sales instances; Arena keeps Full.
+_NL_DEFAULT_STYLE = "j_way" if _SALES_MODE else "full_send"
 
 # ── Workspace playbook ────────────────────────────────────────────────────
 # _SALES_MODE above is an INSTANCE-level env flag. The playbook is a
@@ -9168,7 +9170,7 @@ async def api_tm_send_preview(request: Request):
 
 def _nl_campaign_dict(nl_name, sector_key, sector_label, niche, region,
                       start_from, time_str="9:00 AM", count=12,
-                      style="full_send", spotlight_count=3, spotlight_recs="",
+                      style=None, spotlight_count=3, spotlight_recs="",
                       picked_cands=None, show_city_life=False, contacts=None,
                       spun_from="", topic=""):
     """A new newsletter campaign: one issue per month on the picked day.
@@ -9196,7 +9198,7 @@ def _nl_campaign_dict(nl_name, sector_key, sector_label, niche, region,
         evergreen_only=True,
         market_analysis=True,
         newsletter_name=nl_name,
-        newsletter_style=style or "full_send",
+        newsletter_style=style or _NL_DEFAULT_STYLE,
         newsletter_candidates=list(picked_cands or []),
         # The most specific label: the niche when there is one.
         market_sector=niche if niche else sector_label,
@@ -9258,8 +9260,9 @@ async def api_tm_newsletters(request: Request):
         "newsletters": [_tm_nl_summary(c) for c in nls],
         "sectors": {k: {"label": v.get("label", ""), "niches": v.get("niches", [])}
                     for k, v in _TM_NEWSLETTER_SECTORS.items()},
-        "styles": {"full_send": "Full, with pictures",
-                   "j_way": "Organic, text only"},
+        "styles": {"j_way": "Organic, text only",
+                   "full_send": "Full, with pictures"},
+        "default_style": _NL_DEFAULT_STYLE,
     })
 
 
@@ -9297,7 +9300,7 @@ async def api_tm_newsletter_create(request: Request):
         start_from = date.fromisoformat(raw_start) if raw_start else date.today()
     except ValueError:
         return JSONResponse({"error": "start_date must be YYYY-MM-DD"}, status_code=400)
-    style = str(body.get("style") or "full_send").strip()
+    style = str(body.get("style") or _NL_DEFAULT_STYLE).strip()
     if style not in ("full_send", "j_way"):
         return JSONResponse({"error": "style must be full_send or j_way"},
                             status_code=400)
@@ -35755,7 +35758,8 @@ def _offer_newsletter_enroll(to_email: str, name: str, rf):
 
         _opts = {c.get("name", "Untitled"): c.get("name", "Untitled")
                  for c in _newsletters}
-        _opts["__new_jway__"] = "✍️ New J's Way note"
+        _opts["__new_jway__"] = ("✍️ New organic newsletter" if _SALES_MODE
+                                 else "✍️ New J's Way note")
         _radio = ui.radio(_opts, value="__new_jway__").props("dense").style(
             f"color:{C['text_l']};")
 
@@ -36194,9 +36198,14 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
 
         # Format: The J's Way (plain text) vs Full Send (current rich/branded).
         ui.label("Newsletter Style").classes("fd-fl")
+        # Sales instances start on Organic (listed first); Full is opt-in.
+        _style_opts = (
+            {"j_way": "✍️ Organic, text only", "full_send": "🚀 Full with pictures"}
+            if _SALES_MODE else
+            {"full_send": "🚀 Full with pictures", "j_way": "✍️ Organic, text only"})
         _style_toggle = ui.toggle(
-            {"full_send": "🚀 Full with pictures", "j_way": "✍️ Organic, text only"},
-            value=(prefill.get("newsletter_style") or "full_send")).props(
+            _style_opts,
+            value=(prefill.get("newsletter_style") or _NL_DEFAULT_STYLE)).props(
             "no-caps").style("margin:2px 0 4px 0;")
         _style_desc = ui.label("").style(
             f"font-size:11px;color:{C['muted']};margin-bottom:16px;line-height:1.5;")
@@ -36660,7 +36669,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
             new_camp = _nl_campaign_dict(
                 nl_name, _sector_key, _sector_label, niche, region, start_from,
                 time_str=time_str, count=count,
-                style=(_style_toggle.value or "full_send"),
+                style=(_style_toggle.value or _NL_DEFAULT_STYLE),
                 spotlight_count=_spotlight_count,
                 spotlight_recs=_spotlight_recs, picked_cands=_picked_cands,
                 show_city_life=_show_city_life,
