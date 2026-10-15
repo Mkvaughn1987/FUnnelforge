@@ -21,8 +21,13 @@ def test_default_theme_is_light():
     src = inspect.getsource(fa.inject_styles)
     # Key and default are per-instance env settings, substituted into
     # the script; with no override they must be 'dd-theme' and 'light'.
-    assert "localStorage.getItem('__DD_THEME_KEY__') || '__DD_THEME_DEFAULT__'" in src
+    assert "var t = '__DD_THEME_DEFAULT__';" in src
+    assert "t = localStorage.getItem('__DD_THEME_KEY__') || t;" in src
     assert '.replace("__DD_THEME_DEFAULT__", THEME_DEFAULT)' in src
+    # Applied before the body exists, so the light default never paints dark first.
+    head = src.split("t = localStorage.getItem('__DD_THEME_KEY__') || t;", 1)[1]
+    first = head.split("DOMContentLoaded", 1)[0]
+    assert "document.documentElement.setAttribute('data-theme','light')" in first
     assert fa.THEME_KEY == "dd-theme"
     assert fa.THEME_DEFAULT == "light", (
         "Boot script must default to 'light' for new visitors")

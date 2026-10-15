@@ -20678,7 +20678,12 @@ def inject_styles():
     # ── Apply saved theme on load (before paint) ──
     ui.add_head_html("""<script>
 (function(){
-  var t = localStorage.getItem('__DD_THEME_KEY__') || '__DD_THEME_DEFAULT__';
+  var t = '__DD_THEME_DEFAULT__';
+  try { t = localStorage.getItem('__DD_THEME_KEY__') || t; } catch (e) {}
+  // Set the attribute now, before the body exists: the page is served with
+  // ui.run(dark=True), so until then every load painted in the dark palette
+  // first, even for the light default.
+  if (t === 'light') document.documentElement.setAttribute('data-theme','light');
   // ddToggleTheme lives here, in this small script, and not only in the big
   // head script below: that one has a SyntaxError on every instance (leaked
   // f-strings), so nothing defined in it ever runs and the theme button did
