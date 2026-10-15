@@ -48,34 +48,78 @@ def _ff():
 
 # ── 1. The signal catalogue ───────────────────────────────────────────────
 #
-# Seven signals, fixed in code. "urgent" ones go under "Move on these now";
-# the rest under "Worth a look". The id is what the model returns and what
-# the parser checks against, so a made-up signal never reaches the email.
+# Seven signals, fixed in code. Each "why" says what the event does to a
+# company's back office and why that makes them buy offshore seats, so the
+# page and the email can explain the signal, not just name it. The offshore
+# tell comes first: a company that has used Filipino or offshore staff
+# before goes to the top of every issue ("first"), ahead of the "urgent"
+# ones under "Move on these now" and the rest under "Worth a look". The id
+# is what the model returns and what the parser checks against, so a
+# made-up signal never reaches the email.
 SIGNALS = [
+    {"id": "offshore", "urgent": False, "first": True,
+     "label": "Already uses Filipino or offshore staff",
+     "why": "A Manila or Cebu office, Philippines job postings, a BPO or VA "
+            "vendor or 'US hours' roles mean they have already bought the "
+            "model. Nobody has to be sold on offshore, only on a better "
+            "provider, so these go to the top of every issue."},
     {"id": "pe", "urgent": True,
      "label": "Private equity acquisition or new investor",
-     "why": "New owners push for cost reduction in the first twelve months."},
+     "why": "New owners have to show cost savings in the first twelve months "
+            "and back-office payroll is the first line they cut. A Filipino "
+            "seat at a third of the US cost is the easiest win to put in "
+            "front of the board."},
     {"id": "exec", "urgent": True,
      "label": "New CFO, COO or CEO",
-     "why": "New leadership reviews vendor and headcount spend in its first quarter."},
+     "why": "A new finance or operations chief reviews every vendor and "
+            "headcount line in the first ninety days and wants a quick win. "
+            "Moving billing, AP or data entry offshore is a saving they can "
+            "own, so they take the meeting."},
     {"id": "cost", "urgent": True,
      "label": "Layoffs, WARN filing, closure or restructuring",
-     "why": "They are actively looking to cut back-office cost."},
+     "why": "The work does not leave with the people. Someone still has to "
+            "bill, collect and process, so they are looking for a cheaper way "
+            "to cover it right now."},
     {"id": "growth", "urgent": True,
      "label": "Big contract, expansion, new location or funding",
-     "why": "The volume lands before the desks to cover it do."},
+     "why": "New volume lands before the desks to cover it do, and local "
+            "hiring takes months. Offshore seats start in weeks and keep the "
+            "margin on the new work intact."},
     {"id": "hiring", "urgent": False,
      "label": "Hiring surge or long-open back-office postings",
-     "why": "They cannot fill on the terms they are offering."},
+     "why": "A posting open for sixty days means they cannot fill the seat "
+            "at the pay they can afford. The role is already defined, so "
+            "offering the same seat offshore is a short conversation."},
     {"id": "remote", "urgent": False,
      "label": "Fully remote or work-from-home postings",
-     "why": "They have already decided the seat does not need to be in the building."},
-    {"id": "offshore", "urgent": False,
-     "label": "Offshore tells: Philippines, BPO, VA, US hours",
-     "why": "Already buying the model, so this is a displacement conversation."},
+     "why": "They have already decided the seat does not need to be in the "
+            "building. Once a role is remote, the only question left is "
+            "which time zone and what it costs."},
 ]
 SIGNAL_BY_ID = {s["id"]: s for s in SIGNALS}
 URGENT_IDS = [s["id"] for s in SIGNALS if s["urgent"]]
+FIRST_IDS = [s["id"] for s in SIGNALS if s.get("first")]
+
+
+def has_history(row):
+    """True when this company has shown it already uses Filipino or
+    offshore staff: either the offshore tell is its signal, or the research
+    found evidence of it alongside another signal."""
+    return bool(str(row.get("offshore_history") or "").strip()) \
+        or row.get("signal") in FIRST_IDS
+
+
+def group_of(row):
+    """Which block a company card goes in: "first" (already offshore),
+    "now" (urgent signal) or "watch"."""
+    if has_history(row):
+        return "first"
+    return "now" if SIGNAL_BY_ID[row["signal"]]["urgent"] else "watch"
+
+
+GROUPS = (("first", "Already using Filipino or offshore staff"),
+          ("now", "Move on these now"),
+          ("watch", "Worth a look"))
 
 # How far back a signal may be dated and still make an issue, and how long
 # a company stays out of later issues once it has been sent.
@@ -90,6 +134,9 @@ DAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
 
 SETTINGS_FILE = "tm_signals.json"
 MODEL = os.environ.get("DRIPDROP_TM_SIGNALS_MODEL", "claude-sonnet-5-5")
+# Web searches one industry scan may use. Twelve, not eight: the offshore
+# history check is extra searches on top of the signal hunt.
+SEARCHES_PER_SCAN = 12
 
 # Business-news and filings domains the research may search, on top of the
 # app's standard allowlist. Fixed in code: the allowlist is what stops
@@ -250,14 +297,27 @@ def scan_prompt(vertical, location, today):
         "boards for companies in this industry and location that showed "
         f"one of these buying signals in the last {FRESH_DAYS} days:\n"
         f"{_signal_menu()}\n\n"
+        "AIM FIRST for companies that have already used Filipino or "
+        "offshore staff: a Manila, Cebu or Clark office, job postings in the "
+        "Philippines, a BPO or virtual-assistant vendor, 'US hours' or "
+        "'night shift' postings, back-office staff located in the "
+        "Philippines on LinkedIn. Search for those tells in this industry "
+        "and location before anything else, then check which of them show a "
+        "signal from the list. A company with both goes first.\n\n"
         "Return 6 to 12 companies, the strongest first. For each one:\n"
         "- company: the legal or trading name\n"
         "- location: city and state\n"
         "- signal: exactly one id from the list above\n"
         "- headline: what happened, under fifteen words\n"
         "- date: when it happened, YYYY-MM-DD\n"
-        "- why_now: one sentence under thirty words on why this makes them "
-        "a buyer this month\n"
+        "- why_now: two sentences, under fifty words, on why this event makes "
+        "them a buyer of offshore back-office staff this month. Name the "
+        "work that grows, gets cut or gets consolidated, and the cost "
+        "pressure behind it. Written for a seller, not a reporter.\n"
+        "- offshore_history: the evidence you actually found that this "
+        "company already uses Filipino or offshore staff, in one sentence "
+        "with the place or vendor named. Leave it empty if you found none. "
+        "Never guess at it.\n"
         "- opener: the first sentence of a cold email that names the event, "
         "under thirty words, no claims about results or savings\n"
         "- source_url: the page you read it on\n\n"
@@ -274,7 +334,7 @@ def scan_prompt(vertical, location, today):
         "Return ONLY this JSON, no prose:\n"
         '{"companies": [{"company": "...", "location": "...", "signal": "pe", '
         '"headline": "...", "date": "YYYY-MM-DD", "why_now": "...", '
-        '"opener": "...", "source_url": "https://..."}], '
+        '"offshore_history": "", "opener": "...", "source_url": "https://..."}], '
         '"news": [{"headline": "...", "date": "YYYY-MM-DD", "summary": "...", '
         '"source_url": "https://..."}]}'
     )
@@ -355,7 +415,8 @@ def parse_scan(text, today):
             "signal": sig,
             "headline": _clean(row.get("headline"), 160),
             "date": d.isoformat(),
-            "why_now": _clean(row.get("why_now"), 300),
+            "why_now": _clean(row.get("why_now"), 400),
+            "offshore_history": _clean(row.get("offshore_history"), 300),
             "opener": _clean(row.get("opener"), 300),
             "source_url": url,
         })
@@ -395,10 +456,12 @@ def recent_companies(issues, today, days=REPEAT_DAYS):
 
 
 def rank(companies):
-    """Urgent signals first, then newest first."""
+    """Companies that already use Filipino or offshore staff first, then
+    urgent signals, then catalogue order, then newest first."""
     order = {s["id"]: i for i, s in enumerate(SIGNALS)}
     newest = sorted(companies, key=lambda r: r.get("date", ""), reverse=True)
-    return sorted(newest, key=lambda r: (not SIGNAL_BY_ID[r["signal"]]["urgent"],
+    return sorted(newest, key=lambda r: (not has_history(r),
+                                         not SIGNAL_BY_ID[r["signal"]]["urgent"],
                                          order.get(r["signal"], 99)))
 
 
@@ -494,7 +557,7 @@ def run_scan(client, vertical, location, today):
                 messages=[{"role": "user",
                            "content": scan_prompt(vertical, location, today)}],
                 tools=[ff._safe_web_search_tool(
-                    max_uses=8, extra_domains=search_domains(ff))],
+                    max_uses=SEARCHES_PER_SCAN, extra_domains=search_domains(ff))],
             )
             break
         except Exception as e:
@@ -539,6 +602,9 @@ def _pretty_date(iso):
 def _company_card(row, app_url):
     sig = SIGNAL_BY_ID[row["signal"]]
     badge_bg = RED if sig["urgent"] else GREEN
+    history = (f'<p style="margin:8px 0 0;color:{NAVY};font-size:13px;line-height:1.5;">'
+               f'<span style="font-weight:700;">Already offshore:</span> '
+               f'{_e(row["offshore_history"])}</p>') if row.get("offshore_history") else ""
     links = [f'<a href="{_e(row["source_url"])}" style="color:{GREEN};'
              f'text-decoration:none;font-weight:600;">Source</a>']
     if app_url:
@@ -561,7 +627,9 @@ def _company_card(row, app_url):
         f'</div>'
         f'<p style="margin:8px 0 0;color:{INK};font-size:14px;line-height:1.5;font-weight:600;">'
         f'{_e(row["headline"])}</p>'
-        f'<p style="margin:4px 0 0;color:{INK};font-size:13px;line-height:1.5;">{_e(row["why_now"])}</p>'
+        f'<p style="margin:4px 0 0;color:{INK};font-size:13px;line-height:1.5;">'
+        f'<span style="font-weight:700;">Why it is a buying signal:</span> {_e(row["why_now"])}</p>'
+        f'{history}'
         f'{opener}'
         f'<div style="margin:10px 0 0;font-size:12px;">{" &nbsp;·&nbsp; ".join(links)}</div>'
         f'</div>'
@@ -589,20 +657,19 @@ def _h2(text, colour=NAVY):
 def render_email(issue, brand="inboxslide", app_url="", days=SEND_WEEKDAYS):
     """The issue as an HTML email body."""
     parts = []
+    colours = {"first": NAVY, "now": RED, "watch": GREEN}
     for sec in issue.get("sections") or []:
-        urgent = [r for r in sec.get("companies") or [] if SIGNAL_BY_ID[r["signal"]]["urgent"]]
-        watch = [r for r in sec.get("companies") or [] if not SIGNAL_BY_ID[r["signal"]]["urgent"]]
+        rows = rank(sec.get("companies") or [])
         news = sec.get("news") or []
-        if not (urgent or watch or news):
+        if not (rows or news):
             continue
         parts.append(f'<h1 style="margin:28px 0 4px;font-size:20px;color:{NAVY};">'
                      f'{_e(sec["label"])}</h1>')
-        if urgent:
-            parts.append(_h2("Move on these now", RED))
-            parts.extend(_company_card(r, app_url) for r in urgent)
-        if watch:
-            parts.append(_h2("Worth a look", GREEN))
-            parts.extend(_company_card(r, app_url) for r in watch)
+        for key, title in GROUPS:
+            sub = [r for r in rows if group_of(r) == key]
+            if sub:
+                parts.append(_h2(title, colours[key]))
+                parts.extend(_company_card(r, app_url) for r in sub)
         if news:
             parts.append(_h2("Industry news"))
             parts.extend(_news_line(r) for r in news)
@@ -941,14 +1008,16 @@ def _issue_rows(C, issue):
         if not rows and not news:
             continue
         _text(sec["label"], C, 15, 800, C["text_l"], 8)
-        for group, title, colour in ((True, "Move on these now", C["danger"]),
-                                     (False, "Worth a look", C["teal"])):
-            sub = [r for r in rows if SIGNAL_BY_ID[r["signal"]]["urgent"] is group]
+        rows = rank(rows)
+        colours = {"first": C["text_l"], "now": C["danger"], "watch": C["teal"]}
+        for key, title in GROUPS:
+            sub = [r for r in rows if group_of(r) == key]
             if not sub:
                 continue
-            ui.label(title).classes("tms-sec").style(f"color:{colour};")
+            ui.label(title).classes("tms-sec").style(f"color:{colours[key]};")
             for r in sub:
                 sig = SIGNAL_BY_ID[r["signal"]]
+                colour = C["danger"] if sig["urgent"] else C["teal"]
                 with ui.element("div").classes("tms-row"):
                     with ui.element("div").style("display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;"):
                         _text(r["company"], C, 14, 700, C["text_l"])
@@ -960,7 +1029,13 @@ def _issue_rows(C, issue):
                                 f'<span style="font-size:11px;color:{C["muted"]};">'
                                 f'{_e(_pretty_date(r["date"]))}</span>', sanitize=False)
                     _text(r["headline"], C, 13, 600, C["text_l"], 2)
-                    _text(r["why_now"], C, 12, colour=C["text_l"], mb=4)
+                    ui.html(f'<div style="font-size:12px;color:{C["text_l"]};margin:0 0 4px;">'
+                            f'<b>Why it is a buying signal:</b> {_e(r["why_now"])}</div>',
+                            sanitize=False)
+                    if r.get("offshore_history"):
+                        ui.html(f'<div style="font-size:12px;color:{C["text_l"]};margin:0 0 4px;">'
+                                f'<b>Already offshore:</b> {_e(r["offshore_history"])}</div>',
+                                sanitize=False)
                     if r.get("opener"):
                         ui.label(r["opener"]).style(
                             f"font-size:12px;color:{C['text_l']};font-style:italic;"
@@ -1072,13 +1147,18 @@ def render_page(s, rf):
                         _text(s._tms_msg, C, 12, colour=C["muted"])
 
         with ui.element("div").classes("tms-card"):
-            ui.label("What counts as a signal").classes("tms-sec").style(f"color:{C['teal']};")
+            ui.label("What counts as a signal, and why").classes("tms-sec").style(f"color:{C['teal']};")
+            _text("Companies that already use Filipino or offshore staff come first in "
+                  "every issue. Then the four signals to move on now, then the two to watch.",
+                  C, 12, colour=C["muted"], mb=10)
             with ui.element("div").classes("tms-grid"):
                 for sig in SIGNALS:
                     with ui.element("div").classes("tms-sig"):
-                        ui.html(f'<span class="tms-badge" style="background:'
-                                f'{C["danger"] if sig["urgent"] else C["teal"]};margin-top:2px;">'
-                                f'{"Now" if sig["urgent"] else "Watch"}</span>', sanitize=False)
+                        badge, bg = (("First", C["text_l"]) if sig.get("first") else
+                                     ("Now", C["danger"]) if sig["urgent"] else
+                                     ("Watch", C["teal"]))
+                        ui.html(f'<span class="tms-badge" style="background:{bg};'
+                                f'margin-top:2px;">{badge}</span>', sanitize=False)
                         with ui.element("div"):
                             _text(sig["label"], C, 12, 700, C["text_l"])
                             _text(sig["why"], C, 11, colour=C["muted"])

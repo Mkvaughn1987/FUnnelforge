@@ -480,3 +480,83 @@ def test_days_row_on_page(tms):
     panel = inspect.getsource(tms._settings_panel)
     assert "flip_day(d)" in panel and "tms-day" in panel
     assert 'settings["days"]' in inspect.getsource(tms.render_page)
+
+
+# ── offshore history first + the "why" on every card ──────────────────────
+
+def test_catalogue_leads_with_the_offshore_tell_and_explains_every_signal(tms):
+    assert tms.SIGNALS[0]["id"] == "offshore" and tms.SIGNALS[0].get("first")
+    assert tms.FIRST_IDS == ["offshore"]
+    for sig in tms.SIGNALS:
+        # two sentences that say why the event makes them buy offshore seats
+        assert sig["why"].count(".") >= 2, sig["id"]
+        assert len(sig["why"]) > 120, sig["id"]
+    assert "offshore" in tms.SIGNALS[1]["why"].lower() or "Filipino" in tms.SIGNALS[1]["why"]
+
+
+def test_has_history_from_offshore_signal_or_evidence(tms):
+    assert tms.has_history(_row("A", "offshore"))
+    assert tms.has_history(_row("B", "pe", offshore_history="Billing team in Manila."))
+    assert not tms.has_history(_row("C", "pe"))
+    assert not tms.has_history(_row("D", "pe", offshore_history="  "))
+    assert tms.group_of(_row("A", "offshore")) == "first"
+    assert tms.group_of(_row("B", "hiring", offshore_history="Uses a Cebu BPO.")) == "first"
+    assert tms.group_of(_row("C", "pe")) == "now"
+    assert tms.group_of(_row("E", "hiring")) == "watch"
+
+
+def test_rank_puts_prior_offshore_users_before_urgent_signals(tms):
+    rows = [_row("A", "remote", 1), _row("B", "cost", 5),
+            _row("C", "hiring", 9, offshore_history="AR team in Manila."),
+            _row("D", "pe", 2), _row("E", "offshore", 0)]
+    assert [r["company"] for r in tms.rank(rows)] == ["E", "C", "D", "B", "A"]
+
+
+def test_parse_keeps_offshore_history_and_a_longer_why(tms):
+    text = json.dumps({"companies": [
+        {"company": "Acme", "signal": "pe", "date": TODAY.isoformat(),
+         "why_now": "x " * 300, "offshore_history": "<b>Billing</b> team in Cebu.",
+         "opener": "o", "source_url": "https://a.b/c"},
+        {"company": "NoHist", "signal": "pe", "date": TODAY.isoformat(),
+         "source_url": "https://a.b/d"},
+    ], "news": []})
+    got = tms.parse_scan(text, TODAY)["companies"]
+    assert got[0]["offshore_history"] == "Billing team in Cebu."
+    assert len(got[0]["why_now"]) == 400
+    assert got[1]["offshore_history"] == ""
+
+
+def test_prompt_aims_for_prior_filipino_staff_and_asks_for_evidence(tms):
+    v = {"label": "Logistics / 3PL", "band": "25 to 1000", "buyers": "the COO",
+         "roles": "track and trace", "tells": "McLeod"}
+    p = tms.scan_prompt(v, "Texas", TODAY)
+    assert "AIM FIRST" in p and "Philippines" in p
+    assert "offshore_history" in p and "Never guess" in p
+    assert "two sentences" in p and "buyer of offshore back-office staff" in p
+    assert tms.SEARCHES_PER_SCAN == 12
+    assert "max_uses=SEARCHES_PER_SCAN" in inspect.getsource(tms.run_scan)
+
+
+def test_email_groups_prior_offshore_users_first_and_labels_the_why(tms):
+    issue = {"date": "2026-10-15", "location": "USA", "sections": [
+        {"industry": "logistics", "label": "Logistics / 3PL",
+         "companies": [_row("Urgent Co", "pe"),
+                       _row("Manila Co", "hiring", offshore_history="AR team in Manila."),
+                       _row("Watch Co", "remote")],
+         "news": []}]}
+    html = tms.render_email(issue, brand="inboxslide", app_url="https://app.inboxslide.ai")
+    first = html.index("Already using Filipino or offshore staff")
+    now = html.index("Move on these now")
+    watch = html.index("Worth a look")
+    assert first < html.index("Manila Co") < now < html.index("Urgent Co") < watch < html.index("Watch Co")
+    assert "Why it is a buying signal:" in html
+    assert "Already offshore:</span> AR team in Manila." in html
+    assert "<style" not in html
+
+
+def test_page_rows_use_the_same_groups_and_why_label(tms):
+    src = inspect.getsource(tms._issue_rows)
+    assert "GROUPS" in src and "group_of(r)" in src and "rank(rows)" in src
+    assert "Why it is a buying signal:" in src and "Already offshore:" in src
+    page = inspect.getsource(tms.render_page)
+    assert '"First"' in page and "What counts as a signal, and why" in page
