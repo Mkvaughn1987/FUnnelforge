@@ -328,6 +328,102 @@ def test_run_issue_skips_send_when_nothing_found(tms, tmp_path, monkeypatch):
     assert tms.load_settings(tmp_path)["issues"]
 
 
+BLOCKED_400 = ("Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', "
+               "'message': \"The following domains are not accessible to our user agent: "
+               "['bizjournals.com', 'reuters.com', 'wsj.com']. Read more: https://x\"}}")
+
+
+def test_news_allowlist_never_names_a_publisher_that_blocks_the_crawler(tms):
+    # The API rejects the WHOLE request with a 400 if any listed domain
+    # blocks Anthropic's crawler; this is what made the first live issue
+    # come back as "nothing found" for all four industries.
+    for d in ("reuters.com", "wsj.com", "bloomberg.com", "bizjournals.com",
+              "ft.com", "forbes.com", "businessinsider.com"):
+        assert d not in tms.NEWS_DOMAINS
+
+
+def test_blocked_domains_are_parsed_from_the_400(tms):
+    assert tms.blocked_domains_in(BLOCKED_400) == ["bizjournals.com", "reuters.com", "wsj.com"]
+    assert tms.blocked_domains_in("Error code: 529 overloaded") == []
+    assert tms.blocked_domains_in("") == []
+
+
+def test_run_scan_drops_blocked_domains_and_retries_once(tms, monkeypatch):
+    calls = []
+
+    class _FF:
+        _WARN_SEARCH_DOMAINS = ["dol.gov"]
+
+        @staticmethod
+        def _injection_guarded_system(s):
+            return s
+
+        @staticmethod
+        def _safe_web_search_tool(max_uses=3, extra_domains=()):
+            return {"allowed_domains": list(extra_domains)}
+
+        @staticmethod
+        def _claude_create_with_retry(client, **kw):
+            calls.append(kw["tools"][0]["allowed_domains"])
+            if len(calls) == 1:
+                raise RuntimeError(BLOCKED_400.replace("'bizjournals.com', 'reuters.com', 'wsj.com'",
+                                                       "'axios.com'"))
+            return types.SimpleNamespace(content=[types.SimpleNamespace(text='{"companies": []}')])
+
+    monkeypatch.setattr(tms, "_ff", lambda: _FF)
+    monkeypatch.setattr(tms, "_BLOCKED_DOMAINS", set())
+    v = {"label": "Logistics / 3PL", "band": "", "buyers": "", "roles": "", "tells": ""}
+    text = tms.run_scan(object(), v, "USA", TODAY)
+    assert "companies" in text and len(calls) == 2
+    assert "axios.com" in calls[0] and "axios.com" not in calls[1]
+    assert "dol.gov" in calls[1] and "prnewswire.com" in calls[1]
+    # learned for the life of the process: the next scan never lists it
+    assert "axios.com" not in tms.search_domains(_FF)
+
+    # an unrelated error is raised straight away, no retry
+    calls.clear()
+
+    def _boom(client, **kw):
+        calls.append(1)
+        raise RuntimeError("Error code: 529 overloaded")
+    monkeypatch.setattr(_FF, "_claude_create_with_retry", staticmethod(_boom))
+    with pytest.raises(RuntimeError):
+        tms.run_scan(object(), v, "USA", TODAY)
+    assert len(calls) == 1
+
+
+def test_run_issue_reports_research_failure_not_nothing_found(tms, tmp_path, monkeypatch):
+    sent = []
+
+    class _FF:
+        ANTHROPIC_API_KEY = "k"
+        BRAND = "inboxslide"
+        _PUBLIC_ORIGIN = ""
+
+        @staticmethod
+        def _server_send_one(item, config_path, user_dir=None):
+            sent.append(item)
+            return True, ""
+
+    monkeypatch.setattr(tms, "_ff", lambda: _FF)
+    monkeypatch.setitem(sys.modules, "anthropic", types.SimpleNamespace(
+        Anthropic=lambda api_key: object()))
+
+    def _fail(*a):
+        raise RuntimeError("Error code: 400 - bad allowlist")
+    monkeypatch.setattr(tms, "run_scan", _fail)
+    tms.save_settings({"enabled": True, "industries": ["logistics", "manufacturing"]}, tmp_path)
+    issue = tms.run_issue("mike@example.com", tmp_path, today=TODAY)
+    assert sent == []
+    assert issue["send_error"].startswith("Research failed: Error code: 400")
+    assert "Nothing found" not in issue["send_error"]
+    # one industry failing while the other is merely empty is still "nothing found"
+    partial = {"sections": [{"error": "x", "companies": [], "news": []},
+                            {"companies": [], "news": []}]}
+    assert tms.issue_failure(partial) == ""
+    assert tms.issue_failure({"sections": []}) == ""
+
+
 def test_prompt_names_every_signal_and_the_window(tms):
     v = {"label": "Logistics / 3PL", "band": "25 to 1000", "buyers": "the COO",
          "roles": "track and trace", "tells": "McLeod"}
@@ -353,3 +449,11 @@ def test_host_routes_page_and_ticks_scheduler():
     index = inspect.getsource(fa.index)
     assert '("tm_signals", "tm_prompts")' in index and "_is_thrivemodal()" in index
     assert fa._SIDEBAR_ICONS.get("signals")
+
+
+def test_save_shows_saved_settings_as_pills(tms):
+    src = inspect.getsource(tms.render_page)
+    assert "s._tms_just_saved = True" in src and "_saved_panel(" in src
+    panel = inspect.getsource(tms._saved_panel)
+    for bit in ("tms-pill", "Industries", "Location", "Next issue", "Saved."):
+        assert bit in panel

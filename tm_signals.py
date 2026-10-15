@@ -91,9 +91,14 @@ MODEL = os.environ.get("DRIPDROP_TM_SIGNALS_MODEL", "claude-sonnet-5-5")
 # Business-news and filings domains the research may search, on top of the
 # app's standard allowlist. Fixed in code: the allowlist is what stops
 # prompt injection in user content pivoting a search to attacker URLs.
+#
+# Never list a domain that blocks Anthropic's crawler (reuters, wsj,
+# bloomberg, bizjournals, ft, forbes, businessinsider): the API rejects the
+# WHOLE request with a 400 if the allowlist names one, and every scan fails.
+# run_scan() also strips any domain the API names as blocked and retries,
+# so a publisher that starts blocking later only costs one extra call.
 NEWS_DOMAINS = [
     "prnewswire.com", "businesswire.com", "globenewswire.com",
-    "reuters.com", "bloomberg.com", "wsj.com", "bizjournals.com",
     "axios.com", "sec.gov", "warntracker.com", "layoffs.fyi",
     "freightwaves.com", "supplychaindive.com", "joc.com", "ttnews.com",
     "accountingtoday.com", "cpapracticeadvisor.com", "pehub.com",
@@ -407,20 +412,63 @@ def issue_has_content(issue):
     return False
 
 
+def issue_failure(issue):
+    """The error to show when research failed for EVERY picked industry,
+    else "". A partial failure with nothing found is still "nothing found"."""
+    secs = issue.get("sections") or []
+    errs = [sec.get("error") for sec in secs if sec.get("error")]
+    if not secs or len(errs) < len(secs):
+        return ""
+    return "Research failed: " + str(errs[0])[:160]
+
+
+# Domains the API has told us it cannot reach, learned at runtime. A domain
+# in here is left out of every later scan for the life of the process.
+_BLOCKED_DOMAINS = set()
+
+
+def blocked_domains_in(err_text):
+    """The domains an Anthropic 400 names as "not accessible to our user
+    agent", or [] when the error is about something else."""
+    s = str(err_text or "")
+    if "not accessible" not in s:
+        return []
+    m = re.search(r"\[([^\]]*)\]", s)
+    if not m:
+        return []
+    return [d.strip().strip("'\"") for d in m.group(1).split(",") if d.strip()]
+
+
+def search_domains(ff):
+    wanted = list(NEWS_DOMAINS) + list(ff._WARN_SEARCH_DOMAINS)
+    return [d for d in wanted if d not in _BLOCKED_DOMAINS]
+
+
 def run_scan(client, vertical, location, today):
-    """The live research call for one industry. Returns the model's text."""
+    """The live research call for one industry. Returns the model's text.
+    If the API rejects the request because a listed domain blocks its
+    crawler, that domain is dropped for good and the call is made again."""
     ff = _ff()
-    msg = ff._claude_create_with_retry(
-        client,
-        model=MODEL,
-        max_tokens=6000,
-        system=ff._injection_guarded_system(SYSTEM),
-        messages=[{"role": "user",
-                   "content": scan_prompt(vertical, location, today)}],
-        tools=[ff._safe_web_search_tool(
-            max_uses=8,
-            extra_domains=list(NEWS_DOMAINS) + list(ff._WARN_SEARCH_DOMAINS))],
-    )
+    for attempt in (1, 2):
+        try:
+            msg = ff._claude_create_with_retry(
+                client,
+                model=MODEL,
+                max_tokens=6000,
+                system=ff._injection_guarded_system(SYSTEM),
+                messages=[{"role": "user",
+                           "content": scan_prompt(vertical, location, today)}],
+                tools=[ff._safe_web_search_tool(
+                    max_uses=8, extra_domains=search_domains(ff))],
+            )
+            break
+        except Exception as e:
+            bad = blocked_domains_in(e)
+            if attempt == 2 or not bad:
+                raise
+            _BLOCKED_DOMAINS.update(bad)
+            print(f"[Signals] dropping blocked search domains {bad}; retrying",
+                  flush=True)
     text = ""
     for part in msg.content:
         if hasattr(part, "text"):
@@ -640,6 +688,9 @@ def run_issue(email, user_dir, send=True, today=None):
                 else:
                     issue["send_error"] = str(err)[:300]
                     print(f"[Signals] send failed for {email}: {err}", flush=True)
+            elif issue_failure(issue):
+                issue["send_error"] = issue_failure(issue) + " No email sent."
+                print(f"[Signals] {email}: every industry failed, no email", flush=True)
             else:
                 issue["send_error"] = "Nothing found this time; no email sent."
                 print(f"[Signals] {email}: nothing found, no email", flush=True)
@@ -680,7 +731,63 @@ def _css():
         ".tms-wrap .tms-badge{display:inline-block;color:#fff;font-size:10px;font-weight:700;"
         "padding:2px 8px;border-radius:999px;margin-right:8px;}"
         ".tms-wrap a{color:var(--dd-teal);text-decoration:none;font-weight:600;}"
+        ".tms-wrap .tms-saved{margin-top:18px;padding:14px 16px;border-radius:10px;"
+        "border:1px solid var(--dd-border);background:var(--dd-bg);}"
+        ".tms-wrap .tms-saved.just{border-color:var(--dd-good);"
+        "background:color-mix(in srgb,var(--dd-good) 8%,var(--dd-card));}"
+        ".tms-wrap .tms-saved-h{display:flex;align-items:center;gap:6px;font-size:13px;"
+        "font-weight:700;color:var(--dd-text_l);margin-bottom:10px;}"
+        ".tms-wrap .tms-kv{display:grid;grid-template-columns:96px 1fr;gap:8px 12px;"
+        "align-items:center;}"
+        ".tms-wrap .tms-k{font-size:11px;font-weight:700;color:var(--dd-muted);"
+        "text-transform:uppercase;letter-spacing:.06em;}"
+        ".tms-wrap .tms-pills{display:flex;flex-wrap:wrap;gap:6px;}"
+        ".tms-wrap .tms-pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;"
+        "font-weight:600;padding:4px 11px;border-radius:999px;line-height:1.3;"
+        "border:1px solid var(--dd-border);background:var(--dd-card);color:var(--dd-text_l);}"
+        ".tms-wrap .tms-pill.on{border-color:var(--dd-good);color:var(--dd-good);"
+        "background:color-mix(in srgb,var(--dd-good) 12%,var(--dd-card));}"
+        ".tms-wrap .tms-pill.off{color:var(--dd-muted);}"
+        ".tms-wrap .tms-pill.ind{border-color:var(--dd-teal);"
+        "background:color-mix(in srgb,var(--dd-teal) 10%,var(--dd-card));}"
+        ".tms-wrap .tms-pill .material-icons{font-size:14px;}"
+        "@media (max-width:520px){.tms-wrap .tms-kv{grid-template-columns:1fr;gap:4px;}"
+        ".tms-wrap .tms-k{margin-top:6px;}}"
         "</style>", sanitize=False)
+
+
+def _saved_panel(C, settings, labels, when, just_saved):
+    """What is saved, as pills, so a press of Save visibly lands."""
+    on = bool(settings.get("enabled"))
+    inds = [labels[k] for k in labels if k in (settings.get("industries") or [])]
+    loc = (settings.get("location") or "USA").strip() or "USA"
+
+    def pill(text, cls="", icon=""):
+        ic = f'<i class="material-icons">{icon}</i>' if icon else ""
+        return f'<span class="tms-pill {cls}">{ic}{_e(text)}</span>'
+
+    with ui.element("div").classes("tms-saved" + (" just" if just_saved else "")):
+        with ui.element("div").classes("tms-saved-h"):
+            if just_saved:
+                ui.icon("check_circle").style(f"color:{C['good']};font-size:18px;")
+                ui.label("Saved. Here is what you will get:")
+            else:
+                ui.icon("bookmark").style(f"color:{C['muted']};font-size:16px;")
+                ui.label("Your saved settings")
+        rows = [("Email", pill("On, Tue and Thu at 7am", "on", "notifications_active") if on
+                 else pill("Off", "off", "notifications_off"))]
+        rows.append(("Industries", "".join(pill(i, "ind") for i in inds)
+                     or pill("None picked yet", "off")))
+        rows.append(("Location", pill(loc, "", "place")))
+        if on and inds:
+            rows.append(("Next issue", pill(when, "", "event")))
+        with ui.element("div").classes("tms-kv"):
+            for k, v in rows:
+                ui.label(k).classes("tms-k")
+                ui.html(f'<div class="tms-pills">{v}</div>', sanitize=False)
+        if not (on and inds):
+            _text("Turn the switch on and pick an industry, then press Save to get the email.",
+                  C, 12, colour=C["muted"], mb=0)
 
 
 def _state(s, settings):
@@ -771,6 +878,7 @@ def render_page(s, rf):
         settings["location"] = (s._tms_location or "").strip() or "USA"
         save_settings(settings)
         if notify:
+            s._tms_just_saved = True
             ui.notify("Saved.", type="positive")
         rf()
 
@@ -859,10 +967,10 @@ def render_page(s, rf):
                     if s._tms_msg:
                         _text(s._tms_msg, C, 12, colour=C["muted"])
             when = next_send(_user_now(ff, ff.load_config() or {}))
-            status = ("Next issue: " + when.strftime("%A %d %b, %I%p").replace(" 0", " ").lstrip("0")
-                      if s._tms_enabled and s._tms_industries else
-                      "Turn the switch on and pick an industry to get the email.")
-            _text(status, C, 12, colour=C["muted"])
+            when_txt = when.strftime("%A %d %b, %I%p").replace(" 0", " ").lstrip("0")
+            just_saved = bool(getattr(s, "_tms_just_saved", False))
+            s._tms_just_saved = False
+            _saved_panel(C, settings, labels, when_txt, just_saved)
 
         with ui.element("div").classes("tms-card"):
             ui.label("What counts as a signal").classes("tms-sec").style(f"color:{C['teal']};")
@@ -903,6 +1011,7 @@ def render_page(s, rf):
                 if open_:
                     with ui.element("div").style("margin-top:12px;"):
                         if n == 0 and not any(sec.get("news") for sec in issue.get("sections") or []):
-                            _text("Nothing found that time.", C, 12, colour=C["muted"])
+                            _text(issue_failure(issue) or "Nothing found that time.",
+                                  C, 12, colour=C["muted"])
                         else:
                             _issue_rows(C, issue)
