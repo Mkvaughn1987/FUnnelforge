@@ -459,3 +459,24 @@ def test_settings_are_pills_that_save_on_click(tms):
     for bit in ("tms-pill", "tms-x", "drop(k)", "add(k)", "ui.menu()",
                 "loc_dlg.open", "Next issue", "save()"):
         assert bit in panel
+
+
+def test_user_picks_send_days(tms):
+    mon = {"enabled": True, "industries": ["logistics"], "days": [0]}
+    assert tms.is_due(mon, datetime(2026, 10, 19, 7, 0))         # Mon
+    assert not tms.is_due(mon, datetime(2026, 10, 20, 9, 0))     # Tue
+    assert not tms.is_due({**mon, "days": []}, datetime(2026, 10, 19, 9, 0))
+    assert tms.send_days({}) == [1, 3]                            # default
+    assert tms.send_days({"days": [3, "1", 9, "x"]}) == [1, 3]
+    assert tms.next_send(datetime(2026, 10, 15, 8, 0), [0]) == datetime(2026, 10, 19, 7, 0)
+    assert tms.days_phrase([0]) == "every Monday"
+    assert tms.days_phrase([1, 3]) == "every Tuesday and Thursday"
+    assert tms.days_phrase(range(5)) == "every weekday"
+    html = tms.render_email({"date": "2026-10-15", "sections": []}, days=[0])
+    assert "every Monday" in html
+
+
+def test_days_row_on_page(tms):
+    panel = inspect.getsource(tms._settings_panel)
+    assert "flip_day(d)" in panel and "tms-day" in panel
+    assert 'settings["days"]' in inspect.getsource(tms.render_page)

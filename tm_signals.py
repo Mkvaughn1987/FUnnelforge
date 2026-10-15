@@ -1,4 +1,5 @@
-"""Buying News & Signals: the Tuesday and Thursday email on inboxslide.
+"""Buying News & Signals: the buying-signal email on inboxslide, sent on
+the days each user picks (Tuesday and Thursday by default).
 
 A user opts in on the page, picks the industries they sell into (any number
 of the ThriveModal verticals) and a location. Twice a week the scheduler
@@ -83,7 +84,9 @@ REPEAT_DAYS = 30
 # Issues kept per user (newest first), and the local hour the email goes.
 KEEP_ISSUES = 8
 SEND_HOUR = 7
-SEND_WEEKDAYS = (1, 3)   # Tuesday, Thursday (Monday is 0)
+SEND_WEEKDAYS = (1, 3)   # default days: Tuesday, Thursday (Monday is 0)
+DAY_NAMES = ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday",
+             "Saturday", "Sunday")
 
 SETTINGS_FILE = "tm_signals.json"
 MODEL = os.environ.get("DRIPDROP_TM_SIGNALS_MODEL", "claude-sonnet-5-5")
@@ -161,27 +164,59 @@ def industry_label(key):
 
 # ── 3. The due check ──────────────────────────────────────────────────────
 
+def send_days(settings):
+    """The weekdays (Monday is 0) this user picked, sorted. A user who has
+    never picked any gets the Tuesday and Thursday default."""
+    raw = settings.get("days")
+    if raw is None:
+        return list(SEND_WEEKDAYS)
+    out = set()
+    for d in raw if isinstance(raw, (list, tuple)) else []:
+        try:
+            d = int(d)
+        except (TypeError, ValueError):
+            continue
+        if 0 <= d <= 6:
+            out.add(d)
+    return sorted(out)
+
+
+def days_phrase(days):
+    """"every Tuesday and Thursday", "every weekday", "every day"."""
+    days = sorted(set(days))
+    if not days:
+        return "no days picked"
+    if days == list(range(7)):
+        return "every day"
+    if days == list(range(5)):
+        return "every weekday"
+    names = [DAY_NAMES[d] for d in days]
+    if len(names) == 1:
+        return "every " + names[0]
+    return "every " + ", ".join(names[:-1]) + " and " + names[-1]
+
+
 def is_due(settings, now_local):
     """True when this user's issue should go out now: opted in, at least
-    one industry, a Tuesday or Thursday at or after SEND_HOUR local, and
+    one industry, one of their picked days at or after SEND_HOUR local, and
     nothing has run yet today. Pure: the caller supplies local time."""
     if not settings.get("enabled"):
         return False
     if not settings.get("industries"):
         return False
-    if now_local.weekday() not in SEND_WEEKDAYS:
+    if now_local.weekday() not in send_days(settings):
         return False
     if now_local.hour < SEND_HOUR:
         return False
     return settings.get("last_run_date", "") != now_local.date().isoformat()
 
 
-def next_send(now_local):
-    """The next Tuesday or Thursday SEND_HOUR after now_local."""
+def next_send(now_local, days=SEND_WEEKDAYS):
+    """The next picked day's SEND_HOUR after now_local."""
     for d in range(0, 8):
         day = (now_local + timedelta(days=d)).replace(
             hour=SEND_HOUR, minute=0, second=0, microsecond=0)
-        if day.weekday() in SEND_WEEKDAYS and day > now_local:
+        if day.weekday() in days and day > now_local:
             return day
     return now_local
 
@@ -551,7 +586,7 @@ def _h2(text, colour=NAVY):
             f'text-transform:uppercase;color:{colour};">{_e(text)}</h2>')
 
 
-def render_email(issue, brand="inboxslide", app_url=""):
+def render_email(issue, brand="inboxslide", app_url="", days=SEND_WEEKDAYS):
     """The issue as an HTML email body."""
     parts = []
     for sec in issue.get("sections") or []:
@@ -573,7 +608,7 @@ def render_email(issue, brand="inboxslide", app_url=""):
             parts.extend(_news_line(r) for r in news)
     if not parts:
         parts.append(f'<p style="color:{INK};font-size:14px;">Nothing new this time. '
-                     'The next issue comes on the next Tuesday or Thursday.</p>')
+                     'The next issue comes on your next send day.</p>')
     when = _parse_date(issue.get("date"))
     when_s = when.strftime("%A %d %B %Y").replace(" 0", " ") if when else ""
     settings_link = (f'<a href="{_e(app_url)}/?open=tm_signals" style="color:{GREEN};">'
@@ -590,8 +625,8 @@ def render_email(issue, brand="inboxslide", app_url=""):
         f'<div style="padding:4px 24px 24px;">'
         + "".join(parts) +
         f'<p style="margin:28px 0 0;color:{MUTED};font-size:12px;line-height:1.5;">'
-        f'You get this every Tuesday and Thursday because you opted in on {_e(brand)} &gt; '
-        f'{settings_link}. Turn it off or change your industries there.</p>'
+        f'You get this {_e(days_phrase(days))} because you opted in on {_e(brand)} &gt; '
+        f'{settings_link}. Turn it off or change your days or industries there.</p>'
         f'</div></div></div>'
     )
 
@@ -678,7 +713,8 @@ def run_issue(email, user_dir, send=True, today=None):
         if send:
             if issue_has_content(issue):
                 item = {"to": email, "subject": issue["subject"],
-                        "body": render_email(issue, ff.BRAND, ff._PUBLIC_ORIGIN),
+                        "body": render_email(issue, ff.BRAND, ff._PUBLIC_ORIGIN,
+                                             send_days(settings)),
                         "is_html": True}
                 ok, err = ff._server_send_one(item, user_dir / "dripdrop_config.json",
                                               user_dir=user_dir)
@@ -747,6 +783,10 @@ def _css():
         ".tms-wrap .tms-pill.off{color:var(--dd-muted);}"
         ".tms-wrap .tms-pill.ind{border-color:var(--dd-teal);padding-right:6px;"
         "background:color-mix(in srgb,var(--dd-teal) 10%,var(--dd-card));}"
+        ".tms-wrap .tms-pill.tms-day{min-width:52px;justify-content:center;"
+        "padding:6px 10px;color:var(--dd-muted);}"
+        ".tms-wrap .tms-pill.tms-day.picked{border-color:var(--dd-teal);color:var(--dd-text_l);"
+        "background:color-mix(in srgb,var(--dd-teal) 14%,var(--dd-card));}"
         ".tms-wrap .tms-pill.add{border-style:dashed;color:var(--dd-teal);}"
         ".tms-wrap .tms-pill .q-icon{font-size:16px;}"
         ".tms-wrap .tms-pill .tms-edit{font-size:13px;color:var(--dd-muted);}"
@@ -770,9 +810,14 @@ def _settings_panel(s, ff, C, labels, when, just_saved, save):
     on = bool(s._tms_enabled)
     picked = [k for k in labels if k in (s._tms_industries or [])]
     loc = (s._tms_location or "").strip() or "USA"
+    days = sorted(set(s._tms_days or []))
 
     def set_on():
         s._tms_enabled = not on
+        save()
+
+    def flip_day(d):
+        s._tms_days = sorted(set(days) ^ {d})
         save()
 
     def drop(k):
@@ -814,8 +859,16 @@ def _settings_panel(s, ff, C, labels, when, just_saved, save):
             with ui.element("button").classes("tms-pill " + ("on" if on else "off")).on(
                     "click", set_on):
                 ui.icon("notifications_active" if on else "notifications_off")
-                ui.label("On: every Tuesday and Thursday, 7am" if on
+                ui.label(f"On: {days_phrase(days)}, 7am" if on
                          else "Off: click to turn it on")
+
+        ui.label("Days").classes("tms-k")
+        with ui.element("div").classes("tms-pills"):
+            for d, name in enumerate(DAY_NAMES):
+                with ui.element("button").classes(
+                        "tms-pill tms-day" + (" picked" if d in days else "")).props(
+                        f'title="{name}"').on("click", lambda d=d: flip_day(d)):
+                    ui.label(name[:3])
 
         ui.label("Industries").classes("tms-k")
         with ui.element("div").classes("tms-pills"):
@@ -843,7 +896,7 @@ def _settings_panel(s, ff, C, labels, when, just_saved, save):
                 ui.label(loc)
                 ui.icon("edit").classes("tms-edit")
 
-        if on and picked:
+        if on and picked and days:
             ui.label("Next issue").classes("tms-k")
             with ui.element("div").classes("tms-pills"):
                 with ui.element("span").classes("tms-pill"):
@@ -854,9 +907,10 @@ def _settings_panel(s, ff, C, labels, when, just_saved, save):
         with ui.element("div").classes("tms-note good"):
             ui.icon("check_circle")
             ui.label("Saved.")
-    elif not (on and picked):
+    elif not (on and picked and days):
         with ui.element("div").classes("tms-note"):
-            ui.label("Turn the email on and pick at least one industry to get it.")
+            ui.label("Turn the email on and pick at least one day and one industry "
+                     "to get it.")
 
 
 def _state(s, settings):
@@ -867,8 +921,9 @@ def _state(s, settings):
         s._tms_enabled = bool(settings.get("enabled"))
         s._tms_industries = list(settings.get("industries") or [])
         s._tms_location = settings.get("location") or "USA"
+        s._tms_days = send_days(settings)
     for attr, default in (("_tms_running", False), ("_tms_msg", ""),
-                          ("_tms_open", "")):
+                          ("_tms_open", ""), ("_tms_days", send_days(settings))):
         if not hasattr(s, attr):
             setattr(s, attr, default)
 
@@ -945,6 +1000,7 @@ def render_page(s, rf):
         settings["enabled"] = bool(s._tms_enabled)
         settings["industries"] = [k for k in labels if k in (s._tms_industries or [])]
         settings["location"] = (s._tms_location or "").strip() or "USA"
+        settings["days"] = sorted(set(s._tms_days or []))
         save_settings(settings)
         if notify:
             s._tms_just_saved = True
@@ -980,14 +1036,14 @@ def render_page(s, rf):
         _css()
         with ui.element("div").style("margin-bottom:14px;"):
             ui.label("Buying News & Signals").classes("fd-h1")
-            ui.label("Every Tuesday and Thursday: companies in your industries showing a "
+            ui.label("On the days you pick: companies in your industries showing a "
                      "signal worth moving on now, and the news behind them. "
                      f"Sent to {email or 'your login email'} from your connected mailbox."
                      ).classes("fd-sub")
 
         with ui.element("div").classes("tms-card"):
             ui.label("Your email").classes("tms-sec").style(f"color:{C['teal']};")
-            when = next_send(_user_now(ff, ff.load_config() or {}))
+            when = next_send(_user_now(ff, ff.load_config() or {}), s._tms_days or [])
             when_txt = when.strftime("%A %d %b, %I%p").replace(" 0", " ").lstrip("0")
             just_saved = bool(getattr(s, "_tms_just_saved", False))
             s._tms_just_saved = False
