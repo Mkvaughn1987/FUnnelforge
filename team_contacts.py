@@ -76,7 +76,10 @@ def _fold(key: str) -> str:
 
 
 def norm_contact(raw: dict) -> dict | None:
-    """One contact in the bank's shape, or None when it has no email."""
+    """One contact in the bank's shape, or None when it has neither an
+    email nor a phone + name. "key" is the email, or for phone-only people
+    (old ZoomInfo exports) "tel:<last 10 digits>|<name>": the name rides
+    along because an office number can be a shared main line."""
     if not isinstance(raw, dict) or raw.get("removed"):
         return None
     out = {f: "" for f in _FIELDS}
@@ -85,15 +88,26 @@ def norm_contact(raw: dict) -> dict | None:
         if f and v and not out[f]:
             out[f] = str(v).strip()
     out["email"] = out["email"].lower()
-    if "@" not in out["email"]:
-        return None
     if not out["name"]:
         out["name"] = " ".join(p for p in (out["first_name"], out["last_name"]) if p)
     elif not out["first_name"] and " " in out["name"]:
         out["first_name"], out["last_name"] = out["name"].split(" ", 1)
+    if "@" in out["email"]:
+        out["key"] = out["email"]
+    else:
+        out["email"] = ""
+        name = re.sub(r"\s+", " ", out["name"]).strip().lower()
+        out["key"] = ""
+        for ph in (out["phone_mobile"], out["phone_office"]):
+            d = re.sub(r"\D", "", ph)
+            if len(d) >= 10 and name:
+                out["key"] = f"tel:{d[-10:]}|{name}"
+                break
+        if not out["key"]:
+            return None
     st = out["state"].strip()
     out["state"] = _tc.state_of(st) or (st.upper() if len(st) == 2 and st.isalpha() and st.upper() in _tc.US_STATES else "")
-    out["domain"] = out["email"].rsplit("@", 1)[1]
+    out["domain"] = out["email"].rsplit("@", 1)[1] if out["email"] else ""
     return out
 
 
@@ -318,7 +332,7 @@ def scan(users_root, owner_email: str) -> dict:
     excluded = 0
     for em, rec in people.items():
         rep = replies.get(em)
-        if em in blocked or rec["domain"] in blocked_domains:
+        if em in blocked or (rec["domain"] and rec["domain"] in blocked_domains):
             excluded += 1
             continue
         if rep and rep["negative"]:
@@ -335,12 +349,12 @@ def scan(users_root, owner_email: str) -> dict:
 
 
 def _merge(people: dict, n: dict, src: dict) -> None:
-    rec = people.get(n["email"])
+    rec = people.get(n["key"])
     if rec is None:
         rec = dict(n)
         rec["reps"] = set()
         rec["sources"] = []
-        people[n["email"]] = rec
+        people[n["key"]] = rec
     else:
         for f in _FIELDS:
             if not rec.get(f) and n.get(f):
@@ -353,6 +367,8 @@ def _merge(people: dict, n: dict, src: dict) -> None:
 
 def _company_key(rec: dict) -> str:
     dom = rec["domain"]
+    if not dom:
+        return ("company:" + rec["company"].lower()) if rec["company"] else ("person:" + rec["key"])
     if dom in _tc.FREE_MAIL:
         return ("company:" + rec["company"].lower()) if rec["company"] else ("free:" + dom)
     return dom
@@ -361,13 +377,21 @@ def _company_key(rec: dict) -> str:
 def group_by_company(records: list) -> list:
     """One row per company with its contacts, newest touch first."""
     by_co: dict = {}
+    # Phone-only people (no email domain) join the row of a company with
+    # the same name, so they sit with their emailed coworkers.
+    name_to_key: dict = {}
+    for rec in records:
+        if rec["domain"] and rec["company"]:
+            name_to_key.setdefault(rec["company"].lower(), _company_key(rec))
     for rec in records:
         key = _company_key(rec)
+        if not rec["domain"] and rec["company"]:
+            key = name_to_key.get(rec["company"].lower(), key)
         row = by_co.setdefault(key, {"key": key, "contacts": [], "domains": set(),
                                      "reps": set(), "names": Counter(),
                                      "states": Counter(), "industries": Counter()})
         row["contacts"].append(rec)
-        if rec["domain"] not in _tc.FREE_MAIL:
+        if rec["domain"] and rec["domain"] not in _tc.FREE_MAIL:
             row["domains"].add(rec["domain"])
         row["reps"].update(rec["reps"])
         if rec["company"]:

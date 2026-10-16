@@ -12678,6 +12678,7 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
 {_ct_css()}
 {_rc_css()}
 {_sc_css()}
+{_zd_css()}
 {_t10_css()}
 </style>""")
     # Global JS helper  -  insert text at cursor position in any focused input/textarea
@@ -13093,6 +13094,7 @@ SALES_NAV = [
     (None, "ARENA TEAM",        None),
     ("📡", "Arena Running Campaigns", "running_campaigns"),
     ("🏦", "Shared Arena Contacts", "shared_contacts"),
+    ("⬆", "ZoomInfo Drop",     "zoominfo_drop"),
     ("🎯", "My Top 10",         "my_top10"),
     ("🛡", "Current Clients",  "active_clients"),
     # ── Content & Tools ──────────────────────────
@@ -13148,6 +13150,7 @@ SIDEBAR_NAV = [
     ("ARENA TEAM", [
         ("running",     "Arena Running Campaigns", "running_campaigns"),
         ("bank",        "Shared Arena Contacts", "shared_contacts"),
+        ("zidrop",      "ZoomInfo Drop",   "zoominfo_drop"),
         ("clients",     "Current Clients", "active_clients"),
         # Private per user, despite the section name (2026-10-14).
         ("top10",       "My Top 10",       "my_top10"),
@@ -13189,6 +13192,7 @@ SIDEBAR_PAGE_ROW = {
     "responses": "replies", "e_responses": "replies",
     "contacts": "contacts", "e_contacts": "contacts",
     "active_clients": "clients", "running_campaigns": "running", "shared_contacts": "bank",
+    "zoominfo_drop": "zidrop",
     "my_top10": "top10",
     "seq_mgr": "campaigns", "active_camps": "campaigns", "queue": "campaigns",
     "evergreen": "campaigns", "evergreen_create": "campaigns", "e_evergreen": "campaigns",
@@ -13204,6 +13208,7 @@ SIDEBAR_TITLES = {
     "drip": "Today's Tasks", "tasks": "Tasks", "responses": "Replies", "e_responses": "Replies",
     "contacts": "Contacts", "e_contacts": "Contacts", "active_clients": "Current Clients",
     "running_campaigns": "Arena Running Campaigns", "shared_contacts": "Shared Arena Contacts",
+    "zoominfo_drop": "ZoomInfo Drop",
     "my_top10": "My Top 10",
     "seq_mgr": "Campaigns", "active_camps": "Campaigns", "queue": "Email Queue",
     "evergreen": "Nurture Campaigns", "evergreen_create": "New Nurture Campaign",
@@ -14692,6 +14697,7 @@ _SIDEBAR_ICONS = {
     "running":    '<path d="M22 12h-4l-3 9L9 3l-3 9H2"/>',
     "bank":       '<path d="M3 21h18"/><path d="M3 10h18"/><path d="M5 6l7-3 7 3"/>'
                   '<path d="M4 10v11"/><path d="M20 10v11"/><path d="M8 14v3"/><path d="M12 14v3"/><path d="M16 14v3"/>',
+    "zidrop":     '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><path d="M12 3v12"/>',
     "top10":      '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
     "c_active":   '<circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/>',
     "c_done":     '<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
@@ -33758,6 +33764,182 @@ def _sc_css() -> str:
 """
 
 
+def _zd_css() -> str:
+    """ZoomInfo Drop page."""
+    return f"""
+.fd-zd{{max-width:980px}}
+.fd-zd-card{{background:{C['card']};border:1px solid {C['border']};border-radius:10px;padding:14px 16px;margin:12px 0}}
+.fd-zd-card.warn{{border-left:3px solid {C['teal']}}}
+.fd-zd-card h3{{margin:0 0 4px;font-size:14px;font-weight:600;color:{C['text_l']}}}
+.fd-zd-card p{{margin:2px 0;font-size:12.5px;color:{C['text']};line-height:1.5}}
+.fd-zd-up{{width:100%}}
+.fd-zd-up.q-uploader{{width:100%;max-width:100%;margin-top:8px}}
+.fd-zd-rc{{font-size:12.5px;color:{C['text']};margin:6px 0 0;line-height:1.5}}
+.fd-zd-rc b{{color:{C['text_l']}}}
+.fd-zd-rc .new{{color:{C['good']};font-weight:600}}
+.fd-zd-rc.skip{{color:{C['muted']}}}
+.fd-zd-tbl td,.fd-zd-tbl th{{font-size:12.5px}}
+"""
+
+
+def _zd_bank_keys(owner: str) -> set:
+    """Every person the team bank holds right now, by its key."""
+    try:
+        return {c.get("key") or c.get("email") for c in _shared_bank(owner)["contacts"]}
+    except Exception as e:
+        print(f"[ZoomInfoDrop] bank read failed: {e}", flush=True)
+        return set()
+
+
+def p_zoominfo_drop(s, rf):
+    """Reps drop their old ZoomInfo exports; they merge into the rep's own
+    "ZoomInfo Archive" contact list, which feeds the team bank. See
+    zoominfo_drop.py."""
+    import asyncio
+    from html import escape as _esc
+    import team_campaigns as _tc
+    import team_contacts as _tcx
+    import zoominfo_drop as _zd
+
+    _user_email = (getattr(s, "_user_email", "") or "").strip().lower()
+    if _user_email:
+        _CURRENT_USER_EMAIL.set(_user_email)
+    owner = _user_email or (_CURRENT_USER_EMAIL.get() or "")
+    user_root = _resolve_user_root(owner or None)
+    window = _zd.free_window_start()
+    state = {"bank": None, "lock": asyncio.Lock(), "receipts": []}
+
+    def _fmt(d):
+        try:
+            return date.fromisoformat(d[:10]).strftime("%b %d, %Y").replace(" 0", " ")
+        except Exception:
+            return d or "—"
+
+    with ui.element("div").classes("fd-zd"):
+        ui.label("ZoomInfo Drop").classes("fd-h1")
+        ui.label(
+            "Drop every ZoomInfo export you still have: CSV, Excel, or a zip of the "
+            "whole folder. File names don't matter. DripDrop lines up the columns, merges "
+            "anyone who shows up twice, and saves them to your contact list "
+            f"\"{_zd.ARCHIVE_NAME}\". Everyone lands in Shared {_tc.TEAM_LABEL} Contacts, "
+            "so nobody on the team pays ZoomInfo for them again."
+        ).classes("fd-sub")
+
+        ui.html(
+            '<div class="fd-zd-card warn"><h3>Before you start: grab your My Contacts too</h3>'
+            f'<p>ZoomInfo still lets you re-download anything you exported since '
+            f'<b>{_esc(_fmt(window.isoformat()))}</b> for free. Older than that costs credits again, '
+            'and the cutoff moves forward every day.</p>'
+            '<p>In ZoomInfo, open <b>My Contacts</b>, select all, and export. Then drop that file '
+            'here with the rest.</p></div>')
+
+        with ui.element("div").classes("fd-zd-card"):
+            ui.html('<h3>Drop your files</h3><p>Pick several at once, or a zip. Resumes and '
+                    'other files are skipped.</p>')
+
+            async def _on_upload(e):
+                try:
+                    name = e.file.name or "upload"
+                    data = await e.file.read()
+                except AttributeError:
+                    name = getattr(e, "name", "") or "upload"
+                    data = e.content.read() if hasattr(e.content, "read") else bytes(e.content)
+                async with state["lock"]:
+                    if state["bank"] is None:
+                        state["bank"] = await asyncio.to_thread(_zd_bank_keys, owner)
+                    try:
+                        rc = await asyncio.to_thread(
+                            _zd.drop, user_root, [(name, data)], state["bank"])
+                    except Exception as ex:
+                        print(f"[ZoomInfoDrop] {owner} {name}: {ex}", flush=True)
+                        ui.notify(f"Could not read {name}. Try saving it as .csv.", type="negative")
+                        return
+                rc["upload"] = name
+                state["receipts"].append(rc)
+                _draw_receipts()
+                _draw_mine()
+
+            ui.upload(on_upload=_on_upload, auto_upload=True, multiple=True,
+                      max_file_size=80 * 1024 * 1024,
+                      label="Drop ZoomInfo files here, or click to pick them").props(
+                'accept=".csv,.tsv,.txt,.xlsx,.xlsm,.xls,.zip" flat bordered color="teal"').classes("fd-zd-up")
+            receipt_box = ui.element("div")
+
+        def _draw_receipts():
+            receipt_box.clear()
+            rs = state["receipts"]
+            if not rs:
+                return
+            with receipt_box:
+                tot_people = sum(r["people"] for r in rs)
+                tot_added = sum(r["added"] for r in rs)
+                tot_new = sum(r["new_to_team"] or 0 for r in rs)
+                ui.html(
+                    f'<div class="fd-zd-rc"><b>This visit:</b> {len(rs)} upload(s), '
+                    f'{tot_people} people read, {tot_added} added to your archive, '
+                    f'<span class="new">{tot_new} new to the team</span>.</div>')
+                for r in reversed(rs):
+                    if not r["files"]:
+                        why = "; ".join(f'{_esc(x["name"])}: {_esc(x["reason"])}' for x in r["skipped"])
+                        ui.html(f'<div class="fd-zd-rc skip">{_esc(r["upload"])}: nothing added. {why}</div>')
+                        continue
+                    skipped = ""
+                    if r["skipped"]:
+                        skipped = ('<div class="fd-zd-rc skip">Skipped: ' + "; ".join(
+                            f'{_esc(x["name"])} ({_esc(x["reason"])})' for x in r["skipped"][:8])
+                            + (" ..." if len(r["skipped"]) > 8 else "") + "</div>")
+                    ui.html(
+                        f'<div class="fd-zd-rc"><b>{_esc(r["upload"])}</b>: {len(r["files"])} file(s), '
+                        f'{r["rows"]} rows, {r["people"]} people. '
+                        f'{r["added"]} added, {r["merged"]} merged into people you already had. '
+                        f'<span class="new">{r["new_to_team"]} new to the team</span>, '
+                        f'{r["already_in_bank"]} already in Shared {_esc(_tc.TEAM_LABEL)} Contacts.'
+                        + (f' {r["candidates"]} candidates from Talent candidate exports kept '
+                           'separately, out of sales outreach.' if r.get("candidates") else "")
+                        + f'</div>{skipped}')
+
+        mine_box = ui.element("div")
+
+        def _draw_mine():
+            mine_box.clear()
+            prog = _zd.rep_progress(user_root)
+            with mine_box:
+                if not prog["drops"]:
+                    return
+                span = ""
+                if prog["oldest_export"]:
+                    span = (f' Your files run from {_esc(_fmt(prog["oldest_export"]))} to '
+                            f'{_esc(_fmt(prog["newest_export"]))}.')
+                ui.html(
+                    f'<div class="fd-zd-card"><h3>Your archive</h3><p><b>{prog["people"]}</b> people from '
+                    f'{prog["files"]} file(s). It\'s on your Contacts page as '
+                    f'"{_esc(_zd.ARCHIVE_NAME)}".{span}</p></div>')
+
+        _draw_mine()
+
+        # Team progress: every teammate's drop ledger.
+        rows = []
+        try:
+            for udir in _tcx._team_dirs(_BASE_DATA_DIR / "users", owner):
+                rows.append((_tc.owner_from_dir(udir.name), _zd.rep_progress(udir)))
+        except Exception as e:
+            print(f"[ZoomInfoDrop] team progress failed: {e}", flush=True)
+        rows.sort(key=lambda r: (-r[1]["people"], r[0].lower()))
+        done = [r for r in rows if r[1]["drops"]]
+        waiting = sorted(r[0] for r in rows if not r[1]["drops"])
+        body = "".join(
+            f'<tr><td>{_esc(n)}</td><td>{p["people"]}</td><td>{p["files"]}</td>'
+            f'<td>{_esc(_fmt(p["oldest_export"]))}</td><td>{_esc(_fmt(p["last_drop"]))}</td></tr>'
+            for n, p in done)
+        table = (f'<table class="fd-tbl fd-zd-tbl" style="width:100%;table-layout:auto;"><thead><tr>'
+                 f'<th>Rep</th><th>People</th><th>Files</th><th>Oldest export</th><th>Last drop</th>'
+                 f'</tr></thead><tbody>{body}</tbody></table>') if done else (
+                 '<p>Nobody has dropped files yet.</p>')
+        wait = (f'<p style="margin-top:8px;">Still to drop: {_esc(", ".join(waiting))}</p>'
+                if waiting else "")
+        ui.html(f'<div class="fd-zd-card"><h3>Team progress</h3>{table}{wait}</div>')
+
+
 def _shared_bank(owner: str) -> dict:
     """The team's contact bank for a page or API call: scan (cached by file
     mtime in team_contacts) plus the company grouping."""
@@ -33816,7 +33998,8 @@ def p_shared_contacts(s, rf):
         bits = [f'<span class="nm">{_esc(c["name"] or c["email"])}</span>']
         if c["title"]:
             bits.append(f'<span class="ti">{_esc(c["title"])}</span>')
-        bits.append(f'<span class="em"><a href="mailto:{_esc(c["email"])}">{_esc(c["email"])}</a></span>')
+        if c["email"]:
+            bits.append(f'<span class="em"><a href="mailto:{_esc(c["email"])}">{_esc(c["email"])}</a></span>')
         phones = [p for p in (c["phone_mobile"], c["phone_office"]) if p]
         if phones:
             bits.append(f'<span class="ph">{_esc(" · ".join(phones))}</span>')
@@ -57098,6 +57281,7 @@ def render_page(s: AppState, rf):
             elif page == "active_clients": p_active_clients(s, rf)
             elif page == "running_campaigns": p_running_campaigns(s, rf)
             elif page == "shared_contacts": p_shared_contacts(s, rf)
+            elif page == "zoominfo_drop": p_zoominfo_drop(s, rf)
             elif page == "my_top10": p_my_top10(s, rf)
             elif page == "outreach_analytics": p_outreach_analytics(s, rf)
             elif page == "company_profile": p_company_profile(s, rf)
@@ -57879,6 +58063,13 @@ def google_auth_callback(code: str = None, error: str = None,
 
 
 # ── Setup / Onboarding Page ───────────────────────────────────────────────
+@ui.page("/zoominfo")
+def zoominfo_drop_link():
+    """Short link reps get from the Arena ZoomInfo Helper GPT."""
+    app.storage.user["_pending_page"] = "zoominfo_drop"
+    ui.navigate.to("/")
+
+
 @ui.page("/setup")
 def setup_page():
     if not app.storage.user.get("authenticated"):
