@@ -83,13 +83,15 @@ def test_generator_strips_cite_tags(monkeypatch):
     monkeypatch.setattr(fa, "_SALES_MODE", True)
     monkeypatch.setattr(fa, "_is_thrivemodal", lambda cfg=None: True)
     monkeypatch.setattr(fa, "_thrivemodal_playbook_text", lambda cfg=None: "")
-    monkeypatch.setattr(fa, "_tm_profile_rate", lambda client, t: "Est. $9-$11/hr")
+    monkeypatch.setattr(fa, "_tm_profile_rate", lambda client, t: "$9.75/hr")
     reply = dict(PH, ph=None, company=None, month_year=None, subject="Big year",
-                 ph_numbers=['Workforce hit <cite index="10-1">1.9 million in 2025</cite>.'])
+                 ph_numbers=['Workforce hit <cite index="10-1">1.9 million in 2025</cite>.'],
+                 candidates=[{"label": "Profile A", "role": "AP Clerk", "bullets": []}])
     msg = types.SimpleNamespace(content=[types.SimpleNamespace(text=json.dumps(reply))])
     monkeypatch.setattr(fa, "_claude_create_with_retry", lambda *a, **k: msg)
     subject, html = fa._generate_jway_newsletter(
         None, {}, "Market Note", "Thrivemodal", "Offshore Staffing", "", "",
         "November 2026", "Mike", 0, "", year=2026, month=11, step_idx=1)
     assert "cite" not in html and "1.9 million in 2025" in html
-    assert "MARKET NOTE &middot; NOVEMBER 2026" in html and "With Thrivemodal:</strong> $9-$11/hr" in html
+    assert "Estimated rate:</strong> $9.75/hr" in html
+    assert "MARKET NOTE &middot; NOVEMBER 2026" in html and "With Thrivemodal:</strong> $9.75/hr" in html

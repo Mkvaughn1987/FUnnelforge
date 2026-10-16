@@ -64743,7 +64743,7 @@ def _jway_ph_prompt(company: str, sector: str, month_year: str, plan: dict,
         f"Return ONLY valid JSON:\n{{"
         f'"subject":"specific subject about the Philippines market this month, no month name",'
         f'"intro":"2 short, warm first-person sentences tied to {month_year} leading into what is in this issue. Do NOT greet by name; a Hi {{FirstName}}, line is added automatically",'
-        f'"ph_numbers":["EXACTLY 4 bullets, each a REAL recent figure on the size or growth of the Philippines outsourcing workforce, revenue, new seats or office openings, with the year it covers and why it matters; **bold** the key number"],'
+        f'"ph_numbers":["EXACTLY 4 bullets, each a REAL recent figure on the Philippines outsourcing INDUSTRY AS A WHOLE (workforce size, revenue, growth, new seats, which service lines are growing, share of the economy), with the year it covers and why it matters. No individual company here; companies belong in movers. **bold** the key number"],'
         f'"ph_source_url":"the real URL of the main source for those figures, or empty string",'
         f'"movers":["EXACTLY 3 bullets on REAL, recent moves: a named U.S. company or industry that opened, grew or announced a Philippines team, what roles, and when; **bold** the company or industry"],'
         f'"role_spotlight":{{"role":"{plan["role"]}","what":"2 sentences on what this person handles day to day for a U.S. company","bullets":["Tools: real U.S. software this role uses","What to look for: ...","Why it moves offshore well: ..."],"us_wage":"REAL U.S. median hourly wage for this role with its source, e.g. $23.10/hr (BLS, May 2025), or empty string"}},'
@@ -64853,13 +64853,13 @@ def _generate_jway_newsletter(client, camp: dict, nl_name: str, company: str,
         for _c in (d.get("candidates") or []):
             if isinstance(_c, dict):
                 _r = _tm_profile_rate(client, _c.get("role", ""))
-                _c["salary"] = f"Estimated rate: {_r[5:]}" if _r else ""
+                _c["salary"] = f"Estimated rate: {_r}" if _r else ""
         _rs = d.get("role_spotlight")
         if isinstance(_rs, dict) and _rs.get("role"):
             # Server-computed, like the profile rates: the model never
             # quotes ThriveModal's own rate.
             _r = _tm_profile_rate(client, _rs["role"])
-            _rs["ph_rate"] = _r[5:] if _r else ""
+            _rs["ph_rate"] = _r if _r else ""
         d["ph"] = True
         d["month_year"] = month_year
         d["company"] = company
@@ -64887,7 +64887,7 @@ def _generate_jway_newsletter(client, camp: dict, nl_name: str, company: str,
         for _c in (d.get("candidates") or []):
             if isinstance(_c, dict):
                 _r = _tm_profile_rate(client, _c.get("role", ""))
-                _c["salary"] = f"Estimated rate: {_r[5:]}" if _r else ""
+                _c["salary"] = f"Estimated rate: {_r}" if _r else ""
     subject = (d.get("subject") or "").strip() or f"{(sector or 'Market').title()} Snapshot - {month_year}"
     # Sector label for the section headers (e.g. "Sector Strength (Manufacturing)").
     d.setdefault("sector", (niche or sector or "").strip().title())
