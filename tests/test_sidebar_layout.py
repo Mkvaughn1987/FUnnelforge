@@ -23,7 +23,8 @@ def test_unbuilt_destinations_have_no_page_and_are_skipped():
     page. The renderer still filters None rows (no empty pages)."""
     import flowdrip_app as fa
     by_label = {lbl: key for _sec, rows in fa.SIDEBAR_NAV for _ik, lbl, key in rows}
-    for lbl in ("Outreach Analytics", "AI Prompt", "Saved Prompts", "Buying Signals"):
+    for lbl in ("Outreach Analytics", "AI Prompt", "Saved Prompts", "Buying Signals",
+                "Target List"):
         assert lbl in by_label, f"{lbl} missing from SIDEBAR_NAV"
         assert by_label[lbl] is None, f"{lbl} must not be wired directly"
     for lbl in ("Overview", "My Day", "Replies", "Companies", "Contacts",
@@ -47,7 +48,7 @@ def test_sections_are_home_campaigns_content_crm_performance():
     assert [r[1] for r in rows["CRM"]] == ["Companies", "Contacts", "Clients"]
     assert [r[1] for r in rows["CAMPAIGNS"]] == ["Campaigns", "Newsletters"]
     assert [r[1] for r in rows["CONTENT"]] == ["Sales Assets", "AI Prompt", "Saved Prompts",
-                                               "Buying Signals"]
+                                               "Buying Signals", "Target List"]
 
 
 def test_wired_page_keys_exist_in_router():
@@ -230,6 +231,9 @@ def test_content_pages_are_top_level_rows():
     assert fa._TM_NAV_PAGES["signals"] == "tm_signals"
     assert fa.SIDEBAR_PAGE_ROW.get("tm_signals") == "signals"
     assert fa.SIDEBAR_TITLES.get("tm_signals") == "Buying News & Signals"
+    assert fa._TM_NAV_PAGES["targets"] == "tm_targets"
+    assert fa.SIDEBAR_PAGE_ROW.get("tm_targets") == "targets"
+    assert fa.SIDEBAR_TITLES.get("tm_targets") == "Target List"
     assert not hasattr(fa, "SIDEBAR_LIBRARY")
     src = inspect.getsource(fa._sidebar_v2)
     assert "SIDEBAR_LIBRARY" not in src and "_lib_open" not in src

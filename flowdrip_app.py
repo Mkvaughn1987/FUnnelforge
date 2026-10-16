@@ -15572,7 +15572,7 @@ def _tm_analytics_sources():
 # rendered before this file changed.
 _TM_NAV_PAGES = {"analytics": "tm_analytics",
                  "ai_prompt": "tm_prompts", "saved_prompts": "tm_saved_prompts",
-                 "signals": "tm_signals"}
+                 "signals": "tm_signals", "targets": "tm_targets"}
 
 
 def _tm_nav_page_key(row_key, page_key):
@@ -21729,6 +21729,7 @@ SIDEBAR_NAV = [
         ("ai_prompt",    "AI Prompt",        None),   # ThriveModal only: _tm_nav_page_key
         ("saved_prompts", "Saved Prompts",   None),   # ThriveModal only: _tm_nav_page_key
         ("signals",      "Buying Signals",   None),   # ThriveModal only: _tm_nav_page_key
+        ("targets",      "Target List",      None),   # ThriveModal only: _tm_nav_page_key
     ]),
     ("CRM", [
         ("companies",  "Companies",          "companies"),   # sales_pages.p_companies (Table | Board)
@@ -21779,6 +21780,7 @@ SIDEBAR_PAGE_ROW = {
     "evergreen": "campaigns", "evergreen_create": "campaigns", "e_evergreen": "campaigns",
     "newsletters": "newsletters", "pdf_gen": "assets", "tm_prompts": "ai_prompt",
     "tm_saved_prompts": "saved_prompts", "tm_signals": "signals",
+    "tm_targets": "targets",
     "ai_settings": "settings", "company_profile": "settings", "team_settings": "settings",
     "signature": "settings", "e_signature": "settings", "timezone": "settings", "dnc": "settings",
     "tm_analytics": "analytics",
@@ -21794,7 +21796,7 @@ SIDEBAR_TITLES = {
     "evergreen": "Nurture Campaigns", "evergreen_create": "New Nurture Campaign",
     "newsletters": "Newsletters", "pdf_gen": "Sales Assets",
     "tm_prompts": "AI Prompt", "tm_saved_prompts": "Saved Prompts",
-    "tm_signals": "Buying News & Signals",
+    "tm_signals": "Buying News & Signals", "tm_targets": "Target List",
     "ai_settings": "Email & AI Setup", "company_profile": "Company Profile",
     "team_settings": "Team", "signature": "Signature", "e_signature": "Signature",
     "timezone": "Timezone", "dnc": "Do Not Contact", "admin": "Admin",
@@ -23379,6 +23381,9 @@ _SIDEBAR_ICONS.update({
     "signals":       '<path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/>'
                      '<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/>'
                      '<path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/>',
+    # Target List: a target.
+    "targets":       '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/>'
+                     '<circle cx="12" cy="12" r="1.5"/>',
 })
 
 
@@ -23482,6 +23487,9 @@ _PAGE_LANDING = {
     "newsletters":     (("_nl_active_tab", "market"), ("_roundup_editing_id", None)),
     # Buying Signals re-reads the saved settings on a fresh sidebar click.
     "tm_signals":      (("_tms_fresh", True), ("_tms_msg", ""), ("_tms_open", "")),
+    # Target List opens on all markets, no search, first page.
+    "tm_targets":      (("_tmt_market", ""), ("_tmt_q", ""), ("_tmt_strong", False),
+                        ("_tmt_hidden", False), ("_tmt_limit", 60)),
     "pdf_gen":         (("_pdf_stage", "pick"), ("_pdf_selected", []),
                         ("_pdf_custom_intent", False), ("_pdf_custom_stage", "closed"),
                         ("_pdf_custom_outline", None), ("_pdf_custom_previewing", False),
@@ -71443,6 +71451,16 @@ def render_page(s: AppState, rf):
                 except Exception as _tms_ex:
                     print(f"[Signals] page failed: {_tms_ex}", flush=True)
                     ui.label(f"Buying Signals is unavailable: {_tms_ex}").style(
+                        f"font-size:14px;color:{C['warn']};padding:20px 0;")
+            elif page == "tm_targets" and _is_thrivemodal():
+                # Target List: researched companies with Filipino staff plus
+                # every Buying Signals company. Lazy companion module.
+                try:
+                    import tm_targets as _tmt
+                    _tmt.render_page(s, rf)
+                except Exception as _tmt_ex:
+                    print(f"[Targets] page failed: {_tmt_ex}", flush=True)
+                    ui.label(f"Target List is unavailable: {_tmt_ex}").style(
                         f"font-size:14px;color:{C['warn']};padding:20px 0;")
             elif page == "active_clients": p_active_clients(s, rf)
             elif page == "company_profile": p_company_profile(s, rf)
