@@ -1162,6 +1162,7 @@ _APP_DIR = Path(__file__).resolve().parent
 _STATIC_ALLOWLIST = {
     "dripdrop_logo.png",
     "jway_banner.png",
+    "thrivemodal_logo_email.png",
 }
 
 # A white-label instance points DRIPDROP_BRAND_LOGO at its own artwork, so its
@@ -63588,6 +63589,12 @@ def _spotlight_prompt_block(sector: str, n: int,
     return (instruction, schema)
 
 
+def _no_nonfarm(text: str) -> str:
+    """Drop the BLS term "nonfarm" (Mike, 2026-10-16: never in an inboxslide
+    newsletter). "total nonfarm payrolls" reads "total payrolls"."""
+    return re.sub(r"\bnon-?farm\s+", "", text or "", flags=re.I)
+
+
 def _jway_render(d: dict, contact_name: str) -> str:
     """Plain-text-style HTML for 'The J's Way' newsletter — simple paragraphs and
     bullets, no graphics/branding. Reads like a personal note."""
@@ -63626,9 +63633,102 @@ def _jway_render(d: dict, contact_name: str) -> str:
                     f"{_md(val.strip())}</p>")
         return f"<p style='{DL}'>- {_md(t)}</p>"
 
+    def _candidates(out):
+        for c in d.get("candidates") or []:
+            _hdr = c.get("label") or "Candidate"
+            if c.get("role"):
+                _hdr += f": {c['role']}"
+            # Candidate name: bold + underlined.
+            out.append(f"<p style='{P}margin-bottom:2px;'>"
+                       f"<strong><u>{_esc(_hdr)}</u></strong></p>")
+            for _b in (c.get("bullets") or []):
+                out.append(_detail_line(_b))
+            if (c.get("salary") or "").strip():
+                _sv = c["salary"].strip()
+                if ":" in _sv:
+                    _sl, _, _svv = _sv.partition(":")
+                    out.append(f"<p style='{DL}margin-top:6px;'>"
+                               f"<strong>{_esc(_sl.strip())}:</strong> {_md(_svv.strip())}</p>")
+                else:
+                    out.append(f"<p style='{DL}margin-top:6px;'><strong>{_md(_sv)}</strong></p>")
+
+    def _close(out):
+        out.append(f"<p style='{P}margin-top:14px;'>"
+                   f"{_md(d.get('signoff') or 'Thank you, and I hope this was helpful!')}</p>")
+        out.append(f"<p style='{P}margin-top:2px;'>Warm regards,</p>")
+        # White "paper" behind the hard-coded #222 text, or it renders
+        # dark-on-dark in the dark-theme editor canvas.
+        html = _usd_to_dollar(_strip_dashes(
+            "<div style='background:#ffffff;color:#222;padding:12px 16px;'>"
+            + "".join(out) + "</div>"))
+        return _no_nonfarm(html) if _SALES_MODE else html
+
+    if d.get("ph"):
+        # ThriveModal: logo block floated top right beside the greeting (a
+        # right-aligned table wraps in Outlook too), then the Philippines
+        # market sections. No full-width banner.
+        _co = d.get("company") or "Thrivemodal"
+        _has = [lbl for key, lbl in _TM_PH_SECTIONS if d.get(key)]
+        if d.get("candidates"):
+            _has.append(_TM_PROFILES_HEADING)
+        _S = "font-family:Arial,Helvetica,sans-serif;"
+        out = [
+            "<table align='right' role='presentation' cellpadding='0' cellspacing='0' "
+            "border='0' width='240' style='width:240px;margin:0 0 12px 20px;"
+            "border-collapse:collapse;'><tr><td style='padding:2px 0 0 0;'>"
+            f"<img src='{_TM_PH_LOGO_URL}' width='200' alt='{_esc(_co)}' "
+            "style='display:block;width:200px;height:auto;border:0;margin:0 0 8px 0;' />"
+            f"<p style='margin:0 0 4px 0;{_S}font-size:10px;font-weight:bold;"
+            "letter-spacing:1px;white-space:nowrap;color:#082139;'>MARKET NOTE &middot; "
+            f"{_esc((d.get('month_year') or '').upper())}</p>"
+            f"<p style='margin:0 0 6px 0;{_S}font-size:12px;line-height:1.45;color:#555;'>"
+            f"{_esc(_co)} places dedicated, full-time Filipino professionals with "
+            "U.S. companies to run back-office, operations and customer support work.</p>"
+            + (f"<p style='margin:0;{_S}font-size:12px;line-height:1.55;color:#555;'>"
+               "<strong style='color:#082139;'>Inside:</strong> "
+               + " &middot; ".join(_esc(x) for x in _has) + "</p>" if _has else "")
+            + "</td></tr></table>",
+            f"<p style='{P}'>Hi {{FirstName}},</p>",
+        ]
+        if d.get("intro"):
+            out.append(f"<p style='{P}'>{_md(d['intro'])}</p>")
+        out.append(f"<p style='{P}'>If I missed anything or you want to dig into "
+                   f"something further, just let me know - happy to discuss.</p>")
+        if d.get("ph_numbers"):
+            out.append(f"<p style='{H}clear:both;'>Philippines by the Numbers:</p>"
+                       f"{_ul(d['ph_numbers'])}")
+            if (d.get("ph_source_url") or "").strip().startswith("http"):
+                out.append(f"<p style='{P}'>Source - <a href='{_esc(d['ph_source_url'])}'>"
+                           f"Article here</a></p>")
+        if d.get("movers"):
+            out.append(f"<p style='{H}clear:both;'>Who's Moving Offshore:</p>{_ul(d['movers'])}")
+        rs = d.get("role_spotlight")
+        if isinstance(rs, dict) and rs.get("role"):
+            out.append(f"<p style='{H}clear:both;'>Role Spotlight: {_esc(rs['role'])}</p>")
+            if rs.get("what"):
+                out.append(f"<p style='{P}'>{_md(rs['what'])}</p>")
+            _rb = list(rs.get("bullets") or [])
+            if (rs.get("us_wage") or "").strip():
+                _rb.append(f"U.S. median: {rs['us_wage'].strip()}")
+            if (rs.get("ph_rate") or "").strip():
+                _rb.append(f"With {_co}: {rs['ph_rate'].strip()}")
+            for _b in _rb:
+                out.append(_detail_line(_b))
+        if d.get("why_now"):
+            out.append(f"<p style='{H}clear:both;'>Why Now:</p>{_ul(d['why_now'])}")
+        qa = d.get("quick_answer")
+        if isinstance(qa, dict) and qa.get("answer"):
+            out.append(f"<p style='{H}clear:both;'>Quick Answer: {_esc(qa.get('question') or '')}</p>"
+                       f"<p style='{P}'>{_md(qa['answer'])}</p>")
+        if d.get("candidates"):
+            out.append(f"<p style='{H}clear:both;'>{_TM_PROFILES_HEADING}:</p>")
+            _candidates(out)
+        return _close(out)
+
     _sector = (d.get("sector") or "").strip()
     _lc_sfx = f" (What matters for {_sector})" if _sector else ""
-    _tk_sfx = f" for {_sector} and Skilled Trades" if _sector else ""
+    _tk_sfx = (f" for {_sector}" + ("" if _SALES_MODE else " and Skilled Trades")
+               if _sector else "")
 
     out = []
     # Personal greeting — {FirstName} is substituted per recipient at send
@@ -63665,37 +63765,13 @@ def _jway_render(d: dict, contact_name: str) -> str:
                        ("takeaway", f"Takeaway: What This Means{_tk_sfx}")):
         if d.get(_key):
             out.append(f"<p style='{H}'>{_lbl}:</p>{_ul(d[_key])}")
-    cands = d.get("candidates") or []
-    if cands:
+    if d.get("candidates"):
         if _SALES_MODE:
             out.append(f"<p style='{H}'>{_TM_PROFILES_HEADING}:</p>")
         else:
             out.append(f"<p style='{H}'>Top Talent Currently Available:</p>")
-        for c in cands:
-            _hdr = c.get("label") or "Candidate"
-            if c.get("role"):
-                _hdr += f": {c['role']}"
-            # Candidate name: bold + underlined.
-            out.append(f"<p style='{P}margin-bottom:2px;'>"
-                       f"<strong><u>{_esc(_hdr)}</u></strong></p>")
-            for _b in (c.get("bullets") or []):
-                out.append(_detail_line(_b))
-            if (c.get("salary") or "").strip():
-                _sv = c["salary"].strip()
-                if ":" in _sv:
-                    _sl, _, _svv = _sv.partition(":")
-                    out.append(f"<p style='{DL}margin-top:6px;'>"
-                               f"<strong>{_esc(_sl.strip())}:</strong> {_md(_svv.strip())}</p>")
-                else:
-                    out.append(f"<p style='{DL}margin-top:6px;'><strong>{_md(_sv)}</strong></p>")
-    out.append(f"<p style='{P}margin-top:14px;'>"
-               f"{_md(d.get('signoff') or 'Thank you, and I hope this was helpful!')}</p>")
-    out.append(f"<p style='{P}margin-top:2px;'>Warm regards,</p>")
-    # White "paper" behind the hard-coded #222 text, or it renders
-    # dark-on-dark in the dark-theme editor canvas.
-    return _usd_to_dollar(_strip_dashes(
-        "<div style='background:#ffffff;color:#222;padding:12px 16px;'>"
-        + "".join(out) + "</div>"))
+        _candidates(out)
+    return _close(out)
 
 
 def _nl_sales_audience(sector: str, region: str, company: str,
@@ -64579,10 +64655,111 @@ def _jway_sales_prompt(sector: str, niche: str, region: str, month_year: str,
         f"in **double asterisks** for bold emphasis (no other markdown).")
 
 
+# ThriveModal's Organic newsletter is about the Philippines offshore market
+# (Mike, 2026-10-16): the BLS jobs-report layout read as a staffing-industry
+# market update. U.S. labor data survives only as the two "Why Now" bullets.
+_TM_PH_LOGO_URL = f"{_PUBLIC_ORIGIN}/static/thrivemodal_logo_email.png"
+_TM_PH_SECTIONS = (("ph_numbers", "Philippines by the Numbers"),
+                   ("movers", "Who's Moving Offshore"),
+                   ("role_spotlight", "Role Spotlight"),
+                   ("why_now", "Why Now"),
+                   ("quick_answer", "Quick Answer"))
+
+
+def _tm_ph_reader(sector: str) -> str:
+    """Who reads the issue. A newsletter whose sector names the offshore or
+    staffing business itself (the Market Note was created as "Offshore
+    Staffing") is read by Thrivemodal's buyers, never by its competitors."""
+    s = (sector or "").strip()
+    if not s or re.search(r"offshore|staffing|outsourc|\bbpo\b", s, re.I):
+        return "small and mid-sized U.S. businesses"
+    return f"U.S. {s} companies"
+
+
+def _jway_ph_prompt(company: str, sector: str, month_year: str, plan: dict,
+                    n_profiles: int, recommendations: str, topic: str,
+                    playbook: str) -> str:
+    """The ThriveModal Organic issue: the Philippines offshore market, sourced
+    by web search, in the JSON shape _jway_render_ph reads."""
+    reader = _tm_ph_reader(sector)
+    if n_profiles > 0:
+        _cands = (
+            '"candidates":['
+            + ",".join(
+                f'{{"label":"Profile {chr(65 + i)}","role":"specific job title",'
+                f'"bullets":["Experience: N+ years ...","Tools: (real U.S. software) ...",'
+                f'"Handles: ...","Schedule: U.S. business hours"],"salary":""}}'
+                for i in range(n_profiles))
+            + '],')
+        _cand_rule = "\n" + _tm_profiles_rules(reader, n_profiles, recommendations) + "\n"
+    else:
+        _cands = '"candidates":[],'
+        _cand_rule = ""
+    _topic = (f"The sender also wants the issues to touch on: \"{topic.strip()}\". "
+              f"Work it into the intro or Who's Moving Offshore where it fits.\n"
+              if (topic or "").strip() else "")
+    return (
+        f"Write one issue of a PLAIN, PERSONAL monthly email newsletter from "
+        f"{company}, for owners, operations leaders and finance leaders at "
+        f"{reader}. {company} places dedicated, full-time professionals based "
+        f"in the Philippines who work the client's U.S. hours inside the "
+        f"client's own systems. ISSUE MONTH: {month_year}.\n\n"
+        f"THE SUBJECT IS THE PHILIPPINES OFFSHORE MARKET: how fast it is "
+        f"growing, which kinds of U.S. companies are moving work there, and "
+        f"which roles are going offshore. Most of the reader's peers are "
+        f"already exploring it; write like a well-informed peer passing on "
+        f"what is happening, not like an ad. It is NOT a U.S. jobs-report "
+        f"newsletter and NOT written for staffing firms.\n"
+        + _topic + _cand_rule +
+        f"\nUse web search for every number and every company you name: the "
+        f"Philippine IT-BPM / outsourcing industry (IBPAP, Philippine "
+        f"Statistics Authority, PEZA, World Bank, major news), and recent "
+        f"news of U.S. companies opening or growing teams in the Philippines. "
+        f"Prefer figures from the last 12 months and say which year each "
+        f"covers. NEVER invent a number, company or announcement; if one is "
+        f"not found, drop that bullet.\n"
+        f"ROLE SPOTLIGHT this month: {plan['role']}.\n"
+        f"QUICK ANSWER this month: \"{plan['objection']}\" "
+        f"{_TM_NL_ANSWER_HINTS.get(plan['objection'], '')}\n\n"
+        f"Follow the playbook below for every claim about {company} or its "
+        f"service. In particular: savings are only ever \"up to 60-70%\", one "
+        f"person is never round-the-clock coverage, no certifications, no "
+        f"guarantees, never frame it as cheap labor, do not quote "
+        f"{company}'s price or rate.\n"
+        f"HARD RULES (a draft that breaks one is rejected):\n"
+        f"- Every statistic is about the Philippines market or the U.S. labor "
+        f"market and comes from a source you found. No statistics about "
+        f"{company} or its customers.\n"
+        f"- No claims about retention, turnover, tenure or how long people stay.\n"
+        f"- Never state a time-zone conversion or a specific shift time; say "
+        f"they work the client's U.S. hours.\n"
+        f"- {company} is the employer of record; never say the person is on "
+        f"the client's payroll.\n"
+        f"- Never write the word \"nonfarm\"; say \"U.S. payrolls\" or \"U.S. "
+        f"employers added\".\n"
+        f"- Name only real software products, never an invented customer.\n\n"
+        f"Return ONLY valid JSON:\n{{"
+        f'"subject":"specific subject about the Philippines market this month, no month name",'
+        f'"intro":"2 short, warm first-person sentences tied to {month_year} leading into what is in this issue. Do NOT greet by name; a Hi {{FirstName}}, line is added automatically",'
+        f'"ph_numbers":["EXACTLY 4 bullets, each a REAL recent figure on the size or growth of the Philippines outsourcing workforce, revenue, new seats or office openings, with the year it covers and why it matters; **bold** the key number"],'
+        f'"ph_source_url":"the real URL of the main source for those figures, or empty string",'
+        f'"movers":["EXACTLY 3 bullets on REAL, recent moves: a named U.S. company or industry that opened, grew or announced a Philippines team, what roles, and when; **bold** the company or industry"],'
+        f'"role_spotlight":{{"role":"{plan["role"]}","what":"2 sentences on what this person handles day to day for a U.S. company","bullets":["Tools: real U.S. software this role uses","What to look for: ...","Why it moves offshore well: ..."],"us_wage":"REAL U.S. median hourly wage for this role with its source, e.g. $23.10/hr (BLS, May 2025), or empty string"}},'
+        f'"why_now":["EXACTLY 2 bullets of REAL recent U.S. labor-market figures (wages, openings or hiring difficulty for office and operations roles) and why they push companies to look offshore; **bold** the key number"],'
+        f'"quick_answer":{{"question":"{plan["objection"]}","answer":"2-3 plain, honest sentences"}},'
+        + _cands +
+        f'"signoff":"Thank you, and I hope this was helpful!"}}\n'
+        f"No HTML, no emoji, no em dashes. Plain text EXCEPT **double "
+        f"asterisks** for bold. Escape any double quote inside a string as "
+        f"\\\".\n\nPLAYBOOK:\n{playbook}")
+
+
 def _generate_jway_newsletter(client, camp: dict, nl_name: str, company: str,
                               sector: str, niche: str, region: str,
                               month_year: str, contact_name: str,
-                              spot_n: int, spot_recs: str) -> tuple:
+                              spot_n: int, spot_recs: str,
+                              year: int = 0, month: int = 0,
+                              step_idx: int = 0) -> tuple:
     """Generate 'The J's Way' (plain-text) newsletter content for one issue:
     personal market snapshot + live BLS data + available-talent list."""
     n_cand = spot_n if spot_n in (3, 6) else 4
@@ -64634,6 +64811,46 @@ def _generate_jway_newsletter(client, camp: dict, nl_name: str, company: str,
                                     contact_name, company,
                                     3 if spot_n > 0 else 0, spot_recs,
                                     topic=camp.get("newsletter_topic") or "")
+    if _SALES_MODE and _is_thrivemodal():
+        if not (year and month):
+            _t = date.today()
+            year, month = _t.year, _t.month
+        plan = _tm_newsletter_plan(" ".join([sector, niche, nl_name]),
+                                   year, month, step_idx)
+        prompt = _jway_ph_prompt(company, (niche or sector).strip(), month_year,
+                                 plan, 3 if spot_n > 0 else 0, spot_recs,
+                                 camp.get("newsletter_topic") or "",
+                                 _thrivemodal_playbook_text())
+        d = None
+        for _attempt in range(2):
+            try:
+                d = _nl_parse_json_reply(_claude_create_with_retry(
+                    client, model=_TM_NL_MODEL, max_tokens=7000,
+                    tools=[{"type": "web_search_20250305", "name": "web_search",
+                            "max_uses": 6}],
+                    messages=[{"role": "user", "content": prompt}]))
+            except Exception as e:
+                print(f"[JWayNewsletter] PH AI call failed: {e}", flush=True)
+            if d:
+                break
+        if not d:
+            return (None, None)
+        for _c in (d.get("candidates") or []):
+            if isinstance(_c, dict):
+                _r = _tm_profile_rate(client, _c.get("role", ""))
+                _c["salary"] = f"Estimated rate: {_r[5:]}" if _r else ""
+        _rs = d.get("role_spotlight")
+        if isinstance(_rs, dict) and _rs.get("role"):
+            # Server-computed, like the profile rates: the model never
+            # quotes ThriveModal's own rate.
+            _r = _tm_profile_rate(client, _rs["role"])
+            _rs["ph_rate"] = _r[5:] if _r else ""
+        d["ph"] = True
+        d["month_year"] = month_year
+        d["company"] = company
+        subject = ((d.get("subject") or "").strip()
+                   or f"The Philippines offshore market - {month_year}")
+        return (_strip_dashes(_no_nonfarm(subject)), _jway_render(d, contact_name))
     try:
         msg = _claude_create_with_retry(
             client, model="claude-haiku-4-5-20251001", max_tokens=4000,
@@ -64793,7 +65010,8 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
     if (camp.get("newsletter_style") or "").strip() == "j_way":
         return _generate_jway_newsletter(
             client, camp, nl_name, company, sector, niche, region,
-            month_year, contact_name, _spot_n, _spot_recs)
+            month_year, contact_name, _spot_n, _spot_recs,
+            year=_nl_year, month=_nl_month, step_idx=step_idx)
 
     if _SALES_MODE:
         _nl_aud = _nl_sales_audience((niche or sector).strip(), region, company,
