@@ -65,16 +65,27 @@ def test_csv_with_any_name_is_read_and_dated_from_the_file_name():
 
 def test_semicolon_and_header_row_below_a_title_line():
     data = ("ZoomInfo export\nFirst Name;Last Name;Email;Company\nAnn;Bell;ann@acme.com;Acme\n").encode()
-    tables, _ = zd.read_upload("x.csv", data)
+    tables, _ = zd.read_upload("zoominfo_x.csv", data)
     recs = zd.table_records(tables[0])
     assert recs == [{"First Name": "Ann", "Last Name": "Bell", "Email": "ann@acme.com",
-                     "Company": "Acme", "Source Files": "x.csv"}]
+                     "Company": "Acme", "Source Files": "zoominfo_x.csv"}]
+
+
+def test_contact_lists_that_are_not_zoominfo_are_left_out():
+    data = b"First Name,Last Name,Email,Company\nAnn,Bell,ann@acme.com,Acme\n"
+    tables, skipped = zd.read_upload("indeed_applicants.csv", data)
+    assert tables == [] and "ZoomInfo" in skipped[0][1]
+    # a ZoomInfo name anywhere on the path is enough (a zip called ZoomInfo...)
+    z = _zip({"list.csv": data})
+    assert len(zd.read_upload("My ZoomInfo Exports.zip", z)[0]) == 1
+    assert zd.read_upload("stuff.zip", z)[0] == []
 
 
 def test_xlsx_read_without_pandas_and_non_contact_sheets_skipped():
-    data = _xlsx([["First Name", "Last Name", "Email Address", "Company Name", "Mobile phone"],
-                  ["Cal", "Dunn", "Cal@Bolt.com", "Bolt Mfg", "(303) 555-0102"],
-                  [None, None, None, None, None]])
+    data = _xlsx([["First Name", "Last Name", "Email Address", "Company Name", "Mobile phone",
+                   "Management Level", "Job Function"],
+                  ["Cal", "Dunn", "Cal@Bolt.com", "Bolt Mfg", "(303) 555-0102", "Manager", "Ops"],
+                  [None, None, None, None, None, None, None]])
     tables, skipped = zd.read_upload("export.xlsx", data)
     assert not skipped and len(tables) == 1 and tables[0]["label"] == "export.xlsx [Contacts]"
     recs = zd.table_records(tables[0])

@@ -239,6 +239,30 @@ def date_from_name(name: str) -> str:
     return ""
 
 
+# What makes a file a ZoomInfo export (same two signals as the reps' finder
+# script): a ZoomInfo file name anywhere in its path, or 2+ column headers
+# only ZoomInfo writes. Anything else (Indeed lists, payroll, a rep's own
+# notes) is skipped, so "drag in the whole Downloads folder" stays safe.
+_ZI_NAMES = ("talent_candidate_export", "talent_contact_export", "talent_company_export",
+             "candidate_export", "contact_export", "company_export", "people_export",
+             "zi_contacts", "zi_companies", "zoominfo", "zoom_info", "zoom info", "zi_export",
+             "reachout", "discoverorg", "salesos", "talentos", "recruiteros")
+_ZI_HEADERS = {"zoominfo contact id", "zoominfo company id", "zoominfo person id",
+               "zoominfo talent url", "direct phone number", "company hq phone",
+               "supplemental email", "management level", "job function",
+               "linkedin contact profile url", "contact accuracy score", "sic code 1",
+               "naics code 1", "employee count", "company revenue", "person street",
+               "company street", "person city", "person state", "person zip code",
+               "company headcount", "primary industry"}
+
+
+def is_zoominfo(name: str, raw_headers: list) -> bool:
+    low = (name or "").lower().replace("-", "_")
+    if any(n in low for n in _ZI_NAMES):
+        return True
+    return len({_fold(h) for h in raw_headers} & _ZI_HEADERS) >= 2
+
+
 def _table(label: str, rows: list, export_date: str) -> dict | None:
     """Find the header row (first row with 2+ known contact columns within
     the first 10) and return {"label", "headers", "rows", "export_date"}."""
@@ -246,7 +270,7 @@ def _table(label: str, rows: list, export_date: str) -> dict | None:
         headers = [canon_header(h) for h in row]
         if len(set(headers) & _SIGNALS) >= 2:
             body = [r for r in rows[i + 1:] if any(str(x).strip() for x in r)]
-            return {"label": label, "headers": headers, "rows": body,
+            return {"label": label, "headers": headers, "rows": body, "raw_headers": row,
                     "export_date": export_date,
                     "candidates": is_candidate_file(label.split(" [")[0])}
     return None
@@ -297,6 +321,9 @@ def read_upload(name: str, data: bytes, when: str = "", _depth: int = 0) -> tupl
     found = [t for t in found if t]
     if not found:
         return [], [(base, "no contact columns (name, email, title, company...) found")]
+    found = [t for t in found if is_zoominfo(name, t["raw_headers"])]
+    if not found:
+        return [], [(base, "doesn't look like a ZoomInfo export, left out")]
     return found, []
 
 

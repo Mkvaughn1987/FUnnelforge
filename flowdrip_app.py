@@ -33834,8 +33834,9 @@ def p_zoominfo_drop(s, rf):
             'here with the rest.</p></div>')
 
         with ui.element("div").classes("fd-zd-card"):
-            ui.html('<h3>Drop your files</h3><p>Pick several at once, or a zip. Resumes and '
-                    'other files are skipped.</p>')
+            ui.html('<h3>Drop your files</h3><p>Pick several at once, or zip the whole folder. '
+                    "Anything that isn't a ZoomInfo export is left out, so it's safe to drop "
+                    'everything.</p>')
 
             async def _on_upload(e):
                 try:
