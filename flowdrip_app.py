@@ -64737,7 +64737,9 @@ def _jway_ph_prompt(company: str, sector: str, month_year: str, plan: dict,
         f"the client's payroll.\n"
         f"- Never write the word \"nonfarm\"; say \"U.S. payrolls\" or \"U.S. "
         f"employers added\".\n"
-        f"- Name only real software products, never an invented customer.\n\n"
+        f"- Name only real software products, never an invented customer.\n"
+        f"- Write every bullet in your own words, one or two sentences. Do not "
+        f"paste source text and do not include citation tags or markup.\n\n"
         f"Return ONLY valid JSON:\n{{"
         f'"subject":"specific subject about the Philippines market this month, no month name",'
         f'"intro":"2 short, warm first-person sentences tied to {month_year} leading into what is in this issue. Do NOT greet by name; a Hi {{FirstName}}, line is added automatically",'
@@ -64835,6 +64837,19 @@ def _generate_jway_newsletter(client, camp: dict, nl_name: str, company: str,
                 break
         if not d:
             return (None, None)
+
+        def _uncite(v):
+            # Web search wraps quoted source text in <cite index=...> tags,
+            # which _jway_render escapes into visible "&lt;cite" text
+            # (first live November issue, 2026-10-16).
+            if isinstance(v, str):
+                return _strip_cite_tags(v)
+            if isinstance(v, list):
+                return [_uncite(x) for x in v]
+            if isinstance(v, dict):
+                return {k: _uncite(x) for k, x in v.items()}
+            return v
+        d = _uncite(d)
         for _c in (d.get("candidates") or []):
             if isinstance(_c, dict):
                 _r = _tm_profile_rate(client, _c.get("role", ""))
