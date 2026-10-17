@@ -6187,7 +6187,7 @@ async def api_campaign_types(request: Request):
 
 @app.get("/api/v1/team_contacts")
 async def api_team_contacts(request: Request):
-    """Shared Arena Contacts lookup for the connector: the people the
+    """Arena Sales Contacts lookup for the connector: the people the
     caller's team has already reached at a company (by name or email
     domain), minus anyone who said no or sits on a Do Not Contact list.
     Read-only, team-scoped (same email domain as the caller)."""
@@ -13093,8 +13093,7 @@ SALES_NAV = [
     ("🚫", "Do Not Contact",   "dnc"),
     (None, "ARENA TEAM",        None),
     ("📡", "Arena Running Campaigns", "running_campaigns"),
-    ("🏦", "Shared Arena Contacts", "shared_contacts"),
-    ("⬆", "ZoomInfo Drop",     "zoominfo_drop"),
+    ("🏦", "Arena Sales Contacts", "shared_contacts"),
     ("🎯", "My Top 10",         "my_top10"),
     ("🛡", "Current Clients",  "active_clients"),
     # ── Content & Tools ──────────────────────────
@@ -13149,8 +13148,7 @@ SIDEBAR_NAV = [
     # Team-wide Arena pages, grouped on their own 2026-10-06.
     ("ARENA TEAM", [
         ("running",     "Arena Running Campaigns", "running_campaigns"),
-        ("bank",        "Shared Arena Contacts", "shared_contacts"),
-        ("zidrop",      "ZoomInfo Drop",   "zoominfo_drop"),
+        ("bank",        "Arena Sales Contacts", "shared_contacts"),
         ("clients",     "Current Clients", "active_clients"),
         # Private per user, despite the section name (2026-10-14).
         ("top10",       "My Top 10",       "my_top10"),
@@ -13192,7 +13190,8 @@ SIDEBAR_PAGE_ROW = {
     "responses": "replies", "e_responses": "replies",
     "contacts": "contacts", "e_contacts": "contacts",
     "active_clients": "clients", "running_campaigns": "running", "shared_contacts": "bank",
-    "zoominfo_drop": "zidrop",
+    # ZoomInfo Drop is a panel on Arena Sales Contacts (2026-10-16).
+    "zoominfo_drop": "bank",
     "my_top10": "top10",
     "seq_mgr": "campaigns", "active_camps": "campaigns", "queue": "campaigns",
     "evergreen": "campaigns", "evergreen_create": "campaigns", "e_evergreen": "campaigns",
@@ -13207,8 +13206,8 @@ SIDEBAR_TITLES = {
     "dashboard": "Home", "market_intel": "Market Intel",
     "drip": "Today's Tasks", "tasks": "Tasks", "responses": "Replies", "e_responses": "Replies",
     "contacts": "Contacts", "e_contacts": "Contacts", "active_clients": "Current Clients",
-    "running_campaigns": "Arena Running Campaigns", "shared_contacts": "Shared Arena Contacts",
-    "zoominfo_drop": "ZoomInfo Drop",
+    "running_campaigns": "Arena Running Campaigns", "shared_contacts": "Arena Sales Contacts",
+    "zoominfo_drop": "Arena Sales Contacts",
     "my_top10": "My Top 10",
     "seq_mgr": "Campaigns", "active_camps": "Campaigns", "queue": "Email Queue",
     "evergreen": "Nurture Campaigns", "evergreen_create": "New Nurture Campaign",
@@ -33743,7 +33742,7 @@ def p_running_campaigns(s, rf):
 
 
 def _sc_css() -> str:
-    """Shared Arena Contacts page: company rows with their people."""
+    """Arena Sales Contacts page: company rows with their people."""
     return f"""
 .fd-sc{{max-width:1180px}}
 .fd-sc-tbl .fd-tbl td{{vertical-align:top}}
@@ -33765,9 +33764,10 @@ def _sc_css() -> str:
 
 
 def _zd_css() -> str:
-    """ZoomInfo Drop page."""
+    """ZoomInfo Drop panel on Arena Sales Contacts."""
     return f"""
-.fd-zd{{max-width:980px}}
+.fd-zd{{max-width:980px;margin:0 0 6px}}
+.fd-zd-toggle{{display:inline-flex;align-items:center;gap:6px}}
 .fd-zd-card{{background:{C['card']};border:1px solid {C['border']};border-radius:10px;padding:14px 16px;margin:12px 0}}
 .fd-zd-card.warn{{border-left:3px solid {C['teal']}}}
 .fd-zd-card h3{{margin:0 0 4px;font-size:14px;font-weight:600;color:{C['text_l']}}}
@@ -33791,20 +33791,16 @@ def _zd_bank_keys(owner: str) -> set:
         return set()
 
 
-def p_zoominfo_drop(s, rf):
+def _zd_panel(owner: str):
     """Reps drop their old ZoomInfo exports; they merge into the rep's own
-    "ZoomInfo Archive" contact list, which feeds the team bank. See
-    zoominfo_drop.py."""
+    "ZoomInfo Archive" contact list, which feeds the team bank. Rendered
+    inside Arena Sales Contacts (p_shared_contacts). See zoominfo_drop.py."""
     import asyncio
     from html import escape as _esc
     import team_campaigns as _tc
     import team_contacts as _tcx
     import zoominfo_drop as _zd
 
-    _user_email = (getattr(s, "_user_email", "") or "").strip().lower()
-    if _user_email:
-        _CURRENT_USER_EMAIL.set(_user_email)
-    owner = _user_email or (_CURRENT_USER_EMAIL.get() or "")
     user_root = _resolve_user_root(owner or None)
     window = _zd.free_window_start()
     state = {"bank": None, "lock": asyncio.Lock(), "receipts": []}
@@ -33816,12 +33812,11 @@ def p_zoominfo_drop(s, rf):
             return d or "—"
 
     with ui.element("div").classes("fd-zd"):
-        ui.label("ZoomInfo Drop").classes("fd-h1")
         ui.label(
             "Drop every ZoomInfo export you still have: CSV, Excel, or a zip of the "
             "whole folder. File names don't matter. DripDrop lines up the columns, merges "
             "anyone who shows up twice, and saves them to your contact list "
-            f"\"{_zd.ARCHIVE_NAME}\". Everyone lands in Shared {_tc.TEAM_LABEL} Contacts, "
+            f"\"{_zd.ARCHIVE_NAME}\". Everyone lands here in {_tcx.PAGE_TITLE}, "
             "so nobody on the team pays ZoomInfo for them again."
         ).classes("fd-sub")
 
@@ -33894,7 +33889,7 @@ def p_zoominfo_drop(s, rf):
                         f'{r["rows"]} rows, {r["people"]} people. '
                         f'{r["added"]} added, {r["merged"]} merged into people you already had. '
                         f'<span class="new">{r["new_to_team"]} new to the team</span>, '
-                        f'{r["already_in_bank"]} already in Shared {_esc(_tc.TEAM_LABEL)} Contacts.'
+                        f'{r["already_in_bank"]} already in {_esc(_tcx.PAGE_TITLE)}.'
                         + (f' {r["candidates"]} candidates from Talent candidate exports kept '
                            'separately, out of sales outreach.' if r.get("candidates") else "")
                         + f'</div>{skipped}')
@@ -33958,11 +33953,13 @@ def _shared_bank(owner: str) -> dict:
     return bank
 
 
-def p_shared_contacts(s, rf):
+def p_shared_contacts(s, rf, zoominfo_open: bool = False):
     """Everyone the team has reached in any campaign or uploaded list, all
     time, grouped by company. People who replied no and anyone on a
     teammate's Do Not Contact list are left out. The AI Prompts check this
-    bank (team_contacts tool) before spending ZoomInfo credits."""
+    bank (team_contacts tool) before spending ZoomInfo credits. The ZoomInfo
+    Drop panel sits under the header; zoominfo_open (the /zoominfo link)
+    starts it open."""
     from html import escape as _esc
     import team_campaigns as _tc
     import team_contacts as _tcx
@@ -34053,6 +34050,29 @@ def p_shared_contacts(s, rf):
             "list are left out. AI Prompts check this bank before spending ZoomInfo credits."
         ).classes("fd-sub")
 
+        zd_box = ui.element("div")
+        zd_state = {"open": zoominfo_open, "built": False}
+
+        def _toggle_zd():
+            zd_state["open"] = not zd_state["open"]
+            _draw_zd()
+
+        zd_btn = ui.element("button").classes("fd-rc-link fd-zd-toggle").props(
+            'type="button"').style("margin:10px 0 0;").on("click", _toggle_zd)
+
+        def _draw_zd():
+            zd_btn.clear()
+            with zd_btn:
+                ui.label("Hide ZoomInfo Drop" if zd_state["open"]
+                         else "⬆ Drop your old ZoomInfo files")
+            if zd_state["open"] and not zd_state["built"]:
+                with zd_box:
+                    _zd_panel(owner)
+                zd_state["built"] = True
+            zd_box.set_visibility(zd_state["open"])
+
+        _draw_zd()
+
         def _show_replied():
             f["replied"] = "replied" if f["replied"] != "replied" else ""
             _draw_replied(); _redraw()
@@ -34114,7 +34134,7 @@ def p_shared_contacts(s, rf):
                 if shown:
                     def _download(_shown=shown):
                         data = _tcx.rows_csv(_shown).encode("utf-8-sig")
-                        name = f"shared-arena-contacts-{date.today().isoformat()}.csv"
+                        name = f"arena-sales-contacts-{date.today().isoformat()}.csv"
                         try:
                             ui.download.content(data, name)
                         except Exception:
@@ -57282,7 +57302,7 @@ def render_page(s: AppState, rf):
             elif page == "active_clients": p_active_clients(s, rf)
             elif page == "running_campaigns": p_running_campaigns(s, rf)
             elif page == "shared_contacts": p_shared_contacts(s, rf)
-            elif page == "zoominfo_drop": p_zoominfo_drop(s, rf)
+            elif page == "zoominfo_drop": p_shared_contacts(s, rf, zoominfo_open=True)
             elif page == "my_top10": p_my_top10(s, rf)
             elif page == "outreach_analytics": p_outreach_analytics(s, rf)
             elif page == "company_profile": p_company_profile(s, rf)

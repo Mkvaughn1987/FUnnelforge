@@ -207,7 +207,7 @@ def test_sidebar_and_titles_carry_the_page():
     assert "bank" in fa._SIDEBAR_ICONS
     assert any(label == tcx.PAGE_TITLE and page == "shared_contacts" for _, label, page in fa.SALES_NAV)
     assert "fd-sc" in fa._sc_css()
-    assert tcx.PAGE_TITLE == "Shared Arena Contacts"
+    assert tcx.PAGE_TITLE == "Arena Sales Contacts"
 
 
 def _page_text(root) -> str:
@@ -241,7 +241,7 @@ def test_page_renders_and_filters(with_user):
     with ui.card() as card:
         fa.p_shared_contacts(s, lambda: None)
     text = _page_text(card)
-    assert "Shared Arena Contacts" in text
+    assert "Arena Sales Contacts" in text
     assert "Ann Acme" in text and "720-555-0001" in text and "Bo Bolt" in text
     assert "quit@acme.com" not in text                      # said no
     assert "gallowayus.com" not in text                     # other team

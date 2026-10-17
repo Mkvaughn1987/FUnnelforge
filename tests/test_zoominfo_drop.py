@@ -222,13 +222,13 @@ def test_free_window_start():
 
 # ── app wiring ──────────────────────────────────────────────────────────
 
-def test_sidebar_and_titles_carry_the_page():
+def test_drop_lives_on_arena_sales_contacts():
     import flowdrip_app as fa
-    assert ("zidrop", "ZoomInfo Drop", "zoominfo_drop") in dict(fa.SIDEBAR_NAV)["ARENA TEAM"]
-    assert fa.SIDEBAR_PAGE_ROW["zoominfo_drop"] == "zidrop"
-    assert fa.SIDEBAR_TITLES["zoominfo_drop"] == "ZoomInfo Drop"
-    assert "zidrop" in fa._SIDEBAR_ICONS
-    assert any(page == "zoominfo_drop" for _, _, page in fa.SALES_NAV)
+    # No row of its own: /zoominfo opens Arena Sales Contacts with the panel open.
+    assert all(page != "zoominfo_drop" for _, _, page in dict(fa.SIDEBAR_NAV)["ARENA TEAM"])
+    assert all(page != "zoominfo_drop" for _, _, page in fa.SALES_NAV)
+    assert fa.SIDEBAR_PAGE_ROW["zoominfo_drop"] == "bank"
+    assert fa.SIDEBAR_TITLES["zoominfo_drop"] == "Arena Sales Contacts"
     assert "fd-zd" in fa._zd_css()
 
 
@@ -252,9 +252,22 @@ def test_page_renders_with_team_progress(with_user):
     s = fa.AppState()
     s._user_email = "tester@example.com"
     with ui.card() as card:
-        fa.p_zoominfo_drop(s, lambda: None)
+        fa.p_shared_contacts(s, lambda: None, zoominfo_open=True)
     text = _page_text(card)
-    assert "ZoomInfo Drop" in text and "My Contacts" in text
+    assert "Arena Sales Contacts" in text and "Hide ZoomInfo Drop" in text and "My Contacts" in text
     assert "Team progress" in text and "<td>1</td>" in text
     assert "Still to drop" in text
     assert any(isinstance(e, ui.upload) for e in card.descendants())
+
+
+def test_panel_starts_closed_on_plain_visit(with_user):
+    import flowdrip_app as fa
+    from nicegui import ui
+    (fa._BASE_DATA_DIR / "users" / "tester_at_example_com").mkdir(parents=True, exist_ok=True)
+    s = fa.AppState()
+    s._user_email = "tester@example.com"
+    with ui.card() as card:
+        fa.p_shared_contacts(s, lambda: None)
+    text = _page_text(card)
+    assert "Drop your old ZoomInfo files" in text
+    assert not any(isinstance(e, ui.upload) for e in card.descendants())

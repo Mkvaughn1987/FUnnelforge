@@ -7,7 +7,7 @@ names, people who show up in more than one file are merged field by field
 result lands in the rep's own contact list, Contacts/ZoomInfo Archive.csv.
 
 That list is an ordinary DripDrop contact list, so it shows on the Contacts
-page and feeds the Shared Arena Contacts bank (team_contacts.scan reads
+page and feeds the Arena Sales Contacts bank (team_contacts.scan reads
 every teammate's Contacts/*.csv), which dedupes across the whole team.
 
 Each drop is logged to ZoomInfo/drops.json for the team progress strip.

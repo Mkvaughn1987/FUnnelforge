@@ -1,4 +1,4 @@
-"""Shared Arena Contacts: everyone the team has ever reached, by company.
+"""Arena Sales Contacts: everyone the team has ever reached, by company.
 
 Walks every teammate's folder (same email domain) and merges, by email
 address, the contacts in
@@ -37,7 +37,7 @@ from pathlib import Path
 import team_campaigns as _tc
 
 TEAM_LABEL = _tc.TEAM_LABEL
-PAGE_TITLE = f"Shared {TEAM_LABEL} Contacts"
+PAGE_TITLE = f"{TEAM_LABEL} Sales Contacts"
 
 # Keep in step with flowdrip_app._OPT_OUT_KEYWORDS (the reply monitor's
 # list). A reply carrying any of these is a "no" and the person leaves the
