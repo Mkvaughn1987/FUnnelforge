@@ -95,6 +95,9 @@ def age_label(row, today):
     looser wording when the source gave no day."""
     n = days_since(row.get("posted"), today)
     verb = "Signal" if row.get("kind") == "signal" else "Posted"
+    if n is None and row.get("found"):
+        # Found by the user's own Indeed scan: say when it was found.
+        n, verb = days_since(row["found"], today), "Found"
     if n is None:
         return row.get("when") or "Date not given"
     if n == 0:
@@ -166,7 +169,7 @@ def sort_rows(rows):
     """Signals first, then newest posting, then undated by tier and name."""
     def k(r):
         d = parse_iso(r.get("signal", {}).get("date") if r.get("signal") else None) \
-            or parse_iso(r.get("posted"))
+            or parse_iso(r.get("posted")) or parse_iso(r.get("found"))
         return (0 if r.get("signal") else 1,
                 0 if d else 1,
                 -(d.toordinal() if d else 0),
@@ -230,16 +233,25 @@ def state_path(user_root=None):
 
 
 def load_state(user_root=None):
+    """{"status": {key: status}, "found": [rows from the user's Indeed
+    scans], "scans": [recent scan runs, newest first]}."""
+    out = {"status": {}, "found": [], "scans": []}
     try:
         p = state_path(user_root)
         if p.exists():
             d = json.loads(p.read_text(encoding="utf-8"))
-            if isinstance(d, dict) and isinstance(d.get("status"), dict):
-                return {"status": {str(k): str(v) for k, v in d["status"].items()
-                                   if v in STATUS_LABEL}}
+            if isinstance(d, dict):
+                if isinstance(d.get("status"), dict):
+                    out["status"] = {str(k): str(v) for k, v in d["status"].items()
+                                     if v in STATUS_LABEL}
+                if isinstance(d.get("found"), list):
+                    out["found"] = [r for r in d["found"]
+                                    if isinstance(r, dict) and r.get("name")]
+                if isinstance(d.get("scans"), list):
+                    out["scans"] = [x for x in d["scans"] if isinstance(x, dict)]
     except Exception:
         pass
-    return {"status": {}}
+    return out
 
 
 def save_state(state, user_root=None):
@@ -250,14 +262,15 @@ def save_state(state, user_root=None):
     tmp.replace(p)
 
 
-def all_rows():
+def all_rows(found=()):
+    """Seed + the user's own scan finds, with Buying Signals merged in."""
     try:
         import tm_signals
         issues = tm_signals.load_settings().get("issues") or []
     except Exception as e:
         print(f"[Targets] signals unavailable: {e}", flush=True)
         issues = []
-    return sort_rows(build_rows(data.SEED, signal_rows(issues)))
+    return sort_rows(build_rows(list(data.SEED) + list(found or []), signal_rows(issues)))
 
 
 # ── Page ─────────────────────────────────────────────────────────────────
@@ -298,6 +311,15 @@ def _css():
         ".tmt-b.weak{background:var(--dd-bg);color:var(--dd-muted);border-color:var(--dd-border);}"
         ".tmt-b.mk{background:var(--dd-bg);color:var(--dd-text_l);border-color:var(--dd-border);}"
         ".tmt-b.sig{background:var(--dd-danger);color:#fff;}"
+        ".tmt-b.found{background:var(--dd-teal);color:#fff;}"
+        ".tmt-scan{background:var(--dd-card);border:1px solid var(--dd-teal);border-radius:12px;"
+        "padding:18px 20px;margin:0 0 16px;display:flex;flex-direction:column;gap:12px;}"
+        ".tmt-scan-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;}"
+        ".tmt-scan-lbl{font-size:12px;font-weight:700;color:var(--dd-muted);width:100%;"
+        "text-transform:uppercase;letter-spacing:.04em;}"
+        ".tmt-scan-q{font-size:12px;color:var(--dd-muted);word-break:break-word;}"
+        ".tmt-scan-q code{color:var(--dd-text_l);font-size:12px;}"
+        ".tmt-scans{font-size:12px;color:var(--dd-muted);margin:-4px 0 14px;}"
         ".tmt-age{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:700;"
         "color:var(--dd-text_l);}"
         ".tmt-age.fresh{color:var(--dd-good);}"
@@ -328,7 +350,8 @@ def _css():
 
 def _state_attrs(s):
     for attr, default in (("_tmt_market", ""), ("_tmt_strong", False), ("_tmt_q", ""),
-                          ("_tmt_hidden", False), ("_tmt_limit", 60)):
+                          ("_tmt_hidden", False), ("_tmt_limit", 60),
+                          ("_tmt_scan", None), ("_tmt_role_in", "")):
         if not hasattr(s, attr):
             setattr(s, attr, default)
 
@@ -348,6 +371,8 @@ def _card(r, st, today, C, on_status):
                 html = ""
                 if sg:
                     html += '<span class="tmt-b sig">Buying signal</span>'
+                if r.get("found"):
+                    html += '<span class="tmt-b found">Found by your scan</span>'
                 html += f'<span class="tmt-b {_e(r["tier"])}">{_e(TIER_LABEL.get(r["tier"], ""))}</span>'
                 ui.html(html, sanitize=False)
         with ui.element("div").style("display:flex;flex-wrap:wrap;gap:8px;align-items:center;"):
@@ -393,6 +418,150 @@ def _card(r, st, today, C, on_status):
                 ui.label(STATUS_LABEL.get(st, "New"))
 
 
+def _clients():
+    try:
+        import tm_targets_scan as sc
+        return sc.client_names(_ff().load_client_blocklist())
+    except Exception as e:
+        print(f"[Targets] clients unavailable: {e}", flush=True)
+        return []
+
+
+def _scan_panel(s, rf, C, found):
+    """Find more targets: pick the industry, roles and details, then hand
+    the Indeed scan to Claude (see tm_targets_scan)."""
+    import tm_targets_scan as sc
+    scan = s._tmt_scan
+    market = scan["market"]
+    roles = scan["roles"]
+
+    def _market(m):
+        s._tmt_scan = sc.default_scan(m)
+        rf()
+
+    def _role(r):
+        if r in roles:
+            roles.remove(r)
+        else:
+            roles.append(r)
+        rf()
+
+    def _add_role():
+        r = sc.clean_role(s._tmt_role_in)
+        if r and r.lower() not in (x.lower() for x in roles):
+            roles.append(r)
+        s._tmt_role_in = ""
+        rf()
+
+    def _pick(attr, val):
+        scan[attr] = val
+        rf()
+
+    def _prompt():
+        return sc.build_prompt(scan, found=found, clients=_clients())
+
+    def _run():
+        import ai_prompts
+        prompt = _prompt()
+        url, filled = ai_prompts.chat_link("https://claude.ai/new", prompt)
+        # Copy as well, so a blank chat is still one Ctrl+V away.
+        ui.run_javascript(
+            "navigator.clipboard.writeText(%s).catch(function(){});"
+            "window.open(%s, '_blank')" % (json.dumps(prompt), json.dumps(url)))
+        ui.notify("Opened Claude with the scan in it. New companies show up here "
+                  "as Claude saves them; refresh this page to see them."
+                  if filled else
+                  "Opened Claude. The scan is too long to send over, so it's copied: "
+                  "press Ctrl+V in the chat.", type="positive")
+
+    def _copy():
+        ui.run_javascript("navigator.clipboard.writeText(%s)" % json.dumps(_prompt()))
+        ui.notify("Copied. Paste it into Claude.", type="positive")
+
+    def _close():
+        s._tmt_scan = None
+        rf()
+
+    def _pill(label, on, handler, extra=""):
+        with ui.element("button").classes("tmt-pill" + (" on" if on else "")).props(
+                'type="button"').on("click", handler):
+            if on:
+                ui.icon("check").style("font-size:14px;")
+            ui.label(label)
+            if extra:
+                ui.label(extra).classes("n")
+
+    with ui.element("div").classes("tmt-scan"):
+        with ui.element("div").style("display:flex;justify-content:space-between;gap:12px;"
+                                     "align-items:flex-start;"):
+            with ui.element("div"):
+                ui.label("Find more targets").style(
+                    f"font-size:16px;font-weight:800;color:{C['text_l']};")
+                ui.label("Claude reads Filipino resumes on your Indeed Smart Sourcing seat "
+                         "and adds the US companies they worked for to this list. Pick "
+                         "what to look for, then run it in Claude.").classes("fd-sub")
+            with ui.element("button").classes("fd-gb").props('type="button" title="Close"').on(
+                    "click", _close).style("padding:4px 8px;"):
+                ui.icon("close").style("font-size:16px;")
+
+        with ui.element("div").classes("tmt-scan-row"):
+            ui.label("Industry").classes("tmt-scan-lbl")
+            for mk, ml in data.MARKETS:
+                _pill(ml, mk == market, lambda m=mk: _market(m))
+
+        with ui.element("div").classes("tmt-scan-row"):
+            ui.label("Roles the Filipinos held").classes("tmt-scan-lbl")
+            presets = sc.ROLE_PRESETS.get(market, [])
+            for r in presets + [x for x in roles if x not in presets]:
+                _pill(r, r in roles, lambda r=r: _role(r))
+
+            def _on_role(e):
+                s._tmt_role_in = e.value or ""
+            ui.input(placeholder="Add a role", value=s._tmt_role_in, on_change=_on_role
+                     ).classes("fd-input").props("dense").style("width:170px;").on(
+                "keydown.enter", lambda: _add_role())
+            with ui.element("button").classes("tmt-pill").props('type="button"').on(
+                    "click", lambda: _add_role()):
+                ui.icon("add").style("font-size:14px;")
+                ui.label("Add")
+
+        with ui.element("div").classes("tmt-scan-row"):
+            ui.label("Worked there in the last").classes("tmt-scan-lbl")
+            for y in sc.YEARS_OPTIONS:
+                _pill(f"{y} years", scan["years"] == y, lambda y=y: _pick("years", y))
+
+        with ui.element("div").classes("tmt-scan-row"):
+            ui.label("Pages to read").classes("tmt-scan-lbl")
+            for p in sc.PAGES_OPTIONS:
+                _pill(f"{p} pages", scan["pages"] == p, lambda p=p: _pick("pages", p),
+                      f"about {p * sc.PAGE_SIZE} profiles")
+
+        with ui.element("div").classes("tmt-scan-row"):
+            ui.label("Company size").classes("tmt-scan-lbl")
+            for n, lbl in sc.SIZE_OPTIONS:
+                _pill(lbl, scan["size"] == n, lambda n=n: _pick("size", n))
+
+        ui.html('<div class="tmt-scan-q">Indeed search: <code>%s</code></div>'
+                % _e(sc.build_query(roles)), sanitize=False)
+        ui.label("Runs in Claude with Claude in Chrome and the inboxslide connector turned "
+                 "on. Keep Chrome open and signed in to Indeed Smart Sourcing with the "
+                 "Philippines seat. Only company names are saved, never a candidate's."
+                 ).style(f"font-size:12px;color:{C['muted']};")
+
+        with ui.element("div").style("display:flex;gap:8px;flex-wrap:wrap;"):
+            run = ui.element("button").classes("fd-pb").props('type="button"').style(
+                "padding:9px 18px;font-size:13px;")
+            if roles:
+                run.on("click", _run)
+            else:
+                run.props("disabled").style("opacity:.5;cursor:not-allowed;")
+            with run:
+                ui.label("Run in Claude" if roles else "Pick at least one role")
+            with ui.element("button").classes("fd-gb").props('type="button"').style(
+                    "padding:9px 16px;font-size:13px;").on("click", _copy):
+                ui.label("Copy instructions")
+
+
 def render_page(s, rf):
     ff = _ff()
     C = ff.C
@@ -406,8 +575,13 @@ def render_page(s, rf):
     today = date.today()
     state = load_state()
     status = state["status"]
-    rows = all_rows()
+    rows = all_rows(state["found"])
     c = counts(rows, status, today)
+
+    def _open_scan():
+        import tm_targets_scan as sc
+        s._tmt_scan = sc.default_scan(s._tmt_market or "freight")
+        rf()
 
     def _set_status(k):
         st = load_state()
@@ -424,12 +598,24 @@ def render_page(s, rf):
 
     with ui.element("div").classes("tmt-wrap"):
         _css()
-        with ui.element("div").style("margin-bottom:14px;"):
-            ui.label("Target List").classes("fd-h1")
-            ui.label("US companies that already hire or employ Filipino staff, plus every "
-                     "company from your Buying Signals. Buying signals first, then the "
-                     "newest postings. Click a card's status to track it."
-                     ).classes("fd-sub")
+        with ui.element("div").style("margin-bottom:14px;display:flex;gap:16px;"
+                                     "justify-content:space-between;align-items:flex-start;"
+                                     "flex-wrap:wrap;"):
+            with ui.element("div").style("flex:1;min-width:260px;"):
+                ui.label("Target List").classes("fd-h1")
+                ui.label("US companies that already hire or employ Filipino staff, plus every "
+                         "company from your Buying Signals. Buying signals first, then the "
+                         "newest postings. Click a card's status to track it."
+                         ).classes("fd-sub")
+            if s._tmt_scan is None:
+                with ui.element("button").classes("fd-pb").props('type="button"').style(
+                        "padding:9px 18px;font-size:13px;display:inline-flex;gap:6px;"
+                        "align-items:center;").on("click", _open_scan):
+                    ui.icon("travel_explore").style("font-size:17px;")
+                    ui.label("Find more targets")
+
+        if s._tmt_scan is not None:
+            _scan_panel(s, rf, C, state["found"])
 
         with ui.element("div").classes("fd-stat-strip").style("margin:0 0 14px;"):
             for val, lbl, col in [
@@ -441,6 +627,11 @@ def render_page(s, rf):
                 with ui.element("div").classes("fd-stat-cell" + (" zero" if not val else "")):
                     ui.label(str(val)).classes("fd-sn").style(f"color:{col};")
                     ui.label(lbl).classes("fd-sl")
+
+        if state["scans"]:
+            import tm_targets_scan as sc
+            ui.label("Your recent scans: " + "  |  ".join(
+                sc.scan_line(x) for x in state["scans"][:3])).classes("tmt-scans")
 
         live = [r for r in rows if status.get(r["key"], "new") != "no_fit"]
         with ui.element("div").classes("tmt-pills"):

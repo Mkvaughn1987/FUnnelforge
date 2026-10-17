@@ -387,6 +387,11 @@ class DripDropClient:
             return await self._tm_get("clients")
         return await self._tm_post("clients", body)
 
+    async def tm_targets(self, body: dict | None = None, market: str = "") -> dict:
+        if not body:
+            return await self._tm_get("targets", {"market": market})
+        return await self._tm_post("targets", body)
+
     async def tm_companies(self, q: str = "", stage: str = "") -> dict:
         return await self._tm_get("companies", {"q": q, "stage": stage})
 

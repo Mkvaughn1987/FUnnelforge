@@ -929,6 +929,28 @@ async def tm_clients(action: str = "list", domain: str = "", name: str = "",
 
 
 @mcp.tool(description=(
+    "Target List: US companies that already employ Filipino staff. The "
+    "Target List page's Find more targets button opens a chat with scan "
+    "instructions that end in this tool. action='list' (default) with "
+    "market gives the names already on that market's list and the client "
+    "names (skip both), plus recent scans. action='add' with market, query "
+    "(the Indeed search used) and companies=[{name, hq, roles, years, "
+    "people, verified, size, note}, ...] (up to 200 per call) saves "
+    "companies found on Filipino resumes; each row is reported added or "
+    "skipped (already listed, a client, a vendor, a big firm). Markets: "
+    "freight, accounting, construction, manufacturing, staffing, other. "
+    "Save companies only, never a candidate's name or details."
+))
+async def tm_targets(action: str = "list", market: str = "", query: str = "",
+                     companies: list | None = None) -> dict:
+    if action != "add":
+        return await _tm_call("tm_targets", None, market)
+    return await _tm_call("tm_targets", {"action": "add", "market": market,
+                                         "query": query,
+                                         "companies": companies or []})
+
+
+@mcp.tool(description=(
     "Companies: every company the user has a contact at, rolled up from "
     "their contact lists with what the campaigns have done there: contacts, "
     "campaigns, emails sent and scheduled, replies, last activity, and the "

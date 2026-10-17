@@ -18,7 +18,7 @@ _NEW_TOOLS = ("tm_my_day", "tm_task_done", "tm_replies", "tm_contacts",
               "tm_campaign_contacts", "tm_campaign_action", "tm_send_preview",
               "tm_newsletters", "tm_newsletter_create", "tm_newsletter_issue",
               "tm_sales_assets", "tm_saved_prompts", "tm_clients",
-              "tm_settings", "tm_dnc")
+              "tm_settings", "tm_dnc", "tm_targets")
 
 _ROUTES = [  # (method, path, handler)
     ("get", "/api/v1/tm/tasks", "api_tm_tasks"),
@@ -37,6 +37,8 @@ _ROUTES = [  # (method, path, handler)
     ("get", "/api/v1/tm/saved_prompts", "api_tm_saved_prompts"),
     ("get", "/api/v1/tm/clients", "api_tm_clients"),
     ("post", "/api/v1/tm/clients", "api_tm_client_update"),
+    ("get", "/api/v1/tm/targets", "api_tm_targets"),
+    ("post", "/api/v1/tm/targets", "api_tm_targets_add"),
     ("get", "/api/v1/tm/settings", "api_tm_settings"),
     ("post", "/api/v1/tm/settings", "api_tm_settings_update"),
     ("get", "/api/v1/tm/dnc", "api_tm_dnc"),

@@ -9624,6 +9624,86 @@ async def api_tm_client_update(request: Request):
     return JSONResponse({"error": "action must be add or remove"}, status_code=400)
 
 
+@app.get("/api/v1/tm/targets")
+async def api_tm_targets(request: Request):
+    """Target List, for the Find more targets scan: ?market= gives the
+    company names already on that market's list (research + this user's
+    finds) and the client names, which a scan skips, plus recent scans."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    import tm_targets_data as _ttd
+    import tm_targets_scan as _tts
+    markets = dict(_ttd.MARKETS)
+    market = (request.query_params.get("market") or "").strip().lower()
+    if market and market not in markets:
+        return JSONResponse({"error": "market must be one of " + ", ".join(markets)},
+                            status_code=400)
+    state = _tm_targets_state()
+    out = {"markets": markets, "scans": state["scans"][:10],
+           "found": len(state["found"]),
+           "clients": _tts.client_names(load_client_blocklist(owner))}
+    if market:
+        out["market"] = market
+        out["on_list"] = _tts.known_names(market, state["found"])
+    return JSONResponse(out)
+
+
+@app.post("/api/v1/tm/targets")
+async def api_tm_targets_add(request: Request):
+    """Body: {"action": "add", "market", "query", "companies": [{name, hq,
+    roles, years, people, verified, size, note}, ...]}. Saves the companies
+    a Find more targets scan found to this user's Target List; companies
+    already listed, clients, vendors and big firms are skipped, each row
+    reported. Candidate details are not accepted."""
+    from starlette.responses import JSONResponse
+
+    owner = _tm_api_owner(request)
+    if not owner:
+        return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
+    _tm_api_bind(owner)
+    if not _is_thrivemodal():
+        return JSONResponse({"error": "not found"}, status_code=404)
+    body = await _tm_api_body(request)
+    if body is None:
+        return JSONResponse({"error": "body must be a JSON object"}, status_code=400)
+    import tm_targets_data as _ttd
+    import tm_targets_scan as _tts
+    if str(body.get("action") or "add").strip().lower() != "add":
+        return JSONResponse({"error": "action must be add"}, status_code=400)
+    market = str(body.get("market") or "").strip().lower()
+    if market not in dict(_ttd.MARKETS):
+        return JSONResponse({"error": "market must be one of "
+                             + ", ".join(dict(_ttd.MARKETS))}, status_code=400)
+    rows = body.get("companies")
+    if not isinstance(rows, list) or not rows:
+        return JSONResponse({"error": "companies must be a non-empty list"},
+                            status_code=400)
+    if len(rows) > _tts.MAX_ROWS_PER_CALL:
+        return JSONResponse({"error": f"at most {_tts.MAX_ROWS_PER_CALL} companies per call"},
+                            status_code=400)
+    clean, errors = _tts.clean_rows(rows, market)
+    import tm_targets as _tmt
+    state = _tm_targets_state()
+    res = _tts.add_found(state, clean, market, query=str(body.get("query") or "")[:300],
+                         clients=_tts.client_names(load_client_blocklist(owner)))
+    _tmt.save_state(state)
+    res["errors"] = errors
+    return JSONResponse(res)
+
+
+def _tm_targets_state():
+    """This user's tm_targets.json (status, found, scans). tm_targets needs
+    NiceGUI only for its page, so importing it here is fine."""
+    import tm_targets as _tmt
+    return _tmt.load_state()
+
+
 @app.get("/api/v1/tm/companies")
 async def api_tm_companies(request: Request):
     """Companies: the roll-up the Companies page shows. ?q= filters on name
@@ -23490,7 +23570,8 @@ _PAGE_LANDING = {
     "tm_signals":      (("_tms_fresh", True), ("_tms_msg", ""), ("_tms_open", "")),
     # Target List opens on all markets, no search, first page.
     "tm_targets":      (("_tmt_market", ""), ("_tmt_q", ""), ("_tmt_strong", False),
-                        ("_tmt_hidden", False), ("_tmt_limit", 60)),
+                        ("_tmt_hidden", False), ("_tmt_limit", 60),
+                        ("_tmt_scan", None), ("_tmt_role_in", "")),
     "pdf_gen":         (("_pdf_stage", "pick"), ("_pdf_selected", []),
                         ("_pdf_custom_intent", False), ("_pdf_custom_stage", "closed"),
                         ("_pdf_custom_outline", None), ("_pdf_custom_previewing", False),

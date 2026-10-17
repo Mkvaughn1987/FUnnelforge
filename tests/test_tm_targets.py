@@ -160,5 +160,21 @@ def test_counts(tmt):
 
 def test_state_round_trip_drops_unknown_status(tmt, tmp_path):
     tmt.save_state({"status": {"acme": "working", "bad": "zzz"}}, tmp_path)
-    assert tmt.load_state(tmp_path) == {"status": {"acme": "working"}}
-    assert tmt.load_state(tmp_path / "nope") == {"status": {}}
+    assert tmt.load_state(tmp_path) == {"status": {"acme": "working"}, "found": [], "scans": []}
+    assert tmt.load_state(tmp_path / "nope") == {"status": {}, "found": [], "scans": []}
+
+
+def test_state_keeps_found_rows_and_scans(tmt, tmp_path):
+    found = [_seed("Zed Freight LLC", kind="resume", found="2026-10-14"), {"no": "name"}]
+    tmt.save_state({"status": {}, "found": found, "scans": [{"date": "2026-10-14"}]}, tmp_path)
+    st = tmt.load_state(tmp_path)
+    assert [r["name"] for r in st["found"]] == ["Zed Freight LLC"]
+    assert st["scans"] == [{"date": "2026-10-14"}]
+
+
+def test_found_rows_say_when_found_and_sort_by_it(tmt):
+    assert tmt.age_label({"posted": "", "found": "2026-10-13", "when": "2025"}, TODAY) == "Found 3 days ago"
+    rows = tmt.build_rows([_seed("Old", "2026-08-01"),
+                           _seed("Fresh Find", kind="resume", found="2026-10-15"),
+                           _seed("Undated", tier="strong", when="2025")], [])
+    assert [r["name"] for r in tmt.sort_rows(rows)] == ["Fresh Find", "Old", "Undated"]
