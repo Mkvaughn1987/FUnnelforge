@@ -33754,6 +33754,11 @@ def _sc_css() -> str:
 .fd-sc-person .em a:hover{{text-decoration:underline}}
 .fd-sc-person .ph{{color:{C['muted']};white-space:nowrap}}
 .fd-sc-when{{color:{C['muted']};font-size:12px;white-space:nowrap}}
+.fd-sc-th{{cursor:pointer;user-select:none;white-space:nowrap}}
+.fd-sc-th:hover{{color:{C['teal']}}}
+.fd-sc-th .ar{{margin-left:5px;font-size:10px;color:{C['muted']};opacity:.6}}
+.fd-sc-th.on{{color:{C['teal']}}}
+.fd-sc-th.on .ar{{color:{C['teal']};opacity:1}}
 .fd-sc-reps{{font-size:11.5px;color:{C['text']};margin-top:3px}}
 .fd-sc-more{{margin:4px 0 0}}
 .fd-sc-more summary{{cursor:pointer;font-size:12px;color:{C['teal']};font-weight:600;list-style:none}}
@@ -33953,6 +33958,11 @@ def _shared_bank(owner: str) -> dict:
     return bank
 
 
+# Clickable column headers: (first click, second click) sort keys.
+_SC_SORT_COLS = {"company": ("name", "name_desc"), "person": ("person", "person_desc"),
+                 "when": ("newest", "oldest")}
+
+
 def p_shared_contacts(s, rf, zoominfo_open: bool = False):
     """Everyone the team has reached in any campaign or uploaded list, all
     time, grouped by company. People who replied no and anyone on a
@@ -34038,8 +34048,21 @@ def p_shared_contacts(s, rf, zoominfo_open: bool = False):
                 f'<div class="fd-sc-reps">{_esc(reps)}</div></td>'
                 f'<td>{people_html}</td>'
                 f'<td class="fd-sc-when">{_fmt(row["last_seen"])}</td></tr>')
+
+        def _th(label, col):
+            asc, desc = _SC_SORT_COLS[col]
+            on = f["sort"] in (asc, desc)
+            arrow = ("▲" if f["sort"] == asc else "▼") if on else "↕"
+            if col == "when" and on:
+                arrow = "▼" if f["sort"] == asc else "▲"
+            cls = "fd-sc-th on" if on else "fd-sc-th"
+            return (f'<th class="{cls}" title="Sort by {label.lower()}" '
+                    f'onclick="this.dispatchEvent(new CustomEvent(\'scsort\','
+                    f'{{detail:\'{col}\',bubbles:true}}))">{label}'
+                    f'<span class="ar">{arrow}</span></th>')
         return (f'<div class="fd-rc-tbl fd-sc-tbl"><table class="fd-tbl" style="table-layout:auto;width:100%;">'
-                f'<thead><tr><th>Company</th><th>People</th><th>Last reached</th>'
+                f'<thead><tr>{_th("Company", "company")}{_th("Name", "person")}'
+                f'{_th("Last contacted", "when")}'
                 f'</tr></thead><tbody>{body}</tbody></table></div>')
 
     with ui.element("div").classes("fd-sc"):
@@ -34112,7 +34135,10 @@ def p_shared_contacts(s, rf, zoominfo_open: bool = False):
                 search = ui.input(placeholder="Search a company, person, title, email or city").props(
                     "dense borderless clearable").classes("fd-input search")
                 sort_sel = ui.select(
-                    options={"newest": "Newest first", "most": "Most people", "name": "Company A–Z"},
+                    options={"newest": "Last contacted: newest", "oldest": "Last contacted: oldest",
+                             "name": "Company A–Z", "name_desc": "Company Z–A",
+                             "person": "Name A–Z", "person_desc": "Name Z–A",
+                             "most": "Most people"},
                     value="newest").classes("fd-input")
                 clear_btn = ui.element("button").classes("fd-rc-link quiet").props('type="button"')
                 with clear_btn:
@@ -34189,6 +34215,14 @@ def p_shared_contacts(s, rf, zoominfo_open: bool = False):
             sel.on_value_change(_on)
 
         _bind(state_sel, "state"); _bind(industry_sel, "industry"); _bind(sort_sel, "sort")
+
+        def _on_col_sort(e):
+            col = (getattr(e, "args", None) or {}).get("detail") or ""
+            if col not in _SC_SORT_COLS:
+                return
+            asc, desc = _SC_SORT_COLS[col]
+            sort_sel.set_value(desc if f["sort"] == asc else asc)
+        results.on("scsort", _on_col_sort, ["detail"])
 
         def _on_search(e):
             f["q"] = e.value or ""

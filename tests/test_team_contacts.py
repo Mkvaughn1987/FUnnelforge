@@ -164,6 +164,19 @@ def test_filter_sort_lookup_csv(tmp_path):
     assert [r["key"] for r in tcx.filter_rows(rows, q="fresno")] == ["acmefoods.com"]
     assert tcx.sort_rows(rows, "most")[0]["key"] == "gallowayus.com"
     assert tcx.sort_rows(rows, "name")[0]["company"] == "Acme Foods"
+    names = [r["company"] for r in tcx.sort_rows(rows, "name")]
+    assert [r["company"] for r in tcx.sort_rows(rows, "name_desc")] == names[::-1]
+    newest = [r["key"] for r in tcx.sort_rows(rows, "newest")]
+    oldest = [r["key"] for r in tcx.sort_rows(rows, "oldest")]
+    assert oldest[0] == newest[-1] and oldest[-1] == newest[0]
+    by_person = tcx.sort_rows(rows, "person")
+    firsts = [(r["contacts"][0]["name"] or r["contacts"][0]["email"]).lower() for r in by_person]
+    assert firsts == sorted(firsts)
+    for r in by_person:
+        ppl = [(c["name"] or c["email"]).lower() for c in r["contacts"]]
+        assert ppl == sorted(ppl)
+    assert tcx.sort_rows(rows, "person_desc")[0]["key"] == by_person[-1]["key"]
+    assert "Last contacted" in tcx.rows_csv(rows).splitlines()[0]
     assert tcx.facet_counts(rows, "state")["CO"] == 2  # Galloway + the Colorado newsletter's BuildCo
 
     hit = tcx.lookup(recs, "https://www.gallowayus.com/careers")

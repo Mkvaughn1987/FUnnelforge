@@ -446,11 +446,31 @@ def filter_rows(rows: list, rep: str = "", state: str = "", industry: str = "",
     return out
 
 
+def _person_key(c: dict) -> tuple:
+    nm = (c.get("name") or c.get("email") or "").strip().lower()
+    return (not nm, nm)
+
+
 def sort_rows(rows: list, how: str = "newest") -> list:
+    """newest/oldest = last contacted; name/name_desc = company;
+    person/person_desc = people A-Z inside each company, companies by
+    their first name; most = most people."""
     if how == "most":
         return sorted(rows, key=lambda r: (-len(r["contacts"]), r["company"].lower()))
-    if how == "name":
-        return sorted(rows, key=lambda r: r["company"].lower())
+    if how in ("name", "name_desc"):
+        return sorted(rows, key=lambda r: r["company"].lower(), reverse=how == "name_desc")
+    if how in ("person", "person_desc"):
+        desc = how == "person_desc"
+        named = [dict(r, contacts=sorted(r["contacts"], key=_person_key, reverse=desc))
+                 for r in rows]
+        has, rest = [], []
+        for r in named:
+            (has if r["contacts"] and not _person_key(r["contacts"][0])[0] else rest).append(r)
+        has.sort(key=lambda r: (_person_key(r["contacts"][0])[1], r["company"].lower()),
+                 reverse=desc)
+        return has + sorted(rest, key=lambda r: r["company"].lower())
+    if how == "oldest":
+        return sorted(rows, key=lambda r: (not r["last_seen"], r["last_seen"], r["company"].lower()))
     return sorted(rows, key=lambda r: (r["last_seen"], r["company"].lower()), reverse=True)
 
 
@@ -493,7 +513,7 @@ def rows_csv(rows: list) -> str:
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["Company", "Name", "Title", "Email", "Mobile", "Office phone", "LinkedIn",
-                "City", "State", "Reps", "Last reached", "Replied", "Campaigns"])
+                "City", "State", "Reps", "Last contacted", "Replied", "Campaigns"])
     for row in rows:
         for c in row["contacts"]:
             p = contact_public(c)
