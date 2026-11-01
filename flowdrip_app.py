@@ -6573,8 +6573,11 @@ def _get_or_create_jway_handoff_newsletter():
     cfg = load_config()
     sector = (cfg.get("company_industry") or cfg.get("market_sector")
               or "the market").strip() or "the market"
-    region = (cfg.get("market_region") or cfg.get("company_address")
-              or "the United States").strip() or "the United States"
+    # Never the company's street address: that is where the user sits, not
+    # the market the note is about (it rendered "7690 Treeridge Ct..." as
+    # the region of the Market Note, 2026-10-31).
+    region = (cfg.get("market_region") or "the United States").strip() \
+        or "the United States"
     company = (cfg.get("company_name") or "Our").strip() or "Our"
     name = f"{company} Market Note"
     # Avoid clashing with an existing campaign name.
@@ -8653,7 +8656,7 @@ async def api_tm_tasks(request: Request):
         row["campaign"] = t.get("sequence", "")
         out.append(row)
     return JSONResponse({
-        "date": (target or date.today()).isoformat(),
+        "date": (target or _user_today()).isoformat(),
         "count": len(out),
         "by_channel": {ch: sum(1 for t in out if t["channel"] == ch)
                        for ch in ("call", "li", "task")},
@@ -10457,6 +10460,7 @@ async def api_tm_campaign_edit(request: Request):
         elif action == "rename":
             old_path = camp.get("_path", "")
             camp["name"] = plan["name"]
+            _follow_campaign_rename(camp, name)
             save_campaign(camp)
             if old_path and camp.get("_path") and camp["_path"] != old_path:
                 delete_campaign(old_path)  # save_campaign wrote a new file
@@ -10629,7 +10633,9 @@ async def _tm_action_launch(camp, body, owner):
         camp["contacts"] = contacts
         camp["contact_count"] = len(contacts)
         old_path = camp.get("_path", "")
+        _prev_name = camp.get("name", "")
         camp["name"] = new_name
+        _follow_campaign_rename(camp, _prev_name)
         camp["status"] = "active"
         camp["start_date"] = start.isoformat()
         camp["unsubscribe_email"] = camp.get("_owner_email") or None
@@ -13392,7 +13398,7 @@ OVERDUE_WINDOW_DAYS = 7
 
 def build_drip_tasks(target_date=None):
     tasks = []
-    today = date.today()
+    today = _user_today()
     overdue_floor = today - timedelta(days=OVERDUE_WINDOW_DAYS)
     if target_date is None:
         target_date = today
@@ -16174,6 +16180,31 @@ def _filter_new_enrollees(camp: dict, contacts: list) -> list:
     return new
 
 
+def _follow_campaign_rename(camp: dict, old_name: str) -> None:
+    """Keep a renamed campaign's dependent names in step. A newsletter_name
+    that still equalled the old campaign name follows the new one; issue
+    step names and subjects that embed the old name ("March 2027 - Old",
+    "Old - March 2027") follow too. A masthead set by hand is left alone.
+
+    2026-10-31: "Logistics Love Story: The Phillipines" was renamed at launch
+    to "The Freight Desk, After Hours" and every unwritten issue still
+    carried the old name (misspelled, and a word the playbook bans from
+    subjects) as its subject."""
+    old = (old_name or "").strip()
+    new = (camp.get("name") or "").strip()
+    if not old or not new or old == new:
+        return
+    if (camp.get("newsletter_name") or "").strip() == old:
+        camp["newsletter_name"] = new
+    for st in camp.get("emails") or []:
+        if not isinstance(st, dict):
+            continue
+        for key in ("name", "subject"):
+            v = st.get(key) or ""
+            if isinstance(v, str) and old in v:
+                st[key] = v.replace(old, new)
+
+
 def _newsletter_enroll_start_options(camp: dict):
     """Return [(step_index, 'Month YYYY'), ...] for every issue from the
     next upcoming step through the last. Empty when the campaign has no
@@ -16183,7 +16214,7 @@ def _newsletter_enroll_start_options(camp: dict):
     steps = camp.get("emails", []) or []
     if not steps:
         return []
-    start_idx = _find_next_evergreen_step(camp)
+    start_idx = _evergreen_start_step_for_enrollee(camp)
     out = []
     for idx in range(start_idx, len(steps)):
         fx = (steps[idx].get("fixed_date") or "").strip()
@@ -17526,7 +17557,19 @@ _TITLE_ACRONYMS = {
     "AICB", "GC", "BD", "Q1", "Q2", "Q3", "Q4", "OEM", "OEMS", "SOC",
     "DIA", "ROI", "DEI", "AWS", "GCP", "MBA", "JD", "RFP", "RFQ", "EPC",
     "MEP", "LEED", "TI", "FDA", "OSHA", "DOT", "SOP",
+    # 2026-10-31: "Pm's Desk" and "Cpa Firm" shipped in newsletter subjects.
+    # The seats and industries ThriveModal sells into:
+    "CPA", "TMS", "AP", "AR", "GL", "KPI", "CSR", "EOR", "HMO", "VA", "RCM",
+    "HOA", "SDR", "BPO", "ERP", "CRM", "EDI", "LTL", "FTL", "DSO", "AEC",
+    "BIM", "VDC", "CAD", "QA", "IT", "HRIS", "PTO", "ATS", "SMB", "VP",
+    "SVP", "EVP", "CMO", "CIO", "CPO", "GM", "B2B", "B2C", "SLA", "BOL",
+    "CDL", "EHR", "EMR", "RN", "LPN", "UK", "EU",
 }
+
+# Acronyms that are also ordinary words. Only kept upper-case when the
+# writer already wrote them upper-case ("US freight" stays, "join us" does
+# not become "Join US").
+_TITLE_AMBIGUOUS_ACRONYMS = {"US", "IT", "CO"}
 
 def _title_case_subject(text: str) -> str:
     """Apply AP-style title case to an email subject.
@@ -17565,8 +17608,24 @@ def _title_case_subject(text: str) -> str:
             # Preserve merge fields and all-caps acronyms
             if tok.startswith("{") and tok.endswith("}"):
                 continue
-            if up in _TITLE_ACRONYMS:
-                tokens[i] = up
+            # A lone "s" after an apostrophe token (a curly-quote possessive
+            # tokenises as word + quote + s): keep it lower-case.
+            if lower == "s" and i > 0 and tokens[i - 1] in ("'", "\u2019"):
+                tokens[i] = "s"
+                continue
+            # Possessive and plural acronyms: Pm's -> PM's, Cpas -> CPAs.
+            core, suffix = tok, ""
+            if tok.endswith("'s") or tok.endswith("'S"):
+                core, suffix = tok[:-2], "'s"
+            cu = core.upper()
+            if cu in _TITLE_ACRONYMS and (cu not in _TITLE_AMBIGUOUS_ACRONYMS
+                                          or core == cu):
+                tokens[i] = cu + suffix
+                continue
+            if (len(cu) > 2 and cu.endswith("S")
+                    and cu[:-1] in _TITLE_ACRONYMS
+                    and cu[:-1] not in _TITLE_AMBIGUOUS_ACRONYMS):
+                tokens[i] = cu[:-1] + "s" + suffix
                 continue
             # If the original has internal capitals (iPhone, McDonald's, IoT),
             # leave it alone  -  reshaping would mangle proper nouns.
@@ -18276,6 +18335,16 @@ def _user_tz(cfg: dict = None):
         return ZoneInfo(_user_tz_name(cfg))
     except ZoneInfoNotFoundError:
         return ZoneInfo(_DEFAULT_USER_TZ)
+
+
+def _user_today(cfg: dict = None):
+    """Today's date on the user's own clock (their saved timezone), not the
+    server's UTC clock. At 6:45pm in Denver the server is already on
+    tomorrow; My Day and the task builder must not be (2026-10-31)."""
+    try:
+        return datetime.now(_user_tz(cfg)).date()
+    except Exception:
+        return date.today()
 
 
 def _naive_local_to_utc(naive_local_dt, cfg: dict = None):
@@ -35655,7 +35724,7 @@ def _find_next_evergreen_step(camp: dict) -> int:
     except Exception:
         start_dt = date.today()
 
-    today = date.today()
+    today = _user_today()
     cumulative_delay = 0
     for idx, step in enumerate(steps):
         cumulative_delay += step.get("delay_days", 0)
@@ -35682,9 +35751,46 @@ def _find_next_evergreen_step(camp: dict) -> int:
     return len(steps)
 
 
+_CURRENT_ISSUE_GRACE_DAYS = 14
+
+
+def _evergreen_start_step_for_enrollee(camp: dict) -> int:
+    """First issue a NEW enrollee should receive.
+
+    _find_next_evergreen_step skips every issue dated before today. For a
+    newsletter that means someone enrolled on the 11th misses the issue
+    dated the 1st even though it is this month's issue and is written. Found
+    2026-10-31: "The Freight Desk, After Hours" launched 2026-10-11 with its
+    October issue dated 2026-10-01; 65 contacts were queued from November on
+    and never got issue 1.
+
+    Rule: if the issue just before the next upcoming one is dated within the
+    last _CURRENT_ISSUE_GRACE_DAYS days and has a written body, start there;
+    queue_campaign_emails rolls its past date forward to the next business
+    day. Otherwise behave exactly as before."""
+    steps = camp.get("emails", []) or []
+    nxt = _find_next_evergreen_step(camp)
+    if nxt <= 0 or nxt > len(steps):
+        return nxt
+    prev = steps[nxt - 1] if isinstance(steps[nxt - 1], dict) else {}
+    fd = (prev.get("fixed_date") or "").strip()
+    if not fd:
+        return nxt
+    try:
+        age = (_user_today() - date.fromisoformat(fd)).days
+    except Exception:
+        return nxt
+    if not 0 <= age <= _CURRENT_ISSUE_GRACE_DAYS:
+        return nxt
+    body = (prev.get("body") or "").strip()
+    if not body or "[AI:" in body:
+        return nxt
+    return nxt - 1
+
+
 def _count_skipped_evergreen_steps(camp: dict) -> int:
     """Count how many steps will be skipped for a new enrollee (dates in past)."""
-    return _find_next_evergreen_step(camp)
+    return _evergreen_start_step_for_enrollee(camp)
 
 
 def _is_evergreen_completed(camp: dict) -> bool:
@@ -35915,8 +36021,9 @@ def enroll_contact_in_evergreen(contact: dict, evergreen_camp: dict) -> str:
     evergreen_camp.setdefault("contacts", []).append(contact)
     evergreen_camp["contact_count"] = len([c for c in evergreen_camp["contacts"] if not c.get("removed")])
 
-    # Queue only upcoming emails  -  skip steps that already sent
-    next_step = _find_next_evergreen_step(evergreen_camp)
+    # Queue only upcoming emails  -  skip steps that already sent, but a
+    # written issue from the last two weeks still goes out (see helper).
+    next_step = _evergreen_start_step_for_enrollee(evergreen_camp)
     temp = copy.deepcopy(evergreen_camp)
     temp["contacts"] = [contact]
     queue_campaign_emails(temp, start_step=next_step)
@@ -68088,7 +68195,28 @@ def _clean_profile_value(key: str, value) -> str:
     else:
         val = re.sub(r"[ \t]+", " ", val)
         val = re.sub(r"\n{3,}", "\n\n", val)
-    return val[:limit]
+    if len(val) <= limit or kind == "long":
+        return val[:limit]
+    return _trim_to_sentence(val, limit)
+
+
+def _trim_to_sentence(text: str, limit: int) -> str:
+    """Cut `text` to at most `limit` characters at a sentence end when one
+    falls in the back 60% of the budget, else at a word boundary, so a
+    capped field never ends mid-thought. The auto-filled tagline used to be
+    sliced at exactly 200 characters: "...No placement fee, " (2026-10-31)."""
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    best = -1
+    for m in re.finditer(r"[.!?](?=\s|$)", head):
+        best = m.end()
+    if best >= limit * 0.4:
+        return head[:best].rstrip()
+    cut = head.rfind(" ")
+    if cut < limit * 0.4:
+        cut = limit
+    return head[:cut].rstrip(" ,;:-")
 
 
 def _clean_company_profile(profile: dict) -> dict:

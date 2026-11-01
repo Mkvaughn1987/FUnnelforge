@@ -1,0 +1,3 @@
+# Nightly data backup for the instance (see deploy/dripdrop-backup.sh).
+# 03:15 UTC = 8:15pm Denver, after the day's sends and before the 04:17 queue prune.
+15 3 * * * root /usr/local/bin/dripdrop-backup.sh >> /var/log/dripdrop-backup.log 2>&1
