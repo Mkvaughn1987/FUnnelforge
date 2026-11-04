@@ -228,6 +228,10 @@ class Catalogue:
     connector_how: str = ""
     review_page: str = ""
     review_label: str = ""
+    # Optional hook: own_campaign(s, rf) opens the app's own step-by-step
+    # "Create my own campaign" walkthrough. Set, the landing page shows a
+    # card for it above the jobs; None (inboxslide's) shows nothing.
+    own_campaign: object = None
 
 
 SEQUENCES = ["Arena 5x7", "Arena 5x5", "Arena 5x3", "Arena 4x4",
@@ -3323,7 +3327,25 @@ def render_page(s, rf, cat):
             _aip_confirm(s, rf, C)
         else:
             _how_it_works()
+            if cat.own_campaign:
+                _own_campaign_card(s, rf, C, cat.own_campaign)
             _aip_ask(s, rf, C)
+
+
+def _own_campaign_card(s, rf, C, open_it):
+    """For people who would rather write the campaign themselves: one card
+    into the app's walkthrough, where AI helps only where they ask."""
+    with _card(C, C["teal"]):
+        with ui.element("div").style(
+                "display:flex;align-items:center;gap:16px;flex-wrap:wrap;"):
+            with ui.element("div").style("flex:1;min-width:220px;"):
+                _text("Create my own campaign", C, 15, 700, C["text_l"], 2)
+                _text("Rather write it yourself? Pick your steps, write them "
+                      "in your words (or ask AI for a hand), add your own "
+                      "candidates and launch. It saves as a style you can "
+                      "run again from your AI.", C, 12, colour=C["muted"])
+            _btn("Create my own campaign", lambda: open_it(s, rf),
+                 primary=True, icon="arrow_forward")
 
 
 def _tile_groups():

@@ -5548,8 +5548,12 @@ def _validate_campaign_spec(spec: dict):
         sp_ = spec.get("selling_points")
         if sp_ is not None and not isinstance(sp_, (list, str)):
             return "'selling_points' must be a list of strings or one string."
-    elif not (spec.get("company") or "").strip() and not (spec.get("niche") or "").strip():
-        return "Provide at least one of 'company' or 'niche'."
+    elif (not (spec.get("company") or "").strip()
+          and not (spec.get("niche") or "").strip()
+          and not (spec.get("style_id") or "").strip()):
+        # A saved style already says what the emails are about, and
+        # {Company} comes from each contact.
+        return "Provide at least one of 'company' or 'niche' (or a 'style_id')."
     if tmpl == "clientlookalike":
         if not str(spec.get("source_company") or "").strip():
             return ("Template 'clientlookalike' needs 'source_company': the "
@@ -6592,6 +6596,7 @@ def _api_create_campaign_blocking(client, spec, owner):
     template = spec["template"].strip()
     byos_desc = (spec.get("byos_desc") or "").strip()
     style_id = (spec.get("style_id") or "").strip()
+    own_style = None
     if style_id:
         _style = next((s for s in _load_my_campaign_styles()
                         if s.get("id") == style_id), None)
@@ -6599,6 +6604,10 @@ def _api_create_campaign_blocking(client, spec, owner):
             return {"error": f"unknown style_id '{style_id}'", "status": 400}
         template = "byos"
         byos_desc = (_style.get("description") or "").strip()
+        # Made with "Create my own campaign": send its own steps (My words
+        # as typed, AI polish lightly tidied), not an AI rewrite of them.
+        if _style.get("kind") == "own" and _style.get("steps"):
+            own_style = _style
     if template == "findcandidates":
         # Recipients ARE the candidates: no company research, no slate, no
         # résumés. One opening in, one short sequence out.
@@ -6630,6 +6639,23 @@ def _api_create_campaign_blocking(client, spec, owner):
         return {"error": f"candidate linking error: {le}", "status": 500}
     if link_err:
         return {"error": link_err, "status": 400}
+    if own_style is not None:
+        try:
+            if cards:
+                cards = _enrich_candidate_cards(client, cards)
+            emails = _own_campaign_emails(own_style["steps"], cards,
+                                          tone=own_style.get("tone") or "",
+                                          client=client)
+        except Exception as ge:
+            return {"error": f"generation error: {ge}", "status": 500}
+        refs = _candidate_refs(cards)
+        campaign_data = {"emails": emails, "synopsis": "",
+                         "campaign_name": own_style.get("name") or "My campaign"}
+        if refs:
+            campaign_data["candidate_refs"] = refs
+        warnings = _unlinked_card_warnings(cards) if cards and _ats_allowed(owner) else []
+        return {"template": template, "campaign_data": campaign_data, "emails": emails,
+                "candidate_refs": refs, "candidate_warnings": warnings}
     try:
         campaign_data = generate_aicb_campaign(
             client,
@@ -11783,6 +11809,10 @@ def _sidebar_layout_css() -> str:
   cursor:pointer;font-family:inherit;box-shadow:0 1px 2px rgba(0,0,0,.08);transition:filter .12s,transform .12s}}
 .fd-side-cta:hover{{filter:brightness(1.06)}}
 .fd-side-cta:active{{transform:translateY(1px)}}
+.fd-side-cta2{{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:36px;
+  margin-top:8px;border-radius:10px;border:1px solid {C['teal']};background:transparent;color:{C['teal']};
+  font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;transition:background .12s}}
+.fd-side-cta2:hover,.fd-side-cta2.on{{background:{C['teal_dim']}}}
 .fd-aistart-card{{display:flex;align-items:center;gap:16px;max-width:860px;padding:18px 20px;margin-bottom:22px;
   background:{C['card']};border:1px solid {C['teal']};border-left:4px solid {C['teal']};
   border-radius:0 12px 12px 0;cursor:pointer}}
@@ -11897,6 +11927,7 @@ def _sidebar_layout_css() -> str:
   .fd-ws{{width:auto;flex:1;min-width:0}}
   .fd-ws-sub{{display:none}}
   .fd-side-cta{{width:auto;padding:0 14px;height:38px}}
+  .fd-side-cta2{{display:none}}
   .fd-side-nav{{flex-direction:row;flex-wrap:wrap;gap:2px;padding:0 10px 8px;overflow:visible}}
   .fd-side-sec{{display:none}}
   .fd-side-row{{height:36px;padding:0 10px}}
@@ -13461,11 +13492,21 @@ class AppState:
         # longer used by this flow, but are left in place since
         # _render_sb_save_card/_sb_build_prompt/_sb_parse_campaign are
         # also left in place, unused, for reference.
-        self.sb_wiz_step: int = 1      # 1=counts, 2=sequence&timing, 3=author, 4=name&save
+        self.sb_wiz_step: int = 1      # 1=counts, 2=sequence&timing, 3=author, 4=candidates, 5=name&build
         self.sb_count_email: int = 3
         self.sb_count_call: int = 1
         self.sb_count_linkedin: int = 1
         self.sb_style_name: str = ""
+        # 2026-11-04 "Create my own campaign": Step 4 candidates (cards in
+        # the aicb card shape) and Step 5's build into a real campaign.
+        self.sb_cands: list = []
+        self.sb_cand_tab: str = "pipeline"   # pipeline / resume / quick
+        self.sb_cand_q: str = ""
+        self.sb_cand_busy: bool = False
+        self.sb_cand_err: str = ""
+        self.sb_building: bool = False
+        self.sb_build_err: str = ""
+        self.sb_built_camp: dict = {}
 
         # Candidate Placement Campaign state
         self.cpc_step = 0              # 0=review, 1=generating, 2=done
@@ -15001,6 +15042,14 @@ def _sidebar_v2(s: AppState, rf):
                     'type="button" data-tour="nav-ai_prompts"').on("click", lambda: _go("ai_prompts")):
                 ui.html(_svg_icon("ai_prompts", 18))
                 ui.label("Start with AI")
+            # 2026-11-04: the user's own steps and words, walked through
+            # in the app (p_seq_builder), right under Start with AI.
+            with ui.element("button").classes(
+                    "fd-side-cta2" + (" on" if page == "seq_builder" else "")).props(
+                    'type="button" data-tour="nav-own_campaign"').on(
+                    "click", lambda: _open_own_campaign(s, rf)):
+                ui.html(_svg_icon("pen", 16))
+                ui.label(OWN_CAMPAIGN_TITLE)
 
         # ── Grouped navigation ──
         with ui.element("nav").classes("fd-side-nav"):
@@ -21277,6 +21326,23 @@ STEP_TYPE_OPTIONS = [
 # dict and literals), so this is behavior-identical to the old
 # function-local definition — same list, same single call site below.
 CHOOSER_OPTIONS = [
+    # 2026-11-04: first card. "Create my own campaign" walks the user
+    # through their own steps and ends in a real campaign (p_seq_builder).
+    {
+        "key": "scratch",
+        "icon": "✏️",
+        "title": "Create my own campaign",
+        "subtitle": "Your steps, your words, a little AI help",
+        "desc": ("Pick how many emails, calls and LinkedIn touches you "
+                 "want, set the order and spacing, then write each step "
+                 "yourself or ask AI to draft it. Send each one in your "
+                 "words or with a light AI polish, add your own "
+                 "candidates, then choose contacts and launch. It also "
+                 "saves as a Campaign Style you can run again here or "
+                 "from ChatGPT or Claude."),
+        "best_for": ["Your own templates", "Your own candidates", "Personal voice"],
+        "border": "#F59E0B",
+    },
     {
         "key": "client",
         "icon": "🎯",
@@ -21385,19 +21451,6 @@ CHOOSER_OPTIONS = [
         "best_for": ["Resume drafts", "Repeat outreach", "Proven cadences"],
         "border": "#60A5FA",
     },
-    {
-        "key": "scratch",
-        "icon": "✏️",
-        "title": "Create a Campaign Style",
-        "subtitle": "A guided, step-by-step way to build a reusable style",
-        "desc": ("Pick how many emails, calls, and LinkedIn touches you "
-                 "want, set the order and spacing, then write each step "
-                 "yourself or have AI draft it into the same box for you "
-                 "to edit. Save it as a Campaign Style you can launch "
-                 "any time from My Campaign Styles."),
-        "best_for": ["Hand-crafted outreach", "Personal voice", "Non-standard cadences"],
-        "border": "#F59E0B",
-    },
 ]
 
 def _sq_pick(s, rf):
@@ -21427,7 +21480,7 @@ def _sq_pick(s, rf):
             "Working a vertical or region? Target a Market. "
             "Working a specific role? Find Candidates. "
             "Re-running something that worked? Saved Campaigns. "
-            "Want full manual control? Create a Campaign Style."
+            "Want to write it yourself? Create my own campaign."
         ).style(
             f"font-size:12px;color:{C['muted']};margin-bottom:24px;line-height:1.55;"
             f"font-style:italic;")
@@ -31438,6 +31491,8 @@ def _sb_compile_style_description(steps: list, tone: str) -> str:
                  f"after step {_i - 1}")
         _content = (_st.get("input") or "").strip()
         _lines.append(f"Step {_i} — {_label}, {_when}:")
+        if (_st.get("subject") or "").strip():
+            _lines.append(f"Subject: {_st['subject'].strip()}")
         _lines.append(_content)
         _lines.append("")
     return "\n".join(_lines).strip()
@@ -31468,13 +31523,19 @@ def p_seq_builder(s: AppState, rf):
     if not isinstance(s.sb_steps, list):
         s.sb_steps = []
 
-    # Header + back (Step 1's "Back" leaves to the chooser; Steps 2-4
+    # Header + back (Step 1's "Back" leaves to the chooser; Steps 2-5
     # step back one wizard step at a time).
     with ui.element("div").style(
             "display:flex;align-items:center;justify-content:space-between;"
             "margin-bottom:14px;max-width:920px;"):
-        ui.label("Create a Campaign Style").classes("fd-h1")
+        with ui.element("div"):
+            ui.label(OWN_CAMPAIGN_TITLE).classes("fd-h1")
+            ui.label(
+                "Your steps, your words. AI helps only where you ask it to."
+            ).classes("fd-sub")
         def _back():
+            if s.sb_building:
+                return
             if s.sb_wiz_step > 1:
                 s.sb_wiz_step -= 1
             else:
@@ -31483,12 +31544,14 @@ def p_seq_builder(s: AppState, rf):
             rf()
         with ui.element("button").classes("fd-gb").style(
                 "padding:6px 14px;font-size:11px;").on("click", _back):
-            ui.label("← Back to Campaign Styles" if s.sb_wiz_step <= 1
+            ui.label("← Back to New Campaign" if s.sb_wiz_step <= 1
                       else "← Back")
 
-    # Step progress strip
-    _wiz_labels = ["1. Counts", "2. Sequence & timing",
-                   "3. Write each step", "4. Name & save"]
+    # Step progress strip. 6 and 7 happen on the campaign's own Choose
+    # Contacts / Preview Campaign screens once Step 5 builds it.
+    _wiz_labels = ["1. Touches", "2. Order & timing", "3. Write each step",
+                   "4. Candidates", "5. Name & build",
+                   "6. Choose contacts", "7. Preview & launch"]
     with ui.element("div").style(
             "display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px;"
             "max-width:920px;"):
@@ -31510,8 +31573,10 @@ def p_seq_builder(s: AppState, rf):
             _render_sb_step2_timing(s, rf)
         elif s.sb_wiz_step == 3:
             _render_sb_step3_author(s, rf)
+        elif s.sb_wiz_step == 4:
+            _render_sb_step4_candidates(s, rf)
         else:
-            _render_sb_step4_save(s, rf)
+            _render_sb_step5_build(s, rf)
 
 
 def _sb_step1_build_steps(s: AppState) -> None:
@@ -31545,6 +31610,8 @@ def _sb_step1_build_steps(s: AppState) -> None:
             "type": _t,
             "delay_days": _delay,
             "input": "",
+            "subject": "",         # emails only
+            "voice": "mine",       # own_campaign.VOICE_MINE / VOICE_POLISH
             "mode": "write",       # "write" or "ai"
             "ai_prompt": "",
             "_drafting": False,
@@ -31819,6 +31886,25 @@ def _render_sb_step3_author(s: AppState, rf):
                                 ).on("click", _pick_mode):
                             ui.label(_mlabel).style("pointer-events:none;")
 
+                if _stype == "email":
+                    _first_email = not any(
+                        st.get("type", "email") == "email" for st in _steps[:_i])
+                    _subj_in = ui.input(
+                        value=_st.get("subject", ""),
+                        placeholder=("Subject line, e.g. Quick question, {FirstName}"
+                                     if _first_email else
+                                     "Subject line (leave blank to reply in the same thread)"),
+                    ).style(
+                        f"width:100%;background:{C['bg']};"
+                        f"border:1px solid {C['border']};border-radius:6px;"
+                        f"padding:4px 8px;color:{C['text_l']};font-size:12px;"
+                        f"margin-bottom:8px;")
+                    def _save_subj(sid=_sid, inp=_subj_in):
+                        for _s2 in s.sb_steps:
+                            if _s2["id"] == sid:
+                                _s2["subject"] = (inp.value or "").strip()
+                    _subj_in.on("blur", _save_subj)
+
                 if _mode == "ai":
                     _prompt_in = ui.textarea(
                         value=_st.get("ai_prompt", ""),
@@ -31921,10 +32007,60 @@ def _render_sb_step3_author(s: AppState, rf):
                     rf()
                 _content_in.on("blur", _save_content)
                 if not (_st.get("input") or "").strip():
-                    ui.label("(empty — Save is blocked until every step "
-                             "has content)").style(
+                    ui.label("(empty: every step needs something in it "
+                             "before you can build the campaign)").style(
                         f"font-size:10px;color:{C['muted']};"
                         f"font-style:italic;margin-top:2px;")
+
+                # How this step goes out: exactly as typed, or lightly
+                # polished by AI once when the campaign is built.
+                _voice = _st.get("voice") or "mine"
+                with ui.element("div").style(
+                        "display:flex;gap:8px;align-items:center;"
+                        "flex-wrap:wrap;margin-top:8px;"):
+                    ui.label("Send it as:").style(
+                        f"font-size:11px;color:{C['muted']};")
+                    for _v, _vlabel in (("mine", "My words"),
+                                         ("polish", "AI polish")):
+                        _is_sel = _voice == _v
+                        def _pick_voice(sid=_sid, v=_v):
+                            for _s2 in s.sb_steps:
+                                if _s2["id"] == sid:
+                                    _s2["voice"] = v
+                            rf()
+                        with ui.element("button").style(
+                                f"padding:4px 12px;font-size:11px;"
+                                f"border-radius:99px;cursor:pointer;"
+                                f"font-family:inherit;font-weight:600;"
+                                f"background:{C['teal'] if _is_sel else C['bg']};"
+                                f"color:{'#0D1520' if _is_sel else C['text']};"
+                                f"border:1px solid "
+                                f"{C['teal'] if _is_sel else C['border']};"
+                                ).on("click", _pick_voice):
+                            ui.label(_vlabel).style("pointer-events:none;")
+                    if _stype == "email" and "{Candidates}" not in (_st.get("input") or ""):
+                        def _insert_cands(sid=_sid):
+                            for _s2 in s.sb_steps:
+                                if _s2["id"] == sid:
+                                    _s2["input"] = ((_s2.get("input") or "").rstrip()
+                                                    + "\n\n{Candidates}").lstrip()
+                            rf()
+                        with ui.element("button").classes("fd-gb").style(
+                                "padding:4px 12px;font-size:11px;margin-left:auto;"
+                                ).on("click", _insert_cands):
+                            ui.label("＋ Insert candidate list").style(
+                                "pointer-events:none;")
+                ui.label(
+                    "My words goes out exactly as you typed it."
+                    if _voice == "mine" else
+                    "AI tidies the wording once when you build the campaign. "
+                    "You see the result before anything sends."
+                ).style(f"font-size:10px;color:{C['muted']};margin-top:4px;")
+
+        ui.label(
+            "Fill-ins: {FirstName}  {LastName}  {Company}  {JobTitle}  "
+            "{Candidates} (the candidates you add in the next step)"
+        ).style(f"font-size:11px;color:{C['muted']};margin-top:4px;")
 
     def _next():
         s.sb_wiz_step = 4
@@ -31933,33 +32069,433 @@ def _render_sb_step3_author(s: AppState, rf):
             f"padding:14px 28px;font-size:15px;width:100%;"
             f"justify-content:center;display:flex;border-radius:10px;"
             ).on("click", _next):
-        ui.label("Next: Name & save →").style("pointer-events:none;")
+        ui.label("Next: Candidates →").style("pointer-events:none;")
 
 
-def _render_sb_step4_save(s: AppState, rf):
-    _steps = s.sb_steps or []
-    _empty_steps = [
-        _i + 1 for _i, _st in enumerate(_steps)
-        if not (_st.get("input") or "").strip()
-    ]
-    _all_filled = bool(_steps) and not _empty_steps
+# ── Create my own campaign (2026-11-04): Steps 4 + 5 and the shared build ──
+# The walkthrough above (p_seq_builder) now ends in a real draft campaign,
+# handed to the campaign's own Choose Contacts / Preview Campaign screens,
+# and saves the steps themselves on the Campaign Style so a later launch
+# (in-app or style_id over the API / MCP) sends the user's own words.
+OWN_CAMPAIGN_TITLE = "Create my own campaign"
+_OWN_MAX_CANDS = 5
+_OWN_POLISH_MODEL = "claude-haiku-4-5-20251001"
+_OWN_RESUME_EXTS = (".pdf", ".docx", ".doc", ".txt", ".rtf")
+_OWN_MAX_RESUME_BYTES = 10 * 1024 * 1024
+
+
+def _open_own_campaign(s, rf):
+    """Start the walkthrough fresh. The sidebar button, the New Campaign
+    card and the AI Prompts card all come through here."""
+    try:
+        s._nav_history.append(_nav_snapshot(s))
+    except Exception:
+        pass
+    _reset_wizard_state(s)
+    s.loaded_camp = None
+    s.hub = "sales"
+    s.sp = "seq_builder"
+    rf()
+
+
+def _own_polish_text(text: str, step_type: str, tone: str = "",
+                     client=None) -> str:
+    """One "AI polish" step: the user's text, lightly tidied. Raises on an
+    AI error; own_campaign.build_emails then sends the user's own text."""
+    import own_campaign as _oc
+    if client is None:
+        import anthropic as _anth
+        client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
+    msg = _claude_create_with_retry(
+        client, model=_OWN_POLISH_MODEL, max_tokens=900,
+        messages=[{"role": "user",
+                   "content": _oc.polish_prompt(text, step_type, tone)}])
+    raw = "".join(b.text for b in msg.content if hasattr(b, "text"))
+    return _strip_dashes(_strip_ai_signoff(raw.strip()))
+
+
+def _own_campaign_emails(steps, cards, tone="", client=None) -> list:
+    """Campaign steps from the user's own steps: My words as typed, AI polish
+    through _own_polish_text, {Candidates} filled with the linked cards."""
+    import own_campaign as _oc
+    polish = None
+    if any(_oc.voice_of(st) == _oc.VOICE_POLISH for st in steps or []):
+        if ANTHROPIC_API_KEY or client is not None:
+            polish = lambda text, t: _own_polish_text(text, t, tone, client)
+    emails = _oc.build_emails(steps, cards, polish=polish)
+    _ensure_candidate_refs_in_emails(emails, cards)
+    return emails
+
+
+def _own_save_style(name: str, steps: list, tone: str) -> str:
+    """Save (or replace, by name) the user's own Campaign Style with its
+    steps. Returns the style id. `description` stays filled so every older
+    reader of My Campaign Styles keeps working."""
+    import own_campaign as _oc
+    styles = _load_my_campaign_styles()
+    row = {
+        "id": str(uuid.uuid4()),
+        "name": name,
+        "description": _sb_compile_style_description(steps, tone),
+        "created_at": datetime.now().isoformat(),
+        "kind": "own",
+        "tone": tone or "",
+        "steps": _oc.style_steps(steps),
+    }
+    for i, old in enumerate(styles):
+        if old.get("kind") == "own" and (old.get("name") or "") == name:
+            row["id"] = old.get("id") or row["id"]
+            row["created_at"] = old.get("created_at") or row["created_at"]
+            styles[i] = row
+            break
+    else:
+        styles.append(row)
+    _save_my_campaign_styles(styles)
+    return row["id"]
+
+
+def _own_card_from_resume(filename: str, data: bytes) -> dict:
+    """A candidate card from one uploaded résumé: real name kept on the card
+    (so it links to / adds a Pipeline record at build) but the label the
+    email shows is first name + last initial, and the bullets carry no
+    PII. Raises ValueError when the file has no readable text."""
+    import ats as _ats
+    text = _ats._extract_file_text(data, filename)
+    if len(text or "") < 80:
+        raise ValueError("Couldn't read any text in that file. Try a PDF or Word copy.")
+    d = _ats._ai_parse_resume(text) or {}
+    first = (d.get("first_name") or "").strip()
+    last = (d.get("last_name") or "").strip()
+    client = None
+    if ANTHROPIC_API_KEY:
+        import anthropic as _anth
+        client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
+    role = (d.get("current_title") or "").strip()
+    title, bullets = _ai_card_bullets_from_resume(client, text, role=role)
+    return {
+        "name": " ".join(p for p in (first, last) if p),
+        "label": _ats.real_name_label(first, last) or "Candidate",
+        "role": role or title,
+        "email": (d.get("email") or "").strip(),
+        "phone": (d.get("phone") or "").strip(),
+        "state": (d.get("state") or "").strip(),
+        "resume_text": text,
+        "bullets": bullets[:3],
+        "_enriched": bool(bullets),
+        "_src": "resume",
+    }
+
+
+def _sb_cand_add(s, card) -> bool:
+    if len(s.sb_cands or []) >= _OWN_MAX_CANDS:
+        ui.notify(f"You can add up to {_OWN_MAX_CANDS} candidates.", type="warning")
+        return False
+    s.sb_cands = list(s.sb_cands or []) + [card]
+    return True
+
+
+def _render_sb_step4_candidates(s: AppState, rf):
+    import ats as _ats
+    _owner = getattr(s, "_user_email", "") or ""
+    try:
+        _ats_ok = _ats_allowed(_owner)
+    except Exception:
+        _ats_ok = False
+    _tabs = ([("pipeline", "From my Pipeline")] if _ats_ok else []) + [
+        ("resume", "Upload a résumé"), ("quick", "Type one in")]
+    if s.sb_cand_tab not in [k for k, _ in _tabs]:
+        s.sb_cand_tab = _tabs[0][0]
+    _cards = s.sb_cands or []
 
     with ui.element("div").classes("fd-gc").style("margin-bottom:18px;"):
-        ui.label("4. Name & save").style(
+        ui.label("4. Add candidates (optional)").style(
             f"font-size:14px;font-weight:700;color:{C['text_l']};"
             f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
         ui.label(
-            f"{len(_steps)} steps. Give this Campaign Style a name — "
-            f"you'll find it under My Campaign Styles and can launch "
-            f"it any time."
+            "Pitching specific people? Add up to 5. They go wherever you put "
+            "{Candidates} in your emails, as first name + last initial with a "
+            "Ref # (e.g. Travis K. (Ref #1042)), never their full name. Not "
+            "pitching anyone? Skip this step."
         ).style(
             f"font-size:11px;color:{C['muted']};margin-bottom:14px;"
             f"line-height:1.5;")
 
-        ui.label("Style name").classes("fd-fl")
+        if _cards:
+            for _ci, _c in enumerate(_cards):
+                with ui.element("div").style(
+                        f"background:{C['surface']};border:1px solid {C['border']};"
+                        f"border-radius:8px;padding:8px 12px;margin-bottom:6px;"
+                        f"display:flex;gap:10px;align-items:flex-start;"):
+                    with ui.element("div").style("flex:1;min-width:0;"):
+                        ui.label(
+                            (_c.get("name") or _c.get("label") or "Candidate")
+                            + (f" · {_c['role']}" if _c.get("role") else "")
+                        ).style(f"font-size:12px;font-weight:700;color:{C['text_l']};")
+                        for _b in (_c.get("bullets") or [])[:3]:
+                            ui.label(f"• {_b}").style(
+                                f"font-size:11px;color:{C['muted']};line-height:1.5;")
+                    def _rm(i=_ci):
+                        s.sb_cands = [c for j, c in enumerate(s.sb_cands or []) if j != i]
+                        rf()
+                    with ui.element("button").classes("fd-gb").style(
+                            "padding:3px 10px;font-size:11px;").on("click", _rm):
+                        ui.label("Remove").style("pointer-events:none;")
+
+        with ui.element("div").style(
+                "display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 12px;"):
+            for _k, _lbl in _tabs:
+                _sel = s.sb_cand_tab == _k
+                def _pick_tab(k=_k):
+                    s.sb_cand_tab = k
+                    s.sb_cand_err = ""
+                    rf()
+                with ui.element("button").style(
+                        f"padding:5px 12px;font-size:11px;border-radius:99px;"
+                        f"cursor:pointer;font-family:inherit;font-weight:600;"
+                        f"background:{C['teal'] if _sel else C['bg']};"
+                        f"color:{'#0D1520' if _sel else C['text']};"
+                        f"border:1px solid {C['teal'] if _sel else C['border']};"
+                        ).on("click", _pick_tab):
+                    ui.label(_lbl).style("pointer-events:none;")
+
+        if s.sb_cand_err:
+            ui.label(f"⚠ {s.sb_cand_err}").style(
+                f"font-size:11px;color:{C['danger']};margin-bottom:8px;")
+
+        if s.sb_cand_tab == "pipeline":
+            with ui.element("div").style("display:flex;gap:8px;margin-bottom:10px;"):
+                _q_in = ui.input(value=s.sb_cand_q,
+                                 placeholder="Name, title or skill, e.g. project manager").style(
+                    f"flex:1;background:{C['bg']};border:1px solid {C['border']};"
+                    f"border-radius:6px;padding:4px 8px;color:{C['text_l']};font-size:12px;")
+                def _search(inp=_q_in):
+                    s.sb_cand_q = (inp.value or "").strip()
+                    rf()
+                _q_in.on("keydown.enter", _search)
+                with ui.element("button").classes("fd-gb").style(
+                        "padding:5px 14px;font-size:11px;").on("click", _search):
+                    ui.label("Search").style("pointer-events:none;")
+            if s.sb_cand_q:
+                try:
+                    _hits = _ats.keyword_search(s.sb_cand_q, limit=12) or []
+                except Exception as _se:
+                    print(f"[own] pipeline search failed: {_se}", flush=True)
+                    _hits = []
+                _have = {c.get("_ats_id") for c in _cards if c.get("_ats_id")}
+                if not _hits:
+                    ui.label("No one in the Pipeline matches that. Try another "
+                             "word, or upload their résumé.").style(
+                        f"font-size:11px;color:{C['muted']};")
+                with ui.element("div").style(
+                        "display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));"
+                        "gap:8px;"):
+                    for _h in _hits:
+                        _hid = _h.get("id")
+                        _on = _hid in _have
+                        def _add(h=_h):
+                            _nm = " ".join(p for p in (h.get("first_name"), h.get("last_name")) if p) \
+                                or (h.get("name") or "")
+                            if _sb_cand_add(s, {
+                                    "name": _nm,
+                                    "label": _ats.real_name_label(h.get("first_name") or "",
+                                                                  h.get("last_name") or "") or "Candidate",
+                                    "role": h.get("current_title") or "",
+                                    "bullets": _pool_card_bullets_no_location(
+                                        {"summary": h.get("summary") or ""}),
+                                    "_ats_id": _hid, "_src": "pipeline"}):
+                                rf()
+                        with ui.element("button").style(
+                                f"padding:10px;text-align:left;cursor:pointer;font-family:inherit;"
+                                f"background:{(C['teal'] + '15') if _on else 'transparent'};"
+                                f"border:1px solid {C['teal'] if _on else C['border']};"
+                                f"border-radius:8px;{'pointer-events:none;' if _on else ''}"
+                                ).on("click", _add):
+                            ui.label(_h.get("name") or " ".join(
+                                p for p in (_h.get("first_name"), _h.get("last_name")) if p)
+                                or "Candidate").style(
+                                f"font-size:12px;font-weight:700;color:{C['text_l']};")
+                            ui.label((_h.get("current_title") or "")
+                                     + ("  ✓ added" if _on else "")).style(
+                                f"font-size:11px;color:{C['muted']};")
+
+        elif s.sb_cand_tab == "resume":
+            ui.label(
+                "PDF or Word. AI reads it, writes 3 highlights and leaves out "
+                "their contact details and current employer. They're added to "
+                "your Pipeline when you build the campaign."
+            ).style(f"font-size:11px;color:{C['muted']};margin-bottom:8px;")
+            if s.sb_cand_busy:
+                with ui.element("div").style("display:flex;align-items:center;gap:8px;"):
+                    ui.spinner("dots", size="20px", color=C["teal"])
+                    ui.label("Reading the résumé…").style(
+                        f"font-size:11px;color:{C['teal']};")
+            else:
+                async def _on_resume(e):
+                    if not getattr(e, "file", None):
+                        return
+                    _fname = e.file.name or "resume.pdf"
+                    if not _fname.lower().endswith(_OWN_RESUME_EXTS):
+                        s.sb_cand_err = "Upload a PDF, Word or text file."
+                        rf(); return
+                    try:
+                        _data = await e.file.read()
+                    except Exception:
+                        s.sb_cand_err = "Upload failed. Try again."
+                        rf(); return
+                    if not _data or len(_data) > _OWN_MAX_RESUME_BYTES:
+                        s.sb_cand_err = "That file is empty or over 10 MB."
+                        rf(); return
+                    if len(s.sb_cands or []) >= _OWN_MAX_CANDS:
+                        s.sb_cand_err = f"You can add up to {_OWN_MAX_CANDS} candidates."
+                        rf(); return
+                    s.sb_cand_busy = True
+                    s.sb_cand_err = ""
+                    rf()
+
+                    def _run():
+                        try:
+                            _card = _own_card_from_resume(_fname, _data)
+                            if len(s.sb_cands or []) < _OWN_MAX_CANDS:
+                                s.sb_cands = list(s.sb_cands or []) + [_card]
+                        except ValueError as _ve:
+                            s.sb_cand_err = str(_ve)
+                        except Exception as _ex:
+                            s.sb_cand_err = _friendly_ai_error(_ex)
+                        finally:
+                            s.sb_cand_busy = False
+                    _run_as_user(_owner, _run, name="own_resume_worker")
+
+                    async def _poll():
+                        while s.sb_cand_busy:
+                            await asyncio.sleep(1)
+                        rf()
+                    asyncio.ensure_future(_poll())
+                ui.upload(on_upload=_on_resume, auto_upload=True,
+                          label="＋ Upload a résumé").props(
+                    'accept=".pdf,.doc,.docx,.txt,.rtf" flat color="teal"')
+
+        else:
+            _fields = {}
+            with ui.element("div").style(
+                    "display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));"
+                    "gap:8px;margin-bottom:8px;"):
+                for _key, _ph in (("name", "Full name (required)"),
+                                  ("role", "Title, e.g. Senior Project Manager"),
+                                  ("email", "Email (optional)"),
+                                  ("phone", "Phone (optional)")):
+                    _fields[_key] = ui.input(placeholder=_ph).style(
+                        f"background:{C['bg']};border:1px solid {C['border']};"
+                        f"border-radius:6px;padding:4px 8px;color:{C['text_l']};font-size:12px;")
+            _fields["bullets"] = ui.textarea(
+                placeholder="Highlights, one per line (up to 3): a skill, a "
+                            "project, a company they've worked for").style(
+                f"width:100%;min-height:60px;background:{C['bg']};"
+                f"border:1px solid {C['border']};border-radius:6px;padding:6px 8px;"
+                f"color:{C['text_l']};font-size:12px;font-family:inherit;margin-bottom:8px;")
+            def _quick_add(f=_fields):
+                _nm = (f["name"].value or "").strip()
+                if len(_nm.split()) < 1 or not _nm:
+                    s.sb_cand_err = "Add their name first."
+                    rf(); return
+                _parts = _nm.split(None, 1) + [""]
+                _bul = [b.strip(" -•\t") for b in (f["bullets"].value or "").splitlines()
+                        if b.strip(" -•\t")][:3]
+                s.sb_cand_err = ""
+                if _sb_cand_add(s, {
+                        "name": _nm,
+                        "label": _ats.real_name_label(_parts[0], _parts[1]) or "Candidate",
+                        "role": (f["role"].value or "").strip(),
+                        "email": (f["email"].value or "").strip(),
+                        "phone": (f["phone"].value or "").strip(),
+                        "bullets": [_strip_dashes(b) for b in _bul],
+                        "_enriched": True, "_src": "quick"}):
+                    rf()
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:5px 14px;font-size:11px;").on("click", _quick_add):
+                ui.label("＋ Add candidate").style("pointer-events:none;")
+
+    def _next():
+        if s.sb_cand_busy:
+            return
+        s.sb_wiz_step = 5
+        rf()
+    with ui.element("button").classes("fd-pb").style(
+            f"padding:14px 28px;font-size:15px;width:100%;"
+            f"justify-content:center;display:flex;border-radius:10px;"
+            ).on("click", _next):
+        ui.label("Next: Name & build →" if _cards else
+                 "Skip: no candidates for this one →").style("pointer-events:none;")
+
+
+def _own_build_worker(s, owner: str, name: str) -> None:
+    """Step 5's background work: link + enrich the candidates, write the
+    emails (polishing only the AI polish steps), save the style with its
+    steps, save the draft campaign. Leaves the campaign on sb_built_camp or
+    a message on sb_build_err; always clears sb_building."""
+    try:
+        client = None
+        if ANTHROPIC_API_KEY:
+            import anthropic as _anth
+            client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
+        cards = list(s.sb_cands or [])
+        if cards:
+            cards, _ = _link_candidate_cards(cards, owner, strict=False)
+            cards = _enrich_candidate_cards(client, cards)
+        emails = _own_campaign_emails(s.sb_steps, cards, tone=s.sb_tone,
+                                      client=client)
+        style_id = _own_save_style(name, s.sb_steps, s.sb_tone)
+        camp = dict(
+            schema=2, name=name,
+            template_key="__own__", template_name=OWN_CAMPAIGN_TITLE,
+            start_date=_add_business_days(date.today(), 1).isoformat(),
+            contacts=[], contact_count=0, contact_emails=[],
+            emails=emails, variables={},
+            status="draft", responders=[],
+            created_date=date.today().isoformat(),
+            _owner_email=owner, own_style_id=style_id,
+        )
+        refs = _candidate_refs(cards)
+        if refs:
+            camp["candidate_refs"] = refs
+        save_campaign(camp)
+        s.sb_built_camp = camp
+    except Exception as e:
+        print(f"[own] build failed: {type(e).__name__}: {e}", flush=True)
+        s.sb_build_err = _friendly_ai_error(e)
+    finally:
+        s.sb_building = False
+
+
+def _render_sb_step5_build(s: AppState, rf):
+    import own_campaign as _oc
+    _steps = s.sb_steps or []
+    _missing = _oc.missing_content(_steps)
+    _cards = s.sb_cands or []
+    _n_polish = sum(1 for st in _steps if _oc.voice_of(st) == _oc.VOICE_POLISH)
+    _no_slot = bool(_cards) and not _oc.uses_candidates(_steps)
+    _ok = bool(_steps) and not _missing and not s.sb_building
+
+    with ui.element("div").classes("fd-gc").style("margin-bottom:18px;"):
+        ui.label("5. Name & build").style(
+            f"font-size:14px;font-weight:700;color:{C['text_l']};"
+            f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
+        ui.label(
+            f"{len(_steps)} steps, {len(_cards)} candidate"
+            f"{'s' if len(_cards) != 1 else ''}. "
+            + (f"{_n_polish} step{'s' if _n_polish != 1 else ''} get AI polish; "
+               f"the rest go out in your words. " if _n_polish else
+               "Every step goes out in your words. ")
+            + "Next you pick who it goes to and see each email before it "
+              "starts. The steps also save as a Campaign Style with this name, "
+              "so you can run it again here or from ChatGPT or Claude."
+        ).style(
+            f"font-size:11px;color:{C['muted']};margin-bottom:14px;"
+            f"line-height:1.5;")
+
+        ui.label("Campaign name").classes("fd-fl")
         _name_in = ui.input(
             value=s.sb_style_name,
-            placeholder="e.g. Warm Intro + 3 Follow-ups",
+            placeholder="e.g. CPA Outreach",
         ).style(
             f"width:100%;background:{C['bg']};"
             f"border:1px solid {C['border']};border-radius:6px;"
@@ -31968,42 +32504,86 @@ def _render_sb_step4_save(s: AppState, rf):
         _name_in.on("blur", lambda: setattr(
             s, "sb_style_name", (_name_in.value or "").strip()))
 
-        if not _all_filled:
-            _list = ", ".join(str(n) for n in _empty_steps)
+        if _missing:
+            _list = ", ".join(str(n) for n in _missing)
             ui.label(
-                f"⚠ Step{'s' if len(_empty_steps) != 1 else ''} "
-                f"{_list} still need content — go back to Step 3."
+                f"Step{'s' if len(_missing) != 1 else ''} {_list} still "
+                f"need{'' if len(_missing) != 1 else 's'} writing (the first "
+                f"email needs a subject line too). Want to go back to Step 3?"
             ).style(f"font-size:11px;color:{C['warn']};margin-top:4px;")
+        if _no_slot:
+            _idx = _oc.first_email_index(_steps)
+            with ui.element("div").style(
+                    "display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:6px;"):
+                ui.label("None of your emails has a spot for the candidates yet.").style(
+                    f"font-size:11px;color:{C['warn']};")
+                if _idx is not None:
+                    _email_no = sum(1 for st in _steps[:_idx + 1]
+                                    if st.get("type", "email") == "email")
+                    def _place(i=_idx):
+                        s.sb_steps[i]["input"] = ((s.sb_steps[i].get("input") or "").rstrip()
+                                                  + "\n\n" + _oc.CANDIDATES_TOKEN).lstrip()
+                        rf()
+                    with ui.element("button").classes("fd-gb").style(
+                            "padding:3px 10px;font-size:11px;").on("click", _place):
+                        ui.label(f"Put them in email {_email_no}").style(
+                            "pointer-events:none;")
+        if s.sb_build_err:
+            ui.label(f"⚠ {s.sb_build_err}").style(
+                f"font-size:11px;color:{C['danger']};margin-top:6px;")
 
-    def _save(inp=_name_in):
-        if not _all_filled:
+    if s.sb_building:
+        with ui.element("div").style(
+                "display:flex;align-items:center;gap:10px;justify-content:center;"
+                "padding:14px;"):
+            ui.spinner("dots", size="24px", color=C["teal"])
+            ui.label("Building your campaign…").style(
+                f"font-size:13px;color:{C['teal']};")
+        return
+
+    def _build(inp=_name_in):
+        if not _ok:
             return
-        _final_name = (inp.value or "").strip() or "Untitled Campaign Style"
-        _desc = _sb_compile_style_description(s.sb_steps, s.sb_tone)
-        _styles = _load_my_campaign_styles()
-        _styles.append({
-            "id": str(uuid.uuid4()),
-            "name": _final_name,
-            "description": _desc,
-            "created_at": datetime.now().isoformat(),
-        })
-        _save_my_campaign_styles(_styles)
-        ui.notify(
-            f'Saved "{_final_name}" — find it under My Campaign Styles.',
-            type="positive")
-        _reset_wizard_state(s)
-        s.sp = "start_seq"
-        s._tab = ""
+        _name = (inp.value or "").strip() or "My campaign"
+        s.sb_style_name = _name
+        s.sb_building = True
+        s.sb_build_err = ""
+        s.sb_built_camp = {}
         rf()
+        _owner = getattr(s, "_user_email", "") or ""
+        _run_as_user(_owner, lambda: _own_build_worker(s, _owner, _name),
+                     name="own_build_worker")
+
+        async def _poll():
+            while s.sb_building:
+                await asyncio.sleep(1)
+            _camp = s.sb_built_camp or {}
+            if _camp:
+                _cache_campaigns.invalidate()
+                _reset_wizard_state(s)
+                s.loaded_camp = _camp
+                s.loaded_view = "contacts"
+                s.loaded_tab = 0
+                s.launch_result = None
+                s.hub = "sales"
+                s.sp = "start_seq"
+                s._tab = "custom"
+                try:
+                    ui.notify(f'"{_camp.get("name")}" is ready. Pick who it goes to.',
+                              type="positive")
+                except Exception:
+                    pass
+            rf()
+        asyncio.ensure_future(_poll())
 
     with ui.element("button").classes("fd-pb").style(
             f"padding:14px 28px;font-size:15px;width:100%;"
             f"justify-content:center;display:flex;border-radius:10px;"
-            f"{'opacity:0.4;pointer-events:none;' if not _all_filled else ''}"
-            ).on("click", _save):
+            f"{'opacity:0.4;pointer-events:none;' if not _ok else ''}"
+            ).on("click", _build):
         ui.label(
-            "Save Campaign Style →" if _all_filled else
-            "Fill in every step to save"
+            "Build my campaign →" if _ok else
+            "Finish every step to build it"
         ).style("pointer-events:none;")
 
 

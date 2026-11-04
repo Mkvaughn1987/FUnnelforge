@@ -1541,6 +1541,7 @@ STAFFING = dataclasses.replace(
     recommend=recommend_staffing,
     checklist=checklist_staffing,
     prefill=prefill_staffing,
+    own_campaign=lambda s, rf: _e._ff()._open_own_campaign(s, rf),
 )
 
 

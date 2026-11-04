@@ -181,7 +181,11 @@ async def create_campaign(spec: dict) -> dict:
         (ISO date, or omitted/"auto" for the upcoming Monday), start_time
         (clock time like "8:00 AM" for the first email; omit to keep the
         template's time),
-        enroll_newsletter (newsletter name to also enroll contacts into).
+        enroll_newsletter (newsletter name to also enroll contacts into),
+        style_id (the id of one of the user's saved styles from
+        my_campaign_styles, with template "byos"; company/niche are then
+        optional. A style of kind "own" goes out in the user's own words
+        and puts any candidates where its {Candidates} spot is).
 
         For template "findcandidates": contacts are the candidates to
         reach (their business emails, with company, title and both phone
@@ -340,7 +344,13 @@ async def campaign_types() -> dict:
     description=(
         "List the authenticated DripDrop user's own saved custom \"My "
         "Campaign Styles\" (bring-your-own-style descriptions created in "
-        "the app). Read-only, tenant-scoped to the caller."
+        "the app). Read-only, tenant-scoped to the caller. A style with "
+        "kind \"own\" was made with Create my own campaign: its steps are "
+        "the user's own emails, call scripts and LinkedIn messages. Launch "
+        "any style with create_campaign, template \"byos\" and its id as "
+        "style_id; an own style then sends the user's words as written "
+        "(only steps they marked \"polish\" are lightly tidied), so do not "
+        "rewrite or summarise them."
     )
 )
 async def my_campaign_styles() -> dict:
