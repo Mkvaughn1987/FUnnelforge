@@ -28,6 +28,18 @@ _STEP_TYPES = {"email": "email_auto", "call": "call", "linkedin": "linkedin"}
 _STEP_NAMES = {"email": "Email", "call": "Call", "linkedin": "LinkedIn"}
 
 FIRST_SUBJECT_FALLBACK = "Quick question, {FirstName}"
+
+# One of the five main Sales Asset PDFs can go out with any email after the
+# first. It is written for a role, a place and an industry, so a step that
+# carries one asks for those three like any other fill-in.
+PDF_KINDS = {
+    "market_pulse": "Market Pulse",
+    "interview_guide": "Interview Guide",
+    "salary_guide": "Salary Guide",
+    "scorecard": "Role Scorecard",
+    "why_staffing": "Why Use a Staffing Firm",
+}
+PDF_FILLINS = ("Role", "Location", "Industry")
 DEFAULT_TIME = "8:00 AM"
 
 
@@ -36,10 +48,13 @@ def voice_of(step) -> str:
     return v if v in VOICES else VOICE_MINE
 
 
-def candidate_block(cards) -> str:
+CANDIDATE_BULLETS = 3
+
+
+def candidate_block(cards, bullets: bool = True) -> str:
     """Plain-text candidate list for an email: one line per candidate, then
-    their highlight bullets. Uses the card label ('Travis K.') and Ref #
-    exactly as linked; never a real full name."""
+    (with `bullets`) a 3-bullet summary of each. Uses the card label
+    ('Travis K.') and Ref # exactly as linked; never a real full name."""
     out = []
     for c in cards or []:
         if not isinstance(c, dict):
@@ -50,8 +65,9 @@ def candidate_block(cards) -> str:
             label = f"{label} ({ref})"
         role = (c.get("role") or "").strip()
         lines = [f"{label}, {role}" if role else label]
-        lines += [f"  • {b.strip()}" for b in (c.get("bullets") or [])
-                  if isinstance(b, str) and b.strip()]
+        if bullets:
+            lines += [f"  • {b.strip()}" for b in (c.get("bullets") or [])
+                      if isinstance(b, str) and b.strip()][:CANDIDATE_BULLETS]
         out.append("\n".join(lines))
     return "\n\n".join(out)
 
@@ -88,10 +104,55 @@ def missing_content(steps) -> list:
     return bad
 
 
+def step_problem(steps, i, values=None):
+    """What step i still needs before the campaign can be saved, or None:
+    "body" (nothing written), "subject" (the first email has no subject
+    line) or ("fillin", name) for a fill-in used here with no value yet."""
+    steps = steps or []
+    st = steps[i] or {}
+    if not (st.get("input") or "").strip():
+        return "body"
+    if (st.get("type", "email") == "email"
+            and not (st.get("subject") or "").strip()
+            and not any((x or {}).get("type", "email") == "email"
+                        for x in steps[:i])):
+        return "subject"
+    values = values or {}
+    need = [n for n in step_fillins(steps, i)
+            if not str(values.get(n) or "").strip()]
+    return ("fillin", need[0]) if need else None
+
+
+def step_names(steps) -> list:
+    """'Email 1', 'Call 1', 'Email 2'...: what each step is called on the
+    page and in the built campaign."""
+    counts, out = {}, []
+    for st in steps or []:
+        t = (st or {}).get("type")
+        t = t if t in _STEP_TYPES else "email"
+        counts[t] = counts.get(t, 0) + 1
+        out.append(f"{_STEP_NAMES[t]} {counts[t]}")
+    return out
+
+
+def pdf_plan(steps) -> list:
+    """(step index, kind) for each email that carries a PDF. Never the
+    first email, and only the five known kinds."""
+    out, seen_email = [], False
+    for i, st in enumerate(steps or []):
+        st = st or {}
+        if (st.get("type") or "email") != "email":
+            continue
+        if seen_email and st.get("pdf") in PDF_KINDS:
+            out.append((i, st["pdf"]))
+        seen_email = True
+    return out
+
+
 def style_steps(steps) -> list:
     """The saved shape of the walkthrough's steps: only what a later launch
     needs, none of the page's working fields (_drafting, ai_prompt...)."""
-    out = []
+    out, pdfs = [], dict(pdf_plan(steps))
     for i, st in enumerate(steps or []):
         st = st or {}
         t = st.get("type") if st.get("type") in _STEP_TYPES else "email"
@@ -102,10 +163,12 @@ def style_steps(steps) -> list:
             "input": (st.get("input") or "").strip(),
             "voice": voice_of(st),
         })
+        if i in pdfs:
+            out[-1]["pdf"] = pdfs[i]
     return out
 
 
-def build_emails(steps, cards=None, polish=None) -> list:
+def build_emails(steps, cards=None, polish=None, cand_bullets=True) -> list:
     """Campaign steps (the dicts save_campaign / queue_campaign_emails read)
     from the walkthrough's or a saved style's steps.
 
@@ -113,7 +176,7 @@ def build_emails(steps, cards=None, polish=None) -> list:
     `polish(text, step_type)` first; if polish is None or fails, the
     user's own text is sent rather than nothing. {Candidates} becomes the
     candidate list after polishing (an empty string with no cards)."""
-    block = candidate_block(cards)
+    block = candidate_block(cards, bullets=cand_bullets)
     out, counts, prev_subject = [], {}, ""
     for i, st in enumerate(style_steps(steps)):
         t = st["type"]
@@ -212,14 +275,26 @@ def clean_fillin_name(raw) -> str:
 
 
 def fillins(steps) -> list:
-    """Fill-in names used across the steps, in first-seen order. Merge
-    fields and {Candidates} are not fill-ins."""
+    """Fill-in names the steps ask for, in first-seen order: the tokens in
+    the text, then what an attached PDF needs. Merge fields and
+    {Candidates} are not fill-ins."""
     seen = []
     for st in steps or []:
         for f in _TEXT_FIELDS:
             for name in _TOKEN_RE.findall((st or {}).get(f) or ""):
                 if name not in _RESERVED and name not in seen:
                     seen.append(name)
+    if pdf_plan(steps):
+        seen += [n for n in PDF_FILLINS if n not in seen]
+    return seen
+
+
+def step_fillins(steps, i) -> list:
+    """What step i on its own asks for: its tokens, plus the PDF's three
+    when it carries one."""
+    seen = fillins([(steps or [])[i]])
+    if i in dict(pdf_plan(steps)):
+        seen += [n for n in PDF_FILLINS if n not in seen]
     return seen
 
 

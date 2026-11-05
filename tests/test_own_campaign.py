@@ -180,14 +180,33 @@ def test_walkthrough_state_and_entry_points():
     assert '_sidebar_nav(s, rf, "ai_prompts", setup)' in dlg
     assert "_open_own_campaign(s, rf)" in dlg
     builder = inspect.getsource(fa.p_seq_builder)
-    assert "_render_sb_step2_write" in builder and "_render_sb_step3_save" in builder
-    assert "_render_sb_saved" in builder and "_render_sb_use" in builder
-    # order, timing, words and candidates share one page
-    write = inspect.getsource(fa._render_sb_step2_write)
-    assert "sb-steps-list" in write and "_render_sb_cands_panel(s, rf" in write
-    assert "Have AI draft it" in write and "Ask AI" not in write
+    assert "_render_sb_start(s, rf)" in builder and "_render_sb_step_page(s, rf)" in builder
+    assert "_render_sb_step3_save" in builder and "_render_sb_use" in builder
+    # it opens on "Start campaign", never "Write your campaign"
+    assert '"1. Start campaign"' in builder
+    assert "Write your campaign" not in inspect.getsource(fa)
+    start = inspect.getsource(fa._render_sb_start)
+    assert '"Start campaign"' in start and "What should the first step be?" in start
+    assert "_render_sb_saved(s, rf)" in start
+    assert [c[0] for c in fa._SB_START_CARDS] == ["email", "call", "linkedin"]
+    # one step per screen, each explained, with exactly two AI options
+    page = inspect.getsource(fa._render_sb_step_page)
+    assert "_SB_STEP_ABOUT[" in page and set(fa._SB_STEP_ABOUT) == {
+        "email_first", "email", "call", "linkedin"}
+    assert "Tell AI what you want" in page and "Polish with AI" in page
+    assert "Have AI draft it" not in page and "Ask AI" not in page
+    assert "What comes next?" in page and "_render_sb_cands(s, rf, step_id=_sid)" in page
+    # a fill-in is asked for on the step that uses it
+    assert "_draw_fills()" in page and "_own_fillin_ask(_n)" in page
+    assert fa._own_fillin_ask("Competitors") == "Which competitors do you want to name?"
+    assert "Client tier" in fa._own_fillin_ask("ClientTier")
     # reordering is plain buttons: the site CSP blocks CDN scripts
-    assert "_move(" in write and "Sortable" not in inspect.getsource(fa)
+    assert "_move(" in page and "Sortable" not in inspect.getsource(fa)
+    # one button adds candidates from the Pipeline; the summary is a choice
+    cands = inspect.getsource(fa._render_sb_cands)
+    assert "＋ Add candidates" in cands and '" from Pipeline"' in cands
+    assert "Include a 3-bullet summary of each candidate" in cands
+    assert s.sb_cand_bullets is True and s.sb_cand_open is False and s.sb_cur == 0
 
 
 def test_build_hands_off_to_choose_contacts():
@@ -383,3 +402,120 @@ def test_two_different_details_never_share_a_fillin():
                                "firms. {FirstName}, meet {FirstName}.")
     assert oc.fillin_label("Role2") == "Role 2"
     assert oc.fillin_label("CurrentClients") == "Current clients"
+
+
+# ── One step per screen (2026-11-04): candidates summary, problems, PDFs ──
+
+def test_candidate_summary_is_three_bullets_or_none():
+    cards = [{"label": "Travis K.", "ref": "Ref #1042", "role": "Senior Accountant",
+              "bullets": ["one", "two", "three", "four"]}]
+    on = oc.candidate_block(cards)
+    assert on.count("•") == 3 and "four" not in on
+    assert oc.candidate_block(cards, bullets=False) == (
+        "Travis K. (Ref #1042), Senior Accountant")
+    out = oc.build_emails(_steps(), cards, cand_bullets=False)
+    assert "Travis K. (Ref #1042), Senior Accountant" in out[1]["body"]
+    assert "•" not in out[1]["body"]
+
+
+def test_step_problem_says_what_one_step_still_needs():
+    st = [{"type": "call", "input": "Call {FirstName} about {Competitors}."},
+          {"type": "email", "subject": "", "input": "Hi"},
+          {"type": "email", "subject": "", "input": ""}]
+    assert oc.step_names(st) == ["Call 1", "Email 1", "Email 2"]
+    assert oc.step_problem(st, 0) == ("fillin", "Competitors")
+    assert oc.step_problem(st, 0, {"Competitors": "Trane"}) is None
+    assert oc.step_problem(st, 1) == "subject"      # the first email
+    assert oc.step_problem(st, 2) == "body"
+    st[2]["input"] = "Following up."
+    assert oc.step_problem(st, 2) is None           # later emails thread
+
+
+def _with_pdf():
+    st = _steps()
+    st[0]["pdf"] = "salary_guide"      # the first email never carries one
+    st[1]["pdf"] = "salary_guide"
+    st[2]["pdf"] = "market_pulse"      # a call cannot carry one
+    return st + [{"type": "email", "input": "Last one.", "pdf": "not_a_kind"}]
+
+
+def test_a_pdf_rides_on_any_email_but_the_first():
+    st = _with_pdf()
+    assert oc.pdf_plan(st) == [(1, "salary_guide")]
+    assert list(oc.PDF_KINDS) == ["market_pulse", "interview_guide", "salary_guide",
+                                  "scorecard", "why_staffing"]
+    saved = oc.style_steps(st)
+    assert [x.get("pdf") for x in saved] == [None, "salary_guide", None, None]
+    # the PDF is written about a role, a place and an industry: asked like
+    # any other fill-in, on the step that carries it
+    assert oc.fillins(st) == ["Role", "Location", "Industry"]
+    assert oc.fillins(_steps()) == []
+    assert oc.step_fillins(st, 1) == ["Role", "Location", "Industry"]
+    assert oc.step_fillins(st, 0) == []
+    assert oc.step_problem(st, 1, {"Role": "CPAs"}) == ("fillin", "Location")
+
+
+def test_pdfs_are_built_once_per_kind_and_attached(monkeypatch):
+    import flowdrip_app as fa
+    st = _with_pdf()
+    st[3]["pdf"] = "salary_guide"
+    st.append({"type": "email", "input": "PS", "pdf": "scorecard"})
+    emails = oc.build_emails(st, [])
+    seen = []
+
+    def fake(client, kind, values, owner_email=""):
+        seen.append((kind, values["Role"], owner_email))
+        if kind == "scorecard":
+            raise RuntimeError("no credit")
+        return f"{kind}.pdf"
+    monkeypatch.setattr(fa, "_own_build_pdf", fake)
+    missed = fa._own_attach_pdfs(emails, st, {"Role": "CPAs"}, object(), "a@b.com")
+    assert seen == [("salary_guide", "CPAs", "a@b.com"), ("scorecard", "CPAs", "a@b.com")]
+    assert [e["attachments"] for e in emails] == [
+        [], ["salary_guide.pdf"], [], ["salary_guide.pdf"], []]
+    assert missed == ["Email 4: Role Scorecard"]
+    assert [c[0] for c in fa._OWN_PDF_CARDS] == list(oc.PDF_KINDS)
+    page = inspect.getsource(fa._render_sb_step_page)
+    assert "if _first_email:" in page and "_render_sb_pdf(s, rf, _st)" in page
+    worker = inspect.getsource(fa._own_build_worker)
+    assert "_own_attach_pdfs(emails, steps, values, client, owner)" in worker
+    assert "if bullets:" in worker
+
+
+def test_api_own_style_with_a_pdf_asks_what_it_covers(monkeypatch):
+    style = {"id": "s4", "name": "Guide", "description": "d", "kind": "own",
+             "tone": "", "cand_bullets": False, "steps": oc.style_steps(_with_pdf())}
+    fa = _api(monkeypatch, style)
+    built = []
+    monkeypatch.setattr(fa, "_own_build_pdf",
+                        lambda client, kind, values, owner_email="":
+                        built.append(dict(values)) or "Salary_Guide_CPAs_Denver.pdf")
+    def no_enrich(*a, **k):
+        raise AssertionError("no summary wanted, so no résumé mining")
+    monkeypatch.setattr(fa, "_enrich_candidate_cards", no_enrich)
+    spec = {"template": "byos", "style_id": "s4", "candidates": _cards()}
+    res = fa._api_create_campaign_blocking(object(), dict(spec), "a@b.com")
+    assert res["status"] == 400 and "Role, Location, Industry" in res["error"]
+    given = {"Role": "CPAs", "Location": "Denver", "Industry": "accounting"}
+    res = fa._api_create_campaign_blocking(object(), dict(spec, fill_ins=given), "a@b.com")
+    emails = res["emails"]
+    assert emails[0]["attachments"] == []
+    assert emails[1]["attachments"] == ["Salary_Guide_CPAs_Denver.pdf"]
+    assert built == [given]
+    assert "Travis K. (Ref #1042), Senior Accountant" in emails[1]["body"]
+    assert "Big 4 audit" not in emails[1]["body"]
+
+
+def test_saved_style_remembers_the_summary_choice(monkeypatch):
+    import flowdrip_app as fa
+    store = []
+    monkeypatch.setattr(fa, "_load_my_campaign_styles", lambda: [dict(x) for x in store])
+    monkeypatch.setattr(fa, "_save_my_campaign_styles",
+                        lambda rows: store.__setitem__(slice(None), rows))
+    fa._own_save_style("A", _steps(), "direct")
+    fa._own_save_style("B", _with_pdf(), "direct", cand_bullets=False)
+    assert [r["cand_bullets"] for r in store] == [True, False]
+    assert store[1]["steps"][1]["pdf"] == "salary_guide"
+    assert [f["name"] for f in store[1]["fillins"]] == ["Role", "Location", "Industry"]
+    edit = inspect.getsource(fa._sb_open_edit)
+    assert 'pdf=st.get("pdf")' in edit and "s.sb_cand_bullets" in edit
