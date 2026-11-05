@@ -353,7 +353,27 @@ def build_emails(steps, cards=None, polish=None, cand_bullets=True) -> list:
     return out
 
 
-def polish_prompt(text: str, step_type: str, tone: str = "") -> str:
+def pdf_note(step, values=None) -> str:
+    """What the AI is told when an email carries a Sales PDF: it is attached,
+    what it covers, and the email should point to it. "" with no PDF."""
+    kind = (step or {}).get("pdf")
+    if kind not in PDF_KINDS or ((step or {}).get("type") or "email") != "email":
+        return ""
+    v = values or {}
+    about = ", ".join(x for x in (
+        f"the {v.get('Role')} role" if v.get("Role") else "",
+        f"in {v.get('Location')}" if v.get("Location") else "",
+        f"for {v.get('Industry')} companies" if v.get("Industry") else "") if x)
+    return (f" A PDF called \"{PDF_KINDS[kind]}\" is attached to this email"
+            + (f" (it covers {about})" if about else "")
+            + ". Mention the attachment in one natural sentence and make it "
+            "the reason the reader should open the email, for example: I've "
+            "attached a short " + PDF_KINDS[kind].lower() + ". Do not invent "
+            "figures from it.")
+
+
+def polish_prompt(text: str, step_type: str, tone: str = "",
+                  attach: str = "") -> str:
     """The instruction for one "AI polish" step. Light touch: the user's
     meaning, order and length stay; merge fields and {Candidates} stay
     exactly as written."""
@@ -372,6 +392,9 @@ def polish_prompt(text: str, step_type: str, tone: str = "") -> str:
         "in the text.\n"
         "- No subject line, no signature, no sign-off name.\n"
         "- Do not use em dashes.\n"
+        + (f"- A PDF ({attach}) is attached to this email. If the text does "
+           f"not already point to the attachment, add one short sentence "
+           f"saying it is attached.\n" if attach else "") +
         "- Return only the polished text, nothing before or after it.\n\n"
         f"TEXT:\n{text}"
     )

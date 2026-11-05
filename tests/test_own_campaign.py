@@ -749,3 +749,15 @@ def test_later_emails_only_include_or_leave_out():
         assert gone not in shared
     into = inspect.getsource(fa._sb_cands_into_email)
     assert "[step_id] + _carry" in into and "s.sb_cand_home = step_id" in into
+
+
+def test_pdf_note_tells_the_ai_about_the_attachment():
+    from own_campaign import pdf_note, polish_prompt
+    note = pdf_note({"type": "email", "pdf": "market_pulse"},
+                    {"Role": "Project manager", "Location": "Denver, CO"})
+    assert "Market Pulse" in note and "attached" in note
+    assert "Project manager" in note and "Denver, CO" in note
+    assert pdf_note({"type": "email"}) == ""
+    assert pdf_note({"type": "call", "pdf": "market_pulse"}) == ""
+    assert "Market Pulse" in polish_prompt("hi", "email", "", "Market Pulse")
+    assert "attached to this email" not in polish_prompt("hi", "email")

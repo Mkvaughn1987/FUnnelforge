@@ -32193,14 +32193,17 @@ def _render_sb_step_page(s: AppState, rf):
                                 for x in s.sb_steps[:_idx]))
                 _block = _oc.lift_candidates(
                     step.get("input") or "", s.sb_cands)[1]
+                _pdfn = _oc.pdf_note(step, s.sb_vals)
                 _out = _sb_draft_step_content(
                     step_type=step.get("type", "email"),
                     slot=_sb_slot_for_step(s.sb_steps, _idx),
                     position=_idx,
                     delay_days=int(step.get("delay_days", 0) or 0),
-                    user_prompt=("Write a complete, ready-to-use message "
-                                 "that suits this point in the sequence."
-                                 + _cand_note) if _block else "",
+                    user_prompt=(
+                        ("Write a complete, ready-to-use message that suits "
+                         "this point in the sequence." if _block or _pdfn
+                         else "")
+                        + (_cand_note if _block else "") + _pdfn),
                     tone=s.sb_tone,
                     context=_oc.draft_context(s.sb_steps, _idx),
                     with_subject=_want_subject)
@@ -32222,8 +32225,10 @@ def _render_sb_step_page(s: AppState, rf):
             def _work(step):
                 _was = step.get("input") or ""
                 _src, _block = _oc.lift_candidates(_was, s.sb_cands)
+                _pk = step.get("pdf") if step.get("pdf") in _oc.PDF_KINDS else ""
                 _out = _own_polish_text(
-                    _src, step.get("type", "email"), s.sb_tone)
+                    _src, step.get("type", "email"), s.sb_tone,
+                    attach=_oc.PDF_KINDS.get(_pk, ""))
                 # Never trade a fill-in for nicer wording.
                 _lost = [t for t in set(re.findall(r"\{[A-Za-z0-9]+\}", _src))
                          if t not in _out]
@@ -32248,7 +32253,8 @@ def _render_sb_step_page(s: AppState, rf):
                     position=_idx,
                     delay_days=int(step.get("delay_days", 0) or 0),
                     user_prompt=(step.get("ai_prompt", "")
-                                 + (_cand_note if _block else "")),
+                                 + (_cand_note if _block else "")
+                                 + _oc.pdf_note(step, s.sb_vals)),
                     tone=s.sb_tone), _block)
             _st["_job"] = "draft"
             s.sb_ai_open = ""
@@ -32668,12 +32674,70 @@ def _render_sb_pdf(s: AppState, rf, step: dict):
         with ui.element("button").classes("fd-gb").style(
                 "padding:3px 10px;font-size:11px;").on("click", _open):
             ui.label("Change").style("pointer-events:none;")
+        def _preview():
+            _vals = {n: ((s.sb_vals or {}).get(n) or "").strip()
+                     for n in _oc.PDF_FILLINS}
+            _miss = [n for n, v in _vals.items() if not v]
+            if _miss:
+                ui.notify("Fill in " + ", ".join(
+                    _oc.fillin_label(n).lower() for n in _miss)
+                    + " below first, then preview.", type="info")
+                return
+            if step.get("_pdf_busy"):
+                return
+            step["_pdf_busy"], step["_pdf_file"], step["_pdf_err"] = True, "", ""
+            _owner = getattr(s, "_user_email", "") or ""
+            rf()
+
+            def _run():
+                try:
+                    import anthropic as _anth
+                    _cl = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
+                    step["_pdf_file"] = _own_build_pdf(
+                        _cl, _kind, _vals, _owner)
+                    if not step["_pdf_file"]:
+                        step["_pdf_err"] = ("The PDF could not be written "
+                                            "this time. Try again.")
+                except Exception as _ex:
+                    step["_pdf_err"] = _friendly_ai_error(_ex)
+                finally:
+                    step["_pdf_busy"] = False
+            _run_as_user(_owner, _run, name="sb_pdf_preview_worker")
+
+            async def _poll():
+                while step.get("_pdf_busy"):
+                    await asyncio.sleep(1)
+                rf()
+            asyncio.ensure_future(_poll())
+        if not step.get("_pdf_busy"):
+            with ui.element("button").classes("fd-gb").props(
+                    'id="sb-pdf-preview"').style(
+                    "padding:3px 10px;font-size:11px;").on("click", _preview):
+                ui.label("Preview" if not step.get("_pdf_file")
+                         else "Preview again").style("pointer-events:none;")
+
         def _drop():
             step["pdf"] = ""
+            step["_pdf_file"] = ""
             rf()
         with ui.element("button").classes("fd-gb").style(
                 "padding:3px 10px;font-size:11px;").on("click", _drop):
             ui.label("Remove").style("pointer-events:none;")
+
+    if step.get("_pdf_busy"):
+        with ui.element("div").style(
+                "display:flex;align-items:center;gap:8px;margin-bottom:8px;"):
+            ui.spinner("dots", size="20px", color=C["teal"])
+            ui.label("Writing your PDF. This takes a minute or two…").style(
+                f"font-size:12px;color:{C['teal']};")
+    elif step.get("_pdf_file"):
+        with ui.link(target=f"/pdfs/{step['_pdf_file']}", new_tab=True).style(
+                f"font-size:12px;font-weight:600;color:{C['teal']};"
+                f"margin-bottom:8px;display:inline-block;"):
+            ui.label(f"Open the {_title} preview ↗")
+    if step.get("_pdf_err"):
+        ui.label(f"⚠ {step['_pdf_err']}").style(
+            f"font-size:11px;color:{C['danger']};margin-bottom:8px;")
 
     # What it is written about. Anything the message already asks for is
     # asked once, in the box above.
@@ -32884,7 +32948,7 @@ def _start_campaign_dialog(s, rf, setup: dict):
 
 
 def _own_polish_text(text: str, step_type: str, tone: str = "",
-                     client=None) -> str:
+                     client=None, attach: str = "") -> str:
     """One "AI polish" step: the user's text, lightly tidied. Raises on an
     AI error; own_campaign.build_emails then sends the user's own text."""
     import own_campaign as _oc
@@ -32894,7 +32958,8 @@ def _own_polish_text(text: str, step_type: str, tone: str = "",
     msg = _claude_create_with_retry(
         client, model=_OWN_POLISH_MODEL, max_tokens=900,
         messages=[{"role": "user",
-                   "content": _oc.polish_prompt(text, step_type, tone)}])
+                   "content": _oc.polish_prompt(text, step_type, tone,
+                                                  attach)}])
     raw = "".join(b.text for b in msg.content if hasattr(b, "text"))
     return _strip_dashes(_strip_ai_signoff(raw.strip()))
 
@@ -32907,7 +32972,20 @@ def _own_campaign_emails(steps, cards, tone="", client=None,
     polish = None
     if any(_oc.voice_of(st) == _oc.VOICE_POLISH for st in steps or []):
         if ANTHROPIC_API_KEY or client is not None:
-            polish = lambda text, t: _own_polish_text(text, t, tone, client)
+            _att = {i: _oc.PDF_KINDS[k] for i, k in _oc.pdf_plan(steps)}
+            _at = [-1]
+
+            def polish(text, t):
+                # build_emails polishes the AI-polish steps in order; this
+                # call belongs to the next one, which may carry a PDF.
+                _at[0] += 1
+                while _at[0] < len(steps) and (
+                        _oc.voice_of(steps[_at[0]]) != _oc.VOICE_POLISH
+                        or not (steps[_at[0]].get("input") or "")):
+                    _at[0] += 1
+                _a = _att.get(_at[0], "")
+                return (_own_polish_text(text, t, tone, client, _a) if _a
+                        else _own_polish_text(text, t, tone, client))
     emails = _oc.build_emails(steps, cards, polish=polish,
                               cand_bullets=cand_bullets)
     _ensure_candidate_refs_in_emails(emails, cards)
