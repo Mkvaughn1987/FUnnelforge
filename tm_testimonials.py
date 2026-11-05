@@ -296,20 +296,37 @@ def request_email(req, link, sender_first="", our_company="ThriveModal"):
     return "Quick favor?", body
 
 
+SURVEY_LINK_TEXT = "fill out this quick 2-minute survey"
+
+
 def shared_email(link, sender_first="", our_company="ThriveModal"):
-    """(subject, body) for the one link that goes to every client at once."""
-    body = ("Hi,\n\n"
-            "I have a favor to ask. We're asking our clients for a short testimonial. "
-            "Owners thinking about hiring offshore trust another business owner more than "
-            "anything we could tell them.\n\n"
-            "I made it quick: a few click-through questions, about 3 minutes, no "
-            "login. At the end it drafts a short quote from your answers. You can edit "
-            "it and approve it. Nothing goes anywhere "
-            "without your OK.\n\n"
-            f"{link}\n\n"
-            "Thanks either way. We appreciate you.\n\n"
-            f"{sender_first}\n{our_company}")
-    return "Quick favor?", body
+    """(subject, plain text, html) for the one link every client gets. The
+    html puts the link on the survey sentence (Mike, 2026-11-05)."""
+    paras = [
+        "Hi,",
+        "I hope things are going well with your team.",
+        "I have a favor to ask. We're asking our clients for a short testimonial. Owners "
+        "thinking about hiring offshore trust another business owner more than anything "
+        "we could tell them.",
+        f"If you have a minute, just reply with a few sentences on why you chose "
+        f"{our_company} and how it's gone. If you don't have time to write an email, you "
+        f"can just {{LINK}} and that works just as well. It drafts a short quote from your "
+        "answers that you can edit and approve. Nothing is used without your OK.",
+        "Thanks either way. We appreciate you.",
+    ]
+    sign = [x for x in (sender_first, our_company) if x]
+    text = "\n\n".join(paras).replace("{LINK}", f"{SURVEY_LINK_TEXT} ({link})")
+    text += "\n\n" + "\n".join(sign)
+    esc = html.escape
+    a = (f'<a href="{esc(link, quote=True)}">{SURVEY_LINK_TEXT}</a>')
+    body = "".join(f"<p>{esc(x).replace('{LINK}', a)}</p>" for x in paras)
+    body += "<p>" + "<br>".join(esc(x) for x in sign) + "</p>"
+    return "Quick favor?", text, body
+
+
+def public_link(origin, token):
+    """The link clients see: says whose it is, so it never reads as spam."""
+    return f"{origin}/ThriveModal/review/{token}"
 
 
 # ── Storage ──────────────────────────────────────────────────────────────
@@ -481,6 +498,7 @@ def register_routes():
             pass
         return False
 
+    @app.get("/ThriveModal/review/{token}")
     @app.get("/review/{token}")
     async def review_page(token: str):
         owner, req = find(token)
@@ -654,7 +672,7 @@ padding:13px 22px;cursor:pointer}
 <img class="logo" src="__LOGO__" alt="__US__" onerror="this.hidden=true">
 <section id="s-survey" hidden>
   <h1 id="hello"></h1>
-  <p class="lead">About 3 minutes, all clicks. At the end you'll see a short draft quote built from
+  <p class="lead">About 2 minutes, all clicks. At the end you'll see a short draft quote built from
   your answers. You edit it and approve it, and nothing is used without your OK.</p>
   <div class="q" id="about" hidden style="margin-top:8px"><h3>About you</h3>
     <p class="hint">This is how we'll credit your quote. Name, title and company are required.</p>
@@ -812,6 +830,10 @@ def _css():
         "background:var(--dd-bg);border:1px solid var(--dd-border);border-radius:8px;padding:6px 10px;"
         "overflow-wrap:anywhere;}"
         ".tmr-acts{display:flex;gap:8px;flex-wrap:wrap;}"
+        ".tmr-mail{background:var(--dd-bg);border:1px solid var(--dd-border);border-radius:10px;"
+        "padding:14px 18px;font-size:14px;line-height:1.55;color:var(--dd-text_l);max-width:720px;}"
+        ".tmr-mail p{margin:0 0 10px;} .tmr-mail a{color:var(--dd-teal);font-weight:600;}"
+        ".tmr-subj{font-weight:700;margin-bottom:10px;}"
         ".tmr-q{font-size:15px;line-height:1.5;color:var(--dd-text_l);border-left:3px solid var(--dd-good);"
         "padding:2px 0 2px 12px;font-style:italic;}"
         ".tmr-ans{display:grid;grid-template-columns:minmax(180px,1fr) 2fr;gap:4px 14px;font-size:12.5px;}"
@@ -874,25 +896,22 @@ def render_page(s, rf):
     except Exception:
         sender_first = ""
     us = _our_company(owner)
-    f = s._tmr_form
-
-    def _link(r):
-        return f"{origin}/review/{r['token']}"
 
     def _copy(text, msg):
         ui.run_javascript("navigator.clipboard.writeText(%s).catch(function(){})" % json.dumps(text))
         ui.notify(msg, type="positive")
 
-    def _create():
-        if not (f.get("company") or "").strip():
-            ui.notify("Add the client's company first.", type="warning")
-            return
-        req = new_request(f.get("company"), f.get("contact"), f.get("email"), f.get("hire"))
-        add_request(owner, req)
-        s._tmr_form = {}
-        s._tmr_open = req["token"]
-        _copy(_link(req), "Link made and copied.")
-        rf()
+    def _copy_email(text, body_html, msg):
+        # Rich copy so the survey sentence pastes as a hyperlink in Outlook
+        # and Gmail; plain text where the browser refuses rich copy.
+        ui.run_javascript(
+            "(function(t,h){try{navigator.clipboard.write([new ClipboardItem({"
+            "'text/html':new Blob([h],{type:'text/html'}),"
+            "'text/plain':new Blob([t],{type:'text/plain'})})])"
+            ".catch(function(){navigator.clipboard.writeText(t).catch(function(){})});}"
+            "catch(e){navigator.clipboard.writeText(t).catch(function(){});}})(%s,%s)"
+            % (json.dumps(text), json.dumps(body_html)))
+        ui.notify(msg, type="positive")
 
     def _toggle(tok):
         s._tmr_open = "" if s._tmr_open == tok else tok
@@ -910,15 +929,14 @@ def render_page(s, rf):
     with ui.element("div").classes("tmr-wrap"):
         _css()
         ui.label("Testimonials").classes("fd-h1")
-        ui.label("Send your link to every client at once. They answer a 3-minute "
+        ui.label("Send the email below to every client at once. They answer a 2-minute "
                  "click-through survey with no login, get a draft quote built from their "
                  "answers, edit it and approve it. Every response lands here.").classes("fd-sub")
 
         n_ans = sum(1 for r in reqs if r["status"] in ("answered", "approved"))
         n_ok = sum(1 for r in reqs if r["status"] == "approved")
         with ui.element("div").classes("fd-stat-strip").style("margin:14px 0;"):
-            for val, lbl, col in [(len(reqs), "Links sent", C["text_l"]),
-                                  (n_ans, "Answered", C["teal"]),
+            for val, lbl, col in [(n_ans, "Responses", C["teal"]),
                                   (n_ok, "Approved quotes", C["good"])]:
                 with ui.element("div").classes("fd-stat-cell" + (" zero" if not val else "")):
                     ui.label(str(val)).classes("fd-sn").style(f"color:{col};")
@@ -926,45 +944,36 @@ def render_page(s, rf):
 
         stok = shared_token(owner) if owner else ""
         if stok:
-            slink = f"{origin}/review/{stok}"
+            slink = public_link(origin, stok)
+            subj, text, body_html = shared_email(slink, sender_first, us)
             with ui.element("div").classes("tmr-new"):
-                ui.label("Your testimonial link").style(
-                    f"font-size:15px;font-weight:800;color:{C['text_l']};")
-                ui.label("One link for every client. They add their name and company at the "
-                         "top, and each response shows up below as its own entry.").classes(
-                    "tmr-meta")
-                ui.label(slink).classes("tmr-link")
-                with ui.element("div").classes("tmr-acts"):
-                    with ui.element("button").classes("fd-pb").props('type="button"').style(
-                            "padding:7px 14px;font-size:12.5px;").on(
-                            "click", lambda: _copy(slink, "Link copied.")):
-                        ui.label("Copy link")
-                    ssubj, sbody = shared_email(slink, sender_first, us)
-                    with ui.element("button").classes("fd-gb").props('type="button"').style(
-                            "padding:7px 14px;font-size:12.5px;").on(
-                            "click", lambda: _copy(f"Subject: {ssubj}\n\n{sbody}",
-                                                   "Email copied. Paste it into a new message.")):
-                        ui.label("Copy email")
-
-        with ui.element("div").classes("tmr-new"):
-            ui.label("Or make a personal link for one client").style(
-                f"font-size:15px;font-weight:800;color:{C['text_l']};")
-            with ui.element("div").classes("tmr-row"):
-                for key, ph in (("company", "Client company"), ("contact", "Contact name"),
-                                ("email", "Contact email (optional)"),
-                                ("hire", "Who they hired (optional)")):
-                    def _on(e, k=key):
-                        f[k] = e.value or ""
-                    ui.input(placeholder=ph, value=f.get(key, ""), on_change=_on).classes(
-                        "fd-input").props("dense")
-            with ui.element("div"):
-                with ui.element("button").classes("fd-pb").props('type="button"').style(
-                        "padding:9px 18px;font-size:13px;").on("click", _create):
-                    ui.label("Make link")
+                with ui.element("div").classes("tmr-top"):
+                    with ui.element("div"):
+                        ui.label("Your testimonial email").style(
+                            f"font-size:15px;font-weight:800;color:{C['text_l']};")
+                        ui.label("Copy it into Outlook or Gmail and BCC your clients. The "
+                                 "survey sentence stays a link when you paste.").classes(
+                            "tmr-meta")
+                    with ui.element("div").classes("tmr-acts"):
+                        with ui.element("button").classes("fd-pb").props(
+                                'type="button"').style("padding:7px 14px;font-size:12.5px;").on(
+                                "click", lambda: _copy_email(
+                                    text, body_html, "Email copied. Paste it into a new message.")):
+                            ui.label("Copy email")
+                        with ui.element("button").classes("fd-gb").props(
+                                'type="button"').style("padding:7px 14px;font-size:12.5px;").on(
+                                "click", lambda: _copy(subj, "Subject copied.")):
+                            ui.label("Copy subject")
+                        with ui.element("button").classes("fd-gb").props(
+                                'type="button"').style("padding:7px 14px;font-size:12.5px;").on(
+                                "click", lambda: _copy(slink, "Link copied.")):
+                            ui.label("Copy link")
+                ui.html(f'<div class="tmr-mail"><div class="tmr-subj">Subject: '
+                        f'{html.escape(subj)}</div>{body_html}</div>', sanitize=False)
 
         if not reqs:
-            ui.label("No requests yet. Add your first client above, then use Copy email to "
-                     "send it from your own inbox.").style(f"color:{C['muted']};font-size:13px;")
+            ui.label("No responses yet. Each client who fills in the survey shows up here."
+                     ).style(f"color:{C['muted']};font-size:13px;")
             return
 
         with ui.element("div").classes("tmr-list"):
@@ -975,24 +984,19 @@ def render_page(s, rf):
                             ui.label(r["company"]).classes("tmr-name")
                             meta = " · ".join(x for x in (r.get("contact"), r.get("email"),
                                                           ("hired " + r["hire"]) if r.get("hire") else "",
-                                                          "made " + r["created"][:10]) if x)
+                                                          r["created"][:10]) if x)
                             ui.label(meta).classes("tmr-meta")
                         ui.label(STATUS_LABEL.get(r["status"], r["status"])).classes(
                             "tmr-st " + r["status"])
                     if r["status"] == "approved":
                         ui.label("“" + r["quote"] + "”").classes("tmr-q")
                         ui.label(credit_line(r)).classes("tmr-meta")
-                    ui.label(_link(r)).classes("tmr-link")
                     with ui.element("div").classes("tmr-acts"):
                         def _btn(label, fn):
                             with ui.element("button").classes("fd-gb").props(
                                     'type="button"').style("padding:6px 12px;font-size:12.5px;"
                                                            ).on("click", fn):
                                 ui.label(label)
-                        _btn("Copy link", lambda r=r: _copy(_link(r), "Link copied."))
-                        subj, body = request_email(r, _link(r), sender_first, us)
-                        _btn("Copy email", lambda subj=subj, body=body: _copy(
-                            f"Subject: {subj}\n\n{body}", "Email copied. Paste it into a new message."))
                         if r["status"] == "approved":
                             _btn("Copy quote", lambda r=r: _copy(
                                 f"“{r['quote']}”\n- {credit_line(r)}", "Quote copied."))

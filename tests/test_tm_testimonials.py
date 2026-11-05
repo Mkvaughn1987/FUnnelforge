@@ -298,5 +298,20 @@ def test_shared_link_makes_one_entry_per_person(ff):
 
 
 def test_shared_email_is_generic():
-    subj, body = tt.shared_email("https://x/review/abc", "Sam", "ThriveModal")
-    assert body.startswith("Hi,\n") and "https://x/review/abc" in body
+    link = tt.public_link("https://app.example.com", "abcdefghijkl")
+    assert link == "https://app.example.com/ThriveModal/review/abcdefghijkl"
+    subj, text, body = tt.shared_email(link, "Sam", "ThriveModal")
+    assert subj == "Quick favor?" and text.startswith("Hi,\n")
+    assert "fill out this quick 2-minute survey (" + link + ")" in text
+    assert ('<a href="' + link + '">fill out this quick 2-minute survey</a> and that works '
+            'just as well') in body
+    assert "time to write an email, you can just" in body
+    assert text.endswith("Sam\nThriveModal")
+
+
+def test_branded_path_serves_the_same_survey(ff):
+    c = _client(ff)
+    tok = tt.shared_token("o@x.com")
+    page = c.get(f"/ThriveModal/review/{tok}")
+    assert page.status_code == 200 and '"open": true' in page.text
+    assert c.get("/ThriveModal/review/nottherealtoken1").status_code == 404
