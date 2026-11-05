@@ -400,7 +400,7 @@ def test_long_term_nurture_is_twelve_weekly_emails_over_twelve_weeks():
     # The cards are placed by code; the writer is not asked for profiles.
     assert "not specific people who are available" not in t[6]
     assert t[6].count("Worth a shot line") == 4
-    assert "under $11/hr" in t[6] and "$750" not in t[6]
+    assert "under $19/hr" in t[6] and "$750" not in t[6]
 
 
 def _nurture_emails():
@@ -468,9 +468,9 @@ def test_opener_keeps_the_savings_claim_inside_the_rules():
     assert "up to sixty to seventy percent" in r
     assert "depending on the role" in r
     assert "no email ever gives a dollar amount" in r
-    # The one approved figure is Mike's $11/hr line in the onboarding model
+    # The one approved figure is Mike's $19/hr line in the onboarding model
     # (2026-10-08); nothing else in the rule carries a dollar sign.
-    assert r.count("$") == r.count("$11/hr") > 0
+    assert r.count("$") == r.count("$19/hr") > 0
 
 
 def test_arena_types_never_get_the_opener(monkeypatch):

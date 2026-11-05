@@ -151,9 +151,33 @@ def test_cost_sheet_uses_one_mid_range_rate_per_role(monkeypatch):
     p = d["_worksheet"][0]
     assert "bands" not in p and p["base"] == 60000.0
     assert abs(p["tm"] / p["domestic"] - 0.35) < 0.01
-    how = " ".join(next(s for s in d["sections"]
-                        if s["heading"] == "Basis of Calculation")["items"])
-    assert "BLS median wage" in how and "percentile" not in how
+    assert "percentile" not in repr(d["sections"])
+
+
+def test_our_hourly_rate_is_the_senior_figure_plus_two_dollars():
+    """Mike, 2026-11-05: "use the most expensive one and add $5/hr", then
+    "drop hourly rates a little by 1-2$ - add .25 and .60 and .35 to a fw",
+    then "drop the rates by $1 more dollar". The senior (old 8+ years)
+    figure, +$2, plus cents that depend on the title only."""
+    base = 45000.0  # Customer Service Representative, national median
+    senior = round(base * 1.15 / 500) * 500
+    loaded = senior + round(senior * 42.9 / 10000) * 100 + 6000 + 5475
+    whole = round(round(loaded * 0.35 / 100) * 100 / 2080)
+    r = fa._tm_our_hourly(base, "Customer Service Representative")
+    assert int(r) == whole + 2
+    assert round(r - int(r), 2) in (0.0, 0.25, 0.35, 0.60)
+    # Same title, same rate; other titles land on other cents.
+    assert fa._tm_our_hourly(base, "customer  service representative") == r
+    cents = {round(fa._tm_our_hourly(base, t) % 1, 2) for t in
+             ("Bookkeeper", "Dispatcher", "Data Entry Specialist",
+              "Medical Biller", "Recruiter", "Estimator", "Payroll Specialist",
+              "Leasing Coordinator")}
+    assert len(cents) > 1
+    assert fa._tm_rate_text(16) == "$16.00"
+    # The profile cards quote the same figure as the cost sheet.
+    bench = fa._tm_benchmark(fa._tm_match_benchmark("Bookkeeper"))
+    assert fa._tm_profile_rate(None, "Bookkeeper, 7 years") == (
+        fa._tm_rate_text(fa._tm_our_hourly(bench["base"], "Bookkeeper")) + "/hr")
 
 
 def test_bls_lookup_asks_for_the_median_only(monkeypatch):

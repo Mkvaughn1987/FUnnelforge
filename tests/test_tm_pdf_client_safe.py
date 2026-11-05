@@ -97,41 +97,38 @@ def test_cost_comparison_names_five_roles_lead_role_first(monkeypatch):
                                    "Project Coordinator", "White City, OR",
                                    "Construction")
     # Mike, 2026-11-05: the page opens with the candidate standard, then
-    # one mid-range rate per role (ours, then the U.S. figure). No "you
-    # save" columns, no totals row, no experience tiers.
+    # one table: each role's degree, skills and software beside our rate.
+    # No U.S. cost, no "you save" columns, no totals row, no tiers.
     assert d["sections"][0]["type"] == "callout"
     assert d["sections"][0]["heading"] == fa._TM_STANDARD_HEADING
     table = d["sections"][1]
     rows = table["items"]
-    assert rows[0] == ["Role", "Our Hourly Rate",
-                       "U.S. Hourly Rate (Fully Loaded)"]
+    assert table["heading"] == "The Roles and Our Rate"
+    assert rows[0] == ["Role", "Degree and Credentials", "Skills", "Software",
+                       "Our Hourly Rate"]
     assert table["keep"] and "group" not in table
     roles = [r[0] for r in rows[1:]]
     assert len(roles) == 5 and roles[0] == "Project Coordinator"
     assert "Estimator" in roles  # from the construction list
     flat = json.dumps(d)
     for gone in ("Save", "All 5 roles", "Years of Experience", "1-3 years",
-                 "percentile"):
+                 "percentile", "U.S. Hourly", "Fully Loaded",
+                 "Basis of Calculation", "What Each Professional Brings"):
         assert gone not in flat, gone
     money = lambda t: float(t.replace("USD", "").replace("$", "").replace(",", ""))
     for r in rows[1:]:
-        assert money(r[1]) < money(r[2]) < 150       # per hour, not per year
-    # Each role carries what the professional brings: degree, skills, software.
-    prof = d["sections"][2]
-    assert prof["heading"] == "What Each Professional Brings"
-    assert prof["items"][0] == ["Role", "Degree and Credentials", "Skills",
-                                "Software"]
-    est = next(r for r in prof["items"] if r[0] == "Estimator")
+        assert 5 < money(r[-1]) < 60                 # per hour, not per year
+        assert r[-1].count(".") == 1                 # always with cents
+    est = next(r for r in rows if r[0] == "Estimator")
     assert "takeoffs" in est[2] and "Bluebeam" in est[3]
     assert len(est[2].split(",")) >= 6               # a full skill set
     # ...and how the person works, the attributes beside the skills.
-    work = d["sections"][3]
+    work = d["sections"][2]
     assert work["heading"] == "How Each Professional Works"
     assert any("fluent, professional English" in b for b in work["items"])
     assert d["badge"] == fa._TM_COST_BADGE and d["_worksheet"]
-    how = next(s for s in d["sections"] if s["heading"] == "Basis of Calculation")
-    assert not any("Philippine" in i for i in how["items"])
-    assert any("2,080" in i for i in how["items"])
+    covers = next(s for s in d["sections"] if s["heading"] == "What the Hourly Rate Covers")
+    assert "confirmed for the specific role" in covers["items"][-1]
     assert "Sources" not in [s["heading"] for s in d["sections"]]
     assert "Here's" not in json.dumps(d)
 

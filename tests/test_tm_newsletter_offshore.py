@@ -106,14 +106,13 @@ def test_thrivemodal_newsletter_has_no_hero_photo(monkeypatch):
     assert "_loc_raw and _nl_hero_enabled()" in inspect.getsource(fa._render_newsletter_html)
 
 
-def test_profile_rate_is_one_rate_60_percent_below_the_us_median():
-    # Single rate, no range (Mike 2026-09-19): 40% of the U.S. hourly,
-    # x1.08 for 5-6 years, rounded to the quarter.
+def test_profile_rate_is_the_one_rate_every_asset_quotes():
+    # Single rate, no range (Mike 2026-09-19), and the cost sheet's own
+    # figure (2026-11-05: "everything should be aligned with hourly rates").
     bench = fa._tm_benchmark("staff_accountant")
-    hourly = bench["base"] / 2080.0
     rate = fa._tm_profile_rate(None, "Staff Accountant, 5 years experience")
     assert "-" not in rate and rate.endswith("/hr")
-    assert float(rate[1:-3]) == round(hourly * 0.40 * 1.08 * 4) / 4
+    assert float(rate[1:-3]) == fa._tm_our_hourly(bench["base"], "Staff Accountant")
     assert fa._tm_profile_role("Leasing Coordinator, 5 years") == "Leasing Coordinator"
 
 

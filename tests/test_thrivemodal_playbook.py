@@ -1072,20 +1072,23 @@ def test_auto_worksheet_is_a_flat_65_percent_saving():
     # 2026-11-05: opens with the candidate standard and says how we vet.
     assert headings[0] == fa._TM_STANDARD_HEADING
     assert "How Every Candidate Is Vetted" in headings
-    assert d["intro"].startswith("Our all-inclusive rate beside")
+    # Mike, 2026-11-05: our rate only, one table, no U.S. cost on the page.
+    assert "estimated all-inclusive hourly rate" in d["intro"]
     assert "Here's" not in repr(d)
-    how = " ".join(next(s for s in d["sections"]
-                        if s["heading"] == "How This Was Calculated")["items"])
-    assert "Houston metro, TX" in how and "estimate" in how
-    assert "60-70%" in how
+    table = next(s for s in d["sections"] if s["heading"] == "The Role and Our Rate")
+    assert table["items"][0] == ["Role", "Degree and Credentials", "Skills",
+                                 "Software", "Our Hourly Rate"]
+    assert table["items"][1][0] == "Bookkeeper"
+    assert table["items"][1][-1] == fa._tm_rate_text(fa._tm_our_hourly(50500, "Bookkeeper"))
+    flat = repr(d["sections"]) + d["intro"]
+    for gone in ("How This Was Calculated", "U.S. cost", "In-house", "fully loaded", "60-70%",
+                 "saving"):
+        assert gone not in flat, gone
 
 
 def test_auto_worksheet_falls_back_to_national_median():
     d = fa._tm_auto_cost_pdf_data("Acme", "Bookkeeper", "Nowhere, ZZ", None)
     assert d["_worksheet"]["domestic_total"] == 50500 + 21700 + 6000 + 5475
-    how = " ".join(next(s for s in d["sections"]
-                        if s["heading"] == "How This Was Calculated")["items"])
-    assert "national median" in how
 
 
 def test_auto_worksheet_unknown_role_and_no_lookup_is_not_calculated():
@@ -1132,8 +1135,7 @@ def test_bls_salary_falls_back_metro_to_state(monkeypatch):
     assert r["salary"] == 49000.0 and r["area"] == "Texas"
     assert r["url"].endswith("oes_tx.htm")
     d = fa._tm_auto_cost_pdf_data("Acme", "Bookkeeper", "Houston, TX", r)
-    how = next(s for s in d["sections"] if s["heading"] == "How This Was Calculated")
-    assert "Texas" in " ".join(how["items"])
+    assert d["_worksheet"]["domestic_total"] == 49000 + 21000 + 6000 + 5475
 
 
 def test_tm_pdfs_never_carry_a_sources_section():

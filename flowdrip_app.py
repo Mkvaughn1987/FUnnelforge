@@ -5858,14 +5858,14 @@ AICB_CAMPAIGN_TYPES = [
      "Step 2 - Economics (delay_days:3, step_type:email_auto) (model: "
      "Economics) - The cost email, and the only one that states the saving. "
      "Dollar figures in this email are HOURLY ONLY: state the one approved "
-     "figure, most support staff under $11/hr, beside the 'up to' "
+     "figure, most support staff under $19/hr, beside the 'up to' "
      "percentage. Never an annual salary, a monthly rate, a '$60K' figure or "
      "any other dollar amount; the candidate profiles the system adds carry "
      "the hourly rates.\n"
      "Step 3 - After the candidate joins (delay_days:3, step_type:email_auto) "
      "(model: After the candidate joins) - The sender's own wording, as the "
      "house style says: it opens by asking whether they saw the last email "
-     "with most support staff under $11/hr (the candidate profiles on Step "
+     "with most support staff under $19/hr (the candidate profiles on Step "
      "2), then the handoff, the monthly check-ins and quarterly reviews, the "
      "placement claim, and the offer of more information.\n"
      "Step 4 - Close (delay_days:4, step_type:email_auto) (model: Close) - The "
@@ -5933,7 +5933,7 @@ AICB_CAMPAIGN_TYPES = [
      "Named accounts - long cycles - steady presence",
      "WORTH A SHOT LINE: Steps 5, 9, 13 and 16 end with one professional "
      "sentence, before the closing question, saying one role is worth "
-     "trying: most support staff come in under $11/hr (the hourly rates on "
+     "trying: most support staff come in under $19/hr (the hourly rates on "
      "the candidate profiles; the one dollar figure approved for this "
      "sequence), and the companies that start with one role have mostly "
      "kept adding. Word it differently each time, no hype, never 'cheap'.\n"
@@ -7316,7 +7316,7 @@ _TM_MODEL_EMAILS = [
     # the email before it, and carries his own placement claim.
     ("After the candidate joins", "After the candidate joins", (
         "Did you have a chance to look at my last email, with most support "
-        "staff under $11/hr? Honestly, choosing the candidate is the easy "
+        "staff under $19/hr? Honestly, choosing the candidate is the easy "
         "part. Getting them up to speed takes a clear handoff, access to the "
         "right systems and someone to set priorities for the first few "
         "weeks.",
@@ -7425,14 +7425,14 @@ _TM_EMAIL_OPENER_RULE = (
     "hire yet, one role is a low-cost way to start. Say it about the "
     "candidates ThriveModal presents, never about Filipinos as a group, and "
     "never call it cheap.\n"
-    "- THE ONE APPROVED DOLLAR FIGURE is 'most support staff under $11/hr', "
+    "- THE ONE APPROVED DOLLAR FIGURE is 'most support staff under $19/hr', "
     "the hourly rates on the candidate profiles. Model 4 uses it, and a "
     "step line may ask for it elsewhere; nothing else states a dollar "
     "amount.\n"
     "- THE ONBOARDING EMAIL (Model 4, After the candidate joins) is the "
     "sender's own wording and keeps three things as the model has them: it "
     "opens by asking whether they saw the last email, with most support "
-    "staff under $11/hr (the hourly rates on the candidate profiles already "
+    "staff under $19/hr (the hourly rates on the candidate profiles already "
     "sent; this one figure is approved and exempt from the no-dollar rule); "
     "it says our team has placed thousands of Filipino professionals who are "
     "thriving and saving companies money, and that these aren't the typical "
@@ -17192,7 +17192,7 @@ def _tm_ensure_offshore_and_monthly(campaign_data) -> None:
 
 # Mike, 2026-10-08 (Quick Intro walkthrough): the cost email wrote "$55,000
 # to $65,000 annually" and "another $60K desk" although the house style
-# allows no dollar amount but the hourly rates. Hourly figures ("$11/hr",
+# allows no dollar amount but the hourly rates. Hourly figures ("$19/hr",
 # "$9 to $11 an hour") stay; a sentence carrying any other dollar figure
 # goes, sentence by sentence inside each <br>-separated line so the markup
 # around it survives. Backstop for the rule in _TM_EMAIL_OPENER_RULE.
@@ -46106,40 +46106,29 @@ def _tm_auto_cost_pdf_data(company: str, role: str, location: str,
         "domestic_hiring": _TM_BENCH_HIRING,
         "tm_monthly_rate": tm_annual / 12.0,
     })
-    pct = f"{_TM_AUTO_SAVINGS:.0%}"
-    for row in ws["rows"]:
-        if row[0] == "ThriveModal monthly rate":
-            row[0] = f"ThriveModal (estimated {pct} saving)"
-
+    # Mike, 2026-11-05: our rate only, no U.S. cost on the page; the same
+    # one-table layout as the five-role sheet. The worksheet stays on the
+    # return for callers that read the numbers.
+    rate = _tm_our_hourly(float(bench["base"]) if bench else base, role)
+    prof = _tm_role_profile(role) or ("", "", "")
+    rows = [["Role", "Degree and Credentials", "Skills", "Software",
+             "Our Hourly Rate"],
+            [role[:1].upper() + role[1:], *prof, _tm_rate_text(rate)]]
     where = f" in {location}" if location else ""
-    howto = [
-        f"Figures cover one {role}{where} over 12 months, in U.S. dollars.",
-        salary_note,
-        f"Payroll taxes and benefits are {_TM_BENCH_BURDEN_PCT:.0f}% of wages "
-        f"(BLS). Workspace and recruiting are US averages. None of these are "
-        f"{company}'s own payroll figures.",
-        f"The ThriveModal column is an estimate: {pct} below the in-house "
-        f"total, the middle of ThriveModal's published range of up to 60-70% "
-        f"savings, fully burdened. The actual saving depends on the role; your "
-        f"ThriveModal quote is confirmed separately.",
-        "Replace any line with your own figure for an exact comparison.",
-    ]
     return {
         "title": f"Staffing Cost Comparison - {company}",
         "badge": _TM_COST_BADGE,
-        "intro": (f"{_TM_COST_SNAPSHOT}, for one {role}{where}: an "
-                  f"estimated saving for {company} of about "
-                  f"{_tm_money(ws['difference'])} a year ({pct})."),
+        "intro": (f"One {role}{where} for {company}: who we recruit for the "
+                  f"role, the skills and software they bring, and our "
+                  f"estimated all-inclusive hourly rate."),
         "sections": _tm_with_standard([
-            {"heading": "Cost Comparison", "type": "table", "items": ws["rows"],
-             "keep": True},
+            {"heading": "The Role and Our Rate", "type": "table",
+             "items": rows, "keep": True,
+             "widths": [0.16, 0.19, 0.33, 0.20, 0.12], "font": 9},
             *_tm_cost_extra_sections(),
-            {"heading": "How This Was Calculated", "type": "bullets",
-             "items": howto, "keep": True},
         ], role),
-        "cta": ("To see this with your own figures, send us the current "
-                "salary and benefits for the role and we will rerun the "
-                "comparison."),
+        "cta": ("Send us the role and the experience level you need, and we "
+                "will confirm the rate for your team."),
         "_worksheet": ws,
     }
 
@@ -46162,6 +46151,38 @@ _TM_HOURS_PER_YEAR = 2080
 def _tm_hourly(annual) -> int:
     """Whole dollars per hour for an annual figure."""
     return int(round(float(annual) / _TM_HOURS_PER_YEAR))
+
+
+# Our hourly rate for a role, the one figure every asset quotes (Mike,
+# 2026-11-05: "use the most expensive one", i.e. the old 8+ years band, then
+# +$5, then "drop by 1-2$", then "drop the rates by $1 more"; and "add .25
+# and .60 and .35 to a few to make it realistic"). The 8+ years band was the
+# 75th-percentile wage; 1.15x the median reproduces the 8+ years figures
+# Mike approved (CSR $14, Shipment Coordinator $17). It stands in for the
+# percentile everywhere, so the cost sheet, profile cards and newsletters
+# agree on the same role.
+_TM_SENIOR_WAGE_FACTOR = 1.15
+_TM_RATE_UPLIFT = 2.0
+_TM_RATE_CENTS = (0.0, 0.25, 0.35, 0.60)
+
+
+def _tm_our_hourly(base, role: str = "") -> float:
+    """Our all-inclusive hourly rate from a role's U.S. median salary: the
+    senior wage loaded like the cost sheet, _TM_AUTO_SAVINGS below it, plus
+    _TM_RATE_UPLIFT, plus cents picked by the title (same role, same
+    cents, on every page)."""
+    senior = round(float(base) * _TM_SENIOR_WAGE_FACTOR / 500.0) * 500
+    loaded = (senior + round(senior * _TM_BENCH_BURDEN_PCT / 10000.0) * 100
+              + _TM_BENCH_OVERHEAD + _TM_BENCH_HIRING)
+    annual = round(loaded * (1 - _TM_AUTO_SAVINGS) / 100.0) * 100
+    key = " ".join(str(role or "").lower().split()).encode()
+    cents = _TM_RATE_CENTS[hashlib.md5(key).digest()[0] % len(_TM_RATE_CENTS)]
+    return _tm_hourly(annual) + _TM_RATE_UPLIFT + cents
+
+
+def _tm_rate_text(rate) -> str:
+    """'$16.25' (always with cents, so a column lines up)."""
+    return f"${float(rate):,.2f}"
 
 
 # What we recruit for, in every cost sheet (approved services text).
@@ -46683,16 +46704,23 @@ def _tm_work_attributes_section() -> dict:
             ]}
 
 
-def _tm_rate_covers_section() -> dict:
+def _tm_rate_covers_section(quote_line: bool = False) -> dict:
+    """`quote_line`: the closing line that the rate is all-inclusive and
+    confirmed per role (the cost sheet's only word on how it is priced)."""
+    items = [
+        "Pay, benefits, HR, compliance and payroll. We are the "
+        "employer of record in the Philippines.",
+        "A named account manager, monthly check-ins, quarterly "
+        "reviews and monthly performance reports.",
+        "No upfront or placement fees, month-to-month terms, no "
+        "cancellation fee, and a lifetime free replacement.",
+    ]
+    if quote_line:
+        items.append("Our hourly rate is all-inclusive, billed as one monthly "
+                     "rate per professional, and your quote is confirmed for "
+                     "the specific role.")
     return {"heading": "What the Hourly Rate Covers", "type": "bullets",
-            "items": [
-                "Pay, benefits, HR, compliance and payroll. We are the "
-                "employer of record in the Philippines.",
-                "A named account manager, monthly check-ins, quarterly "
-                "reviews and monthly performance reports.",
-                "No upfront or placement fees, month-to-month terms, no "
-                "cancellation fee, and a lifetime free replacement.",
-            ]}
+            "items": items}
 
 
 def _tm_customer_quote_section() -> dict:
@@ -46710,7 +46738,8 @@ def _tm_customer_quote_section() -> dict:
 
 def _tm_cost_extra_sections() -> list:
     return [_tm_work_attributes_section(), _tm_vetting_section(),
-            _tm_rate_covers_section(), _tm_customer_quote_section()]
+            _tm_rate_covers_section(quote_line=True),
+            _tm_customer_quote_section()]
 
 
 # Staffing and recruiting firms share the home-care vertical's knowledge
@@ -46840,21 +46869,21 @@ def _tm_multi_cost_pdf_data(client, company: str, role: str, location: str,
         return _tm_auto_cost_pdf_data(company, role, location, None)
 
     n = len(priced)
-    pct = f"{_TM_AUTO_SAVINGS:.0%}"
-    # Mike, 2026-11-05: one mid-range rate per role, ours beside the U.S.
-    # figure. No "you save" columns, no totals row, no experience tiers; the
-    # rest of the page sells what each professional brings.
+    # Mike, 2026-11-05: one table, the role's degree, skills and software
+    # beside our rate; no U.S. cost anywhere on the page ("Dont worry about
+    # USA Costs, just include our cost"). The rate is _tm_our_hourly on the
+    # national median when there is one, so a profile card for the same role
+    # quotes the same figure.
     for p in priced:
-        p["tm_hr"] = _tm_hourly(p["tm"])
-        p["domestic_hr"] = _tm_hourly(p["domestic"])
-    rows = [["Role", "Our Hourly Rate", "U.S. Hourly Rate (Fully Loaded)"]]
-    rows += [[p["role"], _tm_money(p["tm_hr"]), _tm_money(p["domestic_hr"])]
-             for p in priced]
-    # Where the base salaries come from, each area said once. The
-    # role-to-occupation mapping stays off the page (it filled a second one).
-    areas = list(dict.fromkeys(p["area"] for p in priced))
-    salary_note = ("the BLS median wage for each role's closest occupation ("
-                   + "; ".join(areas) + ")")
+        bench = _tm_benchmark(_tm_match_benchmark(p["role"]))
+        p["rate"] = _tm_our_hourly(float(bench["base"]) if bench else p["base"],
+                                   p["role"])
+        p["tm_hr"] = p["rate"]
+    rows = [["Role", "Degree and Credentials", "Skills", "Software",
+             "Our Hourly Rate"]]
+    for p in priced:
+        prof = _tm_role_profile(p["role"]) or ("", "", "")
+        rows.append([p["role"], *prof, _tm_rate_text(p["rate"])])
     where = _tm_where(location)
     # A market campaign's subject is an industry, not a buyer.
     _mkt = str(industry or company)
@@ -46862,44 +46891,25 @@ def _tm_multi_cost_pdf_data(client, company: str, role: str, location: str,
                   or company.lower() == str(industry or "").strip().lower())
     who = (f"{'an' if _mkt[:1].lower() in 'aeiou' else 'a'} {_mkt} business"
            if _is_market else company)
-    howto = [
-        f"The U.S. hourly rate is the fully loaded cost of one full-time "
-        f"employee{where}: {salary_note}, plus "
-        f"{_TM_BENCH_BURDEN_PCT:.0f}% payroll taxes and benefits, workspace "
-        f"({_tm_money(_TM_BENCH_OVERHEAD)}) and recruiting "
-        f"({_tm_money(_TM_BENCH_HIRING)}) a year, over "
-        f"{_TM_HOURS_PER_YEAR:,} hours.",
-        f"Our hourly rate is all-inclusive and is an estimate {pct} below "
-        f"the U.S. figure, within our published range of up to 60-70%. It "
-        f"is billed as one monthly rate per professional, and your quote is "
-        f"confirmed for the specific role.",
-    ]
     lead = ("Five roles" if n == 5 else f"{n} roles" if n > 1 else "One role")
-    profile_rows = _tm_role_profile_rows([p["role"] for p in priced])
     return {
         "title": f"Staffing Cost Comparison - {company}",
         "badge": _TM_COST_BADGE,
-        "intro": (f"{lead} {who} would typically hire for{where}: our "
-                  f"estimated all-inclusive hourly rate beside the fully "
-                  f"loaded U.S. cost, and the credentials, skills and "
-                  f"software each professional brings."),
+        "intro": (f"{lead} {who} would typically hire for{where}: who we "
+                  f"recruit for each, the skills and software they bring, "
+                  f"and our estimated all-inclusive hourly rate."),
         "sections": _tm_with_standard([
             # keep: the renderer's length trim never drops a row.
-            {"heading": "Hourly Rate by Role", "type": "table",
-             "items": rows, "keep": True, "widths": [0.44, 0.24, 0.32]},
-            *([{"heading": "What Each Professional Brings",
-                "type": "table", "items": profile_rows, "keep": True,
-                "widths": [0.17, 0.22, 0.37, 0.24], "font": 9}]
-              if profile_rows else []),
+            {"heading": "The Roles and Our Rate", "type": "table",
+             "items": rows, "keep": True,
+             "widths": [0.16, 0.19, 0.33, 0.20, 0.12], "font": 9},
             _tm_work_attributes_section(),
             _tm_vetting_section([p["role"] for p in priced]),
-            _tm_rate_covers_section(),
+            _tm_rate_covers_section(quote_line=True),
             _tm_customer_quote_section(),
-            {"heading": "Basis of Calculation", "type": "bullets",
-             "items": howto, "keep": True},
         ]),
-        "cta": ("Send us the role and what you pay today, and we will price "
-                "it for your team."),
+        "cta": ("Send us the role and the experience level you need, and we "
+                "will confirm the rate for your team."),
         "_worksheet": priced,
     }
 
@@ -63488,11 +63498,11 @@ def _render_newsletter_html(data: dict, show: dict = None) -> str:
             return (
                 '<tr>'
                 + _cell(nc["primary"], "#FFFFFF", "#E0E7F1",
-                        f"Average U.S. wage", wc["us_hr"],
+                        "U.S. cost, fully loaded", wc["us_hr"],
                         f'{wc["role"]}<br>{wc["us_yr"]}/yr')
                 + '<td width="6" style="width:6px;"></td>'
                 + _cell("#84BF55", "#082139", "#082139",
-                        f'Average {wc.get("brand") or "offshore"} wage', wc["tm_hr"],
+                        f'{wc.get("brand") or "Offshore"} hourly rate', wc["tm_hr"],
                         f'{wc["role"]}<br>&#9660; {wc["pct"]} less, '
                         f'saves ~{wc["save_yr"]}/yr')
                 + '</tr>')
@@ -65395,7 +65405,7 @@ _TM_PROFILE_ROUNDS = {
     ),
     # Mike, 2026-10-08: Quick Intro shows them once, on the cost email, so
     # the After the candidate joins email can point back at "my last email,
-    # with most support staff under $11/hr".
+    # with most support staff under $19/hr".
     "tm_threebythree": (
         ("What would the role actually cost?", 2, _TM_PROFILES_LEAD, None),
     ),
@@ -65406,20 +65416,20 @@ _TM_PROFILE_ROUNDS = {
 # a live run put it on one email of four, so the round's line goes in by
 # code (after the cards, before the closing question) when the writer left
 # the figure out. One wording per round, so the four never read the same.
-_TM_WORTH_A_SHOT_FIGURE = "$11/hr"
+_TM_WORTH_A_SHOT_FIGURE = "$19/hr"
 _TM_WORTH_A_SHOT_LINES = {
     "tm_twelveweek": (
         "If you have not tried a role like this offshore, it is worth a "
-        "look: most support staff come in under $11/hr, and the companies "
+        "look: most support staff come in under $19/hr, and the companies "
         "that start with one role have mostly kept adding.",
         "One role is a reasonable way to see it for yourself. Most support "
-        "staff come in under $11/hr, and few companies stop at one once the "
+        "staff come in under $19/hr, and few companies stop at one once the "
         "first is working.",
         "It is worth trying one role. Most support staff come in under "
-        "$11/hr, and the companies that start there have mostly gone on to "
+        "$19/hr, and the companies that start there have mostly gone on to "
         "add more.",
         "One role is an easy way to find out: most support staff come in "
-        "under $11/hr, and the companies that start with one have mostly "
+        "under $19/hr, and the companies that start with one have mostly "
         "kept adding.",
     ),
 }
@@ -65885,26 +65895,32 @@ def _tm_wage_compare(client, positions: list, brand: str) -> dict:
                 base, src = float(found["salary"]), found.get("source") or "BLS"
         if not base or base <= 0:
             continue
-        us_hr = base / 2080.0
-        tm_hr = us_hr * (1 - _TM_AUTO_SAVINGS)
+        # Our rate is all-inclusive, so it stands beside the fully loaded
+        # U.S. cost (wage + payroll taxes and benefits + workspace +
+        # recruiting), and our figure is the one every asset quotes.
+        loaded = (base + round(base * _TM_BENCH_BURDEN_PCT / 10000.0) * 100
+                  + _TM_BENCH_OVERHEAD + _TM_BENCH_HIRING)
+        us_hr = loaded / float(_TM_HOURS_PER_YEAR)
+        tm_hr = _tm_our_hourly(base, role)
         return {
             "role": pos[:1].upper() + pos[1:],
             "brand": brand,
             "us_hr": f"${us_hr:,.2f}/hr",
-            "us_yr": f"${round(base, -2):,.0f}",
+            "us_yr": f"${round(loaded, -2):,.0f}",
             "tm_hr": f"${tm_hr:,.2f}/hr",
-            "pct": f"{_TM_AUTO_SAVINGS:.0%}",
-            "save_yr": f"${round((us_hr - tm_hr) * 2080, -2):,.0f}",
-            "source": (f"U.S. wage: {src} median. {brand} wage is an estimate "
-                       f"{_TM_AUTO_SAVINGS:.0%} below it, within the published "
-                       f"range of up to 60-70%; the actual figure is confirmed "
-                       f"in a quote"),
+            "pct": f"{1 - tm_hr / us_hr:.0%}",
+            "save_yr": f"${round((us_hr - tm_hr) * _TM_HOURS_PER_YEAR, -2):,.0f}",
+            "source": (f"U.S. cost: {src} median wage plus "
+                       f"{_TM_BENCH_BURDEN_PCT:.0f}% payroll taxes and "
+                       f"benefits, workspace and recruiting. {brand} rate is "
+                       f"all-inclusive; the actual figure is confirmed in a "
+                       f"quote"),
         }
     return {}
 
 
 def _tm_profile_rate(client, title: str) -> str:
-    """'Est. $9-$11/hr' for a profile's job title, or "" when no U.S. wage
+    """'$16.35/hr' for a profile's job title, or "" when no U.S. wage
     is found for it."""
     role = _tm_profile_role(title)
     if not role:
@@ -65921,14 +65937,9 @@ def _tm_profile_rate(client, title: str) -> str:
             base = None
     if not base or base <= 0:
         return ""
-    # One rate per profile (Mike 2026-09-19: no ranges): 40% of the U.S.
-    # hourly, i.e. 60% less, nudged by the years of experience in the title.
-    hourly = base / 2080.0
-    m = re.search(r"(\d+)\+?\s*(?:years?|yrs?)", str(title or ""), re.I)
-    yrs = int(m.group(1)) if m else 4
-    adj = 0.92 if yrs <= 2 else 1.0 if yrs <= 4 else 1.08 if yrs <= 6 else 1.15
-    rate = round(hourly * 0.40 * adj * 4) / 4
-    return f"${rate:.2f}/hr"
+    # One rate per role (Mike 2026-09-19: no ranges; 2026-11-05: "everything
+    # should be aligned with hourly rates"): the cost sheet's own figure.
+    return f"{_tm_rate_text(_tm_our_hourly(base, role))}/hr"
 
 
 def _tm_newsletter_cost_math(client, role: str, region: str) -> dict:

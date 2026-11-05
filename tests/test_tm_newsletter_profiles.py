@@ -310,12 +310,12 @@ def test_long_term_nurture_card_emails_say_one_role_is_worth_a_shot():
     lines = fa._TM_WORTH_A_SHOT_LINES["tm_twelveweek"]
     assert len(lines) == 4 and len(set(lines)) == 4
     for l in lines:
-        assert "$11/hr" in l and "cheap" not in l.lower() and "$750" not in l
+        assert "$19/hr" in l and "cheap" not in l.lower() and "$750" not in l
     emails = [{"name": f"Step {n} - x", "subject": "",
                "body": "Hi {FirstName},<br><br>Para one.<br><br>Worth a call?",
                "step_type": "email_auto"} for n in range(1, 13)]
     emails[8]["body"] = ("Hi {FirstName},<br><br>Most support staff are "
-                         "under $11/hr here.<br><br>Worth a call?")
+                         "under $19/hr here.<br><br>Worth a call?")
     camp = {"emails": emails}
     for _ in range(2):
         fa._tm_add_campaign_profiles(None, camp, 3, "", "",
@@ -328,12 +328,12 @@ def test_long_term_nurture_card_emails_say_one_role_is_worth_a_shot():
         assert b[i].index("Para one.") < b[i].index(l) < b[i].index("<b>Candidate ")
         assert b[i].endswith("<br><br>Worth a call?")
     # Email 9 already had the figure: no added line.
-    assert not any(l in b[8] for l in lines) and b[8].count("$11/hr") == 1
+    assert not any(l in b[8] for l in lines) and b[8].count("$19/hr") == 1
     # Standard Outreach is untouched.
     camp = _std_camp()
     fa._tm_add_campaign_profiles(None, camp, 3, "", "", profiles=_PROFILES,
                                  camp_type="tm_fivebyseven")
-    assert not any("$11/hr" in e["body"] for e in camp["emails"])
+    assert not any("$19/hr" in e["body"] for e in camp["emails"])
 
 
 def test_other_types_keep_one_profile_email():
