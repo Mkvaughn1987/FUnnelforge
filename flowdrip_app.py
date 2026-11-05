@@ -35441,8 +35441,9 @@ def p_shared_contacts(s, rf, zoominfo_open: bool = False):
 
 
 def _t10_css() -> str:
-    """My Top 10 page: new postings strip, then one card per company with
-    recent postings on the left and signals on the right."""
+    """My Top 10 page: the ten in a short two-column list, the new postings
+    strip, then one card per company with recent postings on the left and
+    signals on the right."""
     return f"""
 .fd-t10{{max-width:1080px}}
 .fd-t10-bar{{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin:14px 0 16px}}
@@ -35469,7 +35470,40 @@ def _t10_css() -> str:
   padding:2px 7px;border-radius:6px;background:{C['card_h']};color:{C['muted']};font-variant-numeric:tabular-nums}}
 .fd-t10-age.hot{{background:{C['good']};color:#fff}}
 .fd-t10-age.warm{{background:{C['teal_dim']};color:{C['teal']}}}
-.fd-t10-card{{border:1px solid {C['border']};border-radius:10px;background:{C['card']};margin:0 0 10px;padding:14px 16px}}
+.fd-t10q{{margin:0 0 6px}}
+.fd-t10q-head{{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:8px 10px 8px 14px}}
+.fd-t10q-head .t{{font-size:11.5px;font-weight:700;letter-spacing:.08em;color:{C['muted']}}}
+.fd-t10q-head .s{{font-size:12px;color:{C['muted']};margin-left:10px}}
+.fd-t10q-add{{display:flex;align-items:center;gap:8px;margin-left:auto}}
+.fd-t10q-add .fd-input{{width:250px;max-width:100%}}
+.fd-t10q-panel{{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 14px;
+  border-top:1px solid {C['border']};font-size:13px;color:{C['text']};background:{C['card_h']}}}
+.fd-t10q-panel .who{{flex:1 1 320px;min-width:0;line-height:1.45}}
+.fd-t10q-panel .who b{{color:{C['text_l']}}}
+.fd-t10q-panel .who a{{color:{C['teal']};text-decoration:none}}
+.fd-t10q-panel .who a:hover{{text-decoration:underline}}
+.fd-t10q-panel .sub{{font-size:12px;color:{C['muted']};margin-top:2px}}
+.fd-t10q-panel .warn{{color:{C['warn']}}}
+.fd-t10q-panel .ok{{color:{C['good']};font-weight:700}}
+.fd-t10q-btns{{display:flex;flex-wrap:wrap;align-items:center;gap:6px}}
+.fd-t10q-grid{{display:grid;grid-auto-flow:column;grid-template-columns:1fr 1fr;border-top:1px solid {C['border']}}}
+.fd-t10q-row{{display:grid;grid-template-columns:22px minmax(0,1fr) auto auto;align-items:center;gap:0 10px;
+  padding:4px 8px 4px 14px;min-height:34px;border-bottom:1px solid {C['border']};font-size:13px}}
+.fd-t10q-row.c1{{border-right:1px solid {C['border']}}}
+.fd-t10q-row.last{{border-bottom:none}}
+.fd-t10q-row.ask{{grid-template-columns:minmax(0,1fr) auto;color:{C['text_l']};font-weight:600}}
+.fd-t10q-row.open{{grid-template-columns:22px minmax(0,1fr) auto}}
+.fd-t10q-row .n{{color:{C['muted']};font-size:12px;font-variant-numeric:tabular-nums}}
+.fd-t10q-row .nm{{display:block;min-width:0;border:none;background:transparent;font:inherit;font-weight:600;
+  color:{C['text_l']};text-align:left;padding:0;cursor:pointer}}
+.fd-t10q-row .nm div{{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.fd-t10q-row .nm:hover{{color:{C['teal']}}}
+.fd-t10q-row .act{{display:flex;align-items:center;gap:5px;white-space:nowrap}}
+.fd-t10q-row .q{{color:{C['muted']};font-size:12px}}
+.fd-t10q-row:hover .fd-t10-acts{{opacity:1}}
+.fd-t10-card{{border:1px solid {C['border']};border-radius:10px;background:{C['card']};margin:0 0 10px;padding:14px 16px;
+  scroll-margin-top:14px;transition:border-color .3s,box-shadow .3s}}
+.fd-t10-card.flash{{border-color:{C['teal']};box-shadow:0 0 0 3px {C['teal_dim']}}}
 .fd-t10-head{{display:flex;align-items:flex-start;gap:12px}}
 .fd-t10-rank{{width:26px;height:26px;border-radius:50%;background:{C['card_h']};color:{C['text_l']};
   font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}}
@@ -35529,6 +35563,11 @@ def _t10_css() -> str:
   .fd-t10-new{{grid-template-columns:auto 1fr}}
   .fd-t10-new .co{{grid-column:2}}
   .fd-t10-bk{{grid-template-columns:28px 1fr}}
+  .fd-t10q-grid{{grid-auto-flow:row;grid-template-columns:1fr;grid-template-rows:none !important}}
+  .fd-t10q-row.c1{{border-right:none}}
+  .fd-t10q-row.c1.last{{border-bottom:1px solid {C['border']}}}
+  .fd-t10q-add{{margin-left:0;width:100%}}
+  .fd-t10q-add .fd-input{{flex:1;width:auto}}
 }}
 """
 
@@ -35553,6 +35592,65 @@ def _top10_check_one(client, company: dict, focus: dict) -> dict:
     if final is None:
         raise RuntimeError("search returned nothing")
     return _tt.parse_signals(final, UNIVERSAL_SIGNALS, urls)
+
+
+def _top10_site_live(site: str) -> bool:
+    """True when the company's website answers. Any HTTP reply counts,
+    a 403 from a site that blocks scripts included: the point is that the
+    address is real, not that we can read it. Only public addresses are
+    tried and redirects are not followed."""
+    import ipaddress, socket, urllib.error, urllib.request
+    host = _pdf_site_domain(site)
+    if not host:
+        return False
+    try:
+        infos = socket.getaddrinfo(host, 443, proto=socket.IPPROTO_TCP)
+        if not infos or not all(ipaddress.ip_address(i[4][0]).is_global for i in infos):
+            return False
+    except Exception:
+        return False
+
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, *a, **k):
+            return None
+
+    opener = urllib.request.build_opener(_NoRedirect)
+    for scheme in ("https", "http"):
+        try:
+            req = urllib.request.Request(f"{scheme}://{host}/", method="GET", headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                              "(KHTML, like Gecko) Chrome/126.0 Safari/537.36"})
+            with opener.open(req, timeout=6):
+                return True
+        except urllib.error.HTTPError:
+            return True          # it answered, just not with a 200
+        except Exception:
+            continue
+    return False
+
+
+def _top10_verify(query: str, focus: dict) -> dict:
+    """Look a company up on the open web before it joins the list: its
+    own name for itself, official website, city, state and what it does.
+    Returns top_ten.parse_verify's dict plus "site_live", or {"error": ...}
+    when the lookup itself did not finish."""
+    import top_ten as _tt
+    name, site = _tt.split_query(query)
+    if not ANTHROPIC_API_KEY:
+        return {"error": "no API key"}
+    try:
+        import anthropic as _anth
+        client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
+        prompt = _tt.verify_prompt(name, site, focus, date.today().isoformat())
+        final, urls = _pdf_research_message(client, prompt, any_domain=True)
+        if final is None:
+            return {"error": "search returned nothing"}
+        info = _tt.parse_verify(final, urls, site)
+    except Exception as e:
+        print(f"[MyTop10] verify {query!r}: {e}", flush=True)
+        return {"error": str(e)[:200]}
+    info["site_live"] = bool(info["website"]) and _top10_site_live(info["website"])
+    return info
 
 
 def _top10_start_scan(s, email: str, rf, ids=None) -> None:
@@ -35663,8 +35761,12 @@ def p_my_top10(s, rf):
     """The user's own ten target companies plus ten backups. Empty on first
     visit? Filled from the companies they have campaigned most, inside their
     focus market and industry. Every visit re-checks postings and hiring
-    signals for any top-10 company not checked in the last day. Newest
-    postings lead: a strip across the top, then first in every card."""
+    signals for any top-10 company not checked in the last day. The ten
+    sit in a short list at the top with what is new beside each name: click
+    a name to jump to its card, add or remove right there. A company typed
+    into the add box is looked up on the web (name, website, location) and
+    shown back before it is saved. Newest postings follow: a strip across
+    the top ten, then first in every card."""
     from html import escape as _esc
     import team_campaigns as _tc
     import top_ten as _tt
@@ -35718,6 +35820,31 @@ def p_my_top10(s, rf):
         rf()
     n_fresh_cos = sum(1 for c in act if _tt.fresh_jobs(c))
     n_signals = sum(len(c["signals"]) for c in act)
+
+    # Add-box text, the lookup in flight and a pending "Remove?" live on the
+    # session, so the page re-rendering under a running check loses nothing.
+    st = getattr(s, "_t10_ui", None)
+    if not isinstance(st, dict):
+        st = s._t10_ui = {"q": "", "phase": "", "asked": "", "info": None,
+                          "confirm": "", "confirm_at": 0.0, "touched": 0.0}
+    st.setdefault("touched", 0.0)
+    if st["confirm"] and (time.time() - st["confirm_at"] > 90 or not _tt.find(data, st["confirm"])):
+        st["confirm"] = ""
+
+    def _touch():
+        st["touched"] = time.time()
+
+    def _busy() -> bool:
+        """Typing in the add box, a lookup in flight or a question on screen:
+        the scan's progress refresh must not redraw the page under that. A
+        half-typed name left alone for two minutes stops counting."""
+        if st["phase"] == "checking":
+            return True
+        return bool((st["q"] or "").strip() or st["phase"] or st["confirm"]) and (
+            time.time() - st["touched"] < 120)
+
+    def _dom_id(cid: str) -> str:
+        return "t10-" + re.sub(r"[^A-Za-z0-9_-]", "", cid)
 
     def _commit(msg: str = ""):
         _tt.save(path, data)
@@ -35819,10 +35946,10 @@ def p_my_top10(s, rf):
         return (f'<div class="fd-t10-body"><div class="fd-t10-col">{left}</div>'
                 f'<div class="fd-t10-col">{right}</div></div>')
 
-    def _edit_dialog(c: dict | None):
+    def _edit_dialog(c: dict):
         with ui.dialog() as dlg, ui.card().style("min-width:min(520px,92vw);"):
-            ui.label("Edit company" if c else "Add a company").classes("fd-h2")
-            vals = c or {}
+            ui.label("Edit company").classes("fd-h2")
+            vals = c
             fields = {}
             for key, label in (("company", "Company"), ("website", "Website"),
                                ("city", "City"), ("state", "State (2 letters)"),
@@ -35835,19 +35962,9 @@ def p_my_top10(s, rf):
             def _save():
                 got = {k: (f.value or "") for k, f in fields.items()}
                 got["status"] = status.value
-                if c:
-                    _tt.update(data, c["id"], got)
-                    dlg.close()
-                    _commit(f"Saved {got['company'] or c['company']}.")
-                    return
-                new, msg = _tt.add(data, got)
-                if not new:
-                    ui.notify(msg, type="warning")
-                    return
-                _tt.update(data, new["id"], {"status": got["status"]})
+                _tt.update(data, c["id"], got)
                 dlg.close()
-                _commit(msg)
-                _top10_start_scan(s, owner, rf, [new["id"]])
+                _commit(f"Saved {got['company'] or c['company']}.")
 
             with ui.element("div").style("display:flex;gap:8px;justify-content:flex-end;margin-top:10px;"):
                 ui.button("Cancel", on_click=dlg.close).props("flat")
@@ -35863,6 +35980,47 @@ def p_my_top10(s, rf):
             'type="button"' + (f' title="{title}"' if title else "")).on("click", fn)
         with b:
             ui.label(label)
+
+    def _ask_remove(cid: str, redraw):
+        st["confirm"], st["confirm_at"] = cid, time.time()
+        _touch()
+        redraw()
+
+    def _keep(redraw):
+        st["confirm"] = ""
+        redraw()
+
+    def _remove(cid: str, name: str):
+        st["confirm"] = ""
+        _tt.remove(data, cid)
+        _commit(f"Removed {name}.")
+
+    def _remove_acts(cid: str, name: str, redraw, label: str = "Remove", title: str = ""):
+        """The remove control: one click asks, the second one removes."""
+        if st["confirm"] == cid:
+            _act("Yes, remove", lambda: _remove(cid, name), danger=True)
+            _act("Keep", lambda: _keep(redraw))
+        else:
+            _act(label, lambda: _ask_remove(cid, redraw), danger=True, title=title)
+
+    def _activity_html(c: dict) -> str:
+        a = _tt.activity(c)
+        bits = ""
+        if a["jobs"]:
+            bits += f'<span class="fd-t10-pill new">{a["jobs"]} new job{"s" if a["jobs"] != 1 else ""}</span>'
+        if a["signals"]:
+            bits += f'<span class="fd-t10-pill sig">{a["signals"]} signal{"s" if a["signals"] != 1 else ""}</span>'
+        if not bits:
+            txt = ("Nothing new" if a["checked"] else "Checking…" if scan.get("running")
+                   else "Check didn't finish" if a["failed"] else "Not checked yet")
+            bits = f'<span class="q">{txt}</span>'
+        return f'<span class="act">{bits}</span>'
+
+    def _jump(cid: str):
+        ui.run_javascript(
+            f"var el=document.getElementById('{_dom_id(cid)}');"
+            "if(el){el.scrollIntoView({behavior:'smooth',block:'start'});"
+            "el.classList.add('flash');setTimeout(function(){el.classList.remove('flash');},1600);}")
 
     focus_open = {"on": not (data["focus"]["market"] or data["focus"]["industry"])}
 
@@ -35921,8 +36079,19 @@ def p_my_top10(s, rf):
                     if scan.get("running"):
                         with ui.element("div").classes("fd-t10-scan"):
                             ui.spinner("dots", size="16px", color=C["warn"])
-                            ui.label(f"Checking {scan['done']} of {scan['total']}")
-                        ui.timer(5.0, rf, once=True)
+                            scan_lbl = ui.label(f"Checking {scan['done']} of {scan['total']}")
+
+                        def _tick():
+                            # Mid-add or mid-remove: leave the page under
+                            # their hands and only move the counter.
+                            if not _busy():
+                                ticker.cancel()
+                                rf()
+                                return
+                            now = _TOP10_SCANS.get(owner) or {}
+                            scan_lbl.set_text(f"Checking {now.get('done', 0)} of {now.get('total', 0)}"
+                                              if now.get("running") else "Check finished")
+                        ticker = ui.timer(5.0, _tick)
                     elif act:
                         def _recheck_all():
                             _top10_start_scan(s, owner, rf, [c["id"] for c in act])
@@ -35938,27 +36107,195 @@ def p_my_top10(s, rf):
                                     if n else "No more companies from your campaigns match your focus.")
                             _top10_start_scan(s, owner, rf)
                         _link("Fill from my campaigns", _fill, "fd-rc-link quiet")
-                    ui.button("Add a company", on_click=lambda: _edit_dialog(None)).props(
-                        "unelevated color=primary")
         _draw_bar(); _draw_focus_row()
+
+        # ── the ten at a glance: jump, reorder, add, remove ──────────
+        quick = ui.element("div").classes("fd-t10-box fd-t10q")
+
+        def _reset_add(keep_text: bool = False):
+            st.update(phase="", asked="", info=None)
+            if not keep_text:
+                st["q"] = ""
+
+        async def _check_new():
+            """Look the typed company up before it can be added."""
+            q = " ".join((st["q"] or "").split())
+            if st["phase"] == "checking":
+                return
+            if not q:
+                ui.notify("Type a company name or its website first.", type="warning")
+                return
+            if len(act) >= _tt.ACTIVE_MAX and len(back) >= _tt.BACKUP_MAX:
+                ui.notify("Your top 10 and backup 10 are both full. Remove one first.", type="warning")
+                return
+            dup = _tt.find_name(data, _tt.split_query(q)[0])
+            if dup:
+                ui.notify(f"{dup['company']} is already on your list.", type="warning")
+                return
+            st.update(phase="checking", asked=q, info=None)
+            _touch()
+            _draw_quick()
+            try:
+                info = await asyncio.to_thread(_top10_verify, q, dict(data["focus"]))
+            except Exception as e:
+                info = {"error": str(e)}
+            if st["phase"] != "checking" or st["asked"] != q:
+                return                      # cancelled while the lookup ran
+            st.update(phase="result", info=info)
+            _touch()
+            rf()
+
+        def _add_new(top: bool, checked: bool):
+            info = st["info"] or {}
+            name, site = _tt.split_query(st["asked"])
+            if checked:
+                fields = {k: info.get(k, "") for k in ("company", "website", "city", "state", "lane")}
+                fields["verified"] = datetime.now().isoformat(timespec="seconds")
+            else:
+                fields = {"company": name or site, "website": site}
+            new, msg = (_tt.add_to_top if top else _tt.add)(data, fields)
+            if not new:
+                ui.notify(msg, type="warning")
+                return
+            _reset_add()
+            _tt.save(path, data)
+            _top10_start_scan(s, owner, rf, [new["id"]])    # postings + signals for the newcomer
+            _commit(msg)
+
+        def _draw_add_panel():
+            if st["phase"] == "checking":
+                with ui.element("div").classes("fd-t10q-panel"):
+                    ui.spinner("dots", size="16px", color=C["teal"])
+                    ui.html(f'<div class="who">Checking <b>{_esc(st["asked"])}</b>: finding its '
+                            'website and where it is based. About half a minute.</div>')
+                    with ui.element("div").classes("fd-t10q-btns"):
+                        _link("Cancel", lambda: (_reset_add(keep_text=True), _draw_quick()),
+                              "fd-rc-link quiet")
+                return
+            if st["phase"] != "result":
+                return
+            info = st["info"] or {}
+            full = len(act) >= _tt.ACTIVE_MAX
+            cancel = lambda: (_reset_add(keep_text=True), _draw_quick())
+            with ui.element("div").classes("fd-t10q-panel"):
+                if info.get("error") or not info.get("found"):
+                    if info.get("error"):
+                        ui.html(f'<div class="who"><b>The check on {_esc(st["asked"])} did not finish.</b>'
+                                '<div class="sub">Try it again, or add it as typed and fix the '
+                                'details later.</div></div>')
+                    else:
+                        ui.html(f'<div class="who"><b>Could not confirm a company called '
+                                f'{_esc(st["asked"])}.</b><div class="sub">Is the spelling right? '
+                                'Its website works in this box too.</div></div>')
+                    with ui.element("div").classes("fd-t10q-btns"):
+                        if info.get("error"):
+                            def _again():
+                                st.update(phase="", info=None, q=st["asked"])
+                                return _check_new()
+                            ui.button("Try again", on_click=_again).props("unelevated color=primary dense")
+                        ui.button("Add as typed", on_click=lambda: _add_new(not full, False)).props(
+                            "outline color=primary dense")
+                        _link("Cancel", cancel, "fd-rc-link quiet")
+                    return
+                dup = _tt.find_name(data, info["company"])
+                where = ", ".join(x for x in (info["city"], info["state"]) if x)
+                bits = [f'<span class="ok">✓</span> <b>{_esc(info["company"])}</b>']
+                if info["website"]:
+                    bits.append(f'<a href="https://{_esc(info["website"])}" target="_blank" '
+                                f'rel="noopener">{_esc(info["website"])} ↗</a>'
+                                + ("" if info.get("site_live") else
+                                   ' <span class="warn">(site did not answer)</span>'))
+                else:
+                    bits.append('<span class="warn">no website found</span>')
+                bits += [_esc(x) for x in (where, info["lane"]) if x]
+                sub = _esc(info["about"])
+                if info["note"]:
+                    sub += f' <span class="warn">{_esc(info["note"])}</span>'
+                if dup:
+                    sub = f'{_esc(dup["company"])} is already on your list.'
+                elif full:
+                    sub += (f' Your top 10 is full: adding it there moves '
+                            f'{_esc(act[-1]["company"])} to backups.')
+                ui.html(f'<div class="who">{" · ".join(bits)}<div class="sub">{sub}</div></div>')
+                with ui.element("div").classes("fd-t10q-btns"):
+                    if not dup:
+                        ui.button("Add to top 10", on_click=lambda: _add_new(True, True)).props(
+                            "unelevated color=primary dense")
+                        if full:
+                            ui.button("Add to backups", on_click=lambda: _add_new(False, True)).props(
+                                "outline color=primary dense")
+                    _link("Close" if dup else "Not the right one", cancel, "fd-rc-link quiet")
+
+        def _draw_quick():
+            quick.clear()
+            with quick:
+                with ui.element("div").classes("fd-t10q-head"):
+                    new_bits = []
+                    if n_fresh_cos:
+                        new_bits.append(f"{n_fresh_cos} with new jobs")
+                    if n_signals:
+                        new_bits.append(f"{n_signals} hiring signal{'s' if n_signals != 1 else ''}")
+                    ui.html(f'<span class="t">{"TOP 10" if len(act) >= _tt.ACTIVE_MAX else f"TOP {len(act)}"}</span>'
+                            f'<span class="s">{" · ".join(new_bits)}</span>')
+                    with ui.element("div").classes("fd-t10q-add"):
+                        add_in = ui.input(placeholder="Add a company: name or website",
+                                          value=st["q"]).props("dense outlined").classes("fd-input")
+                        add_in.on_value_change(lambda e: (st.__setitem__("q", e.value or ""), _touch()))
+                        add_in.on("keydown.enter", _check_new)
+                        add_btn = ui.button("Check & add", on_click=_check_new).props(
+                            "unelevated color=primary dense")
+                        if st["phase"] == "checking":
+                            add_btn.disable()
+                _draw_add_panel()
+                cells = len(act) + (1 if act and len(act) < _tt.ACTIVE_MAX else 0)
+                if not cells:
+                    return
+                half = (cells + 1) // 2
+                with ui.element("div").classes("fd-t10q-grid").style(
+                        f"grid-template-rows:repeat({half},auto);"):
+                    for i, c in enumerate(act):
+                        cid = c["id"]
+                        edge = (" c1" if i < half else "") + (" last" if i in (half - 1, cells - 1) else "")
+                        if st["confirm"] == cid:
+                            with ui.element("div").classes("fd-t10q-row ask" + edge):
+                                ui.label(f"Remove {c['company']}?")
+                                with ui.element("div").classes("fd-t10-acts").style("opacity:1;"):
+                                    _remove_acts(cid, c["company"], _draw_quick)
+                            continue
+                        with ui.element("div").classes("fd-t10q-row" + edge):
+                            ui.html(f'<span class="n">{i + 1}</span>')
+                            with ui.element("button").classes("nm").props(
+                                    'type="button" title="Jump to this company"').on(
+                                    "click", lambda cid=cid: _jump(cid)):
+                                ui.label(c["company"])
+                            ui.html(_activity_html(c))
+                            with ui.element("div").classes("fd-t10-acts"):
+                                if i > 0:
+                                    _act("↑", lambda cid=cid: (_tt.move(data, cid, -1), _commit()),
+                                         title="Move up")
+                                if i < len(act) - 1:
+                                    _act("↓", lambda cid=cid: (_tt.move(data, cid, 1), _commit()),
+                                         title="Move down")
+                                _remove_acts(cid, c["company"], _draw_quick, "✕", "Remove from your list")
+                    if cells > len(act):
+                        left = _tt.ACTIVE_MAX - len(act)
+                        with ui.element("div").classes("fd-t10q-row open last"):
+                            ui.html(f'<span class="n">{len(act) + 1}</span>')
+                            ui.html('<span class="q">' + ("Open spot" if left == 1 else f"{left} open spots")
+                                    + "</span>")
+                            if back:
+                                with ui.element("div").classes("fd-t10-acts").style("opacity:1;"):
+                                    _act(f"Move up {back[0]['company']}",
+                                         lambda cid=back[0]["id"]: _commit(_tt.promote(data, cid)),
+                                         title="Your first backup takes the open spot")
+        _draw_quick()
 
         if not data["companies"]:
             ui.html(
                 '<div class="fd-es compact wide"><div class="fd-es-title">Your list is empty.</div>'
-                '<div class="fd-es-body">Add your target companies, or set a focus and fill '
-                'from your campaigns once you have run a few.</div></div>')
+                '<div class="fd-es-body">Add your target companies in the box above, or set a focus '
+                'and fill from your campaigns once you have run a few.</div></div>')
             return
-
-        # ── stat strip ───────────────────────────────────────────────
-        with ui.element("div").classes("fd-stat-strip").style("margin:0 0 6px;"):
-            for val, lbl, col in [
-                    (len(act), "Top targets", C["text_l"]),
-                    (n_fresh_cos, f"Posted jobs in {_tt.FRESH_DAYS} days", C["good"]),
-                    (n_signals, "Hiring signals", C["teal"]),
-                    (len(back), "Backups", C["muted"])]:
-                with ui.element("div").classes("fd-stat-cell" + (" zero" if not val else "")):
-                    ui.label(str(val)).classes("fd-sn").style(f"color:{col};")
-                    ui.label(lbl).classes("fd-sl")
 
         # ── newest postings across the top 10 ────────────────────────
         with ui.element("div").classes("fd-t10-h2"):
@@ -35984,7 +36321,7 @@ def p_my_top10(s, rf):
             ui.label("TOP 10" if len(act) >= _tt.ACTIVE_MAX else f"TOP {len(act)}")
         for i, c in enumerate(act):
             cid = c["id"]
-            with ui.element("div").classes("fd-t10-card"):
+            with ui.element("div").classes("fd-t10-card").props(f'id="{_dom_id(cid)}"'):
                 with ui.element("div").classes("fd-t10-head"):
                     ui.label(str(i + 1)).classes("fd-t10-rank")
                     with ui.element("div").style("flex:1;min-width:0;"):
@@ -36028,6 +36365,8 @@ def p_my_top10(s, rf):
                         meta = [p for p in (_where(c), c["lane"], _tt.short_roles(c["req"])) if p]
                         if c["source"] == "auto" and c["why"]:
                             meta.append(c["why"].replace("From your outreach: ", ""))
+                        if c["verified"] and c["website"]:
+                            meta.append(f"✓ {_tt.site_host(c['website'])} checked")
                         ui.html(f'<div class="fd-t10-meta" title="{_esc(c["req"])}">{_esc(" · ".join(meta))}</div>')
                         if c["notes"]:
                             ui.html(f'<div class="fd-t10-meta">{_esc(c["notes"])}</div>')
@@ -36039,8 +36378,7 @@ def p_my_top10(s, rf):
                         _act("Edit", lambda c=c: _edit_dialog(c))
                         _act("Re-check", lambda cid=cid: (_top10_start_scan(s, owner, rf, [cid]), rf()))
                         _act("Backup", lambda cid=cid: _commit(_tt.demote(data, cid)), title="Move to backups")
-                        _act("Remove", lambda cid=cid, nm=c["company"]: (
-                            _tt.remove(data, cid), _commit(f"Removed {nm}.")), danger=True)
+                        _remove_acts(cid, c["company"], rf)
                 ui.html(_card_body(c))
                 if c["signals_checked"]:
                     ui.html(f'<div class="fd-t10-when">Checked {_esc(_ago(c["signals_checked"]))}</div>')
@@ -36065,8 +36403,7 @@ def p_my_top10(s, rf):
                         with ui.element("div").classes("fd-t10-acts").style("opacity:1;"):
                             _act("Move to top 10", lambda cid=cid: _commit(_tt.promote(data, cid)))
                             _act("Edit", lambda c=c: _edit_dialog(c))
-                            _act("Remove", lambda cid=cid, nm=c["company"]: (
-                                _tt.remove(data, cid), _commit(f"Removed {nm}.")), danger=True)
+                            _remove_acts(cid, c["company"], rf)
 
 def p_active_clients(s, rf):
     """Team-shared list of active client domains. Contacts at these
@@ -36821,23 +37158,28 @@ def _pdf_host(url) -> str:
     return h[4:] if h.startswith("www.") else h
 
 
-def _pdf_research_message(client, prompt: str, website: str = ""):
+def _pdf_research_message(client, prompt: str, website: str = "", any_domain: bool = False):
     """Run one research-and-write call for a data-bearing PDF on the
     research model with web search. Returns (final_text, retrieved_urls)
     or (None, []) when the model declined or the call failed, so the
     caller can fall back to the fast model. If the target's own domain is
-    rejected by the API (site blocks crawlers), retries without it."""
+    rejected by the API (site blocks crawlers), retries without it.
+    any_domain=True searches the whole web instead of the allowed list, for
+    lookups whose answer is a site we cannot know in advance."""
     site = _pdf_site_domain(website)
     domain_sets = [_pdf_research_domains(site)]
     if site:
         domain_sets.append(_pdf_research_domains(""))
+    if any_domain:
+        domain_sets = [None]
     for domains in domain_sets:
         tool = {
             "type": "web_search_20260209",
             "name": "web_search",
             "max_uses": _PDF_RESEARCH_MAX_USES,
-            "allowed_domains": domains,
         }
+        if domains is not None:
+            tool["allowed_domains"] = domains
         messages = [{"role": "user", "content": prompt}]
         blocks = []
         try:

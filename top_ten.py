@@ -94,6 +94,8 @@ def _clean(c: dict) -> dict:
         "signals_checked": str(c.get("signals_checked") or ""),
         "signals_error": str(c.get("signals_error") or ""),
         "signals_tried": str(c.get("signals_tried") or ""),
+        # When a web lookup last confirmed the company and its website.
+        "verified": str(c.get("verified") or ""),
     }
     return out
 
@@ -110,6 +112,12 @@ def backups(data: dict) -> list:
 
 def find(data: dict, cid: str) -> dict | None:
     return next((c for c in data["companies"] if c["id"] == cid), None)
+
+
+def find_name(data: dict, name: str) -> dict | None:
+    """The company already on the list under this name, if any."""
+    key = _norm_name(name)
+    return next((c for c in data["companies"] if key and _norm_name(c["company"]) == key), None)
 
 
 def _norm_name(name: str) -> str:
@@ -139,13 +147,25 @@ def add(data: dict, fields: dict, today: str = "") -> tuple:
     return c, f"Added {c['company']} to {where}."
 
 
+def add_to_top(data: dict, fields: dict, today: str = "") -> tuple:
+    """add(), but the company always lands in the top 10: when the ten is
+    full the last one drops to the head of the backups to make room."""
+    c, msg = add(data, fields, today)
+    if c and c["tier"] == "backup":
+        msg = promote(data, c["id"])
+    return c, msg
+
+
 def update(data: dict, cid: str, fields: dict) -> dict | None:
     c = find(data, cid)
     if not c:
         return None
+    before = (c["company"], c["website"])
     for k in ("company", "website", "city", "state", "lane", "req", "status", "notes"):
         if k in fields:
             c[k] = _clean({**c, k: fields[k]})[k]
+    if (c["company"], c["website"]) != before:
+        c["verified"] = ""          # a new name or site has not been looked up
     c["source"] = "manual"          # edited by hand: it is theirs now
     return c
 
@@ -207,6 +227,90 @@ def demote(data: dict, cid: str) -> str:
                         len(data["companies"]))
     data["companies"].insert(first_backup, c)
     return f"{c['company']} moved to backups."
+
+
+# ── checking a company before it joins the list ────────────────────────
+
+_SITE_RE = re.compile(r"(?:https?://)?(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}(?:[/?#]\S*)?", re.I)
+
+
+def split_query(text: str) -> tuple:
+    """(name, website) from the add box: a bare web address is the website,
+    anything else is the company's name."""
+    t = " ".join((text or "").split())
+    if t and " " not in t and _SITE_RE.fullmatch(t):
+        return "", _host(t)
+    return t, ""
+
+
+def verify_prompt(name: str, website: str, focus: dict | None, today: str) -> str:
+    focus = focus or {}
+    facts = []
+    if name:
+        facts.append(f"Company name as typed: {name}")
+    if website:
+        facts.append(f"Website as typed: {website}")
+    desk = " ".join(p for p in (focus.get("market", ""), focus.get("industry", "")) if p)
+    if desk:
+        facts.append(f"Recruiter's desk: {desk} (when several companies share the name, "
+                     "prefer the one in that market and industry)")
+    return (
+        f"Today is {today}. A staffing recruiter is adding a company to their list of "
+        "target clients. Before it is saved, confirm it is a real, operating company "
+        "and find its official details.\n\n"
+        + "\n".join(facts) + "\n\n"
+        "Search the web for it. Find the company's own official website (not its "
+        "LinkedIn, Indeed, Facebook or directory page), the city and state of its "
+        "office (the one in the recruiter's market when it has one there, otherwise "
+        "its headquarters), and what it does in a few words.\n\n"
+        "Only report what you actually found on a page the search returned. Never "
+        "guess a web address. If you cannot find a company that clearly matches, "
+        'set "found" to false. If more than one company could match, pick the best '
+        'fit and name the other in "note". Leave "note" empty otherwise: do not use '
+        "it to explain your search or which office you chose.\n\n"
+        "Reply with ONLY a JSON object, no prose before or after:\n"
+        '{"found": true, "company": "<the name the company uses for itself>", '
+        '"website": "<official site, e.g. example.com, or empty>", '
+        '"city": "<city>", "state": "<2-letter state>", '
+        '"industry": "<what it does, 2 to 5 words>", '
+        '"about": "<one plain sentence about the company>", '
+        '"note": "<empty unless the match is uncertain>"}'
+    )
+
+
+def parse_verify(text: str, retrieved_urls: list | None = None, typed_site: str = "") -> dict:
+    """{"found", "company", "website", "city", "state", "lane", "about",
+    "note"} from the model's reply. The website is kept only when the search
+    actually returned a page on it or the user typed it themselves."""
+    m = re.search(r"\{.*\}", text or "", re.S)
+    if not m:
+        raise ValueError("no JSON in reply")
+    raw = json.loads(m.group(0))
+    if not isinstance(raw, dict):
+        raise ValueError("reply is not an object")
+    company = str(raw.get("company") or "").strip()[:120]
+    site = _host(str(raw.get("website") or ""))
+    if site and site != _host(typed_site) and retrieved_urls is not None:
+        seen = {_host(u) for u in retrieved_urls if u}
+        if not any(h == site or h.endswith("." + site) for h in seen):
+            site = ""
+    return {
+        "found": bool(raw.get("found")) and bool(company),
+        "company": company,
+        "website": site,
+        "city": str(raw.get("city") or "").strip()[:60],
+        "state": str(raw.get("state") or "").strip().upper()[:2],
+        "lane": str(raw.get("industry") or "").strip()[:60],
+        "about": str(raw.get("about") or "").strip()[:240],
+        "note": str(raw.get("note") or "").strip()[:240],
+    }
+
+
+def activity(c: dict) -> dict:
+    """What is new at a company, for its row in the short list at the top
+    of the page: postings from the last FRESH_DAYS days and hiring signals."""
+    return {"jobs": len(fresh_jobs(c)), "signals": len(c.get("signals") or []),
+            "checked": bool(c.get("signals_checked")), "failed": bool(c.get("signals_error"))}
 
 
 # ── hiring signals ──────────────────────────────────────────────────────
@@ -416,6 +520,11 @@ def short_roles(req: str, keep: int = 2) -> str:
     if len(parts) <= keep:
         return ", ".join(parts)
     return ", ".join(parts[:keep]) + f" +{len(parts) - keep}"
+
+
+def site_host(url: str) -> str:
+    """'https://www.weoneil.com/careers' -> 'weoneil.com'."""
+    return _host(url)
 
 
 def _host(url: str) -> str:

@@ -312,7 +312,7 @@ def test_page_seeds_from_outreach_and_starts_signal_scan(with_user, monkeypatch)
         fa.p_my_top10(s, lambda: None)
     text = _page_text(card)
     assert "My Top 10" in text and "Shaw Construction" in text
-    assert "1 campaign" in text and "NEW POSTINGS" in text and "Top targets" in text
+    assert "1 campaign" in text and "NEW POSTINGS" in text and "Check & add" in text
     assert text.count("Check pipeline") == 2 and "in pipeline" not in text   # toolbar + card pill
     # Once a check is recorded the pill becomes a link into the Pipeline search.
     p = users / "tester_at_example_com" / tt.FILE_NAME
@@ -327,3 +327,210 @@ def test_page_seeds_from_outreach_and_starts_signal_scan(with_user, monkeypatch)
     assert started == ["tester@example.com"] * 2            # one scan start per render
     saved = tt.load(users / "tester_at_example_com" / tt.FILE_NAME)
     assert saved["seeded"] and saved["companies"][0]["source"] == "auto"
+
+
+# ── the short list at the top + checked adds ────────────────────────────
+
+def test_split_query_tells_a_website_from_a_name():
+    assert tt.split_query("weoneil.com") == ("", "weoneil.com")
+    assert tt.split_query(" https://www.WEONeil.com/careers ") == ("", "weoneil.com")
+    assert tt.split_query("W.E. O'Neil  Construction") == ("W.E. O'Neil Construction", "")
+    assert tt.split_query("Howell") == ("Howell", "")
+    assert tt.split_query("") == ("", "")
+
+
+def test_verify_prompt_names_what_was_typed_and_the_desk():
+    p = tt.verify_prompt("Shaw Construction", "", {"market": "Denver, CO", "industry": "Construction"},
+                         "2026-11-04")
+    assert "Company name as typed: Shaw Construction" in p and "Denver, CO Construction" in p
+    assert "2026-11-04" in p and '"found"' in p and "Never guess a web address" in p
+    assert "Website as typed: shaw.com" in tt.verify_prompt("", "shaw.com", None, "2026-11-04")
+
+
+def test_parse_verify_keeps_only_a_site_the_search_returned_or_the_user_typed():
+    reply = ('Here you go {"found": true, "company": "Shaw Construction", "website": "https://www.shawconstruction.net/", '
+             '"city": "Denver", "state": "co", "industry": "General contractor", "about": "Builds things.", "note": ""}')
+    got = tt.parse_verify(reply, ["https://www.shawconstruction.net/about", "https://linkedin.com/company/shaw"])
+    assert got == {"found": True, "company": "Shaw Construction", "website": "shawconstruction.net",
+                   "city": "Denver", "state": "CO", "lane": "General contractor",
+                   "about": "Builds things.", "note": ""}
+    # A web address the search never returned is dropped; the company still stands.
+    unseen = tt.parse_verify(reply, ["https://linkedin.com/company/shaw"])
+    assert unseen["found"] and unseen["website"] == ""
+    # ... unless it is the one the user typed.
+    assert tt.parse_verify(reply, [], "shawconstruction.net")["website"] == "shawconstruction.net"
+    assert not tt.parse_verify('{"found": false, "company": ""}', [])["found"]
+    assert not tt.parse_verify('{"found": true, "company": ""}', [])["found"]
+    try:
+        tt.parse_verify("no idea", [])
+        raise AssertionError("expected ValueError")
+    except ValueError:
+        pass
+
+
+def test_add_to_top_makes_room_when_the_ten_is_full():
+    d = _data()
+    _fill(d, 10)
+    c, msg = tt.add_to_top(d, {"company": "Newcomer"}, "2026-11-04")
+    assert c["tier"] == "active" and [x["company"] for x in tt.active(d)][-1] == "Newcomer"
+    assert len(tt.active(d)) == 10 and [x["company"] for x in tt.backups(d)] == ["Co 9"]
+    assert "Newcomer is in your top 10" in msg and "Co 9 moved to backups" in msg
+    # Room in the ten: it just lands there.
+    d2 = _data()
+    c2, msg2 = tt.add_to_top(d2, {"company": "Solo"})
+    assert c2["tier"] == "active" and "top 10" in msg2
+    assert tt.add_to_top(d2, {"company": "solo inc"})[0] is None      # duplicate still refused
+
+
+def test_verified_survives_a_save_and_clears_when_the_name_or_site_changes(tmp_path):
+    d = _data()
+    c, _ = tt.add(d, {"company": "Shaw Construction", "website": "shawconstruction.net",
+                      "verified": "2026-11-04T10:00:00"})
+    p = tmp_path / tt.FILE_NAME
+    tt.save(p, d)
+    d = tt.load(p)
+    c = d["companies"][0]
+    assert c["verified"] == "2026-11-04T10:00:00"
+    tt.update(d, c["id"], {"notes": "call Tuesday", "company": "Shaw Construction"})
+    assert c["verified"]                                    # nothing that was checked changed
+    tt.update(d, c["id"], {"website": "shaw.com"})
+    assert c["verified"] == ""
+    assert tt.find_name(d, "SHAW construction, Inc.") is c and tt.find_name(d, "") is None
+
+
+def test_activity_counts_fresh_jobs_and_signals():
+    d = _data()
+    c, _ = tt.add(d, {"company": "Shaw"})
+    assert tt.activity(c) == {"jobs": 0, "signals": 0, "checked": False, "failed": False}
+    tt.record_signals(c, {"summary": "", "signals": [{"id": "urgent"}],
+                          "jobs": [{"title": "Super", "age_days": 2}, {"title": "PM", "age_days": 40},
+                                   {"title": "APM", "age_days": None}]})
+    assert tt.activity(c) == {"jobs": 1, "signals": 1, "checked": True, "failed": False}
+
+
+def test_site_live_only_tries_public_addresses(monkeypatch):
+    import socket
+    import flowdrip_app as fa
+    monkeypatch.setattr(socket, "getaddrinfo", lambda *a, **k: [(2, 1, 6, "", ("10.0.0.5", 443))])
+    assert fa._top10_site_live("intranet.example.com") is False
+    assert fa._top10_site_live("") is False and fa._top10_site_live("not a site") is False
+
+
+def test_verify_searches_the_open_web_and_checks_the_site(monkeypatch):
+    import flowdrip_app as fa
+    seen = {}
+
+    def _research(client, prompt, website="", any_domain=False):
+        seen.update(prompt=prompt, any_domain=any_domain)
+        return ('{"found": true, "company": "Shaw Construction", "website": "shawconstruction.net", '
+                '"city": "Denver", "state": "CO", "industry": "General contractor"}',
+                ["https://shawconstruction.net/"])
+    monkeypatch.setattr(fa, "ANTHROPIC_API_KEY", "k")
+    monkeypatch.setattr(fa, "_pdf_research_message", _research)
+    monkeypatch.setattr(fa, "_top10_site_live", lambda site: site == "shawconstruction.net")
+    got = fa._top10_verify("shaw construction", {"market": "Denver, CO", "industry": ""})
+    assert got["found"] and got["company"] == "Shaw Construction" and got["site_live"] is True
+    assert seen["any_domain"] is True and "shaw construction" in seen["prompt"]
+    monkeypatch.setattr(fa, "_pdf_research_message", lambda *a, **k: (None, []))
+    assert "error" in fa._top10_verify("shaw construction", {})
+    monkeypatch.setattr(fa, "ANTHROPIC_API_KEY", "")
+    assert "error" in fa._top10_verify("shaw construction", {})
+
+
+def test_research_message_any_domain_drops_the_allowed_list(monkeypatch):
+    import flowdrip_app as fa
+    tools = []
+
+    class _Msg:
+        content = []
+        stop_reason = "end_turn"
+    monkeypatch.setattr(fa, "_claude_create_with_retry",
+                        lambda client, **kw: (tools.append(kw["tools"][0]), _Msg())[1])
+    fa._pdf_research_message(None, "p", any_domain=True)
+    fa._pdf_research_message(None, "p", "shawconstruction.net")
+    assert "allowed_domains" not in tools[0]
+    assert "shawconstruction.net" in tools[1]["allowed_domains"]
+
+
+def _top10_page(fa, s):
+    from nicegui import ui
+    with ui.card() as card:
+        fa.p_my_top10(s, lambda: None)
+    return card
+
+
+def test_short_list_leads_the_page_with_activity_add_box_and_jump_targets(with_user, monkeypatch):
+    import flowdrip_app as fa
+    monkeypatch.setattr(fa, "_top10_start_scan", lambda s, email, rf, ids=None: None)
+    monkeypatch.setattr(fa, "_ats_allowed", lambda e: False)
+    p = fa._top10_path("tester@example.com")
+    d = tt.load(p)
+    a, _ = tt.add(d, {"company": "Shaw Construction", "website": "shawconstruction.net",
+                      "verified": "2026-11-04T10:00:00"})
+    b, _ = tt.add(d, {"company": "Howell"})
+    tt.record_signals(a, {"summary": "", "signals": [{"id": "urgent", "label": "urgent"}],
+                          "jobs": [{"title": "Superintendent", "age_days": 3}]})
+    tt.record_signals(b, {"summary": "", "signals": [], "jobs": []})
+    spare, _ = tt.add(d, {"company": "Spare Co"})
+    tt.demote(d, spare["id"])
+    d["seeded"] = True
+    tt.save(p, d)
+    s = fa.AppState()
+    s._user_email = "tester@example.com"
+    card = _top10_page(fa, s)
+    text = _page_text(card)
+    # The short list comes before the postings strip and the cards.
+    assert text.index("Check & add") < text.index("NEW POSTINGS") < text.index("POSTINGS · LAST")
+    assert "TOP 2" in text and "1 with new jobs · 1 hiring signal" in text
+    assert "1 new job</span><span class=\"fd-t10-pill sig\">1 signal" in text and "Nothing new" in text
+    assert "8 open spots" in text and "Move up Spare Co" in text
+    assert "Top targets" not in text                      # the stat strip gave way to the list
+    assert "✓ shawconstruction.net checked" in text
+    ids = {el.props.get("id") for el in card.descendants()}
+    assert {f"t10-{a['id']}", f"t10-{b['id']}"} <= ids     # what a click on a name scrolls to
+    assert text.count("Yes, remove") == 0
+
+    # One click on remove asks; nothing is deleted until the second.
+    s._t10_ui.update(confirm=a["id"], confirm_at=__import__("time").time())
+    text = _page_text(_top10_page(fa, s))
+    assert "Remove Shaw Construction?" in text and text.count("Yes, remove") == 2   # list row + card
+    assert len(tt.load(p)["companies"]) == 3
+    s._t10_ui.update(confirm=a["id"], confirm_at=0.0)       # an old question does not linger
+    assert "Yes, remove" not in _page_text(_top10_page(fa, s))
+
+
+def test_add_panel_shows_what_the_lookup_found_before_saving(with_user, monkeypatch):
+    import flowdrip_app as fa
+    monkeypatch.setattr(fa, "_top10_start_scan", lambda s, email, rf, ids=None: None)
+    monkeypatch.setattr(fa, "_ats_allowed", lambda e: False)
+    p = fa._top10_path("tester@example.com")
+    d = tt.load(p)
+    _fill(d, 10)
+    d["seeded"] = True
+    tt.save(p, d)
+    s = fa.AppState()
+    s._user_email = "tester@example.com"
+    found = {"found": True, "company": "Shaw Construction", "website": "shawconstruction.net",
+             "city": "Denver", "state": "CO", "lane": "General contractor",
+             "about": "Commercial builder.", "note": "", "site_live": True}
+    s._t10_ui = {"q": "shaw", "phase": "result", "asked": "shaw", "info": found,
+                 "confirm": "", "confirm_at": 0.0}
+    text = _page_text(_top10_page(fa, s))
+    assert "Shaw Construction" in text and "shawconstruction.net" in text and "Denver, CO" in text
+    assert "Add to top 10" in text and "Add to backups" in text       # the ten is full
+    assert "moves Co 9 to backups" in text and "did not answer" not in text
+    assert len(tt.load(p)["companies"]) == 10                         # nothing saved yet
+
+    s._t10_ui.update(info=dict(found, site_live=False, company="Co 3"))
+    text = _page_text(_top10_page(fa, s))
+    assert "site did not answer" in text and "Co 3 is already on your list." in text
+    assert "Add to top 10" not in text
+
+    s._t10_ui.update(info={"found": False, "company": ""})
+    text = _page_text(_top10_page(fa, s))
+    assert "Could not confirm a company called shaw." in text and "Add as typed" in text
+    s._t10_ui.update(info={"error": "boom"})
+    text = _page_text(_top10_page(fa, s))
+    assert "did not finish" in text and "Try again" in text and "boom" not in text
+    s._t10_ui.update(phase="checking", info=None)
+    assert "finding its website" in _page_text(_top10_page(fa, s))
