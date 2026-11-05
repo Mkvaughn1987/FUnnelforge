@@ -154,21 +154,40 @@ def test_cost_sheet_uses_one_mid_range_rate_per_role(monkeypatch):
     assert "percentile" not in repr(d["sections"])
 
 
-def test_our_hourly_rate_is_the_senior_figure_plus_two_dollars():
-    """Mike, 2026-11-05: "use the most expensive one and add $5/hr", then
-    "drop hourly rates a little by 1-2$ - add .25 and .60 and .35 to a fw",
-    then "drop the rates by $1 more dollar". The senior (old 8+ years)
-    figure, +$2, plus cents that depend on the title only."""
-    base = 45000.0  # Customer Service Representative, national median
-    senior = round(base * 1.15 / 500) * 500
-    loaded = senior + round(senior * 42.9 / 10000) * 100 + 6000 + 5475
-    whole = round(round(loaded * 0.35 / 100) * 100 / 2080)
-    r = fa._tm_our_hourly(base, "Customer Service Representative")
-    assert int(r) == whole + 2
-    assert round(r - int(r), 2) in (0.0, 0.25, 0.35, 0.60)
+def test_our_hourly_rate_is_set_by_role_group():
+    """Mike, 2026-11-05, after the competitor research: price by role group
+    at the top of the published market, not as a share of the U.S. wage,
+    with ".25 and .60 and .35" on a few."""
+    bands = {"support": (10.25, 12.00), "logistics": (11.35, 13.25),
+             "finance": (12.60, 14.35), "professional": (15.25, 18.00)}
+    for role, group in (("Customer Service Representative", "support"),
+                        ("Data Entry Specialist", "support"),
+                        ("Administrative Assistant", "support"),
+                        ("Track and Trace Specialist", "logistics"),
+                        ("Dispatcher", "logistics"),
+                        ("Freight Billing Specialist", "logistics"),
+                        ("Export Coordinator", "logistics"),
+                        ("Bookkeeper", "finance"),
+                        ("Accounts Payable Specialist", "finance"),
+                        ("Medical Biller", "finance"),
+                        ("Payroll Specialist", "finance"),
+                        ("Staff Accountant", "professional"),
+                        ("Executive Assistant", "professional"),
+                        ("Estimator", "professional"),
+                        ("CAD and BIM Drafter", "professional")):
+        assert fa._tm_rate_group(role)[0] == group, role
+        lo, hi = bands[group]
+        for base in (20000, 45000, 60000, 250000):
+            r = fa._tm_our_hourly(base, role)
+            assert lo <= r <= hi, (role, base, r)
+            assert round(r % 1, 2) in (0.0, 0.25, 0.35, 0.60), (role, r)
+    # A role that pays more in the U.S. sits higher in its band.
+    assert (fa._tm_our_hourly(40000, "Staff Accountant")
+            <= fa._tm_our_hourly(90000, "Staff Accountant"))
     # Same title, same rate; other titles land on other cents.
-    assert fa._tm_our_hourly(base, "customer  service representative") == r
-    cents = {round(fa._tm_our_hourly(base, t) % 1, 2) for t in
+    assert (fa._tm_our_hourly(45000, "customer  service representative")
+            == fa._tm_our_hourly(45000, "Customer Service Representative"))
+    cents = {round(fa._tm_our_hourly(45000, t) % 1, 2) for t in
              ("Bookkeeper", "Dispatcher", "Data Entry Specialist",
               "Medical Biller", "Recruiter", "Estimator", "Payroll Specialist",
               "Leasing Coordinator")}

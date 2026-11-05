@@ -5858,14 +5858,14 @@ AICB_CAMPAIGN_TYPES = [
      "Step 2 - Economics (delay_days:3, step_type:email_auto) (model: "
      "Economics) - The cost email, and the only one that states the saving. "
      "Dollar figures in this email are HOURLY ONLY: state the one approved "
-     "figure, most support staff under $19/hr, beside the 'up to' "
+     "figure, most support staff under $13/hr, beside the 'up to' "
      "percentage. Never an annual salary, a monthly rate, a '$60K' figure or "
      "any other dollar amount; the candidate profiles the system adds carry "
      "the hourly rates.\n"
      "Step 3 - After the candidate joins (delay_days:3, step_type:email_auto) "
      "(model: After the candidate joins) - The sender's own wording, as the "
      "house style says: it opens by asking whether they saw the last email "
-     "with most support staff under $19/hr (the candidate profiles on Step "
+     "with most support staff under $13/hr (the candidate profiles on Step "
      "2), then the handoff, the monthly check-ins and quarterly reviews, the "
      "placement claim, and the offer of more information.\n"
      "Step 4 - Close (delay_days:4, step_type:email_auto) (model: Close) - The "
@@ -5933,7 +5933,7 @@ AICB_CAMPAIGN_TYPES = [
      "Named accounts - long cycles - steady presence",
      "WORTH A SHOT LINE: Steps 5, 9, 13 and 16 end with one professional "
      "sentence, before the closing question, saying one role is worth "
-     "trying: most support staff come in under $19/hr (the hourly rates on "
+     "trying: most support staff come in under $13/hr (the hourly rates on "
      "the candidate profiles; the one dollar figure approved for this "
      "sequence), and the companies that start with one role have mostly "
      "kept adding. Word it differently each time, no hype, never 'cheap'.\n"
@@ -7316,7 +7316,7 @@ _TM_MODEL_EMAILS = [
     # the email before it, and carries his own placement claim.
     ("After the candidate joins", "After the candidate joins", (
         "Did you have a chance to look at my last email, with most support "
-        "staff under $19/hr? Honestly, choosing the candidate is the easy "
+        "staff under $13/hr? Honestly, choosing the candidate is the easy "
         "part. Getting them up to speed takes a clear handoff, access to the "
         "right systems and someone to set priorities for the first few "
         "weeks.",
@@ -7425,14 +7425,14 @@ _TM_EMAIL_OPENER_RULE = (
     "hire yet, one role is a low-cost way to start. Say it about the "
     "candidates ThriveModal presents, never about Filipinos as a group, and "
     "never call it cheap.\n"
-    "- THE ONE APPROVED DOLLAR FIGURE is 'most support staff under $19/hr', "
+    "- THE ONE APPROVED DOLLAR FIGURE is 'most support staff under $13/hr', "
     "the hourly rates on the candidate profiles. Model 4 uses it, and a "
     "step line may ask for it elsewhere; nothing else states a dollar "
     "amount.\n"
     "- THE ONBOARDING EMAIL (Model 4, After the candidate joins) is the "
     "sender's own wording and keeps three things as the model has them: it "
     "opens by asking whether they saw the last email, with most support "
-    "staff under $19/hr (the hourly rates on the candidate profiles already "
+    "staff under $13/hr (the hourly rates on the candidate profiles already "
     "sent; this one figure is approved and exempt from the no-dollar rule); "
     "it says our team has placed thousands of Filipino professionals who are "
     "thriving and saving companies money, and that these aren't the typical "
@@ -17192,7 +17192,7 @@ def _tm_ensure_offshore_and_monthly(campaign_data) -> None:
 
 # Mike, 2026-10-08 (Quick Intro walkthrough): the cost email wrote "$55,000
 # to $65,000 annually" and "another $60K desk" although the house style
-# allows no dollar amount but the hourly rates. Hourly figures ("$19/hr",
+# allows no dollar amount but the hourly rates. Hourly figures ("$13/hr",
 # "$9 to $11 an hour") stay; a sentence carrying any other dollar figure
 # goes, sentence by sentence inside each <br>-separated line so the markup
 # around it survives. Backstop for the rule in _TM_EMAIL_OPENER_RULE.
@@ -46153,31 +46153,60 @@ def _tm_hourly(annual) -> int:
     return int(round(float(annual) / _TM_HOURS_PER_YEAR))
 
 
-# Our hourly rate for a role, the one figure every asset quotes (Mike,
-# 2026-11-05: "use the most expensive one", i.e. the old 8+ years band, then
-# +$5, then "drop by 1-2$", then "drop the rates by $1 more"; and "add .25
-# and .60 and .35 to a few to make it realistic"). The 8+ years band was the
-# 75th-percentile wage; 1.15x the median reproduces the 8+ years figures
-# Mike approved (CSR $14, Shipment Coordinator $17). It stands in for the
-# percentile everywhere, so the cost sheet, profile cards and newsletters
-# agree on the same role.
-_TM_SENIOR_WAGE_FACTOR = 1.15
-_TM_RATE_UPLIFT = 2.0
+# Our hourly rate for a role, the one figure every asset quotes. Mike,
+# 2026-11-05, after a look at what competitors publish (managed Philippine
+# seats at about $6-14/hr all-in, $1,200-2,200 a month; thrivemodal.com
+# itself says track and trace runs $8-14/hr): price by role group, at the
+# top of the market but not above it, and "add .25 and .60 and .35 to a
+# few to make it realistic". A percentage of the U.S. wage overpriced every
+# role that pays well in the U.S. (a staff accountant came to $27).
+# (group, low, high, title keywords), checked in order; the first group
+# whose keyword is in the title wins, and support is the default.
+_TM_RATE_GROUPS = (
+    ("professional", 15.25, 18.00,
+     ("accountant", "executive assistant", "estimat", "takeoff", "cad ",
+      "bim", "drafter", "tax ", "controller", "analyst", "engineer",
+      "developer")),
+    ("logistics", 11.35, 13.25,
+     ("track", "trace", "dispatch", "freight", "carrier", "load ",
+      "shipment", "export", "import", "customs", "logistics", "fleet",
+      "documentation", "night and weekend")),
+    ("finance", 12.60, 14.35,
+     ("bookkeep", "receivable", "payable", "biller", "billing", "coder",
+      "coding", "payroll", "collection", "insurance", "credential",
+      "claims", "prior auth", "audit", "recruiter", "project coordinator",
+      "transaction coordinator")),
+    ("support", 10.25, 12.00, ()),
+)
+# Within a group, a role that pays more in the U.S. sits higher in the band.
+_TM_RATE_BASE_SPAN = (38000.0, 75000.0)
 _TM_RATE_CENTS = (0.0, 0.25, 0.35, 0.60)
 
 
+def _tm_rate_group(role: str):
+    """(name, low, high) of the rate group a title belongs to."""
+    low = f" {' '.join(str(role or '').lower().split())} "
+    for name, lo, hi, kws in _TM_RATE_GROUPS:
+        if not kws or any(k in low for k in kws):
+            return name, lo, hi
+    return _TM_RATE_GROUPS[-1][:3]
+
+
 def _tm_our_hourly(base, role: str = "") -> float:
-    """Our all-inclusive hourly rate from a role's U.S. median salary: the
-    senior wage loaded like the cost sheet, _TM_AUTO_SAVINGS below it, plus
-    _TM_RATE_UPLIFT, plus cents picked by the title (same role, same
-    cents, on every page)."""
-    senior = round(float(base) * _TM_SENIOR_WAGE_FACTOR / 500.0) * 500
-    loaded = (senior + round(senior * _TM_BENCH_BURDEN_PCT / 10000.0) * 100
-              + _TM_BENCH_OVERHEAD + _TM_BENCH_HIRING)
-    annual = round(loaded * (1 - _TM_AUTO_SAVINGS) / 100.0) * 100
+    """Our all-inclusive hourly rate for a role: its group's band, placed by
+    the role's U.S. median salary, whole dollars plus cents picked by the
+    title (same role, same rate, on every page), never outside the band."""
+    _name, lo, hi = _tm_rate_group(role)
+    b0, b1 = _TM_RATE_BASE_SPAN
+    try:
+        t = (float(base) - b0) / (b1 - b0)
+    except (TypeError, ValueError):
+        t = 0.5
+    t = min(max(t, 0.0), 1.0)
     key = " ".join(str(role or "").lower().split()).encode()
     cents = _TM_RATE_CENTS[hashlib.md5(key).digest()[0] % len(_TM_RATE_CENTS)]
-    return _tm_hourly(annual) + _TM_RATE_UPLIFT + cents
+    rate = int(lo + t * (hi - lo)) + cents
+    return round(min(max(rate, lo), hi), 2)
 
 
 def _tm_rate_text(rate) -> str:
@@ -65405,7 +65434,7 @@ _TM_PROFILE_ROUNDS = {
     ),
     # Mike, 2026-10-08: Quick Intro shows them once, on the cost email, so
     # the After the candidate joins email can point back at "my last email,
-    # with most support staff under $19/hr".
+    # with most support staff under $13/hr".
     "tm_threebythree": (
         ("What would the role actually cost?", 2, _TM_PROFILES_LEAD, None),
     ),
@@ -65416,20 +65445,20 @@ _TM_PROFILE_ROUNDS = {
 # a live run put it on one email of four, so the round's line goes in by
 # code (after the cards, before the closing question) when the writer left
 # the figure out. One wording per round, so the four never read the same.
-_TM_WORTH_A_SHOT_FIGURE = "$19/hr"
+_TM_WORTH_A_SHOT_FIGURE = "$13/hr"
 _TM_WORTH_A_SHOT_LINES = {
     "tm_twelveweek": (
         "If you have not tried a role like this offshore, it is worth a "
-        "look: most support staff come in under $19/hr, and the companies "
+        "look: most support staff come in under $13/hr, and the companies "
         "that start with one role have mostly kept adding.",
         "One role is a reasonable way to see it for yourself. Most support "
-        "staff come in under $19/hr, and few companies stop at one once the "
+        "staff come in under $13/hr, and few companies stop at one once the "
         "first is working.",
         "It is worth trying one role. Most support staff come in under "
-        "$19/hr, and the companies that start there have mostly gone on to "
+        "$13/hr, and the companies that start there have mostly gone on to "
         "add more.",
         "One role is an easy way to find out: most support staff come in "
-        "under $19/hr, and the companies that start with one have mostly "
+        "under $13/hr, and the companies that start with one have mostly "
         "kept adding.",
     ),
 }
@@ -65920,7 +65949,7 @@ def _tm_wage_compare(client, positions: list, brand: str) -> dict:
 
 
 def _tm_profile_rate(client, title: str) -> str:
-    """'$16.35/hr' for a profile's job title, or "" when no U.S. wage
+    """'$12.60/hr' for a profile's job title, or "" when no U.S. wage
     is found for it."""
     role = _tm_profile_role(title)
     if not role:

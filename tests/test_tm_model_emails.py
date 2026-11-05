@@ -41,12 +41,12 @@ def test_models_carry_the_kept_lines_and_nothing_dropped():
 
 
 def test_onboarding_model_is_mikes_2026_10_08_wording():
-    """Mike: professional, but change nothing. The $19/hr line and the
+    """Mike: professional, but change nothing. The $13/hr line and the
     placement claim are his, and the house style exempts them."""
     text = {n: " ".join(p) for n, _s, p in fa._TM_MODEL_EMAILS}
     t = text["After the candidate joins"]
     assert t.startswith("Did you have a chance to look at my last email, "
-                        "with most support staff under $19/hr?")
+                        "with most support staff under $13/hr?")
     assert "choosing the candidate is the easy part" in t
     assert "monthly check-ins and quarterly reviews" in t
     assert ("placed thousands of Filipino professionals who are thriving "
