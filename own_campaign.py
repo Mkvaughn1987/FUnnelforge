@@ -270,7 +270,9 @@ def detect_prompt(steps) -> str:
         '{"text": "...", "name": "..."} where:\n'
         "- text is copied EXACTLY from the steps, character for character, "
         "and is the shortest phrase that carries the detail (for a list such "
-        'as "Trane and Carrier", the whole list is one item).\n'
+        'as "Trane and Carrier", the whole list is one item). One detail '
+        'per item: "HVAC estimators in Denver" is three items, HVAC, '
+        "estimators and Denver.\n"
         "- name is one of Industry, Competitors, CurrentClients, Role, "
         "Location when it fits, FirstName for the recipient's first name, "
         "Company for the recipient's company, otherwise a short CamelCase "

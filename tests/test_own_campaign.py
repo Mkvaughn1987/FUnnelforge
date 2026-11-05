@@ -177,6 +177,8 @@ def test_walkthrough_state_and_entry_points():
     write = inspect.getsource(fa._render_sb_step2_write)
     assert "sb-steps-list" in write and "_render_sb_cands_panel(s, rf" in write
     assert "Have AI draft it" in write and "Ask AI" not in write
+    # reordering is plain buttons: the site CSP blocks CDN scripts
+    assert "_move(" in write and "Sortable" not in inspect.getsource(fa)
 
 
 def test_build_hands_off_to_choose_contacts():
@@ -322,3 +324,31 @@ def test_second_run_of_a_saved_campaign_gets_its_own_name(monkeypatch):
                         lambda: [{"name": "Intro"}, {"name": "intro 2"}])
     assert fa._own_unique_camp_name("Intro") == "Intro 3"
     assert fa._own_unique_camp_name("Fresh") == "Fresh"
+
+
+def test_a_cut_off_scan_is_a_failure_not_an_all_clear(monkeypatch):
+    import pytest
+    import flowdrip_app as fa
+
+    class _Cut:
+        stop_reason = "max_tokens"
+        content = [type("B", (), {"text": '[{"text": "CPAs", "na'})()]
+
+    class _Silent:
+        stop_reason = "max_tokens"
+        content = []
+    seen = {}
+
+    def _create(client, **kw):
+        seen.update(kw)
+        return _Cut()
+    monkeypatch.setattr(fa, "_claude_create_with_retry", _create)
+    with pytest.raises(RuntimeError):
+        fa._own_detect_fillins(_steps(), client=object())
+    assert seen["max_tokens"] >= 4000      # room for the model to think first
+    monkeypatch.setattr(fa, "_claude_create_with_retry", lambda *a, **k: _Silent())
+    with pytest.raises(RuntimeError):
+        fa._own_detect_fillins(_steps(), client=object())
+    import inspect
+    save = inspect.getsource(fa._render_sb_step3_save)
+    assert "sb_find_err" in save and "Look again" in save

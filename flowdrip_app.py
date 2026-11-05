@@ -13495,7 +13495,7 @@ class AppState:
         # are the Step 1 counts used to pre-populate sb_steps. Per-step
         # authoring mode/AI-prompt/drafting-state live ON each dict in
         # sb_steps (keys: mode, ai_prompt, _drafting, _draft_error) so
-        # drag-reorder keeps working without parallel lists to keep in
+        # reordering keeps working without parallel lists to keep in
         # sync. sb_pending_camp/sb_pending_name/sb_save_as_style above
         # belonged to the old flat one-shot-generate design and are no
         # longer used by this flow, but are left in place since
@@ -13522,6 +13522,7 @@ class AppState:
         self.sb_found: list = []
         self.sb_found_key: str = ""
         self.sb_finding: bool = False
+        self.sb_find_err: bool = False
         self.sb_vals: dict = {}
         self.sb_use_style: dict = {}
         self.sb_edit_style_id: str = ""
@@ -31532,7 +31533,7 @@ def p_seq_builder(s: AppState, rf):
     rework of the "Build from scratch" step-based builder restored
     2026-08-27). Step 1 asks for email/call/LinkedIn counts and
     pre-populates s.sb_steps in a default order; Step 2 reuses the
-    same SortableJS drag-reorder as before, plus a "business days
+    same step reorder as before, plus a "business days
     after previous step" spacing input per step (weekends are always
     skipped downstream at send time — a fixed, uniform rule, not a
     per-step toggle — see _add_business_days); Step 3 lets the user
@@ -31617,7 +31618,7 @@ def p_seq_builder(s: AppState, rf):
 
 def _sb_new_step(step_type: str, delay_days: int = 2) -> dict:
     """One blank step. Working fields (mode, ai_prompt, _drafting...) live
-    on the step so a drag keeps them with it."""
+    on the step so a move keeps them with it."""
     return {
         "id": uuid.uuid4().hex[:12],
         "type": step_type,
@@ -31914,7 +31915,7 @@ def _sb_pill(label: str, selected: bool, on_click, size: int = 11):
 def _render_sb_step2_write(s: AppState, rf):
     """One page for the whole campaign: order, spacing, the words of every
     step and the candidates. Everything typed is kept as it is typed, so a
-    drag, a draft or a button never loses it."""
+    move, a draft or a button never loses it."""
     import own_campaign as _oc
     _steps = s.sb_steps or []
     _bad = set(_oc.missing_content(_steps)) if s.sb_tried_next else set()
@@ -31931,7 +31932,7 @@ def _render_sb_step2_write(s: AppState, rf):
             f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
         ui.label(
             "Write each step yourself, or describe what you want and let AI "
-            "draft it for you to change. Drag ≡ to reorder. Weekends are "
+            "draft it for you to change. Use ↑ ↓ to reorder. Weekends are "
             "always skipped."
         ).style(
             f"font-size:11px;color:{C['muted']};margin-bottom:14px;"
@@ -31956,8 +31957,7 @@ def _render_sb_step2_write(s: AppState, rf):
                     if _i < len(_steps) - 1:
                         ui.label("→").style(f"font-size:11px;color:{C['muted']};")
 
-        # Step cards. id must be 'sb-steps-list' to match the SortableJS
-        # wiring below; only the ≡ grip drags, so text can still be selected.
+        # Step cards, in sending order.
         with ui.element("div").props('id="sb-steps-list"').style(
                 "display:flex;flex-direction:column;gap:10px;"):
             for _i, _st in enumerate(_steps):
@@ -31968,20 +31968,36 @@ def _render_sb_step2_write(s: AppState, rf):
                 _col = {"email": C["email_col"], "call": C["call_col"],
                         "linkedin": C["li"]}.get(_stype, C["teal"])
                 if _i > 0 and int(_st.get("delay_days", 0) or 0) < 1:
-                    _st["delay_days"] = 2   # was first, dragged down
+                    _st["delay_days"] = 2   # was first, moved down
                 _delay = int(_st.get("delay_days", 0) or 0)
                 with ui.element("div").props(
                         f'data-sb-id="{_sid}"').classes("sb-step-card").style(
                         f"background:{C['surface']};border:1px solid "
                         f"{C['warn'] if (_i + 1) in _bad else C['border']};"
                         f"border-radius:10px;padding:12px 14px;"):
-                    # Header: grip, what it is, when it goes, remove.
+                    # Header: move, what it is, when it goes, remove.
                     with ui.element("div").style(
                             "display:flex;align-items:center;gap:10px;"
                             "flex-wrap:wrap;margin-bottom:10px;"):
-                        ui.label("≡").classes("sb-grip").style(
-                            f"font-size:18px;color:{C['muted']};"
-                            f"cursor:grab;user-select:none;line-height:1;")
+                        if len(_steps) > 1:
+                            def _move(d, sid=_sid):
+                                _ids = [x.get("id") for x in s.sb_steps]
+                                if sid not in _ids:
+                                    return
+                                _a = _ids.index(sid)
+                                _b = _a + d
+                                if 0 <= _b < len(_ids):
+                                    s.sb_steps[_a], s.sb_steps[_b] = (
+                                        s.sb_steps[_b], s.sb_steps[_a])
+                                rf()
+                            with ui.element("div").props(
+                                    'title="Move this step up or down"').style(
+                                    "display:flex;gap:4px;"):
+                                _sb_round_btn("↑", lambda m=_move: m(-1),
+                                              off=_i == 0, size=22)
+                                _sb_round_btn("↓", lambda m=_move: m(1),
+                                              off=_i == len(_steps) - 1,
+                                              size=22)
                         ui.label(_SB_STEP_ICONS.get(_stype, "✉")).style(
                             f"width:24px;height:24px;border-radius:7px;"
                             f"display:flex;align-items:center;"
@@ -32173,29 +32189,6 @@ def _render_sb_step2_write(s: AppState, rf):
                                         f"(e) => window.sbInsert(e, '{{{_tok}}}')")):
                                 ui.label(_clabel).style("pointer-events:none;")
 
-        # SortableJS wiring: one-time init per render, guarded so
-        # re-renders (rf()) don't stack duplicate instances.
-        ui.run_javascript(
-            """
-            (function() {
-                const el = document.getElementById('sb-steps-list');
-                if (!el || el._sbSortable) return;
-                el._sbSortable = new Sortable(el, {
-                    handle: '.sb-grip',
-                    animation: 150,
-                    onEnd: function() {
-                        const order = Array.from(
-                            el.querySelectorAll('.sb-step-card')
-                        ).map(function(card) {
-                            return card.getAttribute('data-sb-id');
-                        });
-                        window.emitEvent('sb_reorder', {order: order});
-                    }
-                });
-            })();
-            """
-        )
-
         if len(_steps) < _SB_MAX_STEPS:
             with ui.element("div").style(
                     "display:flex;gap:8px;align-items:center;flex-wrap:wrap;"
@@ -32256,6 +32249,9 @@ _OWN_POLISH_MODEL = "claude-haiku-4-5-20251001"
 # Spotting what is specific to one client decides what a saved campaign
 # asks for later, so it gets the stronger model. One call per save.
 _OWN_DETECT_MODEL = "claude-sonnet-5-5"
+# The model thinks before it answers and that counts against the limit:
+# at 700 the answer was cut off on about half the runs.
+_OWN_DETECT_MAX_TOKENS = 4000
 _OWN_FILLIN_HINTS = {
     "Industry": "e.g. commercial HVAC",
     "Competitors": "e.g. Trane and Carrier",
@@ -32755,9 +32751,12 @@ def _own_detect_fillins(steps, client=None) -> list:
         import anthropic as _anth
         client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
     msg = _claude_create_with_retry(
-        client, model=_OWN_DETECT_MODEL, max_tokens=700,
+        client, model=_OWN_DETECT_MODEL, max_tokens=_OWN_DETECT_MAX_TOKENS,
         messages=[{"role": "user", "content": _oc.detect_prompt(steps)}])
     raw = "".join(b.text for b in msg.content if hasattr(b, "text"))
+    # A cut-off or empty answer is a failed scan, not "nothing found".
+    if getattr(msg, "stop_reason", "") == "max_tokens" or "[" not in raw:
+        raise RuntimeError("the answer was cut off")
     return _oc.parse_detected(raw, steps)
 
 
@@ -32774,6 +32773,7 @@ def _sb_start_detect(s: AppState, rf) -> None:
     if s.sb_finding or s.sb_found_key == _key or not ANTHROPIC_API_KEY:
         return
     s.sb_finding = True
+    s.sb_find_err = False
     s.sb_found_key = _key
     s.sb_found = []
     _snap = [dict(st) for st in s.sb_steps or []]
@@ -32781,7 +32781,13 @@ def _sb_start_detect(s: AppState, rf) -> None:
     def _run():
         try:
             import own_campaign as _oc
-            s.sb_found = [dict(f, on=True) for f in _own_detect_fillins(_snap)]
+            try:
+                _hits = _own_detect_fillins(_snap)
+            except Exception as _ex:
+                print(f"[own] fill-in scan retry after {type(_ex).__name__}: "
+                      f"{_ex}", flush=True)
+                _hits = _own_detect_fillins(_snap)
+            s.sb_found = [dict(f, on=True) for f in _hits]
             # A fill-in the user left open, and the same thing written out
             # elsewhere in their steps: start with what they wrote.
             _open = _oc.fillins(_snap)
@@ -32792,6 +32798,7 @@ def _sb_start_detect(s: AppState, rf) -> None:
             print(f"[own] fill-in scan failed: {type(_ex).__name__}: {_ex}",
                   flush=True)
             s.sb_found = []
+            s.sb_find_err = True
         finally:
             s.sb_finding = False
     _run_as_user(getattr(s, "_user_email", "") or "", _run,
@@ -32852,6 +32859,22 @@ def _render_sb_step3_save(s: AppState, rf):
                 ui.spinner("dots", size="20px", color=C["teal"])
                 ui.label("Reading your steps for anything specific to one "
                          "client…").style(f"font-size:11px;color:{C['teal']};")
+        elif s.sb_find_err:
+            def _look_again():
+                s.sb_found_key = ""
+                _sb_start_detect(s, rf)
+                rf()
+            with ui.element("div").style(
+                    "display:flex;align-items:center;gap:10px;flex-wrap:wrap;"):
+                ui.label(
+                    "I couldn't read your steps for client-specific wording "
+                    "just now. You can save it as it is, or have me look "
+                    "again."
+                ).style(f"font-size:12px;color:{C['text']};")
+                with ui.element("button").classes("fd-gb").style(
+                        "padding:4px 12px;font-size:11px;"
+                        ).on("click", _look_again):
+                    ui.label("Look again").style("pointer-events:none;")
         elif not _found and not _typed:
             ui.label(
                 "Nothing in here is tied to one client, so it's ready to "
@@ -59952,16 +59975,6 @@ def index():
         s.sp = "newsletters"
         s.hub = "sales"
 
-    # SortableJS: loaded once here at top-level page render (NOT inside
-    # p_seq_builder, which re-renders on every rf() — re-injecting a
-    # <script> tag on every refresh would be wasteful/buggy). Drives the
-    # drag-and-drop reordering in the Build Your Own Sequence step builder.
-    ui.add_head_html(
-        '<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js" '
-        'integrity="sha384-BSxuMLxX+FCbTdYec3TbXlnMGEEM2QXTFdtDaveen71o+jswm2J36+xFqp8k4VHM" '
-        'crossorigin="anonymous"></script>'
-    )
-
     # Registry of QEditors that participate in the merge-field round-trip.
     # Populated by helper `_register_qeditor` below (stored on `s` so module-
     # level page functions can access it); consumed by the 'dd_qeditor_change'
@@ -59990,34 +60003,6 @@ def index():
     # page with "'NoneType' object is not callable" — root cause of the
     # 2026-04-26 signup outage.
     ui.on('dd_qeditor_change', _on_qeditor_change)
-
-    def _on_sb_reorder(e):
-        """Handles the 'sb_reorder' event emitted by the Build Your Own
-        Sequence step builder's SortableJS onEnd callback (JS side wired
-        up in p_seq_builder) via window.emitEvent('sb_reorder',
-        {order: [...]}) — order is the new list of step `id` values.
-        """
-        order = (getattr(e, 'args', None) or {}).get('order') or []
-        by_id = {step.get("id"): step for step in s.sb_steps}
-        # Requires order to be an exact permutation of current step ids:
-        # same length, no duplicates, no unknown/missing ids. A duplicate
-        # id (e.g. [1, 1, 2] instead of [1, 2, 3]) would previously slip
-        # past the old length-only checks and silently drop one step while
-        # duplicating another. Note the length check is still required
-        # alongside the set check: sets discard multiplicity, so e.g.
-        # order=[1, 1, 2, 3] against ids {1, 2, 3} has a matching set but
-        # the wrong length — set equality alone would miss that. With both
-        # checks passing, len(order) == len(set(order)) is guaranteed
-        # (pigeonhole), so order is provably duplicate-free here. Stale/
-        # malformed order — skip silently rather than risk dropping or
-        # duplicating steps.
-        if len(order) != len(s.sb_steps) or set(order) != set(by_id.keys()):
-            return
-        reordered = [by_id[sid] for sid in order]
-        s.sb_steps = reordered
-        rf()
-
-    ui.on('sb_reorder', _on_sb_reorder)
 
     # Honor a pending page hand-off (e.g. from /setup → Email & AI Setup).
     # This overrides the default landing page because it's an explicit
