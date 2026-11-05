@@ -47893,10 +47893,10 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"Answer both, with the detail of a team that places "
             f"{role_label} for {industry_str} businesses.\n"
             f"\nREQUIRED SECTIONS:\n"
-            f"  1. heading 'Overview' — type 'bullets' — 3 bullets: we "
+            f"  1. heading 'Overview' — type 'bullets' — 2 bullets: we "
             f"recruit in the Philippines against the client's requirements "
-            f"for the role, the client interviews and chooses, we employ the "
-            f"person and set up the workstation and IT, and our team "
+            f"for the role and the client interviews and chooses; we employ "
+            f"the person, set up the workstation and IT, and our team "
             f"supports the placement afterwards.\n"
             f"  2. heading 'Engagement Process' — type 'table' — header + "
             f"exactly 6 rows, one per stage, in this order: Role Discovery; "
@@ -47930,10 +47930,10 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"bullets on support after the person starts. Describe only "
             f"support that appears in the approved services text below; if "
             f"it is not there, do not claim it.\n"
-            f"  7. heading 'Commercial Terms' — type 'bullets' — 3 bullets "
+            f"  7. heading 'Commercial Terms' — type 'bullets' — 2 bullets "
             f"taken only from the approved pricing and service terms below, "
             f"stated as written. No figure that is not there.\n"
-            f"  8. heading 'Frequently Asked Questions' — type 'qa' — 3 Q&A "
+            f"  8. heading 'Frequently Asked Questions' — type 'qa' — 2 Q&A "
             f"pairs, two sentences each, on the questions a first-time buyer "
             f"of offshore staffing in this industry actually asks. If an "
             f"honest answer is 'that depends on your setup', say so and "
@@ -48930,11 +48930,18 @@ _TM_KEEP_TABLES = frozenset({
 })
 
 
+# ...and the vetting bullets, the point every one of these PDFs is making.
+_TM_KEEP_SECTIONS = frozenset({"how every candidate is vetted"})
+
+
 def _tm_keep_core_tables(data: dict) -> None:
     for sec in data.get("sections") or []:
-        if (isinstance(sec, dict) and (sec.get("type") or "").lower() == "table"
-                and str(sec.get("heading") or "").strip().lower()
-                in _TM_KEEP_TABLES):
+        if not isinstance(sec, dict):
+            continue
+        head = str(sec.get("heading") or "").strip().lower()
+        if head in _TM_KEEP_SECTIONS or (
+                (sec.get("type") or "").lower() == "table"
+                and head in _TM_KEEP_TABLES):
             sec["keep"] = True
 
 

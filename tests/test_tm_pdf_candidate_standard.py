@@ -211,9 +211,11 @@ def test_core_tables_are_never_trimmed(monkeypatch):
         {"heading": "90-Day Plan", "type": "table", "items": [["a"]] * 6},
         {"heading": "Role Data Access", "type": "table", "items": [["a"]] * 5},
         {"heading": "Engagement Process", "type": "bullets", "items": ["x"]}]}
+    data["sections"].append({"heading": "How Every Candidate Is Vetted",
+                             "type": "bullets", "items": ["x"] * 5})
     fa._tm_keep_core_tables(data)
     assert [bool(s.get("keep")) for s in data["sections"]] == [
-        True, True, False, False]
+        True, True, False, False, True]
 
     class _Long:
         content = [type("T", (), {"type": "text", "text": json.dumps({
