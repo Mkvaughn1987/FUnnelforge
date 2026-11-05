@@ -811,3 +811,15 @@ def test_candidates_go_out_bold_with_a_real_bulleted_list():
     # no candidates: the text goes as typed
     plain = oc.build_emails([{"type": "email", "subject": "Hi", "input": "A & B"}], [])
     assert plain[0]["body"] == "A & B"
+
+
+def test_cand_note_gives_the_ai_the_candidates_background():
+    from own_campaign import cand_note, candidate_block
+    block = candidate_block([{"ref": "Ref #1042", "role": "Project Manager",
+                              "bullets": ["12 years in mechanical contracting",
+                                          "Ran $40M hospital builds",
+                                          "PMP certified"]}])
+    note = cand_note(block)
+    assert "{Candidates}" in note and "never by name" in note
+    assert "Ran $40M hospital builds" in note and "Candidate A" in note
+    assert cand_note("") == ""

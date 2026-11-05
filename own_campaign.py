@@ -422,6 +422,25 @@ def build_emails(steps, cards=None, polish=None, cand_bullets=True) -> list:
     return out
 
 
+def cand_note(block: str) -> str:
+    """What the AI is told when an email carries candidates: who they are
+    (the list as it is written into the email) and how to write around it.
+    "" with no candidates."""
+    block = (block or "").strip()
+    if not block:
+        return ""
+    return (
+        " This email pitches candidates. Put {Candidates} on its own line "
+        "where their list goes; it is filled in with the list below, so do "
+        "not repeat it line by line. Read these candidates and write the "
+        "rest of the email to them: name the skills, industries, years of "
+        "experience or results they have in common, and say why that "
+        "matters to this reader. Refer to them only as the candidates or by "
+        "their letter, never by name, and use only what is in their "
+        "backgrounds below, with no invented facts.\n"
+        "THE CANDIDATES:\n" + block + "\n")
+
+
 def pdf_note(step, values=None) -> str:
     """What the AI is told when an email carries a Sales PDF: it is attached,
     what it covers, and the email should point to it. "" with no PDF."""

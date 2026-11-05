@@ -32165,10 +32165,12 @@ def _render_sb_step_page(s: AppState, rf):
             return _oc.lift_candidates(
                 _st.get("input") or "", s.sb_cands)[0].replace(
                 _oc.CANDIDATES_TOKEN, "").strip()
-        _cand_note = (
-            " This email pitches candidates. Put {Candidates} on its own "
-            "line where their list goes and do not describe any candidate "
-            "yourself.")
+        def _cand_note(block):
+            # Candidates picked but not yet written into this email (no
+            # bullets in the text) still count: use the cards themselves.
+            return _oc.cand_note(
+                block if re.search(r"[•·]", block or "")
+                else _oc.candidate_block(s.sb_cands, bullets=True))
 
         def _open_ai():
             _st["_full_ask"] = False
@@ -32203,7 +32205,7 @@ def _render_sb_step_page(s: AppState, rf):
                         ("Write a complete, ready-to-use message that suits "
                          "this point in the sequence." if _block or _pdfn
                          else "")
-                        + (_cand_note if _block else "") + _pdfn),
+                        + (_cand_note(_block) if _block else "") + _pdfn),
                     tone=s.sb_tone,
                     context=_oc.draft_context(s.sb_steps, _idx),
                     with_subject=_want_subject)
@@ -32253,7 +32255,7 @@ def _render_sb_step_page(s: AppState, rf):
                     position=_idx,
                     delay_days=int(step.get("delay_days", 0) or 0),
                     user_prompt=(step.get("ai_prompt", "")
-                                 + (_cand_note if _block else "")
+                                 + (_cand_note(_block) if _block else "")
                                  + _oc.pdf_note(step, s.sb_vals)),
                     tone=s.sb_tone), _block)
             _st["_job"] = "draft"
