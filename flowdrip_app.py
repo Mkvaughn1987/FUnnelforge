@@ -45932,20 +45932,8 @@ def _tm_bls_local_salaries(client, roles, location: str) -> dict:
                            else f"oes_{st.lower()}.htm" if t == "S"
                            else f"oes{code}.htm")),
                 "national": t == "N",
-                "_series": sid,
             }
             break
-    # 25th and 75th percentile for the same area, for the experience bands
-    # (one more request; OEWS datatypes 12 and 14 beside the median's 13).
-    pct_ids = {r: (lk["_series"][:-2] + "12", lk["_series"][:-2] + "14")
-               for r, lk in out.items()}
-    pvals = (_tm_bls_annual_medians([i for pair in pct_ids.values() for i in pair])
-             if pct_ids else {})
-    for r, (lo, hi) in pct_ids.items():
-        out[r].pop("_series", None)
-        if lo in pvals and hi in pvals:
-            out[r]["p25"] = float(int(round(pvals[lo][0] / 500.0)) * 500)
-            out[r]["p75"] = float(int(round(pvals[hi][0] / 500.0)) * 500)
     return out
 
 
@@ -46219,256 +46207,342 @@ def _tm_with_standard(sections, role: str = "") -> list:
     return [_tm_candidate_standard(role)] + rest
 
 
-# What we recruit for in each role: (degree and credentials, core work,
-# software). Shown beside the rates so the page reads as a team that knows
-# the seat, not one that sells generic headcount. A title missing here is
-# priced but left out of this table.
+# What each professional brings: (degree and credentials, skills, software).
+# The skills are the ones a U.S. hire in the seat is expected to have (Mike,
+# 2026-11-05: "sell the candidates... include all the skills the US workers
+# have"). Shown beside the rates so the page reads as a team that knows the
+# seat. A title with no profile is priced but left out of this table.
 _TM_ROLE_PROFILES = {
-    # construction, architecture, engineering
-    "estimator": ("BS Civil Engineering or Architecture",
-                  "Quantity takeoffs, bid packages, subcontractor quote leveling",
-                  "Bluebeam, PlanSwift, On-Screen Takeoff"),
-    "project coordinator": ("Bachelor's in Engineering, Architecture or Business",
-                            "Submittals, RFIs, change orders, schedule updates, closeout",
-                            "Procore, MS Project, Bluebeam, Smartsheet"),
-    "cad and bim drafter": ("BS Architecture; Autodesk certified",
-                            "Construction and shop drawings, BIM models, as-builts",
-                            "AutoCAD, Revit, Navisworks, SketchUp"),
-    "project accountant": ("BS Accountancy; CPA (Philippines)",
-                           "Job costing, AIA progress billing, WIP schedules, lien waivers",
-                           "Sage 300 CRE, Viewpoint Vista, QuickBooks, Procore"),
-    "administrative assistant": ("Bachelor's degree",
-                                 "Calendars, correspondence, document control, vendor follow up",
-                                 "Microsoft 365, Google Workspace, DocuSign"),
-    # logistics
-    "track and trace specialist": ("Bachelor's degree; U.S. freight experience",
-                                   "Shipment tracking, check calls, exception updates, POD collection",
-                                   "McLeod, MercuryGate, project44, MacroPoint"),
-    "dispatcher": ("Bachelor's degree; U.S. freight experience",
-                   "Load assignment, driver updates, appointments, HOS checks",
-                   "McLeod, TMW, Samsara, Motive"),
-    "customer service representative": ("Bachelor's degree",
-                                        "Customer inquiries, order status, issue resolution, account updates",
-                                        "Zendesk, Salesforce, HubSpot, RingCentral"),
-    "freight billing specialist": ("BS Accountancy or Business",
-                                   "Freight invoicing, rate confirmation audit, POD matching, carrier pay",
-                                   "McLeod, TMW, QuickBooks, Excel"),
-    "accounts receivable specialist": ("BS Accountancy or Finance",
-                                       "Invoicing, cash application, collections follow up, aging reports",
-                                       "QuickBooks, NetSuite, Sage Intacct, Excel"),
-    "data entry specialist": ("Bachelor's degree",
-                              "Record entry, data cleanup, document indexing, quality checks",
-                              "Excel, Google Sheets, your ERP or CRM"),
-    # accounting
-    "staff accountant": ("BS Accountancy; CPA (Philippines)",
-                         "Month-end close, reconciliations, journal entries, financial statements",
-                         "QuickBooks, NetSuite, Sage Intacct, Xero"),
-    "bookkeeper": ("BS Accountancy; QuickBooks or Xero certified",
-                   "Transaction coding, bank reconciliations, AP and AR",
-                   "QuickBooks Online, Xero, Bill.com, Gusto"),
-    "payroll specialist": ("BS Accountancy, Finance or HR",
-                           "Payroll processing, timesheet audit, tax filing support, deductions",
-                           "ADP, Paychex, Gusto, Paylocity"),
-    "tax preparer": ("BS Accountancy; CPA or IRS Enrolled Agent",
-                     "Individual and business returns, workpapers, e-file support",
-                     "Drake, UltraTax CS, Lacerte, ProConnect"),
-    "billing specialist": ("BS Accountancy or Business",
-                           "Invoice preparation, billing audit, payment posting, dispute follow up",
-                           "QuickBooks, NetSuite, Bill.com, Excel"),
-    "accounts payable specialist": ("BS Accountancy or Finance",
-                                    "Invoice coding, three-way match, vendor statements, payment runs",
-                                    "QuickBooks, NetSuite, Sage Intacct, Bill.com"),
+    # logistics and 3PL
+    "track and trace specialist": (
+        "Bachelor's degree; U.S. freight experience",
+        "Shipment tracking, check calls, ETA updates, exception handling, appointment scheduling, POD collection, customer status reports",
+        "McLeod, MercuryGate, project44, MacroPoint, Excel"),
+    "dispatcher": (
+        "Bachelor's degree; U.S. freight experience",
+        "Load assignment, driver communication, route planning, appointment setting, HOS monitoring, detention tracking, after-hours coverage",
+        "McLeod, TMW, Samsara, Motive, DAT"),
+    "customer service representative": (
+        "Bachelor's degree",
+        "Phone, email and chat support, order status, quotes, issue resolution, account updates, CRM notes, escalation handling",
+        "Zendesk, Salesforce, HubSpot, RingCentral"),
+    "freight billing specialist": (
+        "BS Accountancy or Business",
+        "Freight invoicing, rate confirmation audit, POD matching, accessorial billing, carrier pay, billing disputes, aging follow up",
+        "McLeod, TMW, QuickBooks, Excel"),
+    "accounts receivable specialist": (
+        "BS Accountancy or Finance",
+        "Invoicing, cash application, collections calls and emails, payment reconciliation, credit memos, aging reports, month-end support",
+        "QuickBooks, NetSuite, Sage Intacct, Excel"),
+    "data entry specialist": (
+        "Bachelor's degree",
+        "High-volume record entry, data cleanup, document indexing, order and load entry, quality checks, spreadsheet reporting",
+        "Excel, Google Sheets, your ERP or CRM"),
+    "carrier sales support": (
+        "Bachelor's degree; U.S. freight experience",
+        "Carrier sourcing, load posting, rate quotes, carrier vetting and packets, load booking support, lane history",
+        "DAT, Truckstop, McLeod, RMIS"),
+    "load planner": (
+        "Bachelor's degree; U.S. freight experience",
+        "Load building, route and mode planning, appointment setting, capacity matching, consolidation, on-time tracking",
+        "McLeod, MercuryGate, DAT, Excel"),
+    "documentation specialist": (
+        "Bachelor's degree",
+        "BOLs, PODs, rate confirmations, customs paperwork, document audit, scanning and indexing, missing-document follow up",
+        "McLeod, CargoWise, SharePoint"),
+    # freight forwarding and customs
+    "shipment coordinator": (
+        "Bachelor's in Logistics or Business",
+        "Bookings, shipment tracking, carrier and agent updates, delivery orders, milestone entry, customer status reports",
+        "CargoWise, Magaya, carrier portals"),
+    "import coordinator": (
+        "BS Customs Administration or Business",
+        "Arrival notices, ISF filing support, delivery orders, customs follow up, demurrage tracking, freight release",
+        "CargoWise, Magaya, ACE portal"),
+    "export coordinator": (
+        "BS Customs Administration or Business",
+        "Carrier bookings, AES filing support, bills of lading, shipping instructions, export documents, cut-off tracking",
+        "CargoWise, Magaya, AESDirect"),
+    "customs entry writer": (
+        "BS Customs Administration",
+        "Entry preparation, HTS classification support, entry summaries, duty calculations, PGA data, document review",
+        "CargoWise, ACE portal, Descartes"),
+    # accounting and bookkeeping
+    "staff accountant": (
+        "BS Accountancy; CPA (Philippines)",
+        "Month-end close, bank and balance sheet reconciliations, journal entries, accruals, fixed assets, financial statements, U.S. GAAP",
+        "QuickBooks, NetSuite, Sage Intacct, Xero, Excel"),
+    "bookkeeper": (
+        "BS Accountancy; QuickBooks or Xero certified",
+        "Transaction coding, bank and credit card reconciliations, AP and AR, payroll support, sales tax, month-end reports",
+        "QuickBooks Online, Xero, Bill.com, Gusto"),
+    "payroll specialist": (
+        "BS Accountancy, Finance or HR",
+        "Multi-state payroll processing, timesheet audit, garnishments, benefits deductions, tax filing support, year-end W-2s",
+        "ADP, Paychex, Gusto, Paylocity"),
+    "tax preparer": (
+        "BS Accountancy; CPA or IRS Enrolled Agent",
+        "Individual and business return preparation, workpapers, depreciation schedules, extensions, e-file support",
+        "Drake, UltraTax CS, Lacerte, ProConnect"),
+    "billing specialist": (
+        "BS Accountancy or Business",
+        "Invoice preparation, billing audit, payment posting, credit memos, dispute follow up, customer statements, billing reports",
+        "QuickBooks, NetSuite, Bill.com, Excel"),
+    "accounts payable specialist": (
+        "BS Accountancy or Finance",
+        "Invoice coding, three-way match, vendor setup and statements, payment runs, expense reports, 1099 support, AP aging",
+        "QuickBooks, NetSuite, Sage Intacct, Bill.com"),
+    "audit support specialist": (
+        "BS Accountancy; CPA (Philippines)",
+        "Workpapers, sample selection and testing, confirmations, tie-outs, lead schedules, request-list tracking",
+        "CaseWare, CCH Engagement, Excel"),
+    "collections specialist": (
+        "BS Accountancy or Finance",
+        "Past-due calls and emails, payment plans, dispute resolution, account reconciliation, aging reports, credit holds",
+        "QuickBooks, NetSuite, Excel"),
     # property management
-    "leasing coordinator": ("Bachelor's degree",
-                            "Lead response, tour scheduling, applications, lease preparation",
-                            "Yardi, AppFolio, Buildium, RentCafe"),
-    "property accountant": ("BS Accountancy; CPA (Philippines)",
-                            "Rent roll, CAM reconciliations, owner statements",
-                            "Yardi, AppFolio, MRI, Buildium"),
-    "marketing coordinator": ("Bachelor's in Marketing or Communications",
-                              "Listings, email campaigns, social content, campaign reporting",
-                              "HubSpot, Canva, Mailchimp"),
+    "leasing coordinator": (
+        "Bachelor's degree",
+        "Lead response, tour scheduling, application processing, tenant screening, lease preparation, renewals, listing updates",
+        "Yardi, AppFolio, Buildium, RentCafe"),
+    "property accountant": (
+        "BS Accountancy; CPA (Philippines)",
+        "Rent roll, AP and AR, bank reconciliations, CAM reconciliations, owner statements, budgets, month-end close",
+        "Yardi, AppFolio, MRI, Buildium"),
+    "marketing coordinator": (
+        "Bachelor's in Marketing or Communications",
+        "Listings, email campaigns, social content, website updates, lead tracking, campaign reporting, graphic support",
+        "HubSpot, Canva, Mailchimp, Google Analytics"),
+    "maintenance coordinator": (
+        "Bachelor's degree",
+        "Work order intake, vendor dispatch, scheduling, tenant updates, invoice matching, preventive maintenance tracking",
+        "AppFolio, Yardi, Buildium, Property Meld"),
+    "tenant services representative": (
+        "Bachelor's degree",
+        "Tenant calls and emails, renewals, notices, move-in and move-out coordination, payment questions, complaint logging",
+        "AppFolio, Yardi, RentCafe"),
+    "transaction coordinator": (
+        "Bachelor's degree",
+        "Contract-to-close files, deadline tracking, disclosures, escrow and title follow up, compliance checklists, closing packets",
+        "Dotloop, SkySlope, DocuSign"),
     # healthcare administration
-    "medical biller": ("BS Nursing or allied health; CPB (AAPC)",
-                       "Claim submission, denial follow up, payment posting, patient statements",
-                       "Epic, athenahealth, Kareo, Availity"),
-    "medical coder": ("BS Nursing or allied health; CPC (AAPC) or CCS (AHIMA)",
-                      "ICD-10, CPT and HCPCS coding, chart review, coding audits",
-                      "Epic, 3M Encoder, athenahealth"),
-    "insurance verification specialist": ("Bachelor's in Nursing or Health Sciences",
-                                          "Eligibility checks, benefits verification, prior authorizations",
-                                          "Availity, Epic, athenahealth, payer portals"),
-    "patient scheduler": ("Bachelor's in Nursing or Health Sciences",
-                          "Appointment scheduling, reminders, referral intake, waitlists",
-                          "Epic, athenahealth, eClinicalWorks, NextGen"),
-    "credentialing specialist": ("Bachelor's in Health Sciences or Business",
-                                 "Provider enrollment, CAQH upkeep, payer applications, re-credentialing",
-                                 "CAQH ProView, PECOS, Modio, payer portals"),
+    "medical biller": (
+        "BS Nursing or allied health; CPB (AAPC)",
+        "Charge entry, claim submission, denial management, payment posting, AR follow up, patient statements, payer calls",
+        "Epic, athenahealth, Kareo, Availity"),
+    "medical coder": (
+        "BS Nursing or allied health; CPC (AAPC) or CCS (AHIMA)",
+        "ICD-10-CM, CPT and HCPCS coding, chart review, E/M leveling, coding audits, provider queries, denial review",
+        "Epic, 3M Encoder, athenahealth"),
+    "insurance verification specialist": (
+        "Bachelor's in Nursing or Health Sciences",
+        "Eligibility and benefits verification, prior authorizations, referral checks, payer calls, patient estimates",
+        "Availity, Epic, athenahealth, payer portals"),
+    "patient scheduler": (
+        "Bachelor's in Nursing or Health Sciences",
+        "Appointment scheduling, reminders, referral intake, waitlist management, insurance capture, provider calendar upkeep",
+        "Epic, athenahealth, eClinicalWorks, NextGen"),
+    "credentialing specialist": (
+        "Bachelor's in Health Sciences or Business",
+        "Provider enrollment, CAQH upkeep, payer applications, re-credentialing, license and expirables tracking, payer follow up",
+        "CAQH ProView, PECOS, Modio, payer portals"),
+    "prior authorization specialist": (
+        "Bachelor's in Nursing or Health Sciences",
+        "Authorization requests, clinical documentation, medical necessity criteria, payer follow up, appeals, status tracking",
+        "Availity, CoverMyMeds, Epic"),
+    "claims follow up specialist": (
+        "BS Nursing or allied health",
+        "Claim status checks, denial appeals, corrected claims, resubmissions, AR aging follow up, payer calls",
+        "Availity, athenahealth, Epic"),
+    "front office support specialist": (
+        "Bachelor's in Nursing or Health Sciences",
+        "Phones, scheduling, patient registration, insurance capture, records requests, referral tracking",
+        "Epic, athenahealth, RingCentral"),
     # home care
-    "care scheduler": ("Bachelor's in Nursing or Health Sciences",
-                       "Caregiver scheduling, shift coverage, call-offs, visit verification",
-                       "WellSky, AxisCare, HHAeXchange, AlayaCare"),
-    "recruiting coordinator": ("Bachelor's in HR, Psychology or Business",
-                               "Interview scheduling, candidate follow up, ATS upkeep",
-                               "Bullhorn, Greenhouse, Indeed, LinkedIn Recruiter"),
-    "intake coordinator": ("Bachelor's in Nursing or Health Sciences",
-                           "Referral intake, client records, authorization tracking",
-                           "WellSky, AxisCare, HHAeXchange"),
+    "care scheduler": (
+        "Bachelor's in Nursing or Health Sciences",
+        "Caregiver scheduling, client matching, shift coverage, call-offs, EVV visit verification, family communication",
+        "WellSky, AxisCare, HHAeXchange, AlayaCare"),
+    "recruiting coordinator": (
+        "Bachelor's in HR, Psychology or Business",
+        "Job postings, applicant screening, interview scheduling, candidate follow up, ATS upkeep, onboarding paperwork",
+        "Bullhorn, Greenhouse, Indeed, LinkedIn Recruiter"),
+    "intake coordinator": (
+        "Bachelor's in Nursing or Health Sciences",
+        "Referral intake, client records, insurance and authorization tracking, assessment scheduling, first-visit setup",
+        "WellSky, AxisCare, HHAeXchange"),
+    "onboarding specialist": (
+        "Bachelor's in HR or Business",
+        "New-hire paperwork, I-9 and E-Verify support, credential and license tracking, orientation scheduling, HRIS entry",
+        "Bullhorn, ADP, DocuSign, BambooHR"),
+    "caregiver sourcer": (
+        "Bachelor's in HR, Psychology or Business",
+        "Job postings, applicant sourcing and screening, phone interviews, interview scheduling, pipeline reports",
+        "Indeed, your ATS, WellSky"),
+    # construction, architecture, engineering
+    "project coordinator": (
+        "Bachelor's in Engineering, Architecture or Business",
+        "Submittals, RFIs, change orders, meeting minutes, schedule updates, document control, closeout packages",
+        "Procore, MS Project, Bluebeam, Smartsheet"),
+    "estimator": (
+        "BS Civil Engineering or Architecture",
+        "Quantity takeoffs, bid packages, subcontractor quote leveling, scope review, bid tabs, cost databases, value engineering",
+        "Bluebeam, PlanSwift, On-Screen Takeoff, Excel"),
+    "cad and bim drafter": (
+        "BS Architecture; Autodesk certified",
+        "Construction and shop drawings, BIM modeling, clash detection, redline pickups, as-builts, sheet sets",
+        "AutoCAD, Revit, Navisworks, SketchUp"),
+    "project accountant": (
+        "BS Accountancy; CPA (Philippines)",
+        "Job costing, AIA G702/G703 progress billing, WIP schedules, change order tracking, lien waivers, subcontractor pay apps",
+        "Sage 300 CRE, Viewpoint Vista, QuickBooks, Procore"),
+    "administrative assistant": (
+        "Bachelor's degree",
+        "Calendar and inbox management, correspondence, document control, data entry, vendor follow up, meeting coordination",
+        "Microsoft 365, Google Workspace, DocuSign"),
+    "estimating assistant": (
+        "BS Civil Engineering or Architecture",
+        "Takeoff support, bid invitations, subcontractor follow up, quote tracking, bid tabs, plan and addenda logs",
+        "Bluebeam, PlanSwift, BuildingConnected"),
+    "document controller": (
+        "Bachelor's degree",
+        "Drawing and spec logs, submittal and RFI tracking, transmittals, version control, closeout documents",
+        "Procore, Bluebeam, SharePoint"),
     # general back office and staffing
-    "executive assistant": ("Bachelor's degree",
-                            "Calendar and inbox management, travel, meeting prep, follow ups",
-                            "Microsoft 365, Google Workspace, Slack, Zoom"),
-    "sourcer": ("Bachelor's in HR, Psychology or Business",
-                "Candidate search, outreach, pipeline building, pre-screen notes",
-                "LinkedIn Recruiter, Indeed, Bullhorn, ZoomInfo"),
-    "recruiter": ("Bachelor's in HR, Psychology or Business",
-                  "Screening, candidate submittals, interview coordination, offers",
-                  "Bullhorn, LinkedIn Recruiter, Indeed"),
-    "onboarding specialist": ("Bachelor's in HR or Business",
-                              "New-hire paperwork, I-9 and E-Verify support, credential tracking",
-                              "Bullhorn, ADP, DocuSign, BambooHR"),
-    "caregiver sourcer": ("Bachelor's in HR, Psychology or Business",
-                          "Job postings, applicant screening, interview scheduling",
-                          "Indeed, your ATS, WellSky"),
-    # the rest of tm_prompts.INDUSTRY_JOBS (Sales Assets Jobs drop-down)
-    "carrier sales support": ("Bachelor's degree; U.S. freight experience",
-                              "Carrier sourcing, rate quotes, load postings, carrier packets",
-                              "DAT, Truckstop, McLeod"),
-    "load planner": ("Bachelor's degree; U.S. freight experience",
-                     "Load building, route planning, appointments, capacity matching",
-                     "McLeod, MercuryGate, DAT"),
-    "documentation specialist": ("Bachelor's degree",
-                                 "BOLs, PODs, rate confirmations, document audit and filing",
-                                 "McLeod, CargoWise, SharePoint"),
-    "shipment coordinator": ("Bachelor's in Logistics or Business",
-                             "Bookings, shipment tracking, carrier updates, delivery orders",
-                             "CargoWise, Magaya, carrier portals"),
-    "import coordinator": ("BS Customs Administration or Business",
-                           "Arrival notices, ISF filing support, delivery orders",
-                           "CargoWise, Magaya, ACE portal"),
-    "export coordinator": ("BS Customs Administration or Business",
-                           "Bookings, AES filing support, bills of lading",
-                           "CargoWise, Magaya, AESDirect"),
-    "customs entry writer": ("BS Customs Administration",
-                             "Entry preparation, HTS classification support, entry summaries",
-                             "CargoWise, ACE portal, Descartes"),
-    "audit support specialist": ("BS Accountancy; CPA (Philippines)",
-                                 "Workpapers, sample testing, confirmations, tie-outs",
-                                 "CaseWare, CCH Engagement, Excel"),
-    "collections specialist": ("BS Accountancy or Finance",
-                               "Past-due follow up, payment plans, dispute notes, aging reports",
-                               "QuickBooks, NetSuite, Excel"),
-    "maintenance coordinator": ("Bachelor's degree",
-                                "Work orders, vendor dispatch, tenant updates, invoice matching",
-                                "AppFolio, Yardi, Buildium"),
-    "tenant services representative": ("Bachelor's degree",
-                                       "Tenant inquiries, renewals, notices, move-in and move-out",
-                                       "AppFolio, Yardi, RentCafe"),
-    "transaction coordinator": ("Bachelor's degree",
-                                "Contract-to-close files, deadlines, disclosures, escrow follow up",
-                                "Dotloop, SkySlope, DocuSign"),
-    "prior authorization specialist": ("Bachelor's in Nursing or Health Sciences",
-                                       "Authorization requests, clinical documentation, payer follow up",
-                                       "Availity, CoverMyMeds, Epic"),
-    "claims follow up specialist": ("BS Nursing or allied health",
-                                    "Claim status, denial appeals, resubmissions, AR follow up",
-                                    "Availity, athenahealth, Epic"),
-    "front office support specialist": ("Bachelor's in Nursing or Health Sciences",
-                                        "Phones, scheduling, patient registration, records requests",
-                                        "Epic, athenahealth, RingCentral"),
-    "order entry specialist": ("Bachelor's degree",
-                               "Order entry, confirmations, pricing checks, backorder updates",
-                               "NetSuite, Epicor, your ERP"),
-    "estimating assistant": ("BS Civil Engineering or Architecture",
-                             "Takeoff support, bid invites, quote tracking, bid tabs",
-                             "Bluebeam, PlanSwift, BuildingConnected"),
-    "document controller": ("Bachelor's degree",
-                            "Drawing logs, submittal and RFI tracking, transmittals",
-                            "Procore, Bluebeam, SharePoint"),
-    "purchasing assistant": ("Bachelor's in Business or Supply Chain",
-                             "Purchase orders, vendor follow up, delivery tracking",
-                             "NetSuite, Epicor, Excel"),
-    "production scheduler": ("BS Industrial Engineering or Business",
-                             "Production schedules, work orders, material checks",
-                             "Epicor, SAP, Excel"),
-    "cad drafter": ("BS Mechanical Engineering or Architecture",
-                    "Part and assembly drawings, revisions, bills of material",
-                    "AutoCAD, SolidWorks, Inventor"),
-    "quoting specialist": ("BS Engineering or Business",
-                           "RFQ intake, cost roll-ups, quote preparation, follow up",
-                           "Epicor, Excel, your CRM"),
-    "account coordinator": ("Bachelor's in Marketing or Communications",
-                            "Client updates, timelines, asset trafficking, status reports",
-                            "Asana, Monday.com, HubSpot"),
-    "campaign reporting analyst": ("Bachelor's in Marketing or Statistics",
-                                   "Performance reports, dashboards, pacing checks, data pulls",
-                                   "Google Analytics, Looker Studio, Excel"),
-    "ad operations specialist": ("Bachelor's in Marketing or IT",
-                                 "Campaign setup, trafficking, QA, pacing and budget checks",
-                                 "Google Ads, Meta Ads Manager"),
-    "graphic designer": ("Bachelor's in Design or Multimedia Arts",
-                         "Social graphics, ad creative, layouts, brand assets",
-                         "Adobe Creative Cloud, Figma, Canva"),
-    "social media coordinator": ("Bachelor's in Marketing or Communications",
-                                 "Content calendars, scheduling, community replies, reporting",
-                                 "Hootsuite, Sprout Social, Canva"),
-    "content coordinator": ("Bachelor's in Communications or Journalism",
-                            "Blog drafts, copy edits, CMS uploads, content calendars",
-                            "WordPress, Google Workspace, Semrush"),
-    "travel booking specialist": ("Bachelor's in Tourism or Hospitality",
-                                  "Air, hotel and car bookings, changes, ticketing support",
-                                  "Sabre, Amadeus, Concur"),
-    "reservations agent": ("Bachelor's in Tourism or Hospitality",
-                           "Reservations, modifications, cancellations, confirmations",
-                           "Sabre, Amadeus, your booking system"),
-    "itinerary coordinator": ("Bachelor's in Tourism or Hospitality",
-                              "Itinerary building, supplier confirmations, travel documents",
-                              "Sabre, Amadeus, Google Workspace"),
-    "supplier coordinator": ("Bachelor's in Tourism or Hospitality",
-                             "Supplier bookings, rate checks, confirmations, invoice matching",
-                             "Supplier portals, Excel"),
-    "traveler support representative": ("Bachelor's in Tourism or Hospitality",
-                                        "Trip changes, disruption rebooking, traveler inquiries",
-                                        "Sabre, Amadeus, Zendesk"),
-    "order processing specialist": ("Bachelor's degree",
-                                    "Order review, fulfilment handoff, tracking updates, exceptions",
-                                    "Shopify, ShipStation, NetSuite"),
-    "returns specialist": ("Bachelor's degree",
-                           "Return authorizations, refunds, exchanges, carrier claims",
-                           "Shopify, ShipStation, Zendesk"),
-    "catalog data entry specialist": ("Bachelor's degree",
-                                      "Product data entry, attributes, images, price updates",
-                                      "Shopify, Excel, your PIM"),
-    "marketplace listing specialist": ("Bachelor's in Business or Marketing",
-                                       "Listings, keyword updates, inventory sync, case logs",
-                                       "Amazon Seller Central, Shopify"),
-    "appointment setter": ("Bachelor's degree",
-                           "Inbound and outbound calls, job booking, reminders, follow ups",
-                           "ServiceTitan, Housecall Pro"),
-    "permit coordinator": ("Bachelor's in Engineering or Architecture",
-                           "Permit applications, document packets, status tracking",
-                           "Municipal portals, ServiceTitan"),
-    "inside sales support representative": ("Bachelor's in Business or Marketing",
-                                            "Quotes, order entry, stock checks, customer follow up",
-                                            "NetSuite, Salesforce, Epicor"),
-    "inventory data specialist": ("Bachelor's in Business or Supply Chain",
-                                  "Item setup, stock adjustments, cycle count data, reorder reports",
-                                  "NetSuite, Epicor, Excel"),
-    "legal assistant": ("Bachelor's degree; legal studies background",
-                        "Calendaring, document formatting, filing support, client intake",
-                        "Clio, MyCase, Microsoft 365"),
-    "paralegal": ("BS Legal Management or law degree",
-                  "Drafting, discovery support, document review, case files",
-                  "Clio, Westlaw, Relativity"),
-    "scheduling coordinator": ("Bachelor's degree",
-                               "Calendars, appointment booking, reminders, rescheduling",
-                               "Microsoft 365, Calendly"),
-    "document preparation specialist": ("Bachelor's degree",
-                                        "Templates, formatting, proofreading, e-signature packets",
-                                        "Microsoft Word, Adobe Acrobat, DocuSign"),
-    "research assistant": ("Bachelor's degree",
-                           "Source searches, summaries, data compilation, citation checks",
-                           "Google Workspace, Excel, LexisNexis"),
+    "executive assistant": (
+        "Bachelor's degree",
+        "Calendar and inbox management, travel booking, meeting prep and minutes, expense reports, follow ups, document drafting",
+        "Microsoft 365, Google Workspace, Slack, Zoom"),
+    "order entry specialist": (
+        "Bachelor's degree",
+        "Order entry, order confirmations, pricing and stock checks, backorder updates, returns entry, customer follow up",
+        "NetSuite, Epicor, your ERP"),
+    "sourcer": (
+        "Bachelor's in HR, Psychology or Business",
+        "Boolean search, candidate outreach, pipeline building, resume screening, pre-screen notes, ATS upkeep",
+        "LinkedIn Recruiter, Indeed, Bullhorn, ZoomInfo"),
+    "recruiter": (
+        "Bachelor's in HR, Psychology or Business",
+        "Full-cycle recruiting, phone screens, candidate submittals, interview coordination, offers, client updates",
+        "Bullhorn, LinkedIn Recruiter, Indeed"),
+    # manufacturing and distribution
+    "purchasing assistant": (
+        "Bachelor's in Business or Supply Chain",
+        "Purchase orders, vendor follow up, delivery tracking, price and lead-time checks, receiving discrepancies, supplier records",
+        "NetSuite, Epicor, Excel"),
+    "production scheduler": (
+        "BS Industrial Engineering or Business",
+        "Production schedules, work orders, material availability checks, capacity planning, schedule changes, on-time reports",
+        "Epicor, SAP, Excel"),
+    "cad drafter": (
+        "BS Mechanical Engineering or Architecture",
+        "Part and assembly drawings, 3D models, revisions and ECOs, bills of material, drawing checks",
+        "AutoCAD, SolidWorks, Inventor"),
+    "quoting specialist": (
+        "BS Engineering or Business",
+        "RFQ intake, drawing review, cost roll-ups, vendor quotes, quote preparation, follow up, win-loss tracking",
+        "Epicor, Excel, your CRM"),
+    "inside sales support representative": (
+        "Bachelor's in Business or Marketing",
+        "Quotes, order entry, stock and pricing checks, customer follow up, CRM updates, returns and credits",
+        "NetSuite, Salesforce, Epicor"),
+    "inventory data specialist": (
+        "Bachelor's in Business or Supply Chain",
+        "Item setup, stock adjustments, cycle count data, reorder reports, SKU cleanup, pricing updates",
+        "NetSuite, Epicor, Excel"),
+    # agencies
+    "account coordinator": (
+        "Bachelor's in Marketing or Communications",
+        "Client updates, project timelines, asset trafficking, meeting notes, status reports, billing support",
+        "Asana, Monday.com, HubSpot"),
+    "campaign reporting analyst": (
+        "Bachelor's in Marketing or Statistics",
+        "Performance reports, dashboards, pacing and budget checks, data pulls, UTM tracking, insight summaries",
+        "Google Analytics, Looker Studio, Excel"),
+    "ad operations specialist": (
+        "Bachelor's in Marketing or IT",
+        "Campaign setup, ad trafficking, QA, pacing and budget checks, pixel and tag checks, screenshots",
+        "Google Ads, Meta Ads Manager"),
+    "graphic designer": (
+        "Bachelor's in Design or Multimedia Arts",
+        "Social graphics, ad creative, layouts, presentations, brand assets, photo retouching, production files",
+        "Adobe Creative Cloud, Figma, Canva"),
+    "social media coordinator": (
+        "Bachelor's in Marketing or Communications",
+        "Content calendars, post scheduling, community replies, caption writing, basic graphics, monthly reporting",
+        "Hootsuite, Sprout Social, Canva"),
+    "content coordinator": (
+        "Bachelor's in Communications or Journalism",
+        "Blog drafts, copy edits, CMS uploads, SEO basics, content calendars, newsletter builds",
+        "WordPress, Google Workspace, Semrush"),
+    # travel
+    "travel booking specialist": (
+        "Bachelor's in Tourism or Hospitality",
+        "Air, hotel and car bookings, changes and cancellations, ticketing support, fare checks, traveler profiles",
+        "Sabre, Amadeus, Concur"),
+    "reservations agent": (
+        "Bachelor's in Tourism or Hospitality",
+        "Reservations, modifications, cancellations, confirmations, payment follow up, guest inquiries",
+        "Sabre, Amadeus, your booking system"),
+    "itinerary coordinator": (
+        "Bachelor's in Tourism or Hospitality",
+        "Itinerary building, supplier confirmations, travel documents, visa and entry checks, traveler briefings",
+        "Sabre, Amadeus, Google Workspace"),
+    "supplier coordinator": (
+        "Bachelor's in Tourism or Hospitality",
+        "Supplier bookings, rate and availability checks, confirmations, invoice matching, supplier records",
+        "Supplier portals, Excel"),
+    "traveler support representative": (
+        "Bachelor's in Tourism or Hospitality",
+        "Trip changes, disruption rebooking, traveler calls and chat, refunds and credits, after-hours support",
+        "Sabre, Amadeus, Zendesk"),
+    # ecommerce
+    "order processing specialist": (
+        "Bachelor's degree",
+        "Order review, fraud checks, fulfilment handoff, tracking updates, exceptions, customer notifications",
+        "Shopify, ShipStation, NetSuite"),
+    "returns specialist": (
+        "Bachelor's degree",
+        "Return authorizations, refunds, exchanges, carrier claims, restock entry, customer updates",
+        "Shopify, ShipStation, Zendesk"),
+    "catalog data entry specialist": (
+        "Bachelor's degree",
+        "Product data entry, attributes and variants, image uploads, price updates, category mapping, quality checks",
+        "Shopify, Excel, your PIM"),
+    "marketplace listing specialist": (
+        "Bachelor's in Business or Marketing",
+        "Listings, keyword and content updates, inventory sync, pricing checks, case logs, account health",
+        "Amazon Seller Central, Shopify"),
+    # home services
+    "appointment setter": (
+        "Bachelor's degree",
+        "Inbound and outbound calls, job booking, estimate scheduling, reminders, follow ups, CRM notes",
+        "ServiceTitan, Housecall Pro"),
+    "permit coordinator": (
+        "Bachelor's in Engineering or Architecture",
+        "Permit applications, document packets, plan submissions, status tracking, inspection scheduling",
+        "Municipal portals, ServiceTitan"),
+    # professional services
+    "legal assistant": (
+        "Bachelor's degree; legal studies background",
+        "Calendaring, document formatting, e-filing support, client intake, billing entries, file management",
+        "Clio, MyCase, Microsoft 365"),
+    "paralegal": (
+        "BS Legal Management or law degree",
+        "Drafting, legal research, discovery support, document review, case chronologies, file management",
+        "Clio, Westlaw, Relativity"),
+    "scheduling coordinator": (
+        "Bachelor's degree",
+        "Calendar management, appointment booking, reminders, rescheduling, intake forms, client follow up",
+        "Microsoft 365, Calendly"),
+    "document preparation specialist": (
+        "Bachelor's degree",
+        "Templates, formatting, proofreading, redlines, e-signature packets, document assembly",
+        "Microsoft Word, Adobe Acrobat, DocuSign"),
+    "research assistant": (
+        "Bachelor's degree",
+        "Source searches, summaries, data compilation, citation checks, market and company research",
+        "Google Workspace, Excel, LexisNexis"),
 }
 
 
@@ -46476,7 +46550,8 @@ _TM_ROLE_PROFILES = {
 # the title picks the profile ("Senior Estimator", "BIM Manager", "CPA").
 _TM_ROLE_PROFILE_ALIASES = (
     ("architect", ("BS Architecture; licensed architect (Philippines)",
-                   "Construction documents, permit sets, redline pickups, schedules",
+                   "Construction documents, permit sets, redline pickups, "
+                   "door and finish schedules, RFI and submittal support",
                    "Revit, AutoCAD, Bluebeam")),
     ("bim", ("BS Architecture or Civil Engineering; Autodesk certified",
              "BIM models, clash detection, model coordination, sheet sets",
@@ -46518,16 +46593,7 @@ def _tm_role_profile_rows(roles) -> list:
     rows = [[r, *_tm_role_profile(r)] for r in roles if _tm_role_profile(r)]
     if not rows:
         return []
-    return [["Role", "Degree and Credentials", "Core Work",
-             "Software"]] + rows
-
-
-# Years of experience per row of the cost table, and the BLS wage
-# percentile that prices each band. Where BLS publishes no percentile for
-# the occupation and area, the band is the median times the fallback.
-_TM_EXP_BANDS = (("1-3 years", "p25", 0.80),
-                 ("4-7 years", None, 1.0),
-                 ("8+ years", "p75", 1.25))
+    return [["Role", "Degree and Credentials", "Skills", "Software"]] + rows
 
 
 def _tm_where(location: str) -> str:
@@ -46542,13 +46608,23 @@ def _tm_where(location: str) -> str:
     return f" in {loc}"
 
 
-def _tm_vetting_section() -> dict:
+def _tm_vetting_section(roles=None) -> dict:
+    """`roles`: the page's own titles, so the example names the reader's
+    seats ("A dispatcher is recruited as a dispatcher")."""
+    names = [str(r).strip() for r in (roles or []) if str(r).strip()][:2]
+    if len(names) < 2:
+        names = ["Estimator", "Bookkeeper"]
+
+    def _a(t):
+        t = t if t.isupper() or " and " in t and t.split()[0].isupper() else t.lower()
+        return f"{'an' if t[:1].lower() in 'aeiou' else 'a'} {t}"
+    one, two = _a(names[0]), _a(names[1])
     return {"heading": "How Every Candidate Is Vetted", "type": "bullets",
             "items": [
                 "Role-specific search. We recruit against your job: its "
-                "responsibilities, software and industry experience. An "
-                "estimator is recruited as an estimator, a bookkeeper as a "
-                "bookkeeper.",
+                "responsibilities, software and industry experience. "
+                f"{one[:1].upper() + one[1:]} is recruited as {one}, "
+                f"{two} as {two}.",
                 "Credentials confirmed. We confirm the degree, "
                 "certifications and work history the role calls for before "
                 "a candidate reaches your shortlist.",
@@ -46561,13 +46637,29 @@ def _tm_vetting_section() -> dict:
             ]}
 
 
+def _tm_work_attributes_section() -> dict:
+    """How the person works day to day: the attributes a buyer weighs
+    beside skills and software. Every line is an approved service term."""
+    return {"heading": "How Each Professional Works", "type": "bullets",
+            "items": [
+                "Works your business hours, in any U.S. time zone, as a "
+                "full-time member of your team.",
+                "Dedicated to your business only, working in your systems, "
+                "processes and communication tools.",
+                "Communicates in fluent, professional English with your "
+                "customers, vendors and staff by phone, email and chat.",
+                "Reports to your manager, who sets priorities, workflow "
+                "and KPIs.",
+                "Ready on the first day: workstation and IT are set up "
+                "before the start.",
+            ]}
+
+
 def _tm_rate_covers_section() -> dict:
     return {"heading": "What the Hourly Rate Covers", "type": "bullets",
             "items": [
                 "Pay, benefits, HR, compliance and payroll. We are the "
                 "employer of record in the Philippines.",
-                "A dedicated, full-time professional who works your hours, "
-                "in your systems, and reports to your manager.",
                 "A named account manager, monthly check-ins, quarterly "
                 "reviews and monthly performance reports.",
                 "No upfront or placement fees, month-to-month terms, no "
@@ -46589,8 +46681,8 @@ def _tm_customer_quote_section() -> dict:
 
 
 def _tm_cost_extra_sections() -> list:
-    return [_tm_vetting_section(), _tm_rate_covers_section(),
-            _tm_customer_quote_section()]
+    return [_tm_work_attributes_section(), _tm_vetting_section(),
+            _tm_rate_covers_section(), _tm_customer_quote_section()]
 
 
 # Staffing and recruiting firms share the home-care vertical's knowledge
@@ -46710,23 +46802,9 @@ def _tm_multi_cost_pdf_data(client, company: str, role: str, location: str,
         burden = round(base * _TM_BENCH_BURDEN_PCT / 10000.0) * 100
         domestic = base + burden + _TM_BENCH_OVERHEAD + _TM_BENCH_HIRING
         tm = round(domestic * (1 - _TM_AUTO_SAVINGS) / 100.0) * 100
-        # One line per experience band: the BLS percentile wage for the
-        # band, loaded the same way, and our rate the same share below it.
-        bands = []
-        for label, pkey, fallback in _TM_EXP_BANDS:
-            pub = (lk or {}).get(pkey) if pkey else base
-            b_base = float(pub) if pub else round(base * fallback / 500.0) * 500
-            b_dom = (b_base + round(b_base * _TM_BENCH_BURDEN_PCT / 10000.0) * 100
-                     + _TM_BENCH_OVERHEAD + _TM_BENCH_HIRING)
-            b_tm = round(b_dom * (1 - _TM_AUTO_SAVINGS) / 100.0) * 100
-            bands.append({"years": label, "base": b_base, "domestic": b_dom,
-                          "tm": b_tm, "tm_hr": _tm_hourly(b_tm),
-                          "domestic_hr": _tm_hourly(b_dom),
-                          "published": bool(pub)})
         priced.append({"role": r, "base": base, "domestic": domestic, "tm": tm,
                        "saving": domestic - tm, "area": area, "source": src,
-                       "occupation": re.sub(r"\s*\(SOC.*", "", occ),
-                       "bands": bands})
+                       "occupation": re.sub(r"\s*\(SOC.*", "", occ)})
         if len(priced) == _TM_COST_ROLE_COUNT:
             break
 
@@ -46735,21 +46813,19 @@ def _tm_multi_cost_pdf_data(client, company: str, role: str, location: str,
 
     n = len(priced)
     pct = f"{_TM_AUTO_SAVINGS:.0%}"
-    # Mike, 2026-11-05: years of experience, then our hourly rate, then the
-    # U.S. hourly rate. No "you save" columns and no totals row.
+    # Mike, 2026-11-05: one mid-range rate per role, ours beside the U.S.
+    # figure. No "you save" columns, no totals row, no experience tiers; the
+    # rest of the page sells what each professional brings.
     for p in priced:
         p["tm_hr"] = _tm_hourly(p["tm"])
         p["domestic_hr"] = _tm_hourly(p["domestic"])
-    rows = [["Role", "Years of Experience", "Our Hourly Rate",
-             "U.S. Hourly Rate (Fully Loaded)"]]
-    for p in priced:
-        for i, b in enumerate(p["bands"]):
-            rows.append([p["role"] if i == 0 else "", b["years"],
-                         _tm_money(b["tm_hr"]), _tm_money(b["domestic_hr"])])
+    rows = [["Role", "Our Hourly Rate", "U.S. Hourly Rate (Fully Loaded)"]]
+    rows += [[p["role"], _tm_money(p["tm_hr"]), _tm_money(p["domestic_hr"])]
+             for p in priced]
     # Where the base salaries come from, each area said once. The
     # role-to-occupation mapping stays off the page (it filled a second one).
     areas = list(dict.fromkeys(p["area"] for p in priced))
-    salary_note = ("the BLS wage for each role's closest occupation ("
+    salary_note = ("the BLS median wage for each role's closest occupation ("
                    + "; ".join(areas) + ")")
     where = _tm_where(location)
     # A market campaign's subject is an industry, not a buyer.
@@ -46758,7 +46834,6 @@ def _tm_multi_cost_pdf_data(client, company: str, role: str, location: str,
                   or company.lower() == str(industry or "").strip().lower())
     who = (f"{'an' if _mkt[:1].lower() in 'aeiou' else 'a'} {_mkt} business"
            if _is_market else company)
-    estimated = any(not b["published"] for p in priced for b in p["bands"])
     howto = [
         f"The U.S. hourly rate is the fully loaded cost of one full-time "
         f"employee{where}: {salary_note}, plus "
@@ -46766,11 +46841,6 @@ def _tm_multi_cost_pdf_data(client, company: str, role: str, location: str,
         f"({_tm_money(_TM_BENCH_OVERHEAD)}) and recruiting "
         f"({_tm_money(_TM_BENCH_HIRING)}) a year, over "
         f"{_TM_HOURS_PER_YEAR:,} hours.",
-        "Experience levels follow the BLS wage distribution for each "
-        "occupation: the 25th percentile for 1-3 years, the median for 4-7 "
-        "years and the 75th percentile for 8 or more."
-        + (" Where BLS publishes no percentile for an occupation, the band "
-           "is estimated from its median." if estimated else ""),
         f"Our hourly rate is all-inclusive and is an estimate {pct} below "
         f"the U.S. figure, within our published range of up to 60-70%. It "
         f"is billed as one monthly rate per professional, and your quote is "
@@ -46781,28 +46851,27 @@ def _tm_multi_cost_pdf_data(client, company: str, role: str, location: str,
     return {
         "title": f"Staffing Cost Comparison - {company}",
         "badge": _TM_COST_BADGE,
-        "intro": (f"{lead} {who} would typically hire for{where}, priced at "
-                  f"three experience levels: our all-inclusive hourly rate "
-                  f"beside the fully loaded U.S. cost of the same "
-                  f"experience."),
+        "intro": (f"{lead} {who} would typically hire for{where}: our "
+                  f"all-inclusive hourly rate beside the fully loaded U.S. "
+                  f"cost, and the credentials, skills and software each "
+                  f"professional brings."),
         "sections": _tm_with_standard([
-            # keep: the renderer's length trim never drops a row. group:
-            # a role's three experience rows are banded together.
-            {"heading": "Hourly Rate by Role and Experience", "type": "table",
-             "items": rows, "keep": True, "group": len(_TM_EXP_BANDS),
-             "widths": [0.34, 0.22, 0.20, 0.24]},
-            _tm_rate_covers_section(),
-            *([{"heading": "What We Recruit For in Each Role",
+            # keep: the renderer's length trim never drops a row.
+            {"heading": "Hourly Rate by Role", "type": "table",
+             "items": rows, "keep": True, "widths": [0.44, 0.24, 0.32]},
+            *([{"heading": "What Each Professional Brings",
                 "type": "table", "items": profile_rows, "keep": True,
-                "widths": [0.19, 0.26, 0.31, 0.24], "font": 9}]
+                "widths": [0.17, 0.22, 0.37, 0.24], "font": 9}]
               if profile_rows else []),
-            _tm_vetting_section(),
+            _tm_work_attributes_section(),
+            _tm_vetting_section([p["role"] for p in priced]),
+            _tm_rate_covers_section(),
             _tm_customer_quote_section(),
             {"heading": "Basis of Calculation", "type": "bullets",
              "items": howto, "keep": True},
         ]),
-        "cta": ("Send us the role, the experience level and what you pay "
-                "today, and we will price it for your team."),
+        "cta": ("Send us the role and what you pay today, and we will price "
+                "it for your team."),
         "_worksheet": priced,
     }
 

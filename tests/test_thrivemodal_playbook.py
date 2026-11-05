@@ -1152,7 +1152,8 @@ def test_cost_extras_only_repeat_approved_playbook_lines():
     assert "That consistency allows our leadership team" in quote
     assert quote.split('" Kristy')[0].strip('"') in fa._TM_DEF_PROOF.replace("\n", " ")
     for b in (secs["What the Hourly Rate Covers"]["items"]
-              + secs["How Every Candidate Is Vetted"]["items"]):
+              + secs["How Every Candidate Is Vetted"]["items"]
+              + secs["How Each Professional Works"]["items"]):
         assert not any(ch.isdigit() for ch in b), b
     # Mike, 2026-11-05: the people bullets state the candidate standard
     # (vetted, fluent English, degreed and certified). Still never a

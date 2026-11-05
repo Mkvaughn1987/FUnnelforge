@@ -136,29 +136,9 @@ def test_role_profiles_cover_every_role_the_cost_sheet_can_name():
     assert [r[0] for r in rows] == ["Role", "Estimator"]
 
 
-def test_experience_bands_use_bls_percentiles_when_published(monkeypatch):
-    def local(client, roles, location):
-        return {r: {"salary": 60000.0, "p25": 50000.0, "p75": 80000.0,
-                    "basis": "median", "area": "United States",
-                    "occupation": f"Occ {i} (SOC 11-111{i})",
-                    "source": "BLS OEWS May 2025", "url": "https://www.bls.gov/x"}
-                for i, r in enumerate(roles)}
-    monkeypatch.setattr(fa, "_tm_bls_local_salaries", local)
-    _tm(monkeypatch)
-    d = fa._tm_multi_cost_pdf_data(None, "Acme", "Bookkeeper", "", "Accounting")
-    bands = d["_worksheet"][0]["bands"]
-    assert [b["base"] for b in bands] == [50000.0, 60000.0, 80000.0]
-    assert all(b["published"] for b in bands)
-    how = " ".join(next(s for s in d["sections"]
-                        if s["heading"] == "Basis of Calculation")["items"])
-    assert "25th percentile" in how and "75th percentile" in how
-    assert "estimated from its median" not in how
-    # Our rate is the same share below the loaded U.S. figure in every band.
-    for b in bands:
-        assert abs(b["tm"] / b["domestic"] - 0.35) < 0.01
-
-
-def test_experience_bands_fall_back_and_say_so(monkeypatch):
+def test_cost_sheet_uses_one_mid_range_rate_per_role(monkeypatch):
+    """Mike, 2026-11-05: "Dont worry about years of experience anymore. Use
+    the mid range for money"."""
     def local(client, roles, location):
         return {r: {"salary": 60000.0, "basis": "median",
                     "area": "United States",
@@ -168,35 +148,49 @@ def test_experience_bands_fall_back_and_say_so(monkeypatch):
     monkeypatch.setattr(fa, "_tm_bls_local_salaries", local)
     _tm(monkeypatch)
     d = fa._tm_multi_cost_pdf_data(None, "Acme", "Bookkeeper", "", "Accounting")
-    bands = d["_worksheet"][0]["bands"]
-    assert [b["base"] for b in bands] == [48000.0, 60000.0, 75000.0]
+    p = d["_worksheet"][0]
+    assert "bands" not in p and p["base"] == 60000.0
+    assert abs(p["tm"] / p["domestic"] - 0.35) < 0.01
     how = " ".join(next(s for s in d["sections"]
                         if s["heading"] == "Basis of Calculation")["items"])
-    assert "estimated from its median" in how
+    assert "BLS median wage" in how and "percentile" not in how
 
 
-def test_bls_lookup_fetches_the_percentiles_for_the_area_that_priced(monkeypatch):
+def test_bls_lookup_asks_for_the_median_only(monkeypatch):
     asked = []
 
     def medians(ids):
         asked.append(list(ids))
-        out = {}
-        for sid in ids:
-            if sid.startswith("OEUN") and sid.endswith("13"):
-                out[sid] = (61000.0, "2025")
-            if sid.startswith("OEUN") and sid.endswith("12"):
-                out[sid] = (50200.0, "2025")
-            if sid.startswith("OEUN") and sid.endswith("14"):
-                out[sid] = (79900.0, "2025")
-        return out
+        return {sid: (61000.0, "2025") for sid in ids if sid.startswith("OEUN")}
     monkeypatch.setattr(fa, "_tm_bls_annual_medians", medians)
-    got = fa._tm_bls_local_salaries(None, ["Bookkeeper"], "")
-    lk = got["Bookkeeper"]
-    assert lk["salary"] == 61000.0 and lk["p25"] == 50000.0 and lk["p75"] == 80000.0
-    assert "_series" not in lk
-    # Second request: only the two percentile series for the area that hit.
-    assert len(asked) == 2 and len(asked[1]) == 2
-    assert all(s.startswith("OEUN") for s in asked[1])
+    lk = fa._tm_bls_local_salaries(None, ["Bookkeeper"], "")["Bookkeeper"]
+    assert lk["salary"] == 61000.0 and set(lk) >= {"area", "occupation", "url"}
+    assert "_series" not in lk and "p25" not in lk
+    assert len(asked) == 1 and all(s.endswith("13") for s in asked[0])
+
+
+def test_every_saved_role_sells_skills_software_and_credentials():
+    """The titles the Jobs drop-down and the cost sheet name are the ones
+    that matter most: each has a degree, a full skill list and software."""
+    import tm_prompts
+    names = {t.lower() for row in tm_prompts.INDUSTRY_JOBS for t in row[-1]}
+    for name in sorted(names):
+        creds, skills, software = fa._TM_ROLE_PROFILES[name]
+        assert creds.startswith(("Bachelor", "BS ")), name
+        assert len(skills.split(",")) >= 5, (name, skills)
+        assert 2 <= len(software.split(",")) <= 5, (name, software)
+        assert len(skills) <= 135 and len(software) <= 62, name
+
+
+def test_work_attributes_are_approved_service_terms():
+    items = fa._tm_work_attributes_section()["items"]
+    text = " ".join(items)
+    for word in ("any U.S. time zone", "full-time", "Dedicated to your business",
+                 "fluent, professional English", "Reports to your manager",
+                 "workstation and IT"):
+        assert word in text, word
+    for word in ("native", "perfect", "24/7", "Filipino"):
+        assert word not in text, word
 
 
 def test_create_your_own_pdf_gets_the_standard_and_depth():
