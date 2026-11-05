@@ -7,8 +7,13 @@ fields are filled, and that happens later at queue time, as for every
 campaign. A step marked "AI polish" is passed to the caller's `polish`
 function once, at build time, before anything is queued.
 
+A saved campaign is reused for other clients, so anything specific to one
+client is a {Fill-in} the user is asked for each time (see Fill-ins below).
+
 No AI client and no app state here: the caller hands in `polish`.
 """
+import json
+import re
 
 VOICE_MINE = "mine"
 VOICE_POLISH = "polish"
@@ -162,8 +167,9 @@ def polish_prompt(text: str, step_type: str, tone: str = "") -> str:
         f"grammar, tighten wording and make it read naturally"
         + (f" in a {tone} tone" if tone else "") + ".\n\n"
         "Rules:\n"
-        "- Keep every merge field exactly as written, braces included: "
-        "{FirstName}, {LastName}, {Company}, {JobTitle}, {Candidates}.\n"
+        "- Keep everything in {braces} exactly as written, braces included: "
+        "{FirstName}, {LastName}, {Company}, {JobTitle}, {Candidates} and "
+        "any other, such as {Industry} or {Competitors}.\n"
         "- Do not add facts, numbers, names, links or promises that are not "
         "in the text.\n"
         "- No subject line, no signature, no sign-off name.\n"
@@ -171,3 +177,193 @@ def polish_prompt(text: str, step_type: str, tone: str = "") -> str:
         "- Return only the polished text, nothing before or after it.\n\n"
         f"TEXT:\n{text}"
     )
+
+
+# ── Fill-ins: what changes each time a saved campaign is used ────────────
+# A saved campaign is meant to be reused for another client or industry, so
+# anything client-specific lives in the text as a {Token}. Per-contact merge
+# fields are filled at queue time as always; every other token is a fill-in
+# the user is asked for each time they use the campaign.
+
+MERGE_FIELDS = ("FirstName", "LastName", "Company", "CompanyName", "JobTitle")
+_RESERVED = MERGE_FIELDS + ("Candidates",)
+# Offered as one-click chips while writing. Anything else typed in braces
+# works the same way.
+COMMON_FILLINS = ("Industry", "Competitors", "CurrentClients", "Role", "Location")
+_TOKEN_RE = re.compile(r"\{([A-Za-z][A-Za-z0-9]*)\}")
+_TEXT_FIELDS = ("subject", "input")
+
+
+def fillin_label(name: str) -> str:
+    """'CurrentClients' -> 'Current clients'."""
+    words = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name or "").split()
+    return " ".join([words[0]] + [w.lower() for w in words[1:]]) if words else ""
+
+
+def clean_fillin_name(raw) -> str:
+    """A token name from whatever the model or user called it: letters and
+    digits only, CamelCase, never Candidates."""
+    parts = re.findall(r"[A-Za-z0-9]+", str(raw or ""))
+    name = "".join(p[:1].upper() + p[1:] for p in parts)
+    if not name or not name[0].isalpha() or name == "Candidates":
+        return ""
+    return name[:40]
+
+
+def fillins(steps) -> list:
+    """Fill-in names used across the steps, in first-seen order. Merge
+    fields and {Candidates} are not fill-ins."""
+    seen = []
+    for st in steps or []:
+        for f in _TEXT_FIELDS:
+            for name in _TOKEN_RE.findall((st or {}).get(f) or ""):
+                if name not in _RESERVED and name not in seen:
+                    seen.append(name)
+    return seen
+
+
+def missing_fillins(steps, values) -> list:
+    values = values or {}
+    return [n for n in fillins(steps) if not str(values.get(n) or "").strip()]
+
+
+def fill(steps, values) -> list:
+    """Copies of the steps with each fill-in that has a value written in.
+    Merge fields, {Candidates} and fill-ins without a value are left."""
+    values = {k: str(v).strip() for k, v in (values or {}).items()
+              if k not in _RESERVED and str(v or "").strip()}
+
+    def _sub(text):
+        return _TOKEN_RE.sub(
+            lambda m: values.get(m.group(1), m.group(0)), text or "")
+    out = []
+    for st in steps or []:
+        st = dict(st or {})
+        for f in _TEXT_FIELDS:
+            if st.get(f):
+                st[f] = _sub(st[f])
+        out.append(st)
+    return out
+
+
+def detect_prompt(steps) -> str:
+    """Asks the model which details in the user's steps are specific to one
+    client, so they can become fill-ins. Exact substrings only: the caller
+    replaces text, it never rewrites."""
+    blocks = []
+    for i, st in enumerate(steps or [], 1):
+        st = st or {}
+        if (st.get("subject") or "").strip():
+            blocks.append(f"[Step {i} subject]\n{st['subject'].strip()}")
+        if (st.get("input") or "").strip():
+            blocks.append(f"[Step {i}]\n{st['input'].strip()}")
+    return (
+        "A recruiter wrote the outreach steps below for one client. They "
+        "want to save them as a template to reuse for other clients and "
+        "industries. Find the details that are specific to this one use and "
+        "would have to change next time.\n\n"
+        "Look for: the industry or market, the roles or job titles being "
+        "pitched, named competitors, named current or past clients, a city "
+        "or region, the recipient's own first name, the recipient's own "
+        "company.\n\n"
+        "Return a JSON array, nothing else. Each item is "
+        '{"text": "...", "name": "..."} where:\n'
+        "- text is copied EXACTLY from the steps, character for character, "
+        "and is the shortest phrase that carries the detail (for a list such "
+        'as "Trane and Carrier", the whole list is one item).\n'
+        "- name is one of Industry, Competitors, CurrentClients, Role, "
+        "Location when it fits, FirstName for the recipient's first name, "
+        "Company for the recipient's company, otherwise a short CamelCase "
+        "name of your own.\n\n"
+        "Leave alone: anything already in {braces}, the recruiter's own "
+        "name, their firm, their phone number or email, and general wording "
+        "that would be true for any client. If nothing is specific, return "
+        "[].\n\n" + "\n\n".join(blocks)
+    )
+
+
+def _boundary_re(text: str):
+    return re.compile(r"(?<![A-Za-z0-9])" + re.escape(text) + r"(?![A-Za-z0-9])")
+
+
+def _occurs(text: str, hay: str) -> bool:
+    """Whole-word match outside any existing {token}."""
+    return bool(_boundary_re(text).search(
+        re.sub(r"\{[^{}]*\}", "\x00", hay or "")))
+
+
+def parse_detected(raw: str, steps) -> list:
+    """The model's answer as a clean list of {"text", "name"}: only phrases
+    that really are in the steps, each phrase once, no braces."""
+    m = re.search(r"\[.*\]", raw or "", re.S)
+    try:
+        rows = json.loads(m.group(0)) if m else []
+    except Exception:
+        rows = []
+    hay = "\n".join((st or {}).get(f) or "" for st in steps or []
+                    for f in _TEXT_FIELDS)
+    out, seen = [], set()
+    for r in rows if isinstance(rows, list) else []:
+        if not isinstance(r, dict):
+            continue
+        text = str(r.get("text") or "").strip()
+        name = clean_fillin_name(r.get("name"))
+        if (len(text) < 2 or not name or "{" in text or "}" in text
+                or text in seen or not _occurs(text, hay)):
+            continue
+        seen.add(text)
+        out.append({"text": text, "name": name})
+    return out[:12]
+
+
+def apply_detected(steps, found) -> list:
+    """Copies of the steps with each found phrase replaced by its {Name}.
+    Longest phrase first, whole words only, never inside an existing
+    {token}."""
+    found = sorted((f for f in found or [] if f.get("text") and f.get("name")),
+                   key=lambda f: -len(f["text"]))
+
+    def _sub(text):
+        # Split on existing tokens so a phrase is never replaced inside one.
+        # \x01...\x02 stand in for the new braces until every phrase is done,
+        # so a shorter phrase cannot match inside a token just written.
+        parts = re.split(r"(\{[^{}]*\})", text or "")
+        for i in range(0, len(parts), 2):
+            for f in found:
+                chunks = re.split(r"(\x01[^\x02]*\x02)", parts[i])
+                for j in range(0, len(chunks), 2):
+                    chunks[j] = _boundary_re(f["text"]).sub(
+                        "\x01" + f["name"] + "\x02", chunks[j])
+                parts[i] = "".join(chunks)
+        return "".join(parts).replace("\x01", "{").replace("\x02", "}")
+    out = []
+    for st in steps or []:
+        st = dict(st or {})
+        for f in _TEXT_FIELDS:
+            if st.get(f):
+                st[f] = _sub(st[f])
+        out.append(st)
+    return out
+
+
+def style_fillins(steps, values=None) -> list:
+    """What a saved campaign asks for next time: each fill-in with its label
+    and the value used last (shown as a hint, never sent on its own)."""
+    values = values or {}
+    return [{"name": n, "label": fillin_label(n),
+             "last": str(values.get(n) or "").strip()}
+            for n in fillins(steps)]
+
+
+def draft_rules() -> str:
+    """Added to the one-step AI draft so a draft stays reusable."""
+    return (
+        "- This campaign is saved and reused for different clients and "
+        "industries. Do not invent an industry, client names, competitor "
+        "names, a role or a city. Where one belongs, use the fill-in: "
+        "{Industry}, {Competitors}, {CurrentClients}, {Role}, {Location}. "
+        "If the user's direction names a specific one, write it as they "
+        "gave it.\n"
+        "- If the direction says to pitch or list candidates, put "
+        "{Candidates} on its own line where the list goes and do not "
+        "describe any candidate yourself.\n")

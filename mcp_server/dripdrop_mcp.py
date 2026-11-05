@@ -185,7 +185,12 @@ async def create_campaign(spec: dict) -> dict:
         style_id (the id of one of the user's saved styles from
         my_campaign_styles, with template "byos"; company/niche are then
         optional. A style of kind "own" goes out in the user's own words
-        and puts any candidates where its {Candidates} spot is).
+        and puts any candidates where its {Candidates} spot is),
+        fill_ins (dict, for a kind "own" style that lists "fillins" in
+        my_campaign_styles: what changes per client, e.g. {"Industry":
+        "commercial HVAC", "Competitors": "Trane and Carrier"}. Ask the
+        user for each one every time; never reuse the "last" value or
+        make one up).
 
         For template "findcandidates": contacts are the candidates to
         reach (their business emails, with company, title and both phone
@@ -350,7 +355,10 @@ async def campaign_types() -> dict:
         "any style with create_campaign, template \"byos\" and its id as "
         "style_id; an own style then sends the user's words as written "
         "(only steps they marked \"polish\" are lightly tidied), so do not "
-        "rewrite or summarise them."
+        "rewrite or summarise them. An own style with \"fillins\" is "
+        "reused across clients: ask the user for each fill-in (its "
+        "\"last\" value is only a reminder of the previous run) and pass "
+        "them to create_campaign as fill_ins, keyed by name."
     )
 )
 async def my_campaign_styles() -> dict:
