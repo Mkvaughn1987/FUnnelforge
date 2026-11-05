@@ -35475,7 +35475,8 @@ def _t10_css() -> str:
 .fd-t10q-head .t{{font-size:11.5px;font-weight:700;letter-spacing:.08em;color:{C['muted']}}}
 .fd-t10q-head .s{{font-size:12px;color:{C['muted']};margin-left:10px}}
 .fd-t10q-add{{display:flex;align-items:center;gap:8px;margin-left:auto}}
-.fd-t10q-add .fd-input{{width:250px;max-width:100%}}
+.fd-t10q-add .fd-input{{flex:0 0 250px;width:250px;max-width:100%;padding:0;border:none;background:transparent}}
+.fd-t10q .fd-pb,.fd-t10q .fd-gb{{padding:8px 14px;font-size:12.5px;flex-shrink:0}}
 .fd-t10q-panel{{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;padding:10px 14px;
   border-top:1px solid {C['border']};font-size:13px;color:{C['text']};background:{C['card_h']}}}
 .fd-t10q-panel .who{{flex:1 1 320px;min-width:0;line-height:1.45}}
@@ -35567,7 +35568,7 @@ def _t10_css() -> str:
   .fd-t10q-row.c1{{border-right:none}}
   .fd-t10q-row.c1.last{{border-bottom:1px solid {C['border']}}}
   .fd-t10q-add{{margin-left:0;width:100%}}
-  .fd-t10q-add .fd-input{{flex:1;width:auto}}
+  .fd-t10q-add .fd-input{{flex:1 1 auto;width:auto}}
 }}
 """
 
@@ -35975,6 +35976,12 @@ def p_my_top10(s, rf):
         with ui.element("button").classes(cls).props('type="button"').on("click", fn):
             ui.label(label)
 
+    def _btn(label, fn, primary=True, disabled=False):
+        b = ui.element("button").classes("fd-pb" if primary else "fd-gb").props(
+            'type="button"' + (" disabled" if disabled else "")).on("click", fn)
+        with b:
+            ui.label(label)
+
     def _act(label, fn, danger=False, title=""):
         b = ui.element("button").classes("danger" if danger else "").props(
             'type="button"' + (f' title="{title}"' if title else "")).on("click", fn)
@@ -36192,9 +36199,8 @@ def p_my_top10(s, rf):
                             def _again():
                                 st.update(phase="", info=None, q=st["asked"])
                                 return _check_new()
-                            ui.button("Try again", on_click=_again).props("unelevated color=primary dense")
-                        ui.button("Add as typed", on_click=lambda: _add_new(not full, False)).props(
-                            "outline color=primary dense")
+                            _btn("Try again", _again)
+                        _btn("Add as typed", lambda: _add_new(not full, False), primary=False)
                         _link("Cancel", cancel, "fd-rc-link quiet")
                     return
                 dup = _tt.find_name(data, info["company"])
@@ -36219,11 +36225,9 @@ def p_my_top10(s, rf):
                 ui.html(f'<div class="who">{" · ".join(bits)}<div class="sub">{sub}</div></div>')
                 with ui.element("div").classes("fd-t10q-btns"):
                     if not dup:
-                        ui.button("Add to top 10", on_click=lambda: _add_new(True, True)).props(
-                            "unelevated color=primary dense")
+                        _btn("Add to top 10", lambda: _add_new(True, True))
                         if full:
-                            ui.button("Add to backups", on_click=lambda: _add_new(False, True)).props(
-                                "outline color=primary dense")
+                            _btn("Add to backups", lambda: _add_new(False, True), primary=False)
                     _link("Close" if dup else "Not the right one", cancel, "fd-rc-link quiet")
 
         def _draw_quick():
@@ -36242,10 +36246,7 @@ def p_my_top10(s, rf):
                                           value=st["q"]).props("dense outlined").classes("fd-input")
                         add_in.on_value_change(lambda e: (st.__setitem__("q", e.value or ""), _touch()))
                         add_in.on("keydown.enter", _check_new)
-                        add_btn = ui.button("Check & add", on_click=_check_new).props(
-                            "unelevated color=primary dense")
-                        if st["phase"] == "checking":
-                            add_btn.disable()
+                        _btn("Check & add", _check_new, disabled=st["phase"] == "checking")
                 _draw_add_panel()
                 cells = len(act) + (1 if act and len(act) < _tt.ACTIVE_MAX else 0)
                 if not cells:
