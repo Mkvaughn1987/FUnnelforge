@@ -21506,6 +21506,7 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
 {_polish_css()}
 {_nl_list_css()}
 {_ct_css()}
+{_co_css()}
 </style>""")
     # Global JS helper  -  insert text at cursor position in any focused input/textarea
     # or contenteditable (QEditor body). Tracks last-focused input so that
@@ -22908,9 +22909,11 @@ PAGE_HELP = {
     "companies": {
         "title": "Companies",
         "summary": "Every company you have a contact at, with what your campaigns have done there.",
-        "next_action": "Pick a stage straight from the row, or click a company to see its people, the campaigns that touched them and the latest reply, and to set a next step. Switch to Board to see every stage side by side.",
+        "next_action": "Tick companies (or a whole industry, or Select all) and add their people to a newsletter or start a campaign for them. Pick a stage straight from the row, or click a company to see its people and set a next step. Switch to Board to see every stage side by side.",
         "sections": [
             ("What is this?", "A roll-up of your contact lists by employer. Nothing is stored separately: it is counted each time from your lists, the send queue, your replies and the Clients list."),
+            ("Industries", "Companies are grouped by the Industry column of your list. A list without one is grouped by the company's name (Bridge Logistics is Logistics & Freight), then by what its campaigns are about. Anything still unclear goes under Other. Use the industry box to show one industry."),
+            ("Newsletter or campaign", "Tick companies, then Add to newsletter puts every person there with an email on a running newsletter, or a new one. Start a campaign opens a ready-made or custom campaign with those people already loaded on Choose Contacts. Do Not Contact, people already on a newsletter and active Clients are skipped as usual."),
             ("Table or Board", "Table lists every company. Board shows the companies a campaign has touched, one column per stage; companies that are only rows in an uploaded list stay in the table until a campaign touches them."),
             ("Where the numbers come from", "Contacts: people at that company across all your lists.\nCampaigns: campaigns that enrolled anyone there.\nSent / Replies: from the send queue and the responded log.\nLast activity: the latest send or reply."),
             ("Stage", "Prospect, Contacted and Replied are worked out from what was sent. Meeting, Proposal and Lost are yours to set; 'Auto' clears your choice so the stage follows the data again. Client comes from the Clients list and always wins. Stages are shared with your team."),
@@ -23755,7 +23758,8 @@ _PAGE_LANDING = {
                         ("_pdf_custom_outline", None), ("_pdf_custom_previewing", False),
                         ("_pdf_result", "")),
     "companies":       (("_co_open", ""), ("_co_view", "table"), ("_co_stage", ""),
-                        ("_co_q", ""), ("_pl_show_lost", False)),
+                        ("_co_q", ""), ("_co_ind", ""), ("_co_sel", []),
+                        ("_pl_show_lost", False)),
     "active_clients":  (("_ac_show_add", False), ("_ac_show_upload", False),
                         ("_ac_upload_pending", None), ("_ac_search", "")),
     "sales_dashboard": (("_sd_pick", ""),),
@@ -29126,6 +29130,13 @@ def _sq_loaded_campaign(s: AppState, rf):
                 ui.label("💾 Save Sequence")
 
     elif cur_step == "contacts":
+        # Companies' "Start a campaign" sends its picked people here.
+        try:
+            import sales_pages as _sp_pend
+            if _sp_pend.apply_pending_to_campaign(s, camp):
+                contacts = camp.get("contacts", [])
+        except Exception as _pend_ex:
+            print(f"[Companies] pending contacts not applied: {_pend_ex}", flush=True)
         # ── CHOOSE CONTACTS ──────────────────────────────────────────────────
         ui.label("Choose Contacts").style(
             f"font-size:20px;font-weight:700;color:{C['text_l']};margin-bottom:4px;"
@@ -33835,6 +33846,13 @@ def _sq_contacts(s: AppState, rf):
     ui.label("Upload a CSV, pick a saved list, or add one contact.").style(
         f"font-size:13px;color:{C['muted']};margin-bottom:16px;")
 
+    # Companies' "Start a campaign" sends its picked people here.
+    try:
+        import sales_pages as _sp_pend
+        _sp_pend.apply_pending_to_wizard(s)
+    except Exception as _pend_ex:
+        print(f"[Companies] pending contacts not applied: {_pend_ex}", flush=True)
+
     # Status banner
     if s.scon:
         with ui.element("div").style(
@@ -36709,7 +36727,7 @@ _TM_NEWSLETTER_SECTORS = {
 }
 
 
-def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
+def _create_newsletter_dialog(s, rf, *, prefill: dict = None, on_created=None):
     """Dialog for creating a new Newsletter evergreen campaign.
     User picks name, sector, region, start date, and number of months.
     The dialog seeds N monthly steps, each scheduled via `fixed_date`
@@ -36736,6 +36754,11 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
       - contacts: list of contact dicts to pre-enroll in the newsletter
       - source_campaign_name: name tag stored on the new campaign for
         provenance (shown nowhere yet; available for future audit)
+
+    `on_created(camp)` runs once the newsletter is saved. Companies uses it
+    to enrol the people it picked through enroll_contact_in_evergreen, which
+    queues their issues; contacts passed in `prefill` are only written onto
+    the campaign.
     """
     prefill = prefill or {}
     _pre_name = (prefill.get("name") or "").strip()
@@ -37254,6 +37277,12 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None):
                     f"name or check the journal.",
                     type="negative", timeout=10000)
                 return
+            if on_created is not None:
+                try:
+                    on_created(new_camp)
+                except Exception as _cb_ex:
+                    print(f"[Newsletter] on_created failed for "
+                          f"{nl_name!r}: {_cb_ex}", flush=True)
 
             # Generate the first issue in the background, then hand off to the
             # page-level status banner (_render_nl_first_gen_status) which
@@ -39392,6 +39421,18 @@ def _ct_css() -> str:
 .fd-ct-email{{font-size:12.5px;color:{C['text']};flex-shrink:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
 @media (max-width:700px){{.fd-ct-email{{display:none}}}}
 """
+
+def _co_css() -> str:
+    """Companies page: the selection bar and the industry header rows."""
+    return f"""
+.fd-co-selbar{{display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  padding:10px 14px;margin-bottom:10px;border:1px solid {C['border']};
+  border-radius:10px;background:{C['card']}}}
+.fd-co-selbar.on{{border-color:{C['teal']};background:{C['teal_dim']}}}
+.fd-co-tbl tr.fd-co-group td{{background:{C['surface']};padding-top:9px;padding-bottom:9px}}
+.fd-co-tbl tr.fd-co-row.on td{{background:{C['teal_dim']}}}
+"""
+
 
 def _nl_list_css() -> str:
     """Newsletters page list. One neutral surface; the only colour is the

@@ -247,3 +247,152 @@ def test_mcp_tools_registered():
     client = (root / "dripdrop_client.py").read_text(encoding="utf-8")
     assert "async def tm_companies(" in server and "async def tm_pipeline(" in server
     assert 'self._tm_get("companies"' in client and 'self._tm_post("pipeline"' in client
+
+
+# ── Industries, selection, newsletter + campaign hand-off (2026-11-05) ────
+
+def test_industry_from_column_name_then_campaigns():
+    # The list's own column wins, folded into a headline when it fits one.
+    assert sp.company_industry("Commercial & Residential Construction", "Golden Triangle") \
+        == "Construction"
+    # An industry nothing knows keeps its own name rather than becoming Other.
+    assert sp.company_industry("Aquaculture", "Fishy Co") == "Aquaculture"
+    # No column: the company name.
+    assert sp.company_industry("", "Bridge Logistics") == "Logistics & Freight"
+    assert sp.company_industry("", "Triple T Transport") == "Logistics & Freight"
+    # Name says nothing: what most of its campaigns are about.
+    assert sp.company_industry("", "Allen Lund Company",
+                               ["Allen Lund Company", "The Freight Desk, After Hours"]) \
+        == "Logistics & Freight"
+    assert sp.company_industry("", "The Custom Companies", []) == sp.INDUSTRY_OTHER
+
+
+def test_rollup_carries_industry_group_and_campaign_niche():
+    contacts = [_c("a@lund.com", "A", "B", "Allen Lund Company"),
+                _c("c@gt.com", "C", "D", "Golden Triangle", )]
+    contacts[1]["industry"] = "Commercial & Residential Construction"
+    camps = [{"name": "Fall Newsletter", "status": "active", "market_niche": "Freight Brokerage",
+              "contacts": [dict(contacts[0])]}]
+    rows = _by_name(sp.company_rollup(contacts, camps, [], [], [], {}))
+    assert rows["Allen Lund Company"]["industry_group"] == "Logistics & Freight"
+    assert rows["Golden Triangle"]["industry_group"] == "Construction"
+    assert sp.public_row(rows["Golden Triangle"])["industry_group"] == "Construction"
+
+
+def test_industry_groups_biggest_first_other_last():
+    rows = [{"key": str(i), "industry_group": g} for i, g in enumerate(
+        ["Other", "Other", "Other", "Construction", "Logistics & Freight",
+         "Logistics & Freight"])]
+    assert [g for g, _ in sp.industry_groups(rows)] == \
+        ["Logistics & Freight", "Construction", "Other"]
+
+
+def test_filter_rollup_by_industry():
+    rows = _rollup()
+    assert {r["industry_group"] for r in rows} == {sp.INDUSTRY_OTHER}
+    assert len(sp.filter_rollup(rows, industry="other")) == len(rows)
+    assert sp.filter_rollup(rows, industry="Construction") == []
+
+
+def test_selected_contacts_dedupes_and_drops_campaign_state():
+    rows = _rollup()
+    acme = _by_name(rows)["Acme Corp"]
+    acme["contacts"][0]["removed"] = True          # one campaign's state
+    acme["contacts"].append(dict(acme["contacts"][1]))   # same person twice
+    acme["contacts"].append({"first_name": "No", "company": "Acme Corp"})  # no email
+    got = sp.selected_contacts(rows, [acme["key"]])
+    assert [c["email"] for c in got] == ["dana@acme.com", "lee@acme.com"]
+    assert all("removed" not in c for c in got)
+    assert got[0]["first_name"] == "Dana" and got[0]["company"] == "Acme Corp"
+    assert sp.selected_contacts(rows, []) == []
+
+
+@pytest.fixture
+def nl_env(monkeypatch):
+    ff = sp._ff()
+    queued, saved = [], []
+    monkeypatch.setattr(ff, "is_on_dnc", lambda em: em == "dnc@x.com")
+    monkeypatch.setattr(ff, "_is_evergreen_completed", lambda c: bool(c.get("_done")))
+    monkeypatch.setattr(ff, "_evergreen_start_step_for_enrollee", lambda c: 3)
+    monkeypatch.setattr(ff, "queue_campaign_emails",
+                        lambda camp, start_step=0: queued.append((camp, start_step)) or 0)
+    monkeypatch.setattr(ff, "save_campaign", lambda camp: saved.append(camp))
+    return queued, saved
+
+
+def test_enroll_many_matches_single_enrol_rules(nl_env):
+    queued, saved = nl_env
+    camp = {"name": "Freight Note", "contacts": [
+        {"email": "on@x.com"}, {"email": "gone@x.com", "removed": True},
+        {"email": "done@x.com", "completed": True}]}
+    people = [{"email": "New@X.com", "first_name": "N"}, {"email": "new@x.com"},
+              {"email": "on@x.com"}, {"email": "gone@x.com"}, {"email": "done@x.com"},
+              {"email": "dnc@x.com"}, {"email": ""}]
+    t = sp.enroll_many(people, camp)
+    assert t == {"enrolled": 1, "skipped_duplicate": 2, "skipped_removed": 1,
+                 "skipped_completed": 1, "skipped_dnc": 1, "skipped_no_email": 1}
+    # Queued and saved once for everybody, from the newsletter's next issue,
+    # and only the new person goes in the queue.
+    assert len(queued) == 1 and len(saved) == 1
+    assert queued[0][1] == 3 and [c["email"] for c in queued[0][0]["contacts"]] == ["new@x.com"]
+    assert camp["contact_count"] == 3     # on, done, new (removed doesn't count)
+    s = sp.enroll_summary(t, "Freight Note")
+    assert s.startswith("Added 1 contact to 'Freight Note'.")
+    assert "3 were already on it" in s and "1 is on your Do Not Contact list" in s
+
+
+def test_enroll_many_nothing_new_writes_nothing(nl_env):
+    queued, saved = nl_env
+    t = sp.enroll_many([{"email": "a@x.com"}], {"name": "N", "_done": True, "contacts": []})
+    assert t == {"campaign_completed": 1} and not queued and not saved
+    assert sp.enroll_summary(t, "N").startswith("Nobody new was added")
+
+
+class _S:
+    pass
+
+
+def test_pending_contacts_land_on_the_next_empty_campaign(monkeypatch):
+    s = _S()
+    people = [{"email": "a@x.com"}, {"email": "b@x.com"}]
+    sp.set_pending(s, people, "Logistics & Freight")
+    busy = {"status": "draft", "contacts": [{"email": "z@x.com"}]}
+    assert not sp.apply_pending_to_campaign(s, busy)          # never overwrites
+    assert not sp.apply_pending_to_campaign(s, {"status": "active", "contacts": []})
+    camp = {"status": "draft", "contacts": []}
+    assert sp.apply_pending_to_campaign(s, camp)
+    assert camp["contact_count"] == 2 and camp["contact_emails"] == ["a@x.com", "b@x.com"]
+    assert not sp.apply_pending_to_campaign(s, {"status": "draft"})   # used once
+
+    s.scon = []
+    sp.set_pending(s, people, "")
+    assert sp.apply_pending_to_wizard(s) and len(s.scon) == 2
+
+
+def test_pending_contacts_expire(monkeypatch):
+    s = _S()
+    sp.set_pending(s, [{"email": "a@x.com"}], "")
+    s._co_pending["at"] = "2020-01-01T00:00:00"
+    camp = {"status": "draft", "contacts": []}
+    assert not sp.apply_pending_to_campaign(s, camp) and camp["contacts"] == []
+
+
+def test_newsletter_sector_key(monkeypatch):
+    ff = sp._ff()
+    monkeypatch.setattr(ff, "_SALES_MODE", True)
+    assert sp.newsletter_sector_key("Logistics & Freight") == "logistics"
+    assert sp.newsletter_sector_key("12 companies") == ""
+
+
+def test_companies_page_wiring():
+    page = inspect.getsource(sp.p_companies)
+    assert "industry_groups(" in page and "_selection_bar(" in page
+    bar = inspect.getsource(sp._selection_bar)
+    assert "Add to newsletter" in bar and "Start a campaign" in bar and "Select all" in bar
+    # The hand-off is read on both Choose Contacts screens.
+    src = inspect.getsource(sp._ff())
+    assert "apply_pending_to_campaign(s, camp)" in src
+    assert "apply_pending_to_wizard(s)" in src
+    assert "on_created(new_camp)" in inspect.getsource(sp._ff()._create_newsletter_dialog)
+    landing = dict(sp._ff()._PAGE_LANDING["companies"])
+    assert landing["_co_ind"] == "" and landing["_co_sel"] == []

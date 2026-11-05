@@ -18,7 +18,9 @@ docs/superpowers/specs/2026-09-25-sales-dashboard-design.md and
 docs/superpowers/specs/2026-09-25-crm-section-and-board-view-design.md (the
 Pipeline page folded into Companies as a view).
 """
+import asyncio
 import json
+import re
 import sys
 from datetime import datetime, timedelta
 
@@ -68,6 +70,76 @@ MANUAL_STAGES = ("meeting", "proposal", "lost")
 # Sales Dashboard thresholds (days).
 STALE_NEXT_STEP_DAYS = 14
 QUIET_DAYS = 30
+
+
+# ── Industry ─────────────────────────────────────────────────────────────
+#
+# The table is grouped under these headlines. A list's own Industry column
+# decides when it has one: its wording is folded into a headline here
+# ("Commercial & Residential Construction" is Construction), and an industry
+# no pattern knows keeps its own name. Most hand-built lists carry no
+# Industry column at all, so the company name is read next ("Bridge
+# Logistics"), then the campaigns and newsletters the company is in ("The
+# Freight Desk, After Hours"). First match wins, so the order matters. The
+# labels match the Newsletters page's headlines where the two overlap.
+
+COMPANY_INDUSTRIES = (
+    ("Logistics & Freight", r"logistic|freight|truck|transport|supply chain|warehous"
+                            r"|\b3pl\b|shipping|cargo|drayage|intermodal|multimodal"),
+    ("Agriculture & Food", r"agricultur|\bfood\b|\bfarm"),
+    ("Manufacturing", r"manufactur|machin|\bcnc\b|aerospace|packag|fabricat"),
+    ("Construction", r"construct|contractor|contracting|\bbuilders?\b|homebuild"
+                     r"|roofing|plumbing|\bhvac\b|mechanical"),
+    ("Civil & Infrastructure", r"\bcivil\b|utilit|infrastructure"),
+    ("Architecture & Design", r"architect"),
+    ("Healthcare", r"health|medical|hospital|pharma|clinic|dental"),
+    ("Technology", r"software|technology|\btech\b|\bsaas\b|internet"),
+    ("Accounting & Finance", r"accounting|financ|\bcpa\b|bookkeep|\bbank|insurance|wealth"),
+    ("Property & Real Estate", r"property management|real estate|realty|\breit\b"),
+    ("Energy", r"energy|\boil\b|\bgas\b|solar|renewable"),
+    ("Staffing & Recruiting", r"staffing|recruit"),
+)
+INDUSTRY_OTHER = "Other"
+
+
+def industry_label(text) -> str:
+    """The headline some text points at, or "" when it points at none."""
+    t = str(text or "").lower()
+    if not t.strip():
+        return ""
+    for label, pat in COMPANY_INDUSTRIES:
+        if re.search(pat, t):
+            return label
+    return ""
+
+
+def company_industry(industry, name, campaign_hints=()) -> str:
+    """The headline a company sits under: its Industry column, else its
+    name, else what most of its campaigns are about, else Other."""
+    raw = " ".join(str(industry or "").split())
+    if raw:
+        return industry_label(raw) or raw
+    label = industry_label(name)
+    if label:
+        return label
+    votes = {}
+    for hint in campaign_hints or ():
+        label = industry_label(hint)
+        if label:
+            votes[label] = votes.get(label, 0) + 1
+    if votes:
+        return sorted(votes.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
+    return INDUSTRY_OTHER
+
+
+def industry_groups(rows) -> list:
+    """[(industry, [rows])] with the biggest industry first and Other last.
+    Rows keep the order they came in."""
+    groups = {}
+    for r in rows:
+        groups.setdefault(r.get("industry_group") or INDUSTRY_OTHER, []).append(r)
+    return sorted(groups.items(), key=lambda kv: (
+        kv[0] == INDUSTRY_OTHER, -len(kv[1]), kv[0].lower()))
 
 
 # ── Pure helpers ─────────────────────────────────────────────────────────
@@ -206,12 +278,17 @@ def company_rollup(contacts, campaigns, queue, responded, clients, records):
         elif status == "pending":
             st["pending"] += 1
 
+    # What each campaign is about, for a company whose list and name say
+    # nothing: the niche the user picked, else the campaign's own name.
+    camp_hint = {}
     for camp in (campaigns or []):
         if str(camp.get("status") or "") == "draft":
             continue
         name = str(camp.get("name") or "").strip()
         if not name:
             continue
+        niche = str(camp.get("market_niche") or "")
+        camp_hint[name] = niche if industry_label(niche) else name
         for c in (camp.get("contacts") or []):
             if not isinstance(c, dict):
                 continue
@@ -246,11 +323,15 @@ def company_rollup(contacts, campaigns, queue, responded, clients, records):
         stage, basis = resolve_stage(derived, rec.get("stage", ""), is_client)
         replies = sorted(st["replies"], key=lambda r: _norm_ts(r.get("replied_at")),
                          reverse=True)
+        co_name = ent.get("name") or ent.get("domain") or key.split(":", 1)[-1]
         rows.append({
             "key": key,
-            "name": ent.get("name") or ent.get("domain") or key.split(":", 1)[-1],
+            "name": co_name,
             "domain": ent.get("domain", ""),
             "industry": ent.get("industry", ""),
+            "industry_group": company_industry(
+                ent.get("industry", ""), co_name,
+                [camp_hint.get(n, n) for n in sorted(st["campaigns"])]),
             "company_size": ent.get("company_size", ""),
             "contacts": ent["contacts"],
             "contact_count": len(ent["contacts"]),
@@ -300,12 +381,15 @@ def board_columns(rollup, cap: int = 40):
     return cols
 
 
-def filter_rollup(rollup, q: str = "", stage: str = ""):
+def filter_rollup(rollup, q: str = "", stage: str = "", industry: str = ""):
     q = (q or "").strip().lower()
     stage = (stage or "").strip().lower()
+    industry = (industry or "").strip().lower()
     out = []
     for r in rollup:
         if stage and r["stage"] != stage:
+            continue
+        if industry and (r.get("industry_group") or "").lower() != industry:
             continue
         if q and q not in r["name"].lower() and q not in (r["domain"] or "").lower():
             continue
@@ -317,13 +401,242 @@ def public_row(r: dict) -> dict:
     """The connector's view of a company: counts and stage, no contact dump."""
     return {
         "key": r["key"], "name": r["name"], "domain": r["domain"],
-        "industry": r["industry"], "company_size": r["company_size"],
+        "industry": r["industry"],
+        "industry_group": r.get("industry_group") or INDUSTRY_OTHER,
+        "company_size": r["company_size"],
         "contacts": r["contact_count"], "campaigns": r["campaigns"],
         "sent": r["sent"], "scheduled": r["pending"], "replies": r["reply_count"],
         "last_activity": r["last_activity"], "is_client": r["is_client"],
         "stage": r["stage"], "stage_basis": r["stage_basis"],
         "next_step": r["next_step"], "note": r["note"],
     }
+
+
+# ── Acting on a selection ────────────────────────────────────────────────
+
+# What a person carries into a newsletter or a new campaign: who they are
+# and their firmographics. The roll-up merges in each campaign's own copy of
+# a contact, and that copy holds that campaign's state (removed, completed),
+# which must not follow them into the next one.
+_CONTACT_KEEP = ("email", "first_name", "last_name", "name", "company", "title",
+                 "phone_mobile", "phone_office", "linkedin", "city", "state")
+
+
+def _clean_contact(c: dict) -> dict:
+    keep = _CONTACT_KEEP + tuple(getattr(_ff(), "_TARGETING_KEYS", {}).values())
+    out = {k: c[k] for k in keep if c.get(k) not in (None, "")}
+    out["email"] = str(c.get("email") or "").strip().lower()
+    return out
+
+
+def selected_contacts(rollup, keys) -> list:
+    """The people at the picked companies, one per email address, in the
+    order the page lists them. A person with no email is left out: neither
+    a newsletter nor a campaign can reach them."""
+    keys = set(keys or ())
+    seen, out = set(), []
+    for r in rollup:
+        if r["key"] not in keys:
+            continue
+        for c in r["contacts"]:
+            em = str(c.get("email") or "").strip().lower()
+            if not em or em in seen:
+                continue
+            seen.add(em)
+            out.append(_clean_contact(c))
+    return out
+
+
+def running_newsletters() -> list:
+    """Newsletters that can take someone new: running, with an issue still
+    to come. A paused or ended one would queue nothing."""
+    ff = _ff()
+    out = []
+    for c in ff.load_campaigns():
+        if not (c.get("evergreen_only") and c.get("market_analysis")):
+            continue
+        if str(c.get("status") or "active").strip().lower() != "active":
+            continue
+        try:
+            if ff._is_evergreen_completed(c):
+                continue
+        except Exception:
+            continue
+        out.append(c)
+    return sorted(out, key=lambda c: str(c.get("name") or "").lower())
+
+
+def enroll_contacts(contacts, camp_name: str) -> dict:
+    """Add people to a running newsletter through the app's own enrol call,
+    the one the Replies page and the connector use, so Do Not Contact,
+    people already on it and the queue are handled the same way.
+    Returns {status: count}."""
+    ff = _ff()
+    camp = next((c for c in ff.load_campaigns()
+                 if c.get("name") == camp_name), None)
+    if camp is None:
+        raise ValueError(f"no newsletter named {camp_name!r}")
+    tally = {}
+    for c in contacts or []:
+        st = ff.enroll_contact_in_evergreen(dict(c), camp)
+        tally[st] = tally.get(st, 0) + 1
+    try:
+        ff._cache_campaigns.invalidate()
+    except Exception:
+        pass
+    return tally
+
+
+def enroll_many(contacts, camp: dict) -> dict:
+    """enroll_contact_in_evergreen for a whole selection at once.
+
+    Same checks in the same order (no email, Do Not Contact, a newsletter
+    with nothing left to send, already on it / taken off it / finished it),
+    but the newsletter is saved and the queue written once for everybody
+    instead of once per person. Returns {status: count}."""
+    ff = _ff()
+    tally = {}
+
+    def _bump(k):
+        tally[k] = tally.get(k, 0) + 1
+    on_it = {}
+    for c in camp.get("contacts", []) or []:
+        if isinstance(c, dict):
+            on_it[str(c.get("email") or "").strip().lower()] = c
+    completed = ff._is_evergreen_completed(camp)
+    new = []
+    for c in contacts or []:
+        em = str(c.get("email") or "").strip().lower()
+        if not em:
+            _bump("skipped_no_email"); continue
+        if ff.is_on_dnc(em):
+            _bump("skipped_dnc"); continue
+        if completed:
+            _bump("campaign_completed"); continue
+        cur = on_it.get(em)
+        if cur is not None:
+            _bump("skipped_removed" if cur.get("removed") else
+                  "skipped_completed" if cur.get("completed") else
+                  "skipped_duplicate")
+            continue
+        c = dict(c, email=em)
+        on_it[em] = c
+        new.append(c)
+    if new:
+        camp.setdefault("contacts", []).extend(new)
+        camp["contact_count"] = len([c for c in camp["contacts"]
+                                     if isinstance(c, dict) and not c.get("removed")])
+        start = ff._evergreen_start_step_for_enrollee(camp)
+        temp = __import__("copy").deepcopy(camp)
+        temp["contacts"] = list(new)
+        ff.queue_campaign_emails(temp, start_step=start)
+        ff.save_campaign(camp)
+        try:
+            ff._cache_campaigns.invalidate()
+        except Exception:
+            pass
+        tally["enrolled"] = len(new)
+    return tally
+
+
+def enroll_summary(tally: dict, camp_name: str) -> str:
+    """One line saying what the add did, and who was left out and why."""
+    def _n(n, one, many):
+        return f"{n} {one if n == 1 else many}"
+    added = tally.get("enrolled", 0)
+    parts = [f"Added {_n(added, 'contact', 'contacts')} to '{camp_name}'."
+             if added else f"Nobody new was added to '{camp_name}'."]
+    already = (tally.get("skipped_duplicate", 0) + tally.get("skipped_completed", 0))
+    if already:
+        parts.append(f"{_n(already, 'was', 'were')} already on it.")
+    dnc = tally.get("skipped_dnc", 0)
+    if dnc:
+        parts.append(f"{_n(dnc, 'is', 'are')} on your Do Not Contact list.")
+    removed = tally.get("skipped_removed", 0)
+    if removed:
+        parts.append(f"{_n(removed, 'was', 'were')} taken off it before.")
+    if tally.get("campaign_completed", 0):
+        parts.append("It has no issues left to send.")
+    return " ".join(parts)
+
+
+# The Companies page hands its picked people to whichever campaign the user
+# goes on to build: the next Choose Contacts screen opens with them loaded.
+# Two hours is plenty to write a campaign and short enough that an
+# abandoned pick doesn't turn up in some unrelated campaign next week.
+PENDING_TTL = timedelta(hours=2)
+
+
+def set_pending(s, contacts, label: str) -> None:
+    s._co_pending = {"contacts": [dict(c) for c in contacts or []],
+                     "label": label or "",
+                     "at": datetime.now().isoformat(timespec="seconds")}
+
+
+def _take_pending(s):
+    p = getattr(s, "_co_pending", None)
+    if not isinstance(p, dict) or not p.get("contacts"):
+        return None
+    s._co_pending = None
+    try:
+        age = datetime.now() - datetime.fromisoformat(str(p.get("at")))
+    except Exception:
+        return None
+    return p if age <= PENDING_TTL else None
+
+
+def _pending_note(p) -> None:
+    n = len(p["contacts"])
+    try:
+        ui.notify(f"{n} contact{'s' if n != 1 else ''} from Companies"
+                  + (f" ({p['label']})" if p.get("label") else "")
+                  + " are loaded. Change them here if you like.",
+                  type="positive", timeout=6000)
+    except Exception:
+        pass
+
+
+def apply_pending_to_campaign(s, camp: dict) -> bool:
+    """Load the picked people into a campaign that has nobody yet. A
+    campaign that already has contacts, or is running, is left alone and
+    the pick waits for the next one."""
+    if not isinstance(camp, dict) or camp.get("contacts"):
+        return False
+    if str(camp.get("status") or "draft").strip().lower() not in ("draft", ""):
+        return False
+    p = _take_pending(s)
+    if not p:
+        return False
+    camp["contacts"] = [dict(c) for c in p["contacts"]]
+    camp["contact_count"] = len(camp["contacts"])
+    camp["contact_emails"] = [c.get("email", "") for c in camp["contacts"]]
+    _pending_note(p)
+    return True
+
+
+def apply_pending_to_wizard(s) -> bool:
+    """The same, for the classic wizard's Choose Contacts step (s.scon)."""
+    if getattr(s, "scon", None):
+        return False
+    p = _take_pending(s)
+    if not p:
+        return False
+    s.scon = [dict(c) for c in p["contacts"]]
+    _pending_note(p)
+    return True
+
+
+def newsletter_sector_key(industry: str) -> str:
+    """The New Newsletter dialog's sector for an industry headline, or ""."""
+    ff = _ff()
+    sectors = (getattr(ff, "_TM_NEWSLETTER_SECTORS", {}) if getattr(ff, "_SALES_MODE", False)
+               else getattr(ff, "AICB_INDUSTRIES", {}))
+    want = (industry or "").strip().lower()
+    for k, v in (sectors or {}).items():
+        lbl = str((v or {}).get("label") or "").strip().lower()
+        if lbl and (lbl == want or industry_label(lbl) == industry):
+            return k
+    return ""
 
 
 # ── Sales Dashboard numbers ──────────────────────────────────────────────
@@ -653,6 +966,7 @@ def p_companies(s, rf):
     rollup = rollup_for_user(actor)
     q = getattr(s, "_co_q", "") or ""
     stage = getattr(s, "_co_stage", "") or ""
+    industry = getattr(s, "_co_ind", "") or ""
     open_key = getattr(s, "_co_open", "") or ""
     view = "board" if getattr(s, "_co_view", "") == "board" else "table"
     if view == "board" and getattr(s, "_came_from", "") == "companies_board":
@@ -660,10 +974,10 @@ def p_companies(s, rf):
 
     _co_back_link(s, rf, C)
     _page_head(s, rf, C, "Companies", "companies",
-               "Every company you have a contact at, with what your campaigns "
-               "have done there. Counted from your lists, the send queue and "
-               "your replies. Table lists them all; Board lays the ones a "
-               "campaign has touched out by stage.")
+               "Every company you have a contact at, grouped by industry, with "
+               "what your campaigns have done there. Tick companies to add "
+               "their people to a newsletter or start a campaign for them. "
+               "Board lays the ones a campaign has touched out by stage.")
 
     if not rollup:
         _empty_card(C, "No companies yet",
@@ -705,6 +1019,16 @@ def p_companies(s, rf):
         if view == "table":
             ui.select(options=stage_opts, value=stage, on_change=_on_stage).classes(
                 "fd-input").props("dense").style("min-width:160px;font-size:12px;")
+        ind_opts = {"": "All industries"}
+        ind_opts.update({g: f"{g} ({len(rs)})" for g, rs in industry_groups(rollup)})
+        if industry and industry not in ind_opts:
+            industry = s._co_ind = ""
+
+        def _on_ind(e):
+            s._co_ind = e.value or ""
+            rf()
+        ui.select(options=ind_opts, value=industry, on_change=_on_ind).classes(
+            "fd-input").props("dense").style("min-width:190px;font-size:12px;")
         # Table | Board toggle. The board used to be its own Pipeline page;
         # every CRM the market uses (Apollo, Close, Pipedrive) makes it a
         # view of the one list instead, so it lives here now.
@@ -719,33 +1043,82 @@ def p_companies(s, rf):
                     ui.label(_vl)
 
     if view == "board":
-        _board(s, rf, C, filter_rollup(rollup, q, ""), actor)
+        _board(s, rf, C, filter_rollup(rollup, q, "", industry), actor)
         return
 
-    rows = filter_rollup(rollup, q, stage)
+    rows = filter_rollup(rollup, q, stage, industry)
     if not rows:
-        _empty_card(C, "No companies match", "Try a shorter search or another stage.")
+        _empty_card(C, "No companies match",
+                    "Try a shorter search, another stage or another industry.")
         return
     shown = rows[:200]
+    live = {r["key"] for r in rollup}
+    sel = [k for k in (getattr(s, "_co_sel", None) or ()) if k in live]
+    s._co_sel = sel
+    sel_set = set(sel)
+
+    def _set_sel(keys, on):
+        cur = [k for k in (s._co_sel or ())]
+        if on:
+            cur += [k for k in keys if k not in set(cur)]
+        else:
+            drop = set(keys)
+            cur = [k for k in cur if k not in drop]
+        s._co_sel = cur
+        rf()
+
+    def _tri(keys):
+        """True / False / None (some) for a checkbox over these keys."""
+        n = sum(1 for k in keys if k in sel_set)
+        return True if keys and n == len(keys) else (False if not n else None)
+
+    _selection_bar(s, rf, C, rollup, rows, sel, _set_sel, _tri)
 
     def _toggle(key):
         s._co_open = "" if open_key == key else key
         rf()
 
+    groups = industry_groups(shown)
     with ui.element("div").style(
             f"border:1px solid {C['border']};border-radius:10px;overflow:hidden;"
             f"background:{C['card']};"):
-        with ui.element("table").classes("fd-tbl"):
+        with ui.element("table").classes("fd-tbl fd-co-tbl"):
             with ui.element("thead"):
                 with ui.element("tr"):
+                    with ui.element("th").style("width:44px;padding-right:0;"):
+                        ui.checkbox(value=_tri([r["key"] for r in rows]),
+                                    on_change=lambda e, ks=[r["key"] for r in rows]:
+                                        _set_sel(ks, bool(e.value))).props(
+                            'dense aria-label="Select every company listed"')
                     for h in ("Company", "Contacts", "Campaigns", "Sent",
                               "Replies", "Last activity", "Stage"):
                         with ui.element("th"):
                             ui.label(h)
             with ui.element("tbody"):
-                for r in shown:
+              for g_name, g_rows in groups:
+                g_keys = [r["key"] for r in g_rows]
+                g_people = sum(r["contact_count"] for r in g_rows)
+                # One header row per industry, with its own select-all.
+                with ui.element("tr").classes("fd-co-group"):
+                    with ui.element("td").style("padding-right:0;"):
+                        ui.checkbox(value=_tri(g_keys),
+                                    on_change=lambda e, ks=g_keys: _set_sel(ks, bool(e.value))
+                                    ).props(f'dense aria-label="Select every {g_name} company"')
+                    with ui.element("td").props('colspan="7"'):
+                        with ui.element("div").style(
+                                "display:flex;align-items:baseline;gap:10px;"):
+                            ui.label(g_name).style(
+                                f"font-size:13px;font-weight:700;color:{C['text_l']};")
+                            ui.label(f"{len(g_rows)} compan{'ies' if len(g_rows) != 1 else 'y'}"
+                                     f" · {g_people} contact{'s' if g_people != 1 else ''}"
+                                     ).style(f"font-size:12px;color:{C['muted']};")
+                for r in g_rows:
                     is_open = r["key"] == open_key
-                    with ui.element("tr"):
+                    with ui.element("tr").classes("fd-co-row" + (" on" if r["key"] in sel_set else "")):
+                        with ui.element("td").style("padding-right:0;"):
+                            ui.checkbox(value=r["key"] in sel_set,
+                                        on_change=lambda e, k=r["key"]: _set_sel([k], bool(e.value))
+                                        ).props(f'dense aria-label="Select {r["name"]}"')
                         with ui.element("td"):
                             with ui.element("div").style(
                                     "display:flex;flex-direction:column;cursor:pointer;"
@@ -782,12 +1155,190 @@ def p_companies(s, rf):
                                     f"font-size:10px;color:{C['muted']};margin-top:2px;")
                     if is_open:
                         with ui.element("tr"):
-                            with ui.element("td").props('colspan="7"').style(
+                            with ui.element("td").props('colspan="8"').style(
                                     f"background:{C['surface']};padding:16px 18px;"):
                                 _company_detail(s, rf, C, r, actor)
     if len(rows) > len(shown):
         ui.label(f"Showing {len(shown)} of {len(rows)}. Narrow it with the search box.").style(
             f"font-size:11px;color:{C['muted']};margin-top:8px;")
+
+
+def _selection_bar(s, rf, C, rollup, rows, sel, set_sel, tri):
+    """Select all, what is selected, and what to do with it."""
+    row_keys = [r["key"] for r in rows]
+    picked = [r for r in rollup if r["key"] in set(sel)]
+    people = selected_contacts(rollup, sel)
+    with ui.element("div").classes("fd-co-selbar" + (" on" if sel else "")):
+        ui.checkbox(f"Select all {len(rows)}" + (" shown" if len(rows) != len(rollup) else ""),
+                    value=tri(row_keys),
+                    on_change=lambda e: set_sel(row_keys, bool(e.value))).props("dense")
+        if not sel:
+            ui.label("Pick companies to add their people to a newsletter or a "
+                     "new campaign.").style(f"font-size:12px;color:{C['muted']};")
+            return
+        ui.label(f"{len(picked)} compan{'ies' if len(picked) != 1 else 'y'} selected · "
+                 f"{len(people)} contact{'s' if len(people) != 1 else ''} with an email"
+                 ).style(f"font-size:13px;font-weight:600;color:{C['text_l']};")
+        with ui.element("div").style("display:flex;gap:8px;margin-left:auto;flex-wrap:wrap;"):
+            def _clear():
+                s._co_sel = []
+                rf()
+            with ui.element("button").classes("fd-gb").props('type="button"').style(
+                    "padding:7px 14px;font-size:12px;").on("click", _clear):
+                ui.label("Clear")
+            off = "" if people else " disabled"
+            with ui.element("button").classes("fd-gb").props(f'type="button"{off}').style(
+                    "padding:7px 14px;font-size:12px;").on(
+                    "click", lambda: _newsletter_dialog(s, rf, C, picked, people)):
+                ui.label("Add to newsletter")
+            with ui.element("button").classes("fd-pb").props(f'type="button"{off}').style(
+                    "padding:7px 16px;font-size:12px;").on(
+                    "click", lambda: _campaign_dialog(s, rf, C, picked, people)):
+                ui.label("Start a campaign")
+
+
+def _pick_label(picked) -> str:
+    """'Logistics & Freight' when every pick is in one industry, else
+    '12 companies'."""
+    inds = {r.get("industry_group") or INDUSTRY_OTHER for r in picked}
+    if len(inds) == 1 and INDUSTRY_OTHER not in inds:
+        return next(iter(inds))
+    return f"{len(picked)} compan{'ies' if len(picked) != 1 else 'y'}"
+
+
+def _newsletter_dialog(s, rf, C, picked, people):
+    """Add the picked people to a running newsletter, or start a new one
+    with them on it."""
+    ff = _ff()
+    owner = (getattr(s, "_user_email", "") or "").strip().lower()
+    nls = running_newsletters()
+    label = _pick_label(picked)
+    with ui.dialog() as dlg, ui.card().style(
+            f"background:{C['card']};border:1px solid {C['border']};"
+            f"width:520px;max-width:94vw;padding:22px 24px;"):
+        ui.label("Add to a newsletter").style(
+            f"font-size:17px;font-weight:800;color:{C['text_l']};"
+            f"font-family:'Nunito',sans-serif;")
+        ui.label(f"{len(people)} contact{'s' if len(people) != 1 else ''} at "
+                 f"{len(picked)} compan{'ies' if len(picked) != 1 else 'y'} will get "
+                 "every issue still to come. Anyone already on it, or on your "
+                 "Do Not Contact list, is skipped.").style(
+            f"font-size:12px;color:{C['muted']};line-height:1.5;margin:4px 0 14px;")
+        opts = {}
+        for c in nls:
+            n_on = len([x for x in c.get("contacts") or []
+                        if isinstance(x, dict) and not x.get("removed")])
+            opts[c.get("name", "")] = f"{c.get('name', '')}  ·  {n_on} on it"
+        opts["__new__"] = "+ Start a new newsletter for them"
+        if not nls:
+            ui.label("You have no running newsletters yet.").style(
+                f"font-size:12px;color:{C['text']};margin-bottom:6px;")
+        radio = ui.radio(opts, value=(next(iter(opts)) if nls else "__new__")).props(
+            "dense").style(f"color:{C['text_l']};")
+        status = ui.label("").style(f"font-size:12px;color:{C['muted']};margin-top:8px;")
+        busy = {"on": False}
+
+        async def _add():
+            if busy["on"]:
+                return
+            pick = radio.value
+            if pick == "__new__":
+                dlg.close()
+
+                def _created(camp):
+                    t = enroll_many(people, camp)
+                    ui.notify(enroll_summary(t, camp.get("name", "")),
+                              type="positive", timeout=7000)
+                    s._co_sel = []
+                ff._create_newsletter_dialog(
+                    s, rf, on_created=_created,
+                    prefill={"name": f"{label} Newsletter",
+                             "sector_key": newsletter_sector_key(label)})
+                return
+            camp = next((c for c in running_newsletters() if c.get("name") == pick), None)
+            if camp is None:
+                ui.notify("That newsletter is gone. Pick another.", type="warning")
+                return
+            busy["on"] = True
+            status.text = f"Adding {len(people)} contacts…"
+            done = {}
+
+            def _run():
+                try:
+                    done["t"] = enroll_many(people, camp)
+                except Exception as ex:
+                    print(f"[Companies] newsletter add failed: {type(ex).__name__}: {ex}",
+                          flush=True)
+                    done["err"] = str(ex)
+            ff._run_as_user(owner, _run, name="companies_newsletter_add")
+            while not done:
+                await asyncio.sleep(0.3)
+            busy["on"] = False
+            if "err" in done:
+                status.text = "That didn't work. Nothing was added; try again."
+                return
+            ui.notify(enroll_summary(done["t"], pick), type="positive", timeout=7000)
+            s._co_sel = []
+            dlg.close()
+            rf()
+
+        with ui.element("div").style(
+                "display:flex;justify-content:flex-end;gap:8px;margin-top:14px;"):
+            with ui.element("button").classes("fd-gb").props('type="button"').style(
+                    "padding:7px 14px;font-size:12px;").on("click", dlg.close):
+                ui.label("Cancel")
+            with ui.element("button").classes("fd-pb").props('type="button"').style(
+                    "padding:7px 18px;font-size:12px;").on("click", _add):
+                ui.label("Add them")
+    dlg.open()
+
+
+def _campaign_dialog(s, rf, C, picked, people):
+    """Start a campaign for the picked people: a ready-made one or your
+    own. Either way they are loaded on its Choose Contacts step."""
+    ff = _ff()
+    label = _pick_label(picked)
+    with ui.dialog() as dlg, ui.card().style(
+            f"background:{C['card']};border:1px solid {C['border']};"
+            f"width:640px;max-width:94vw;padding:24px 26px;"):
+        ui.label("Start a campaign").style(
+            f"font-size:18px;font-weight:800;color:{C['text_l']};"
+            f"font-family:'Nunito',sans-serif;")
+        ui.label(f"For {len(people)} contact{'s' if len(people) != 1 else ''} at "
+                 f"{len(picked)} compan{'ies' if len(picked) != 1 else 'y'}. They'll be "
+                 "loaded when you reach Choose Contacts, so you can still change "
+                 "them there.").style(
+            f"font-size:12px;color:{C['muted']};line-height:1.5;margin:4px 0 16px;")
+
+        def _go(kind):
+            set_pending(s, people, label)
+            s._co_sel = []
+            dlg.close()
+            if kind == "custom":
+                ff._open_custom_campaign(s, rf)
+            else:
+                ff._sidebar_nav(s, rf, "start_seq", ff._sidebar_setup_status(), fresh=True)
+
+        cards = (
+            ("ready", "Use a ready-made campaign",
+             "Pick one of our campaigns, like Standard Outreach or Quick Intro, "
+             "and it's written for you.", "Choose a campaign"),
+            ("custom", "Build a Custom Campaign",
+             "Your steps, your words, and a little AI help when you ask.",
+             "Build a custom campaign"),
+        )
+        with ui.element("div").classes("fd-side-start-grid"):
+            for key, title, desc, cta in cards:
+                card = ui.element("div").classes("fd-side-start-card").props(
+                    'role="button" tabindex="0"')
+                card.on("keydown.enter", lambda k=key: _go(k))
+                with card.on("click", lambda k=key: _go(k)):
+                    with ui.element("div").classes("fd-side-start-head"):
+                        ui.label(title).classes("fd-side-start-title")
+                    ui.label(desc).classes("fd-side-start-desc")
+                    with ui.element("div").classes("fd-side-start-go"):
+                        ui.label(cta + " →")
+    dlg.open()
 
 
 def _company_detail(s, rf, C, r, actor):
