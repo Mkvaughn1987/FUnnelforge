@@ -315,3 +315,32 @@ def test_branded_path_serves_the_same_survey(ff):
     page = c.get(f"/ThriveModal/review/{tok}")
     assert page.status_code == 200 and '"open": true' in page.text
     assert c.get("/ThriveModal/review/nottherealtoken1").status_code == 404
+
+
+# ── "Other" asks what it was (Mike 2026-11-05) ──────────────────────────
+
+def test_other_role_text_is_kept_only_with_other_picked():
+    a = tt.clean_answers({"roles": ["admin", "other"], "roles_other": " Office manager "})
+    assert a["roles_other"] == "Office manager"
+    a = tt.clean_answers({"roles": ["admin"], "roles_other": "Office manager"})
+    assert "roles_other" not in a
+    a = tt.clean_answers({"roles": ["other"], "roles_other": "x" * 500})
+    assert len(a["roles_other"]) == 120
+
+
+def test_other_role_shows_what_they_typed():
+    lines = dict(tt.answer_lines({"roles": ["support", "other"],
+                                  "roles_other": "Recruiter"}))
+    assert lines["What role(s) did you hire through us?"] ==         "Customer support, Other: Recruiter"
+
+
+def test_draft_names_a_typed_role():
+    d = tt.build_draft({"roles": ["other"], "roles_other": "Office Manager",
+                        "fill": "lt2w"}, "ThriveModal")
+    assert "filled our Office Manager role in under two weeks" in d
+
+
+def test_page_asks_for_the_other_role_and_requires_it():
+    page = tt._PUBLIC_TEMPLATE
+    assert "What role did we fill for you?" in page
+    assert "You picked Other: type the role we filled for you." in page

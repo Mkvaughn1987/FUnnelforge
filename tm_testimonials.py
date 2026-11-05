@@ -113,6 +113,11 @@ def _clip(v, n):
 
 # ── Pure helpers (tested) ────────────────────────────────────────────────
 
+def other_key(qid):
+    """Where a multi question's typed-in "Other" answer is stored."""
+    return f"{qid}_other"
+
+
 def clean_answers(raw):
     """Keep only known questions and known option keys."""
     out = {}
@@ -129,6 +134,12 @@ def clean_answers(raw):
                 picked = [k for k in keys if k in v]
                 if picked:
                     out[q["id"]] = picked
+                # "Other" comes with what they typed (<id>_other), kept
+                # only while Other is picked.
+                if "other" in picked:
+                    t = _clip(raw.get(other_key(q["id"])), 120)
+                    if t:
+                        out[other_key(q["id"])] = t
         elif q["kind"] == "rate":
             if isinstance(v, dict):
                 r = {}
@@ -159,7 +170,9 @@ def answer_lines(answers):
         if q["kind"] == "one":
             txt = lab.get(v, v)
         elif q["kind"] == "multi":
-            txt = ", ".join(lab.get(k, k) for k in v)
+            typed = answers.get(other_key(q["id"]))
+            txt = ", ".join(f"Other: {typed}" if k == "other" and typed
+                            else lab.get(k, k) for k in v)
         elif q["kind"] == "rate":
             txt = ", ".join(f"{lab.get(k, k)} {n}/5" for k, n in v.items())
         else:
@@ -220,8 +233,13 @@ def build_draft(answers, company="us", hire_name=""):
         parts.append(f"We chose {company} for {' and '.join(why)}.")
 
     # 2. How we delivered.
-    roles = [r for r in a.get("roles") or [] if r in _ROLE_PHRASE]
-    role = _ROLE_PHRASE[roles[0]] + " " if len(roles) == 1 else ""
+    picked = a.get("roles") or []
+    roles = [_ROLE_PHRASE[r] for r in picked if r in _ROLE_PHRASE]
+    # The role they typed under Other counts as one of their roles.
+    typed = (a.get(other_key("roles")) or "").strip() if "other" in picked else ""
+    if typed:
+        roles.append(typed)   # as they wrote it ("Office Manager", "QA")
+    role = roles[0] + " " if len(roles) == 1 else ""
     fill = _FILL.get(a.get("fill", ""), "")
     ramp = _RAMP.get(a.get("ramp", ""), "")
     who = (hire_name or "").strip() or "our new hire"
@@ -666,6 +684,7 @@ padding:13px 22px;cursor:pointer}
 @media (max-width:480px){.fields{grid-template-columns:1fr}}
 .fields label{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
 .perm{display:flex;flex-direction:column;gap:8px}
+.other{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;gap:4px;margin-top:12px}
 .foot{font-size:12px;color:var(--muted);text-align:center}
 [hidden]{display:none!important}
 </style></head><body><main class="wrap">
@@ -734,6 +753,16 @@ function render(){
           render(); };
         chips.appendChild(b);}
       card.appendChild(chips);
+      // Other: say what it was. Typing does not re-render, so focus stays.
+      if(q.kind==='multi' && (A[q.id]||[]).includes('other')){
+        const ok = q.id+'_other';
+        const lab = el('label',{class:'other'}, q.id==='roles'
+          ? 'What role did we fill for you?' : 'Tell us what it was');
+        const t = el('input',{type:'text',id:'other-'+q.id,maxlength:'120',
+          placeholder: q.id==='roles' ? 'e.g. Office manager, Recruiter' : ''});
+        t.value = A[ok]||''; t.oninput=()=>{A[ok]=t.value;};
+        lab.appendChild(t); card.appendChild(lab);
+      }
     } else if(q.kind==='rate'){
       const g = el('div',{class:'rate'}); A[q.id]=A[q.id]||{};
       for(const [k,l] of q.opts){ g.appendChild(el('div',{class:'lbl'},l));
@@ -771,6 +800,13 @@ $('next').onclick = async ()=>{
   if(!about.name || !about.title || !about.company){
     $('err1').textContent='Add your name, title and company at the top.'; $('next').disabled=false;
     $('about').scrollIntoView({behavior:'smooth'}); return; }
+  const blank = D.questions.find(q=>q.kind==='multi' && (A[q.id]||[]).includes('other')
+    && !(A[q.id+'_other']||'').trim());
+  if(blank){
+    $('err1').textContent = blank.id==='roles' ? 'You picked Other: type the role we filled for you.'
+      : 'You picked Other: tell us what it was.';
+    $('next').disabled=false;
+    const i=$('other-'+blank.id); i.scrollIntoView({behavior:'smooth',block:'center'}); i.focus(); return; }
   try{ const j = await post('/answers',{answers:A, about:about}); S.draft=j.draft;
     if(S.open && !S.child && j.token){ S.token=j.token; S.child=true; }
     S.sig_name=about.name; S.sig_title=about.title; S.sig_company=about.company;
