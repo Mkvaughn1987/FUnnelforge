@@ -195,8 +195,9 @@ _TEXT_FIELDS = ("subject", "input")
 
 
 def fillin_label(name: str) -> str:
-    """'CurrentClients' -> 'Current clients'."""
-    words = re.sub(r"(?<=[a-z0-9])(?=[A-Z])", " ", name or "").split()
+    """'CurrentClients' -> 'Current clients', 'Role2' -> 'Role 2'."""
+    words = re.sub(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Za-z])(?=\d+$)", " ",
+                   name or "").split()
     return " ".join([words[0]] + [w.lower() for w in words[1:]]) if words else ""
 
 
@@ -276,7 +277,9 @@ def detect_prompt(steps) -> str:
         "- name is one of Industry, Competitors, CurrentClients, Role, "
         "Location when it fits, FirstName for the recipient's first name, "
         "Company for the recipient's company, otherwise a short CamelCase "
-        "name of your own.\n\n"
+        "name of your own. Two different details get two different names "
+        "(two roles: Role and SecondRole); repeat a name only for the same "
+        "detail written twice.\n\n"
         "Leave alone: anything already in {braces}, the recruiter's own "
         "name, their firm, their phone number or email, and general wording "
         "that would be true for any client. If nothing is specific, return "
@@ -304,7 +307,7 @@ def parse_detected(raw: str, steps) -> list:
         rows = []
     hay = "\n".join((st or {}).get(f) or "" for st in steps or []
                     for f in _TEXT_FIELDS)
-    out, seen = [], set()
+    out, seen, said = [], set(), {}
     for r in rows if isinstance(rows, list) else []:
         if not isinstance(r, dict):
             continue
@@ -314,6 +317,16 @@ def parse_detected(raw: str, steps) -> list:
                 or text in seen or not _occurs(text, hay)):
             continue
         seen.add(text)
+        if name not in MERGE_FIELDS:
+            # One fill-in holds one answer. A different detail under a name
+            # already taken gets its own (Role, Role2); the same detail
+            # worded longer or shorter ("HVAC", "commercial HVAC") shares.
+            base, n = name, 1
+            while name in said and not any(
+                    text.lower() in t or t in text.lower() for t in said[name]):
+                n += 1
+                name = f"{base}{n}"
+            said.setdefault(name, []).append(text.lower())
         out.append({"text": text, "name": name})
     return out[:12]
 

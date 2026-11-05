@@ -352,3 +352,25 @@ def test_a_cut_off_scan_is_a_failure_not_an_all_clear(monkeypatch):
     import inspect
     save = inspect.getsource(fa._render_sb_step3_save)
     assert "sb_find_err" in save and "Look again" in save
+
+
+def test_two_different_details_never_share_a_fillin():
+    steps = [{"type": "email", "subject": "HVAC talent",
+              "input": "We place accountants and controllers with commercial "
+                       "HVAC firms. John, meet Johnny."}]
+    raw = ('[{"text": "accountants", "name": "Role"},'
+           '{"text": "controllers", "name": "Role"},'
+           '{"text": "HVAC", "name": "Industry"},'
+           '{"text": "commercial HVAC", "name": "Industry"},'
+           '{"text": "John", "name": "FirstName"},'
+           '{"text": "Johnny", "name": "FirstName"}]')
+    found = oc.parse_detected(raw, steps)
+    assert [(f["text"], f["name"]) for f in found] == [
+        ("accountants", "Role"), ("controllers", "Role2"),
+        ("HVAC", "Industry"), ("commercial HVAC", "Industry"),
+        ("John", "FirstName"), ("Johnny", "FirstName")]
+    out = oc.apply_detected(steps, found)
+    assert out[0]["input"] == ("We place {Role} and {Role2} with {Industry} "
+                               "firms. {FirstName}, meet {FirstName}.")
+    assert oc.fillin_label("Role2") == "Role 2"
+    assert oc.fillin_label("CurrentClients") == "Current clients"
