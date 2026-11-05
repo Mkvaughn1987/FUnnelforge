@@ -32427,9 +32427,12 @@ def _render_sb_step_page(s: AppState, rf):
             cand_bullets=s.sb_cand_bullets)[_i]
         _text = _em.get("body") or ""
         _pdf = dict(_oc.pdf_plan(s.sb_steps)).get(_i)
+        # An email with candidates comes back as HTML (bold headlines, a
+        # real bulleted list); anything else is still plain text.
+        _html = (_text if _oc.has_candidates(_text, s.sb_cands)
+                 else esc(_text).replace("\n", "<br>"))
         _show_step_preview_dialog(
-            s, dict(_em, body=esc(_text).replace("\n", "<br>"),
-                    script_notes=_text, attachments=[]), _i,
+            s, dict(_em, body=_html, script_notes=_text, attachments=[]), _i,
             pending_atts=[f"{_oc.PDF_KINDS[_pdf]}.pdf"] if _pdf else None)
 
     with ui.element("button").classes("fd-gb").props(
@@ -33141,8 +33144,11 @@ def _sb_cands_into_email(s: AppState, rf, step_id: str) -> None:
                 _new, _ = _link_candidate_cards([_c], _owner, strict=False)
                 _new = _enrich_candidate_cards(_client, _new)[0]
                 # Fewer than 3 highlights: the user is told to add their own.
+                # In the email they go by their place in the list (Candidate A).
                 _new = dict(_new, _placed=True, _thin=(
-                    s.sb_cand_bullets and len(_new.get("bullets") or []) < 3))
+                    s.sb_cand_bullets and len(_new.get("bullets") or []) < 3),
+                    letter=chr(65 + next((j for j, x in enumerate(s.sb_cands or [])
+                                          if x is _c), 0)))
                 for _to in [step_id] + _carry:
                     _st = _sb_step_by_id(s, _to)
                     if _st is not None:
@@ -33211,12 +33217,13 @@ def _render_sb_cands_shared(s: AppState, rf, step_id: str, home_id: str):
     _ids = [x.get("id") for x in s.sb_steps or []]
     _home_i = _ids.index(home_id) if home_id in _ids else 0
     _home_name = _oc.step_names(s.sb_steps)[_home_i]
-    for _c in _cards:
+    for _ci, _c in enumerate(_cards):
         with ui.element("div").style(
                 f"background:{C['surface']};border:1px solid {C['border']};"
                 f"border-radius:8px;padding:8px 12px;margin-bottom:6px;"):
             ui.label(
-                (_c.get("name") or _c.get("label") or "Candidate")
+                f"Candidate {chr(65 + _ci)}: "
+                + (_c.get("name") or _c.get("label") or "")
                 + (f" · {_c['role']}" if _c.get("role") else "")
             ).style(f"font-size:12px;font-weight:700;color:{C['text_l']};")
             if s.sb_cand_bullets:
@@ -33308,7 +33315,8 @@ def _render_sb_cands(s: AppState, rf, step_id: str = ""):
                 f"display:flex;gap:10px;align-items:flex-start;"):
             with ui.element("div").style("flex:1;min-width:0;"):
                 ui.label(
-                    (_c.get("name") or _c.get("label") or "Candidate")
+                    f"Candidate {chr(65 + _ci)}: "
+                    + (_c.get("name") or _c.get("label") or "")
                     + (f" · {_c['role']}" if _c.get("role") else "")
                 ).style(f"font-size:12px;font-weight:700;color:{C['text_l']};")
                 if s.sb_cand_bullets:
@@ -33320,10 +33328,12 @@ def _render_sb_cands(s: AppState, rf, step_id: str = ""):
                 _gone = (s.sb_cands or [])[i]
                 s.sb_cands = [c for j, c in enumerate(s.sb_cands or []) if j != i]
                 if step_id:
-                    # Out of the list is out of the emails too.
+                    # Out of the list is out of the emails too, and the rest
+                    # are lettered A, B, C... again.
                     for _x in s.sb_steps or []:
                         _x["input"] = _oc.drop_candidate(
                             _x.get("input") or "", _gone)
+                    _oc.reletter(s.sb_steps, s.sb_cands)
                 if not s.sb_cands:
                     s.sb_cand_home = ""
                 rf()

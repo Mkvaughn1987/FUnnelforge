@@ -53,15 +53,18 @@ CANDIDATE_BULLETS = 3
 
 def candidate_block(cards, bullets: bool = True) -> str:
     """Plain-text candidate list for an email: one line per candidate, then
-    (with `bullets`) a 3-bullet summary of each. Uses the card label
-    ('Travis K.') and Ref # exactly as linked; never a real full name."""
+    (with `bullets`) a 3-bullet summary of each. Candidates go by a letter
+    and their Ref # ('Candidate A (Ref #1042)'), never a name (Mike,
+    2026-11-05): the Ref # is how we find them. A card's `letter` is its
+    place in the campaign's list; without one, its place in `cards`."""
     out = []
-    for c in cards or []:
+    for i, c in enumerate(cards or []):
         if not isinstance(c, dict):
             continue
-        label = (c.get("label") or c.get("alias") or "Candidate").strip()
+        letter = (c.get("letter") or "").strip() or chr(65 + i)
+        label = f"Candidate {letter}"
         ref = (c.get("ref") or "").strip()
-        if ref and ref not in label:
+        if ref:
             label = f"{label} ({ref})"
         role = (c.get("role") or "").strip()
         lines = [f"{label}, {role}" if role else label]
@@ -91,9 +94,11 @@ def _headline_at(line: str, card: dict) -> bool:
     ref = (card.get("ref") or "").strip()
     if ref and ref in line:
         return True
-    label = (card.get("label") or card.get("alias") or "").strip()
-    return bool(label) and bool(re.match(
-        r"\s*" + re.escape(label) + r"(?=$|[\s,(])", line))
+    labels = [(card.get("label") or card.get("alias") or "").strip()]
+    if (card.get("letter") or "").strip():
+        labels.append(f"Candidate {card['letter'].strip()}")
+    return any(lb and re.match(r"\s*" + re.escape(lb) + r"(?=$|[\s,(])", line)
+               for lb in labels)
 
 
 def _candidate_spans(lines, cards) -> list:
@@ -188,12 +193,74 @@ def swap_candidate(text: str, card, chunk: str) -> str:
     return "\n".join(lines[:a] + [chunk] + lines[b:])
 
 
+def reletter(steps, cards) -> None:
+    """After a candidate is taken out, the rest are lettered A, B, C... again
+    in list order, on the cards and in every step's text (each card's old
+    letter finds its headline). Letters only ever move down, so going in
+    order never renames a line twice."""
+    moves = []
+    for i, c in enumerate(cards or []):
+        if not isinstance(c, dict):
+            continue
+        new = chr(65 + i)
+        if c.get("letter") and c["letter"] != new:
+            moves.append((c["letter"], new))
+        c["letter"] = new
+    for st in steps or []:
+        text = st.get("input") or ""
+        for old, new in moves:
+            text = re.sub(r"(?m)^(\s*)Candidate " + re.escape(old)
+                          + r"(?=$|[\s,(])", r"\g<1>Candidate " + new,
+                          text, count=1)
+        st["input"] = text
+
+
 def remove_candidates(text: str, cards) -> str:
     """The message with none of these candidates in it, and no {Candidates}
     spot left behind: an email the user chose to send without them."""
     for c in cards or []:
         text = drop_candidate(text, c)
     return _tidy((text or "").replace(CANDIDATES_TOKEN, ""))
+
+
+def _esc(t: str) -> str:
+    return t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def body_html(text: str, cards) -> str:
+    """An email with candidates in it, as the HTML it goes out as: each
+    candidate's headline in bold and their highlights as a real bulleted
+    list, so a long bullet wraps under its own words and not under the dot
+    (Mike, 2026-11-05). The rest of the text keeps its line breaks. Text
+    with no candidate in it comes back as it is."""
+    lines = (text or "").split("\n")
+    spans = {a: b for a, b in _candidate_spans(lines, cards)}
+    if not spans:
+        return text or ""
+    out, i, after_list = [], 0, False
+    while i < len(lines):
+        if out and not after_list:
+            out.append("<br>")
+        after_list = False
+        if i in spans:
+            head, rows = lines[i].strip(), lines[i + 1:spans[i]]
+            # Words in front of the candidate ("Meet Candidate A...") stay plain.
+            m = re.search(r"Candidate [A-Z](?=$|[\s,(])", head)
+            lead, head = (head[:m.start()], head[m.start():]) if m else ("", head)
+            out.append(f"{_esc(lead)}<b>{_esc(head)}</b>")
+            if rows:
+                items = "".join(
+                    '<li style="margin:0 0 4px 0;">'
+                    + _esc(re.sub(r"^\s*[•·\-\*–]\s*", "", r)) + "</li>"
+                    for r in rows)
+                out.append('<ul style="margin:4px 0 0 0;padding-left:22px;">'
+                           + items + "</ul>")
+                after_list = True
+            i = spans[i]
+            continue
+        out.append(_esc(lines[i]))
+        i += 1
+    return "".join(out)
 
 
 def lift_steps(steps, cards) -> list:
@@ -329,6 +396,8 @@ def build_emails(steps, cards=None, polish=None, cand_bullets=True) -> list:
             if written:
                 text = place_candidates(text, written)
         text = text.replace(CANDIDATES_TOKEN, block).strip()
+        if t == "email":
+            text = body_html(text, cards)
 
         subject = ""
         if t == "email":
