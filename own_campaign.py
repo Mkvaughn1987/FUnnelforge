@@ -77,6 +77,128 @@ def uses_candidates(steps) -> bool:
                for st in steps or [])
 
 
+# ── Candidates written into the message ──────────────────────────────────
+# In the walkthrough each candidate's headline and highlights are written
+# into the email as plain text, so the user writes around them and can
+# change them. These find that text again: to take one candidate out, redo
+# the bullets, keep it clear of an AI rewrite, or swap the lot back to
+# {Candidates} when the campaign is saved for reuse.
+
+_BULLET_LINE_RE = re.compile(r"^\s*[•·\-\*–]\s*\S")
+
+
+def _headline_at(line: str, card: dict) -> bool:
+    ref = (card.get("ref") or "").strip()
+    if ref and ref in line:
+        return True
+    label = (card.get("label") or card.get("alias") or "").strip()
+    return bool(label) and bool(re.match(
+        r"\s*" + re.escape(label) + r"(?=$|[\s,(])", line))
+
+
+def _candidate_spans(lines, cards) -> list:
+    """(first line, line after the last) of each card's headline and the
+    bullet lines under it, in the order they sit in the text."""
+    spans, taken = [], set()
+    for c in cards or []:
+        if not isinstance(c, dict):
+            continue
+        for i, ln in enumerate(lines):
+            if i in taken or not _headline_at(ln, c):
+                continue
+            j = i + 1
+            while (j < len(lines) and j not in taken
+                   and _BULLET_LINE_RE.match(lines[j])):
+                j += 1
+            spans.append((i, j))
+            taken.update(range(i, j))
+            break
+    return sorted(spans)
+
+
+def _tidy(text: str) -> str:
+    return re.sub(r"\n{3,}", "\n\n", text or "").strip()
+
+
+def has_candidates(text: str, cards) -> bool:
+    text = text or ""
+    return CANDIDATES_TOKEN in text or bool(
+        _candidate_spans(text.split("\n"), cards))
+
+
+def lift_candidates(text: str, cards) -> tuple:
+    """(the text with {Candidates} where the candidates were, their text as
+    it is written now). Text with no candidate in it comes back as it is."""
+    text = text or ""
+    lines = text.split("\n")
+    spans = _candidate_spans(lines, cards)
+    if not spans:
+        return text, ""
+    block = "\n\n".join("\n".join(lines[a:b]) for a, b in spans)
+    drop = {i for a, b in spans for i in range(a, b)}
+    out = []
+    for i, ln in enumerate(lines):
+        if i == spans[0][0] and CANDIDATES_TOKEN not in text:
+            out += ["", CANDIDATES_TOKEN, ""]
+        if i not in drop:
+            out.append(ln)
+    return _tidy("\n".join(out)), block
+
+
+def place_candidates(text: str, block: str) -> str:
+    """The reverse of lift_candidates: the candidates' text goes where
+    {Candidates} is, or at the end when the token is gone."""
+    text = text or ""
+    if not block:
+        return text
+    if CANDIDATES_TOKEN in text:
+        head, tail = text.split(CANDIDATES_TOKEN, 1)
+        return head + block + tail.replace(CANDIDATES_TOKEN, "")
+    return (text.rstrip() + "\n\n" + block).strip()
+
+
+def add_candidate(text: str, cards, chunk: str) -> str:
+    """One more candidate written into the message: under the ones already
+    there (`cards`), else where {Candidates} is, else at the end."""
+    lines = (text or "").split("\n")
+    spans = _candidate_spans(lines, cards)
+    if not spans:
+        return place_candidates(text, chunk)
+    at = spans[-1][1]
+    return _tidy("\n".join(lines[:at] + ["", chunk, ""] + lines[at:]))
+
+
+def drop_candidate(text: str, card) -> str:
+    """The message without this candidate's headline and bullets."""
+    lines = (text or "").split("\n")
+    spans = _candidate_spans(lines, [card])
+    if not spans:
+        return text or ""
+    a, b = spans[0]
+    return _tidy("\n".join(lines[:a] + lines[b:]))
+
+
+def swap_candidate(text: str, card, chunk: str) -> str:
+    """This candidate's text replaced by `chunk` (bullets on or off)."""
+    lines = (text or "").split("\n")
+    spans = _candidate_spans(lines, [card])
+    if not spans:
+        return text or ""
+    a, b = spans[0]
+    return "\n".join(lines[:a] + [chunk] + lines[b:])
+
+
+def lift_steps(steps, cards) -> list:
+    """Copies of the steps as a saved campaign keeps them: these candidates'
+    text swapped for {Candidates}, so fresh ones are picked each time."""
+    out = []
+    for st in steps or []:
+        st = dict(st or {})
+        st["input"] = lift_candidates(st.get("input") or "", cards)[0]
+        out.append(st)
+    return out
+
+
 def first_email_index(steps):
     """Index of the email that should carry the candidate list when the user
     has not placed it: the second email (the first follow-up), else the
@@ -182,6 +304,9 @@ def build_emails(steps, cards=None, polish=None, cand_bullets=True) -> list:
         t = st["type"]
         text = st["input"]
         if st["voice"] == VOICE_POLISH and polish is not None and text:
+            # Candidates written into the message are kept out of the
+            # rewrite and put back as the user left them.
+            text, written = lift_candidates(text, cards)
             try:
                 polished = (polish(text, t) or "").strip()
             except Exception as e:
@@ -193,6 +318,8 @@ def build_emails(steps, cards=None, polish=None, cand_bullets=True) -> list:
                 if CANDIDATES_TOKEN in text and CANDIDATES_TOKEN not in polished:
                     polished = polished + "\n\n" + CANDIDATES_TOKEN
                 text = polished
+            if written:
+                text = place_candidates(text, written)
         text = text.replace(CANDIDATES_TOKEN, block).strip()
 
         subject = ""

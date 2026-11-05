@@ -571,3 +571,75 @@ def test_saved_style_remembers_the_summary_choice(monkeypatch):
     assert [f["name"] for f in store[1]["fillins"]] == ["Role", "Location", "Industry"]
     edit = inspect.getsource(fa._sb_open_edit)
     assert 'pdf=st.get("pdf")' in edit and "s.sb_cand_bullets" in edit
+
+
+# ── Candidates written into the email (2026-11-05) ────────────────────────
+
+def _two():
+    return [
+        {"label": "Travis K.", "ref": "Ref #1042", "role": "Senior Accountant",
+         "bullets": ["Big 4 audit", "NetSuite rollout", "CPA"]},
+        {"label": "Dana R.", "ref": "Ref #1043", "role": "Controller",
+         "bullets": ["Built close", "Multi-entity", "SOX"]},
+    ]
+
+
+def test_candidates_are_written_into_the_email_and_found_again():
+    a, b = _two()
+    text = oc.add_candidate("Two people for {Company}:\n\n{Candidates}\n\nTalk soon?",
+                            [], oc.candidate_block([a]))
+    assert "{Candidates}" not in text and "Travis K. (Ref #1042)" in text
+    text = oc.add_candidate(text, [a], oc.candidate_block([b]))
+    # the second goes under the first, both above the sign-off
+    assert text.index("Travis K.") < text.index("Dana R.") < text.index("Talk soon?")
+    assert oc.has_candidates(text, [a, b])
+    # the user edits a bullet; lifting keeps their wording
+    text = text.replace("• Big 4 audit", "• Big 4 audit at Deloitte")
+    lifted, block = oc.lift_candidates(text, [a, b])
+    assert "{Candidates}" in lifted and "Ref #" not in lifted
+    assert "Deloitte" in block
+    assert oc.place_candidates(lifted, block) == text
+    # remove one, and the bullets toggle redoes one
+    gone = oc.drop_candidate(text, a)
+    assert "Travis" not in gone and "Dana R." in gone and "Talk soon?" in gone
+    short = oc.swap_candidate(text, b, oc.candidate_block([b], bullets=False))
+    assert "SOX" not in short and "Dana R. (Ref #1043), Controller" in short
+    # saved for reuse with the token back
+    saved = oc.lift_steps([{"type": "email", "input": text}], [a, b])
+    assert saved[0]["input"].count("{Candidates}") == 1
+    assert "Travis" not in saved[0]["input"]
+
+
+def test_build_polish_leaves_written_candidates_as_the_user_left_them():
+    a, _ = _two()
+    text = oc.add_candidate("Meet {Candidates}", [], oc.candidate_block([a]))
+    text = text.replace("NetSuite rollout", "NetSuite rollout, 3 entities")
+    seen = []
+    out = oc.build_emails([{"type": "email", "subject": "x", "input": text,
+                            "voice": "polish"}], [a],
+                          polish=lambda t, k: seen.append(t) or "Polished {Candidates}")
+    assert "Travis" not in seen[0]
+    assert "NetSuite rollout, 3 entities" in out[0]["body"]
+    assert out[0]["body"].startswith("Polished")
+
+
+def test_email_step_order_candidates_then_pdf_then_preview():
+    import flowdrip_app as fa
+    page = inspect.getsource(fa._render_sb_step_page)
+    assert (page.index("Add candidates from Pipeline?")
+            < page.index("Attach a Sales PDF?")
+            < page.index('id="sb-preview"')
+            < page.index("What comes next?"))
+    assert "pending_atts=" in page
+    assert "pending_atts" in inspect.signature(fa._show_step_preview_dialog).parameters
+    # the AI buttons keep the written candidates out of a rewrite
+    assert page.count("_oc.place_candidates(") >= 3
+    cands = inspect.getsource(fa._render_sb_cands)
+    assert 'ui.label("Add Candidates")' in cands and 'ui.label("Done")' not in cands
+    assert "_sb_cands_into_email(s, rf, step_id)" in cands
+    assert "_oc.drop_candidate(" in cands and "_oc.swap_candidate(" in cands
+    into = inspect.getsource(fa._sb_cands_into_email)
+    assert "_link_candidate_cards(" in into and "_oc.add_candidate(" in into
+    save = inspect.getsource(fa._render_sb_step3_save)
+    assert "_oc.lift_steps(s.sb_steps, s.sb_cands)" in save
+    assert "_oc.lift_steps(s.sb_steps, s.sb_cands)" in inspect.getsource(fa._sb_start_detect)

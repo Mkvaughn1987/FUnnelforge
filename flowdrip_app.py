@@ -15678,7 +15678,8 @@ _ATT_BADGE = {"pdf": "#DC2626", "doc": "#2563EB", "docx": "#2563EB",
               "ppt": "#EA580C", "pptx": "#EA580C"}
 
 
-def _show_step_preview_dialog(s, step: dict, step_idx=None, queued_atts=None):
+def _show_step_preview_dialog(s, step: dict, step_idx=None, queued_atts=None,
+                              pending_atts=None):
     """Read-only preview of a sequence step's actual content  -  the
     subject + rendered HTML body for email steps, or the script/notes text
     for Call/LinkedIn/SMS/Task steps. There's no persisted per-recipient
@@ -15686,7 +15687,8 @@ def _show_step_preview_dialog(s, step: dict, step_idx=None, queued_atts=None):
     template with merge tags resolved against the user's own identity  -
     the same sample-data approach the step editor's Preview Email uses.
     Attachments come from the queue when the step is queued (see
-    _step_preview_attachments) and open in a new tab."""
+    _step_preview_attachments) and open in a new tab. `pending_atts` are
+    file names not written yet (an own campaign's PDF, made at build time)."""
     _stype = step.get("step_type", ST.EMAIL_AUTO) or ST.EMAIL_AUTO
     _is_email = _stype in (ST.EMAIL_AUTO, ST.EMAIL_MANUAL)
     _icon, _color = STEP_META.get(_stype, ("✉", C["email_col"]))
@@ -15731,6 +15733,9 @@ def _show_step_preview_dialog(s, step: dict, step_idx=None, queued_atts=None):
                     _subj = _subj.replace(_k, _v)
                     _body = _body.replace(_k, _v)
                 _atts = _step_preview_attachments(step, step_idx, queued_atts)
+                _atts = list(_atts or []) + [
+                    {"name": n, "size": 0, "exists": False, "pending": True}
+                    for n in pending_atts or []]
                 # One white "inbox" card: subject header, body, attachments.
                 with ui.element("div").style(_STEP_PREVIEW_BODY_STYLE):
                     with ui.element("div").style(
@@ -15757,7 +15762,9 @@ def _show_step_preview_dialog(s, step: dict, step_idx=None, queued_atts=None):
                                 for _a in _atts:
                                     _ext = _a["name"].rsplit(".", 1)[-1].lower() if "." in _a["name"] else "file"
                                     _meta = (" · ".join(x for x in (_ext.upper(), _fmt_file_size(_a["size"])) if x)
-                                             if _a["exists"] else "File not found")
+                                             if _a["exists"] else
+                                             "Written when the campaign is built"
+                                             if _a.get("pending") else "File not found")
                                     _card_style = (
                                         "display:flex;align-items:center;gap:12px;width:250px;max-width:100%;"
                                         "box-sizing:border-box;padding:10px 12px;background:#ffffff;"
@@ -32083,6 +32090,31 @@ def _render_sb_step_page(s: AppState, rf):
                     f"{_names[_i - 1]}. Weekends are skipped."
                 ).style(f"font-size:12px;color:{C['text']};")
 
+        # ── Candidates and a PDF come first on an email: the candidates
+        # are written into it, and the user writes the rest around them ──
+        if _stype == "email":
+            try:
+                _pipe = _ats_allowed(getattr(s, "_user_email", "") or "")
+            except Exception:
+                _pipe = False
+            _sb_section(
+                "Add candidates from Pipeline? (optional)" if _pipe
+                else "Add candidates? (optional)",
+                "Pitching specific people? Add them first. Each one's "
+                "headline and highlights are written into your email "
+                "below, and you write the rest around them.")
+            _render_sb_cands(s, rf, step_id=_sid)
+
+            # ── A Sales Asset PDF, on any email after the first ──
+            _sb_section("Attach a Sales PDF? (optional)")
+            if _first_email:
+                ui.label(
+                    "Your first email goes out without an attachment. You "
+                    "can attach a PDF to any email after this one."
+                ).style(f"font-size:11px;color:{C['muted']};line-height:1.5;")
+            else:
+                _render_sb_pdf(s, rf, _st)
+
         # ── The words ──
         if _stype == "email":
             _sb_section(
@@ -32114,6 +32146,17 @@ def _render_sb_step_page(s: AppState, rf):
 
         # ── The three ways AI helps ──
         _full_ask = bool(_st.get("_full_ask"))
+        # The user's own words: what is in the box apart from the
+        # candidates written into it. AI writes around those, never over
+        # them.
+        def _own_words():
+            return _oc.lift_candidates(
+                _st.get("input") or "", s.sb_cands)[0].replace(
+                _oc.CANDIDATES_TOKEN, "").strip()
+        _cand_note = (
+            " This email pitches candidates. Put {Candidates} on its own "
+            "line where their list goes and do not describe any candidate "
+            "yourself.")
 
         def _open_ai():
             _st["_full_ask"] = False
@@ -32123,7 +32166,7 @@ def _render_sb_step_page(s: AppState, rf):
         def _full_draft():
             # One click writes the whole step; a second one is asked for
             # before it goes over something already written.
-            if (_st.get("input") or "").strip() and not _st.get("_full_ask"):
+            if _own_words() and not _st.get("_full_ask"):
                 _st["_full_ask"] = True
                 s.sb_ai_open = ""
                 rf()
@@ -32136,18 +32179,23 @@ def _render_sb_step_page(s: AppState, rf):
                     and not (step.get("subject") or "").strip()
                     and not any(x.get("type", "email") == "email"
                                 for x in s.sb_steps[:_idx]))
+                _block = _oc.lift_candidates(
+                    step.get("input") or "", s.sb_cands)[1]
                 _out = _sb_draft_step_content(
                     step_type=step.get("type", "email"),
                     slot=_sb_slot_for_step(s.sb_steps, _idx),
                     position=_idx,
                     delay_days=int(step.get("delay_days", 0) or 0),
-                    user_prompt="", tone=s.sb_tone,
+                    user_prompt=("Write a complete, ready-to-use message "
+                                 "that suits this point in the sequence."
+                                 + _cand_note) if _block else "",
+                    tone=s.sb_tone,
                     context=_oc.draft_context(s.sb_steps, _idx),
                     with_subject=_want_subject)
                 _subject, _body = _oc.split_subject(_out)
                 if _subject and _body and _want_subject:
                     step["subject"] = _subject
-                return _body or _out
+                return _oc.place_candidates(_body or _out, _block)
             _st["_full_ask"] = False
             _st["_job"] = "draft"
             s.sb_ai_open = ""
@@ -32155,18 +32203,19 @@ def _render_sb_step_page(s: AppState, rf):
 
         def _polish():
             _st["_full_ask"] = False
-            if not (_st.get("input") or "").strip():
+            if not _own_words():
                 ui.notify("Write a few words first, then AI can polish "
                           "them.", type="info")
                 return
             def _work(step):
-                _src = step.get("input") or ""
+                _was = step.get("input") or ""
+                _src, _block = _oc.lift_candidates(_was, s.sb_cands)
                 _out = _own_polish_text(
                     _src, step.get("type", "email"), s.sb_tone)
                 # Never trade a fill-in for nicer wording.
                 _lost = [t for t in set(re.findall(r"\{[A-Za-z0-9]+\}", _src))
                          if t not in _out]
-                return _src if _lost else _out
+                return _was if _lost else _oc.place_candidates(_out, _block)
             _st["_job"] = "polish"
             s.sb_ai_open = ""
             _sb_ai_into_step(s, rf, _sid, _work, "sb_step_polish_worker")
@@ -32179,13 +32228,16 @@ def _render_sb_step_page(s: AppState, rf):
             def _work(step):
                 _idx = next(i for i, x in enumerate(s.sb_steps)
                             if x["id"] == _sid)
-                return _sb_draft_step_content(
+                _block = _oc.lift_candidates(
+                    step.get("input") or "", s.sb_cands)[1]
+                return _oc.place_candidates(_sb_draft_step_content(
                     step_type=step.get("type", "email"),
                     slot=_sb_slot_for_step(s.sb_steps, _idx),
                     position=_idx,
                     delay_days=int(step.get("delay_days", 0) or 0),
-                    user_prompt=step.get("ai_prompt", ""),
-                    tone=s.sb_tone)
+                    user_prompt=(step.get("ai_prompt", "")
+                                 + (_cand_note if _block else "")),
+                    tone=s.sb_tone), _block)
             _st["_job"] = "draft"
             s.sb_ai_open = ""
             _sb_ai_into_step(s, rf, _sid, _work, "sb_step_draft_worker")
@@ -32204,8 +32256,9 @@ def _render_sb_step_page(s: AppState, rf):
                 for _blabel, _babout, _bfn, _bon in (
                         ("✦ Yes, replace what I wrote" if _full_ask
                          else "✦ Full AI draft",
-                         "This replaces what's in the box above. Click "
-                         "again to go ahead." if _full_ask else
+                         "This replaces what you wrote in the box above "
+                         "(candidates stay). Click again to go ahead."
+                         if _full_ask else
                          "One click and AI writes the whole thing. You can "
                          "change every word after.",
                          _full_draft, _full_ask),
@@ -32233,7 +32286,7 @@ def _render_sb_step_page(s: AppState, rf):
                 f"font-size:11px;color:{C['danger']};margin-top:6px;")
 
         if s.sb_ai_open == _sid and not _busy:
-            _has_text = bool((_st.get("input") or "").strip())
+            _has_text = bool(_own_words())
             with ui.element("div").props('id="sb-ai-box"').style(
                     f"background:{C['bg']};border:1px solid {C['teal']}60;"
                     f"border-radius:10px;padding:12px 14px;margin-top:10px;"):
@@ -32278,8 +32331,8 @@ def _render_sb_step_page(s: AppState, rf):
                             ).on("click", _open_ai):
                         ui.label("Never mind").style("pointer-events:none;")
                     if _has_text:
-                        ui.label("This replaces what's in the box "
-                                 "above.").style(
+                        ui.label("This replaces what you wrote in the "
+                                 "box above. Candidates stay.").style(
                             f"font-size:11px;color:{C['muted']};")
 
         # ── Details filled in per contact ──
@@ -32349,23 +32402,28 @@ def _render_sb_step_page(s: AppState, rf):
                         ).props("dense borderless").classes("fd-input")
         _draw_fills()
 
-        # ── Candidates, on emails ──
-        if _stype == "email":
-            _sb_section(
-                "Candidates (optional)",
-                "Pitching specific people? Add them here and they're "
-                "listed in this email.")
-            _render_sb_cands(s, rf, step_id=_sid)
+    # ── See it the way they will, before moving on ──
+    def _preview():
+        _em = _oc.build_emails(
+            _oc.fill(s.sb_steps, s.sb_vals), s.sb_cands,
+            cand_bullets=s.sb_cand_bullets)[_i]
+        _text = _em.get("body") or ""
+        _pdf = dict(_oc.pdf_plan(s.sb_steps)).get(_i)
+        _show_step_preview_dialog(
+            s, dict(_em, body=esc(_text).replace("\n", "<br>"),
+                    script_notes=_text, attachments=[]), _i,
+            pending_atts=[f"{_oc.PDF_KINDS[_pdf]}.pdf"] if _pdf else None)
 
-            # ── A Sales Asset PDF, on any email after the first ──
-            _sb_section("Attach a PDF (optional)")
-            if _first_email:
-                ui.label(
-                    "Your first email goes out without an attachment. You "
-                    "can attach a PDF to any email after this one."
-                ).style(f"font-size:11px;color:{C['muted']};line-height:1.5;")
-            else:
-                _render_sb_pdf(s, rf, _st)
+    with ui.element("button").classes("fd-gb").props(
+            'id="sb-preview"').style(
+            f"padding:10px 28px;font-size:13px;width:100%;font-weight:600;"
+            f"justify-content:center;display:flex;border-radius:10px;"
+            f"color:{C['text_l']};margin-bottom:10px;").on("click", _preview):
+        ui.label({"email": "Preview this email",
+                  "call": "Preview this call",
+                  "linkedin": "Preview this LinkedIn message"}.get(
+                      _stype, "Preview this step")).style(
+            "pointer-events:none;")
 
     # ── What comes next ──
     def _add_after(t):
@@ -32940,11 +32998,60 @@ def _sb_cand_add(s, card) -> bool:
     return True
 
 
+def _sb_cands_into_email(s: AppState, rf, step_id: str) -> None:
+    """Behind "Add Candidates" on a step page. Off the UI thread, each
+    candidate not yet in an email is tied to their Pipeline record (the
+    name they go by and a Ref #), given highlights from their résumé, and
+    written into this step's email as plain text: a headline and bullets
+    the user can change and write around."""
+    import own_campaign as _oc
+    if s.sb_cand_busy:
+        return
+    _owner = getattr(s, "_user_email", "") or ""
+    s.sb_cand_busy = True
+    s.sb_cand_err = ""
+    rf()
+
+    def _run():
+        try:
+            _client = None
+            if ANTHROPIC_API_KEY:
+                import anthropic as _anth
+                _client = _anth.Anthropic(api_key=ANTHROPIC_API_KEY)
+            for _c in list(s.sb_cands or []):
+                if _c.get("_placed"):
+                    continue
+                _new, _ = _link_candidate_cards([_c], _owner, strict=False)
+                _new = dict(_enrich_candidate_cards(_client, _new)[0],
+                            _placed=True)
+                _st = _sb_step_by_id(s, step_id)
+                if _st is not None:
+                    _st["input"] = _oc.add_candidate(
+                        _st.get("input") or "",
+                        [x for x in s.sb_cands or [] if x.get("_placed")],
+                        _oc.candidate_block([_new], bullets=s.sb_cand_bullets))
+                s.sb_cands = [_new if x is _c else x for x in s.sb_cands or []]
+        except Exception as _ex:
+            print(f"[own] candidates into email failed: "
+                  f"{type(_ex).__name__}: {_ex}", flush=True)
+            s.sb_cand_err = _friendly_ai_error(_ex)
+        finally:
+            s.sb_cand_busy = False
+    _run_as_user(_owner, _run, name="own_cands_into_email")
+
+    async def _poll():
+        while s.sb_cand_busy:
+            await asyncio.sleep(1)
+        rf()
+    asyncio.ensure_future(_poll())
+
+
 def _render_sb_cands(s: AppState, rf, step_id: str = ""):
     """Candidates for this campaign: one button to add them from the
     Pipeline, and a choice of a 3-bullet summary under each. On a step
-    page (`step_id`) the first one added is also given a spot in that
-    email. Draws inside whatever card the caller has open."""
+    page (`step_id`) "Add Candidates" writes each one's headline and
+    highlights into that email. Draws inside whatever card the caller has
+    open."""
     import ats as _ats
     import own_campaign as _oc
     _owner = getattr(s, "_user_email", "") or ""
@@ -32958,14 +33065,20 @@ def _render_sb_cands(s: AppState, rf, step_id: str = ""):
         s.sb_cand_tab = _tabs[0][0]
     _cards = s.sb_cands or []
     _step = _sb_step_by_id(s, step_id) if step_id else None
+    _pending = [c for c in _cards if not c.get("_placed")] if step_id else []
 
     def _place():
-        """Give the candidates a spot in this email if no email has one."""
-        _st = _sb_step_by_id(s, step_id) if step_id else None
-        if (_st is not None and s.sb_cands
-                and not _oc.uses_candidates(s.sb_steps)):
-            _st["input"] = ((_st.get("input") or "").rstrip() + "\n\n"
-                            + _oc.CANDIDATES_TOKEN).lstrip()
+        """A résumé or a typed-in candidate goes straight into the email;
+        Pipeline picks wait for Add Candidates."""
+        if step_id:
+            _sb_cands_into_email(s, rf, step_id)
+
+    if (_step is not None and not _cards
+            and _oc.CANDIDATES_TOKEN in (_step.get("input") or "")):
+        ui.label(
+            "This email has a spot for candidates, where it says "
+            "{Candidates}. Add them and they're written in there."
+        ).style(f"font-size:11px;color:{C['text']};margin-bottom:8px;")
 
     for _ci, _c in enumerate(_cards):
         with ui.element("div").style(
@@ -32983,48 +33096,79 @@ def _render_sb_cands(s: AppState, rf, step_id: str = ""):
                             f"font-size:11px;color:{C['muted']};"
                             f"line-height:1.5;")
             def _rm(i=_ci):
+                _gone = (s.sb_cands or [])[i]
                 s.sb_cands = [c for j, c in enumerate(s.sb_cands or []) if j != i]
+                if step_id:
+                    # Out of the list is out of the emails too.
+                    for _x in s.sb_steps or []:
+                        _x["input"] = _oc.drop_candidate(
+                            _x.get("input") or "", _gone)
                 rf()
             with ui.element("button").classes("fd-gb").style(
                     "padding:3px 10px;font-size:11px;").on("click", _rm):
                 ui.label("Remove").style("pointer-events:none;")
 
-    if _cards and _step is not None:
-        _here = _oc.CANDIDATES_TOKEN in (_step.get("input") or "")
+    if s.sb_cand_busy and step_id and s.sb_cand_tab != "resume":
+        with ui.element("div").props('id="sb-cand-busy"').style(
+                "display:flex;align-items:center;gap:8px;margin:4px 0 8px;"):
+            ui.spinner("dots", size="20px", color=C["teal"])
+            ui.label("Writing their highlights into your email…").style(
+                f"font-size:11px;color:{C['teal']};")
+    elif _cards and _step is not None and not s.sb_cand_open:
+        _placed = [c for c in _cards if c.get("_placed")]
+        _here = _oc.has_candidates(_step.get("input") or "", _placed)
         _where = [n for n, x in zip(_oc.step_names(s.sb_steps), s.sb_steps)
                   if x is not _step
-                  and _oc.CANDIDATES_TOKEN in (x.get("input") or "")]
-        with ui.element("div").style(
+                  and _oc.has_candidates(x.get("input") or "", _placed)]
+        with ui.element("div").props('id="sb-cand-where"').style(
                 "display:flex;gap:8px;align-items:center;flex-wrap:wrap;"
                 "margin:4px 0 8px;"):
-            if _here:
+            if _pending:
                 ui.label(
-                    "They're listed in this email where it says "
-                    "{Candidates}. Move that line to wherever you want "
-                    "them."
+                    "Not in an email yet: " + ", ".join(
+                        c.get("name") or c.get("label") or "Candidate"
+                        for c in _pending) + "."
+                ).style(f"font-size:11px;color:{C['warn']};")
+                with ui.element("button").classes("fd-gb").style(
+                        "padding:3px 10px;font-size:11px;").on(
+                        "click", lambda: _sb_cands_into_email(s, rf, step_id)):
+                    ui.label("Write them into this email").style(
+                        "pointer-events:none;")
+            elif _here:
+                ui.label(
+                    "They're written into your email below: a headline and "
+                    "highlights for each. Change the wording, or move them "
+                    "wherever you like."
                 ).style(f"font-size:11px;color:{C['text']};")
             else:
                 ui.label(
-                    f"They're listed in {' and '.join(_where)}." if _where
+                    f"They're in {' and '.join(_where)}." if _where
                     else "They aren't in any email yet."
                 ).style(f"font-size:11px;"
                         f"color:{C['text'] if _where else C['warn']};")
                 def _list_here():
-                    _step["input"] = (
-                        (_step.get("input") or "").rstrip() + "\n\n"
-                        + _oc.CANDIDATES_TOKEN).lstrip()
+                    _step["input"] = _oc.place_candidates(
+                        _step.get("input") or "",
+                        _oc.candidate_block(_placed, bullets=s.sb_cand_bullets))
                     rf()
                 with ui.element("button").classes("fd-gb").style(
                         "padding:3px 10px;font-size:11px;"
                         ).on("click", _list_here):
-                    ui.label("List them in this email too" if _where
-                             else "List them in this email").style(
+                    ui.label("Put them in this email too" if _where
+                             else "Put them in this email").style(
                         "pointer-events:none;")
 
     if _cards or s.sb_cand_open:
         _bul = bool(s.sb_cand_bullets)
         def _toggle_bul():
             s.sb_cand_bullets = not s.sb_cand_bullets
+            if step_id:
+                # Redo each candidate already written into an email.
+                for _x in s.sb_steps or []:
+                    for _c in s.sb_cands or []:
+                        _x["input"] = _oc.swap_candidate(
+                            _x.get("input") or "", _c, _oc.candidate_block(
+                                [_c], bullets=s.sb_cand_bullets))
             rf()
         with ui.element("div").props('id="sb-cand-bullets"').style(
                 "display:flex;align-items:center;gap:10px;cursor:pointer;"
@@ -33040,7 +33184,7 @@ def _render_sb_cands(s: AppState, rf, step_id: str = ""):
                     f"font-size:12px;font-weight:600;color:{C['text_l']};")
                 ui.label(
                     "Three short highlights go under each name. DripDrop "
-                    "writes them from each person's résumé when you save."
+                    "writes them from each person's résumé."
                     if _bul else
                     "Each candidate is listed by name and title only."
                 ).style(f"font-size:11px;color:{C['muted']};")
@@ -33085,11 +33229,19 @@ def _render_sb_cands(s: AppState, rf, step_id: str = ""):
             def _done():
                 s.sb_cand_open = False
                 s.sb_cand_err = ""
-                rf()
-            with ui.element("button").classes("fd-gb").style(
-                    "padding:4px 14px;font-size:11px;margin-left:auto;"
+                # On a step page this is where the people picked get
+                # written into the email.
+                if step_id and any(not c.get("_placed")
+                                   for c in s.sb_cands or []):
+                    _sb_cands_into_email(s, rf, step_id)
+                else:
+                    rf()
+            with ui.element("button").classes(
+                    "fd-pb" if _pending else "fd-gb").props(
+                    'id="sb-cand-done"').style(
+                    "padding:5px 16px;font-size:12px;margin-left:auto;"
                     ).on("click", _done):
-                ui.label("Done").style("pointer-events:none;")
+                ui.label("Add Candidates").style("pointer-events:none;")
 
         if s.sb_cand_err:
             ui.label(f"⚠ {s.sb_cand_err}").style(
@@ -33097,8 +33249,8 @@ def _render_sb_cands(s: AppState, rf, step_id: str = ""):
 
         if s.sb_cand_tab == "pipeline":
             ui.label(
-                "Search your Pipeline, then click a person to add them. Up "
-                f"to {_OWN_MAX_CANDS}."
+                "Search your Pipeline and click each person you want, up "
+                f"to {_OWN_MAX_CANDS}. Then click Add Candidates."
             ).style(f"font-size:11px;color:{C['muted']};margin-bottom:8px;")
             with ui.element("div").style("display:flex;gap:8px;margin-bottom:10px;"):
                 _q_in = ui.input(value=s.sb_cand_q,
@@ -33141,7 +33293,6 @@ def _render_sb_cands(s: AppState, rf, step_id: str = ""):
                                     "bullets": _pool_card_bullets_no_location(
                                         {"summary": h.get("summary") or ""}),
                                     "_ats_id": h.get("id"), "_src": "pipeline"}):
-                                _place()
                                 rf()
                         with ui.element("button").style(
                                 f"padding:10px;text-align:left;cursor:pointer;font-family:inherit;"
@@ -33161,7 +33312,7 @@ def _render_sb_cands(s: AppState, rf, step_id: str = ""):
             ui.label(
                 "PDF or Word. AI reads it, writes 3 highlights and leaves out "
                 "their contact details and current employer. They're added to "
-                "your Pipeline when the campaign is built."
+                "your Pipeline too."
             ).style(f"font-size:11px;color:{C['muted']};margin-bottom:8px;")
             if s.sb_cand_busy:
                 with ui.element("div").style("display:flex;align-items:center;gap:8px;"):
@@ -33394,11 +33545,13 @@ def _sb_start_detect(s: AppState, rf) -> None:
     s.sb_find_err = False
     s.sb_found_key = _key
     s.sb_found = []
-    _snap = [dict(st) for st in s.sb_steps or []]
+    import own_campaign as _oc
+    # Candidates written into an email are not about the client; scan the
+    # steps as they will be saved, with {Candidates} in their place.
+    _snap = _oc.lift_steps(s.sb_steps, s.sb_cands)
 
     def _run():
         try:
-            import own_campaign as _oc
             try:
                 _hits = _own_detect_fillins(_snap)
             except Exception as _ex:
@@ -33599,7 +33752,10 @@ def _render_sb_step3_save(s: AppState, rf):
         _last = {f["name"]: f["text"] for f in reversed(_picked)}
         _last.update({k: v for k, v in _vals.items() if v})
         _style_id = _own_save_style(
-            _name, _oc.apply_detected(s.sb_steps, _picked), s.sb_tone,
+            # Saved with {Candidates} where these candidates are written, so
+            # each reuse picks its own.
+            _name, _oc.apply_detected(
+                _oc.lift_steps(s.sb_steps, s.sb_cands), _picked), s.sb_tone,
             values=_last, replace_id=s.sb_edit_style_id,
             cand_bullets=s.sb_cand_bullets)
         if not go:
