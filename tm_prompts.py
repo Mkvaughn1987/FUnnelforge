@@ -1127,6 +1127,147 @@ VERTICAL_LABELS = [v["label"] for v in VERTICALS]
 DEFAULT_VERTICAL = VERTICALS[0]["label"]
 
 
+# Sales Assets form (Mike 2026-11-05): the Industry and Jobs drop-downs. One
+# row per vertical above, in the same order: (vertical key, the industry name
+# shown in the drop-down and printed on the PDF, other names that mean the
+# same industry, the job titles offered for it). The name reads as an
+# industry ("a Home Care business"), which a market label such as "Home care
+# agencies" does not. Titles are remote-capable office work only, and for the
+# verticals the app already prices they lead with the Staffing Cost
+# Comparison's own roles so that PDF's five rows do not change.
+INDUSTRY_JOBS = [
+    ("logistics", "Logistics and 3PL",
+     ("logistics", "3pl", "logistics and supply chain", "trucking",
+      "transportation", "freight brokerage", "supply chain"),
+     ["Track and Trace Specialist", "Dispatcher",
+      "Customer Service Representative", "Freight Billing Specialist",
+      "Accounts Receivable Specialist", "Data Entry Specialist",
+      "Carrier Sales Support", "Load Planner", "Documentation Specialist"]),
+    ("freight_forwarding", "Freight Forwarding and Customs",
+     ("freight forwarding", "customs brokerage", "freight forwarder",
+      "customs"),
+     ["Shipment Coordinator", "Import Coordinator", "Export Coordinator",
+      "Documentation Specialist", "Customs Entry Writer",
+      "Freight Billing Specialist", "Customer Service Representative",
+      "Data Entry Specialist"]),
+    ("accounting", "Accounting and Bookkeeping",
+     ("accounting", "accounting and finance", "bookkeeping", "cpa firm",
+      "cpa firms", "accounting firm", "accounting firms"),
+     ["Staff Accountant", "Bookkeeper", "Payroll Specialist", "Tax Preparer",
+      "Billing Specialist", "Accounts Payable Specialist",
+      "Accounts Receivable Specialist", "Audit Support Specialist",
+      "Collections Specialist"]),
+    ("property_management", "Property Management",
+     ("real estate", "commercial real estate",
+      "property management and real estate"),
+     ["Leasing Coordinator", "Property Accountant",
+      "Accounts Payable Specialist", "Customer Service Representative",
+      "Marketing Coordinator", "Data Entry Specialist",
+      "Maintenance Coordinator", "Tenant Services Representative",
+      "Transaction Coordinator"]),
+    ("healthcare_admin", "Healthcare Administration",
+     ("healthcare", "health care", "medical", "revenue cycle",
+      "medical billing", "healthcare administration and revenue cycle"),
+     ["Medical Biller", "Medical Coder", "Insurance Verification Specialist",
+      "Patient Scheduler", "Credentialing Specialist",
+      "Customer Service Representative", "Prior Authorization Specialist",
+      "Claims Follow Up Specialist", "Front Office Support Specialist"]),
+    ("home_care", "Home Care",
+     ("home health", "senior care", "home care agency",
+      "home care and senior care"),
+     ["Care Scheduler", "Recruiting Coordinator", "Intake Coordinator",
+      "Payroll Specialist", "Billing Specialist",
+      "Customer Service Representative", "Onboarding Specialist",
+      "Caregiver Sourcer"]),
+    ("general", "General Back Office",
+     ("back office", "general offshore support"),
+     ["Administrative Assistant", "Bookkeeper",
+      "Customer Service Representative", "Executive Assistant",
+      "Data Entry Specialist", "Accounts Payable Specialist",
+      "Accounts Receivable Specialist", "Order Entry Specialist",
+      "Marketing Coordinator"]),
+    ("construction_aec", "Construction and Engineering",
+     ("construction", "architecture", "engineering", "aec",
+      "general contractor", "construction, architecture and engineering"),
+     ["Project Coordinator", "Estimator", "CAD and BIM Drafter",
+      "Project Accountant", "Accounts Payable Specialist",
+      "Administrative Assistant", "Estimating Assistant",
+      "Document Controller"]),
+    ("manufacturing", "Manufacturing",
+     ("manufacturer", "industrial manufacturing"),
+     ["Order Entry Specialist", "Customer Service Representative",
+      "Purchasing Assistant", "Production Scheduler", "CAD Drafter",
+      "Quoting Specialist", "Accounts Payable Specialist",
+      "Data Entry Specialist"]),
+    ("agencies", "Marketing Agency",
+     ("marketing", "marketing and creative", "advertising",
+      "advertising agency", "digital agency", "creative agency"),
+     ["Account Coordinator", "Campaign Reporting Analyst",
+      "Ad Operations Specialist", "Graphic Designer",
+      "Social Media Coordinator", "Content Coordinator", "Bookkeeper"]),
+    ("travel", "Travel and Tour Operators",
+     ("travel", "travel agency", "tour operator", "tourism"),
+     ["Travel Booking Specialist", "Reservations Agent",
+      "Itinerary Coordinator", "Supplier Coordinator",
+      "Traveler Support Representative", "Billing Specialist"]),
+    ("ecommerce", "E-commerce",
+     ("ecommerce", "e commerce", "online retail"),
+     ["Customer Service Representative", "Order Processing Specialist",
+      "Returns Specialist", "Catalog Data Entry Specialist",
+      "Marketplace Listing Specialist", "Bookkeeper"]),
+    ("home_services", "HVAC and Home Services",
+     ("home services", "hvac", "plumbing", "hvac and plumbing"),
+     ["Dispatcher", "Customer Service Representative", "Appointment Setter",
+      "Billing Specialist", "Permit Coordinator", "Bookkeeper",
+      "Administrative Assistant"]),
+    ("distributors", "Wholesale Distribution",
+     ("distribution", "wholesale", "wholesale distributor", "distributor"),
+     ["Order Entry Specialist", "Inside Sales Support Representative",
+      "Purchasing Assistant", "Accounts Receivable Specialist",
+      "Inventory Data Specialist", "Customer Service Representative",
+      "Accounts Payable Specialist"]),
+    ("professional_services", "Professional Services",
+     ("legal", "law firm", "law firms", "consulting",
+      "professional services firm"),
+     ["Intake Coordinator", "Legal Assistant", "Paralegal",
+      "Executive Assistant", "Billing Specialist", "Scheduling Coordinator",
+      "Document Preparation Specialist", "Research Assistant"]),
+]
+INDUSTRY_NAMES = [_n for _k, _n, _a, _j in INDUSTRY_JOBS]
+assert [_k for _k, _n, _a, _j in INDUSTRY_JOBS] == [v["key"] for v in VERTICALS]
+
+
+def _industry_norm(text):
+    """Lower-case words only, with & read as "and", so "Logistics & Supply
+    Chain" and "logistics and supply chain" compare equal."""
+    return " ".join(re.sub(r"[^a-z0-9]+", " ",
+                           str(text or "").lower().replace("&", " and ")
+                           ).split())
+
+
+def industry_pick(text):
+    """The drop-down industry a free-text industry means, or "" when it is
+    not one of them. Whole-name matches only (the name, the vertical's market
+    label, its key, or an alias): "Healthcare Construction" is neither
+    Healthcare nor Construction, and stays the user's own words."""
+    want = _industry_norm(text)
+    if not want:
+        return ""
+    for (key, name, aliases, _jobs), v in zip(INDUSTRY_JOBS, VERTICALS):
+        names = {_industry_norm(name), _industry_norm(v["label"]),
+                 _industry_norm(key.replace("_", " "))}
+        names.update(_industry_norm(a) for a in aliases)
+        if want in names:
+            return name
+    return ""
+
+
+def industry_jobs(text):
+    """Job titles offered for an industry; [] when it is not on the list."""
+    name = industry_pick(text)
+    return next((list(j) for _k, n, _a, j in INDUSTRY_JOBS if n == name), [])
+
+
 def vertical_for(label):
     """The row for a picked label, tolerating a key or a loose match, and
     the first row when nothing matches."""

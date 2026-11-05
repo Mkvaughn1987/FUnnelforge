@@ -21148,6 +21148,8 @@ input:focus::placeholder,textarea:focus::placeholder{{color:transparent !importa
 }}
 .fd-input .q-chip__icon--remove:hover,
 .fd-input .q-chip__icon-remove:hover{{opacity:1}}
+/* Sales Assets Jobs drop-down: room between the chosen-job chips. */
+.fd-jobs .q-chip{{margin:3px 6px 3px 0;padding:0 6px 0 10px}}
 .fd-textarea{{width:100%;min-height:200px;background:{C['surface']};border:1px solid {C['border']};border-radius:6px;padding:12px;font-size:13px;color:{C['text_l']};font-family:'DM Sans','Segoe UI',sans-serif;line-height:1.7;resize:none}}
 .fd-textarea:focus{{border-color:{C['teal']}}}
 .fd-toolbar{{display:flex;gap:4px;padding:8px 0;border-bottom:1px solid {C['border']};margin-bottom:12px}}
@@ -23076,13 +23078,14 @@ if _SALES_MODE:
         "Salary Guide, Cost and ROI One-Pager, and more."
     )
     _pdf_help["next_action"] = (
-        "Enter a company or market, a location, and the roles or teams it "
-        "concerns, then pick the documents you want."
+        "Pick the documents you want, then choose an industry and the "
+        "jobs it concerns. Add a company to make them specific to it."
     )
     _pdf_sales_help = {
         "How to Use": (
-            "1. Enter a company name or market, location, and the roles or "
-            "teams the document concerns.\n2. Pick up to 3 document types.\n"
+            "1. Pick up to 3 document types.\n2. Choose an industry and "
+            "its jobs from the drop-downs, or add your own. A company is "
+            "optional.\n"
             "3. 'View PDF' to open.\n4. 'Clear / New PDF' to start another."
         ),
         "PDF Types": (
@@ -45722,6 +45725,12 @@ _TM_SOC_KEYWORDS = (
     ("freight", "435011"), ("logistics coordinator", "131081"),
     ("logistician", "131081"), ("procurement", "131023"),
     ("purchasing", "131023"), ("hr", "131071"), ("human resources", "131071"),
+    # Sales Assets drop-down titles that the shorter keywords above price as
+    # the wrong occupation ("scheduler" is the medical-office row), or that
+    # nothing above reaches.
+    ("production scheduler", "435061"), ("scheduling coordinator", "436014"),
+    ("paralegal", "232011"), ("legal assistant", "232011"),
+    ("reservations agent", "434181"), ("travel booking", "413041"),
 )
 
 
@@ -46217,6 +46226,11 @@ def _tm_cost_roles(role: str, industry: str, company: str) -> list:
             if _is_thrivemodal() else _TM_VERTICAL_GENERAL)
     pool = _TM_VERTICAL_COST_ROLES.get(
         vert, _TM_VERTICAL_COST_ROLES[_TM_VERTICAL_GENERAL])
+    if _is_thrivemodal():
+        # An industry picked from the Sales Assets drop-down brings its own
+        # job list, so an HVAC comparison is not padded with freight roles
+        # because its first job is a Dispatcher.
+        pool = _pdf_industry_jobs(industry) or pool
     if _is_thrivemodal() and _tm_is_staffing_buyer(industry, company):
         pool = _TM_STAFFING_COST_ROLES
     out, seen = [], set()
@@ -55975,7 +55989,7 @@ def _render_custom_pdf_modal(s: AppState, rf):
                     rf()
                     # Kick off outline generation in background
                     _config_path = Path(str(_user_config_path()))
-                    _company = s._pdf_company
+                    _company = s._pdf_company or s._pdf_industry
                     _role = s._pdf_role
                     _location = s._pdf_location
                     _industry = s._pdf_industry
@@ -56138,7 +56152,7 @@ def _render_custom_pdf_modal(s: AppState, rf):
                             _prompt_snapshot = s._pdf_custom_prompt
                             _pdf_dir = Path(str(_user_pdf_dir()))
                             _config_path = Path(str(_user_config_path()))
-                            _company = s._pdf_company
+                            _company = s._pdf_company or s._pdf_industry
                             _role = s._pdf_role
                             _location = s._pdf_location
                             _industry_fill = s._pdf_industry
@@ -56964,6 +56978,76 @@ def _pdf_toggle_role_text(text, title) -> str:
     return ", ".join(cur)
 
 
+# Sales Assets on ThriveModal: Industry and Jobs are drop-downs fed by
+# tm_prompts.INDUSTRY_JOBS (the playbook's verticals and the titles each is
+# sold on). "Other" opens a text box for an industry that is not listed.
+_PDF_INDUSTRY_OTHER = "Other (type your own)"
+
+
+def _pdf_industry_names() -> list:
+    """The Industry drop-down, most-sold first."""
+    import tm_prompts as _tmp
+    return list(_tmp.INDUSTRY_NAMES)
+
+
+def _pdf_industry_pick(text) -> str:
+    """The drop-down industry a free-text industry means, or ""."""
+    import tm_prompts as _tmp
+    return _tmp.industry_pick(text)
+
+
+def _pdf_industry_jobs(text) -> list:
+    """The job titles listed for a drop-down industry; [] for any other."""
+    import tm_prompts as _tmp
+    return _tmp.industry_jobs(text)
+
+
+def _pdf_offered_jobs(industry) -> list:
+    """What the Jobs drop-down offers: the industry's own titles, or the
+    general back-office ones for an industry that is not on the list (or
+    not picked yet), since every business has those seats."""
+    return _pdf_industry_jobs(industry) or _pdf_industry_jobs("general")
+
+
+def _pdf_job_choices(industry, role_text) -> tuple:
+    """(options, selected) for the Jobs drop-down. Options are the
+    industry's titles followed by anything already chosen that is not among
+    them (a job typed by hand, or one Autofill found). Selected keeps the
+    order the jobs were picked in, spelled as the option is, so every
+    selected value is one of the options."""
+    offered = _pdf_offered_jobs(industry)
+    by_low = {t.lower(): t for t in offered}
+    selected = []
+    for t in _pdf_role_titles(role_text):
+        t = by_low.get(t.lower(), t)
+        if t.lower() not in (x.lower() for x in selected):
+            selected.append(t)
+    return offered + [t for t in selected if t.lower() not in by_low], selected
+
+
+def _pdf_merge_roles(selected, typed="") -> str:
+    """The Target Role text for the ticked jobs plus anything typed into
+    "add your own job": comma-joined, no blanks, no repeats."""
+    out = []
+    for t in ([str(x or "") for x in (selected or [])]
+              + _pdf_role_titles(typed)):
+        t = t.strip()
+        if t and t.lower() not in (x.lower() for x in out):
+            out.append(t)
+    return ", ".join(out)
+
+
+def _pdf_switch_industry_roles(role_text, old_industry, new_industry) -> str:
+    """The chosen jobs after the Industry drop-down changes: titles that
+    came from the old industry's list and are not on the new one are
+    dropped, so Accounting does not inherit a Dispatcher. Jobs the user
+    added by hand stay."""
+    old = {t.lower() for t in _pdf_offered_jobs(old_industry)}
+    new = {t.lower() for t in _pdf_offered_jobs(new_industry)}
+    return ", ".join(t for t in _pdf_role_titles(role_text)
+                     if t.lower() not in old or t.lower() in new)
+
+
 def _pdf_autofill_fields(current: dict, data: dict, picks) -> dict:
     """What the Sales Assets Autofill writes into the form: only fields
     left blank, so nothing the user typed is overwritten. The one
@@ -57074,6 +57158,8 @@ def _ensure_pdf_state(s):
         ("_pdf_industry", ""), ("_pdf_website", ""), ("_pdf_exp_level", ""),
         ("_pdf_generating", False), ("_pdf_result", ""),
         ("_pdf_af_running", False), ("_pdf_af_err", ""),
+        # Industry drop-down left on "Other" with nothing typed yet.
+        ("_pdf_industry_other", False),
     ):
         if not hasattr(s, _attr):
             setattr(s, _attr, _default)
@@ -57121,7 +57207,10 @@ def p_pdf_gen(s: AppState, rf):
         if _has_any:
             # Company-or-Market input field: in company mode this is the
             # company name; in market mode it's the niche. The two never mix.
-            s._pdf_company  = _eff["company"] if _eff["mode"] == "company" else _eff["niche"]
+            # ThriveModal has an Industry drop-down for the market, so its
+            # Company box stays blank there.
+            s._pdf_company  = (_eff["company"] if _eff["mode"] == "company"
+                               else "" if _is_thrivemodal() else _eff["niche"])
             # Use ALL selected positions (comma-joined) so PDFs cover everything
             # the user is hiring for, not just the first role.
             s._pdf_role     = ", ".join(r.strip() for r in _eff["roles"] if r and r.strip())
@@ -57157,6 +57246,7 @@ def p_pdf_gen(s: AppState, rf):
         s._pdf_company = ""; s._pdf_role = ""
         s._pdf_location = _tm_default_location()
         s._pdf_industry = ""; s._pdf_website = ""; s._pdf_exp_level = ""
+        s._pdf_industry_other = False
         s._pdf_tm_cost = {}
         s._pdf_open_roles = []; s._pdf_af_picks = []; s._pdf_af_err = ""
         s._pdf_result = ""; s._pdf_generating = False
@@ -57426,21 +57516,37 @@ def p_pdf_gen(s: AppState, rf):
                 ui.label("← Pick different PDFs")
 
     # Input form (now in stage 2 only)
+    # ThriveModal (Mike 2026-11-05): Industry and Jobs are drop-downs of the
+    # industries and job titles the playbook already sells, each with a way
+    # to add your own, and the company is optional (no company = written for
+    # the industry). Other workspaces keep the typed Company or Market and
+    # Target Role boxes.
+    _role_word = "Jobs" if _pdf_tm else "Target Role"
+    _hint = (f"font-size:11px;color:{C['muted']};display:block;"
+             f"line-height:1.4;")
+    pdf_ind_other = None    # ThriveModal: the "Other" industry text box
+    pdf_job_new = None      # ThriveModal: the "add your own job" text box
     with ui.element("div").style("max-width:700px;"):
         # Required fields
         with ui.element("div").style("display:flex;align-items:center;gap:6px;margin-bottom:8px;"):
             ui.label("Required").style(
                 f"font-size:10px;font-weight:700;color:{C['teal']};text-transform:uppercase;letter-spacing:.06em;")
-        with ui.element("div").style("display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:10px;"):
-            with ui.element("div"):
-                ui.label("Company or Market *").classes("fd-fl")
-                pdf_co = ui.input(value=s._pdf_company, placeholder="Company name or market niche").classes("fd-input")
-            with ui.element("div"):
-                ui.label("Location *").classes("fd-fl")
-                pdf_loc = ui.input(
-                    value=s._pdf_location,
-                    placeholder=(_TM_NATIONWIDE if _tm_nationwide() else "City, State"),
-                ).classes("fd-input")
+
+        def _read_industry():
+            if not _pdf_tm:
+                return pdf_industry.value
+            if pdf_industry.value == _PDF_INDUSTRY_OTHER:
+                return pdf_ind_other.value if pdf_ind_other is not None else ""
+            return pdf_industry.value
+
+        def _read_role():
+            if not _pdf_tm:
+                return pdf_role.value
+            # The ticked jobs in the order they were ticked, then anything
+            # typed into "add your own job" and not added yet.
+            return _pdf_merge_roles(
+                pdf_role.value,
+                pdf_job_new.value if pdf_job_new is not None else "")
 
         def _commit_pdf_form():
             """Copy what is typed into state, so a re-render keeps it.
@@ -57449,88 +57555,186 @@ def p_pdf_gen(s: AppState, rf):
             for _get, _k in (
                     (lambda: pdf_co.value, "_pdf_company"),
                     (lambda: pdf_loc.value, "_pdf_location"),
-                    (lambda: pdf_role.value, "_pdf_role"),
-                    (lambda: pdf_industry.value, "_pdf_industry"),
+                    (_read_role, "_pdf_role"),
+                    (_read_industry, "_pdf_industry"),
                     (lambda: pdf_website.value, "_pdf_website"),
                     (lambda: pdf_exp.value, "_pdf_exp_level")):
                 try:
                     setattr(s, _k, (_get() or "").strip())
                 except Exception:
                     pass
+            if _pdf_tm:
+                try:
+                    s._pdf_industry_other = (
+                        pdf_industry.value == _PDF_INDUSTRY_OTHER)
+                except Exception:
+                    pass
+
+        def _pdf_location_box():
+            ui.label("Location *").classes("fd-fl")
+            return ui.input(
+                value=s._pdf_location,
+                placeholder=(_TM_NATIONWIDE if _tm_nationwide() else "City, State"),
+            ).classes("fd-input")
 
         # inboxslide: Autofill with AI, the same one the New Campaign
         # Target details step has. Name or website in, the rest filled.
-        if _SALES_MODE:
-            def _pdf_af_click():
-                _commit_pdf_form()
-                if not ((s._pdf_website or "").strip()
-                        or (s._pdf_company or "").strip()):
-                    ui.notify("Type the company name or paste its website first.",
-                              type="warning")
-                    return
-                if not ANTHROPIC_API_KEY:
-                    ui.notify("Anthropic API key missing  -  see Email & AI Setup.",
-                              type="warning")
-                    return
-                _pdf_ai_autofill(s, rf)
+        def _pdf_autofill_row():
+            if _SALES_MODE:
+                def _pdf_af_click():
+                    _commit_pdf_form()
+                    if not ((s._pdf_website or "").strip()
+                            or (s._pdf_company or "").strip()):
+                        ui.notify("Type the company name or paste its website first.",
+                                  type="warning")
+                        return
+                    if not ANTHROPIC_API_KEY:
+                        ui.notify("Anthropic API key missing  -  see Email & AI Setup.",
+                                  type="warning")
+                        return
+                    _pdf_ai_autofill(s, rf)
 
-            with ui.element("div").style("margin:0 0 14px;"):
-                if s._pdf_af_running:
-                    with ui.element("div").style(
-                            "display:flex;align-items:center;gap:8px;"):
-                        ui.spinner("dots", size="sm")
+                with ui.element("div").style("margin:0 0 14px;"):
+                    if s._pdf_af_running:
+                        with ui.element("div").style(
+                                "display:flex;align-items:center;gap:8px;"):
+                            ui.spinner("dots", size="sm")
+                            ui.label(
+                                "Researching the company: industry, location and "
+                                "the positions they are hiring for…"
+                                if _tm_nationwide() else
+                                "Looking up the company: industry and location…"
+                            ).style(f"font-size:12px;color:{C['muted']};")
+
+                        def _pdf_af_poll():
+                            if not getattr(s, "_pdf_af_running", False):
+                                try: rf()
+                                except Exception: pass
+                        ui.timer(1.5, _pdf_af_poll)
+                    else:
+                        with ui.element("button").classes("fd-pb").style(
+                                "padding:8px 16px;font-size:13px;border-radius:6px;"
+                                f"background:{C['teal']};color:{C['on_teal']};"
+                                f"border:none;font-weight:700;font-family:inherit;"
+                                f"cursor:pointer;"
+                                ).on("click", _pdf_af_click):
+                            ui.label("✨ Autofill with AI").style("pointer-events:none;")
                         ui.label(
-                            "Researching the company: industry, location and "
-                            "the positions they are hiring for…"
-                            if _tm_nationwide() else
-                            "Looking up the company: industry and location…"
-                        ).style(f"font-size:12px;color:{C['muted']};")
+                            ("Have a company in mind? Type its name or paste "
+                             "its website above, then click Autofill to fill "
+                             "in the industry, location"
+                             if _pdf_tm else
+                             "Type the company name above or paste its website "
+                             "below, then click Autofill to fill in the industry, "
+                             "location")
+                            + (" and the positions they are hiring for that fit "
+                               "offshore." if _tm_nationwide() else
+                               " and website.")
+                            + (" Anything you already picked stays as it is."
+                               if _pdf_tm else
+                               " Anything you already typed stays as it is.")
+                        ).style(_hint + "margin-top:6px;")
+                        if s._pdf_af_err:
+                            ui.label(f"⚠ {s._pdf_af_err}").style(
+                                f"font-size:11px;color:{C['warn']};margin-top:4px;"
+                                f"display:block;")
 
-                    def _pdf_af_poll():
-                        if not getattr(s, "_pdf_af_running", False):
-                            try: rf()
-                            except Exception: pass
-                    ui.timer(1.5, _pdf_af_poll)
-                else:
-                    with ui.element("button").classes("fd-pb").style(
-                            "padding:8px 16px;font-size:13px;border-radius:6px;"
-                            f"background:{C['teal']};color:{C['on_teal']};"
-                            f"border:none;font-weight:700;font-family:inherit;"
-                            f"cursor:pointer;"
-                            ).on("click", _pdf_af_click):
-                        ui.label("✨ Autofill with AI").style("pointer-events:none;")
-                    ui.label(
-                        "Type the company name above or paste its website "
-                        "below, then click Autofill to fill in the industry, "
-                        "location"
-                        + (" and the positions they are hiring for that fit "
-                           "offshore." if _tm_nationwide() else
-                           " and website.")
-                        + " Anything you already typed stays as it is."
-                    ).style(f"font-size:11px;color:{C['muted']};"
-                            f"margin-top:6px;display:block;line-height:1.4;")
-                    if s._pdf_af_err:
-                        ui.label(f"⚠ {s._pdf_af_err}").style(
-                            f"font-size:11px;color:{C['warn']};margin-top:4px;"
-                            f"display:block;")
+        if _pdf_tm:
+            # A typed or pre-filled industry that means one on the list
+            # ("Construction") shows as that entry; anything else is Other.
+            _ind_pick = _pdf_industry_pick(s._pdf_industry)
+            if _ind_pick:
+                s._pdf_industry, s._pdf_industry_other = _ind_pick, False
+            elif s._pdf_industry:
+                s._pdf_industry_other = True
 
-        ui.label("Target Role *").classes("fd-fl")
-        pdf_role = ui.input(value=s._pdf_role, placeholder="Superintendent, Project Manager").classes("fd-input").style("margin-bottom:14px;")
+            def _on_industry_pick(_e=None):
+                # A new industry brings its own jobs: the old list's jobs
+                # go, the ones you added yourself stay.
+                _was = s._pdf_industry
+                _commit_pdf_form()
+                s._pdf_role = _pdf_switch_industry_roles(
+                    s._pdf_role, _was, s._pdf_industry)
+                rf()
+
+            with ui.element("div").style("display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:10px;"):
+                with ui.element("div"):
+                    ui.label("Industry *").classes("fd-fl")
+                    pdf_industry = ui.select(
+                        options=_pdf_industry_names() + [_PDF_INDUSTRY_OTHER],
+                        value=(_ind_pick or (_PDF_INDUSTRY_OTHER
+                                             if s._pdf_industry_other else None)),
+                        on_change=_on_industry_pick,
+                    ).classes("fd-input").style("width:100%;")
+                    if not (_ind_pick or s._pdf_industry_other):
+                        pdf_industry.props('display-value="Choose an industry"')
+                with ui.element("div"):
+                    pdf_loc = _pdf_location_box()
+            if s._pdf_industry_other:
+                ui.label("Your industry *").classes("fd-fl")
+                pdf_ind_other = ui.input(
+                    value=s._pdf_industry,
+                    placeholder="Type the industry, e.g. Insurance agencies",
+                ).classes("fd-input").style("margin-bottom:10px;")
+
+            _job_opts, _job_sel = _pdf_job_choices(s._pdf_industry, s._pdf_role)
+            ui.label("Jobs *").classes("fd-fl")
+            pdf_role = ui.select(
+                options=_job_opts, value=_job_sel, multiple=True,
+            ).props("use-chips").classes("fd-input fd-jobs").style("width:100%;")
+            ui.label(
+                "Pick one or more"
+                + (f" of the most common offshore jobs in {s._pdf_industry}."
+                   if _ind_pick else ".")
+                + " The first job you pick sets the wage on the Blueprint "
+                  "and Cost PDFs."
+            ).style(_hint + "margin:6px 0 8px;")
+
+            def _pdf_add_own_job(_e=None):
+                # _read_role folds the typed title in with the ticked ones.
+                if not (pdf_job_new.value or "").strip():
+                    ui.notify("Type a job title to add it.", type="info")
+                    return
+                _commit_pdf_form()
+                rf()
+
+            with ui.element("div").style(
+                    "display:flex;gap:8px;align-items:center;margin-bottom:14px;"):
+                pdf_job_new = ui.input(
+                    placeholder="Job not on the list? Type it here",
+                ).classes("fd-input").style("flex:1;").on(
+                    "keydown.enter", _pdf_add_own_job)
+                with ui.element("button").classes("fd-gb").style(
+                        "padding:8px 14px;font-size:12px;white-space:nowrap;"
+                        ).on("click", _pdf_add_own_job):
+                    ui.label("+ Add job").style("pointer-events:none;")
+        else:
+            with ui.element("div").style("display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:10px;"):
+                with ui.element("div"):
+                    ui.label("Company or Market *").classes("fd-fl")
+                    pdf_co = ui.input(value=s._pdf_company, placeholder="Company name or market niche").classes("fd-input")
+                with ui.element("div"):
+                    pdf_loc = _pdf_location_box()
+
+            _pdf_autofill_row()
+
+            ui.label("Target Role *").classes("fd-fl")
+            pdf_role = ui.input(value=s._pdf_role, placeholder="Superintendent, Project Manager").classes("fd-input").style("margin-bottom:14px;")
 
         # Autofill's findings as chips: click to add a title to Target
-        # Role, click again to take it out.
+        # Role (Jobs on ThriveModal), click again to take it out.
         _chip_src = list(s._pdf_open_roles or []) or list(s._pdf_af_picks or [])
         if _SALES_MODE and _chip_src:
             _on_titles = {t.lower() for t in _pdf_role_titles(s._pdf_role)}
             with ui.element("div").style("margin:-6px 0 14px;"):
                 ui.label(
                     "Positions they are hiring for right now that can be done "
-                    "remotely. Click one to add it to Target Role; the first "
+                    f"remotely. Click one to add it to {_role_word}; the first "
                     "role sets the wage on the Blueprint and Cost PDFs."
                     if s._pdf_open_roles else
                     "No current postings found, so these are the roles they "
                     "would most likely staff offshore. Click one to add it to "
-                    "Target Role."
+                    f"{_role_word}."
                 ).style(f"font-size:10px;color:{C['muted']};margin-bottom:6px;"
                         f"display:block;line-height:1.4;")
                 with ui.element("div").style(
@@ -57562,9 +57766,15 @@ def p_pdf_gen(s: AppState, rf):
                 f"font-size:10px;font-weight:700;color:{C['muted']};text-transform:uppercase;letter-spacing:.06em;")
         with ui.element("div").style("display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:14px;"):
             with ui.element("div"):
-                ui.label("Industry / Vertical").classes("fd-fl")
-                pdf_industry = ui.input(value=s._pdf_industry,
-                    placeholder="e.g. Healthcare Construction").classes("fd-input")
+                if _pdf_tm:
+                    ui.label("Company").classes("fd-fl")
+                    pdf_co = ui.input(
+                        value=s._pdf_company,
+                        placeholder="Blank = the whole industry").classes("fd-input")
+                else:
+                    ui.label("Industry / Vertical").classes("fd-fl")
+                    pdf_industry = ui.input(value=s._pdf_industry,
+                        placeholder="e.g. Healthcare Construction").classes("fd-input")
             with ui.element("div"):
                 ui.label("Company Website").classes("fd-fl")
                 pdf_website = ui.input(value=s._pdf_website,
@@ -57575,6 +57785,9 @@ def p_pdf_gen(s: AppState, rf):
                     options=["", "Entry (0-3 yrs)", "Mid (3-7 yrs)", "Senior (7-15 yrs)", "Executive (15+)"],
                     value=s._pdf_exp_level,
                 ).classes("fd-input").style("min-width:160px;")
+        if _pdf_tm:
+            # Beside the company it looks up, not above the required fields.
+            _pdf_autofill_row()
 
         # Cost-comparison inputs. Shown only when that asset is selected,
         # because they are meaningless for the other four and a wall of
@@ -57605,30 +57818,34 @@ def p_pdf_gen(s: AppState, rf):
     # implementation only fired the first one because the worker mutates
     # _pdf_generating / _pdf_result globally — running them in parallel
     # would race those flags.
+    def _pdf_form_ready() -> bool:
+        """Save the form to state and say whether the required fields are
+        in. ThriveModal needs an industry, a job and a location; the
+        company is optional there."""
+        _commit_pdf_form()
+        if _pdf_tm:
+            if not (s._pdf_industry and s._pdf_role and s._pdf_location):
+                ui.notify("Pick an industry, at least one job and a location "
+                          "to continue.", type="warning")
+                return False
+            return True
+        if not (s._pdf_company and s._pdf_role and s._pdf_location):
+            ui.notify("Company, Location, and Target Role are required.",
+                      type="warning")
+            return False
+        return True
+
     def _generate_pdf(pid_label_list: list):
         if not pid_label_list:
             return
-        company = pdf_co.value.strip()
-        role = pdf_role.value.strip()
-        location = pdf_loc.value.strip()
-        if not company or not role or not location:
-            ui.notify("Company, Location, and Target Role are required.", type="warning")
+        if not _pdf_form_ready():
             return
-        s._pdf_company = company
-        s._pdf_role = role
-        s._pdf_location = location
-        try:
-            s._pdf_industry = pdf_industry.value.strip()
-        except Exception:
-            s._pdf_industry = ""
-        try:
-            s._pdf_website = pdf_website.value.strip()
-        except Exception:
-            s._pdf_website = ""
-        try:
-            s._pdf_exp_level = pdf_exp.value or ""
-        except Exception:
-            s._pdf_exp_level = ""
+        # ThriveModal with no company: the PDFs are written for the
+        # industry, the way a market campaign's are.
+        _market_only = bool(_pdf_tm and not s._pdf_company)
+        company = s._pdf_company or s._pdf_industry
+        role = s._pdf_role
+        location = s._pdf_location
         # Captured verbatim. Validation happens in _tm_cost_worksheet, which
         # treats anything it cannot read as missing rather than coercing it.
         # Starts empty: a figure left over from an older form must not
@@ -57705,7 +57922,9 @@ def p_pdf_gen(s: AppState, rf):
             if s._pdf_deep_research:
                 try:
                     research_prompt = (
-                        f'Research "{company}" in {location or "their primary market"}.\n\n'
+                        (f'Research the {company} industry in {location or "the United States"}.\n\n'
+                         if _market_only else
+                         f'Research "{company}" in {location or "their primary market"}.\n\n')
                         + (f'Additional context: {_extra_context}\n\n' if _extra_context else '')
                         + (f'Check their website at {_website} for project details and open positions.\n\n' if _website else '')
                         + (f'Find:\n'
@@ -57760,6 +57979,7 @@ def p_pdf_gen(s: AppState, rf):
                 "positions": role,
                 "location": location,
                 "exp_level": _exp_level,
+                "market_only": _market_only,
                 "tm_cost_inputs": {k: _tm_cost_raw.get(k, "")
                                    for k, _l, _b in _TM_COST_INPUTS},
                 "tm_seats": _tm_cost_raw.get("seats", 1),
@@ -57843,18 +58063,8 @@ def p_pdf_gen(s: AppState, rf):
         if s._pdf_custom_intent:
             # Route into the existing Create-Your-Own gallery modal flow,
             # using the form values we just collected.
-            if not pdf_co.value.strip() or not pdf_role.value.strip() or not pdf_loc.value.strip():
-                ui.notify("Fill in Company, Location, and Target Role first.", type="warning")
+            if not _pdf_form_ready():
                 return
-            s._pdf_company  = pdf_co.value.strip()
-            s._pdf_role     = pdf_role.value.strip()
-            s._pdf_location = pdf_loc.value.strip()
-            try: s._pdf_industry = pdf_industry.value.strip()
-            except Exception: s._pdf_industry = ""
-            try: s._pdf_website = pdf_website.value.strip()
-            except Exception: s._pdf_website = ""
-            try: s._pdf_exp_level = pdf_exp.value or ""
-            except Exception: s._pdf_exp_level = ""
             s._pdf_custom_stage = "gallery"
             s._pdf_custom_outline = None
             s._pdf_custom_previewing = False
