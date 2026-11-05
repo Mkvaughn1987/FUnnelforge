@@ -15677,7 +15677,8 @@ def _tm_analytics_sources():
 # rendered before this file changed.
 _TM_NAV_PAGES = {"analytics": "tm_analytics",
                  "ai_prompt": "tm_prompts", "saved_prompts": "tm_saved_prompts",
-                 "signals": "tm_signals", "targets": "tm_targets"}
+                 "signals": "tm_signals", "targets": "tm_targets",
+                 "testimonials": "tm_testimonials"}
 
 
 def _tm_nav_page_key(row_key, page_key):
@@ -21987,6 +21988,7 @@ SIDEBAR_NAV = [
         ("saved_prompts", "Saved Prompts",   None),   # ThriveModal only: _tm_nav_page_key
         ("signals",      "Buying Signals",   None),   # ThriveModal only: _tm_nav_page_key
         ("targets",      "Target List",      None),   # ThriveModal only: _tm_nav_page_key
+        ("testimonials", "Testimonials",     None),   # ThriveModal only: _tm_nav_page_key
     ]),
     ("CRM", [
         ("companies",  "Companies",          "companies"),   # sales_pages.p_companies (Table | Board)
@@ -22037,7 +22039,7 @@ SIDEBAR_PAGE_ROW = {
     "evergreen": "campaigns", "evergreen_create": "campaigns", "e_evergreen": "campaigns",
     "newsletters": "newsletters", "pdf_gen": "assets", "tm_prompts": "ai_prompt",
     "tm_saved_prompts": "saved_prompts", "tm_signals": "signals",
-    "tm_targets": "targets",
+    "tm_targets": "targets", "tm_testimonials": "testimonials",
     "ai_settings": "settings", "company_profile": "settings", "team_settings": "settings",
     "signature": "settings", "e_signature": "settings", "timezone": "settings", "dnc": "settings",
     "tm_analytics": "analytics",
@@ -22054,6 +22056,7 @@ SIDEBAR_TITLES = {
     "newsletters": "Newsletters", "pdf_gen": "Sales Assets",
     "tm_prompts": "AI Prompt", "tm_saved_prompts": "Saved Prompts",
     "tm_signals": "Buying News & Signals", "tm_targets": "Target List",
+    "tm_testimonials": "Testimonials",
     "ai_settings": "Email & AI Setup", "company_profile": "Company Profile",
     "team_settings": "Team", "signature": "Signature", "e_signature": "Signature",
     "timezone": "Timezone", "dnc": "Do Not Contact", "admin": "Admin",
@@ -23649,6 +23652,9 @@ _SIDEBAR_ICONS.update({
     # Target List: a target.
     "targets":       '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/>'
                      '<circle cx="12" cy="12" r="1.5"/>',
+    # Testimonials: a speech bubble.
+    "testimonials":  '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>'
+                     '<path d="M8 9h8"/><path d="M8 13h5"/>',
     # How it Works (page header): a question mark in a circle.
     "help":          '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>'
                      '<path d="M12 17h.01"/>',
@@ -23759,6 +23765,7 @@ _PAGE_LANDING = {
     "tm_targets":      (("_tmt_market", ""), ("_tmt_q", ""), ("_tmt_strong", False),
                         ("_tmt_hidden", False), ("_tmt_limit", 60),
                         ("_tmt_scan", None), ("_tmt_role_in", "")),
+    "tm_testimonials": (("_tmr_open", ""), ("_tmr_del", "")),
     "pdf_gen":         (("_pdf_stage", "pick"), ("_pdf_selected", []),
                         ("_pdf_custom_intent", False), ("_pdf_custom_stage", "closed"),
                         ("_pdf_custom_outline", None), ("_pdf_custom_previewing", False),
@@ -73299,6 +73306,15 @@ def render_page(s: AppState, rf):
                     print(f"[Targets] page failed: {_tmt_ex}", flush=True)
                     ui.label(f"Target List is unavailable: {_tmt_ex}").style(
                         f"font-size:14px;color:{C['warn']};padding:20px 0;")
+            elif page == "tm_testimonials" and _is_thrivemodal():
+                # Testimonials: one private survey link per client.
+                try:
+                    import tm_testimonials as _tmr
+                    _tmr.render_page(s, rf)
+                except Exception as _tmr_ex:
+                    print(f"[Testimonials] page failed: {_tmr_ex}", flush=True)
+                    ui.label(f"Testimonials is unavailable: {_tmr_ex}").style(
+                        f"font-size:14px;color:{C['warn']};padding:20px 0;")
             elif page == "tm_custom_campaign" and _is_thrivemodal():
                 # Build a Custom Campaign: the user's own steps, one per
                 # screen. Lazy companion module.
@@ -76528,6 +76544,14 @@ try:
     import ats as _ats_module  # noqa: F401  (registers @ui.page("/ats"))
 except Exception as _ats_imp_ex:
     print(f"[ATS] module import failed (ATS page disabled): {_ats_imp_ex}", flush=True)
+
+# Testimonials' public survey (/review/<token>, no login). Registered here for
+# the same reason as /ats; a failure only disables the public links.
+try:
+    import tm_testimonials as _tmr_module
+    _tmr_module.register_routes()
+except Exception as _tmr_imp_ex:
+    print(f"[Testimonials] public routes disabled: {_tmr_imp_ex}", flush=True)
 
 
 if __name__ in {"__main__", "__mp_main__"}:

@@ -48,7 +48,7 @@ def test_sections_are_home_campaigns_content_crm_performance():
     assert [r[1] for r in rows["CRM"]] == ["Companies", "Contacts", "Clients"]
     assert [r[1] for r in rows["CAMPAIGNS"]] == ["Campaigns", "Newsletters"]
     assert [r[1] for r in rows["CONTENT"]] == ["Sales Assets", "AI Prompt", "Saved Prompts",
-                                               "Buying Signals", "Target List"]
+                                               "Buying Signals", "Target List", "Testimonials"]
 
 
 def test_wired_page_keys_exist_in_router():
