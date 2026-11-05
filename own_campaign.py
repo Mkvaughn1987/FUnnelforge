@@ -250,9 +250,6 @@ def polish_prompt(text: str, step_type: str, tone: str = "") -> str:
 
 MERGE_FIELDS = ("FirstName", "LastName", "Company", "CompanyName", "JobTitle")
 _RESERVED = MERGE_FIELDS + ("Candidates",)
-# Offered as one-click chips while writing. Anything else typed in braces
-# works the same way.
-COMMON_FILLINS = ("Industry", "Competitors", "CurrentClients", "Role", "Location")
 _TOKEN_RE = re.compile(r"\{([A-Za-z][A-Za-z0-9]*)\}")
 _TEXT_FIELDS = ("subject", "input")
 
@@ -446,14 +443,42 @@ def style_fillins(steps, values=None) -> list:
 
 
 def draft_rules() -> str:
-    """Added to the one-step AI draft so a draft stays reusable."""
+    """Added to the one-step AI draft: the user's details as they gave them,
+    nothing made up, no placeholders left to fill."""
     return (
-        "- This campaign is saved and reused for different clients and "
-        "industries. Do not invent an industry, client names, competitor "
-        "names, a role or a city. Where one belongs, use the fill-in: "
-        "{Industry}, {Competitors}, {CurrentClients}, {Role}, {Location}. "
-        "If the user's direction names a specific one, write it as they "
-        "gave it.\n"
+        "- Do not invent an industry, client names, competitor names, a "
+        "role or a city. If the user's direction or the other steps name "
+        "one, write it as they gave it; otherwise word the sentence so it "
+        "reads well without one.\n"
+        "- Leave nothing to fill in later: no [square bracket] placeholders "
+        "and nothing in {braces} except the merge fields above and "
+        "{Candidates}.\n"
         "- If the direction says to pitch or list candidates, put "
         "{Candidates} on its own line where the list goes and do not "
         "describe any candidate yourself.\n")
+
+
+def draft_context(steps, i) -> str:
+    """What the other steps already say, so an AI draft of step i fits in
+    with them."""
+    names, blocks = step_names(steps), []
+    for j, st in enumerate(steps or []):
+        st = st or {}
+        body = (st.get("input") or "").strip()
+        if j == i or not body:
+            continue
+        subject = (st.get("subject") or "").strip()
+        blocks.append(f"[{names[j]}]\n"
+                      + (f"Subject: {subject}\n" if subject else "")
+                      + body[:1500])
+    return "\n\n".join(blocks)
+
+
+def split_subject(text: str) -> tuple:
+    """(subject, body) from a draft that opens with a "Subject:" line;
+    ("", text) when it does not."""
+    text = (text or "").strip()
+    m = re.match(r"Subject:[ \t]*(.+?)[ \t]*\r?\n+", text, re.I)
+    if not m:
+        return "", text
+    return m.group(1).strip(), text[m.end():].strip()

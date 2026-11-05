@@ -6644,11 +6644,20 @@ def _api_create_campaign_blocking(client, spec, owner):
         _given = spec.get("fill_ins") if isinstance(spec.get("fill_ins"), dict) else {}
         _need = _oc.missing_fillins(own_style["steps"], _given)
         if _need:
+            # What each said last time, so the user is asked "keep or
+            # change?" instead of starting from nothing.
+            _was = {f.get("name"): f.get("last") or ""
+                    for f in own_style.get("fillins") or []}
+            _before = "; ".join(f"{n} = {_was[n]}" for n in _need if _was.get(n))
             return {"error": (
                 f"This saved campaign changes per client. Ask the user for "
                 f"each of these and pass them as fill_ins: "
-                f"{', '.join(_need)}. Example: fill_ins="
-                f"{{\"{_need[0]}\": \"...\"}}."), "status": 400}
+                f"{', '.join(_need)}. "
+                + (f"Last time they were: {_before}. Show the user those "
+                   f"and ask if they would like to change any. "
+                   if _before else "") +
+                f"Example: fill_ins={{\"{_need[0]}\": \"...\"}}."),
+                "status": 400}
         _bullets = bool(own_style.get("cand_bullets", True))
         try:
             if cards and _bullets:
@@ -31467,7 +31476,8 @@ def _sb_slot_for_step(steps: list, i: int) -> str:
 
 def _sb_draft_step_content(step_type: str, slot: str, position: int,
                             delay_days: int, user_prompt: str,
-                            tone: str = "consultative") -> str:
+                            tone: str = "consultative", context: str = "",
+                            with_subject: bool = False) -> str:
     """Draft content for a SINGLE step of the "Create a Campaign
     Style" wizard's Step 3 (Ask AI). Unlike _sb_build_prompt (which
     drafts an entire sequence in one call from a fully-assembled step
@@ -31477,12 +31487,25 @@ def _sb_draft_step_content(step_type: str, slot: str, position: int,
     helper pattern as p_seq_builder's whole-sequence generator.
     Returns the drafted text; the caller writes it into the same
     editable box the user can hand-edit or redraft from — never
-    destructive beyond that one explicit click."""
+    destructive beyond that one explicit click.
+    "Full AI draft" calls it with no direction: `context` is what the
+    other steps already say, and `with_subject` asks for a "Subject:"
+    line ahead of the body."""
     import own_campaign as _oc
     _label = _SB_TYPE_LABELS.get(step_type, step_type.title())
     _example = _SB_REFERENCE_EXAMPLES.get(slot, "")
     _user_prompt = (user_prompt or "").strip() or (
-        "Write something reasonable and professional for this step.")
+        "None given. Write a complete, ready-to-use message that suits "
+        "this point in the sequence.")
+    _context_note = (
+        f"THE OTHER STEPS IN THIS CAMPAIGN (fit in with them, pick up the "
+        f"industry, role or city they mention, and do not repeat them):\n"
+        f"{context}\n\n" if (context or "").strip() else "")
+    _email_rule = (
+        "- Email: start with one line \"Subject: <subject line>\", then a "
+        "blank line, then the body copy. No signature block.\n"
+        if with_subject else
+        "- Email: body copy only, no subject line, no signature block.\n")
     _position_note = (
         "This is the first touch in the sequence (Day 0)."
         if position == 0 else
@@ -31496,13 +31519,14 @@ def _sb_draft_step_content(step_type: str, slot: str, position: int,
         f"STEP TYPE: {_label}\n"
         f"{_position_note}\n\n"
         f"USER'S DIRECTION FOR THIS STEP: {_user_prompt}\n\n"
+        f"{_context_note}"
         f"REFERENCE EXAMPLE (match this voice/length/structure, but do "
         f"not copy it verbatim — write fresh content for THIS step "
         f"based on the user's direction above):\n{_example}\n\n"
         f"GUIDELINES:\n"
         f"- Use merge fields {{FirstName}}, {{LastName}}, {{Company}}, "
         f"{{JobTitle}} where appropriate.\n"
-        f"- Email: body copy only, no subject line, no signature block.\n"
+        f"{_email_rule}"
         f"- Call: a short spoken script/talking points.\n"
         f"- LinkedIn: a short connection/outreach message.\n"
         + _oc.draft_rules() +
@@ -31715,6 +31739,8 @@ def _sb_goto(s: AppState, rf, i: int) -> None:
     s.sb_rm_ask = ""
     s.sb_cand_open = False
     s.sb_cand_err = ""
+    for _x in s.sb_steps or []:
+        _x["_full_ask"] = False
     _scroll_content_top()
     rf()
 
@@ -31957,7 +31983,7 @@ def _sb_fix_delays(s: AppState) -> None:
 
 def _render_sb_step_page(s: AppState, rf):
     """One step on the screen at a time: what it is, when it goes out, the
-    words, and the two ways AI can help. Everything typed is kept as it is
+    words, and the three ways AI can help. Everything typed is kept as it is
     typed, so moving between steps never loses it."""
     import own_campaign as _oc
     _steps = s.sb_steps or []
@@ -32075,7 +32101,7 @@ def _render_sb_step_page(s: AppState, rf):
 
         _sb_section(
             _SB_BODY_LABELS.get(_stype, "Your message"),
-            "Type it yourself, or let AI help with one of the two buttons "
+            "Type it yourself, or let AI help with one of the three buttons "
             "underneath.")
         ui.textarea(
             value=_st.get("input", ""),
@@ -32086,12 +32112,49 @@ def _render_sb_step_page(s: AppState, rf):
             'input-style="min-height:120px;line-height:1.55"'
         ).classes("fd-input sb-body sb-fill")
 
-        # ── The two ways AI helps ──
+        # ── The three ways AI helps ──
+        _full_ask = bool(_st.get("_full_ask"))
+
         def _open_ai():
+            _st["_full_ask"] = False
             s.sb_ai_open = "" if s.sb_ai_open == _sid else _sid
             rf()
 
+        def _full_draft():
+            # One click writes the whole step; a second one is asked for
+            # before it goes over something already written.
+            if (_st.get("input") or "").strip() and not _st.get("_full_ask"):
+                _st["_full_ask"] = True
+                s.sb_ai_open = ""
+                rf()
+                return
+            def _work(step):
+                _idx = next(i for i, x in enumerate(s.sb_steps)
+                            if x["id"] == _sid)
+                _want_subject = (
+                    step.get("type", "email") == "email"
+                    and not (step.get("subject") or "").strip()
+                    and not any(x.get("type", "email") == "email"
+                                for x in s.sb_steps[:_idx]))
+                _out = _sb_draft_step_content(
+                    step_type=step.get("type", "email"),
+                    slot=_sb_slot_for_step(s.sb_steps, _idx),
+                    position=_idx,
+                    delay_days=int(step.get("delay_days", 0) or 0),
+                    user_prompt="", tone=s.sb_tone,
+                    context=_oc.draft_context(s.sb_steps, _idx),
+                    with_subject=_want_subject)
+                _subject, _body = _oc.split_subject(_out)
+                if _subject and _body and _want_subject:
+                    step["subject"] = _subject
+                return _body or _out
+            _st["_full_ask"] = False
+            _st["_job"] = "draft"
+            s.sb_ai_open = ""
+            _sb_ai_into_step(s, rf, _sid, _work, "sb_step_full_draft_worker")
+
         def _polish():
+            _st["_full_ask"] = False
             if not (_st.get("input") or "").strip():
                 ui.notify("Write a few words first, then AI can polish "
                           "them.", type="info")
@@ -32139,6 +32202,13 @@ def _render_sb_step_page(s: AppState, rf):
                     "display:grid;grid-template-columns:repeat(auto-fit,"
                     "minmax(240px,1fr));gap:12px;margin-top:10px;"):
                 for _blabel, _babout, _bfn, _bon in (
+                        ("✦ Yes, replace what I wrote" if _full_ask
+                         else "✦ Full AI draft",
+                         "This replaces what's in the box above. Click "
+                         "again to go ahead." if _full_ask else
+                         "One click and AI writes the whole thing. You can "
+                         "change every word after.",
+                         _full_draft, _full_ask),
                         ("✦ Describe it, AI drafts it",
                          "Say what it should cover in a sentence or two. You "
                          "can change every word after.",
@@ -32212,41 +32282,38 @@ def _render_sb_step_page(s: AppState, rf):
                                  "above.").style(
                             f"font-size:11px;color:{C['muted']};")
 
-        # ── Details: filled in per contact, or asked per campaign ──
+        # ── Details filled in per contact ──
         _sb_section(
             "Add a detail",
             "Click in your message where it should go, then click one. It "
             "shows in curly brackets, like {Company}, and the real thing "
             "is written in when it goes out.")
-        for _row_label, _row_chips, _row_col in (
-                ("From each contact, filled in for you:",
-                 [("FirstName", "First name"), ("Company", "Company"),
-                  ("JobTitle", "Job title")], C["muted"]),
-                ("Different for every client, so you say what it is:",
-                 [(n, _oc.fillin_label(n)) for n in _oc.COMMON_FILLINS],
-                 C["teal"])):
-            with ui.element("div").style(
-                    "display:flex;gap:6px;align-items:center;flex-wrap:wrap;"
-                    "margin-bottom:6px;"):
-                ui.label(_row_label).style(
-                    f"font-size:11px;color:{C['muted']};margin-right:2px;")
-                for _tok, _clabel in _row_chips:
-                    with ui.element("button").props(
-                            f'title="Adds {{{_tok}}}"').style(
-                            f"padding:3px 9px;font-size:11px;"
-                            f"border-radius:99px;cursor:pointer;"
-                            f"font-family:inherit;font-weight:600;"
-                            f"background:transparent;color:{C['text']};"
-                            f"border:1px solid {_row_col};"
-                            ).on("mousedown", js_handler=(
-                                f"(e) => window.sbInsert(e, '{{{_tok}}}')")):
-                        ui.label(_clabel).style("pointer-events:none;")
+        with ui.element("div").style(
+                "display:flex;gap:6px;align-items:center;flex-wrap:wrap;"
+                "margin-bottom:6px;"):
+            ui.label("From each contact, filled in for you:").style(
+                f"font-size:11px;color:{C['muted']};margin-right:2px;")
+            for _tok, _clabel in (("FirstName", "First name"),
+                                  ("Company", "Company"),
+                                  ("JobTitle", "Job title")):
+                with ui.element("button").props(
+                        f'title="Adds {{{_tok}}}"').style(
+                        f"padding:3px 9px;font-size:11px;"
+                        f"border-radius:99px;cursor:pointer;"
+                        f"font-family:inherit;font-weight:600;"
+                        f"background:transparent;color:{C['text']};"
+                        f"border:1px solid {C['muted']};"
+                        ).on("mousedown", js_handler=(
+                            f"(e) => window.sbInsert(e, '{{{_tok}}}')")):
+                    ui.label(_clabel).style("pointer-events:none;")
         ui.label(
-            "Need one that isn't here? Type your own in curly brackets, "
-            "like {Project}."
-        ).style(f"font-size:11px;color:{C['muted']};")
+            "The industry, competitors, a location and the like: just type "
+            "them into your message. When you use this campaign again, AI "
+            "points them out and asks if you'd like to change them."
+        ).style(f"font-size:11px;color:{C['muted']};line-height:1.5;")
 
-        # Asked the moment a per-client detail is used in this step.
+        # Asked the moment a detail in curly brackets of the user's own
+        # (an older saved campaign has them) is in this step.
         _fill_box = ui.element("div").props('id="sb-fill-box"')
 
         def _draw_fills():
@@ -33373,9 +33440,9 @@ def _sb_field_label(text: str):
 
 
 def _render_sb_step3_save(s: AppState, rf):
-    """Name it and save it for reuse. Anything specific to one client is
-    turned into a fill-in here, so next time the user is only asked for
-    what changes."""
+    """Name it and save it for reuse. AI reads the steps for what is
+    specific to one client (industry, competitors, location...), so next
+    time the user is shown those and asked if they want to change them."""
     import own_campaign as _oc
     _steps = s.sb_steps or []
     _found = s.sb_found or []
@@ -33389,8 +33456,9 @@ def _render_sb_step3_save(s: AppState, rf):
             f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
         ui.label(
             "Name it and it's yours to reuse for any client or industry, here "
-            "or from ChatGPT or Claude. Next time you only fill in what "
-            "changes."
+            "or from ChatGPT or Claude. Next time, AI shows you the details "
+            "that were about this client and asks if you'd like to change "
+            "them."
         ).style(
             f"font-size:11px;color:{C['muted']};margin-bottom:6px;"
             f"line-height:1.5;")
@@ -33401,7 +33469,7 @@ def _render_sb_step3_save(s: AppState, rf):
             on_change=lambda e: setattr(s, "sb_style_name", (e.value or "").strip()),
         ).props("dense borderless").classes("fd-input")
 
-        ui.label("What changes each time").style(
+        ui.label("What might change next time").style(
             f"font-size:11px;font-weight:700;color:{C['muted']};"
             f"text-transform:uppercase;letter-spacing:.06em;margin:18px 0 6px;")
         if s.sb_finding:
@@ -33419,8 +33487,8 @@ def _render_sb_step3_save(s: AppState, rf):
                     "display:flex;align-items:center;gap:10px;flex-wrap:wrap;"):
                 ui.label(
                     "I couldn't read your steps for client-specific wording "
-                    "just now. You can save it as it is, or have me look "
-                    "again."
+                    "just now. Have me look again, or save it as it is and "
+                    "it goes out exactly as written every time."
                 ).style(f"font-size:12px;color:{C['text']};")
                 with ui.element("button").classes("fd-gb").style(
                         "padding:4px 12px;font-size:11px;"
@@ -33434,9 +33502,10 @@ def _render_sb_step3_save(s: AppState, rf):
 
         if _found:
             ui.label(
-                "These look specific to this client. Keep them ticked and "
-                "you'll be asked for them next time; this campaign still "
-                "goes out as you wrote it."
+                "AI noticed these are about this client. Next time you use "
+                "this campaign, you'll see each one and be asked if you'd "
+                "like to change it. Untick any that should always stay as "
+                "written. This campaign still goes out as you wrote it."
             ).style(f"font-size:11px;color:{C['muted']};margin-bottom:8px;"
                     f"line-height:1.5;")
             for _fi, _f in enumerate(_found):
@@ -33465,7 +33534,7 @@ def _render_sb_step3_save(s: AppState, rf):
                         f"font-size:12px;font-weight:700;color:{C['teal']};")
                     ui.label(
                         ("Filled in from each contact" if _per_contact
-                         else "Asked each time") if _is_on
+                         else "You can change it next time") if _is_on
                         else "Stays as written"
                     ).style(f"font-size:11px;color:{C['muted']};margin-left:auto;")
 
@@ -33486,7 +33555,8 @@ def _render_sb_step3_save(s: AppState, rf):
 
         if _asked and not s.sb_finding:
             ui.label(
-                "Next time you use it, you'll be asked for: "
+                "Next time you use it, you'll be asked if you'd like to "
+                "change: "
                 + ", ".join(_oc.fillin_label(n) for n in _asked) + "."
             ).style(f"font-size:11px;color:{C['text']};margin-top:12px;")
         if s.sb_build_err:
@@ -33583,9 +33653,12 @@ def _own_style_summary(style: dict) -> str:
 
 
 def _sb_open_use(s: AppState, rf, style: dict) -> None:
-    """Start a run of a saved campaign: ask for what changes, nothing else."""
+    """Start a run of a saved campaign: show what it said last time and ask
+    if any of it should change, nothing else."""
     _reset_wizard_state(s)
     s.sb_use_style = dict(style)
+    s.sb_vals = {f.get("name"): f.get("last") or ""
+                 for f in style.get("fillins") or [] if f.get("last")}
     s.sb_cand_bullets = bool(style.get("cand_bullets", True))
     _d = date.today()
     s.sb_style_name = f"{style.get('name') or 'My campaign'} {_d:%b} {_d.day}"
@@ -33597,20 +33670,24 @@ def _sb_open_use(s: AppState, rf, style: dict) -> None:
 
 def _sb_open_edit(s: AppState, rf, style: dict) -> None:
     """Load a saved campaign back into the writer; saving replaces it."""
+    import own_campaign as _oc
     _reset_wizard_state(s)
+    # What each fill-in said last time, kept for a PDF's questions and for
+    # any fill-in that has no value yet.
+    s.sb_vals = {f.get("name"): f.get("last") or ""
+                 for f in style.get("fillins") or [] if f.get("last")}
+    # The user edits their own words, not {Industry}: last time's details
+    # are written back in, and saving reads the steps for them again.
     s.sb_steps = [
         dict(_sb_new_step(st.get("type", "email"),
                           int(st.get("delay_days") or 0)),
              subject=st.get("subject") or "", input=st.get("input") or "",
              voice=st.get("voice") or "mine", pdf=st.get("pdf") or "")
-        for st in style.get("steps") or []]
+        for st in _oc.fill(style.get("steps") or [], s.sb_vals)]
     s.sb_tone = style.get("tone") or s.sb_tone
     s.sb_style_name = style.get("name") or ""
     s.sb_edit_style_id = style.get("id") or ""
     s.sb_cand_bullets = bool(style.get("cand_bullets", True))
-    # Start from what each fill-in said last time; the user can change it.
-    s.sb_vals = {f.get("name"): f.get("last") or ""
-                 for f in style.get("fillins") or [] if f.get("last")}
     _sb_goto(s, rf, 0)
 
 
@@ -33626,9 +33703,11 @@ def _render_sb_saved(s: AppState, rf):
             f"font-size:14px;font-weight:700;color:{C['text_l']};"
             f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
         ui.label(
-            "Use one again for a new client. You'll only be asked for what "
-            "changes."
-        ).style(f"font-size:11px;color:{C['muted']};margin-bottom:12px;")
+            "Use one again for a new client. AI shows you the details from "
+            "last time, like the industry, competitors and location, and "
+            "asks if you'd like to change them."
+        ).style(f"font-size:11px;color:{C['muted']};margin-bottom:12px;"
+                f"line-height:1.5;")
         for _row in _rows:
             _asks = _oc.fillins(_row.get("steps") or [])
             with ui.element("div").style(
@@ -33640,7 +33719,7 @@ def _render_sb_saved(s: AppState, rf):
                         f"font-size:13px;font-weight:700;color:{C['text_l']};")
                     ui.label(
                         _own_style_summary(_row)
-                        + (" · asks for " + ", ".join(
+                        + (" · asks about " + ", ".join(
                             _oc.fillin_label(n) for n in _asks) if _asks else "")
                     ).style(f"font-size:11px;color:{C['muted']};")
                 with ui.element("button").classes("fd-gb").style(
@@ -33663,20 +33742,27 @@ def _render_sb_saved(s: AppState, rf):
 
 
 def _render_sb_use(s: AppState, rf):
-    """A saved campaign, used again: fill in what changes, add candidates
-    if it pitches any, then on to Choose Contacts."""
+    """A saved campaign, used again: the details AI noticed are shown as
+    they were last time for the user to keep or change, candidates are
+    added if it pitches any, then on to Choose Contacts."""
     import own_campaign as _oc
     _style = s.sb_use_style or {}
     _steps = _style.get("steps") or []
     _names = _oc.fillins(_steps)
     _last = {f.get("name"): (f.get("last") or "")
              for f in _style.get("fillins") or []}
+    _noticed = [n for n in _names if _last.get(n)]
 
     with ui.element("div").classes("fd-gc").style("margin-bottom:18px;"):
         ui.label(f"Use “{_style.get('name') or 'My campaign'}”").style(
             f"font-size:14px;font-weight:700;color:{C['text_l']};"
             f"font-family:'Nunito',sans-serif;margin-bottom:4px;")
         ui.label(
+            "AI noticed this campaign is about the details below. They're "
+            "filled in the way they were last time. Would you like to "
+            "change any? Type over what's different this time and leave the "
+            "rest. You see every email before it starts."
+            if _noticed else
             "Fill in what's different this time. Everything else goes out "
             "as you wrote it, and you see every email before it starts."
             if _names else

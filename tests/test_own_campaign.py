@@ -189,12 +189,19 @@ def test_walkthrough_state_and_entry_points():
     assert '"Start campaign"' in start and "What should the first step be?" in start
     assert "_render_sb_saved(s, rf)" in start
     assert [c[0] for c in fa._SB_START_CARDS] == ["email", "call", "linkedin"]
-    # one step per screen, each explained, with exactly two AI options
+    # one step per screen, each explained, with three AI options, the
+    # one-click draft first
     page = inspect.getsource(fa._render_sb_step_page)
     assert "_SB_STEP_ABOUT[" in page and set(fa._SB_STEP_ABOUT) == {
         "email_first", "email", "call", "linkedin"}
-    assert "Describe it, AI drafts it" in page and "Polish with AI" in page
+    assert (page.index("✦ Full AI draft")
+            < page.index("✦ Describe it, AI drafts it")
+            < page.index("✦ Polish with AI"))
     assert "Have AI draft it" not in page and "Ask AI" not in page
+    # the per-client chips are gone: those details are just typed in
+    assert "Different for every client" not in page
+    assert "COMMON_FILLINS" not in page and not hasattr(oc, "COMMON_FILLINS")
+    assert '("FirstName", "First name")' in page
     assert "What comes next?" in page and "_render_sb_cands(s, rf, step_id=_sid)" in page
     # a fill-in is asked for on the step that uses it
     assert "_draw_fills()" in page and "_own_fillin_ask(_n)" in page
@@ -286,10 +293,49 @@ def test_apply_detected_swaps_whole_words_and_spares_tokens():
         "name": "Industry", "label": "Industry", "last": "HVAC"}
 
 
-def test_detect_prompt_and_draft_rules_name_the_fillins():
+def test_detect_prompt_names_the_fillins_and_drafts_leave_none():
     p = oc.detect_prompt(_steps())
     assert "I recruit CPAs." in p and "CurrentClients" in p and "EXACTLY" in p
-    assert "{Competitors}" in oc.draft_rules() and "{Candidates}" in oc.draft_rules()
+    # an AI draft writes details as the user gave them, never as a fill-in
+    rules = oc.draft_rules()
+    assert "{Competitors}" not in rules and "{Industry}" not in rules
+    assert "{Candidates}" in rules and "square bracket" in rules
+
+
+def test_full_ai_draft_reads_the_other_steps_and_splits_the_subject():
+    ctx = oc.draft_context(_steps() + [{"type": "email", "input": " "}], 1)
+    assert ctx.startswith("[Email 1]\nSubject: Hi {FirstName}\nHi {FirstName}, I recruit CPAs.")
+    assert "[Call 1]\nCall {FirstName}." in ctx
+    assert "Two people for" not in ctx and "Email 3" not in ctx
+    assert oc.draft_context(_steps()[:1], 0) == ""
+    assert oc.split_subject("Subject: Quick question, {FirstName}\n\nHi there.\n\nBye.") == (
+        "Quick question, {FirstName}", "Hi there.\n\nBye.")
+    assert oc.split_subject("Hi there.\nSubject: no") == ("", "Hi there.\nSubject: no")
+    import flowdrip_app as fa
+    page = inspect.getsource(fa._render_sb_step_page)
+    assert "_oc.draft_context(s.sb_steps, _idx)" in page
+    assert '_st["_full_ask"] = True' in page     # asks before replacing text
+
+
+def test_using_a_saved_campaign_again_starts_from_last_times_details(monkeypatch):
+    import flowdrip_app as fa
+    monkeypatch.setattr(fa, "_scroll_content_top", lambda: None)
+    style = {"id": "s9", "name": "Intro", "kind": "own", "tone": "direct",
+             "steps": oc.style_steps(_generic()),
+             "fillins": oc.style_fillins(_generic(), {
+                 "Industry": "HVAC", "Competitors": "Trane and Carrier"})}
+    s = fa.AppState()
+    fa._sb_open_use(s, lambda: None, style)
+    # shown as they were, ready to keep or type over; the rest is still asked
+    assert s.sb_vals == {"Industry": "HVAC", "Competitors": "Trane and Carrier"}
+    use = inspect.getsource(fa._render_sb_use)
+    assert "AI noticed this campaign is about" in use and "if _noticed else" in use
+    # editing shows the user's own words, not {Industry}
+    fa._sb_open_edit(s, lambda: None, style)
+    assert s.sb_steps[0]["subject"] == "HVAC talent, {FirstName}"
+    assert "with Trane and Carrier." in s.sb_steps[0]["input"]
+    assert "{Role}" in s.sb_steps[0]["input"]          # never had a value
+    assert s.sb_edit_style_id == "s9"
 
 
 def test_saved_style_lists_its_fillins_and_keeps_last_values(monkeypatch):
@@ -323,6 +369,12 @@ def test_api_own_style_asks_for_fillins_then_writes_them_in(monkeypatch):
     res = fa._api_create_campaign_blocking(object(), dict(spec), "a@b.com")
     assert res["status"] == 400
     assert "Industry, Role, Competitors, CurrentClients" in res["error"]
+    assert "Last time" not in res["error"]
+    # with last time's details on the style, the caller is told to offer them
+    style["fillins"] = oc.style_fillins(style["steps"], {"Industry": "HVAC"})
+    res = fa._api_create_campaign_blocking(object(), dict(spec), "a@b.com")
+    assert "Last time they were: Industry = HVAC." in res["error"]
+    assert "ask if they would like to change any" in res["error"]
     res = fa._api_create_campaign_blocking(object(), dict(
         spec, fill_ins={"Industry": "HVAC", "Role": "estimator",
                         "Competitors": "Trane", "CurrentClients": "two GCs"}), "a@b.com")
