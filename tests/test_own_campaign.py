@@ -692,3 +692,60 @@ def test_summary_fallback_is_whole_sentences_never_cut_off():
     assert "Short." not in b and all(x.endswith(".") for x in b)
     cands = inspect.getsource(fa._render_sb_cands)
     assert "_own_summary_bullets(" in cands and "sb-cand-thin" in cands
+
+
+# ── The same candidates in every email, included or not (2026-11-05) ──────
+
+def test_an_email_can_go_out_without_the_candidates():
+    a, b = _two()
+    text = oc.add_candidate("Hi.\n\n{Candidates}\n\nTalk soon?", [], oc.candidate_block([a]))
+    text = oc.add_candidate(text, [a], oc.candidate_block([b]))
+    off = oc.remove_candidates(text, [a, b])
+    assert "Travis" not in off and "Dana" not in off and "{Candidates}" not in off
+    assert off == "Hi.\n\nTalk soon?"
+    on = oc.place_candidates(off, oc.candidate_block([a, b]))
+    assert oc.has_candidates(on, [a, b]) and on.startswith("Hi.")
+
+
+def test_candidates_picked_once_carry_into_later_emails():
+    import flowdrip_app as fa
+    a, b = (dict(c, _placed=True) for c in _two())
+    s = fa.AppState()
+    s.sb_steps = [fa._sb_new_step("email", 0), fa._sb_new_step("call"),
+                  fa._sb_new_step("email")]
+    e1, _, e2 = s.sb_steps
+    assert fa._sb_cand_home(s) == ""
+    s.sb_cands = [a, b]
+    e1["input"] = oc.place_candidates("Hi.", oc.candidate_block([a, b]))
+    # the email they're in is where they're managed
+    assert fa._sb_cand_home(s) == e1["id"]
+    # a new email after it starts with them; a call never does
+    e3 = fa._sb_new_step("email")
+    s.sb_steps.append(e3)
+    fa._sb_carry_cands(s, e3)
+    assert oc.has_candidates(e3["input"], [a, b])
+    call = fa._sb_new_step("call")
+    s.sb_steps.append(call)
+    fa._sb_carry_cands(s, call)
+    assert call["input"] == ""
+    # the picking email removed: the next email that lists them takes over
+    s.sb_steps = [x for x in s.sb_steps if x is not e1]
+    s.sb_cand_home = e1["id"]
+    assert fa._sb_cand_home(s) == e3["id"]
+    assert not oc.has_candidates(e2["input"], [a, b])
+
+
+def test_later_emails_only_include_or_leave_out():
+    import flowdrip_app as fa
+    page = inspect.getsource(fa._render_sb_step_page)
+    assert "_render_sb_cands_shared(s, rf, _sid, _home)" in page
+    assert "_sb_carry_cands(s, _new)" in page
+    shared = inspect.getsource(fa._render_sb_cands_shared)
+    assert 'id="sb-cand-include"' in shared
+    assert "Include these candidates in this email" in shared
+    assert "_oc.remove_candidates(" in shared and "_oc.place_candidates(" in shared
+    # no adding, removing or bullets switch on a later email
+    for gone in ("sb-cand-add", "Remove", "sb-cand-bullets", "sb-cand-picker"):
+        assert gone not in shared
+    into = inspect.getsource(fa._sb_cands_into_email)
+    assert "[step_id] + _carry" in into and "s.sb_cand_home = step_id" in into

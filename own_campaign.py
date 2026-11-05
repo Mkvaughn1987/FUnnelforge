@@ -188,6 +188,14 @@ def swap_candidate(text: str, card, chunk: str) -> str:
     return "\n".join(lines[:a] + [chunk] + lines[b:])
 
 
+def remove_candidates(text: str, cards) -> str:
+    """The message with none of these candidates in it, and no {Candidates}
+    spot left behind: an email the user chose to send without them."""
+    for c in cards or []:
+        text = drop_candidate(text, c)
+    return _tidy((text or "").replace(CANDIDATES_TOKEN, ""))
+
+
 def lift_steps(steps, cards) -> list:
     """Copies of the steps as a saved campaign keeps them: these candidates'
     text swapped for {Candidates}, so fresh ones are picked each time."""

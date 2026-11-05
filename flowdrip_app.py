@@ -13548,6 +13548,9 @@ class AppState:
         self.sb_cand_q: str = ""
         self.sb_cand_busy: bool = False
         self.sb_cand_err: str = ""
+        # The email the candidates were picked on. They are the campaign's
+        # candidates: every other email only includes them or leaves them out.
+        self.sb_cand_home: str = ""
         self.sb_building: bool = False
         self.sb_build_err: str = ""
         self.sb_built_camp: dict = {}
@@ -32097,13 +32100,22 @@ def _render_sb_step_page(s: AppState, rf):
                 _pipe = _ats_allowed(getattr(s, "_user_email", "") or "")
             except Exception:
                 _pipe = False
-            _sb_section(
-                "Add candidates from Pipeline? (optional)" if _pipe
-                else "Add candidates? (optional)",
-                "Pitching specific people? Add them first. Each one's "
-                "headline and highlights are written into your email "
-                "below, and you write the rest around them.")
-            _render_sb_cands(s, rf, step_id=_sid)
+            _home = _sb_cand_home(s)
+            if _home and _home != _sid:
+                _sb_section(
+                    "Include your candidates in this email?",
+                    "Your campaign's candidates are the same in every "
+                    "email. Choose whether this one lists them.")
+                _render_sb_cands_shared(s, rf, _sid, _home)
+            else:
+                _sb_section(
+                    "Add candidates from Pipeline? (optional)" if _pipe
+                    else "Add candidates? (optional)",
+                    "Pitching specific people? Add them first. Each one's "
+                    "headline and highlights are written into your email "
+                    "below, and you write the rest around them. They're "
+                    "the same people in every later email.")
+                _render_sb_cands(s, rf, step_id=_sid)
 
             # ── A Sales Asset PDF, on any email after the first ──
             _sb_section("Attach a Sales PDF? (optional)")
@@ -32429,8 +32441,9 @@ def _render_sb_step_page(s: AppState, rf):
     def _add_after(t):
         if len(s.sb_steps or []) >= _SB_MAX_STEPS:
             return
-        s.sb_steps.insert(_i + 1, _sb_new_step(
-            t, _SB_NEW_STEP_DELAY.get(t, 2)))
+        _new = _sb_new_step(t, _SB_NEW_STEP_DELAY.get(t, 2))
+        s.sb_steps.insert(_i + 1, _new)
+        _sb_carry_cands(s, _new)
         _sb_goto(s, rf, _i + 1)
 
     def _finish():
@@ -33025,6 +33038,19 @@ def _sb_cands_into_email(s: AppState, rf, step_id: str) -> None:
     s.sb_cand_err = ""
     rf()
 
+    if not _sb_cand_home(s):
+        s.sb_cand_home = step_id
+    # The same people go in every email that lists them. The first time,
+    # that's every email after this one; after that, only the emails the
+    # user left them in (one switched off stays off).
+    _was = [c for c in s.sb_cands or [] if c.get("_placed")]
+    _ids = [x.get("id") for x in s.sb_steps or []]
+    _at = _ids.index(step_id) if step_id in _ids else len(_ids)
+    _carry = [x.get("id") for j, x in enumerate(s.sb_steps or [])
+              if x.get("id") != step_id and x.get("type", "email") == "email"
+              and (_oc.has_candidates(x.get("input") or "", _was) if _was
+                   else j > _at)]
+
     def _run():
         try:
             _client = None
@@ -33039,12 +33065,13 @@ def _sb_cands_into_email(s: AppState, rf, step_id: str) -> None:
                 # Fewer than 3 highlights: the user is told to add their own.
                 _new = dict(_new, _placed=True, _thin=(
                     s.sb_cand_bullets and len(_new.get("bullets") or []) < 3))
-                _st = _sb_step_by_id(s, step_id)
-                if _st is not None:
-                    _st["input"] = _oc.add_candidate(
-                        _st.get("input") or "",
-                        [x for x in s.sb_cands or [] if x.get("_placed")],
-                        _oc.candidate_block([_new], bullets=s.sb_cand_bullets))
+                for _to in [step_id] + _carry:
+                    _st = _sb_step_by_id(s, _to)
+                    if _st is not None:
+                        _st["input"] = _oc.add_candidate(
+                            _st.get("input") or "",
+                            [x for x in s.sb_cands or [] if x.get("_placed")],
+                            _oc.candidate_block([_new], bullets=s.sb_cand_bullets))
                 s.sb_cands = [_new if x is _c else x for x in s.sb_cands or []]
         except Exception as _ex:
             print(f"[own] candidates into email failed: "
@@ -33059,6 +33086,107 @@ def _sb_cands_into_email(s: AppState, rf, step_id: str) -> None:
             await asyncio.sleep(1)
         rf()
     asyncio.ensure_future(_poll())
+
+
+def _sb_cand_home(s: AppState) -> str:
+    """The id of the email the campaign's candidates were picked on: the
+    one place they're added or removed. If that step is gone, the first
+    email that lists them takes over. Empty until someone is picked."""
+    import own_campaign as _oc
+    if not s.sb_cands:
+        return ""
+    _placed = [c for c in s.sb_cands if c.get("_placed")]
+    _emails = [x for x in s.sb_steps or [] if x.get("type", "email") == "email"]
+    if any(x.get("id") == s.sb_cand_home for x in _emails):
+        return s.sb_cand_home
+    for _x in _emails:
+        if _placed and _oc.has_candidates(_x.get("input") or "", _placed):
+            s.sb_cand_home = _x.get("id") or ""
+            return s.sb_cand_home
+    return ""
+
+
+def _sb_carry_cands(s: AppState, step: dict) -> None:
+    """A new email after the candidates' email starts with them in it."""
+    import own_campaign as _oc
+    _home = _sb_cand_home(s)
+    _placed = [c for c in s.sb_cands or [] if c.get("_placed")]
+    if not (_home and _placed and step.get("type", "email") == "email"):
+        return
+    _ids = [x.get("id") for x in s.sb_steps or []]
+    if _home in _ids and _ids.index(step.get("id")) > _ids.index(_home):
+        step["input"] = _oc.place_candidates(
+            step.get("input") or "",
+            _oc.candidate_block(_placed, bullets=s.sb_cand_bullets))
+
+
+def _render_sb_cands_shared(s: AppState, rf, step_id: str, home_id: str):
+    """On every email but the one they were picked on: the campaign's
+    candidates, shown as they are, and one switch to include them in this
+    email or not. No adding or removing here."""
+    import own_campaign as _oc
+    _step = _sb_step_by_id(s, step_id)
+    if _step is None:
+        return
+    _cards = s.sb_cands or []
+    _placed = [c for c in _cards if c.get("_placed")]
+    _ids = [x.get("id") for x in s.sb_steps or []]
+    _home_i = _ids.index(home_id) if home_id in _ids else 0
+    _home_name = _oc.step_names(s.sb_steps)[_home_i]
+    for _c in _cards:
+        with ui.element("div").style(
+                f"background:{C['surface']};border:1px solid {C['border']};"
+                f"border-radius:8px;padding:8px 12px;margin-bottom:6px;"):
+            ui.label(
+                (_c.get("name") or _c.get("label") or "Candidate")
+                + (f" · {_c['role']}" if _c.get("role") else "")
+            ).style(f"font-size:12px;font-weight:700;color:{C['text_l']};")
+            if s.sb_cand_bullets:
+                for _b in (_c.get("bullets") or [])[:_oc.CANDIDATE_BULLETS]:
+                    ui.label(f"• {_b}").style(
+                        f"font-size:11px;color:{C['muted']};line-height:1.5;")
+    if s.sb_cand_busy:
+        with ui.element("div").style(
+                "display:flex;align-items:center;gap:8px;margin:4px 0 8px;"):
+            ui.spinner("dots", size="20px", color=C["teal"])
+            ui.label("Writing their highlights…").style(
+                f"font-size:11px;color:{C['teal']};")
+        return
+    _on = _oc.has_candidates(_step.get("input") or "", _placed)
+
+    def _flip():
+        if _oc.has_candidates(_step.get("input") or "", _placed):
+            _step["input"] = _oc.remove_candidates(
+                _step.get("input") or "", _cards)
+        else:
+            _step["input"] = _oc.place_candidates(
+                _step.get("input") or "",
+                _oc.candidate_block(_placed, bullets=s.sb_cand_bullets))
+        rf()
+    with ui.element("div").props('id="sb-cand-include"').style(
+            "display:flex;align-items:center;gap:10px;cursor:pointer;"
+            "margin:6px 0 8px;").on("click", _flip):
+        ui.label("✓" if _on else "").style(
+            f"width:18px;height:18px;border-radius:5px;flex-shrink:0;"
+            f"display:flex;align-items:center;justify-content:center;"
+            f"font-size:12px;font-weight:800;color:#0D1520;"
+            f"background:{C['teal'] if _on else 'transparent'};"
+            f"border:1px solid {C['teal'] if _on else C['border']};")
+        with ui.element("div"):
+            ui.label("Include these candidates in this email").style(
+                f"font-size:12px;font-weight:600;color:{C['text_l']};")
+            ui.label(
+                "They're written into your email below. Change the wording "
+                "or move them wherever you like." if _on else
+                "This email goes out without them."
+            ).style(f"font-size:11px;color:{C['muted']};")
+    with ui.element("div").style(
+            "display:flex;gap:6px;align-items:center;flex-wrap:wrap;"
+            "margin-bottom:6px;"):
+        ui.label(f"You picked them on {_home_name}. To add or remove "
+                 f"someone, go to").style(
+            f"font-size:11px;color:{C['muted']};")
+        _sb_quiet_link(_home_name, lambda: _sb_goto(s, rf, _home_i))
 
 
 def _render_sb_cands(s: AppState, rf, step_id: str = ""):
@@ -33118,6 +33246,8 @@ def _render_sb_cands(s: AppState, rf, step_id: str = ""):
                     for _x in s.sb_steps or []:
                         _x["input"] = _oc.drop_candidate(
                             _x.get("input") or "", _gone)
+                if not s.sb_cands:
+                    s.sb_cand_home = ""
                 rf()
             with ui.element("button").classes("fd-gb").style(
                     "padding:3px 10px;font-size:11px;").on("click", _rm):
