@@ -20450,6 +20450,23 @@ def _sidebar_layout_css() -> str:
   cursor:pointer;font-family:inherit;box-shadow:0 1px 2px rgba(0,0,0,.08);transition:filter .12s,transform .12s}}
 .fd-side-cta:hover{{filter:brightness(1.06)}}
 .fd-side-cta:active{{transform:translateY(1px)}}
+.fd-side-start-grid{{display:flex;flex-wrap:wrap;gap:14px}}
+.fd-side-start-card{{flex:1 1 260px;min-width:0;display:flex;flex-direction:column;padding:18px;border-radius:12px;
+  background:{C['surface']};border:1px solid {C['border']};cursor:pointer;
+  transition:border-color .12s,box-shadow .12s}}
+.fd-side-start-card:hover,.fd-side-start-card:focus-visible{{border-color:{C['teal']};
+  box-shadow:0 0 0 3px {C['teal_dim']};outline:none}}
+.fd-side-start-head{{display:flex;align-items:center;gap:10px;margin-bottom:10px}}
+.fd-side-start-ico{{width:36px;height:36px;border-radius:9px;flex:0 0 auto;display:flex;align-items:center;
+  justify-content:center;background:{C['teal_dim']};color:{C['teal']}}}
+.fd-side-start-title{{font-size:15px;font-weight:700;color:{C['text_l']};line-height:1.25}}
+.fd-side-start-desc{{font-size:12.5px;color:{C['text']};line-height:1.55;margin-bottom:10px}}
+.fd-side-start-pts{{flex:1 1 auto;display:flex;flex-direction:column;gap:6px;margin-bottom:16px}}
+.fd-side-start-pt{{display:flex;gap:8px;font-size:12px;color:{C['muted']};line-height:1.45}}
+.fd-side-start-pt::before{{content:"";flex:0 0 auto;width:5px;height:5px;margin-top:6px;border-radius:50%;
+  background:{C['teal']}}}
+.fd-side-start-go{{display:flex;align-items:center;justify-content:center;height:36px;border-radius:9px;
+  border:1px solid {C['teal']};color:{C['teal']};font-weight:700;font-size:13px}}
 .fd-main .fd-aistart-card{{display:flex;align-items:center;gap:16px;max-width:860px;padding:18px 20px;margin-bottom:22px;
   background:{C['card']};border:1px solid {C['teal']};border-left:4px solid {C['teal']};
   border-radius:0 12px 12px 0;cursor:pointer}}
@@ -21899,10 +21916,10 @@ SIDEBAR_NAV = [
 # them is open (they used to be tabs in the page header). The third field is a
 # view key, not a page key: Active/Completed are one page (seq_mgr) with a
 # flag, Drafts is start_seq's saved tab, Build a Campaign is the campaign-type
-# chooser (the hand-built path). It sits first, like DripDrop's New Campaign,
-# because with Start with AI as the sidebar CTA this row is the only way to
-# build a campaign without AI (2026-10-08). It replaced "Templates", which
-# opened the same page under a name nobody read as "build a campaign".
+# chooser (the hand-built path). It sits first, like DripDrop's New Campaign
+# (2026-10-08); the sidebar's Start a Campaign dialog opens the same page from
+# its Build a Campaign card. It replaced "Templates", which opened the same
+# page under a name nobody read as "build a campaign".
 SIDEBAR_CAMPAIGNS = [
     ("plus",     "Build a Campaign", "new"),
     ("c_active", "Active",    "active"),
@@ -23688,7 +23705,7 @@ def _ai_prompts_key():
 
 def _open_ai_prompts(s, rf):
     """Open AI Prompt on "Pick a job" from inside a page (Campaigns,
-    New Campaign), the same as the sidebar's Start with AI."""
+    New Campaign), the same as Start with AI in the sidebar's dialog."""
     _sidebar_nav(s, rf, _ai_prompts_key(), {})
 
 
@@ -23701,7 +23718,8 @@ def _ai_prompts_button(s, rf, label: str = "Create new campaign with AI"):
 
 def _build_campaign_title() -> str:
     """What the campaign chooser page is called. The sidebar layout names
-    its row "Build a Campaign" (the hand-built path next to Start with AI),
+    its row "Build a Campaign" (the hand-built path, next to Start with AI
+    in the Start a Campaign dialog),
     so the page it opens says the same; the classic layout keeps New
     Campaign, the name its own sidebar row has."""
     return "Build a Campaign" if _SIDEBAR_LAYOUT else "New Campaign"
@@ -23733,6 +23751,77 @@ def _ai_prompts_card(s, rf):
                      "builds the campaigns for you.").classes("fd-aistart-card-sub")
         with ui.element("div").classes("fd-aistart-btn"):
             ui.label("Create with AI →")
+
+
+# The sidebar's one Start a Campaign button opens a dialog with these two
+# cards, so people see what each way in does before they pick one (DripDrop's
+# chooser, 2026-11-04, in inboxslide's terms). "ai" is AI Prompt; "build" is
+# Build a Campaign, the same chooser the Campaigns sub-row opens. Neither is
+# marked Recommended: both look the same.
+START_CAMPAIGN_TITLE = "Start a Campaign"
+START_CAMPAIGN_OPTIONS = [
+    {
+        "key": "ai",
+        "icon": "ai_prompt",
+        "title": "Start with AI",
+        "desc": (f"Pick what you want done and answer a few questions. {BRAND} "
+                 "writes the prompt to paste into Claude."),
+        "points": ["Finds companies that fit",
+                   "Pulls the right people at each one",
+                   "Builds the campaigns for you"],
+        "cta": "Start with AI",
+    },
+    {
+        "key": "build",
+        "icon": "pen",
+        "title": "Build a Campaign",
+        "desc": ("Pick the campaign that fits the situation and bring your "
+                 "own contacts."),
+        "points": ["A ready campaign for a new company or a follow-up",
+                   "Upload a list, pick a saved one or add one contact",
+                   "Every email, call script and LinkedIn note written for "
+                   "you to review",
+                   "Or set your own steps with Build Your Own"],
+        "cta": "Build a campaign",
+    },
+]
+
+
+def _start_campaign_dialog(s, rf, setup: dict):
+    """The sidebar's Start a Campaign button: both ways to start, side by
+    side. Each card navigates exactly as its own sidebar entry does (AI
+    Prompt's row, Campaigns > Build a Campaign), setup gate included."""
+    with ui.dialog() as dlg, ui.card().style(
+            f"background:{C['card']};border:1px solid {_tint(C['teal'],'40')};"
+            f"width:680px;max-width:94vw;padding:26px 28px;"):
+        ui.label(START_CAMPAIGN_TITLE).style(
+            f"font-size:19px;font-weight:800;color:{C['text_l']};"
+            f"font-family:'Nunito',sans-serif;")
+        ui.label("Two ways to start. Which fits today?").style(
+            f"font-size:13px;color:{C['muted']};line-height:1.6;margin-bottom:16px;display:block;")
+
+        def _pick(k):
+            dlg.close()
+            _sidebar_nav(s, rf, _ai_prompts_key() if k == "ai" else "start_seq",
+                         setup, fresh=True)
+
+        with ui.element("div").classes("fd-side-start-grid"):
+            for opt in START_CAMPAIGN_OPTIONS:
+                card = ui.element("div").classes("fd-side-start-card").props(
+                    f'role="button" tabindex="0" data-tour="start-{opt["key"]}"')
+                card.on("keydown.enter", lambda k=opt["key"]: _pick(k))
+                with card.on("click", lambda k=opt["key"]: _pick(k)):
+                    with ui.element("div").classes("fd-side-start-head"):
+                        with ui.element("div").classes("fd-side-start-ico"):
+                            ui.html(_svg_icon(opt["icon"], 18))
+                        ui.label(opt["title"]).classes("fd-side-start-title")
+                    ui.label(opt["desc"]).classes("fd-side-start-desc")
+                    with ui.element("div").classes("fd-side-start-pts"):
+                        for pt in opt["points"]:
+                            ui.label(pt).classes("fd-side-start-pt")
+                    with ui.element("div").classes("fd-side-start-go"):
+                        ui.label(opt["cta"] + " →")
+    dlg.open()
 
 
 def _sidebar_nav(s, rf, k: str, setup: dict, tab: str = "",
@@ -23796,7 +23885,7 @@ def _sidebar_nav(s, rf, k: str, setup: dict, tab: str = "",
 
 
 def _sidebar_v2(s: AppState, rf):
-    """Full-height sidebar: logo, workspace selector, Start with AI (or
+    """Full-height sidebar: logo, workspace selector, Start a Campaign (or
     + New Campaign where there is no AI Prompt page),
     grouped nav, then Admin (authorised users only) / Settings / profile
     pinned to the bottom. Rows whose destination has no page are skipped."""
@@ -23890,16 +23979,18 @@ def _sidebar_v2(s: AppState, rf):
                         with ui.element("div").classes("fd-menu-item fd-side-mi").on("click", lambda k=key: _go(k)):
                             ui.html(_svg_icon(ik, 16))
                             ui.label(lbl)
-            # Start with AI opens AI Prompt where the workspace has it;
-            # otherwise the button stays New Campaign. Campaigns > Templates
-            # is the campaign chooser either way.
+            # 2026-11-05: one Start a Campaign button where the workspace has
+            # AI Prompt. Its dialog shows the two ways in, Start with AI (AI
+            # Prompt) and Build a Campaign (the chooser), and what each one
+            # does. Otherwise the button stays New Campaign. Campaigns >
+            # Build a Campaign is the chooser either way.
             _aip_key = _tm_nav_page_key("ai_prompt", None)
             if _aip_key:
                 with ui.element("button").classes("fd-side-cta").props(
                         'type="button" data-tour="nav-start_seq"').on(
-                        "click", lambda: _go(_aip_key)):
+                        "click", lambda: _start_campaign_dialog(s, rf, _setup)):
                     ui.html(_svg_icon("ai_prompt", 18))
-                    ui.label("Start with AI")
+                    ui.label(START_CAMPAIGN_TITLE)
             else:
                 with ui.element("button").classes("fd-side-cta" + (" on" if active == "new" else "")).props(
                         'type="button" data-tour="nav-start_seq"').on("click", lambda: _go("start_seq")):
@@ -23923,7 +24014,7 @@ def _sidebar_v2(s: AppState, rf):
                         badge = _due if _due < 100 else "99+"
                         badge_cls = "hot" if _overdue else ""
                     tour = {"overview": "nav-dashboard", "contacts": "nav-contacts"}.get(ik, "")
-                    # With Start with AI on top, a campaign wizard page lights
+                    # With Start a Campaign on top, a campaign wizard page lights
                     # Campaigns > Build a Campaign (where it started) instead.
                     _wiz = active == "new" and bool(_aip_key)
                     _camp_open = ik == "campaigns" and (active == "campaigns" or _wiz)
@@ -73815,11 +73906,12 @@ def index():
         },
         {
             "selector": '[data-tour="nav-start_seq"]',
-            "title": "Start with AI",
+            "title": "Start a Campaign",
             "body": (
-                "Pick a job, answer a few questions, and get the prompt to "
-                "paste into Claude or ChatGPT. To build a campaign by hand, "
-                "use Campaigns > Templates."
+                "Every campaign starts with this button. Choose Start with "
+                "AI to pick a job, answer a few questions, and get the "
+                "prompt to paste into Claude. Or choose Build a Campaign to "
+                "pick a campaign and bring your own contacts."
             ),
         } if _tm_nav_page_key("ai_prompt", None) else {
             "selector": '[data-tour="nav-start_seq"]',

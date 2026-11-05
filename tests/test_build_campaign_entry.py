@@ -1,10 +1,11 @@
 """Build a Campaign: the hand-built path is a first-class entry point.
 
-Start with AI is the sidebar CTA on inboxslide, so the only way to build a
+Start with AI was the sidebar CTA on inboxslide, so the only way to build a
 campaign without AI used to be the Campaigns > Templates sub-row, which
 nobody read as "build a campaign". Now it is named that, sits first under
 Campaigns like DripDrop's New Campaign, and is offered next to every
-"with AI" button and on the AI Prompt landing page."""
+"with AI" button and on the AI Prompt landing page. Since 2026-11-05 the
+sidebar CTA is Start a Campaign, whose dialog offers both ways in."""
 import inspect
 import types
 

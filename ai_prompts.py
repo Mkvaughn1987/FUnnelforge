@@ -230,7 +230,7 @@ class Catalogue:
     open_in: tuple = (("Claude", "https://claude.ai/new"),
                       ("ChatGPT", "https://chatgpt.com/"))
     # The hand-built way to start, offered under the job picker where the
-    # sidebar's CTA is Start with AI: (page key, button label). Empty = no
+    # sidebar's CTA leads with Start with AI: (page key, button label). Empty = no
     # link, which is what DripDrop's catalogue wants (its sidebar already
     # has New Campaign).
     build_page: str = ""
