@@ -46573,14 +46573,42 @@ _TM_ROLE_PROFILE_ALIASES = (
     ("accounts receivable", "accounts receivable specialist"),
     ("project coordinator", "project coordinator"),
     ("leasing", "leasing coordinator"), ("scheduler", "patient scheduler"),
+    ("coder", "medical coder"), ("prior auth", "prior authorization specialist"),
+    ("billing", "billing specialist"), ("collections", "collections specialist"),
+    ("audit", "audit support specialist"), ("tax", "tax preparer"),
+    ("maintenance", "maintenance coordinator"),
+    ("credentialing", "credentialing specialist"),
+    ("caregiver", "caregiver sourcer"), ("intake", "intake coordinator"),
 )
 
 
+_TM_ROLE_GENERIC_WORDS = ("specialist", "representative", "coordinator",
+                          "assistant", "support")
+
+
+def _tm_role_stem(title: str) -> str:
+    words = str(title or "").lower().split()
+    while len(words) > 1 and words[-1] in _TM_ROLE_GENERIC_WORDS:
+        words.pop()
+    return " ".join(words)
+
+
 def _tm_role_profile(role: str):
-    """(degree and credentials, core work, software) for a title, or None."""
+    """(degree and credentials, skills, software) for a title, or None.
+    Exact title first; then the saved role whose stem appears in the title
+    as whole words ("Freight Billing and Audit" is the Freight Billing
+    Specialist, "Claims Follow Up" the Claims Follow Up Specialist); then
+    the keyword table."""
     low = " ".join(str(role or "").lower().split())
     if low in _TM_ROLE_PROFILES:
         return _TM_ROLE_PROFILES[low]
+    padded = f" {low} "
+    stem = max((k for k in _TM_ROLE_PROFILES
+                if len(_tm_role_stem(k)) >= 6
+                and f" {_tm_role_stem(k)} " in padded),
+               key=lambda k: len(_tm_role_stem(k)), default=None)
+    if stem:
+        return _TM_ROLE_PROFILES[stem]
     hit = max(((kw, val) for kw, val in _TM_ROLE_PROFILE_ALIASES if kw in low),
               key=lambda p: len(p[0]), default=None)
     if not hit:
@@ -46852,9 +46880,9 @@ def _tm_multi_cost_pdf_data(client, company: str, role: str, location: str,
         "title": f"Staffing Cost Comparison - {company}",
         "badge": _TM_COST_BADGE,
         "intro": (f"{lead} {who} would typically hire for{where}: our "
-                  f"all-inclusive hourly rate beside the fully loaded U.S. "
-                  f"cost, and the credentials, skills and software each "
-                  f"professional brings."),
+                  f"estimated all-inclusive hourly rate beside the fully "
+                  f"loaded U.S. cost, and the credentials, skills and "
+                  f"software each professional brings."),
         "sections": _tm_with_standard([
             # keep: the renderer's length trim never drops a row.
             {"heading": "Hourly Rate by Role", "type": "table",

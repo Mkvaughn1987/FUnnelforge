@@ -248,3 +248,38 @@ def test_a_typed_title_finds_its_profile_by_keyword():
         assert isinstance(val, tuple) or val in fa._TM_ROLE_PROFILES, kw
     rows = fa._tm_role_profile_rows(["Architect", "Zookeeper"])
     assert [r[0] for r in rows] == ["Role", "Architect"]
+
+
+def test_the_playbooks_own_role_names_find_their_profile():
+    """Mike, 2026-11-05: "make sure the main roles we have saved are the
+    most important". The saved playbook names them loosely."""
+    P = fa._TM_ROLE_PROFILES
+    for typed, key in (
+            ("Freight Billing and Audit", "freight billing specialist"),
+            ("Claims Follow Up", "claims follow up specialist"),
+            ("Tenant Services and Call Handling", "tenant services representative"),
+            ("Listing and Marketing Coordinator", "marketing coordinator"),
+            ("Accounts Receivable", "accounts receivable specialist"),
+            ("Data Entry", "data entry specialist"),
+            ("Dispatch Support", "dispatcher"),
+            ("Coder Support", "medical coder"),
+            ("Insurance Verification", "insurance verification specialist"),
+            ("Front Office Support", "front office support specialist"),
+            ("Audit Support", "audit support specialist"),
+            ("Carrier Sales Support", "carrier sales support"),
+            ("Load Planner", "load planner")):
+        assert fa._tm_role_profile(typed) == P[key], typed
+    # Whole words only: an accounting clerk is not an account coordinator.
+    assert fa._tm_role_profile("Accounting Clerk") != P["account coordinator"]
+
+
+def test_cost_sheet_calls_its_rate_an_estimate(monkeypatch):
+    def local(client, roles, location):
+        return {r: {"salary": 60000.0, "basis": "median", "area": "United States",
+                    "occupation": f"Occ {i} (SOC 11-111{i})",
+                    "source": "BLS OEWS May 2025", "url": "https://www.bls.gov/x"}
+                for i, r in enumerate(roles)}
+    monkeypatch.setattr(fa, "_tm_bls_local_salaries", local)
+    _tm(monkeypatch)
+    d = fa._tm_multi_cost_pdf_data(None, "Acme", "Bookkeeper", "", "Accounting")
+    assert "our estimated all-inclusive hourly rate" in d["intro"]
