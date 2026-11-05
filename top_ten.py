@@ -147,12 +147,26 @@ def add(data: dict, fields: dict, today: str = "") -> tuple:
     return c, f"Added {c['company']} to {where}."
 
 
-def add_to_top(data: dict, fields: dict, today: str = "") -> tuple:
+def is_full(data: dict) -> bool:
+    return len(active(data)) >= ACTIVE_MAX and len(backups(data)) >= BACKUP_MAX
+
+
+def add_to_top(data: dict, fields: dict, today: str = "", drop_last_backup: bool = False) -> tuple:
     """add(), but the company always lands in the top 10: when the ten is
-    full the last one drops to the head of the backups to make room."""
+    full the last one drops to the head of the backups to make room. With
+    drop_last_backup, a list that is full in both tiers gives up its last
+    backup so the add still goes through."""
+    name = str(fields.get("company") or "").strip()
+    dropped = ""
+    if drop_last_backup and is_full(data) and name and not find_name(data, name):
+        last = backups(data)[-1]
+        remove(data, last["id"])
+        dropped = last["company"]
     c, msg = add(data, fields, today)
     if c and c["tier"] == "backup":
         msg = promote(data, c["id"])
+    if c and dropped:
+        msg += f" {dropped} came off your backups."
     return c, msg
 
 

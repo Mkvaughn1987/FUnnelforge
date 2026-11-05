@@ -534,3 +534,34 @@ def test_add_panel_shows_what_the_lookup_found_before_saving(with_user, monkeypa
     assert "did not finish" in text and "Try again" in text and "boom" not in text
     s._t10_ui.update(phase="checking", info=None)
     assert "finding its website" in _page_text(_top10_page(fa, s))
+
+
+def test_a_full_list_still_takes_a_checked_add(with_user, monkeypatch):
+    d = _data()
+    _fill(d, 20)
+    assert tt.is_full(d)
+    assert tt.add_to_top(d, {"company": "Newcomer"})[0] is None            # not without saying so
+    c, msg = tt.add_to_top(d, {"company": "Newcomer"}, drop_last_backup=True)
+    assert c["tier"] == "active" and len(tt.active(d)) == 10 and len(tt.backups(d)) == 10
+    assert [x["company"] for x in tt.backups(d)][0] == "Co 9" and not tt.find_name(d, "Co 19")
+    assert "Co 9 moved to backups" in msg and "Co 19 came off your backups" in msg
+    # A duplicate never costs a backup.
+    assert tt.add_to_top(d, {"company": "Newcomer"}, drop_last_backup=True)[0] is None
+    assert len(d["companies"]) == 20
+
+    import flowdrip_app as fa
+    monkeypatch.setattr(fa, "_top10_start_scan", lambda s, email, rf, ids=None: None)
+    monkeypatch.setattr(fa, "_ats_allowed", lambda e: False)
+    p = fa._top10_path("tester@example.com")
+    d = _data()
+    _fill(d, 20)
+    d["seeded"] = True
+    tt.save(p, d)
+    s = fa.AppState()
+    s._user_email = "tester@example.com"
+    s._t10_ui = {"q": "shaw", "phase": "result", "asked": "shaw", "confirm": "", "confirm_at": 0.0,
+                 "info": {"found": True, "company": "Shaw Construction", "website": "", "city": "",
+                          "state": "", "lane": "", "about": "", "note": "", "site_live": False}}
+    text = _page_text(_top10_page(fa, s))
+    assert "moves Co 9 to backups and takes Co 19 off the end of them" in text
+    assert "Add to top 10" in text and "Add to backups" not in text and "no website found" in text

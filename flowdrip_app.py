@@ -36132,9 +36132,6 @@ def p_my_top10(s, rf):
             if not q:
                 ui.notify("Type a company name or its website first.", type="warning")
                 return
-            if len(act) >= _tt.ACTIVE_MAX and len(back) >= _tt.BACKUP_MAX:
-                ui.notify("Your top 10 and backup 10 are both full. Remove one first.", type="warning")
-                return
             dup = _tt.find_name(data, _tt.split_query(q)[0])
             if dup:
                 ui.notify(f"{dup['company']} is already on your list.", type="warning")
@@ -36160,7 +36157,8 @@ def p_my_top10(s, rf):
                 fields["verified"] = datetime.now().isoformat(timespec="seconds")
             else:
                 fields = {"company": name or site, "website": site}
-            new, msg = (_tt.add_to_top if top else _tt.add)(data, fields)
+            new, msg = (_tt.add_to_top(data, fields, drop_last_backup=True) if top
+                        else _tt.add(data, fields))
             if not new:
                 ui.notify(msg, type="warning")
                 return
@@ -36182,25 +36180,30 @@ def p_my_top10(s, rf):
             if st["phase"] != "result":
                 return
             info = st["info"] or {}
-            full = len(act) >= _tt.ACTIVE_MAX
+            full = len(act) >= _tt.ACTIVE_MAX            # the ten is full
+            packed = _tt.is_full(data)                   # ... and so are the backups
+            room = (f' Your list is full: adding it moves {_esc(act[-1]["company"])} to backups '
+                    f'and takes {_esc(back[-1]["company"])} off the end of them.' if packed else
+                    f' Your top 10 is full: adding it there moves {_esc(act[-1]["company"])} '
+                    'to backups.' if full else "")
             cancel = lambda: (_reset_add(keep_text=True), _draw_quick())
             with ui.element("div").classes("fd-t10q-panel"):
                 if info.get("error") or not info.get("found"):
                     if info.get("error"):
                         ui.html(f'<div class="who"><b>The check on {_esc(st["asked"])} did not finish.</b>'
                                 '<div class="sub">Try it again, or add it as typed and fix the '
-                                'details later.</div></div>')
+                                f'details later.{room if packed else ""}</div></div>')
                     else:
                         ui.html(f'<div class="who"><b>Could not confirm a company called '
                                 f'{_esc(st["asked"])}.</b><div class="sub">Is the spelling right? '
-                                'Its website works in this box too.</div></div>')
+                                f'Its website works in this box too.{room if packed else ""}</div></div>')
                     with ui.element("div").classes("fd-t10q-btns"):
                         if info.get("error"):
                             def _again():
                                 st.update(phase="", info=None, q=st["asked"])
                                 return _check_new()
                             _btn("Try again", _again)
-                        _btn("Add as typed", lambda: _add_new(not full, False), primary=False)
+                        _btn("Add as typed", lambda: _add_new(packed or not full, False), primary=False)
                         _link("Cancel", cancel, "fd-rc-link quiet")
                     return
                 dup = _tt.find_name(data, info["company"])
@@ -36219,14 +36222,13 @@ def p_my_top10(s, rf):
                     sub += f' <span class="warn">{_esc(info["note"])}</span>'
                 if dup:
                     sub = f'{_esc(dup["company"])} is already on your list.'
-                elif full:
-                    sub += (f' Your top 10 is full: adding it there moves '
-                            f'{_esc(act[-1]["company"])} to backups.')
+                else:
+                    sub += room
                 ui.html(f'<div class="who">{" · ".join(bits)}<div class="sub">{sub}</div></div>')
                 with ui.element("div").classes("fd-t10q-btns"):
                     if not dup:
                         _btn("Add to top 10", lambda: _add_new(True, True))
-                        if full:
+                        if full and not packed:
                             _btn("Add to backups", lambda: _add_new(False, True), primary=False)
                     _link("Close" if dup else "Not the right one", cancel, "fd-rc-link quiet")
 
