@@ -643,3 +643,52 @@ def test_email_step_order_candidates_then_pdf_then_preview():
     save = inspect.getsource(fa._render_sb_step3_save)
     assert "_oc.lift_steps(s.sb_steps, s.sb_cands)" in save
     assert "_oc.lift_steps(s.sb_steps, s.sb_cands)" in inspect.getsource(fa._sb_start_detect)
+
+
+# ── Candidate highlights are 3 full bullets (2026-11-05) ──────────────────
+
+class _Msg:
+    def __init__(self, text, stop="end_turn"):
+        self.content = [type("B", (), {"text": text})()]
+        self.stop_reason = stop
+
+
+def test_highlights_retry_a_cut_off_answer_with_room_to_think(monkeypatch):
+    import flowdrip_app as fa
+    seen = []
+    answers = [_Msg('{"title": "VP Ops", "bul', "max_tokens"),
+               _Msg('{"title": "VP Ops", "bullets": ["Ran 4 plants for Acme.", '
+                    '"Cut scrap 30% with Lean Six Sigma.", "Led 900 people."]}')]
+
+    def fake(client, **kw):
+        seen.append(kw["max_tokens"])
+        return answers.pop(0)
+    monkeypatch.setattr(fa, "_claude_create_with_retry", fake)
+    title, bullets = fa._ai_card_bullets_from_resume(object(), "x" * 400)
+    assert len(bullets) == 3 and bullets[0] == "Ran 4 plants for Acme."
+    assert seen == [fa._CARD_ENRICH_MAX_TOKENS] * 2 and fa._CARD_ENRICH_MAX_TOKENS >= 4000
+
+
+def test_no_resume_still_gives_the_ai_the_whole_record():
+    import flowdrip_app as fa
+    src = fa._card_enrich_source({
+        "resume_text": "", "current_title": "Supervisor",
+        "work_history": "Supervisor @ Acme Foods (2019-now)\nLead @ Kraft (2014-2019)",
+        "skills": "SQF, forklift, Lean", "summary": "Runs second shift."})
+    assert "Kraft" in src and "SQF" in src and "Supervisor" in src
+    assert len(src) >= fa._CARD_ENRICH_MIN_RESUME or "Work history" in src
+    long = "r" * 2000
+    assert fa._card_enrich_source({"resume_text": long, "skills": "x"}) == long
+
+
+def test_summary_fallback_is_whole_sentences_never_cut_off():
+    import flowdrip_app as fa
+    s = ("Seasoned Vice President of Operations with 25+ years leading teams "
+         "across construction, engineering, project management and field "
+         "operations nationwide. Built a $40M division from scratch. Short. "
+         "PMP and OSHA 30 certified across every site.")
+    b = fa._own_summary_bullets(s)
+    assert len(b) == 3 and b[0].endswith("nationwide.")
+    assert "Short." not in b and all(x.endswith(".") for x in b)
+    cands = inspect.getsource(fa._render_sb_cands)
+    assert "_own_summary_bullets(" in cands and "sb-cand-thin" in cands

@@ -32998,6 +32998,19 @@ def _sb_cand_add(s, card) -> bool:
     return True
 
 
+def _own_summary_bullets(summary: str) -> list:
+    """Up to 3 whole sentences from a Pipeline summary: what a candidate
+    shows until AI writes their highlights, and what stays if it can't."""
+    out = []
+    for sent in re.split(r"(?<=[.!?])\s+", (summary or "").strip()):
+        sent = _strip_dashes(sent.strip())
+        if len(sent.split()) >= 4:
+            out.append(sent if sent[-1] in ".!?" else sent + ".")
+        if len(out) == 3:
+            break
+    return out
+
+
 def _sb_cands_into_email(s: AppState, rf, step_id: str) -> None:
     """Behind "Add Candidates" on a step page. Off the UI thread, each
     candidate not yet in an email is tied to their Pipeline record (the
@@ -33022,8 +33035,10 @@ def _sb_cands_into_email(s: AppState, rf, step_id: str) -> None:
                 if _c.get("_placed"):
                     continue
                 _new, _ = _link_candidate_cards([_c], _owner, strict=False)
-                _new = dict(_enrich_candidate_cards(_client, _new)[0],
-                            _placed=True)
+                _new = _enrich_candidate_cards(_client, _new)[0]
+                # Fewer than 3 highlights: the user is told to add their own.
+                _new = dict(_new, _placed=True, _thin=(
+                    s.sb_cand_bullets and len(_new.get("bullets") or []) < 3))
                 _st = _sb_step_by_id(s, step_id)
                 if _st is not None:
                     _st["input"] = _oc.add_candidate(
@@ -33140,6 +33155,15 @@ def _render_sb_cands(s: AppState, rf, step_id: str = ""):
                     "highlights for each. Change the wording, or move them "
                     "wherever you like."
                 ).style(f"font-size:11px;color:{C['text']};")
+                _thin = [c for c in _placed if c.get("_thin")]
+                if _thin and s.sb_cand_bullets:
+                    ui.label(
+                        "There wasn't enough on file to write 3 highlights for "
+                        + ", ".join(c.get("label") or "a candidate" for c in _thin)
+                        + ". Add a line or two about them in the email, like a "
+                        "past employer, a project or a certification."
+                    ).props('id="sb-cand-thin"').style(
+                        f"font-size:11px;color:{C['warn']};width:100%;")
             else:
                 ui.label(
                     f"They're in {' and '.join(_where)}." if _where
@@ -33290,8 +33314,8 @@ def _render_sb_cands(s: AppState, rf, step_id: str = ""):
                                     "label": _ats.real_name_label(h.get("first_name") or "",
                                                                   h.get("last_name") or "") or "Candidate",
                                     "role": h.get("current_title") or "",
-                                    "bullets": _pool_card_bullets_no_location(
-                                        {"summary": h.get("summary") or ""}),
+                                    "bullets": _own_summary_bullets(
+                                        h.get("summary") or ""),
                                     "_ats_id": h.get("id"), "_src": "pipeline"}):
                                 rf()
                         with ui.element("button").style(
@@ -40264,6 +40288,28 @@ def _pool_card_bullets_no_location(cand: dict) -> list:
 
 _CARD_ENRICH_MODEL = "claude-sonnet-5-5"
 _CARD_ENRICH_MIN_RESUME = 200   # chars; shorter text has nothing to mine
+# Sonnet 5.5 thinks before it answers and the thinking counts against
+# max_tokens. At 900 the JSON was often cut off, read as "no bullets", and
+# the card kept its one-line summary.
+_CARD_ENRICH_MAX_TOKENS = 4000
+
+
+def _card_enrich_source(row: dict) -> str:
+    """What the highlights are written from: the résumé, plus, when it is
+    short or missing, everything else the Pipeline record knows (title,
+    work history, skills, summary, notes)."""
+    row = row or {}
+    resume = (row.get("resume_text") or "").strip()
+    if len(resume) >= 1500:
+        return resume
+    parts = [("Current title", row.get("current_title")),
+             ("Work history", row.get("work_history")),
+             ("Skills", row.get("skills")),
+             ("Summary", row.get("summary")),
+             ("Recruiter notes", row.get("notes"))]
+    profile = "\n".join(f"{k}: {str(v).strip()}" for k, v in parts
+                        if str(v or "").strip())
+    return "\n\n".join(x for x in (resume, profile) if x)
 
 
 def _card_record_id(card):
@@ -40296,7 +40342,9 @@ def _ai_card_bullets_from_resume(client, resume_text, role=""):
         + _wrap_untrusted("resume_text", raw, max_chars=8000) +
         f"\n\nTarget role: {role or 'their current role'}\n\n"
         "Rules:\n"
-        "- 3 to 5 bullets, each one dense and specific, under 35 words.\n"
+        "- 3 to 5 bullets, each one dense and specific, under 35 words. "
+        "Put the three strongest selling points first: what a hiring "
+        "manager would pay for. Every bullet is a complete sentence.\n"
         "- Name the companies they have worked for. Describe ONLY the most "
         "recent employer by type and size instead of by name (e.g. 'a "
         "top-50 ENR general contractor'), so their current employer never "
@@ -40320,17 +40368,24 @@ def _ai_card_bullets_from_resume(client, resume_text, role=""):
     )
     system_msg = _injection_guarded_system(
         "You are a senior staffing recruiter writing candidate highlights.")
-    try:
-        msg = _claude_create_with_retry(
-            client, model=_CARD_ENRICH_MODEL, max_tokens=900,
-            system=system_msg, messages=[{"role": "user", "content": user_msg}])
-        text = "".join(b.text for b in msg.content if hasattr(b, "text"))
-        m = re.search(r"\{.*\}", text, re.DOTALL)
-        if not m:
-            return "", []
-        data = json.loads(m.group())
-    except Exception as e:
-        print(f"[cards] enrich error: {_friendly_ai_error(e)}", flush=True)
+    data = None
+    for _try in range(2):   # a cut-off or unreadable answer gets one retry
+        try:
+            msg = _claude_create_with_retry(
+                client, model=_CARD_ENRICH_MODEL,
+                max_tokens=_CARD_ENRICH_MAX_TOKENS, system=system_msg,
+                messages=[{"role": "user", "content": user_msg}])
+            text = "".join(b.text for b in msg.content if hasattr(b, "text"))
+            m = re.search(r"\{.*\}", text, re.DOTALL)
+            if m and getattr(msg, "stop_reason", "") != "max_tokens":
+                data = json.loads(m.group())
+                break
+            print(f"[cards] enrich answer unusable "
+                  f"(stop={getattr(msg, 'stop_reason', '')}), try {_try + 1}",
+                  flush=True)
+        except Exception as e:
+            print(f"[cards] enrich error: {_friendly_ai_error(e)}", flush=True)
+    if not isinstance(data, dict):
         return "", []
     bullets = [_strip_dashes(_redact_resume_pii(str(b))).strip()
                for b in (data.get("bullets") or []) if str(b or "").strip()]
@@ -40361,7 +40416,7 @@ def _enrich_candidate_cards(client, cards, role=""):
         except Exception:
             row = {}
         title, bullets = _ai_card_bullets_from_resume(
-            client, row.get("resume_text") or "",
+            client, _card_enrich_source(row),
             role=role or card.get("role") or row.get("current_title") or "")
         if not bullets:
             out.append(card)
