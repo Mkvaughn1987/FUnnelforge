@@ -20566,6 +20566,75 @@ def _sidebar_layout_css() -> str:
 .fd-ph-res-empty{{font-size:12px;color:{C['muted']};padding:8px 10px}}
 .fd-ph .fd-theme-toggle{{position:static;transform:none;flex:0 0 auto}}
 
+/* ── How it Works: header button + the walkthrough dialog ── */
+.fd-ph-how{{flex:0 0 auto;white-space:nowrap}}
+.fd-ph-how-step{{position:relative;display:flex;gap:14px;padding-bottom:24px}}
+.fd-ph-how-step:last-child{{padding-bottom:0}}
+.fd-ph-how-step:not(:last-child)::before{{content:"";position:absolute;left:15px;top:38px;bottom:6px;width:2px;
+  border-radius:2px;background:{C['border']}}}
+.fd-ph-how-num{{flex:0 0 32px;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;
+  justify-content:center;background:{C['teal_dim']};color:{C['teal']};font-size:14px;font-weight:800;
+  border:1px solid {_tint(C['teal'], '55')}}}
+.fd-ph-how-main{{flex:1;min-width:0}}
+.fd-ph-how-h{{font-size:15px;font-weight:700;color:{C['text_l']};line-height:1.3;margin:5px 0 5px}}
+.fd-ph-how-p{{font-size:13px;color:{C['text']};line-height:1.6;margin:0}}
+.fd-ph-how-p b{{color:{C['text_l']};font-weight:700}}
+.fd-ph-how-note{{font-size:12px;color:{C['muted']};line-height:1.55;margin:9px 0 0}}
+.fd-ph-how-chart{{margin-top:12px;border:1px solid {C['border']};border-radius:12px;background:{C['surface']};
+  overflow:hidden}}
+.fd-ph-how-row{{display:grid;grid-template-columns:minmax(244px,2.6fr) repeat(7,minmax(0,1fr));align-items:center;
+  min-height:46px;border-top:1px solid {C['border']}}}
+.fd-ph-how-row.days{{min-height:34px;border-top:none;background:{C['card_h']}}}
+.fd-ph-how-lane{{padding:7px 8px 7px 14px;min-width:0}}
+.fd-ph-how-lane-t{{display:flex;flex-wrap:wrap;align-items:center;gap:3px 7px;font-size:13px;font-weight:700;
+  color:{C['text_l']};line-height:1.3}}
+.fd-ph-how-lane-s{{font-size:11.5px;color:{C['muted']};line-height:1.35;margin-top:1px}}
+.fd-ph-how-tag{{font-size:9.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:1px 7px;
+  border-radius:99px;background:{C['teal_dim']};color:{C['teal']}}}
+.fd-ph-how-tag.you{{background:{_tint(C['call_col'], '2E')};color:{C['text_l']}}}
+.fd-ph-how-cell{{display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;
+  color:{C['muted']}}}
+.fd-ph-how-cell.off::after{{content:"";width:4px;height:4px;border-radius:50%;background:{C['border']}}}
+.fd-ph-how-dot{{width:14px;height:14px;border-radius:50%;background:{C['email_col']}}}
+.fd-ph-how-dot.call{{background:{C['call_col']}}}
+.fd-ph-how-dot.li{{background:{C['li']}}}
+.fd-ph-how-dot.pdf{{width:12px;height:12px;border-radius:3px;background:{C['muted']}}}
+.fd-ph-how-dot.prof{{width:12px;height:12px;border-radius:3px;background:{C['good']}}}
+.fd-ph-how-outs{{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:12px}}
+.fd-ph-how-out{{padding:12px 14px;border:1px solid {C['border']};border-radius:12px;background:{C['surface']}}}
+.fd-ph-how-out-if{{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:{C['text_l']};
+  margin-bottom:5px}}
+.fd-ph-how-out-if::before{{content:"";flex:0 0 auto;width:9px;height:9px;border-radius:50%;background:{C['good']}}}
+.fd-ph-how-out.stop .fd-ph-how-out-if::before{{background:{C['danger']}}}
+.fd-ph-how-out.quiet .fd-ph-how-out-if::before{{background:{C['muted']}}}
+.fd-ph-how-out-then{{font-size:12.5px;color:{C['text']};line-height:1.55}}
+.fd-ph-how-months{{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:12px}}
+.fd-ph-how-mo{{padding:6px 12px;border-radius:99px;font-size:12px;font-weight:700;white-space:nowrap;
+  border:1px solid {_tint(C['teal'], '55')};background:{C['teal_dim']};color:{C['teal']}}}
+.fd-ph-how-mo.end{{border-color:{C['border']};background:{C['card_h']};color:{C['text']}}}
+.fd-ph-how-hop{{display:inline-flex;align-items:center;gap:6px}}
+.fd-ph-how-arr{{color:{C['muted']};font-size:13px;line-height:1}}
+.fd-ph-how-pts{{display:flex;flex-direction:column;gap:6px;margin-top:12px}}
+.fd-ph-how-pt{{display:flex;gap:8px;font-size:12.5px;color:{C['text']};line-height:1.5}}
+.fd-ph-how-pt::before{{content:"";flex:0 0 auto;width:5px;height:5px;margin-top:7px;border-radius:50%;
+  background:{C['teal']}}}
+.fd-ph-how-foot{{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:10px;margin-top:22px;padding-top:16px;
+  border-top:1px solid {C['border']}}}
+.fd-ph-how-go{{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 16px;border-radius:9px;
+  border:1px solid {C['teal']};background:transparent;color:{C['teal']};font-family:inherit;font-size:13px;
+  font-weight:700;cursor:pointer;transition:background .12s}}
+.fd-ph-how-go:hover{{background:{C['teal_dim']}}}
+@media (max-width:600px){{
+  .fd-ph-how-step{{gap:10px}}
+  .fd-ph-how-num{{flex-basis:26px;width:26px;height:26px;font-size:12px}}
+  .fd-ph-how-step:not(:last-child)::before{{left:12px;top:32px}}
+  .fd-ph-how-row{{grid-template-columns:minmax(104px,1.5fr) repeat(7,minmax(0,1fr))}}
+  .fd-ph-how-lane{{padding:7px 4px 7px 10px}}
+  .fd-ph-how-lane-t{{font-size:12px}}
+  .fd-ph-how-lane-s{{font-size:10.5px}}
+  .fd-ph-how-dot{{width:12px;height:12px}}
+}}
+
 /* Light theme: the accent is a dark green, so text on it must be white. */
 :root[data-theme="light"] .fd-side-cta,:root[data-theme="light"] .fd-ws-mark,
 :root[data-theme="light"] .fd-side-badge.setup{{color:#fff}}
@@ -23551,6 +23620,9 @@ _SIDEBAR_ICONS.update({
     # Target List: a target.
     "targets":       '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/>'
                      '<circle cx="12" cy="12" r="1.5"/>',
+    # How it Works (page header): a question mark in a circle.
+    "help":          '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/>'
+                     '<path d="M12 17h.01"/>',
 })
 
 
@@ -24093,10 +24165,164 @@ def _sidebar_v2(s: AppState, rf):
                             ui.label("Logout")
 
 
+# ── How it Works (page header button, Mike 2026-11-05) ──────────────────────
+# One dialog that walks a new user through what a campaign does once it is
+# started: who writes it, what sends itself, what lands on My Day, what a
+# reply does, and the monthly newsletter that keeps going after the last
+# email. The week chart is Standard Outreach, the default campaign; the lanes
+# below are its days and tests/test_how_it_works.py holds them to
+# tm_prompts.SEQUENCE_INFO so the picture cannot drift from the cadence.
+HOW_IT_WORKS_TITLE = "How it Works"
+HOW_IT_WORKS_EXAMPLE = "Standard Outreach"
+HOW_IT_WORKS_DAYS = [1, 4, 7, 10, 14, 18, 23]
+# (dot class, lane name, who does it: "auto" | "you", one line, business days)
+HOW_IT_WORKS_LANES = [
+    ("em",   "Emails",             "auto", "Sent from your own mailbox",
+     [1, 4, 7, 10, 14, 18, 23]),
+    ("call", "Calls",              "you",  "Script waiting on My Day", [4, 14]),
+    ("li",   "LinkedIn",           "you",  "Note waiting on My Day",   [4]),
+    ("pdf",  "PDFs",               "auto", "Attached to the email",    [4, 7, 10]),
+    ("prof", "Candidate profiles", "auto", "Placed inside the email",  [7, 14, 23]),
+]
+# What a reply does. (css class, "if", "then").
+HOW_IT_WORKS_OUTCOMES = [
+    ("", "They reply",
+     "The rest of their campaign emails stop. The reply is waiting for you "
+     "on Replies. Out-of-office replies do not count."),
+    ("stop", "They ask you to stop",
+     "They go on Do Not Contact and are not emailed again, by a campaign or "
+     "a newsletter."),
+    ("quiet", "They say nothing",
+     "The campaign runs to its last email, which says it is the last one "
+     "and that you will check in about once a month."),
+]
+HOW_IT_WORKS_NEWSLETTER_POINTS = [
+    "Each issue is written fresh a few days before it sends.",
+    "Open Newsletters to read or change the next issue before it goes.",
+    "People who replied to the campaign stay on the newsletter. Anyone who "
+    "opts out comes off.",
+]
+
+
+def _how_it_works_chart_html() -> str:
+    """The week chart: one row per kind of touch, one column per business
+    day something happens on. A dot means it happens that day."""
+    days = HOW_IT_WORKS_DAYS
+    rows = ['<div class="fd-ph-how-row days"><div class="fd-ph-how-lane">'
+            '<div class="fd-ph-how-lane-s">Business day</div></div>'
+            + "".join(f'<div class="fd-ph-how-cell">{d}</div>' for d in days)
+            + "</div>"]
+    for cls, name, who, sub, on in HOW_IT_WORKS_LANES:
+        tag = ('<span class="fd-ph-how-tag">Automatic</span>' if who == "auto"
+               else '<span class="fd-ph-how-tag you">You do this</span>')
+        cells = "".join(
+            f'<div class="fd-ph-how-cell"><span class="fd-ph-how-dot {cls}" '
+            f'title="{esc(name)}, business day {d}"></span></div>' if d in on
+            else '<div class="fd-ph-how-cell off"></div>'
+            for d in days)
+        rows.append(
+            '<div class="fd-ph-how-row"><div class="fd-ph-how-lane">'
+            f'<div class="fd-ph-how-lane-t">{esc(name)}{tag}</div>'
+            f'<div class="fd-ph-how-lane-s">{esc(sub)}</div></div>{cells}</div>')
+    said = "; ".join(
+        f"{name} on business day{'s' if len(on) > 1 else ''} "
+        + ", ".join(str(d) for d in on)
+        for _c, name, _w, _s, on in HOW_IT_WORKS_LANES)
+    return (f'<div class="fd-ph-how-chart" role="img" aria-label="'
+            f'{esc(HOW_IT_WORKS_EXAMPLE)} by business day. {esc(said)}.">'
+            + "".join(rows) + "</div>")
+
+
+def _how_it_works_html() -> str:
+    """The five steps of the How it Works dialog, as one HTML block."""
+    ai, own = (o["title"] for o in START_CAMPAIGN_OPTIONS)
+    lanes = {cls: on for cls, _n, _w, _s, on in HOW_IT_WORKS_LANES}
+    n_em, n_call, n_li = len(lanes["em"]), len(lanes["call"]), len(lanes["li"])
+    weeks = max(1, round((HOW_IT_WORKS_DAYS[-1] - 1) / 5))
+    outs = "".join(
+        f'<div class="fd-ph-how-out {cls}"><div class="fd-ph-how-out-if">{esc(if_)}</div>'
+        f'<div class="fd-ph-how-out-then">{esc(then)}</div></div>'
+        for cls, if_, then in HOW_IT_WORKS_OUTCOMES)
+    # Each arrow travels with the pill it points at, so a wrapped line never
+    # ends on a stray arrow.
+    arr = '<span class="fd-ph-how-arr" aria-hidden="true">&rarr;</span>'
+    months = '<span class="fd-ph-how-mo end">Last campaign email</span>' + "".join(
+        f'<span class="fd-ph-how-hop">{arr}<span class="fd-ph-how-mo">{lbl}</span></span>'
+        for lbl in ("Month 1 issue", "Month 2 issue", "Month 3 issue",
+                    "One a month from there"))
+    pts = "".join(f'<div class="fd-ph-how-pt">{esc(p)}</div>'
+                  for p in HOW_IT_WORKS_NEWSLETTER_POINTS)
+    steps = [
+        ("You start a campaign",
+         f'<p class="fd-ph-how-p">Click <b>{esc(START_CAMPAIGN_TITLE)}</b> in the '
+         f'sidebar. <b>{esc(ai)}</b> finds the companies and the people for '
+         f'you. <b>{esc(own)}</b> uses your own contacts.</p>'),
+        (f"{BRAND} writes every step",
+         '<p class="fd-ph-how-p">Each email, call script and LinkedIn note is '
+         'written for the company it goes to. You can read and change any of '
+         'it before it goes out.</p>'),
+        ("The campaign runs on its schedule",
+         '<p class="fd-ph-how-p">Emails send themselves from your own mailbox, '
+         'on business days. Calls and LinkedIn notes are yours to do. They '
+         'show up on <b>My Day</b> the day they are due, already written.</p>'
+         + _how_it_works_chart_html()
+         + f'<p class="fd-ph-how-note">This is {esc(HOW_IT_WORKS_EXAMPLE)}, the '
+           f'default: {n_em} emails, {n_call} calls and {n_li} LinkedIn note '
+           f'over about {weeks} weeks. Other campaigns are shorter or longer, '
+           'and you see each one\'s steps before you pick it.</p>'),
+        ("When someone replies",
+         f'<p class="fd-ph-how-p">{esc(BRAND)} checks your inbox every 5 '
+         'minutes.</p>'
+         f'<div class="fd-ph-how-outs">{outs}</div>'),
+        ("After the last email: the monthly newsletter",
+         '<p class="fd-ph-how-p">Add your contacts to a newsletter when you '
+         'launch. They get <b>one issue a month</b>, and it keeps going after '
+         'the campaign is over, so they keep hearing from you without you '
+         'doing anything.</p>'
+         f'<div class="fd-ph-how-months">{months}</div>'
+         f'<div class="fd-ph-how-pts">{pts}</div>'),
+    ]
+    return "".join(
+        f'<div class="fd-ph-how-step"><div class="fd-ph-how-num">{i}</div>'
+        f'<div class="fd-ph-how-main"><div class="fd-ph-how-h">{esc(head)}</div>'
+        f'{body}</div></div>'
+        for i, (head, body) in enumerate(steps, 1))
+
+
+def _how_it_works_dialog(s, rf, setup: dict):
+    """The header's How it Works button: the walkthrough, then a way straight
+    into Start a Campaign."""
+    with ui.dialog() as dlg, ui.card().style(
+            f"background:{C['card']};border:1px solid {_tint(C['teal'],'40')};"
+            f"width:780px;max-width:94vw;max-height:90vh;overflow-y:auto;"
+            f"padding:26px 28px;"):
+        ui.label(HOW_IT_WORKS_TITLE).style(
+            f"font-size:19px;font-weight:800;color:{C['text_l']};"
+            f"font-family:'Nunito',sans-serif;")
+        ui.label("What happens after you start a campaign, from the first "
+                 "email to the monthly newsletter.").style(
+            f"font-size:13px;color:{C['muted']};line-height:1.6;margin-bottom:18px;display:block;")
+        ui.html(_how_it_works_html()).style("width:100%;")
+
+        def _start():
+            dlg.close()
+            _start_campaign_dialog(s, rf, setup)
+
+        with ui.element("div").classes("fd-ph-how-foot").style("width:100%;"):
+            with ui.element("button").classes("fd-ph-act").props('type="button"').on(
+                    "click", dlg.close):
+                ui.label("Close")
+            with ui.element("button").classes("fd-ph-how-go").props('type="button"').on(
+                    "click", _start):
+                ui.html(_svg_icon("ai_prompt", 15))
+                ui.label(START_CAMPAIGN_TITLE)
+    dlg.open()
+
+
 def _page_header_v2(s: AppState, rf):
     """Compact 56px page header: section crumb + title, contextual actions
     (suppression shortcut), quick-find search over campaigns and contacts,
-    theme toggle."""
+    How it Works, theme toggle."""
     if s.hub == "today":
         s.hub = "sales"; s.sp = "dashboard"
     page = _sidebar_current_page(s)
@@ -24189,6 +24415,15 @@ def _page_header_v2(s: AppState, rf):
 
             _inp.on_value_change(_search)
             _inp.on("keydown.escape", lambda: (_inp.set_value(""), _close()))
+
+        # ── How it Works ── only where Start a Campaign is the sidebar
+        # button, since the walkthrough starts from it.
+        if _tm_nav_page_key("ai_prompt", None):
+            with ui.element("button").classes("fd-ph-act fd-ph-how").props(
+                    'type="button" data-tour="how-it-works"').on(
+                    "click", lambda: _how_it_works_dialog(s, rf, _setup)):
+                ui.html(_svg_icon("help", 15))
+                ui.label(HOW_IT_WORKS_TITLE)
 
         # ── Theme toggle (same control as the classic top bar) ──
         with ui.element("button").classes("fd-theme-toggle").props('type="button" aria-label="Toggle theme"').on(
