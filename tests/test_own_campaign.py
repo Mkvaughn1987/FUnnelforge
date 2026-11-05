@@ -168,8 +168,17 @@ def test_walkthrough_state_and_entry_points():
     assert fa.CHOOSER_OPTIONS[0]["key"] == "scratch"
     assert fa.CHOOSER_OPTIONS[0]["title"] == fa.OWN_CAMPAIGN_TITLE
     side = inspect.getsource(fa._sidebar_v2)
-    assert side.index('ui.label("Start with AI")') < side.index("fd-side-cta2")
-    assert "_open_own_campaign(s, rf)" in side
+    # one Start a Campaign button; its dialog offers both ways in, AI first
+    assert "ui.label(START_CAMPAIGN_TITLE)" in side
+    assert "_start_campaign_dialog(s, rf, _setup)" in side
+    assert "fd-side-cta2" not in side and 'ui.label("Start with AI")' not in side
+    assert fa.START_CAMPAIGN_TITLE == "Start a Campaign"
+    assert [o["key"] for o in fa.START_CAMPAIGN_OPTIONS] == ["ai", "own"]
+    assert fa.START_CAMPAIGN_OPTIONS[0]["tag"] == "Recommended"
+    assert fa.START_CAMPAIGN_OPTIONS[1]["title"] == fa.OWN_CAMPAIGN_TITLE
+    dlg = inspect.getsource(fa._start_campaign_dialog)
+    assert '_sidebar_nav(s, rf, "ai_prompts", setup)' in dlg
+    assert "_open_own_campaign(s, rf)" in dlg
     builder = inspect.getsource(fa.p_seq_builder)
     assert "_render_sb_step2_write" in builder and "_render_sb_step3_save" in builder
     assert "_render_sb_saved" in builder and "_render_sb_use" in builder

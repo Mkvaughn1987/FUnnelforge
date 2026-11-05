@@ -11818,10 +11818,27 @@ def _sidebar_layout_css() -> str:
   cursor:pointer;font-family:inherit;box-shadow:0 1px 2px rgba(0,0,0,.08);transition:filter .12s,transform .12s}}
 .fd-side-cta:hover{{filter:brightness(1.06)}}
 .fd-side-cta:active{{transform:translateY(1px)}}
-.fd-side-cta2{{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:36px;
-  margin-top:8px;border-radius:10px;border:1px solid {C['teal']};background:transparent;color:{C['teal']};
-  font-weight:700;font-size:13px;cursor:pointer;font-family:inherit;transition:background .12s}}
-.fd-side-cta2:hover,.fd-side-cta2.on{{background:{C['teal_dim']}}}
+.fd-startc-grid{{display:flex;flex-wrap:wrap;gap:14px}}
+.fd-startc-card{{flex:1 1 260px;min-width:0;display:flex;flex-direction:column;padding:18px;border-radius:12px;
+  background:{C['surface']};border:1px solid {C['border']};cursor:pointer;
+  transition:border-color .12s,box-shadow .12s}}
+.fd-startc-card:hover,.fd-startc-card:focus-visible{{border-color:{C['teal']};
+  box-shadow:0 0 0 3px {C['teal_dim']};outline:none}}
+.fd-startc-card.rec{{border-color:{C['teal']}}}
+.fd-startc-head{{display:flex;align-items:center;gap:10px;margin-bottom:10px}}
+.fd-startc-ico{{width:36px;height:36px;border-radius:9px;flex:0 0 auto;display:flex;align-items:center;
+  justify-content:center;background:{C['teal_dim']};color:{C['teal']}}}
+.fd-startc-card.rec .fd-startc-ico{{background:{C['teal']};color:{C['on_teal']}}}
+.fd-startc-title{{font-size:15px;font-weight:700;color:{C['text_l']};line-height:1.25}}
+.fd-startc-tag{{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:{C['teal']}}}
+.fd-startc-desc{{font-size:12.5px;color:{C['text']};line-height:1.55;margin-bottom:10px}}
+.fd-startc-pts{{flex:1 1 auto;display:flex;flex-direction:column;gap:6px;margin-bottom:16px}}
+.fd-startc-pt{{display:flex;gap:8px;font-size:12px;color:{C['muted']};line-height:1.45}}
+.fd-startc-pt::before{{content:"";flex:0 0 auto;width:5px;height:5px;margin-top:6px;border-radius:50%;
+  background:{C['teal']}}}
+.fd-startc-go{{display:flex;align-items:center;justify-content:center;height:36px;border-radius:9px;
+  border:1px solid {C['teal']};color:{C['teal']};font-weight:700;font-size:13px}}
+.fd-startc-card.rec .fd-startc-go{{background:{C['teal']};color:{C['on_teal']}}}
 .fd-aistart-card{{display:flex;align-items:center;gap:16px;max-width:860px;padding:18px 20px;margin-bottom:22px;
   background:{C['card']};border:1px solid {C['teal']};border-left:4px solid {C['teal']};
   border-radius:0 12px 12px 0;cursor:pointer}}
@@ -11936,7 +11953,6 @@ def _sidebar_layout_css() -> str:
   .fd-ws{{width:auto;flex:1;min-width:0}}
   .fd-ws-sub{{display:none}}
   .fd-side-cta{{width:auto;padding:0 14px;height:38px}}
-  .fd-side-cta2{{display:none}}
   .fd-side-nav{{flex-direction:row;flex-wrap:wrap;gap:2px;padding:0 10px 8px;overflow:visible}}
   .fd-side-sec{{display:none}}
   .fd-side-row{{height:36px;padding:0 10px}}
@@ -13205,7 +13221,7 @@ SIDEBAR_NAV = [
 # them is open. The third field is a view key, not a page key: Active and
 # Completed are one page (seq_mgr) with a flag, Saved is start_seq's saved
 # tab. New Campaign opens the type chooser (start_seq); the top button is
-# Start with AI, which opens AI Prompts.
+# Start a Campaign, which offers Start with AI (AI Prompts) or Create my own.
 SIDEBAR_CAMPAIGNS = [
     ("plus",     "New Campaign", "new"),
     ("c_active", "Active",    "active"),
@@ -14886,7 +14902,7 @@ def _reset_ai_prompts(s):
 
 def _open_ai_prompts(s, rf):
     """Open AI Prompts on "Pick a job" from inside a page (Campaigns,
-    New Campaign), the same as the sidebar's Start with AI."""
+    New Campaign), the same as Start with AI in the sidebar's dialog."""
     _sidebar_nav(s, rf, "ai_prompts", {})
 
 
@@ -14962,7 +14978,7 @@ def _sidebar_nav(s, rf, k: str, setup: dict, tab: str = ""):
 
 
 def _sidebar_v2(s: AppState, rf):
-    """Full-height sidebar: logo, workspace, Start with AI, grouped nav,
+    """Full-height sidebar: logo, workspace, Start a Campaign, grouped nav,
     then Admin (admins only) / Settings / profile pinned to the bottom."""
     if s.hub == "today":
         s.hub = "sales"; s.sp = "dashboard"
@@ -15022,7 +15038,7 @@ def _sidebar_v2(s: AppState, rf):
                 ui.html(f'<span class="fd-side-trail">{_svg_icon(trail, 14)}</span>')
 
     with ui.element("aside").classes("fd-side"):
-        # ── Top: logo, workspace, Start with AI ──
+        # ── Top: logo, workspace, Start a Campaign ──
         with ui.element("div").classes("fd-side-top"):
             with ui.element("div").classes("fd-side-logo dd").props(
                     'role="button" tabindex="0" aria-label="Home"').on(
@@ -15057,20 +15073,16 @@ def _sidebar_v2(s: AppState, rf):
                         with ui.element("div").classes("fd-menu-item fd-side-mi").on("click", lambda k=key: _go(k)):
                             ui.html(_svg_icon(ik, 16))
                             ui.label(lbl)
-            # Start with AI opens AI Prompts. New Campaign (the manual
-            # chooser) lives under Campaigns now.
-            with ui.element("button").classes("fd-side-cta").props(
-                    'type="button" data-tour="nav-ai_prompts"').on("click", lambda: _go("ai_prompts")):
-                ui.html(_svg_icon("ai_prompts", 18))
-                ui.label("Start with AI")
-            # 2026-11-04: the user's own steps and words, walked through
-            # in the app (p_seq_builder), right under Start with AI.
+            # 2026-11-04: one Start a Campaign button. Its dialog shows the
+            # two ways in, Start with AI (AI Prompts) and Create my own
+            # campaign (p_seq_builder), and what each one does. New
+            # Campaign (the manual chooser) lives under Campaigns.
             with ui.element("button").classes(
-                    "fd-side-cta2" + (" on" if page == "seq_builder" else "")).props(
-                    'type="button" data-tour="nav-own_campaign"').on(
-                    "click", lambda: _open_own_campaign(s, rf)):
-                ui.html(_svg_icon("pen", 16))
-                ui.label(OWN_CAMPAIGN_TITLE)
+                    "fd-side-cta" + (" on" if page == "seq_builder" else "")).props(
+                    'type="button" data-tour="nav-ai_prompts"').on(
+                    "click", lambda: _start_campaign_dialog(s, rf, _setup)):
+                ui.html(_svg_icon("ai_prompts", 18))
+                ui.label(START_CAMPAIGN_TITLE)
 
         # ── Grouped navigation ──
         with ui.element("nav").classes("fd-side-nav"):
@@ -32275,6 +32287,80 @@ def _open_own_campaign(s, rf):
     s.hub = "sales"
     s.sp = "seq_builder"
     rf()
+
+
+# The sidebar's one Start a Campaign button opens a dialog with these two
+# cards, so people see what each way in does before they pick one. AI is
+# first and marked Recommended: it is still the start we want used most.
+START_CAMPAIGN_TITLE = "Start a Campaign"
+START_CAMPAIGN_OPTIONS = [
+    {
+        "key": "ai",
+        "icon": "ai_prompts",
+        "title": "Start with AI",
+        "tag": "Recommended",
+        "desc": ("Pick a job and answer a few questions. DripDrop writes "
+                 "the prompt and opens it in Claude or ChatGPT."),
+        "points": ["Finds companies that fit",
+                   "Pulls the right people at each one",
+                   "Builds the campaigns for you"],
+        "cta": "Start with AI",
+    },
+    {
+        "key": "own",
+        "icon": "pen",
+        "title": OWN_CAMPAIGN_TITLE,
+        "tag": "",
+        "desc": "Your steps, your words, and a little AI help when you ask.",
+        "points": ["Pick your emails, calls and LinkedIn touches",
+                   "Write each step yourself, with an AI polish if you like",
+                   "Add your own candidates",
+                   "Saves as a style you can run again"],
+        "cta": "Create my own",
+    },
+]
+
+
+def _start_campaign_dialog(s, rf, setup: dict):
+    """The sidebar's Start a Campaign button: both ways to start, side by
+    side, each going where its own sidebar button used to go."""
+    with ui.dialog() as dlg, ui.card().style(
+            f"background:{C['card']};border:1px solid {C['teal']}40;"
+            f"width:680px;max-width:94vw;padding:26px 28px;"):
+        ui.label(START_CAMPAIGN_TITLE).style(
+            f"font-size:19px;font-weight:800;color:{C['text_l']};"
+            f"font-family:'Nunito',sans-serif;")
+        ui.label("Two ways to start. Which fits today?").style(
+            f"font-size:13px;color:{C['muted']};line-height:1.6;margin-bottom:16px;display:block;")
+
+        def _pick(k):
+            dlg.close()
+            if k == "ai":
+                _sidebar_nav(s, rf, "ai_prompts", setup)
+            else:
+                _open_own_campaign(s, rf)
+
+        with ui.element("div").classes("fd-startc-grid"):
+            for opt in START_CAMPAIGN_OPTIONS:
+                card = ui.element("div").classes(
+                    "fd-startc-card" + (" rec" if opt["tag"] else "")).props(
+                    f'role="button" tabindex="0" data-tour="start-{opt["key"]}"')
+                card.on("keydown.enter", lambda k=opt["key"]: _pick(k))
+                with card.on("click", lambda k=opt["key"]: _pick(k)):
+                    with ui.element("div").classes("fd-startc-head"):
+                        with ui.element("div").classes("fd-startc-ico"):
+                            ui.html(_svg_icon(opt["icon"], 18))
+                        with ui.element("div"):
+                            ui.label(opt["title"]).classes("fd-startc-title")
+                            if opt["tag"]:
+                                ui.label(opt["tag"]).classes("fd-startc-tag")
+                    ui.label(opt["desc"]).classes("fd-startc-desc")
+                    with ui.element("div").classes("fd-startc-pts"):
+                        for pt in opt["points"]:
+                            ui.label(pt).classes("fd-startc-pt")
+                    with ui.element("div").classes("fd-startc-go"):
+                        ui.label(opt["cta"] + " →")
+    dlg.open()
 
 
 def _own_polish_text(text: str, step_type: str, tone: str = "",
@@ -59750,7 +59836,7 @@ def setup_page():
                         "font-size:16px;font-weight:700;color:#F0F8FF;font-family:'Nunito',sans-serif;")
                 ui.label(
                     "Pick a job, answer a few questions, and DripDrop writes the prompt and opens "
-                    "it in Claude or ChatGPT. It's the button at the top of the sidebar."
+                    "it in Claude or ChatGPT. It's under Start a Campaign at the top of the sidebar."
                 ).style("font-size:13px;color:#D8E4F5;line-height:1.6;" +
                         ("margin-bottom:14px;" if not _left else ""))
                 if not _left:
@@ -60493,11 +60579,13 @@ def index():
         },
         {
             "selector": '[data-tour="nav-ai_prompts"]',
-            "title": "Start with AI",
+            "title": "Start a Campaign",
             "body": (
-                "Pick a job, answer a few questions, and DripDrop writes the "
-                "prompt and opens it in Claude or ChatGPT. That's the fastest "
-                "way to launch your first campaign."
+                "Every campaign starts with this button. Choose Start with "
+                "AI to pick a job, answer a few questions, and have DripDrop "
+                "write the prompt and open it in Claude or ChatGPT. That's "
+                "the fastest way to launch your first campaign. Or choose "
+                "Create my own campaign to write the steps yourself."
             ),
         },
         {
@@ -60530,7 +60618,7 @@ def index():
             "selector": None,
             "title": "You're all set!",
             "body": (
-                "Next: finish setup in Settings, then click Start with AI. "
+                "Next: finish setup in Settings, then click Start a Campaign. "
                 "You can replay this tour anytime from your name at the "
                 "bottom of the sidebar."
             ),
