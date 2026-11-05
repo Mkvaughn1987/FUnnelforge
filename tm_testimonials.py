@@ -264,7 +264,7 @@ def request_email(req, link, sender_first="", our_company="ThriveModal"):
             "owner more than anything we could tell them.\n\n"
             "I made it quick: about 12 click-through questions, roughly 3 minutes, no "
             "login. At the end it drafts a short quote from your answers. You can edit "
-            "it, choose whether we use your name, and approve it. Nothing goes anywhere "
+            "it and approve it. Nothing goes anywhere "
             "without your OK.\n\n"
             f"{link}\n\n"
             "Thanks either way. We appreciate you.\n\n"
@@ -280,7 +280,7 @@ def shared_email(link, sender_first="", our_company="ThriveModal"):
             "anything we could tell them.\n\n"
             "I made it quick: about 12 click-through questions, roughly 3 minutes, no "
             "login. At the end it drafts a short quote from your answers. You can edit "
-            "it, choose whether we use your name, and approve it. Nothing goes anywhere "
+            "it and approve it. Nothing goes anywhere "
             "without your OK.\n\n"
             f"{link}\n\n"
             "Thanks either way. We appreciate you.\n\n"
@@ -496,8 +496,8 @@ def register_routes():
                 body = {}
             body = body if isinstance(body, dict) else {}
             about = clean_about(body.get("about"))
-            if not about["name"] or not about["company"]:
-                return JSONResponse({"error": "Add your name and company at the top."},
+            if not about["name"] or not about["title"] or not about["company"]:
+                return JSONResponse({"error": "Add your name, title and company at the top."},
                                     status_code=400)
             ans = clean_answers(body.get("answers"))
             if not ans:
@@ -515,13 +515,25 @@ def register_routes():
             body = await request.json()
         except Exception:
             body = {}
-        ans = clean_answers((body or {}).get("answers"))
+        body = body if isinstance(body, dict) else {}
+        about = clean_about(body.get("about"))
+        if not about["name"] or not about["title"] or not about["company"]:
+            return JSONResponse({"error": "Add your name, title and company at the top."},
+                                status_code=400)
+        ans = clean_answers(body.get("answers"))
         if not ans:
             return JSONResponse({"error": "Pick at least one answer first."}, status_code=400)
-        draft = build_draft(ans, _our_company(owner), req.get("hire", ""))
+        hire = req.get("hire") or about["hire"]
+        draft = build_draft(ans, _our_company(owner), hire)
 
         def _set(r):
-            r.update(answers=ans, draft=draft, status="answered", answered_at=_now())
+            r.update(answers=ans, draft=draft, status="answered", answered_at=_now(),
+                     sig_name=about["name"], sig_title=about["title"],
+                     sig_company=about["company"])
+            if about["hire"] and not r.get("hire"):
+                r["hire"] = about["hire"]
+            if about["email"] and not r.get("email"):
+                r["email"] = about["email"]
         update(owner, token, _set)
         return JSONResponse({"draft": draft})
 
@@ -539,16 +551,16 @@ def register_routes():
             body = {}
         body = body if isinstance(body, dict) else {}
         quote = _clip(body.get("quote"), 1500)
-        perm = body.get("permission")
         if not quote:
             return JSONResponse({"error": "The quote is empty."}, status_code=400)
-        if perm not in _PERM:
-            return JSONResponse({"error": "Choose how we can use it."}, status_code=400)
+        if not (req.get("sig_name") and req.get("sig_company")):
+            return JSONResponse({"error": "Go back and add your name, title and company."},
+                                status_code=400)
 
+        # Clicking Approve is the OK to use it with their name (Mike,
+        # 2026-11-05: no "How can we use it?" question).
         def _set(r):
-            r.update(quote=quote, permission=perm, status="approved", approved_at=_now(),
-                     sig_name=_clip(body.get("name"), 80), sig_title=_clip(body.get("title"), 80),
-                     sig_company=_clip(body.get("company"), 120))
+            r.update(quote=quote, permission="full", status="approved", approved_at=_now())
         update(owner, token, _set)
         return JSONResponse({"ok": True})
 
@@ -621,7 +633,7 @@ padding:13px 22px;cursor:pointer}
   <p class="lead">About 3 minutes, all clicks. At the end you'll see a short draft quote built from
   your answers. You edit it and approve it, and nothing is used without your OK.</p>
   <div class="q" id="about" hidden style="margin-top:8px"><h3>About you</h3>
-    <p class="hint">So we know who it's from. Name and company are required.</p>
+    <p class="hint">This is how we'll credit your quote. Name, title and company are required.</p>
     <div class="fields">
       <label>Your name<input type="text" id="a-name" autocomplete="name"></label>
       <label>Title<input type="text" id="a-title" autocomplete="organization-title" placeholder="e.g. Owner, VP Operations"></label>
@@ -635,15 +647,10 @@ padding:13px 22px;cursor:pointer}
 </section>
 <section id="s-draft" hidden style="display:flex;flex-direction:column;gap:14px">
   <h1>Here's your draft</h1>
-  <p class="lead">Built only from what you picked. Change anything you like, it's your quote.</p>
+  <p class="lead">Built only from what you picked. Change anything you like, it's your quote.
+  If you're OK with us using it, click Approve.</p>
   <textarea id="quote" style="min-height:150px"></textarea>
-  <div class="q"><h3>How can we use it?</h3><div class="perm" id="perm"></div></div>
-  <div class="q"><h3>How should we credit you?</h3><p class="hint">Only shown if you chose name and company above.</p>
-    <div class="fields">
-      <label>Your name<input type="text" id="f-name" autocomplete="name"></label>
-      <label>Title<input type="text" id="f-title" autocomplete="organization-title" placeholder="e.g. Owner, VP Operations"></label>
-      <label style="grid-column:1/-1">Company<input type="text" id="f-company" autocomplete="organization"></label>
-    </div></div>
+  <p class="lead" id="credit-note"></p>
   <div class="err" id="err2"></div>
   <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
     <button class="btn" id="approve">Approve</button>
@@ -666,8 +673,10 @@ function show(id){for(const s of ['s-survey','s-draft','s-done']) $(s).hidden = 
 function render(){
   const first = (S.contact||'').split(' ')[0];
   $('hello').textContent = (first ? first + ', a' : 'A') + ' quick favor from ' + D.us;
-  if(S.open){ $('about').hidden=false;
-    $('foot').textContent='Questions? Just reply to the email this came in.'; }
+  $('about').hidden=false;
+  for(const [id,v] of [['a-name',S.sig_name],['a-title',S.sig_title],['a-company',S.sig_company]])
+    if(!$(id).value && v) $(id).value=v;
+  if(S.open) $('foot').textContent='Questions? Just reply to the email this came in.';
   const box = $('qs'); box.innerHTML='';
   for(const q of D.questions){
     if(q.section) box.appendChild(el('div',{class:'sec'},q.section));
@@ -708,13 +717,8 @@ async function post(path, body){
 }
 function draftView(text){
   $('quote').value = text;
-  const p=$('perm'); p.innerHTML='';
-  for(const [k,l] of D.perms){const b=el('button',{type:'button',class:'chip',
-    'aria-pressed':String(S.permission===k)},l);
-    b.onclick=()=>{S.permission=k; draftView($('quote').value);}; p.appendChild(b);}
-  $('f-name').value = $('f-name').value || S.sig_name;
-  $('f-title').value = $('f-title').value || S.sig_title;
-  $('f-company').value = $('f-company').value || S.sig_company;
+  const who = [S.sig_name, S.sig_title, S.sig_company].filter(Boolean).join(', ');
+  $('credit-note').textContent = who ? 'It will be credited to ' + who + '.' : '';
   show('s-draft');
 }
 $('next').onclick = async ()=>{
@@ -722,12 +726,12 @@ $('next').onclick = async ()=>{
   const about = {name:$('a-name').value.trim(), title:$('a-title').value.trim(),
     company:$('a-company').value.trim(), email:$('a-email').value.trim(),
     hire:$('a-hire').value.trim()};
-  if(S.open && !S.child && (!about.name || !about.company)){
-    $('err1').textContent='Add your name and company at the top.'; $('next').disabled=false;
+  if(!about.name || !about.title || !about.company){
+    $('err1').textContent='Add your name, title and company at the top.'; $('next').disabled=false;
     $('about').scrollIntoView({behavior:'smooth'}); return; }
   try{ const j = await post('/answers',{answers:A, about:about}); S.draft=j.draft;
-    if(S.open && !S.child && j.token){ S.token=j.token; S.child=true;
-      S.sig_name=about.name; S.sig_title=about.title; S.sig_company=about.company; }
+    if(S.open && !S.child && j.token){ S.token=j.token; S.child=true; }
+    S.sig_name=about.name; S.sig_title=about.title; S.sig_company=about.company;
     draftView(j.draft || 'Working with ' + D.us + ' has been great.'); }
   catch(e){ $('err1').textContent=e.message; }
   finally{ $('next').disabled=false; }
@@ -735,10 +739,8 @@ $('next').onclick = async ()=>{
 $('back').onclick=()=>show('s-survey');
 $('approve').onclick = async ()=>{
   $('err2').textContent='';
-  if(!S.permission){ $('err2').textContent='Choose how we can use it first.'; return; }
   $('approve').disabled=true;
-  try{ await post('/approve',{quote:$('quote').value, permission:S.permission,
-      name:$('f-name').value, title:$('f-title').value, company:$('f-company').value});
+  try{ await post('/approve',{quote:$('quote').value});
     S.quote=$('quote').value; done(); }
   catch(e){ $('err2').textContent=e.message; }
   finally{ $('approve').disabled=false; }

@@ -110,22 +110,26 @@ def test_public_routes_end_to_end(ff):
     assert page.status_code == 200 and "noindex" in page.headers.get("x-robots-tag", "")
     assert tt.find(tok)[1]["status"] == "opened"
 
-    assert c.post(f"/review/{tok}/answers", json={"answers": {}}).status_code == 400
+    about = {"name": "Jane Doe", "title": "Owner", "company": "Acme Freight"}
+    assert c.post(f"/review/{tok}/answers", json={"answers": {}, "about": about}
+                  ).status_code == 400
+    no_title = c.post(f"/review/{tok}/answers", json={
+        "answers": {"fill": "lt2w"}, "about": {"name": "Jane", "company": "Acme"}})
+    assert no_title.status_code == 400 and "title" in no_title.json()["error"]
     res = c.post(f"/review/{tok}/answers",
-                 json={"answers": {"fill": "lt2w", "expanded": "yes"}})
+                 json={"answers": {"fill": "lt2w", "expanded": "yes"}, "about": about})
     assert res.status_code == 200 and "under two weeks" in res.json()["draft"]
     assert tt.find(tok)[1]["status"] == "answered"
 
-    assert c.post(f"/review/{tok}/approve", json={"quote": "Great", "permission": "x"}
-                  ).status_code == 400
-    ok = c.post(f"/review/{tok}/approve", json={
-        "quote": "They are great.", "permission": "full", "name": "Jane Doe",
-        "title": "Owner", "company": "Acme Freight"})
+    assert c.post(f"/review/{tok}/approve", json={"quote": "  "}).status_code == 400
+    # Clicking Approve is the OK: no permission question, credit from page one.
+    ok = c.post(f"/review/{tok}/approve", json={"quote": "They are great."})
     assert ok.status_code == 200
     saved = tt.find(tok)[1]
     assert saved["status"] == "approved" and saved["quote"] == "They are great."
+    assert saved["permission"] == "full"
     assert tt.credit_line(saved) == "Jane Doe, Owner, Acme Freight"
-    assert c.post(f"/review/{tok}/answers", json={"answers": {"fill": "lt2w"}}
+    assert c.post(f"/review/{tok}/answers", json={"answers": {"fill": "lt2w"}, "about": about}
                   ).status_code == 409
 
 
@@ -250,7 +254,7 @@ def test_shared_link_makes_one_entry_per_person(ff):
     assert page.status_code == 200 and '"open": true' in page.text
 
     no_name = c.post(f"/review/{tok}/answers", json={"answers": {"fill": "lt2w"}, "about": {}})
-    assert no_name.status_code == 400 and "name and company" in no_name.json()["error"]
+    assert no_name.status_code == 400 and "name, title and company" in no_name.json()["error"]
 
     tokens = []
     for who, co in (("Jane Doe", "Acme Freight"), ("Bob Ray", "Beta Logistics")):
@@ -267,8 +271,7 @@ def test_shared_link_makes_one_entry_per_person(ff):
 
     # Approving goes to the person's own entry; the shared link stays open.
     ok = c.post(f"/review/{tokens[0]}/approve", json={
-        "quote": "Great.", "permission": "full", "name": "Jane Doe", "title": "Owner",
-        "company": "Acme Freight"})
+        "quote": "Great."})
     assert ok.status_code == 200
     assert tt.find(tokens[0])[1]["status"] == "approved"
     assert c.get(f"/review/{tok}").status_code == 200
