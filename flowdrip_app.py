@@ -58155,19 +58155,13 @@ def p_pdf_gen(s: AppState, rf):
                                 ).on("click", _pdf_af_click):
                             ui.label("✨ Autofill with AI").style("pointer-events:none;")
                         ui.label(
-                            ("Have a company in mind? Type its name or paste "
-                             "its website above, then click Autofill to fill "
-                             "in the industry, location"
-                             if _pdf_tm else
-                             "Type the company name above or paste its website "
-                             "below, then click Autofill to fill in the industry, "
-                             "location")
+                            "Type the company name above or paste its website "
+                            "below, then click Autofill to fill in the industry, "
+                            "location"
                             + (" and the positions they are hiring for that fit "
                                "offshore." if _tm_nationwide() else
                                " and website.")
-                            + (" Anything you already picked stays as it is."
-                               if _pdf_tm else
-                               " Anything you already typed stays as it is.")
+                            + " Anything you already typed stays as it is."
                         ).style(_hint + "margin-top:6px;")
                         if s._pdf_af_err:
                             ui.label(f"⚠ {s._pdf_af_err}").style(
@@ -58320,9 +58314,8 @@ def p_pdf_gen(s: AppState, rf):
                     options=["", "Entry (0-3 yrs)", "Mid (3-7 yrs)", "Senior (7-15 yrs)", "Executive (15+)"],
                     value=s._pdf_exp_level,
                 ).classes("fd-input").style("min-width:160px;")
-        if _pdf_tm:
-            # Beside the company it looks up, not above the required fields.
-            _pdf_autofill_row()
+        # No Autofill with AI on ThriveModal (Mike 2026-11-05): the Industry
+        # and Jobs drop-downs fill the form, so the button is not needed.
 
         # Cost-comparison inputs. Shown only when that asset is selected,
         # because they are meaningless for the other four and a wall of

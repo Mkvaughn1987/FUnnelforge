@@ -145,6 +145,18 @@ def test_form_has_the_drop_downs_on_thrivemodal_only():
     assert 'ui.label("Target Role *")' in form
 
 
+def test_thrivemodal_form_has_no_autofill_button():
+    """The drop-downs fill the form, so Autofill with AI is only drawn on
+    the typed form other workspaces keep."""
+    src = inspect.getsource(fa.p_pdf_gen)
+    form = src[src.index("# Input form (now in stage 2 only)"):]
+    calls = form.replace("def _pdf_autofill_row():", "")
+    assert calls.count("_pdf_autofill_row()") == 1
+    typed = calls[calls.index('ui.label("Company or Market *")'):
+                  calls.index('ui.label("Target Role *")')]
+    assert "_pdf_autofill_row()" in typed
+
+
 def test_company_is_optional_on_thrivemodal():
     src = inspect.getsource(fa.p_pdf_gen)
     ready = src[src.index("def _pdf_form_ready"):src.index("def _generate_pdf")]
