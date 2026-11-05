@@ -269,7 +269,7 @@ def test_names_say_the_situation_not_the_step_count():
     cards = {o["key"]: o["title"] for o in fa.TM_CHOOSER_OPTIONS}
     for k in fa._TM_OFFERED_TYPE_KEYS:
         assert cards[k] == names[k], k
-    assert cards["scratch"] == "Build Your Own"
+    assert cards["scratch"] == "Build a Custom Campaign"
     assert [o["key"] for o in fa.TM_CHOOSER_OPTIONS
             if o.get("recommended")] == ["tm_fivebyseven"]
     for o in fa.TM_CHOOSER_OPTIONS:

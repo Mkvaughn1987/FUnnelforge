@@ -3,8 +3,8 @@
 DripDrop folded Start with AI and Create my own campaign into one Start a
 Campaign button whose dialog shows both (2026-11-04). inboxslide takes the
 same button and dialog in its own terms: Build an AI Campaign opens AI Prompt,
-and Build a Custom Campaign opens the chooser Campaigns > Build a Campaign
-already opens."""
+and Build a Custom Campaign opens the walkthrough written for ThriveModal
+(tests/test_tm_custom_campaign.py)."""
 import inspect
 import types
 
@@ -38,15 +38,17 @@ def test_dialog_offers_ai_then_build_and_neither_is_recommended():
     # inboxslide's words, not DripDrop's.
     blob = str(opts)
     assert "DripDrop" not in blob or fa.BRAND == "DripDrop"
-    assert "ChatGPT" not in blob and "candidates" not in blob.lower()
+    assert "ChatGPT" not in blob and "Pipeline" not in blob
+    assert "candidate profiles and a Sales PDF" in blob
 
 
 def test_dialog_cards_navigate_like_their_sidebar_entries():
     import flowdrip_app as fa
     dlg = inspect.getsource(fa._start_campaign_dialog)
-    assert "_ai_prompts_key()" in dlg and '"start_seq"' in dlg
-    # Through the sidebar navigator: setup gate, wizard reset, landing view.
-    assert "_sidebar_nav(" in dlg and "setup, fresh=True" in dlg
+    # AI goes through the sidebar navigator (landing view); Custom opens
+    # its walkthrough behind the same setup gate.
+    assert "_sidebar_nav(s, rf, _ai_prompts_key(), setup, fresh=True)" in dlg
+    assert "_open_custom_campaign(s, rf, setup)" in dlg
     assert "dlg.close()" in dlg
     assert "START_CAMPAIGN_OPTIONS" in dlg
 

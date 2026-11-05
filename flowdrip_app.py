@@ -22037,6 +22037,7 @@ SIDEBAR_TITLES = {
     "team_settings": "Team", "signature": "Signature", "e_signature": "Signature",
     "timezone": "Timezone", "dnc": "Do Not Contact", "admin": "Admin",
     "start_seq": "New Campaign", "ai_campaign": "New Campaign", "seq_builder": "New Campaign",
+    "tm_custom_campaign": "Build a Custom Campaign",
     "camp_gen": "New Campaign", "preview": "Preview", "launch": "Launch",
     "create_camp": "New Campaign", "emails_build": "New Campaign", "sequence": "Sequence",
     "prev_launch": "Preview & Launch",
@@ -22290,6 +22291,10 @@ class AppState:
         self.sb_count_call: int = 1
         self.sb_count_linkedin: int = 1
         self.sb_style_name: str = ""
+        # Build a Custom Campaign (tm_custom_campaign_page, 2026-11-05): the
+        # whole walkthrough's state in one dict, so _reset_wizard_state
+        # clears it with the other wizards. Keys: see that module's _DEFAULTS.
+        self.tmc_state: dict = {}
 
         # Candidate Placement Campaign state
         self.cpc_step = 0              # 0=review, 1=generating, 2=done
@@ -22368,7 +22373,7 @@ def _reset_wizard_state(s: "AppState") -> None:
     fresh = AppState()
     import copy as _copy
     for name, default in vars(fresh).items():
-        if name.startswith(("aicb_", "custom_", "rc_", "sb_")):
+        if name.startswith(("aicb_", "custom_", "rc_", "sb_", "tmc_")):
             # deep-copy so mutating the fresh default later doesn't
             # leak back into s (relevant when the default is a list/dict)
             try:
@@ -23828,9 +23833,11 @@ def _ai_prompts_card(s, rf):
 # The sidebar's one Start a Campaign button opens a dialog with these two
 # cards, so people see what each way in does before they pick one (DripDrop's
 # chooser, 2026-11-04, in inboxslide's terms). "ai" is AI Prompt; "build" is
-# Build a Campaign, the same chooser the Campaigns sub-row opens. Mike named
-# the cards Build an AI Campaign and Build a Custom Campaign (2026-11-05).
-# Neither is marked Recommended: both look the same.
+# the Build a Custom Campaign walkthrough (tm_custom_campaign_page), the
+# user's own steps written for what ThriveModal sells. Mike named the cards
+# Build an AI Campaign and Build a Custom Campaign (2026-11-05). Neither is
+# marked Recommended: both look the same. The ready-made campaigns stay under
+# Campaigns > Build a Campaign.
 START_CAMPAIGN_TITLE = "Start a Campaign"
 START_CAMPAIGN_OPTIONS = [
     {
@@ -23848,22 +23855,31 @@ START_CAMPAIGN_OPTIONS = [
         "key": "build",
         "icon": "pen",
         "title": "Build a Custom Campaign",
-        "desc": ("Pick the campaign that fits the situation and bring your "
-                 "own contacts."),
-        "points": ["A ready campaign for a new company or a follow-up",
-                   "Upload a list, pick a saved one or add one contact",
-                   "Every email, call script and LinkedIn note written for "
-                   "you to review",
-                   "Or set your own steps with Build Your Own"],
+        "desc": "Your steps, your words, and a little AI help when you ask.",
+        "points": ["Build it one step at a time: email, call or LinkedIn",
+                   "Write each step yourself, or describe it and AI drafts it",
+                   "Add candidate profiles and a Sales PDF to any follow-up",
+                   "Save it and reuse it for any company"],
         "cta": "Build a custom campaign",
     },
 ]
 
 
+def _open_custom_campaign(s, rf, setup: dict = None):
+    """Open the Build a Custom Campaign walkthrough fresh. Same setup gate
+    as starting any other campaign: email and Company Profile first."""
+    setup = _sidebar_setup_status() if setup is None else setup
+    if (_SERVER_MODE and not setup.get("ready", True)
+            and not getattr(s, "_setup_gate_dismissed", False)):
+        _show_setup_gate_dialog(s, rf, setup); return
+    import tm_custom_campaign_page as _tmc
+    _tmc.open_page(s, rf)
+
+
 def _start_campaign_dialog(s, rf, setup: dict):
     """The sidebar's Start a Campaign button: both ways to start, side by
-    side. Each card navigates exactly as its own sidebar entry does (AI
-    Prompt's row, Campaigns > Build a Campaign), setup gate included."""
+    side. Build an AI Campaign navigates as AI Prompt's sidebar row does;
+    Build a Custom Campaign opens its walkthrough, setup gate included."""
     with ui.dialog() as dlg, ui.card().style(
             f"background:{C['card']};border:1px solid {_tint(C['teal'],'40')};"
             f"width:680px;max-width:94vw;padding:26px 28px;"):
@@ -23875,8 +23891,10 @@ def _start_campaign_dialog(s, rf, setup: dict):
 
         def _pick(k):
             dlg.close()
-            _sidebar_nav(s, rf, _ai_prompts_key() if k == "ai" else "start_seq",
-                         setup, fresh=True)
+            if k == "ai":
+                _sidebar_nav(s, rf, _ai_prompts_key(), setup, fresh=True)
+            else:
+                _open_custom_campaign(s, rf, setup)
 
         with ui.element("div").classes("fd-side-start-grid"):
             for opt in START_CAMPAIGN_OPTIONS:
@@ -30771,11 +30789,11 @@ _TM_CHOOSER_GROUPS = [
 TM_CHOOSER_OPTIONS = [
     o for o in _TM_CHOOSER_OBJECTIVES if o["key"] not in _TM_HIDDEN_TYPE_KEYS
 ] + [
-    dict(opt, group="own", title="Build Your Own",
+    dict(opt, group="own", title="Build a Custom Campaign",
          use_when="None of these fit and you want to set the steps yourself.",
-         desc=("Pick how many emails, calls and LinkedIn touches you want, "
-               "set the spacing, and write each step or let AI draft it. "
-               "Saved to My Campaign Styles to reuse any time."))
+         desc=("Add emails, calls and LinkedIn messages one at a time, write "
+               "each step or let AI draft it, and add candidate profiles or "
+               "a Sales PDF. Saved to reuse for any company."))
     for opt in CHOOSER_OPTIONS if opt["key"] == "scratch"
 ]
 
@@ -31088,9 +31106,9 @@ def _tm_render_chooser_page(s, rf):
         if k in _TM_TYPE_KEYS:
             _tm_start_objective(s, k)
         elif k == "scratch":
-            # Same target as the shared chooser's "scratch" tile.
-            _reset_wizard_state(s)
-            s.sp = "seq_builder"
+            # ThriveModal's own walkthrough (2026-11-05); the shared
+            # chooser's "scratch" tile still opens Create a Campaign Style.
+            _open_custom_campaign(s, rf); return
         rf()
 
     for gkey, glabel in _TM_CHOOSER_GROUPS:
@@ -72139,7 +72157,7 @@ def render_page(s: AppState, rf):
             # from in the old nav, not anything on screen. Step Backs stay.
             if _SIDEBAR_LAYOUT and page in SIDEBAR_PAGE_ROW:
                 back_label = ""
-            if page == "seq_builder":   # draws its own step-aware Back
+            if page in ("seq_builder", "tm_custom_campaign"):   # draw their own step-aware Back
                 back_label = ""
             _show_back = (_in_aicb_wizard or _in_loaded_camp_step or back_label) and page != "dashboard"
             if _show_back:
@@ -72230,6 +72248,16 @@ def render_page(s: AppState, rf):
                 except Exception as _tmt_ex:
                     print(f"[Targets] page failed: {_tmt_ex}", flush=True)
                     ui.label(f"Target List is unavailable: {_tmt_ex}").style(
+                        f"font-size:14px;color:{C['warn']};padding:20px 0;")
+            elif page == "tm_custom_campaign" and _is_thrivemodal():
+                # Build a Custom Campaign: the user's own steps, one per
+                # screen. Lazy companion module.
+                try:
+                    import tm_custom_campaign_page as _tmc
+                    _tmc.render_page(s, rf)
+                except Exception as _tmc_ex:
+                    print(f"[CustomCampaign] page failed: {_tmc_ex}", flush=True)
+                    ui.label(f"Build a Custom Campaign is unavailable: {_tmc_ex}").style(
                         f"font-size:14px;color:{C['warn']};padding:20px 0;")
             elif page == "active_clients": p_active_clients(s, rf)
             elif page == "company_profile": p_company_profile(s, rf)
@@ -74147,7 +74175,7 @@ def index():
                 "Every campaign starts with this button. Choose Build an AI "
                 "Campaign to pick a job, answer a few questions, and get the "
                 "prompt to paste into Claude. Or choose Build a Custom "
-                "Campaign to pick a campaign and bring your own contacts."
+                "Campaign to write your own steps, one at a time."
             ),
         } if _tm_nav_page_key("ai_prompt", None) else {
             "selector": '[data-tour="nav-start_seq"]',
