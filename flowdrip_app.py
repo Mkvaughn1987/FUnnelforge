@@ -46472,10 +46472,50 @@ _TM_ROLE_PROFILES = {
 }
 
 
+# Titles a rep types that are not a playbook title: the longest keyword in
+# the title picks the profile ("Senior Estimator", "BIM Manager", "CPA").
+_TM_ROLE_PROFILE_ALIASES = (
+    ("architect", ("BS Architecture; licensed architect (Philippines)",
+                   "Construction documents, permit sets, redline pickups, schedules",
+                   "Revit, AutoCAD, Bluebeam")),
+    ("bim", ("BS Architecture or Civil Engineering; Autodesk certified",
+             "BIM models, clash detection, model coordination, sheet sets",
+             "Revit, Navisworks, Autodesk Construction Cloud")),
+    ("vdc", ("BS Architecture or Civil Engineering; Autodesk certified",
+             "BIM models, clash detection, model coordination, sheet sets",
+             "Revit, Navisworks, Autodesk Construction Cloud")),
+    ("cpa", "staff accountant"), ("accountant", "staff accountant"),
+    ("bookkeep", "bookkeeper"), ("estimat", "estimator"),
+    ("drafter", "cad and bim drafter"), ("payroll", "payroll specialist"),
+    ("dispatch", "dispatcher"), ("track and trace", "track and trace specialist"),
+    ("medical cod", "medical coder"), ("medical bill", "medical biller"),
+    ("recruiter", "recruiter"), ("sourcer", "sourcer"),
+    ("paralegal", "paralegal"), ("executive assistant", "executive assistant"),
+    ("virtual assistant", "administrative assistant"),
+    ("administrative", "administrative assistant"),
+    ("customer service", "customer service representative"),
+    ("accounts payable", "accounts payable specialist"),
+    ("accounts receivable", "accounts receivable specialist"),
+    ("project coordinator", "project coordinator"),
+    ("leasing", "leasing coordinator"), ("scheduler", "patient scheduler"),
+)
+
+
+def _tm_role_profile(role: str):
+    """(degree and credentials, core work, software) for a title, or None."""
+    low = " ".join(str(role or "").lower().split())
+    if low in _TM_ROLE_PROFILES:
+        return _TM_ROLE_PROFILES[low]
+    hit = max(((kw, val) for kw, val in _TM_ROLE_PROFILE_ALIASES if kw in low),
+              key=lambda p: len(p[0]), default=None)
+    if not hit:
+        return None
+    return _TM_ROLE_PROFILES[hit[1]] if isinstance(hit[1], str) else hit[1]
+
+
 def _tm_role_profile_rows(roles) -> list:
     """Table rows (header first) for the roles we have a profile for, or []."""
-    rows = [[r, *_TM_ROLE_PROFILES[r.strip().lower()]] for r in roles
-            if r.strip().lower() in _TM_ROLE_PROFILES]
+    rows = [[r, *_tm_role_profile(r)] for r in roles if _tm_role_profile(r)]
     if not rows:
         return []
     return [["Role", "Degree and Credentials", "Core Work",
@@ -47243,6 +47283,9 @@ _TM_PDF_DEPTH_RULES = (
     "- This standard is the one thing you may state about our people "
     "beyond the approved text. It does not license a background-check "
     "claim, a compliance certification of ours, or a named candidate.\n"
+    "- Say a degree or credential is 'confirmed in screening'. Do not "
+    "describe how (no transcripts, reference calls, licence lookups or "
+    "tests we have not told you about).\n"
 )
 
 
@@ -47523,7 +47566,7 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"Remotely']. Back-office, admin, finance, customer service or "
             f"operations support roles this kind of business actually "
             f"hires, {role_label} first. Name the real tasks and documents. "
-            f"Each cell 14 words or fewer.\n"
+            f"Each cell 9 words or fewer.\n"
             f"  3. heading 'Systems and Workflows' — type 'bullets' — 3 "
             f"bullets naming the systems and workflows in this industry "
             f"that make this work practical to run remotely, under the "
@@ -47535,12 +47578,11 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"certifications and experience it requires and assessed for "
             f"fluent, professional English. Take cost and terms ONLY from "
             f"the approved pricing text below.\n"
-            f"  5. heading 'Planning Considerations' — type 'bullets' — 4 "
+            f"  5. heading 'Planning Considerations' — type 'bullets' — 3 "
             f"honest bullets: manager time for the first weeks, documented "
-            f"processes, system access and data security, and which task to "
-            f"hand over first.\n"
-            f"  6. heading 'Frequently Asked Questions' — type 'qa' — 4 "
-            f"pairs, 2-3 sentences each, that a first-time buyer of offshore "
+            f"processes, and system access and data security.\n"
+            f"  6. heading 'Frequently Asked Questions' — type 'qa' — 3 "
+            f"pairs, two sentences each, that a first-time buyer of offshore "
             f"staffing in this industry asks.\n"
             f"\nNo US salary tables and no compensation benchmarks: this is "
             f"about the offshore decision, not what to pay a US hire.\n"
@@ -47739,7 +47781,7 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"rows. Columns: ['Responsibility','What the Role Does','Output "
             f"and Cadence']. Each row is a real recurring duty of this role "
             f"in this industry, with the document or deliverable it produces "
-            f"and how often. Each cell 14 words or fewer.\n"
+            f"and how often. Each cell 10 words or fewer.\n"
             f"  3. heading 'Candidate Profile' — type 'table' — header + 5 "
             f"rows. Columns: ['Requirement','What We Recruit For']. Rows in "
             f"this order: Degree; Certifications; Experience; Software; "
@@ -47749,7 +47791,7 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"{industry_str} business would expect this role to work in; if "
             f"you are not confident a named system is actually used in this "
             f"industry, write the category instead of guessing a product "
-            f"name. Each cell 18 words or fewer.\n"
+            f"name. Each cell 14 words or fewer.\n"
             f"  4. heading 'Hours and Coverage' — type 'bullets' — 2 "
             f"bullets on how a Philippines-based team member covers "
             f"{location or 'US'} business hours. One must say the specific "
@@ -47794,7 +47836,7 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"'What You Receive']. Owner is 'Our team', 'Your team' or "
             f"'Shared'. 'What You Receive' is the concrete thing the client "
             f"gets at that stage (a documented role brief, a shortlist with "
-            f"video pre-screens, a monthly performance report). Each cell 14 "
+            f"video pre-screens, a monthly performance report). Each cell 9 "
             f"words or fewer. Do NOT add a duration column and do not state "
             f"how long any stage takes; the only approved timing is that a "
             f"typical start is about ten days from the client's decision.\n"
@@ -47807,23 +47849,23 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"has a video pre-screen the client can watch; a dependable home "
             f"office is confirmed and the workstation and IT are set up "
             f"before day one.\n"
-            f"  4. heading 'The People We Place' — type 'bullets' — 3 bullets "
-            f"on who the client gets for {role_label}: the degree and "
-            f"credentials; the hands-on experience with this industry's "
-            f"work and systems; and the attendance, performance and "
-            f"ownership clients report (approved customer proof only).\n"
-            f"  5. heading 'Client Responsibilities' — type 'bullets' — 4 "
+            f"  4. heading 'The People We Place' — type 'bullets' — 2 bullets "
+            f"on who the client gets for {role_label}: the hands-on "
+            f"experience with this industry's work and systems; and the "
+            f"attendance, performance and ownership clients report "
+            f"(approved customer proof only).\n"
+            f"  5. heading 'Client Responsibilities' — type 'bullets' — 3 "
             f"bullets on the decisions and management that stay with the "
             f"client, starting with which candidate they hire.\n"
-            f"  6. heading 'Ongoing Support' — type 'bullets' — 4 "
+            f"  6. heading 'Ongoing Support' — type 'bullets' — 3 "
             f"bullets on support after the person starts. Describe only "
             f"support that appears in the approved services text below; if "
             f"it is not there, do not claim it.\n"
-            f"  7. heading 'Commercial Terms' — type 'bullets' — 4 bullets "
+            f"  7. heading 'Commercial Terms' — type 'bullets' — 3 bullets "
             f"taken only from the approved pricing and service terms below, "
             f"stated as written. No figure that is not there.\n"
-            f"  8. heading 'Frequently Asked Questions' — type 'qa' — 4 Q&A "
-            f"pairs, 2-3 sentences each, on the questions a first-time buyer "
+            f"  8. heading 'Frequently Asked Questions' — type 'qa' — 3 Q&A "
+            f"pairs, two sentences each, on the questions a first-time buyer "
             f"of offshore staffing in this industry actually asks. If an "
             f"honest answer is 'that depends on your setup', say so and "
             f"offer to work through it together.\n"
@@ -47851,7 +47893,7 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"It']. One row each on: quality of work; education and "
             f"credentials; communication and English in a US team; security "
             f"of systems and data; losing control of the work; working US "
-            f"hours; what happens if it does not work out. Each cell 16 "
+            f"hours; what happens if it does not work out. Each cell 12 "
             f"words or fewer. Every Reality cell describes something we do "
             f"or the client controls. Every 'How You Verify It' cell is "
             f"something the client can see or check for themselves: the "
@@ -47871,8 +47913,8 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"honest bullets on what still takes work: the client's "
             f"management time in the first weeks, documented processes, "
             f"and clear system access. No promise of outcomes.\n"
-            f"  6. heading 'Frequently Asked Questions' — type 'qa' — 4 "
-            f"pairs, 2-3 sentences each, from a buyer who is still not sure.\n"
+            f"  6. heading 'Frequently Asked Questions' — type 'qa' — 3 "
+            f"pairs, two sentences each, from a buyer who is still not sure.\n"
             f"\nRULES FOR THIS DOCUMENT:\n"
             f"- No nationality-based generalizations about Filipino people "
             f"(English, work ethic, culture, loyalty). Answer each myth with "
@@ -47909,7 +47951,7 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"first. Columns: ['Role','Work It Covers','Degree and "
             f"Credentials We Recruit For','What You Hand Over First']. Name "
             f"the real tasks and documents of each role in this industry. "
-            f"Each cell 14 words or fewer.\n"
+            f"Each cell 9 words or fewer.\n"
             f"  3. heading 'Systems and Software' — type 'bullets' — "
             f"3 bullets, one per function (for example operations, finance, "
             f"customer service), naming the software a {industry_str} "
@@ -47922,12 +47964,12 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"bullets. Every one MUST start 'Suggested:' and propose a first "
             f"seat, why that one, and what to document before the person "
             f"starts.\n"
-            f"  6. heading 'Team Growth Path' — type 'bullets' — 3 bullets. "
+            f"  6. heading 'Team Growth Path' — type 'bullets' — 2 bullets. "
             f"Every one MUST start 'Suggested:' and describe how a client "
             f"who starts with one seat adds the next ones, naming which "
             f"role usually follows which in this industry.\n"
-            f"  7. heading 'Frequently Asked Questions' — type 'qa' — 4 "
-            f"pairs, 2-3 sentences each, on scoping a role for offshore "
+            f"  7. heading 'Frequently Asked Questions' — type 'qa' — 3 "
+            f"pairs, two sentences each, on scoping a role for offshore "
             f"work.\n"
             f"\nNo salaries, no savings figures, no headcount statistics. "
             f"This is about fit, not price.\n"
@@ -47957,18 +47999,18 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"support. Your Team: access, training time, feedback. 'What "
             f"the Role Is Doing' names the actual {role_label} tasks in "
             f"{industry_str} the person is working at that point. Each cell "
-            f"12 words or fewer. Every Checkpoint cell MUST start "
+            f"9 words or fewer. Every Checkpoint cell MUST start "
             f"'Suggested:'.\n"
-            f"  3. heading 'Client Preparation' — type 'bullets' — 5 bullets "
+            f"  3. heading 'Client Preparation' — type 'bullets' — 4 bullets "
             f"on what the client prepares: access to the specific systems "
             f"the role works in, a documented process for each first task, "
-            f"sample work to learn from, a point of contact, and the hours "
-            f"the person will work.\n"
+            f"sample work to learn from, and a point of contact with the "
+            f"hours the person will work.\n"
             f"  4. heading 'Suggested Handover Sequence' — type 'bullets' — "
             f"4 bullets. Every one MUST start 'Suggested:' and name a "
             f"specific task of this role, ordered from the most routine to "
             f"the one that needs the most judgement.\n"
-            f"  5. heading 'Suggested 90-Day Measures' — type 'bullets' — 4 "
+            f"  5. heading 'Suggested 90-Day Measures' — type 'bullets' — 3 "
             f"bullets. Every one MUST start 'Suggested:' and be a measure "
             f"used for this role in this industry, to agree, not a promise. "
             f"No target number unless the reader supplied it.\n"
@@ -48007,28 +48049,28 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"for the role); confidentiality (NDA signed before access); "
             f"dedication (the person works only for this client); "
             f"offboarding (access removed when the engagement changes). "
-            f"Each cell 14 words or fewer. Describe only what appears in "
+            f"Each cell 10 words or fewer. Describe only what appears in "
             f"the approved services and differentiators text below.\n"
             f"  3. heading 'Role Data Access' — type 'table' — "
             f"header + 4 rows. Columns: ['Data or System','Access the Role "
             f"Needs','Suggested Control']. Name the real records and "
             f"systems a {role_label} in {industry_str} touches. Every "
             f"'Suggested Control' cell MUST start 'Suggested:' and be a "
-            f"control the client sets in its own system. Each cell 14 words "
+            f"control the client sets in its own system. Each cell 10 words "
             f"or fewer.\n"
             f"  4. heading 'Client Controls' — type 'bullets' — 4 bullets: "
             f"which systems the person can reach, when access is granted "
             f"and removed, what can be downloaded or printed, and who "
             f"reviews activity.\n"
-            f"  5. heading 'Operating Practices' — type 'bullets' — 4 "
+            f"  5. heading 'Operating Practices' — type 'bullets' — 3 "
             f"bullets on everyday practice: no shared logins, no local "
-            f"copies of customer data, work kept inside the client's "
-            f"systems, immediate revocation when the engagement changes.\n"
-            f"  6. heading 'Suggested Access Setup' — type 'bullets' — 4 "
+            f"copies of customer data, immediate revocation when the "
+            f"engagement changes.\n"
+            f"  6. heading 'Suggested Access Setup' — type 'bullets' — 3 "
             f"bullets. Every one MUST start 'Suggested:' and be a step the "
             f"client takes before day one.\n"
-            f"  7. heading 'Frequently Asked Questions' — type 'qa' — 4 "
-            f"pairs, 2-3 sentences each, on data and confidentiality from a "
+            f"  7. heading 'Frequently Asked Questions' — type 'qa' — 3 "
+            f"pairs, two sentences each, on data and confidentiality from a "
             f"first-time buyer.\n"
             f"\nRULES FOR THIS DOCUMENT:\n"
             f"- Name NO certification, audit or standard of ours (SOC 2, "
@@ -48064,22 +48106,24 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
 _PDF_LENGTH_RULES = (
     "\nLENGTH AND FORMAT — THESE OVERRIDE EVERY RULE ABOVE:\n"
     "- The whole document runs to two pages and should come close to "
-    "filling them. A box stating our candidate standard is added above your "
-    "content automatically and takes about an inch; do not write it "
-    "yourself.\n"
+    "filling them, never past them. A box stating our candidate standard "
+    "is added above your content automatically and takes about an inch; do "
+    "not write it yourself.\n"
+    "- Count the words. Anything past two pages is cut from the end of your "
+    "lists, so staying inside these limits is how every point reaches the "
+    "reader.\n"
     "- No paragraphs. Any section described above as type 'paragraph' must be "
-    "returned as type 'bullets' with 2-4 bullets.\n"
-    "- Every bullet is one or two complete sentences, 38 words at most, "
-    "written as a business statement, not a fragment or a slogan. Each one "
-    "carries a specific: the named task, document, system, deadline or "
-    "measure. No section has more than 6 bullets, whatever a section above "
-    "asks for.\n"
-    "- Tables: at most 8 data rows under the header; every cell 18 words or "
-    "fewer.\n"
-    "- Q&A: at most 4 pairs; each answer 2-3 sentences.\n"
-    "- At most 8 sections. intro: one or two sentences stating what the "
-    "document covers and why it matters to this reader. cta: one sentence "
-    "naming the next step.\n"
+    "returned as type 'bullets' with 2-3 bullets.\n"
+    "- Every bullet is ONE complete sentence of 28 words or fewer, written "
+    "as a business statement, not a fragment or a slogan. Each one carries "
+    "a specific: the named task, document, system, deadline or measure. No "
+    "section has more than 5 bullets, whatever a section above asks for.\n"
+    "- Tables: at most 7 data rows under the header; every cell 12 words or "
+    "fewer, and fewer still where a section above says so.\n"
+    "- Q&A: at most 3 pairs; each answer two sentences, 45 words at most.\n"
+    "- At most 8 sections. intro: one sentence of 35 words or fewer stating "
+    "what the document covers and why it matters to this reader. cta: one "
+    "sentence naming the next step.\n"
 )
 
 
@@ -48799,10 +48843,30 @@ def _generate_rich_pdf_data(client, kind: str, ctx: dict, research_context: str 
     if kind == "tm_role_blueprint":
         _clamp_tm_blueprint(data)
     if _is_tm_pdf_kind(kind) and _is_thrivemodal():
+        _tm_keep_core_tables(data)
         # Last, so no clamp or scrub above can drop it.
         data["sections"] = _tm_with_standard(
             data.get("sections"), _rich_positions_str(ctx.get("positions")))
     return data
+
+
+# The table each ThriveModal PDF is built around. A process missing its last
+# three stages, or a 90-day plan that stops at week four, is worse than a
+# shorter FAQ, so the renderer's two-page trim takes bullets and Q&A instead
+# (first live build, 2026-11-05, cut exactly those rows).
+_TM_KEEP_TABLES = frozenset({
+    "engagement process", "90-day plan", "candidate profile",
+    "core responsibilities", "access controls", "myths and reality",
+    "roles that work offshore", "roles suited to offshore staffing",
+})
+
+
+def _tm_keep_core_tables(data: dict) -> None:
+    for sec in data.get("sections") or []:
+        if (isinstance(sec, dict) and (sec.get("type") or "").lower() == "table"
+                and str(sec.get("heading") or "").strip().lower()
+                in _TM_KEEP_TABLES):
+            sec["keep"] = True
 
 
 # Per-section caps for the Offshore Role Blueprint, keyed by heading. The

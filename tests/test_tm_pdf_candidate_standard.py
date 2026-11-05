@@ -206,3 +206,49 @@ def test_create_your_own_pdf_gets_the_standard_and_depth():
     out = inspect.getsource(fa._custom_pdf_outline)
     assert "The PDF runs to two pages" in out
     assert "must fit in 1.5 pages" not in out
+
+
+def test_core_tables_are_never_trimmed(monkeypatch):
+    """First live build, 2026-11-05: the two-page trim cut the Engagement
+    Process to three stages and the 90-Day Plan to week four."""
+    _tm(monkeypatch)
+    data = {"sections": [
+        {"heading": "Engagement Process", "type": "table", "items": [["a"]] * 7},
+        {"heading": "90-Day Plan", "type": "table", "items": [["a"]] * 6},
+        {"heading": "Role Data Access", "type": "table", "items": [["a"]] * 5},
+        {"heading": "Engagement Process", "type": "bullets", "items": ["x"]}]}
+    fa._tm_keep_core_tables(data)
+    assert [bool(s.get("keep")) for s in data["sections"]] == [
+        True, True, False, False]
+
+    class _Long:
+        content = [type("T", (), {"type": "text", "text": json.dumps({
+            "title": "t", "intro": "i", "cta": "c", "sections": [
+                {"heading": "Engagement Process", "type": "table",
+                 "items": [["Stage", "What Happens", "Owner", "What You Receive"]]
+                 + [["Stage", "We do the thing", "Shared", "A document"]] * 6}]})})()]
+    monkeypatch.setattr(fa, "_claude_create_with_retry", lambda c, **kw: _Long())
+    d = fa._generate_rich_pdf_data(None, "tm_how_it_works", dict(CTX))
+    table = next(s for s in d["sections"] if s["type"] == "table")
+    assert table["keep"] and len(table["items"]) == 7
+
+
+def test_length_rules_keep_the_writing_inside_two_pages():
+    r = fa._PDF_LENGTH_RULES
+    assert "28 words or fewer" in r and "12 words or fewer" in r
+    assert "at most 3 pairs" in r and "never past them" in r
+
+
+def test_a_typed_title_finds_its_profile_by_keyword():
+    assert fa._tm_role_profile("Architect")[2].startswith("Revit")
+    assert fa._tm_role_profile("Senior Estimator") == fa._TM_ROLE_PROFILES["estimator"]
+    assert fa._tm_role_profile("BIM Manager")[1].startswith("BIM models")
+    assert fa._tm_role_profile("CPA") == fa._TM_ROLE_PROFILES["staff accountant"]
+    # The longest keyword wins: an executive assistant is not "administrative".
+    assert (fa._tm_role_profile("Executive Assistant")
+            == fa._TM_ROLE_PROFILES["executive assistant"])
+    assert fa._tm_role_profile("Zookeeper") is None
+    for kw, val in fa._TM_ROLE_PROFILE_ALIASES:
+        assert isinstance(val, tuple) or val in fa._TM_ROLE_PROFILES, kw
+    rows = fa._tm_role_profile_rows(["Architect", "Zookeeper"])
+    assert [r[0] for r in rows] == ["Role", "Architect"]
