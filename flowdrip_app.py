@@ -31632,27 +31632,60 @@ def _render_sb_step1_counts(s: AppState, rf):
             f"font-size:11px;color:{C['muted']};margin-bottom:14px;"
             f"line-height:1.5;")
 
+        # Three equal stepper cards (− count +) instead of bare number
+        # inputs: the Quasar spinner + underline looked broken in a box.
         _count_fields = [
-            ("sb_count_email", "✉ Emails"),
-            ("sb_count_call", "☎ Calls"),
-            ("sb_count_linkedin", "in LinkedIn messages"),
+            ("sb_count_email", "✉", "Emails", C["email_col"]),
+            ("sb_count_call", "☎", "Calls", C["call_col"]),
+            ("sb_count_linkedin", "in", "LinkedIn", C["li"]),
         ]
         with ui.element("div").style(
-                "display:flex;gap:18px;flex-wrap:wrap;margin-bottom:14px;"):
-            for _attr, _label in _count_fields:
-                with ui.element("div"):
-                    ui.label(_label).classes("fd-fl")
-                    _cnt_in = ui.number(
-                        value=int(getattr(s, _attr) or 0),
-                        min=0, max=15, step=1,
-                    ).style(
-                        f"width:90px;background:{C['surface']};"
-                        f"border:1px solid {C['border']};border-radius:6px;"
-                        f"padding:6px 8px;color:{C['text_l']};font-size:13px;")
-                    def _save_count(inp=_cnt_in, attr=_attr):
-                        setattr(s, attr, max(0, min(15, int(inp.value or 0))))
-                        rf()
-                    _cnt_in.on("blur", _save_count)
+                "display:grid;grid-template-columns:repeat(auto-fit,"
+                "minmax(170px,1fr));gap:12px;margin-bottom:20px;"):
+            for _attr, _icon, _label, _col in _count_fields:
+                _val = int(getattr(s, _attr) or 0)
+                def _bump(d, attr=_attr):
+                    setattr(s, attr,
+                            max(0, min(15, int(getattr(s, attr) or 0) + d)))
+                    rf()
+                with ui.element("div").style(
+                        f"background:{C['surface']};border:1px solid "
+                        f"{_col if _val else C['border']};border-radius:10px;"
+                        f"padding:14px 16px;display:flex;flex-direction:column;"
+                        f"gap:12px;"):
+                    with ui.element("div").style(
+                            "display:flex;align-items:center;gap:8px;"):
+                        ui.label(_icon).style(
+                            f"width:26px;height:26px;border-radius:7px;"
+                            f"display:flex;align-items:center;"
+                            f"justify-content:center;font-size:13px;"
+                            f"font-weight:800;color:#fff;background:{_col};")
+                        ui.label(_label).style(
+                            f"font-size:13px;font-weight:700;"
+                            f"color:{C['text_l']};")
+                    with ui.element("div").style(
+                            "display:flex;align-items:center;"
+                            "justify-content:space-between;"):
+                        for _d, _sym in ((-1, "−"), (None, None), (1, "+")):
+                            if _d is None:
+                                ui.label(str(_val)).style(
+                                    f"font-size:26px;font-weight:800;"
+                                    f"color:{C['text_l'] if _val else C['muted']};"
+                                    f"font-family:'Nunito',sans-serif;"
+                                    f"min-width:40px;text-align:center;")
+                                continue
+                            _off = (_d < 0 and _val <= 0) or (_d > 0 and _val >= 15)
+                            with ui.element("button").style(
+                                    f"width:34px;height:34px;border-radius:99px;"
+                                    f"border:1px solid {C['border']};"
+                                    f"background:{C['card']};color:{C['text_l']};"
+                                    f"font-size:18px;font-weight:700;"
+                                    f"font-family:inherit;cursor:pointer;"
+                                    f"display:flex;align-items:center;"
+                                    f"justify-content:center;"
+                                    f"{'opacity:0.35;pointer-events:none;' if _off else ''}"
+                                    ).on("click", lambda d=_d, b=_bump: b(d)):
+                                ui.label(_sym).style("pointer-events:none;")
 
         ui.label("Tone").classes("fd-fl")
         ui.label(
@@ -31686,7 +31719,11 @@ def _render_sb_step1_counts(s: AppState, rf):
         if _total > 15:
             ui.label(
                 f"Max 15 steps total — you're at {_total}."
-            ).style(f"font-size:11px;color:{C['danger']};margin-top:10px;")
+            ).style(f"font-size:11px;color:{C['danger']};margin-top:14px;")
+        elif _total:
+            ui.label(
+                f"{_total} touch{'es' if _total != 1 else ''} in this campaign"
+            ).style(f"font-size:11px;color:{C['muted']};margin-top:14px;")
 
     def _next():
         _n_email = max(0, min(15, int(s.sb_count_email or 0)))
