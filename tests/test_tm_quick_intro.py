@@ -37,7 +37,7 @@ def test_four_emails_capacity_economics_onboarding_close():
 
 def test_the_cost_step_asks_for_hourly_dollars_only():
     econ = _steps("tm_threebythree")[1]
-    assert "HOURLY ONLY" in econ and "$13/hr" in econ
+    assert "HOURLY ONLY" in econ and "$15/hr" in econ
     assert "Never an annual salary" in econ
 
 
@@ -74,12 +74,12 @@ def test_annual_and_k_figures_go_hourly_figures_stay():
     body = ("Hi {FirstName},<br><br>A fully burdened U.S. coordinator "
             "typically runs $55,000 to $65,000 annually. A dedicated "
             "coordinator can cost up to 60 to 70 percent less. Most support "
-            "staff come in under $13/hr. It scales without another $60K "
+            "staff come in under $15/hr. It scales without another $60K "
             "desk.<br><br>Want me to run the numbers?")
     out = fa._tm_hourly_dollars_only(body)
     assert "$55,000" not in out and "$60K" not in out
     assert "up to 60 to 70 percent less" in out
-    assert "under $13/hr" in out
+    assert "under $15/hr" in out
     assert out.endswith("<br><br>Want me to run the numbers?")
     # "U.S." did not split the sentence: nothing dangles.
     assert "U.S.<br>" not in out and " U.S. A " not in out
@@ -111,11 +111,11 @@ def test_bodies_without_dollars_are_untouched():
 
 def test_overrides_apply_the_hourly_filter_to_tm_emails():
     c = _camp("Hi {FirstName},<br><br>We do offshore staff augmentation.",
-              "Hi {FirstName},<br><br>It runs $60,000 a year. Under $13/hr "
+              "Hi {FirstName},<br><br>It runs $60,000 a year. Under $15/hr "
               "here.<br><br>Numbers?")
     fa._apply_thrivemodal_overrides("tm_threebythree", c)
     assert "$60,000" not in c["emails"][1]["body"]
-    assert "Under $13/hr here." in c["emails"][1]["body"]
+    assert "Under $15/hr here." in c["emails"][1]["body"]
 
 
 # ── the one-word close ─────────────────────────────────────────────────────

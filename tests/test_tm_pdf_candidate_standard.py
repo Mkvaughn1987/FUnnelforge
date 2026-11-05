@@ -158,8 +158,8 @@ def test_our_hourly_rate_is_set_by_role_group():
     """Mike, 2026-11-05, after the competitor research: price by role group
     at the top of the published market, not as a share of the U.S. wage,
     with ".25 and .60 and .35" on a few."""
-    bands = {"support": (10.25, 12.00), "logistics": (11.35, 13.25),
-             "finance": (12.60, 14.35), "professional": (15.25, 18.00)}
+    bands = {"support": (12.35, 14.10), "logistics": (13.46, 15.35),
+             "finance": (14.70, 16.45), "professional": (17.35, 20.10)}
     for role, group in (("Customer Service Representative", "support"),
                         ("Data Entry Specialist", "support"),
                         ("Administrative Assistant", "support"),
@@ -180,7 +180,7 @@ def test_our_hourly_rate_is_set_by_role_group():
         for base in (20000, 45000, 60000, 250000):
             r = fa._tm_our_hourly(base, role)
             assert lo <= r <= hi, (role, base, r)
-            assert round(r % 1, 2) in (0.0, 0.25, 0.35, 0.60), (role, r)
+            assert round(r % 1, 2) in (0.0, 0.25, 0.35, 0.60) or r in (lo, hi), (role, r)
     # A role that pays more in the U.S. sits higher in its band.
     assert (fa._tm_our_hourly(40000, "Staff Accountant")
             <= fa._tm_our_hourly(90000, "Staff Accountant"))

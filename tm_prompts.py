@@ -1569,13 +1569,13 @@ SEQUENCE_INFO = {
              "and asks for a quick conversation."),
             (4, "email", "What would the role actually cost?",
              "The cost email, the only one that states the saving. Hourly "
-             "dollars only: most support staff under $13/hr beside the "
+             "dollars only: most support staff under $15/hr beside the "
              "'up to' percentage, never an annual or monthly figure. Three "
              "candidate profiles go in before the closing question.",
              _COST_PDF),
             (7, "email", "After the candidate joins",
              "Opens by asking whether they saw the last email (most support "
-             "staff under $13/hr), then the handoff, monthly check-ins and "
+             "staff under $15/hr), then the handoff, monthly check-ins and "
              "quarterly reviews, and the offer of more information."),
             (11, "email", "Leaving this with you",
              "The last email. Says so plainly, promises the monthly "
@@ -1659,7 +1659,7 @@ SEQUENCE_INFO = {
                   "candidate profiles, so each week shows a different reason "
                   "to talk. Profiles go on emails 3, 6 and 9, and two of "
                   "them on the close, each with a worth-a-shot line (most "
-                  "support staff under $13/hr)."),
+                  "support staff under $15/hr)."),
         "best": "Accounts you want to stay in front of for months, not "
                 "weeks.",
         "note": _PDF_NOTE,

@@ -5858,14 +5858,14 @@ AICB_CAMPAIGN_TYPES = [
      "Step 2 - Economics (delay_days:3, step_type:email_auto) (model: "
      "Economics) - The cost email, and the only one that states the saving. "
      "Dollar figures in this email are HOURLY ONLY: state the one approved "
-     "figure, most support staff under $13/hr, beside the 'up to' "
+     "figure, most support staff under $15/hr, beside the 'up to' "
      "percentage. Never an annual salary, a monthly rate, a '$60K' figure or "
      "any other dollar amount; the candidate profiles the system adds carry "
      "the hourly rates.\n"
      "Step 3 - After the candidate joins (delay_days:3, step_type:email_auto) "
      "(model: After the candidate joins) - The sender's own wording, as the "
      "house style says: it opens by asking whether they saw the last email "
-     "with most support staff under $13/hr (the candidate profiles on Step "
+     "with most support staff under $15/hr (the candidate profiles on Step "
      "2), then the handoff, the monthly check-ins and quarterly reviews, the "
      "placement claim, and the offer of more information.\n"
      "Step 4 - Close (delay_days:4, step_type:email_auto) (model: Close) - The "
@@ -5933,7 +5933,7 @@ AICB_CAMPAIGN_TYPES = [
      "Named accounts - long cycles - steady presence",
      "WORTH A SHOT LINE: Steps 5, 9, 13 and 16 end with one professional "
      "sentence, before the closing question, saying one role is worth "
-     "trying: most support staff come in under $13/hr (the hourly rates on "
+     "trying: most support staff come in under $15/hr (the hourly rates on "
      "the candidate profiles; the one dollar figure approved for this "
      "sequence), and the companies that start with one role have mostly "
      "kept adding. Word it differently each time, no hype, never 'cheap'.\n"
@@ -7316,7 +7316,7 @@ _TM_MODEL_EMAILS = [
     # the email before it, and carries his own placement claim.
     ("After the candidate joins", "After the candidate joins", (
         "Did you have a chance to look at my last email, with most support "
-        "staff under $13/hr? Honestly, choosing the candidate is the easy "
+        "staff under $15/hr? Honestly, choosing the candidate is the easy "
         "part. Getting them up to speed takes a clear handoff, access to the "
         "right systems and someone to set priorities for the first few "
         "weeks.",
@@ -7425,14 +7425,14 @@ _TM_EMAIL_OPENER_RULE = (
     "hire yet, one role is a low-cost way to start. Say it about the "
     "candidates ThriveModal presents, never about Filipinos as a group, and "
     "never call it cheap.\n"
-    "- THE ONE APPROVED DOLLAR FIGURE is 'most support staff under $13/hr', "
+    "- THE ONE APPROVED DOLLAR FIGURE is 'most support staff under $15/hr', "
     "the hourly rates on the candidate profiles. Model 4 uses it, and a "
     "step line may ask for it elsewhere; nothing else states a dollar "
     "amount.\n"
     "- THE ONBOARDING EMAIL (Model 4, After the candidate joins) is the "
     "sender's own wording and keeps three things as the model has them: it "
     "opens by asking whether they saw the last email, with most support "
-    "staff under $13/hr (the hourly rates on the candidate profiles already "
+    "staff under $15/hr (the hourly rates on the candidate profiles already "
     "sent; this one figure is approved and exempt from the no-dollar rule); "
     "it says our team has placed thousands of Filipino professionals who are "
     "thriving and saving companies money, and that these aren't the typical "
@@ -7738,6 +7738,12 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
                         if custom_steps else None))
         except Exception as ex:
             print(f"[AICB] TM candidate profiles failed: {ex}", flush=True)
+    if (camp_type or "").strip() in _TM_TYPE_KEYS:
+        try:
+            _tm_localize_campaign_rate_lines(
+                campaign_data, roles_str, ind_label or niche_str, company)
+        except Exception as ex:
+            print(f"[AICB] TM rate line not localized: {ex}", flush=True)
     _spread_email_times(campaign_data.get("emails", []))
     return campaign_data
 
@@ -17192,7 +17198,7 @@ def _tm_ensure_offshore_and_monthly(campaign_data) -> None:
 
 # Mike, 2026-10-08 (Quick Intro walkthrough): the cost email wrote "$55,000
 # to $65,000 annually" and "another $60K desk" although the house style
-# allows no dollar amount but the hourly rates. Hourly figures ("$13/hr",
+# allows no dollar amount but the hourly rates. Hourly figures ("$15/hr",
 # "$9 to $11 an hour") stay; a sentence carrying any other dollar figure
 # goes, sentence by sentence inside each <br>-separated line so the markup
 # around it survives. Backstop for the rule in _TM_EMAIL_OPENER_RULE.
@@ -46160,23 +46166,26 @@ def _tm_hourly(annual) -> int:
 # top of the market but not above it, and "add .25 and .60 and .35 to a
 # few to make it realistic". A percentage of the U.S. wage overpriced every
 # role that pays well in the U.S. (a staff accountant came to $27).
+# Then, from ThriveModal's actual numbers: "typical logistics coordinator is
+# $28k a year... lets use that as a starting point" ($28,000 / 2,080 hours =
+# $13.46), with every other band moved up by the same $2.11.
 # (group, low, high, title keywords), checked in order; the first group
 # whose keyword is in the title wins, and support is the default.
 _TM_RATE_GROUPS = (
-    ("professional", 15.25, 18.00,
+    ("professional", 17.35, 20.10,
      ("accountant", "executive assistant", "estimat", "takeoff", "cad ",
       "bim", "drafter", "tax ", "controller", "analyst", "engineer",
       "developer")),
-    ("logistics", 11.35, 13.25,
+    ("logistics", 13.46, 15.35,
      ("track", "trace", "dispatch", "freight", "carrier", "load ",
       "shipment", "export", "import", "customs", "logistics", "fleet",
       "documentation", "night and weekend")),
-    ("finance", 12.60, 14.35,
+    ("finance", 14.70, 16.45,
      ("bookkeep", "receivable", "payable", "biller", "billing", "coder",
       "coding", "payroll", "collection", "insurance", "credential",
       "claims", "prior auth", "audit", "recruiter", "project coordinator",
       "transaction coordinator")),
-    ("support", 10.25, 12.00, ()),
+    ("support", 12.35, 14.10, ()),
 )
 # Within a group, a role that pays more in the U.S. sits higher in the band.
 _TM_RATE_BASE_SPAN = (38000.0, 75000.0)
@@ -46207,6 +46216,58 @@ def _tm_our_hourly(base, role: str = "") -> float:
     cents = _TM_RATE_CENTS[hashlib.md5(key).digest()[0] % len(_TM_RATE_CENTS)]
     rate = int(lo + t * (hi - lo)) + cents
     return round(min(max(rate, lo), hi), 2)
+
+
+# Mike, 2026-11-05: "make the jobs specific to whatever company or industry
+# we are targeting". The prompts and model emails carry one generic rate
+# line ("most support staff under $15/hr"); after the build, every email
+# names the campaign's own lead job instead, with that job's own ceiling.
+_TM_GENERIC_RATE_LINE_RE = re.compile(
+    r"\b(most) support staff((?:\s+(?:come|comes)\s+in)?\s+under\s+)"
+    r"\$\d+(?:\.\d+)?\s?/\s?hr", re.I)
+
+
+def _tm_target_rate_line(roles="", industry: str = "", company: str = ""):
+    """('dispatcher roles', '$15/hr') for the target's lead job: the
+    campaign's own role, else the industry's first job. None when there is
+    no job to name."""
+    try:
+        cands = _tm_cost_roles(roles if isinstance(roles, str)
+                               else ", ".join(roles or []), industry, company)
+    except Exception:
+        cands = []
+    if not cands:
+        return None
+    job = cands[0].strip()
+    bench = _tm_benchmark(_tm_match_benchmark(job))
+    rate = _tm_our_hourly(float(bench["base"]) if bench else None, job)
+    words = [w if (w.isupper() and len(w) > 1) else w.lower()
+             for w in job.split()]
+    noun = " ".join(words)
+    noun = noun if noun.endswith(" roles") else f"{noun} roles"
+    return noun, f"${int(rate) + 1}/hr"
+
+
+def _tm_localize_rate_line(body: str, line) -> str:
+    """Swap the generic rate line for the target's job and figure."""
+    if not body or not line:
+        return body
+    noun, fig = line
+
+    def _rep(m):
+        most = m.group(1)
+        return f"{most} {noun}{m.group(2)}{fig}"
+    return _TM_GENERIC_RATE_LINE_RE.sub(_rep, body)
+
+
+def _tm_localize_campaign_rate_lines(campaign_data, roles="", industry="",
+                                     company="") -> None:
+    line = _tm_target_rate_line(roles, industry, company)
+    if not line:
+        return
+    for em in (campaign_data or {}).get("emails") or []:
+        if em.get("body"):
+            em["body"] = _tm_localize_rate_line(em["body"], line)
 
 
 def _tm_rate_text(rate) -> str:
@@ -65434,7 +65495,7 @@ _TM_PROFILE_ROUNDS = {
     ),
     # Mike, 2026-10-08: Quick Intro shows them once, on the cost email, so
     # the After the candidate joins email can point back at "my last email,
-    # with most support staff under $13/hr".
+    # with most support staff under $15/hr".
     "tm_threebythree": (
         ("What would the role actually cost?", 2, _TM_PROFILES_LEAD, None),
     ),
@@ -65445,20 +65506,22 @@ _TM_PROFILE_ROUNDS = {
 # a live run put it on one email of four, so the round's line goes in by
 # code (after the cards, before the closing question) when the writer left
 # the figure out. One wording per round, so the four never read the same.
-_TM_WORTH_A_SHOT_FIGURE = "$13/hr"
+_TM_WORTH_A_SHOT_FIGURE = "$15/hr"
+# The line in any wording: generic, or already named for the target's job.
+_TM_ANY_RATE_LINE_RE = re.compile(r"\bunder \$\d+(?:\.\d+)?/hr", re.I)
 _TM_WORTH_A_SHOT_LINES = {
     "tm_twelveweek": (
         "If you have not tried a role like this offshore, it is worth a "
-        "look: most support staff come in under $13/hr, and the companies "
+        "look: most support staff come in under $15/hr, and the companies "
         "that start with one role have mostly kept adding.",
         "One role is a reasonable way to see it for yourself. Most support "
-        "staff come in under $13/hr, and few companies stop at one once the "
+        "staff come in under $15/hr, and few companies stop at one once the "
         "first is working.",
         "It is worth trying one role. Most support staff come in under "
-        "$13/hr, and the companies that start there have mostly gone on to "
+        "$15/hr, and the companies that start there have mostly gone on to "
         "add more.",
         "One role is an easy way to find out: most support staff come in "
-        "under $13/hr, and the companies that start with one have mostly "
+        "under $15/hr, and the companies that start with one have mostly "
         "kept adding.",
     ),
 }
@@ -65695,8 +65758,8 @@ def _tm_add_campaign_profiles(client, campaign_data, n, roles, niche,
         for r, (i, lead, cnt) in enumerate(rounds):
             # The line goes in first, so it leads into the cards and a rerun
             # (which strips and re-places only the cards) keeps the order.
-            if (r < len(shots) and _TM_WORTH_A_SHOT_FIGURE
-                    not in _tm_scrub_line(emails[i].get("body") or "")):
+            if (r < len(shots) and not _TM_ANY_RATE_LINE_RE.search(
+                    _tm_scrub_line(emails[i].get("body") or ""))):
                 emails[i]["body"] = _tm_insert_profiles(emails[i].get("body"),
                                                         shots[r])
             emails[i]["body"] = _tm_insert_profiles(
@@ -65949,7 +66012,7 @@ def _tm_wage_compare(client, positions: list, brand: str) -> dict:
 
 
 def _tm_profile_rate(client, title: str) -> str:
-    """'$12.60/hr' for a profile's job title, or "" when no U.S. wage
+    """'$14.70/hr' for a profile's job title, or "" when no U.S. wage
     is found for it."""
     role = _tm_profile_role(title)
     if not role:
