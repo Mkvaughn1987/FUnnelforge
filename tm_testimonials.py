@@ -687,6 +687,29 @@ def _css():
         "</style>", sanitize=False)
 
 
+def public_credit(r):
+    """The credit printed under a quote in a PDF or email. 'anon' never
+    names the person or company."""
+    if r.get("permission") == "full":
+        return ", ".join(b for b in (r.get("sig_name"), r.get("sig_title"),
+                                     r.get("sig_company")) if b)
+    return r.get("sig_title") or "Client"
+
+
+def public_quotes(owner=None, limit=2):
+    """[(quote, credit)] the client approved for outside use, newest first.
+    'internal' quotes never leave the Testimonials page. owner None = the
+    user bound to this request. Empty when there are none."""
+    try:
+        reqs = load_requests(owner)
+    except Exception:
+        return []
+    ok = [r for r in reqs if r.get("status") == "approved"
+          and r.get("permission") in ("full", "anon") and (r.get("quote") or "").strip()]
+    ok.sort(key=lambda r: r.get("approved_at") or "", reverse=True)
+    return [(r["quote"].strip(), public_credit(r)) for r in ok[:max(0, int(limit))]]
+
+
 def credit_line(r):
     perm = r.get("permission")
     if perm == "full":

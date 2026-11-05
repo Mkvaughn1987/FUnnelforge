@@ -379,6 +379,10 @@ def attach_extras(emails, steps, values, profiles_n, client) -> list:
             print(f"[tm_custom] profiles failed: {type(ex).__name__}: {ex}",
                   flush=True)
             missed.append("the candidate profiles")
+    try:
+        ff._tm_add_campaign_testimonial({"emails": emails})
+    except Exception as ex:
+        print(f"[tm_custom] testimonial not placed: {ex}", flush=True)
     return missed
 
 

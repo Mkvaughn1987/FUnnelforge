@@ -22,7 +22,7 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 from reportlab.platypus import (
     BaseDocTemplate, Frame, PageTemplate,
     Paragraph, Spacer, Table, TableStyle, HRFlowable,
-    KeepInFrame, CondPageBreak, Flowable,
+    KeepInFrame, CondPageBreak, Flowable, KeepTogether,
 )
 
 # ── Brand ──────────────────────────────────────────────────────────────────
@@ -373,6 +373,30 @@ def callout_box(heading, items):
         style.append(("SPAN", (0,0),(1,0)))
     t.setStyle(TableStyle(style))
     return t
+
+
+def quote_box(quote, credit=""):
+    """A client's testimonial: their words in italics on a tinted panel
+    with a blue rule, the credit under it."""
+    import html as _h
+    cells = [[Paragraph(_h.escape(_clean(quote)),
+                        S("qt_q", fontName="Helvetica-Oblique", fontSize=11,
+                          textColor=NAVY, leading=14.5))]]
+    if credit:
+        cells.append([Paragraph(_h.escape(_clean(credit)),
+                                S("qt_c", fontName="Helvetica-Bold", fontSize=9.5,
+                                  textColor=BLUE, leading=12))])
+    t = Table(cells, colWidths=[CW])
+    t.setStyle(TableStyle([
+        ("BACKGROUND",    (0,0),(-1,-1), LIGHT),
+        ("LINEBEFORE",    (0,0),(0,-1), 3, BLUE),
+        ("LEFTPADDING",   (0,0),(-1,-1), 14),
+        ("RIGHTPADDING",  (0,0),(-1,-1), 12),
+        ("TOPPADDING",    (0,0),(-1,-1), 3),
+        ("TOPPADDING",    (0,0),(-1,0), 9),
+        ("BOTTOMPADDING", (0,-1),(-1,-1), 9),
+    ]))
+    return KeepTogether([t])
 
 
 def _build_one_page(doc, story, top_margin_inches=1.15, bottom_margin_inches=0.65):
@@ -1154,7 +1178,7 @@ _MAX_LAST_PAGE_FILL = 1.0
 _MIN_LAST_PAGE_FILL = 0.1
 # Trimming never takes a section below these counts (table count includes
 # the header row).
-_MIN_ITEMS = {"bullets": 2, "table": 3, "qa": 1}
+_MIN_ITEMS = {"bullets": 2, "table": 3, "qa": 1, "quote": 1}
 
 
 def _skimmable(d) -> bool:
@@ -1373,6 +1397,14 @@ def _custom_doc_story(output_path, d):
                 story.append(Spacer(1, 6))
             elif heading:
                 story.extend(section_header(heading))
+
+        elif stype == "quote":
+            for it in items:
+                if not isinstance(it, str) or not it.strip():
+                    continue
+                q, _nl, who = it.strip().partition("\n")
+                story.append(quote_box(q, who.strip()))
+                story.append(Spacer(1, 6))
 
         elif stype == "qa":
             for qa in items:

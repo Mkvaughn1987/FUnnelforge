@@ -7738,6 +7738,11 @@ def _aicb_build_campaign_from_brief(client, *, brief, camp_type, company="",
                         if custom_steps else None))
         except Exception as ex:
             print(f"[AICB] TM candidate profiles failed: {ex}", flush=True)
+    if (camp_type or "").strip() in _TM_TYPE_KEYS or custom_steps:
+        try:
+            _tm_add_campaign_testimonial(campaign_data)
+        except Exception as ex:
+            print(f"[AICB] TM testimonial not placed: {ex}", flush=True)
     if (camp_type or "").strip() in _TM_TYPE_KEYS:
         try:
             _tm_localize_campaign_rate_lines(
@@ -46317,12 +46322,83 @@ def _tm_candidate_standard(role: str = "") -> dict:
     }
 
 
-def _tm_with_standard(sections, role: str = "") -> list:
-    """`sections` with the candidate standard first, never twice."""
+def _tm_with_standard(sections, role: str = "", quotes=None) -> list:
+    """`sections` with the candidate standard first, never twice, and the
+    clients' approved testimonials last when there are any (Mike,
+    2026-11-05: "if there's nothing, no need to include anything").
+    `quotes` [(quote, credit)] skips the lookup (tests)."""
     rest = [x for x in (sections or [])
             if not (isinstance(x, dict)
-                    and (x.get("type") or "").lower() == "callout")]
-    return [_tm_candidate_standard(role)] + rest
+                    and (x.get("type") or "").lower() in ("callout", "quote"))]
+    out = [_tm_candidate_standard(role)] + rest
+    qs = _tm_testimonials(2) if quotes is None else quotes
+    if qs:
+        out.append(_tm_testimonial_section(qs))
+    return out
+
+
+# Testimonials: quotes clients approved on their /review link, word for
+# word. Only "full" and "anon" permissions ever reach a PDF or an email.
+_TM_TESTIMONIAL_HEADING = "What Our Clients Say"
+_TM_TESTIMONIAL_LEAD = "Here's what one of our clients told us:"
+_TM_TESTIMONIAL_BLOCK_RE = re.compile(
+    r"(?:<br\s*/?>\s*)*" + re.escape(_TM_TESTIMONIAL_LEAD)
+    + r"\s*<br\s*/?>\s*<i>.*?</i>(?:\s*<br\s*/?>[^<]*)?", re.S)
+
+
+def _tm_testimonials(limit: int = 2) -> list:
+    """[(quote, credit)] for the user bound to this request, newest first."""
+    try:
+        import tm_testimonials as _tmr
+        return _tmr.public_quotes(limit=limit)
+    except Exception as ex:
+        print(f"[Testimonials] quotes unavailable: {ex}", flush=True)
+        return []
+
+
+def _tm_testimonial_section(quotes) -> dict:
+    """PDF section: one item per quote, the credit on its own line."""
+    return {"heading": _TM_TESTIMONIAL_HEADING, "type": "quote",
+            "items": ["\u201c" + q + "\u201d" + (("\n" + c) if c else "")
+                      for q, c in quotes]}
+
+
+def _tm_testimonial_html(quote: str, credit: str) -> str:
+    import html as _h
+    out = f"{_TM_TESTIMONIAL_LEAD}<br><i>\u201c{_h.escape(quote)}\u201d</i>"
+    return out + (f"<br>{_h.escape(credit)}" if credit else "")
+
+
+def _tm_testimonial_email_index(emails):
+    """A follow-up email near the middle of the sequence that carries no
+    candidate profiles, preferring one without a PDF."""
+    elig = [i for i in _tm_pdf_eligible_emails(emails)
+            if not _TM_PROFILES_BLOCK_RE.search(emails[i].get("body") or "")]
+    if not elig:
+        return None
+    free = [i for i in elig if not emails[i].get("attachments")] or elig
+    return free[len(free) // 2]
+
+
+def _tm_add_campaign_testimonial(campaign_data, quotes=None):
+    """Put the newest approved testimonial into one email, replacing any an
+    earlier run placed. No approved testimonial: nothing is added. Returns
+    the email index or None."""
+    emails = (campaign_data or {}).get("emails") or []
+    for em in emails:
+        if _TM_TESTIMONIAL_LEAD in (em.get("body") or ""):
+            em["body"] = _TM_TESTIMONIAL_BLOCK_RE.sub("", em.get("body") or "")
+    qs = _tm_testimonials(1) if quotes is None else quotes
+    if not qs:
+        return None
+    i = _tm_testimonial_email_index(emails)
+    if i is None:
+        return None
+    q, c = qs[0]
+    emails[i]["body"] = _tm_insert_profiles(emails[i].get("body"),
+                                            _tm_testimonial_html(q, c))
+    print(f"[AICB] TM: client testimonial on email {i + 1}", flush=True)
+    return i
 
 
 # What each professional brings: (degree and credentials, skills, software).
@@ -48707,7 +48783,7 @@ def _render_pdf_editor_body(s, rf, pdf_filename: str, step_idx: int,
                         _s["items"] = [p.strip() for p in (_in.value or "").split("\n\n") if p.strip()]
                     _bind(_para_in, _commit_para)
 
-                elif _stype in ("bullets", "callout"):
+                elif _stype in ("bullets", "callout", "quote"):
                     for _bi, _bullet in enumerate(items):
                         with ui.element("div").style(
                                 "display:flex;gap:6px;align-items:start;"):

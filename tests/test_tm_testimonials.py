@@ -139,3 +139,79 @@ def test_sidebar_wiring():
     assert rows["testimonials"] is None  # ThriveModal only, Arena never sees it
     paths = {getattr(r, "path", "") for r in fa.app.routes}
     assert "/review/{token}" in paths and "/review/{token}/approve" in paths
+
+
+# ── Quotes in PDFs and emails ────────────────────────────────────────────
+
+def _approve(owner, company, quote, perm, title="Owner", approved="2026-11-05T10:00:00Z"):
+    r = tt.new_request(company, "Jane Doe")
+    r.update(status="approved", quote=quote, permission=perm, sig_name="Jane Doe",
+             sig_title=title, sig_company=company, approved_at=approved)
+    tt.add_request(owner, r)
+
+
+def test_public_quotes_newest_first_and_never_internal(ff):
+    assert tt.public_quotes("o@x.com") == []
+    _approve("o@x.com", "Acme", "Old one.", "full", approved="2026-11-01T00:00:00Z")
+    _approve("o@x.com", "Beta", "Secret.", "internal")
+    _approve("o@x.com", "Gamma", "New one.", "anon", title="VP Operations")
+    got = tt.public_quotes("o@x.com")
+    assert got == [("New one.", "VP Operations"), ("Old one.", "Jane Doe, Owner, Acme")]
+    assert all("Secret" not in q for q, _c in got)
+
+
+def test_pdf_sections_add_quotes_only_when_there_are_some():
+    import flowdrip_app as fa
+    secs = [{"heading": "X", "type": "bullets", "items": ["a", "b"]}]
+    none = fa._tm_with_standard(secs, quotes=[])
+    assert [s.get("type") for s in none] == ["callout", "bullets"]
+    some = fa._tm_with_standard(none, quotes=[("Great team.", "Jane Doe, Owner, Acme")])
+    assert [s.get("type") for s in some] == ["callout", "bullets", "quote"]
+    assert some[-1]["items"] == ["\u201cGreat team.\u201d\nJane Doe, Owner, Acme"]
+    # Rebuilding never doubles the box, and an emptied list removes it.
+    again = fa._tm_with_standard(some, quotes=[("Great team.", "Jane")])
+    assert [s.get("type") for s in again].count("quote") == 1
+    assert "quote" not in [s.get("type") for s in fa._tm_with_standard(some, quotes=[])]
+
+
+def test_pdf_renders_quote_box(tmp_path):
+    from funnel_forge import arena_pdfs as ap
+    d = {"title": "Test", "sections": [
+        {"heading": "Why", "type": "bullets", "items": ["One.", "Two."]},
+        {"heading": "What Our Clients Say", "type": "quote",
+         "items": ["\u201cThey hit the ground running & stayed.\u201d\nJane Doe, Owner, Acme <Freight>"]}]}
+    out = tmp_path / "t.pdf"
+    ap.build_custom_pdf(str(out), d)
+    assert out.exists() and out.stat().st_size > 1000
+
+
+def _emails(n=5):
+    return [{"step_type": "email_auto", "name": f"E{i+1}", "subject": f"s{i+1}",
+             "body": "Hi Jane,<br><br>Middle paragraph.<br><br>Worth a chat?"}
+            for i in range(n)]
+
+
+def test_email_gets_one_quote_before_the_ask_and_reruns_replace_it():
+    import flowdrip_app as fa
+    camp = {"emails": _emails()}
+    assert fa._tm_add_campaign_testimonial(camp, quotes=[]) is None
+    assert all(fa._TM_TESTIMONIAL_LEAD not in e["body"] for e in camp["emails"])
+    i = fa._tm_add_campaign_testimonial(camp, quotes=[("Great <team>.", "Jane Doe, Owner, Acme")])
+    assert i is not None and i > 0
+    body = camp["emails"][i]["body"]
+    assert "&lt;team&gt;" in body and body.endswith("Worth a chat?")
+    assert body.index(fa._TM_TESTIMONIAL_LEAD) < body.index("Worth a chat?")
+    fa._tm_add_campaign_testimonial(camp, quotes=[("Newer.", "VP Ops")])
+    all_bodies = " ".join(e["body"] for e in camp["emails"])
+    assert all_bodies.count(fa._TM_TESTIMONIAL_LEAD) == 1 and "team" not in all_bodies
+    fa._tm_add_campaign_testimonial(camp, quotes=[])
+    assert fa._TM_TESTIMONIAL_LEAD not in " ".join(e["body"] for e in camp["emails"])
+
+
+def test_email_quote_skips_first_email_and_profile_emails():
+    import flowdrip_app as fa
+    em = _emails(3)
+    em[1]["body"] = fa._tm_insert_profiles(em[1]["body"], fa._tm_profiles_html(
+        [{"title": "Dispatcher", "years": 4, "bullets": ["x"]}]))
+    assert fa._tm_testimonial_email_index(em) == 2
+    assert fa._tm_testimonial_email_index(_emails(1)) is None
