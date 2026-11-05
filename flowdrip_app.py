@@ -23756,25 +23756,26 @@ def _ai_prompts_card(s, rf):
 # The sidebar's one Start a Campaign button opens a dialog with these two
 # cards, so people see what each way in does before they pick one (DripDrop's
 # chooser, 2026-11-04, in inboxslide's terms). "ai" is AI Prompt; "build" is
-# Build a Campaign, the same chooser the Campaigns sub-row opens. Neither is
-# marked Recommended: both look the same.
+# Build a Campaign, the same chooser the Campaigns sub-row opens. Mike named
+# the cards Build an AI Campaign and Build a Custom Campaign (2026-11-05).
+# Neither is marked Recommended: both look the same.
 START_CAMPAIGN_TITLE = "Start a Campaign"
 START_CAMPAIGN_OPTIONS = [
     {
         "key": "ai",
         "icon": "ai_prompt",
-        "title": "Start with AI",
+        "title": "Build an AI Campaign",
         "desc": (f"Pick what you want done and answer a few questions. {BRAND} "
                  "writes the prompt to paste into Claude."),
         "points": ["Finds companies that fit",
                    "Pulls the right people at each one",
                    "Builds the campaigns for you"],
-        "cta": "Start with AI",
+        "cta": "Build an AI campaign",
     },
     {
         "key": "build",
         "icon": "pen",
-        "title": "Build a Campaign",
+        "title": "Build a Custom Campaign",
         "desc": ("Pick the campaign that fits the situation and bring your "
                  "own contacts."),
         "points": ["A ready campaign for a new company or a follow-up",
@@ -23782,7 +23783,7 @@ START_CAMPAIGN_OPTIONS = [
                    "Every email, call script and LinkedIn note written for "
                    "you to review",
                    "Or set your own steps with Build Your Own"],
-        "cta": "Build a campaign",
+        "cta": "Build a custom campaign",
     },
 ]
 
@@ -23980,9 +23981,9 @@ def _sidebar_v2(s: AppState, rf):
                             ui.html(_svg_icon(ik, 16))
                             ui.label(lbl)
             # 2026-11-05: one Start a Campaign button where the workspace has
-            # AI Prompt. Its dialog shows the two ways in, Start with AI (AI
-            # Prompt) and Build a Campaign (the chooser), and what each one
-            # does. Otherwise the button stays New Campaign. Campaigns >
+            # AI Prompt. Its dialog shows the two ways in, Build an AI
+            # Campaign (AI Prompt) and Build a Custom Campaign (the chooser),
+            # and what each one does. Otherwise the button stays New Campaign. Campaigns >
             # Build a Campaign is the chooser either way.
             _aip_key = _tm_nav_page_key("ai_prompt", None)
             if _aip_key:
@@ -73908,10 +73909,10 @@ def index():
             "selector": '[data-tour="nav-start_seq"]',
             "title": "Start a Campaign",
             "body": (
-                "Every campaign starts with this button. Choose Start with "
-                "AI to pick a job, answer a few questions, and get the "
-                "prompt to paste into Claude. Or choose Build a Campaign to "
-                "pick a campaign and bring your own contacts."
+                "Every campaign starts with this button. Choose Build an AI "
+                "Campaign to pick a job, answer a few questions, and get the "
+                "prompt to paste into Claude. Or choose Build a Custom "
+                "Campaign to pick a campaign and bring your own contacts."
             ),
         } if _tm_nav_page_key("ai_prompt", None) else {
             "selector": '[data-tour="nav-start_seq"]',

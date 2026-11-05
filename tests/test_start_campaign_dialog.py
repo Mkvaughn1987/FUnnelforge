@@ -2,8 +2,8 @@
 
 DripDrop folded Start with AI and Create my own campaign into one Start a
 Campaign button whose dialog shows both (2026-11-04). inboxslide takes the
-same button and dialog in its own terms: Start with AI opens AI Prompt, and
-the second card is Build a Campaign, the chooser Campaigns > Build a Campaign
+same button and dialog in its own terms: Build an AI Campaign opens AI Prompt,
+and Build a Custom Campaign opens the chooser Campaigns > Build a Campaign
 already opens."""
 import inspect
 import types
@@ -26,9 +26,11 @@ def test_dialog_offers_ai_then_build_and_neither_is_recommended():
     import flowdrip_app as fa
     opts = fa.START_CAMPAIGN_OPTIONS
     assert [o["key"] for o in opts] == ["ai", "build"]
-    assert opts[0]["title"] == "Start with AI"
-    # The card is named after the page it opens and the row that opens it.
-    assert opts[1]["title"] == fa.SIDEBAR_CAMPAIGNS[0][1] == "Build a Campaign"
+    # Mike's names for the two cards (2026-11-05).
+    assert opts[0]["title"] == "Build an AI Campaign"
+    assert opts[1]["title"] == "Build a Custom Campaign"
+    assert [o["cta"] for o in opts] == ["Build an AI campaign",
+                                        "Build a custom campaign"]
     for o in opts:
         assert o["icon"] in fa._SIDEBAR_ICONS, o["icon"]
         assert o["desc"] and o["points"] and o["cta"]
@@ -81,5 +83,5 @@ def test_tour_step_names_the_button_and_both_ways():
     src = inspect.getsource(fa.index)
     i = src.index('"title": "Start a Campaign"')
     step = src[i:i + 500]
-    assert "Start with" in step and "Build a Campaign" in step
+    assert "Build an AI" in step and "Build a Custom" in step
     assert "Campaigns > Templates" not in src
