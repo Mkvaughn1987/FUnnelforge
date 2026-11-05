@@ -38,14 +38,14 @@ def test_candidates_token_becomes_the_list_after_polish():
     out = oc.build_emails(_steps(), _cards(), polish=lambda t, k: "Tidy. {Candidates}")
     body = out[1]["body"]
     assert body.startswith("Tidy. ")
-    assert "Travis K. (Ref #1042), Senior Accountant" in body
-    assert "• Big 4 audit" in body
+    assert "Candidate A (Ref #1042), Senior Accountant" in body
+    assert ">Big 4 audit</li>" in body and "•" not in body
     assert "{Candidates}" not in body
 
 
 def test_polish_that_drops_the_token_keeps_the_candidates():
     out = oc.build_emails(_steps(), _cards(), polish=lambda t, k: "No token here.")
-    assert "Travis K. (Ref #1042)" in out[1]["body"]
+    assert "Candidate A (Ref #1042)" in out[1]["body"]
 
 
 def test_polish_failure_sends_the_users_own_text():
@@ -53,7 +53,7 @@ def test_polish_failure_sends_the_users_own_text():
         raise RuntimeError("credit balance is too low")
     out = oc.build_emails(_steps(), _cards(), polish=boom)
     assert out[1]["body"].startswith("Two people for {Company}:")
-    assert "Travis K." in out[1]["body"]
+    assert "Candidate A (Ref #1042)" in out[1]["body"]
 
 
 def test_no_polish_function_means_users_text():
@@ -138,7 +138,7 @@ def test_api_style_id_on_own_style_sends_its_own_steps(monkeypatch):
     emails = res["emails"]
     assert emails[0]["body"] == "Hi {FirstName}, I recruit CPAs."
     assert emails[1]["body"].startswith("P Two people for {Company}:")
-    assert "Travis K. (Ref #1042)" in emails[1]["body"]
+    assert "Candidate A (Ref #1042)" in emails[1]["body"]
     assert res["campaign_data"]["campaign_name"] == "CPA Outreach"
 
 
@@ -381,7 +381,7 @@ def test_api_own_style_asks_for_fillins_then_writes_them_in(monkeypatch):
     emails = res["emails"]
     assert emails[0]["subject"] == "HVAC talent, {FirstName}"
     assert "I place estimator people with Trane." in emails[0]["body"]
-    assert "Travis K. (Ref #1042)" in emails[0]["body"]
+    assert "Candidate A (Ref #1042)" in emails[0]["body"]
     assert emails[1]["body"] == "Mention two GCs to {Company}."
 
 
@@ -464,9 +464,9 @@ def test_candidate_summary_is_three_bullets_or_none():
     on = oc.candidate_block(cards)
     assert on.count("•") == 3 and "four" not in on
     assert oc.candidate_block(cards, bullets=False) == (
-        "Travis K. (Ref #1042), Senior Accountant")
+        "Candidate A (Ref #1042), Senior Accountant")
     out = oc.build_emails(_steps(), cards, cand_bullets=False)
-    assert "Travis K. (Ref #1042), Senior Accountant" in out[1]["body"]
+    assert "Candidate A (Ref #1042), Senior Accountant" in out[1]["body"]
     assert "•" not in out[1]["body"]
 
 
@@ -554,7 +554,7 @@ def test_api_own_style_with_a_pdf_asks_what_it_covers(monkeypatch):
     assert emails[0]["attachments"] == []
     assert emails[1]["attachments"] == ["Salary_Guide_CPAs_Denver.pdf"]
     assert built == [given]
-    assert "Travis K. (Ref #1042), Senior Accountant" in emails[1]["body"]
+    assert "Candidate A (Ref #1042), Senior Accountant" in emails[1]["body"]
     assert "Big 4 audit" not in emails[1]["body"]
 
 
@@ -578,8 +578,8 @@ def test_saved_style_remembers_the_summary_choice(monkeypatch):
 def _two():
     return [
         {"label": "Travis K.", "ref": "Ref #1042", "role": "Senior Accountant",
-         "bullets": ["Big 4 audit", "NetSuite rollout", "CPA"]},
-        {"label": "Dana R.", "ref": "Ref #1043", "role": "Controller",
+         "letter": "A", "bullets": ["Big 4 audit", "NetSuite rollout", "CPA"]},
+        {"label": "Dana R.", "ref": "Ref #1043", "role": "Controller", "letter": "B",
          "bullets": ["Built close", "Multi-entity", "SOX"]},
     ]
 
@@ -588,10 +588,10 @@ def test_candidates_are_written_into_the_email_and_found_again():
     a, b = _two()
     text = oc.add_candidate("Two people for {Company}:\n\n{Candidates}\n\nTalk soon?",
                             [], oc.candidate_block([a]))
-    assert "{Candidates}" not in text and "Travis K. (Ref #1042)" in text
+    assert "{Candidates}" not in text and "Candidate A (Ref #1042)" in text
     text = oc.add_candidate(text, [a], oc.candidate_block([b]))
     # the second goes under the first, both above the sign-off
-    assert text.index("Travis K.") < text.index("Dana R.") < text.index("Talk soon?")
+    assert text.index("Ref #1042") < text.index("Ref #1043") < text.index("Talk soon?")
     assert oc.has_candidates(text, [a, b])
     # the user edits a bullet; lifting keeps their wording
     text = text.replace("• Big 4 audit", "• Big 4 audit at Deloitte")
@@ -601,13 +601,13 @@ def test_candidates_are_written_into_the_email_and_found_again():
     assert oc.place_candidates(lifted, block) == text
     # remove one, and the bullets toggle redoes one
     gone = oc.drop_candidate(text, a)
-    assert "Travis" not in gone and "Dana R." in gone and "Talk soon?" in gone
+    assert "Ref #1042" not in gone and "Ref #1043" in gone and "Talk soon?" in gone
     short = oc.swap_candidate(text, b, oc.candidate_block([b], bullets=False))
-    assert "SOX" not in short and "Dana R. (Ref #1043), Controller" in short
+    assert "SOX" not in short and "Candidate B (Ref #1043), Controller" in short
     # saved for reuse with the token back
     saved = oc.lift_steps([{"type": "email", "input": text}], [a, b])
     assert saved[0]["input"].count("{Candidates}") == 1
-    assert "Travis" not in saved[0]["input"]
+    assert "Ref #1042" not in saved[0]["input"]
 
 
 def test_build_polish_leaves_written_candidates_as_the_user_left_them():
@@ -618,7 +618,7 @@ def test_build_polish_leaves_written_candidates_as_the_user_left_them():
     out = oc.build_emails([{"type": "email", "subject": "x", "input": text,
                             "voice": "polish"}], [a],
                           polish=lambda t, k: seen.append(t) or "Polished {Candidates}")
-    assert "Travis" not in seen[0]
+    assert "Ref #1042" not in seen[0]
     assert "NetSuite rollout, 3 entities" in out[0]["body"]
     assert out[0]["body"].startswith("Polished")
 
@@ -701,7 +701,7 @@ def test_an_email_can_go_out_without_the_candidates():
     text = oc.add_candidate("Hi.\n\n{Candidates}\n\nTalk soon?", [], oc.candidate_block([a]))
     text = oc.add_candidate(text, [a], oc.candidate_block([b]))
     off = oc.remove_candidates(text, [a, b])
-    assert "Travis" not in off and "Dana" not in off and "{Candidates}" not in off
+    assert "Ref #1042" not in off and "Ref #1043" not in off and "{Candidates}" not in off
     assert off == "Hi.\n\nTalk soon?"
     on = oc.place_candidates(off, oc.candidate_block([a, b]))
     assert oc.has_candidates(on, [a, b]) and on.startswith("Hi.")
@@ -749,3 +749,54 @@ def test_later_emails_only_include_or_leave_out():
         assert gone not in shared
     into = inspect.getsource(fa._sb_cands_into_email)
     assert "[step_id] + _carry" in into and "s.sb_cand_home = step_id" in into
+
+
+def test_candidates_go_by_letter_and_ref_never_a_name():
+    a, b = _two()
+    c = {"label": "Sam P.", "ref": "Ref #1044", "role": "CFO", "letter": "C",
+         "bullets": ["one"]}
+    text = "Hi.\n\n" + oc.candidate_block([a, b, c]) + "\n\nTalk soon?"
+    assert "Travis" not in text and "Dana" not in text and "Sam" not in text
+    assert "Candidate C (Ref #1044), CFO" in text
+    # no letter on the cards: their place in the list
+    plain = oc.candidate_block([dict(a, letter=""), dict(b, letter="")])
+    assert plain.startswith("Candidate A (Ref #1042)") and "Candidate B (Ref #1043)" in plain
+    # take B out and C becomes B, in every email
+    steps = [{"input": text}, {"input": "Again:\n\n" + oc.candidate_block([a, c])}]
+    cards = [a, b, c]
+    for st in steps:
+        st["input"] = oc.drop_candidate(st["input"], b)
+    cards.remove(b)
+    oc.reletter(steps, cards)
+    assert [x["letter"] for x in cards] == ["A", "B"]
+    for st in steps:
+        assert "Candidate B (Ref #1044), CFO" in st["input"]
+        assert "Candidate C" not in st["input"] and "Ref #1043" not in st["input"]
+    # a typed-in candidate with no Ref # is still found by its letter
+    t = {"label": "Pat Q.", "ref": "", "role": "AP Lead", "letter": "A", "bullets": ["x"]}
+    tt = oc.place_candidates("Hi.", oc.candidate_block([t]))
+    assert tt.startswith("Hi.") and "Candidate A, AP Lead" in tt
+    assert oc.drop_candidate(tt, t) == "Hi."
+
+
+def test_candidates_go_out_bold_with_a_real_bulleted_list():
+    a, b = _two()
+    out = oc.build_emails(
+        [{"type": "email", "subject": "Hi", "input":
+          "Hi {FirstName},\n\nTwo people:\n\n{Candidates}\n\nOpen to a call?"}],
+        [a, b])
+    body = out[0]["body"]
+    assert "<b>Candidate A (Ref #1042), Senior Accountant</b>" in body
+    assert "<b>Candidate B (Ref #1043), Controller</b>" in body
+    assert body.count("<ul") == 2 and body.count("<li") == 6
+    assert "•" not in body and "<li style=\"margin:0 0 4px 0;\">Big 4 audit</li>" in body
+    assert body.startswith("Hi {FirstName},<br><br>Two people:<br><br><b>")
+    assert body.endswith("</ul><br>Open to a call?")
+    assert "</ul><br><b>Candidate B" in body
+    # names only, bullets off: bold line, plain break after
+    off = oc.build_emails([{"type": "email", "subject": "Hi",
+                            "input": "{Candidates}\n\nBye"}], [a], cand_bullets=False)
+    assert off[0]["body"] == "<b>Candidate A (Ref #1042), Senior Accountant</b><br><br>Bye"
+    # no candidates: the text goes as typed
+    plain = oc.build_emails([{"type": "email", "subject": "Hi", "input": "A & B"}], [])
+    assert plain[0]["body"] == "A & B"
