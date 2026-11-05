@@ -32810,15 +32810,15 @@ def _open_own_campaign(s, rf):
 
 
 # The sidebar's one Start a Campaign button opens a dialog with these two
-# cards, so people see what each way in does before they pick one. AI is
-# first and marked Recommended: it is still the start we want used most.
+# cards, so people see what each way in does before they pick one. Neither
+# is marked Recommended (Mike, 2026-11-05): both look the same.
 START_CAMPAIGN_TITLE = "Start a Campaign"
 START_CAMPAIGN_OPTIONS = [
     {
         "key": "ai",
         "icon": "ai_prompts",
         "title": "Start with AI",
-        "tag": "Recommended",
+        "tag": "",
         "desc": ("Pick a job and answer a few questions. DripDrop writes "
                  "the prompt and opens it in Claude or ChatGPT."),
         "points": ["Finds companies that fit",

@@ -174,7 +174,7 @@ def test_walkthrough_state_and_entry_points():
     assert "fd-side-cta2" not in side and 'ui.label("Start with AI")' not in side
     assert fa.START_CAMPAIGN_TITLE == "Start a Campaign"
     assert [o["key"] for o in fa.START_CAMPAIGN_OPTIONS] == ["ai", "own"]
-    assert fa.START_CAMPAIGN_OPTIONS[0]["tag"] == "Recommended"
+    assert all(not o["tag"] for o in fa.START_CAMPAIGN_OPTIONS)
     assert fa.START_CAMPAIGN_OPTIONS[1]["title"] == fa.OWN_CAMPAIGN_TITLE
     dlg = inspect.getsource(fa._start_campaign_dialog)
     assert '_sidebar_nav(s, rf, "ai_prompts", setup)' in dlg
