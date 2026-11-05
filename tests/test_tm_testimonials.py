@@ -35,25 +35,44 @@ def test_clean_answers_drops_unknown_keys_and_values():
     assert tt.clean_answers("nope") == {}
 
 
-def test_draft_uses_only_what_was_picked():
-    a = {"challenge": ["local"], "roles": ["dispatch"], "fill": "2-4w", "ramp": "week",
-         "savings": "20-40", "hours": "10-20", "expanded": "yes", "phrases": ["sooner"]}
+def test_draft_order_why_delivered_numbers_happy():
+    """Mike's case, 2026-11-05: admin help, EA in under two weeks, $40-60k."""
+    a = {"challenge": ["admin"], "why": ["vetting"], "roles": ["admin"], "fill": "lt2w",
+         "ramp": "week", "savings": "40-60", "hours": "10-20", "count": "3-5",
+         "expanded": "yes", "happy": "very"}
     d = tt.build_draft(a, "ThriveModal", "Maria")
-    assert d.startswith("Before ThriveModal, we couldn't find good people locally.")
-    assert "ThriveModal filled our dispatch role in under a month, and Maria hit the ground running." in d
-    assert "$20,000 to $40,000" in d and "10 to 20 hours" in d
-    assert "We've since added more people." in d and "I wish we'd done this sooner." in d
+    assert d == ("We came to ThriveModal because I was buried in admin work and chose them "
+                 "for their vetted, English-fluent candidates. They filled our executive "
+                 "assistant role in under two weeks, and Maria was up to speed within the "
+                 "first week. We're saving $40,000 to $60,000 a year compared with a U.S. "
+                 "hire and getting 10 to 20 hours a week back. We've since grown to 3 to 5 "
+                 "people with them. We're very happy with the results.")
+    assert "not just about" not in d
+
+
+def test_draft_never_contradicts_savings():
+    # Old answers may still carry the retired phrases; they are ignored.
+    d = tt.build_draft({"savings": "20-40", "phrases": ["money"]}, "ThriveModal")
+    assert d == "We're saving $20,000 to $40,000 a year compared with a U.S. hire."
+
+
+def test_draft_uses_a_solved_line_only_without_numbers():
+    d = tt.build_draft({"results": ["response", "savings"]}, "ThriveModal")
+    assert d == "Our customers get answers faster."
+    d = tt.build_draft({"results": ["response"], "hours": "5-10"}, "ThriveModal")
+    assert d == "We're getting 5 to 10 hours a week back."
 
 
 def test_draft_says_nothing_it_was_not_told():
     assert tt.build_draft({}, "ThriveModal") == ""
-    d = tt.build_draft({"savings": "skip", "ramp": "2-3m"}, "ThriveModal")
-    assert d == ""
+    assert tt.build_draft({"savings": "skip", "ramp": "2-3m", "happy": "mixed"},
+                          "ThriveModal") == ""
 
 
-def test_draft_grammar_for_unnamed_hire():
+def test_draft_without_a_why_names_the_company():
     d = tt.build_draft({"fill": "lt2w", "ramp": "month"}, "ThriveModal")
-    assert d == "ThriveModal filled our role in under two weeks, and they were up to speed within the month."
+    assert d == ("ThriveModal filled our role in under two weeks, and our new hire was up "
+                 "to speed within the first month.")
 
 
 def test_every_question_option_key_is_unique():

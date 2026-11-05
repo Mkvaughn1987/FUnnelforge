@@ -53,6 +53,13 @@ QUESTIONS = [
               ("turnover", "Turnover"), ("admin", "I was doing too much admin myself"),
               ("coverage", "Gaps in after-hours coverage"),
               ("growth", "Growing faster than the team")]},
+    {"id": "why", "kind": "multi", "q": "Why did you choose us?",
+     "opts": [("cost", "Lower cost than a U.S. hire"),
+              ("vetting", "Vetted, English-fluent candidates"),
+              ("speed", "How fast we could fill the role"),
+              ("quality", "Quality of the candidates"),
+              ("service", "Hands-on, personal service"),
+              ("referral", "Someone recommended us")]},
     {"id": "fill", "kind": "one", "q": "How fast was the role filled?",
      "opts": [("lt2w", "Under 2 weeks"), ("2-4w", "2 to 4 weeks"), ("1-2m", "1 to 2 months"),
               ("longer", "Longer")]},
@@ -76,12 +83,8 @@ QUESTIONS = [
               ("fit", "Fit with your team")]},
     {"id": "expanded", "kind": "one", "q": "Have you added more people since your first hire?",
      "opts": [("yes", "Yes"), ("planning", "Planning to"), ("no", "No")]},
-    {"id": "phrases", "kind": "multi", "q": "Which of these sound like you?",
-     "opts": [("ground", "“They hit the ground running.”"),
-              ("team", "“They feel like part of our team, not a vendor.”"),
-              ("money", "“It's not just about saving money.”"),
-              ("sooner", "“I wish we'd done this sooner.”"),
-              ("focus", "“It freed me up to focus on growing the business.”")]},
+    {"id": "happy", "kind": "one", "q": "How happy are you with the results?",
+     "opts": [("very", "Very happy"), ("happy", "Happy"), ("mixed", "It's been mixed")]},
     {"id": "own_words", "kind": "text", "q": "Anything you'd like to say in your own words? (optional)"},
 ]
 PERMISSIONS = [("full", "Name, title, company and logo"),
@@ -169,71 +172,92 @@ _ROLE_PHRASE = {"admin": "executive assistant", "support": "customer support",
                 "accounting": "bookkeeping", "sales": "sales support", "marketing": "marketing",
                 "dispatch": "dispatch", "it": "IT"}
 _CHALLENGE = {"local": "we couldn't find good people locally",
-              "cost": "another full U.S. salary was out of reach",
+              "cost": "a U.S. hire was too expensive",
               "turnover": "we kept losing people to turnover",
-              "admin": "I was buried in admin work myself",
-              "coverage": "we had gaps in coverage after hours",
+              "admin": "I was buried in admin work",
+              "coverage": "we had gaps in after-hours coverage",
               "growth": "we were growing faster than our team"}
+_WHY = {"cost": "the lower cost", "vetting": "their vetted, English-fluent candidates",
+        "speed": "how fast they could fill the role",
+        "quality": "the quality of their candidates", "service": "their hands-on service",
+        "referral": "a recommendation from someone we trust"}
 _FILL = {"lt2w": "in under two weeks", "2-4w": "in under a month", "1-2m": "in about a month"}
-_SAVE = {"lt20": "thousands", "20-40": "$20,000 to $40,000", "40-60": "$40,000 to $60,000",
+_RAMP = {"week": "within the first week", "month": "within the first month"}
+_SAVE = {"lt20": "up to $20,000", "20-40": "$20,000 to $40,000", "40-60": "$40,000 to $60,000",
          "60+": "over $60,000"}
-_HOURS = {"5-10": "5 to 10 hours", "10-20": "10 to 20 hours", "20+": "more than 20 hours"}
-_PHRASE = {"team": "They feel like part of our team, not a vendor.",
-           "money": "It's not just about saving money.",
-           "sooner": "I wish we'd done this sooner.",
-           "focus": "It freed me up to focus on growing the business."}
+_HOURS = {"5-10": "5 to 10 hours", "10-20": "10 to 20 hours", "20+": "over 20 hours"}
+_COUNT = {"2": "2", "3-5": "3 to 5", "6+": "6 or more"}
+_SOLVED = (("response", "Our customers get answers faster."),
+           ("growth", "We grew without adding another local hire."),
+           ("reliable", "The work is reliable and done right."),
+           ("quality", "The work is reliable and done right."),
+           ("savings", "It cut our hiring costs."))
+_HAPPY = {"very": "We're very happy with the results.", "happy": "We're happy with the results."}
+
+
+def _picked(a, key, table, n=2):
+    return [table[k] for k in (a.get(key) or []) if k in table][:n]
 
 
 def build_draft(answers, company="us", hire_name=""):
-    """A short first-person quote made only from what the client picked.
-    Nothing here adds a claim the answers do not make."""
+    """A short first-person quote made only from what the client picked, in
+    one order: why they came to us, how we delivered, what they got (numbers
+    first), how happy they are. Nothing here adds a claim the answers do not
+    make, and nothing is filler."""
     a = answers or {}
     company = (company or "").strip() or "us"
-    who = (hire_name or "").strip() or "they"
     parts = []
-    ch = [c for c in a.get("challenge") or [] if c in _CHALLENGE]
-    if ch:
-        txt = " and ".join(_CHALLENGE[c] for c in ch[:2])
-        parts.append(f"Before {company}, {txt}.")
 
+    # 1. Why they came to us.
+    why = _picked(a, "why", _WHY)
+    ch = _picked(a, "challenge", _CHALLENGE, 1 if why else 2)
+    if ch and why:
+        parts.append(f"We came to {company} because {ch[0]} and chose them for "
+                     f"{' and '.join(why)}.")
+    elif ch:
+        parts.append(f"We came to {company} because {' and '.join(ch)}.")
+    elif why:
+        parts.append(f"We chose {company} for {' and '.join(why)}.")
+
+    # 2. How we delivered.
     roles = [r for r in a.get("roles") or [] if r in _ROLE_PHRASE]
-    role = _ROLE_PHRASE[roles[0]] if len(roles) == 1 else ""
+    role = _ROLE_PHRASE[roles[0]] + " " if len(roles) == 1 else ""
     fill = _FILL.get(a.get("fill", ""), "")
-    ramp = a.get("ramp")
-    ground = "ground" in (a.get("phrases") or [])
+    ramp = _RAMP.get(a.get("ramp", ""), "")
+    who = (hire_name or "").strip() or "our new hire"
+    subj = "They" if parts else company
     if fill:
-        s = f"{company} filled our {role + ' ' if role else ''}role {fill}"
-        if ramp == "week" or ground:
-            s += f", and {who} hit the ground running."
-        elif ramp == "month":
-            s += f", and {who} {'was' if who != 'they' else 'were'} up to speed within the month."
-        else:
-            s += "."
-        parts.append(s[0].upper() + s[1:])
-    elif ramp == "week" or ground:
-        parts.append(f"{who[0].upper() + who[1:]} hit the ground running.")
+        s = f"{subj} filled our {role}role {fill}"
+        s += f", and {who} was up to speed {ramp}." if ramp else "."
+        parts.append(s)
+    elif ramp:
+        parts.append(f"{who[0].upper() + who[1:]} was up to speed {ramp}.")
 
-    res = a.get("results") or []
+    # 3. What they got: numbers first, else the one thing it solved.
     sav = _SAVE.get(a.get("savings", ""))
     hrs = _HOURS.get(a.get("hours", ""))
-    if sav:
+    if sav and hrs:
+        parts.append(f"We're saving {sav} a year compared with a U.S. hire and getting "
+                     f"{hrs} a week back.")
+    elif sav:
         parts.append(f"We're saving {sav} a year compared with a U.S. hire.")
-    if hrs:
-        parts.append(f"It's freed up {hrs} a week.")
-    elif "response" in res:
-        parts.append("Our customers get answers faster.")
-    elif "reliable" in res or "quality" in res:
-        parts.append("The work is consistent and done right.")
-
+    elif hrs:
+        parts.append(f"We're getting {hrs} a week back.")
+    else:
+        res = a.get("results") or []
+        line = next((txt for k, txt in _SOLVED if k in res), "")
+        if line:
+            parts.append(line)
+    n = _COUNT.get(a.get("count", ""))
     if a.get("expanded") == "yes":
-        parts.append("We've since added more people.")
+        parts.append(f"We've since grown to {n} people with them." if n
+                     else "We've since added more people.")
     elif a.get("expanded") == "planning":
-        parts.append("We're already planning our next hire.")
+        parts.append("We're planning our next hire.")
 
-    for k in a.get("phrases") or []:
-        if k in _PHRASE:
-            parts.append(_PHRASE[k])
-            break
+    # 4. How happy they are, then anything in their own words.
+    if a.get("happy") in _HAPPY:
+        parts.append(_HAPPY[a["happy"]])
     own = (a.get("own_words") or "").strip()
     if own:
         parts.append(own)
@@ -262,7 +286,7 @@ def request_email(req, link, sender_first="", our_company="ThriveModal"):
             "I have a favor to ask. We're asking a few of our best clients for a short "
             "testimonial. Owners thinking about hiring offshore trust another business "
             "owner more than anything we could tell them.\n\n"
-            "I made it quick: about 12 click-through questions, roughly 3 minutes, no "
+            "I made it quick: a few click-through questions, about 3 minutes, no "
             "login. At the end it drafts a short quote from your answers. You can edit "
             "it and approve it. Nothing goes anywhere "
             "without your OK.\n\n"
@@ -278,7 +302,7 @@ def shared_email(link, sender_first="", our_company="ThriveModal"):
             "I have a favor to ask. We're asking our clients for a short testimonial. "
             "Owners thinking about hiring offshore trust another business owner more than "
             "anything we could tell them.\n\n"
-            "I made it quick: about 12 click-through questions, roughly 3 minutes, no "
+            "I made it quick: a few click-through questions, about 3 minutes, no "
             "login. At the end it drafts a short quote from your answers. You can edit "
             "it and approve it. Nothing goes anywhere "
             "without your OK.\n\n"
