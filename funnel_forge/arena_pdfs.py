@@ -22,7 +22,7 @@ from reportlab.lib.enums import TA_LEFT, TA_CENTER, TA_RIGHT
 from reportlab.platypus import (
     BaseDocTemplate, Frame, PageTemplate,
     Paragraph, Spacer, Table, TableStyle, HRFlowable,
-    KeepInFrame, CondPageBreak,
+    KeepInFrame, CondPageBreak, Flowable,
 )
 
 # ── Brand ──────────────────────────────────────────────────────────────────
@@ -268,9 +268,11 @@ def div(before=8, after=8):
     return HRFlowable(width="100%", thickness=0.5, color=LIGHT,
                       spaceBefore=before, spaceAfter=after)
 
-def alt_table(rows, widths, header=True):
+def alt_table(rows, widths, header=True, group=1):
     # repeatRows=1: a table that breaks across pages repeats its header, and
     # ReportLab will not split it leaving only the header row behind.
+    # group: rows per band, so a role's three experience rows share a shade.
+    group = max(1, int(group or 1))
     t = Table(rows, colWidths=widths, repeatRows=1 if header else 0)
     base = [
         ("VALIGN",        (0,0),(-1,-1), "TOP"),
@@ -278,10 +280,23 @@ def alt_table(rows, widths, header=True):
         ("BOTTOMPADDING", (0,0),(-1,-1), 5),
         ("LEFTPADDING",   (0,0),(-1,-1), 7),
         ("RIGHTPADDING",  (0,0),(-1,-1), 7),
-        ("ROWBACKGROUNDS",(0,1),(-1,-1), [WHITE, LIGHT]),
-        ("LINEBELOW",     (0,0),(-1,-1), 0.5, SILVER),
+        ("ROWBACKGROUNDS",(0,1),(-1,-1), [WHITE] * group + [LIGHT] * group),
         ("BOX",           (0,0),(-1,-1), 0.5, SILVER),
     ]
+    if group > 1:
+        # Rule under the header and under each group, not every row, and a
+        # group never splits across pages. Rows sit closer together.
+        first = 1 if header else 0
+        base += [("TOPPADDING", (0,first),(-1,-1), 3),
+                 ("BOTTOMPADDING", (0,first),(-1,-1), 3)]
+        base.append(("LINEBELOW", (0,0),(-1,0), 0.5, SILVER))
+        for r in range(first + group - 1, len(rows), group):
+            base.append(("LINEBELOW", (0,r),(-1,r), 0.5, SILVER))
+        for r in range(first, len(rows)):
+            if (r - first) % group != group - 1:
+                base.append(("NOSPLIT", (0,r),(-1,r+1)))
+    else:
+        base.append(("LINEBELOW", (0,0),(-1,-1), 0.5, SILVER))
     if header:
         base += [
             ("BACKGROUND", (0,0),(-1,0), LIGHT),
@@ -291,6 +306,72 @@ def alt_table(rows, widths, header=True):
             ("VALIGN",     (0,0),(-1,0), "MIDDLE"),
         ]
     t.setStyle(TableStyle(base))
+    return t
+
+
+class _Check(Flowable):
+    """A small check mark drawn as two strokes, so it never depends on a
+    symbol font being available in the reader."""
+    def __init__(self, size=8.5, color=BLUE):
+        super().__init__()
+        self.size, self.color = size, color
+
+    def wrap(self, aw, ah):
+        return self.size, self.size
+
+    def draw(self):
+        c, z = self.canv, self.size
+        c.setStrokeColor(self.color)
+        c.setLineWidth(1.7)
+        c.setLineCap(1)
+        c.setLineJoin(1)
+        p = c.beginPath()
+        p.moveTo(z * 0.06, z * 0.50)
+        p.lineTo(z * 0.38, z * 0.14)
+        p.lineTo(z * 0.98, z * 0.92)
+        c.drawPath(p, stroke=1, fill=0)
+
+
+def callout_box(heading, items):
+    """Tinted box with a blue rule down the left: a short heading and
+    check-marked lines. The text before an item's first colon is bold."""
+    hx = BLUE.hexval()[2:]
+    cells = []
+    if heading:
+        cells.append([Paragraph(
+            f'<font color="#{hx}"><b>{_clean(heading).upper()}</b></font>',
+            S("co_h", fontName="Helvetica-Bold", fontSize=9.5, textColor=BLUE,
+              leading=12)), ""])
+    line = S("co_i", fontName="Helvetica", fontSize=10.5, textColor=NAVY,
+             leading=13.5)
+    for it in items or []:
+        txt = _clean(it) if isinstance(it, str) else ""
+        if not txt:
+            continue
+        lead, sep, rest = txt.partition(": ")
+        if sep and len(lead) <= 48:
+            txt = f"<b>{lead}.</b> {rest[:1].upper() + rest[1:]}"
+        cells.append([_Check(), Paragraph(txt, line)])
+    if not cells:
+        return Spacer(1, 0)
+    t = Table(cells, colWidths=[30, CW - 30])
+    style = [
+        ("BACKGROUND",    (0,0),(-1,-1), LIGHT),
+        ("LINEBEFORE",    (0,0),(0,-1), 3, BLUE),
+        ("VALIGN",        (0,0),(-1,-1), "TOP"),
+        ("TOPPADDING",    (0,0),(-1,-1), 2),
+        ("BOTTOMPADDING", (0,0),(-1,-1), 2),
+        ("TOPPADDING",    (0,0),(0,-1), 5),
+        ("TOPPADDING",    (0,0),(-1,0), 8),
+        ("BOTTOMPADDING", (0,-1),(-1,-1), 8),
+        ("LEFTPADDING",   (0,0),(0,-1), 13),
+        ("RIGHTPADDING",  (0,0),(0,-1), 0),
+        ("LEFTPADDING",   (1,0),(1,-1), 2),
+        ("RIGHTPADDING",  (1,0),(1,-1), 10),
+    ]
+    if heading:
+        style.append(("SPAN", (0,0),(1,0)))
+    t.setStyle(TableStyle(style))
     return t
 
 
@@ -1041,15 +1122,17 @@ def build_custom_pdf(output_path, d, cfg=None):
         - items: per-type payload above
       cta: str (optional closing CTA paragraph)
 
-    On inboxslide (_skimmable) every PDF is held to 1.5 pages of bullets
-    (Mike, 2026-09-21): paragraph sections become one bullet per sentence,
+    On inboxslide (_skimmable) every PDF is held to two pages of bullets
+    (Mike, 2026-11-05; 1.5 before): paragraph sections become one bullet per sentence,
     then the longest sections lose their last items until the measured
     layout fits. `d` is tightened in place so the editor sidecar saved
     after this matches the PDF. Arena renders as before.
     """
     if _skimmable(d):
         _tighten_paragraphs(d)
-        for _ in range(60):
+        # Enough passes for a document several times too long: each pass
+        # removes one item or one section.
+        for _ in range(240):
             pages, fill = _measure_custom(d)
             if pages < 2 or (pages == 2 and
                              _MIN_LAST_PAGE_FILL <= fill <= _MAX_LAST_PAGE_FILL):
@@ -1061,8 +1144,10 @@ def build_custom_pdf(output_path, d, cfg=None):
     return output_path
 
 
-# Second page may be at most this full: 1 + 0.5 = the 1.5-page cap.
-_MAX_LAST_PAGE_FILL = 0.5
+# Second page may be at most this full. Two full pages (Mike, 2026-11-05:
+# "too simple... go into detail"); it was 0.5, the 1.5-page cap of
+# 2026-09-21.
+_MAX_LAST_PAGE_FILL = 1.0
 # ...and at least this full: a second page holding only a closing heading
 # and one line reads as a mistake, so a spill that small is trimmed back
 # onto page one instead.
@@ -1098,15 +1183,24 @@ def _trim_one(d) -> bool:
         if not isinstance(sec, dict) or sec.get("keep"):
             continue
         stype = (sec.get("type") or "bullets").lower()
+        if stype == "callout":
+            continue
         spare = len(sec.get("items") or []) - _MIN_ITEMS.get(stype, 2)
         if spare > best_spare:
             best, best_spare = sec, spare
     if best is not None:
         best["items"] = list(best["items"])[:-1]
         return True
-    if len(d.get("sections") or []) > 3:
-        d["sections"] = list(d["sections"])[:-1]
-        return True
+    secs = list(d.get("sections") or [])
+    if len(secs) > 3:
+        for i in range(len(secs) - 1, -1, -1):
+            sec = secs[i]
+            if isinstance(sec, dict) and (sec.get("keep") or (
+                    sec.get("type") or "").lower() == "callout"):
+                continue
+            del secs[i]
+            d["sections"] = secs
+            return True
     return False
 
 
@@ -1147,6 +1241,15 @@ def _custom_doc_story(output_path, d):
         subtitle = " | ".join(_sub_bits) or "Custom document"
     _title_block(story, title, subtitle, d.get("badge", "Custom document"))
 
+    # The candidate standard sits directly under the title, above the
+    # intro (Mike, 2026-11-05: "at the top").
+    _secs = [x for x in (d.get("sections") or []) if isinstance(x, dict)]
+    for sec in _secs:
+        if (sec.get("type") or "").lower() == "callout":
+            story.append(callout_box(sec.get("heading") or "",
+                                     sec.get("items") or []))
+            story.append(Spacer(1, 8))
+
     # Optional intro paragraph
     if d.get("intro"):
         story.append(Paragraph(
@@ -1169,10 +1272,13 @@ def _custom_doc_story(output_path, d):
     _bullet_paragraphs = d.get("paragraphs_as_bullets",
                                bool((os.environ.get("DRIPDROP_BRAND_DOC_FIRM") or "").strip()))
 
-    for sec in (d.get("sections") or []):
+    for sec in _secs:
         heading = sec.get("heading") or ""
         stype = (sec.get("type") or "bullets").lower()
         items = sec.get("items") or []
+
+        if stype == "callout":      # already placed under the title
+            continue
 
         # Tables add their heading themselves once the first rows are sized.
         if heading and stype != "table":
@@ -1226,19 +1332,35 @@ def _custom_doc_story(output_path, d):
                 cols = [max(min_col, x) for x in raw]
                 scale = CW / sum(cols)
                 cols = [c * scale for c in cols]
+                # A section may fix its own column shares.
+                _w = sec.get("widths")
+                if (isinstance(_w, (list, tuple)) and len(_w) == n_cols
+                        and all(isinstance(x, (int, float)) and x > 0 for x in _w)):
+                    cols = [CW * x / sum(_w) for x in _w]
 
                 # Wrap header cells in Paragraphs so long labels break cleanly.
                 # Font sizes bumped +2 (2026-05-02 user request).
                 _hdr_fs = 9.5 if n_cols >= 5 else 10
                 _cell_fs = 9.5 if n_cols >= 5 else 10
+                # A dense reference table may ask for smaller type.
+                _fs = sec.get("font")
+                if isinstance(_fs, (int, float)) and 8 <= _fs <= 11:
+                    _hdr_fs = _cell_fs = _fs
                 hdr_style = S("th", fontName="Helvetica-Bold", fontSize=_hdr_fs,
                               textColor=NAVY, leading=_hdr_fs + 2)
                 cell_style = S("tc", fontName="Helvetica", fontSize=_cell_fs,
                                textColor=NAVY, leading=_cell_fs + 2)
                 wrapped = []
+                # In a grouped table the first column names the group, so
+                # it is bold.
+                _lead_style = S("tcb", parent=cell_style,
+                                fontName="Helvetica-Bold")
                 for ri, r in enumerate(rows):
                     style = hdr_style if ri == 0 else cell_style
-                    wrapped.append([Paragraph(c or "", style) for c in r])
+                    wrapped.append([
+                        Paragraph(c or "", _lead_style if (
+                            ri and ci == 0 and sec.get("group")) else style)
+                        for ci, c in enumerate(r)])
 
                 # Keep the heading with the header row + first data row only;
                 # the rest of the table flows onto the next page (header
@@ -1246,7 +1368,8 @@ def _custom_doc_story(output_path, d):
                 _, first_h = Table(wrapped[:2], colWidths=cols).wrap(CW, 10000)
                 if heading:
                     story.extend(section_header(heading, keep_min=first_h + 12))
-                story.append(alt_table(wrapped, cols, header=True))
+                story.append(alt_table(wrapped, cols, header=True,
+                                       group=sec.get("group") or 1))
                 story.append(Spacer(1, 6))
             elif heading:
                 story.extend(section_header(heading))

@@ -1069,7 +1069,9 @@ def test_auto_worksheet_is_a_flat_65_percent_saving():
     headings = [s["heading"] for s in d["sections"]]
     assert "Sources" not in headings
     assert "What Customers Report" in headings
-    assert "The People We Place" in headings
+    # 2026-11-05: opens with the candidate standard and says how we vet.
+    assert headings[0] == fa._TM_STANDARD_HEADING
+    assert "How Every Candidate Is Vetted" in headings
     assert d["intro"].startswith("Our all-inclusive rate beside")
     assert "Here's" not in repr(d)
     how = " ".join(next(s for s in d["sections"]
@@ -1149,9 +1151,16 @@ def test_cost_extras_only_repeat_approved_playbook_lines():
     quote = secs["What Customers Report"]["items"][0]
     assert "That consistency allows our leadership team" in quote
     assert quote.split('" Kristy')[0].strip('"') in fa._TM_DEF_PROOF.replace("\n", " ")
-    for b in secs["Engagement Terms"]["items"] + secs["The People We Place"]["items"]:
+    for b in (secs["What the Hourly Rate Covers"]["items"]
+              + secs["How Every Candidate Is Vetted"]["items"]):
         assert not any(ch.isdigit() for ch in b), b
-    # The people bullets sell what we screen for, never a nationality.
-    people = " ".join(secs["The People We Place"]["items"]).lower()
-    assert "communication" in people and "education" in people
-    assert "filipino" not in people and "english" not in people
+    # Mike, 2026-11-05: the people bullets state the candidate standard
+    # (vetted, fluent English, degreed and certified). Still never a
+    # nationality, and never "native" or "perfect" English.
+    people = " ".join(secs["How Every Candidate Is Vetted"]["items"]
+                      + fa._tm_candidate_standard()["items"]).lower()
+    for word in ("vetted", "degree", "certifications", "english",
+                 "video pre-screen"):
+        assert word in people, word
+    for word in ("filipino", "native", "perfect english", "background check"):
+        assert word not in people, word

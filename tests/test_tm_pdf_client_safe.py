@@ -96,22 +96,37 @@ def test_cost_comparison_names_five_roles_lead_role_first(monkeypatch):
     d = fa._tm_multi_cost_pdf_data(None, "S+B James Construction",
                                    "Project Coordinator", "White City, OR",
                                    "Construction")
-    rows = d["sections"][0]["items"]
-    roles = [r[0] for r in rows[1:-1]]
+    # Mike, 2026-11-05: the page opens with the candidate standard, then
+    # years of experience, our hourly rate, the U.S. hourly rate. No "you
+    # save" columns and no totals row.
+    assert d["sections"][0]["type"] == "callout"
+    assert d["sections"][0]["heading"] == fa._TM_STANDARD_HEADING
+    table = d["sections"][1]
+    rows = table["items"]
+    assert rows[0] == ["Role", "Years of Experience", "Our Hourly Rate",
+                       "U.S. Hourly Rate (Fully Loaded)"]
+    assert table["group"] == 3 and table["keep"]
+    roles = [r[0] for r in rows[1:] if r[0]]
     assert len(roles) == 5 and roles[0] == "Project Coordinator"
     assert "Estimator" in roles  # from the construction list
-    assert rows[-1][0] == "All 5 roles"
-    # Hourly, our rate first, then what they pay, then the saving (Mike,
-    # 2026-10-08); the totals row adds up as printed.
-    assert rows[0] == ["Role", "Our Rate / Hour", "In-House Cost / Hour",
-                       "You Save / Hour", "You Save / Year"]
+    assert len(rows) == 1 + 5 * 3
+    assert "Save" not in json.dumps(d) and "All 5 roles" not in json.dumps(d)
     money = lambda t: float(t.replace("USD", "").replace("$", "").replace(",", ""))
-    for r in rows[1:-1]:
-        assert money(r[3]) == money(r[2]) - money(r[1])
-        assert money(r[1]) < money(r[2]) < 100      # per hour, not per year
-        assert money(r[4]) > 10000                   # per year
-    for col in (1, 2, 3, 4):
-        assert money(rows[-1][col]) == sum(money(r[col]) for r in rows[1:-1])
+    for i in range(1, len(rows), 3):
+        band = rows[i:i + 3]
+        assert [r[1] for r in band] == ["1-3 years", "4-7 years", "8+ years"]
+        assert band[0][0] and not band[1][0] and not band[2][0]
+        for r in band:
+            assert money(r[2]) < money(r[3]) < 150   # per hour, not per year
+        # More experience never costs less, on either side.
+        assert money(band[0][2]) <= money(band[1][2]) <= money(band[2][2])
+        assert money(band[0][3]) <= money(band[1][3]) <= money(band[2][3])
+    # The construction roles carry what we recruit for: degree, work, software.
+    prof = next(s for s in d["sections"]
+                if s["heading"] == "What We Recruit For in Each Role")
+    assert prof["items"][0] == ["Role", "Degree and Credentials", "Core Work",
+                                "Software"]
+    assert any(r[0] == "Estimator" and "takeoffs" in r[2] for r in prof["items"])
     assert d["badge"] == fa._TM_COST_BADGE and d["_worksheet"]
     how = next(s for s in d["sections"] if s["heading"] == "Basis of Calculation")
     assert not any("Philippine" in i for i in how["items"])
@@ -201,8 +216,8 @@ def test_market_campaign_reads_as_a_business_not_a_buyer(monkeypatch):
     d = fa._tm_multi_cost_pdf_data(None, "Accounting & Finance", "CPA",
                                    "United States", "Accounting & Finance",
                                    market_only=True)
-    assert d["intro"].startswith(fa._TM_COST_SNAPSHOT
-                                 + ", for five roles an Accounting & Finance business")
+    assert d["intro"].startswith(
+        "Five roles an Accounting & Finance business would typically hire for")
     assert "in United States" not in d["intro"]
     assert "Accounting & Finance's" not in json.dumps(d)
 

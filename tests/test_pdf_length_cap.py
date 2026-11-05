@@ -1,4 +1,5 @@
-"""Every inboxslide PDF is held to 1.5 pages of bullets (Mike, 2026-09-21).
+"""Every inboxslide PDF is held to two pages of bullets (Mike, 2026-11-05:
+"too simple... go into detail"; 1.5 pages from 2026-09-21 until then).
 Arena keeps its full-page paragraphs.
 
 The renderer enforces it on whatever the AI returns, and every AI prompt
@@ -35,8 +36,11 @@ def _bloated():
     }
 
 
-def test_bloated_pdf_is_capped_at_one_and_a_half_pages(tmp_path):
+def test_bloated_pdf_is_capped_at_two_pages(tmp_path):
     d = _bloated()
+    for sec in d["sections"]:      # enough to run past two pages
+        if sec["type"] in ("bullets", "qa"):
+            sec["items"] = sec["items"] * 3
     ap.build_custom_pdf(str(tmp_path / "x.pdf"), d)
     pages, fill = ap._measure_custom(copy.deepcopy(d))
     assert pages == 1 or (pages == 2 and fill <= ap._MAX_LAST_PAGE_FILL)
@@ -109,7 +113,8 @@ def test_every_ai_pdf_prompt_asks_for_the_cap(monkeypatch):
                                        "location": "Houston, TX"})
         assert p.endswith(fa._PDF_LENGTH_RULES), kind
         assert "Fill the page" not in p, kind
-    assert "1.5 pages" in fa._PDF_LENGTH_RULES
+    assert "two pages" in fa._PDF_LENGTH_RULES
+    assert "1.5 pages" not in fa._PDF_LENGTH_RULES
 
 
 def test_arena_prompts_are_unchanged(monkeypatch):
@@ -119,9 +124,65 @@ def test_arena_prompts_are_unchanged(monkeypatch):
     assert "Fill the page" in p
 
 
-def test_blueprint_clamp_keeps_it_short():
+def test_blueprint_clamp_keeps_it_to_two_sentences_and_the_caps():
     d = {"sections": [{"heading": "Responsibilities", "type": "bullets",
-                       "items": ["One. Two."] * 9}], "intro": "A. B.", "cta": "C. D."}
+                       "items": ["One. Two. Three."] * 9}],
+         "intro": "A. B. C.", "cta": "C. D. E."}
     fa._clamp_tm_blueprint(d)
-    assert d["sections"][0]["items"] == ["One."] * 5
-    assert d["intro"] == "A." and d["cta"] == "C."
+    assert d["sections"][0]["items"] == ["One. Two."] * 6
+    assert d["intro"] == "A. B." and d["cta"] == "C. D."
+    # The 2026-11-05 shape: six responsibilities and a five-row profile.
+    d = {"sections": [
+        {"heading": "Core Responsibilities", "type": "table",
+         "items": [["a", "b", "c"]] * 12},
+        {"heading": "Candidate Profile", "type": "table",
+         "items": [["a", "b"]] * 12}] + [
+        {"heading": f"S{i}", "type": "bullets", "items": ["x."]} for i in range(9)]}
+    fa._clamp_tm_blueprint(d)
+    assert len(d["sections"]) == 8
+    assert len(d["sections"][0]["items"]) == 7
+    assert len(d["sections"][1]["items"]) == 6
+
+
+def test_candidate_standard_sits_under_the_title_and_is_never_trimmed(tmp_path):
+    """Mike, 2026-11-05: every PDF opens with the standard every candidate
+    meets. The box renders above the intro and the length trim leaves it."""
+    d = _bloated()
+    for sec in d["sections"]:
+        if sec["type"] in ("bullets", "qa"):
+            sec["items"] = sec["items"] * 3
+    box = {"heading": "Our Candidate Standard", "type": "callout", "keep": True,
+           "items": ["Fully vetted: screened against your role.",
+                     "Fluent, professional English: written and spoken.",
+                     "Degreed and certified: for the role."]}
+    d["sections"].insert(2, dict(box))
+    ap.build_custom_pdf(str(tmp_path / "x.pdf"), d)
+    kept = [s for s in d["sections"] if s["type"] == "callout"]
+    assert kept == [box]
+    _doc, story = ap._custom_doc_story(str(tmp_path / "y.pdf"), d)
+    tables = [i for i, f in enumerate(story) if f.__class__.__name__ == "Table"]
+    intro = next(i for i, f in enumerate(story)
+                 if getattr(getattr(f, "style", None), "name", "") == "intro")
+    assert tables and tables[0] < intro          # box first, then the intro
+    assert len(tables) == 2                      # drawn once, not again in place
+
+
+def test_a_keep_section_is_never_dropped(tmp_path):
+    d = {"title": "T", "badge": "B", "paragraphs_as_bullets": True,
+         "sections": [{"heading": f"S{i}", "type": "bullets", "items": [_S] * 12}
+                      for i in range(8)]
+         + [{"heading": "Basis of Calculation", "type": "bullets",
+             "items": [_S, _S], "keep": True}]}
+    ap.build_custom_pdf(str(tmp_path / "x.pdf"), d)
+    assert d["sections"][-1]["heading"] == "Basis of Calculation"
+    assert len(d["sections"][-1]["items"]) == 2
+    pages, _fill = ap._measure_custom(copy.deepcopy(d))
+    assert pages <= 2
+
+
+def test_grouped_table_bands_rows_together():
+    rows = [["Role", "Years", "Ours", "U.S."]] + [["r", "y", "$1", "$2"]] * 6
+    t = ap.alt_table(rows, [100] * 4, group=3)
+    cmds = [c for c in t._bkgrndcmds if c[0] == "ROWBACKGROUNDS"]
+    assert cmds and len(cmds[0][3]) == 6         # three white, three tinted
+    assert ap.alt_table(rows, [100] * 4).repeatRows == 1

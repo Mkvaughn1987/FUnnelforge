@@ -68,7 +68,9 @@ def test_tm_pdf_kinds_are_written_by_fable(monkeypatch):
     d = fa._generate_rich_pdf_data(None, "market_pulse", dict(CTX))
     assert d["title"] == "Offshore Staffing Market Pulse - Acme Freight"
     fa._generate_rich_pdf_data(None, "tm_role_blueprint", dict(CTX))
-    assert seen == [(fa._TM_PDF_MODEL, 8000)] * 2
+    assert seen == [(fa._TM_PDF_MODEL, 14000)] * 2
+    # Every ThriveModal PDF opens with the candidate standard.
+    assert d["sections"][0]["type"] == "callout"
     assert fa._TM_PDF_MODEL.startswith("claude-fable")
 
     monkeypatch.setattr(fa, "_is_thrivemodal", lambda cfg=None: False)

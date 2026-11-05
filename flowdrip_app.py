@@ -11760,16 +11760,23 @@ def _custom_pdf_outline(client, description, ctx) -> dict:
         f"- No fluff. Each section must earn its space and tie back to the user's request and the context above.\n"
     )
     if _is_thrivemodal():
-        # 1.5 pages of bullets (Mike, 2026-09-21). Overrides the rules above.
+        # Two pages of detail (Mike, 2026-11-05; 1.5 pages of short bullets
+        # before). Overrides the rules above.
         prompt += (
             "\nLENGTH AND FORMAT — THESE OVERRIDE THE RULES ABOVE:\n"
-            "- The PDF must fit in 1.5 pages at most; do not aim to fill a page.\n"
-            "- No 'paragraph' sections: open with a 'bullets' overview of 2-3 bullets.\n"
-            "- Tables 3-5 data rows, bullets 2-5 items, qa 2-3 pairs.\n"
+            "- The PDF runs to two pages and should come close to filling them.\n"
+            "- 6 to 8 sections. No 'paragraph' sections: open with a 'bullets' "
+            "overview of 3 bullets.\n"
+            "- At least two tables. Tables 4-8 data rows, bullets 3-6 items, "
+            "qa 3-4 pairs.\n"
+            "- Headings name this industry's real work, roles and systems. A "
+            "box stating our candidate standard (vetted, fluent English, "
+            "degreed and certified) is added at the top automatically; do "
+            "not plan a section for it.\n"
         )
     msg = _claude_create_with_retry(client,
         model="claude-haiku-4-5-20251001",
-        max_tokens=600,
+        max_tokens=1000,
         messages=[{"role": "user", "content": prompt}],
     )
     text = msg.content[0].text
@@ -11848,12 +11855,15 @@ def _custom_pdf_build(client, outline, description, ctx_block, pdf_dir,
             "figures with the source named in the cell or sentence. If you do "
             "not know a real figure, describe the item without a number.\n"
             "- No retention rates, no nationality-based claims about English "
-            "or work ethic, no certifications, no invented customers.\n\n"
+            "or work ethic, no compliance certifications of ours (SOC 2, "
+            "ISO, HIPAA, PCI), no invented customers.\n"
+            + _TM_PDF_DEPTH_RULES + "\n"
             + _thrivemodal_playbook_text() + "\n"
         )
     msg = _claude_create_with_retry(client,
         model="claude-haiku-4-5-20251001",
-        max_tokens=2400,
+        # Two-page documents (2026-11-05) need the room.
+        max_tokens=6000 if _is_thrivemodal() else 2400,
         messages=[{"role": "user", "content": fill_prompt + _style_guide_prompt()
                    + (_PDF_LENGTH_RULES if _is_thrivemodal() else "")}],
     )
@@ -11864,11 +11874,13 @@ def _custom_pdf_build(client, outline, description, ctx_block, pdf_dir,
         return ""
     data = json.loads(match.group())
 
-    # A ThriveModal PDF always leads with the brand, even if the model drops it.
+    # A ThriveModal PDF always leads with the brand, even if the model drops
+    # it, and opens with the candidate standard.
     if _is_thrivemodal():
-        _t = str(data.get("title") or "Offshore Staffing One-Pager").strip()
+        _t = str(data.get("title") or "Offshore Staffing Brief").strip()
         if not _t.lower().startswith("thrivemodal"):
             data["title"] = f"ThriveModal {_t}"
+        data["sections"] = _tm_with_standard(data.get("sections"))
 
     # Slug the title for the filename
     _title = data.get("title", "Custom_PDF")
@@ -45879,8 +45891,20 @@ def _tm_bls_local_salaries(client, roles, location: str) -> dict:
                            else f"oes_{st.lower()}.htm" if t == "S"
                            else f"oes{code}.htm")),
                 "national": t == "N",
+                "_series": sid,
             }
             break
+    # 25th and 75th percentile for the same area, for the experience bands
+    # (one more request; OEWS datatypes 12 and 14 beside the median's 13).
+    pct_ids = {r: (lk["_series"][:-2] + "12", lk["_series"][:-2] + "14")
+               for r, lk in out.items()}
+    pvals = (_tm_bls_annual_medians([i for pair in pct_ids.values() for i in pair])
+             if pct_ids else {})
+    for r, (lo, hi) in pct_ids.items():
+        out[r].pop("_series", None)
+        if lo in pvals and hi in pvals:
+            out[r]["p25"] = float(int(round(pvals[lo][0] / 500.0)) * 500)
+            out[r]["p75"] = float(int(round(pvals[hi][0] / 500.0)) * 500)
     return out
 
 
@@ -46077,12 +46101,13 @@ def _tm_auto_cost_pdf_data(company: str, role: str, location: str,
         "intro": (f"{_TM_COST_SNAPSHOT}, for one {role}{where}: an "
                   f"estimated saving for {company} of about "
                   f"{_tm_money(ws['difference'])} a year ({pct})."),
-        "sections": [
-            {"heading": "Cost Comparison", "type": "table", "items": ws["rows"]},
+        "sections": _tm_with_standard([
+            {"heading": "Cost Comparison", "type": "table", "items": ws["rows"],
+             "keep": True},
             *_tm_cost_extra_sections(),
             {"heading": "How This Was Calculated", "type": "bullets",
-             "items": howto},
-        ],
+             "items": howto, "keep": True},
+        ], role),
         "cta": ("To see this with your own figures, send us the current "
                 "salary and benefits for the role and we will rerun the "
                 "comparison."),
@@ -46110,9 +46135,7 @@ def _tm_hourly(annual) -> int:
     return int(round(float(annual) / _TM_HOURS_PER_YEAR))
 
 
-# What we recruit for and what clients report, in every cost sheet. The
-# first two bullets describe our screening (approved services text); the
-# third paraphrases the approved Knichel reference without adding to it.
+# What we recruit for, in every cost sheet (approved services text).
 _TM_TALENT_BULLETS = [
     "Each professional is recruited for your specific role, with the "
     "education, experience and software skills it requires, and presented "
@@ -46120,6 +46143,310 @@ _TM_TALENT_BULLETS = [
     "We screen for clear written and spoken communication and a reliable "
     "home office before you interview.",
 ]
+
+# Mike, 2026-11-05: every PDF opens with the standard every candidate
+# meets: vetted, fluent English, degreed and certified for the role. A
+# "callout" section, so it travels in `sections` through every build path,
+# the sidecar and the editor.
+_TM_STANDARD_HEADING = "Our Candidate Standard"
+
+
+def _tm_candidate_standard(role: str = "") -> dict:
+    """The promise at the top of every ThriveModal PDF. `role` names the
+    seat when the page is about one role."""
+    role = str(role or "").strip()
+    who = (f"every {role} candidate holds" if role and "," not in role
+           and len(role) <= 40 else "every candidate holds")
+    return {
+        "heading": _TM_STANDARD_HEADING, "type": "callout", "keep": True,
+        "items": [
+            "Fully vetted: screened and evaluated against your role, with "
+            "a video pre-screen you can watch, before a profile reaches you.",
+            "Fluent, professional English: written and spoken, assessed in "
+            "screening.",
+            f"Degreed and certified: {who} the degree and the professional "
+            "certifications the role calls for.",
+        ],
+    }
+
+
+def _tm_with_standard(sections, role: str = "") -> list:
+    """`sections` with the candidate standard first, never twice."""
+    rest = [x for x in (sections or [])
+            if not (isinstance(x, dict)
+                    and (x.get("type") or "").lower() == "callout")]
+    return [_tm_candidate_standard(role)] + rest
+
+
+# What we recruit for in each role: (degree and credentials, core work,
+# software). Shown beside the rates so the page reads as a team that knows
+# the seat, not one that sells generic headcount. A title missing here is
+# priced but left out of this table.
+_TM_ROLE_PROFILES = {
+    # construction, architecture, engineering
+    "estimator": ("BS Civil Engineering or Architecture",
+                  "Quantity takeoffs, bid packages, subcontractor quote leveling",
+                  "Bluebeam, PlanSwift, On-Screen Takeoff"),
+    "project coordinator": ("Bachelor's in Engineering, Architecture or Business",
+                            "Submittals, RFIs, change orders, schedule updates, closeout",
+                            "Procore, MS Project, Bluebeam, Smartsheet"),
+    "cad and bim drafter": ("BS Architecture; Autodesk certified",
+                            "Construction and shop drawings, BIM models, as-builts",
+                            "AutoCAD, Revit, Navisworks, SketchUp"),
+    "project accountant": ("BS Accountancy; CPA (Philippines)",
+                           "Job costing, AIA progress billing, WIP schedules, lien waivers",
+                           "Sage 300 CRE, Viewpoint Vista, QuickBooks, Procore"),
+    "administrative assistant": ("Bachelor's degree",
+                                 "Calendars, correspondence, document control, vendor follow up",
+                                 "Microsoft 365, Google Workspace, DocuSign"),
+    # logistics
+    "track and trace specialist": ("Bachelor's degree; U.S. freight experience",
+                                   "Shipment tracking, check calls, exception updates, POD collection",
+                                   "McLeod, MercuryGate, project44, MacroPoint"),
+    "dispatcher": ("Bachelor's degree; U.S. freight experience",
+                   "Load assignment, driver updates, appointments, HOS checks",
+                   "McLeod, TMW, Samsara, Motive"),
+    "customer service representative": ("Bachelor's degree",
+                                        "Customer inquiries, order status, issue resolution, account updates",
+                                        "Zendesk, Salesforce, HubSpot, RingCentral"),
+    "freight billing specialist": ("BS Accountancy or Business",
+                                   "Freight invoicing, rate confirmation audit, POD matching, carrier pay",
+                                   "McLeod, TMW, QuickBooks, Excel"),
+    "accounts receivable specialist": ("BS Accountancy or Finance",
+                                       "Invoicing, cash application, collections follow up, aging reports",
+                                       "QuickBooks, NetSuite, Sage Intacct, Excel"),
+    "data entry specialist": ("Bachelor's degree",
+                              "Record entry, data cleanup, document indexing, quality checks",
+                              "Excel, Google Sheets, your ERP or CRM"),
+    # accounting
+    "staff accountant": ("BS Accountancy; CPA (Philippines)",
+                         "Month-end close, reconciliations, journal entries, financial statements",
+                         "QuickBooks, NetSuite, Sage Intacct, Xero"),
+    "bookkeeper": ("BS Accountancy; QuickBooks or Xero certified",
+                   "Transaction coding, bank reconciliations, AP and AR",
+                   "QuickBooks Online, Xero, Bill.com, Gusto"),
+    "payroll specialist": ("BS Accountancy, Finance or HR",
+                           "Payroll processing, timesheet audit, tax filing support, deductions",
+                           "ADP, Paychex, Gusto, Paylocity"),
+    "tax preparer": ("BS Accountancy; CPA or IRS Enrolled Agent",
+                     "Individual and business returns, workpapers, e-file support",
+                     "Drake, UltraTax CS, Lacerte, ProConnect"),
+    "billing specialist": ("BS Accountancy or Business",
+                           "Invoice preparation, billing audit, payment posting, dispute follow up",
+                           "QuickBooks, NetSuite, Bill.com, Excel"),
+    "accounts payable specialist": ("BS Accountancy or Finance",
+                                    "Invoice coding, three-way match, vendor statements, payment runs",
+                                    "QuickBooks, NetSuite, Sage Intacct, Bill.com"),
+    # property management
+    "leasing coordinator": ("Bachelor's degree",
+                            "Lead response, tour scheduling, applications, lease preparation",
+                            "Yardi, AppFolio, Buildium, RentCafe"),
+    "property accountant": ("BS Accountancy; CPA (Philippines)",
+                            "Rent roll, CAM reconciliations, owner statements",
+                            "Yardi, AppFolio, MRI, Buildium"),
+    "marketing coordinator": ("Bachelor's in Marketing or Communications",
+                              "Listings, email campaigns, social content, campaign reporting",
+                              "HubSpot, Canva, Mailchimp"),
+    # healthcare administration
+    "medical biller": ("BS Nursing or allied health; CPB (AAPC)",
+                       "Claim submission, denial follow up, payment posting, patient statements",
+                       "Epic, athenahealth, Kareo, Availity"),
+    "medical coder": ("BS Nursing or allied health; CPC (AAPC) or CCS (AHIMA)",
+                      "ICD-10, CPT and HCPCS coding, chart review, coding audits",
+                      "Epic, 3M Encoder, athenahealth"),
+    "insurance verification specialist": ("Bachelor's in Nursing or Health Sciences",
+                                          "Eligibility checks, benefits verification, prior authorizations",
+                                          "Availity, Epic, athenahealth, payer portals"),
+    "patient scheduler": ("Bachelor's in Nursing or Health Sciences",
+                          "Appointment scheduling, reminders, referral intake, waitlists",
+                          "Epic, athenahealth, eClinicalWorks, NextGen"),
+    "credentialing specialist": ("Bachelor's in Health Sciences or Business",
+                                 "Provider enrollment, CAQH upkeep, payer applications, re-credentialing",
+                                 "CAQH ProView, PECOS, Modio, payer portals"),
+    # home care
+    "care scheduler": ("Bachelor's in Nursing or Health Sciences",
+                       "Caregiver scheduling, shift coverage, call-offs, visit verification",
+                       "WellSky, AxisCare, HHAeXchange, AlayaCare"),
+    "recruiting coordinator": ("Bachelor's in HR, Psychology or Business",
+                               "Interview scheduling, candidate follow up, ATS upkeep",
+                               "Bullhorn, Greenhouse, Indeed, LinkedIn Recruiter"),
+    "intake coordinator": ("Bachelor's in Nursing or Health Sciences",
+                           "Referral intake, client records, authorization tracking",
+                           "WellSky, AxisCare, HHAeXchange"),
+    # general back office and staffing
+    "executive assistant": ("Bachelor's degree",
+                            "Calendar and inbox management, travel, meeting prep, follow ups",
+                            "Microsoft 365, Google Workspace, Slack, Zoom"),
+    "sourcer": ("Bachelor's in HR, Psychology or Business",
+                "Candidate search, outreach, pipeline building, pre-screen notes",
+                "LinkedIn Recruiter, Indeed, Bullhorn, ZoomInfo"),
+    "recruiter": ("Bachelor's in HR, Psychology or Business",
+                  "Screening, candidate submittals, interview coordination, offers",
+                  "Bullhorn, LinkedIn Recruiter, Indeed"),
+    "onboarding specialist": ("Bachelor's in HR or Business",
+                              "New-hire paperwork, I-9 and E-Verify support, credential tracking",
+                              "Bullhorn, ADP, DocuSign, BambooHR"),
+    "caregiver sourcer": ("Bachelor's in HR, Psychology or Business",
+                          "Job postings, applicant screening, interview scheduling",
+                          "Indeed, your ATS, WellSky"),
+    # the rest of tm_prompts.INDUSTRY_JOBS (Sales Assets Jobs drop-down)
+    "carrier sales support": ("Bachelor's degree; U.S. freight experience",
+                              "Carrier sourcing, rate quotes, load postings, carrier packets",
+                              "DAT, Truckstop, McLeod"),
+    "load planner": ("Bachelor's degree; U.S. freight experience",
+                     "Load building, route planning, appointments, capacity matching",
+                     "McLeod, MercuryGate, DAT"),
+    "documentation specialist": ("Bachelor's degree",
+                                 "BOLs, PODs, rate confirmations, document audit and filing",
+                                 "McLeod, CargoWise, SharePoint"),
+    "shipment coordinator": ("Bachelor's in Logistics or Business",
+                             "Bookings, shipment tracking, carrier updates, delivery orders",
+                             "CargoWise, Magaya, carrier portals"),
+    "import coordinator": ("BS Customs Administration or Business",
+                           "Arrival notices, ISF filing support, delivery orders",
+                           "CargoWise, Magaya, ACE portal"),
+    "export coordinator": ("BS Customs Administration or Business",
+                           "Bookings, AES filing support, bills of lading",
+                           "CargoWise, Magaya, AESDirect"),
+    "customs entry writer": ("BS Customs Administration",
+                             "Entry preparation, HTS classification support, entry summaries",
+                             "CargoWise, ACE portal, Descartes"),
+    "audit support specialist": ("BS Accountancy; CPA (Philippines)",
+                                 "Workpapers, sample testing, confirmations, tie-outs",
+                                 "CaseWare, CCH Engagement, Excel"),
+    "collections specialist": ("BS Accountancy or Finance",
+                               "Past-due follow up, payment plans, dispute notes, aging reports",
+                               "QuickBooks, NetSuite, Excel"),
+    "maintenance coordinator": ("Bachelor's degree",
+                                "Work orders, vendor dispatch, tenant updates, invoice matching",
+                                "AppFolio, Yardi, Buildium"),
+    "tenant services representative": ("Bachelor's degree",
+                                       "Tenant inquiries, renewals, notices, move-in and move-out",
+                                       "AppFolio, Yardi, RentCafe"),
+    "transaction coordinator": ("Bachelor's degree",
+                                "Contract-to-close files, deadlines, disclosures, escrow follow up",
+                                "Dotloop, SkySlope, DocuSign"),
+    "prior authorization specialist": ("Bachelor's in Nursing or Health Sciences",
+                                       "Authorization requests, clinical documentation, payer follow up",
+                                       "Availity, CoverMyMeds, Epic"),
+    "claims follow up specialist": ("BS Nursing or allied health",
+                                    "Claim status, denial appeals, resubmissions, AR follow up",
+                                    "Availity, athenahealth, Epic"),
+    "front office support specialist": ("Bachelor's in Nursing or Health Sciences",
+                                        "Phones, scheduling, patient registration, records requests",
+                                        "Epic, athenahealth, RingCentral"),
+    "order entry specialist": ("Bachelor's degree",
+                               "Order entry, confirmations, pricing checks, backorder updates",
+                               "NetSuite, Epicor, your ERP"),
+    "estimating assistant": ("BS Civil Engineering or Architecture",
+                             "Takeoff support, bid invites, quote tracking, bid tabs",
+                             "Bluebeam, PlanSwift, BuildingConnected"),
+    "document controller": ("Bachelor's degree",
+                            "Drawing logs, submittal and RFI tracking, transmittals",
+                            "Procore, Bluebeam, SharePoint"),
+    "purchasing assistant": ("Bachelor's in Business or Supply Chain",
+                             "Purchase orders, vendor follow up, delivery tracking",
+                             "NetSuite, Epicor, Excel"),
+    "production scheduler": ("BS Industrial Engineering or Business",
+                             "Production schedules, work orders, material checks",
+                             "Epicor, SAP, Excel"),
+    "cad drafter": ("BS Mechanical Engineering or Architecture",
+                    "Part and assembly drawings, revisions, bills of material",
+                    "AutoCAD, SolidWorks, Inventor"),
+    "quoting specialist": ("BS Engineering or Business",
+                           "RFQ intake, cost roll-ups, quote preparation, follow up",
+                           "Epicor, Excel, your CRM"),
+    "account coordinator": ("Bachelor's in Marketing or Communications",
+                            "Client updates, timelines, asset trafficking, status reports",
+                            "Asana, Monday.com, HubSpot"),
+    "campaign reporting analyst": ("Bachelor's in Marketing or Statistics",
+                                   "Performance reports, dashboards, pacing checks, data pulls",
+                                   "Google Analytics, Looker Studio, Excel"),
+    "ad operations specialist": ("Bachelor's in Marketing or IT",
+                                 "Campaign setup, trafficking, QA, pacing and budget checks",
+                                 "Google Ads, Meta Ads Manager"),
+    "graphic designer": ("Bachelor's in Design or Multimedia Arts",
+                         "Social graphics, ad creative, layouts, brand assets",
+                         "Adobe Creative Cloud, Figma, Canva"),
+    "social media coordinator": ("Bachelor's in Marketing or Communications",
+                                 "Content calendars, scheduling, community replies, reporting",
+                                 "Hootsuite, Sprout Social, Canva"),
+    "content coordinator": ("Bachelor's in Communications or Journalism",
+                            "Blog drafts, copy edits, CMS uploads, content calendars",
+                            "WordPress, Google Workspace, Semrush"),
+    "travel booking specialist": ("Bachelor's in Tourism or Hospitality",
+                                  "Air, hotel and car bookings, changes, ticketing support",
+                                  "Sabre, Amadeus, Concur"),
+    "reservations agent": ("Bachelor's in Tourism or Hospitality",
+                           "Reservations, modifications, cancellations, confirmations",
+                           "Sabre, Amadeus, your booking system"),
+    "itinerary coordinator": ("Bachelor's in Tourism or Hospitality",
+                              "Itinerary building, supplier confirmations, travel documents",
+                              "Sabre, Amadeus, Google Workspace"),
+    "supplier coordinator": ("Bachelor's in Tourism or Hospitality",
+                             "Supplier bookings, rate checks, confirmations, invoice matching",
+                             "Supplier portals, Excel"),
+    "traveler support representative": ("Bachelor's in Tourism or Hospitality",
+                                        "Trip changes, disruption rebooking, traveler inquiries",
+                                        "Sabre, Amadeus, Zendesk"),
+    "order processing specialist": ("Bachelor's degree",
+                                    "Order review, fulfilment handoff, tracking updates, exceptions",
+                                    "Shopify, ShipStation, NetSuite"),
+    "returns specialist": ("Bachelor's degree",
+                           "Return authorizations, refunds, exchanges, carrier claims",
+                           "Shopify, ShipStation, Zendesk"),
+    "catalog data entry specialist": ("Bachelor's degree",
+                                      "Product data entry, attributes, images, price updates",
+                                      "Shopify, Excel, your PIM"),
+    "marketplace listing specialist": ("Bachelor's in Business or Marketing",
+                                       "Listings, keyword updates, inventory sync, case logs",
+                                       "Amazon Seller Central, Shopify"),
+    "appointment setter": ("Bachelor's degree",
+                           "Inbound and outbound calls, job booking, reminders, follow ups",
+                           "ServiceTitan, Housecall Pro"),
+    "permit coordinator": ("Bachelor's in Engineering or Architecture",
+                           "Permit applications, document packets, status tracking",
+                           "Municipal portals, ServiceTitan"),
+    "inside sales support representative": ("Bachelor's in Business or Marketing",
+                                            "Quotes, order entry, stock checks, customer follow up",
+                                            "NetSuite, Salesforce, Epicor"),
+    "inventory data specialist": ("Bachelor's in Business or Supply Chain",
+                                  "Item setup, stock adjustments, cycle count data, reorder reports",
+                                  "NetSuite, Epicor, Excel"),
+    "legal assistant": ("Bachelor's degree; legal studies background",
+                        "Calendaring, document formatting, filing support, client intake",
+                        "Clio, MyCase, Microsoft 365"),
+    "paralegal": ("BS Legal Management or law degree",
+                  "Drafting, discovery support, document review, case files",
+                  "Clio, Westlaw, Relativity"),
+    "scheduling coordinator": ("Bachelor's degree",
+                               "Calendars, appointment booking, reminders, rescheduling",
+                               "Microsoft 365, Calendly"),
+    "document preparation specialist": ("Bachelor's degree",
+                                        "Templates, formatting, proofreading, e-signature packets",
+                                        "Microsoft Word, Adobe Acrobat, DocuSign"),
+    "research assistant": ("Bachelor's degree",
+                           "Source searches, summaries, data compilation, citation checks",
+                           "Google Workspace, Excel, LexisNexis"),
+}
+
+
+def _tm_role_profile_rows(roles) -> list:
+    """Table rows (header first) for the roles we have a profile for, or []."""
+    rows = [[r, *_TM_ROLE_PROFILES[r.strip().lower()]] for r in roles
+            if r.strip().lower() in _TM_ROLE_PROFILES]
+    if not rows:
+        return []
+    return [["Role", "Degree and Credentials", "Core Work",
+             "Software"]] + rows
+
+
+# Years of experience per row of the cost table, and the BLS wage
+# percentile that prices each band. Where BLS publishes no percentile for
+# the occupation and area, the band is the median times the fallback.
+_TM_EXP_BANDS = (("1-3 years", "p25", 0.80),
+                 ("4-7 years", None, 1.0),
+                 ("8+ years", "p75", 1.25))
 
 
 def _tm_where(location: str) -> str:
@@ -46134,31 +46461,55 @@ def _tm_where(location: str) -> str:
     return f" in {loc}"
 
 
+def _tm_vetting_section() -> dict:
+    return {"heading": "How Every Candidate Is Vetted", "type": "bullets",
+            "items": [
+                "Role-specific search. We recruit against your job: its "
+                "responsibilities, software and industry experience. An "
+                "estimator is recruited as an estimator, a bookkeeper as a "
+                "bookkeeper.",
+                "Credentials confirmed. We confirm the degree, "
+                "certifications and work history the role calls for before "
+                "a candidate reaches your shortlist.",
+                "English assessed. Written and spoken English is assessed "
+                "in screening, and every shortlisted candidate comes with a "
+                "video pre-screen you can watch.",
+                "Your decision. You interview a shortlist of three or more "
+                "vetted candidates and choose who joins your team. A "
+                "typical start is about ten days from that decision.",
+            ]}
+
+
+def _tm_rate_covers_section() -> dict:
+    return {"heading": "What the Hourly Rate Covers", "type": "bullets",
+            "items": [
+                "Pay, benefits, HR, compliance and payroll. We are the "
+                "employer of record in the Philippines.",
+                "A dedicated, full-time professional who works your hours, "
+                "in your systems, and reports to your manager.",
+                "A named account manager, monthly check-ins, quarterly "
+                "reviews and monthly performance reports.",
+                "No upfront or placement fees, month-to-month terms, no "
+                "cancellation fee, and a lifetime free replacement.",
+            ]}
+
+
+def _tm_customer_quote_section() -> dict:
+    # One bullet, so the renderer's paragraph-to-bullets pass cannot split
+    # the quote into three.
+    return {"heading": "What Customers Report", "type": "bullets",
+            "items": ['"The team Thrivemodal placed with us has been a strong '
+                      "fit. We've seen good attendance, strong performance, and "
+                      "people who take ownership of their work. That consistency "
+                      "allows our leadership team to focus on strategy, "
+                      "customers, and relationships instead of constantly having "
+                      'to fill staffing gaps." Kristy Knichel, CEO and '
+                      "President, Knichel Logistics"]}
+
+
 def _tm_cost_extra_sections() -> list:
-    return [
-        {"heading": "The People We Place", "type": "bullets",
-         "items": list(_TM_TALENT_BULLETS)},
-        # One bullet, so the renderer's paragraph-to-bullets pass cannot
-        # split the quote into three.
-        {"heading": "What Customers Report", "type": "bullets",
-         "items": ['"The team Thrivemodal placed with us has been a strong '
-                   "fit. We've seen good attendance, strong performance, and "
-                   "people who take ownership of their work. That consistency "
-                   "allows our leadership team to focus on strategy, "
-                   "customers, and relationships instead of constantly having "
-                   'to fill staffing gaps." Kristy Knichel, CEO and '
-                   "President, Knichel Logistics"]},
-        {"heading": "Engagement Terms", "type": "bullets", "items": [
-            "One all-inclusive monthly rate per professional covers pay, "
-            "benefits, HR, compliance and payroll; we are the employer of "
-            "record.",
-            "You choose from a shortlist of three or more vetted candidates; "
-            "a typical start is ten days from your decision.",
-            "No upfront or placement fees, month-to-month terms, no "
-            "cancellation fee, and a lifetime free replacement if the person "
-            "does not work out.",
-        ]},
-    ]
+    return [_tm_vetting_section(), _tm_rate_covers_section(),
+            _tm_customer_quote_section()]
 
 
 # Staffing and recruiting firms share the home-care vertical's knowledge
@@ -46278,9 +46629,23 @@ def _tm_multi_cost_pdf_data(client, company: str, role: str, location: str,
         burden = round(base * _TM_BENCH_BURDEN_PCT / 10000.0) * 100
         domestic = base + burden + _TM_BENCH_OVERHEAD + _TM_BENCH_HIRING
         tm = round(domestic * (1 - _TM_AUTO_SAVINGS) / 100.0) * 100
+        # One line per experience band: the BLS percentile wage for the
+        # band, loaded the same way, and our rate the same share below it.
+        bands = []
+        for label, pkey, fallback in _TM_EXP_BANDS:
+            pub = (lk or {}).get(pkey) if pkey else base
+            b_base = float(pub) if pub else round(base * fallback / 500.0) * 500
+            b_dom = (b_base + round(b_base * _TM_BENCH_BURDEN_PCT / 10000.0) * 100
+                     + _TM_BENCH_OVERHEAD + _TM_BENCH_HIRING)
+            b_tm = round(b_dom * (1 - _TM_AUTO_SAVINGS) / 100.0) * 100
+            bands.append({"years": label, "base": b_base, "domestic": b_dom,
+                          "tm": b_tm, "tm_hr": _tm_hourly(b_tm),
+                          "domestic_hr": _tm_hourly(b_dom),
+                          "published": bool(pub)})
         priced.append({"role": r, "base": base, "domestic": domestic, "tm": tm,
                        "saving": domestic - tm, "area": area, "source": src,
-                       "occupation": re.sub(r"\s*\(SOC.*", "", occ)})
+                       "occupation": re.sub(r"\s*\(SOC.*", "", occ),
+                       "bands": bands})
         if len(priced) == _TM_COST_ROLE_COUNT:
             break
 
@@ -46288,65 +46653,75 @@ def _tm_multi_cost_pdf_data(client, company: str, role: str, location: str,
         return _tm_auto_cost_pdf_data(company, role, location, None)
 
     n = len(priced)
-    tot_dom = sum(p["domestic"] for p in priced)
-    tot_tm = sum(p["tm"] for p in priced)
     pct = f"{_TM_AUTO_SAVINGS:.0%}"
-    # Hourly, our rate first (Mike, 2026-10-08). Per-row hourly figures are
-    # rounded to whole dollars and the totals row sums those, so the page
-    # adds up as printed.
+    # Mike, 2026-11-05: years of experience, then our hourly rate, then the
+    # U.S. hourly rate. No "you save" columns and no totals row.
     for p in priced:
         p["tm_hr"] = _tm_hourly(p["tm"])
         p["domestic_hr"] = _tm_hourly(p["domestic"])
-        p["saving_hr"] = p["domestic_hr"] - p["tm_hr"]
-    rows = [["Role", "Our Rate / Hour", "In-House Cost / Hour",
-             "You Save / Hour", "You Save / Year"]]
-    rows += [[p["role"], _tm_money(p["tm_hr"]), _tm_money(p["domestic_hr"]),
-              _tm_money(p["saving_hr"]), _tm_money(p["saving"])]
-             for p in priced]
-    if n > 1:
-        rows.append([f"All {n} roles",
-                     _tm_money(sum(p["tm_hr"] for p in priced)),
-                     _tm_money(sum(p["domestic_hr"] for p in priced)),
-                     _tm_money(sum(p["saving_hr"] for p in priced)),
-                     _tm_money(tot_dom - tot_tm)])
+    rows = [["Role", "Years of Experience", "Our Hourly Rate",
+             "U.S. Hourly Rate (Fully Loaded)"]]
+    for p in priced:
+        for i, b in enumerate(p["bands"]):
+            rows.append([p["role"] if i == 0 else "", b["years"],
+                         _tm_money(b["tm_hr"]), _tm_money(b["domestic_hr"])])
     # Where the base salaries come from, each area said once. The
     # role-to-occupation mapping stays off the page (it filled a second one).
     areas = list(dict.fromkeys(p["area"] for p in priced))
-    salary_note = ("BLS median wage for each role's closest occupation ("
+    salary_note = ("the BLS wage for each role's closest occupation ("
                    + "; ".join(areas) + ")")
     where = _tm_where(location)
     # A market campaign's subject is an industry, not a buyer.
     _mkt = str(industry or company)
+    _is_market = (market_only
+                  or company.lower() == str(industry or "").strip().lower())
     who = (f"{'an' if _mkt[:1].lower() in 'aeiou' else 'a'} {_mkt} business"
-           if market_only else company)
+           if _is_market else company)
+    estimated = any(not b["published"] for p in priced for b in p["bands"])
     howto = [
-        f"In-house cost is one full-time person{where}: {salary_note}, "
-        f"plus {_TM_BENCH_BURDEN_PCT:.0f}% payroll taxes and benefits, "
-        f"workspace ({_tm_money(_TM_BENCH_OVERHEAD)}) and recruiting "
-        f"({_tm_money(_TM_BENCH_HIRING)}) a year.",
-        f"Hourly figures are the annual cost over {_TM_HOURS_PER_YEAR:,} "
-        f"hours. Our rate is an estimate {pct} below the in-house total, "
-        f"within our published 60-70% range; your quote is confirmed "
-        f"separately.",
+        f"The U.S. hourly rate is the fully loaded cost of one full-time "
+        f"employee{where}: {salary_note}, plus "
+        f"{_TM_BENCH_BURDEN_PCT:.0f}% payroll taxes and benefits, workspace "
+        f"({_tm_money(_TM_BENCH_OVERHEAD)}) and recruiting "
+        f"({_tm_money(_TM_BENCH_HIRING)}) a year, over "
+        f"{_TM_HOURS_PER_YEAR:,} hours.",
+        "Experience levels follow the BLS wage distribution for each "
+        "occupation: the 25th percentile for 1-3 years, the median for 4-7 "
+        "years and the 75th percentile for 8 or more."
+        + (" Where BLS publishes no percentile for an occupation, the band "
+           "is estimated from its median." if estimated else ""),
+        f"Our hourly rate is all-inclusive and is an estimate {pct} below "
+        f"the U.S. figure, within our published range of up to 60-70%. It "
+        f"is billed as one monthly rate per professional, and your quote is "
+        f"confirmed for the specific role.",
     ]
-    lead = ("five roles" if n == 5 else f"{n} roles" if n > 1 else "one role")
+    lead = ("Five roles" if n == 5 else f"{n} roles" if n > 1 else "One role")
+    profile_rows = _tm_role_profile_rows([p["role"] for p in priced])
     return {
         "title": f"Staffing Cost Comparison - {company}",
         "badge": _TM_COST_BADGE,
-        "intro": (f"{_TM_COST_SNAPSHOT}, for {lead} {who} would "
-                  f"typically hire for{where}: a saving of about "
-                  f"{_tm_money(tot_dom - tot_tm)} a year ({pct})."),
-        "sections": [
-            # keep: the renderer's length trim never drops a row (the last
-            # row is the total).
-            {"heading": "Cost Comparison by Role", "type": "table",
-             "items": rows, "keep": True},
-            *_tm_cost_extra_sections(),
+        "intro": (f"{lead} {who} would typically hire for{where}, priced at "
+                  f"three experience levels: our all-inclusive hourly rate "
+                  f"beside the fully loaded U.S. cost of the same "
+                  f"experience."),
+        "sections": _tm_with_standard([
+            # keep: the renderer's length trim never drops a row. group:
+            # a role's three experience rows are banded together.
+            {"heading": "Hourly Rate by Role and Experience", "type": "table",
+             "items": rows, "keep": True, "group": len(_TM_EXP_BANDS),
+             "widths": [0.34, 0.22, 0.20, 0.24]},
+            _tm_rate_covers_section(),
+            *([{"heading": "What We Recruit For in Each Role",
+                "type": "table", "items": profile_rows, "keep": True,
+                "widths": [0.19, 0.26, 0.31, 0.24], "font": 9}]
+              if profile_rows else []),
+            _tm_vetting_section(),
+            _tm_customer_quote_section(),
             {"heading": "Basis of Calculation", "type": "bullets",
-             "items": howto},
-        ],
-        "cta": ("Send us the current salary for any of these roles and we "
-                "will rerun the comparison with your figures."),
+             "items": howto, "keep": True},
+        ]),
+        "cta": ("Send us the role, the experience level and what you pay "
+                "today, and we will price it for your team."),
         "_worksheet": priced,
     }
 
@@ -46776,6 +47151,60 @@ def _tm_fix_pdf_labels(kind: str, ctx: dict, data: dict) -> None:
                             str((s or {}).get("heading") or "").strip())]
 
 
+# Mike, 2026-11-05: "I want them to think we are experts in the industry...
+# Go into detail", and every PDF states the standard every candidate
+# meets. Shared by the Sales Assets prompts and Create Your Own.
+_TM_PDF_DEPTH_RULES = (
+    "\nINDUSTRY DEPTH (the reader must finish this page convinced we "
+    "know their industry):\n"
+    "- Write as a team that staffs this industry every week. Name the "
+    "actual work: the documents, workflows, hand-offs, deadlines and "
+    "measures the role deals with, in the reader's own vocabulary. For "
+    "a contractor that is submittals, RFIs, change orders, takeoffs, "
+    "pay applications and closeout. For a freight broker it is check "
+    "calls, PODs, rate confirmations and carrier onboarding. For a "
+    "medical practice it is eligibility, prior authorizations, denials "
+    "and payment posting. Use the equivalent depth for whatever "
+    "industry and role this document is about.\n"
+    "- Name the software a business in this industry actually runs, "
+    "where you are confident it is widely used there (for example "
+    "Procore and Bluebeam in construction, QuickBooks and NetSuite in "
+    "accounting, Yardi and AppFolio in property management, a TMS such "
+    "as McLeod in freight, Epic and athenahealth in healthcare). If you "
+    "are not confident, name the category instead of guessing a "
+    "product.\n"
+    "- A sentence that could appear unchanged in any other industry's "
+    "version of this document is a failure. Rewrite it with the "
+    "specific task, document or system.\n"
+    "- Depth means describing the work and how we staff it. It is never "
+    "an invented statistic, customer, price or outcome. Every limit "
+    "above still holds.\n"
+    "\nOUR CANDIDATE STANDARD (approved 2026-11-05; state it as fact, in "
+    "our voice):\n"
+    "- Every candidate we present is fully vetted: screened and "
+    "evaluated against the client's role, with a video pre-screen the "
+    "client can watch before interviewing.\n"
+    "- Every candidate speaks and writes fluent, professional English, "
+    "assessed in screening. Say 'fluent, professional English'. Never "
+    "'native' or 'perfect', and never as a trait of a nationality.\n"
+    "- Every candidate holds the degree and the professional "
+    "certifications the role calls for. Where the document discusses a "
+    "role, name the degree and credential we recruit for it (for "
+    "example BS Accountancy and CPA (Philippines) for accounting roles; "
+    "BS Civil Engineering or Architecture for estimating and drafting; "
+    "BS Nursing or allied health with an AAPC or AHIMA coding "
+    "credential for medical coding). If a role has no standard "
+    "certification, name the degree and the hands-on experience instead "
+    "of inventing a credential.\n"
+    "- The page opens with a box stating this standard, added "
+    "automatically. Do not write a section that repeats it. Reinforce "
+    "it inside your sections with role-specific detail.\n"
+    "- This standard is the one thing you may state about our people "
+    "beyond the approved text. It does not license a background-check "
+    "claim, a compliance certification of ours, or a named candidate.\n"
+)
+
+
 def _tm_rich_rules(cfg: dict = None) -> str:
     """Rules appended AFTER common_rules for ThriveModal assets, so they win
     where the two disagree. common_rules tells the model to use real comp
@@ -46836,6 +47265,7 @@ def _tm_rich_rules(cfg: dict = None) -> str:
         "placeholders does NOT apply: for this document, 'confirmed with you "
         "before we quote' is the correct answer where no approved figure "
         "exists, and inventing one is a serious error.\n"
+        + _TM_PDF_DEPTH_RULES +
         "\nVOICE FOR THIS DOCUMENT (overrides the voice rules above):\n"
         "- Write as the team, in first person plural: 'we recruit', 'our "
         "team handles', 'we work with you'. Never write the company name "
@@ -46859,12 +47289,13 @@ def _tm_rich_rules(cfg: dict = None) -> str:
         "'Engagement Process', 'Client Responsibilities', 'Frequently "
         "Asked Questions'. Never a conversational heading.\n"
         "- Sell both the saving and the people. On cost, use only the "
-        "approved pricing text. On the people, state what we recruit for "
-        "and what clients see: relevant education and hands-on experience "
-        "in the role, clear written and spoken communication, a dependable "
-        "home office setup, and the consistent attendance and ownership "
-        "clients report. Describe these as what we screen for and verify, "
-        "never as traits of a nationality.\n"
+        "approved pricing text. On the people, state the candidate standard "
+        "above and what clients see: the degree and certifications the role "
+        "calls for, hands-on experience in the role, fluent professional "
+        "English, a dependable home office setup, and the consistent "
+        "attendance and ownership clients report. Describe these as what "
+        "we recruit for, assess and confirm, never as traits of a "
+        "nationality.\n"
         "- Every section should leave the reader clearer on what we do for "
         "them and why it is a sound business decision. The honesty rules "
         "above still apply: nothing persuasive becomes an invented claim.\n"
@@ -47036,31 +47467,39 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             + f". The reader is weighing whether to move some roles, such "
             f"as {role_label}, to a dedicated team member in the "
             f"Philippines. Explain why businesses like theirs are doing it, "
-            f"which roles fit, and what to plan for.\n"
-            f"\nREQUIRED SECTIONS (every bullet ONE sentence, max 24 "
-            f"words):\n"
+            f"which roles fit, who we recruit for them, and what to plan "
+            f"for, in the vocabulary of their own industry.\n"
+            f"\nREQUIRED SECTIONS:\n"
             f"  1. heading 'Market Pressures' — type "
-            f"'bullets' — 3 bullets on the US-side hiring and cost pressures "
-            f"a business in this industry faces. Use a figure ONLY if it "
-            f"appears in the research data supplied, and name its source in "
-            f"the sentence; otherwise make the point without a number.\n"
+            f"'bullets' — 4 bullets on the US-side hiring and cost pressures "
+            f"a business in this industry faces, naming the roles and the "
+            f"work that goes undone. Use a figure ONLY if it appears in the "
+            f"research data supplied, and name its source in the sentence; "
+            f"otherwise make the point without a number.\n"
             f"  2. heading 'Roles Suited to Offshore Staffing' — type "
-            f"'table' — header + 4 rows. Columns: ['Role','Scope','Why It "
-            f"Works Remotely']. Back-office, admin, finance, customer "
-            f"service or operations support roles this kind of business "
-            f"actually hires, {role_label} first. Each cell 8 words or "
-            f"fewer.\n"
-            f"  3. heading 'The Dedicated Team Member Model' — type "
+            f"'table' — header + 6 rows. Columns: ['Role','Work It Covers',"
+            f"'Degree and Credentials We Recruit For','Why It Works "
+            f"Remotely']. Back-office, admin, finance, customer service or "
+            f"operations support roles this kind of business actually "
+            f"hires, {role_label} first. Name the real tasks and documents. "
+            f"Each cell 14 words or fewer.\n"
+            f"  3. heading 'Systems and Workflows' — type 'bullets' — 3 "
+            f"bullets naming the systems and workflows in this industry "
+            f"that make this work practical to run remotely, under the "
+            f"confidence rule below.\n"
+            f"  4. heading 'The Dedicated Team Member Model' — type "
             f"'bullets' — 4 bullets: a dedicated full-time team member, "
             f"working your hours from the Philippines, managed by you day "
-            f"to day; recruited for the role with the education and "
-            f"experience it requires and screened for clear communication. "
-            f"Take cost and terms ONLY from the approved pricing text below.\n"
-            f"  4. heading 'Planning Considerations' — type 'bullets' — 3 "
+            f"to day; recruited for the role with the degree, "
+            f"certifications and experience it requires and assessed for "
+            f"fluent, professional English. Take cost and terms ONLY from "
+            f"the approved pricing text below.\n"
+            f"  5. heading 'Planning Considerations' — type 'bullets' — 4 "
             f"honest bullets: manager time for the first weeks, documented "
-            f"processes, and system access and data security.\n"
-            f"  5. heading 'Frequently Asked Questions' — type 'qa' — 3 "
-            f"pairs, 1-2 sentences each, that a first-time buyer of offshore "
+            f"processes, system access and data security, and which task to "
+            f"hand over first.\n"
+            f"  6. heading 'Frequently Asked Questions' — type 'qa' — 4 "
+            f"pairs, 2-3 sentences each, that a first-time buyer of offshore "
             f"staffing in this industry asks.\n"
             f"\nNo US salary tables and no compensation benchmarks: this is "
             f"about the offshore decision, not what to pay a US hire.\n"
@@ -47247,119 +47686,158 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
             f"Build an Offshore Role Blueprint for {company} covering "
             f"{role_label}" + (f" in {location}" if location else "") + ".\n"
             f"\nThis is the document a buyer reads to decide whether this role "
-            f"can be run offshore at all, and what they would be signing up to "
-            f"manage. It is NOT a job advert and NOT a candidate profile. It "
-            f"must be skimmable in under a minute: short bullets only, no "
-            f"paragraphs.\n"
-            f"\nREQUIRED SECTIONS (every bullet ONE sentence, max 24 words):\n"
-            f"  1. heading 'Role Scope' — type 'bullets' — 3 bullets "
-            f"on the work this role removes from a {industry_str} business's "
-            f"senior staff.\n"
-            f"  2. heading 'Responsibilities' — type 'bullets' — 5 bullets on "
-            f"the concrete work the role owns.\n"
-            f"  3. heading 'Skills and Systems' — type 'table' — header + 4 "
-            f"rows. Columns: ['Area','What We Recruit For','Systems']. Each "
-            f"cell 6 words or fewer. One row covers communication (written "
-            f"and spoken, for this role's audience). Systems means the "
-            f"software a {industry_str} business would expect this role to "
-            f"work in. If you are not confident a named system is actually "
-            f"used in this industry, write the category instead of guessing "
-            f"a product name.\n"
+            f"can be run offshore, who we would recruit for it, and what they "
+            f"would be signing up to manage. It is NOT a job advert and NOT a "
+            f"profile of a named candidate. It must read as written by people "
+            f"who have staffed this exact role in {industry_str} before.\n"
+            f"\nREQUIRED SECTIONS:\n"
+            f"  1. heading 'Role Scope' — type 'bullets' — 3 bullets on the "
+            f"work this role takes off a {industry_str} business's senior "
+            f"staff, naming the specific tasks.\n"
+            f"  2. heading 'Core Responsibilities' — type 'table' — header + 6 "
+            f"rows. Columns: ['Responsibility','What the Role Does','Output "
+            f"and Cadence']. Each row is a real recurring duty of this role "
+            f"in this industry, with the document or deliverable it produces "
+            f"and how often. Each cell 14 words or fewer.\n"
+            f"  3. heading 'Candidate Profile' — type 'table' — header + 5 "
+            f"rows. Columns: ['Requirement','What We Recruit For']. Rows in "
+            f"this order: Degree; Certifications; Experience; Software; "
+            f"English and Communication. Name the degree and the "
+            f"certification we recruit for this role. Give experience as "
+            f"years and the kind of work. Name the software a "
+            f"{industry_str} business would expect this role to work in; if "
+            f"you are not confident a named system is actually used in this "
+            f"industry, write the category instead of guessing a product "
+            f"name. Each cell 18 words or fewer.\n"
             f"  4. heading 'Hours and Coverage' — type 'bullets' — 2 "
             f"bullets on how a Philippines-based team member covers "
             f"{location or 'US'} business hours. One must say the specific "
             f"schedule is set with the client, not fixed here.\n"
             f"  5. heading 'Management and Reporting' — type 'bullets' — 3 "
-            f"bullets on the client's side: who they report to, cadence, "
-            f"tooling access. Be honest that this needs real management "
-            f"attention from the client.\n"
-            f"  6. heading 'Suggested Success Measures' — type 'bullets' — 3 "
-            f"bullets. Every one MUST start 'Suggested:' and be a proposal to "
-            f"agree, not a promise. No target number unless the reader "
-            f"supplied it.\n"
+            f"bullets on the client's side: who the role reports to, the "
+            f"review cadence, and system access. Be honest that this needs "
+            f"real management attention from the client.\n"
+            f"  6. heading 'First Tasks to Hand Over' — type 'bullets' — 3 "
+            f"bullets. Every one MUST start 'Suggested:' and name a specific "
+            f"task this role can own in its first weeks and what the client "
+            f"documents before handing it over.\n"
+            f"  7. heading 'Suggested Success Measures' — type 'bullets' — 4 "
+            f"bullets. Every one MUST start 'Suggested:' and be a measure "
+            f"actually used for this role in this industry (turnaround, "
+            f"accuracy, backlog, response time), proposed for agreement, not "
+            f"promised. No target number unless the reader supplied it.\n"
             f"\nEvery assumption you make about how {company} works must be "
             f"visibly labelled as an assumption in the sentence itself.\n"
         )
 
     elif kind == "tm_how_it_works":
         body = (
-            f"Build a 'How We Work Together' one-pager for {company}"
+            f"Build a 'How We Work Together' brief for {company}"
             + (f" in {industry_str}" if industry_str else "") + ".\n"
-            f"\nThis explains the engagement itself — what happens, in what "
-            f"order, and who does what. The reader's real question is 'how much "
-            f"of this lands on me?'. Answer it honestly.\n"
+            f"\nThis explains the engagement itself: what happens, in what "
+            f"order, who does what, and how every candidate is vetted before "
+            f"the client meets them. The reader's real questions are 'how "
+            f"good are the people?' and 'how much of this is my work?'. "
+            f"Answer both, with the detail of a team that places "
+            f"{role_label} for {industry_str} businesses.\n"
             f"\nREQUIRED SECTIONS:\n"
-            f"  1. heading 'Overview' — type 'paragraph' — 3-4 "
-            f"sentences: we recruit in the Philippines against the client's "
-            f"requirements, the client interviews and chooses, we handle "
-            f"onboarding, and our team supports the placement afterwards.\n"
+            f"  1. heading 'Overview' — type 'bullets' — 3 bullets: we "
+            f"recruit in the Philippines against the client's requirements "
+            f"for the role, the client interviews and chooses, we employ the "
+            f"person and set up the workstation and IT, and our team "
+            f"supports the placement afterwards.\n"
             f"  2. heading 'Engagement Process' — type 'table' — header + "
             f"exactly 6 rows, one per stage, in this order: Role Discovery; "
             f"Recruiting; Candidate Review; Client Interviews; Onboarding; "
-            f"Ongoing Support. Columns: ['Stage','Activity','Owner']. Owner "
-            f"is 'Our team', 'Your team' or 'Shared'. Do NOT add a duration "
-            f"column and do not state how long any stage takes — no timeline "
-            f"has been approved.\n"
-            f"  3. heading 'The People We Place' — type 'bullets' — 3 bullets "
-            f"on who the client gets: recruited for their specific role with "
-            f"the education, experience and systems skills it requires; "
-            f"screened for clear written and spoken communication and a "
-            f"dependable home office; and the attendance, performance and "
+            f"Ongoing Support. Columns: ['Stage','What Happens','Owner',"
+            f"'What You Receive']. Owner is 'Our team', 'Your team' or "
+            f"'Shared'. 'What You Receive' is the concrete thing the client "
+            f"gets at that stage (a documented role brief, a shortlist with "
+            f"video pre-screens, a monthly performance report). Each cell 14 "
+            f"words or fewer. Do NOT add a duration column and do not state "
+            f"how long any stage takes; the only approved timing is that a "
+            f"typical start is about ten days from the client's decision.\n"
+            f"  3. heading 'How Every Candidate Is Vetted' — type 'bullets' — 5 "
+            f"bullets, in this order: the search is built around this role "
+            f"in this industry (name the work and software); the degree and "
+            f"certification the role calls for are confirmed (name them); "
+            f"the candidate is evaluated on the role's real work; written "
+            f"and spoken English is assessed and every shortlisted candidate "
+            f"has a video pre-screen the client can watch; a dependable home "
+            f"office is confirmed and the workstation and IT are set up "
+            f"before day one.\n"
+            f"  4. heading 'The People We Place' — type 'bullets' — 3 bullets "
+            f"on who the client gets for {role_label}: the degree and "
+            f"credentials; the hands-on experience with this industry's "
+            f"work and systems; and the attendance, performance and "
             f"ownership clients report (approved customer proof only).\n"
-            f"  4. heading 'Client Responsibilities' — type 'bullets' — 4 "
+            f"  5. heading 'Client Responsibilities' — type 'bullets' — 4 "
             f"bullets on the decisions and management that stay with the "
             f"client, starting with which candidate they hire.\n"
-            f"  5. heading 'Ongoing Support' — type 'bullets' — 4 "
-            f"bullets on ongoing support after the person starts. Describe "
-            f"only support that appears in the approved services text above; "
-            f"if it is not there, do not claim it.\n"
-            f"  6. heading 'Frequently Asked Questions' — type 'qa' — 3 Q&A "
+            f"  6. heading 'Ongoing Support' — type 'bullets' — 4 "
+            f"bullets on support after the person starts. Describe only "
+            f"support that appears in the approved services text below; if "
+            f"it is not there, do not claim it.\n"
+            f"  7. heading 'Commercial Terms' — type 'bullets' — 4 bullets "
+            f"taken only from the approved pricing and service terms below, "
+            f"stated as written. No figure that is not there.\n"
+            f"  8. heading 'Frequently Asked Questions' — type 'qa' — 4 Q&A "
             f"pairs, 2-3 sentences each, on the questions a first-time buyer "
-            f"of offshore staffing actually asks. If an honest answer is "
-            f"'that depends on your setup', say so and offer to work "
-            f"through it together.\n"
+            f"of offshore staffing in this industry actually asks. If an "
+            f"honest answer is 'that depends on your setup', say so and "
+            f"offer to work through it together.\n"
         )
 
     elif kind == "tm_myths":
         # The objections a first-time buyer holds but rarely says out loud,
         # answered from the playbook only (Mike, 2026-10-07).
         body = (
-            f"Build an 'Offshore: Myths vs Reality' one-pager for a "
+            f"Build an 'Offshore: Myths vs Reality' brief for a "
             f"decision-maker at {company}"
             + (f" ({industry_str})" if primary else "") + ". The reader "
             f"is weighing a dedicated team member in the Philippines for "
             f"work such as {role_label} and has heard things about offshore "
             f"staffing that make them hesitate. Take each worry seriously "
-            f"and answer it honestly from how we actually work.\n"
-            f"\nREQUIRED SECTIONS (every bullet ONE short sentence, max 20 "
-            f"words):\n"
-            f"  1. heading 'Overview' — type 'paragraph' — 2 sentences: "
-            f"most hesitation comes from how offshore work was done badly "
-            f"elsewhere, and this page states how each concern is handled "
+            f"and answer it from how we actually work, with the detail of a "
+            f"team that staffs this industry.\n"
+            f"\nREQUIRED SECTIONS:\n"
+            f"  1. heading 'Overview' — type 'bullets' — 2 bullets: most "
+            f"hesitation comes from how offshore work was done badly "
+            f"elsewhere, and this brief states how each concern is handled "
             f"in a dedicated, managed engagement.\n"
-            f"  2. heading 'Myths and Reality' — type 'table' — header + 6 "
-            f"rows. Columns: ['The Myth','The Reality']. One row each on: "
-            f"quality of work; communication and English in a US team; "
-            f"security of systems and data; losing control of the work; "
-            f"working US hours; what happens if it does not work out. Each "
-            f"cell 12 words or fewer. Every Reality cell must describe "
-            f"something we do or the client controls, taken from the "
-            f"approved services text below. Never a statistic.\n"
-            f"  3. heading 'Engagement Model' — type 'bullets' — 3 "
+            f"  2. heading 'Myths and Reality' — type 'table' — header + 7 "
+            f"rows. Columns: ['The Concern','The Reality','How You Verify "
+            f"It']. One row each on: quality of work; education and "
+            f"credentials; communication and English in a US team; security "
+            f"of systems and data; losing control of the work; working US "
+            f"hours; what happens if it does not work out. Each cell 16 "
+            f"words or fewer. Every Reality cell describes something we do "
+            f"or the client controls. Every 'How You Verify It' cell is "
+            f"something the client can see or check for themselves: the "
+            f"video pre-screen, their own interview, a skills task in their "
+            f"own system, their own access controls, the monthly "
+            f"performance report. Never a statistic.\n"
+            f"  3. heading 'Day-to-Day Work' — type "
+            f"'bullets' — 4 bullets, each naming specific {industry_str} "
+            f"work for a role such as {role_label} (the documents, the "
+            f"systems, the hand-offs) that a dedicated remote professional "
+            f"runs day to day.\n"
+            f"  4. heading 'Engagement Model' — type 'bullets' — 3 "
             f"bullets: a dedicated full-time person rather than a shared "
             f"pool; the client interviews and chooses; our team supports the "
             f"placement after the start.\n"
-            f"  4. heading 'Client Commitments' — type 'bullets' — 3 "
+            f"  5. heading 'Client Commitments' — type 'bullets' — 3 "
             f"honest bullets on what still takes work: the client's "
             f"management time in the first weeks, documented processes, "
             f"and clear system access. No promise of outcomes.\n"
-            f"  5. heading 'Frequently Asked Questions' — type 'qa' — 3 "
-            f"pairs, 1-2 sentences each, from a buyer who is still not sure.\n"
+            f"  6. heading 'Frequently Asked Questions' — type 'qa' — 4 "
+            f"pairs, 2-3 sentences each, from a buyer who is still not sure.\n"
             f"\nRULES FOR THIS DOCUMENT:\n"
             f"- No nationality-based generalizations about Filipino people "
             f"(English, work ethic, culture, loyalty). Answer each myth with "
-            f"how the engagement is run and what the client verifies, never "
-            f"with a claim about a nationality.\n"
+            f"how the engagement is run, the standard every candidate meets "
+            f"and what the client verifies, never with a claim about a "
+            f"nationality.\n"
             f"- Do not quote a retention rate, satisfaction score, or any "
             f"number that is not in the approved text below.\n"
         )
@@ -47370,35 +47848,45 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
         # comparison already uses for this vertical (Mike, 2026-10-07).
         _rm_roles = _tm_cost_roles(positions_str, primary, company)[:8]
         body = (
-            f"Build a 'Roles That Work Offshore' one-pager for a "
+            f"Build a 'Roles That Work Offshore' brief for a "
             f"decision-maker at {company}"
             + (f" ({industry_str})" if primary else "") + ". The reader "
             f"wants to know which seats in a business like theirs a "
-            f"dedicated team member in the Philippines can hold well, which "
-            f"should stay in house, and where to start.\n"
+            f"dedicated team member in the Philippines can hold well, who "
+            f"we recruit for each, which work should stay in house, and "
+            f"where to start.\n"
             f"\nCANDIDATE ROLES, best first (the reader's own role is first; "
             f"use these titles, do not invent others): "
             + "; ".join(_rm_roles) + ".\n"
-            f"\nREQUIRED SECTIONS (every bullet ONE short sentence, max 20 "
-            f"words):\n"
-            f"  1. heading 'Scope Criteria' — type 'paragraph' — 2 "
-            f"sentences: a role works offshore when its work is defined, "
-            f"runs in systems the client already uses, and is managed by "
-            f"the client day to day.\n"
+            f"\nREQUIRED SECTIONS:\n"
+            f"  1. heading 'Scope Criteria' — type 'bullets' — 3 bullets: a "
+            f"role works offshore when its work is defined, runs in systems "
+            f"the client already uses, and is managed by the client day to "
+            f"day. Use this industry's own examples.\n"
             f"  2. heading 'Roles That Work Offshore' — type 'table' — "
             f"header + 6 rows from the candidate roles above, {role_label} "
-            f"first. Columns: ['Role','Work It Covers','What You Would "
-            f"Hand Over First']. Each cell 8 words or fewer.\n"
-            f"  3. heading 'Retained Functions' — type 'bullets' — 3 "
+            f"first. Columns: ['Role','Work It Covers','Degree and "
+            f"Credentials We Recruit For','What You Hand Over First']. Name "
+            f"the real tasks and documents of each role in this industry. "
+            f"Each cell 14 words or fewer.\n"
+            f"  3. heading 'Systems and Software' — type 'bullets' — "
+            f"3 bullets, one per function (for example operations, finance, "
+            f"customer service), naming the software a {industry_str} "
+            f"business runs that work in, under the confidence rule below.\n"
+            f"  4. heading 'Retained Functions' — type 'bullets' — 3 "
             f"bullets on work that should stay in house: decisions that "
             f"need to be made in the room, relationships the owner holds, "
             f"anything that needs a physical presence at the client's site.\n"
-            f"  4. heading 'Recommended Starting Point' — type 'bullets' — 3 "
+            f"  5. heading 'Recommended Starting Point' — type 'bullets' — 3 "
             f"bullets. Every one MUST start 'Suggested:' and propose a first "
             f"seat, why that one, and what to document before the person "
             f"starts.\n"
-            f"  5. heading 'Frequently Asked Questions' — type 'qa' — 3 "
-            f"pairs, 1-2 sentences each, on scoping a role for offshore "
+            f"  6. heading 'Team Growth Path' — type 'bullets' — 3 bullets. "
+            f"Every one MUST start 'Suggested:' and describe how a client "
+            f"who starts with one seat adds the next ones, naming which "
+            f"role usually follows which in this industry.\n"
+            f"  7. heading 'Frequently Asked Questions' — type 'qa' — 4 "
+            f"pairs, 2-3 sentences each, on scoping a role for offshore "
             f"work.\n"
             f"\nNo salaries, no savings figures, no headcount statistics. "
             f"This is about fit, not price.\n"
@@ -47408,33 +47896,45 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
         # What the first three months look like, as a proposal to agree,
         # never a promise (Mike, 2026-10-07).
         body = (
-            f"Build a 'First 90 Days Plan' one-pager for the manager at "
+            f"Build a 'First 90 Days Plan' for the manager at "
             f"{company}" + (f" ({industry_str})" if primary else "")
             + f" who will oversee a dedicated team member in the Philippines "
             f"in a role such as {role_label}. The reader wants to know what "
-            f"happens after they say yes, who does what, and when they "
-            f"should expect the person to be fully productive.\n"
-            f"\nREQUIRED SECTIONS (every bullet ONE short sentence, max 20 "
-            f"words):\n"
-            f"  1. heading 'Overview' — type 'paragraph' — 2-3 "
-            f"sentences: the first month is setup and learning, the second "
-            f"is working with oversight, the third is owning the role. All "
-            f"of it is a proposal to agree with the client.\n"
-            f"  2. heading '90-Day Plan' — type 'table' — header + 3 rows, "
-            f"one per window: 'Days 1-30', 'Days 31-60', 'Days 61-90'. "
-            f"Columns: ['Window','Our Team','Your Team','Checkpoint']. Our "
-            f"Team: recruiting, onboarding and our team's support. Your "
-            f"Team: access, training time, feedback. Each cell 10 words or "
-            f"fewer. Every Checkpoint cell MUST start 'Suggested:'.\n"
-            f"  3. heading 'Client Preparation' — type 'bullets' — 4 bullets "
-            f"on what the client prepares: system access, a documented "
-            f"process or two, a point of contact, and the hours the person "
-            f"will work.\n"
-            f"  4. heading 'Suggested 90-Day Measures' — type "
-            f"'bullets' — 3 bullets. Every one MUST start 'Suggested:' and "
-            f"be a measure to agree, not a promise. No target number unless "
-            f"the reader supplied it.\n"
-            f"  5. heading 'Issue Resolution' — type 'bullets' — 2 "
+            f"happens after they say yes, who does what, which tasks the "
+            f"person takes on and in what order, and when to expect them to "
+            f"be fully productive.\n"
+            f"\nREQUIRED SECTIONS:\n"
+            f"  1. heading 'Overview' — type 'bullets' — 3 bullets: the "
+            f"first month is setup and learning, the second is working with "
+            f"oversight, the third is owning the role. All of it is a "
+            f"proposal to agree with the client.\n"
+            f"  2. heading '90-Day Plan' — type 'table' — header + 5 rows, "
+            f"one per window: 'Before Day 1', 'Week 1', 'Weeks 2-4', 'Days "
+            f"31-60', 'Days 61-90'. Columns: ['Window','Our Team','Your "
+            f"Team','What the Role Is Doing','Checkpoint']. Our Team: "
+            f"recruiting, onboarding, workstation and IT, and our team's "
+            f"support. Your Team: access, training time, feedback. 'What "
+            f"the Role Is Doing' names the actual {role_label} tasks in "
+            f"{industry_str} the person is working at that point. Each cell "
+            f"12 words or fewer. Every Checkpoint cell MUST start "
+            f"'Suggested:'.\n"
+            f"  3. heading 'Client Preparation' — type 'bullets' — 5 bullets "
+            f"on what the client prepares: access to the specific systems "
+            f"the role works in, a documented process for each first task, "
+            f"sample work to learn from, a point of contact, and the hours "
+            f"the person will work.\n"
+            f"  4. heading 'Suggested Handover Sequence' — type 'bullets' — "
+            f"4 bullets. Every one MUST start 'Suggested:' and name a "
+            f"specific task of this role, ordered from the most routine to "
+            f"the one that needs the most judgement.\n"
+            f"  5. heading 'Suggested 90-Day Measures' — type 'bullets' — 4 "
+            f"bullets. Every one MUST start 'Suggested:' and be a measure "
+            f"used for this role in this industry, to agree, not a promise. "
+            f"No target number unless the reader supplied it.\n"
+            f"  6. heading 'Review Cadence' — type 'bullets' — 3 bullets on "
+            f"the support that continues after day one, taken only from the "
+            f"approved services text below.\n"
+            f"  7. heading 'Issue Resolution' — type 'bullets' — 2 "
             f"bullets: tell our team early, and what our team does next, "
             f"taken only from the approved services text below.\n"
             f"\nState no time to hire and no start date. The plan begins "
@@ -47446,42 +47946,54 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
         # verify, never a certification we have not approved (Mike,
         # 2026-10-07).
         body = (
-            f"Build a 'Security and Confidentiality' one-pager for a "
+            f"Build a 'Security and Confidentiality' brief for a "
             f"decision-maker at {company}"
             + (f" ({industry_str})" if primary else "") + ". The reader "
             f"is weighing a dedicated team member in the Philippines for "
             f"work such as {role_label} and needs to know how their "
             f"systems, customer data and confidential information are "
-            f"protected.\n"
-            f"\nREQUIRED SECTIONS (every bullet ONE short sentence, max 20 "
-            f"words):\n"
-            f"  1. heading 'Access Principle' — type 'paragraph' — 2 "
-            f"sentences: the person works inside the client's systems "
-            f"under the client's access rules, and nothing leaves them.\n"
-            f"  2. heading 'Access Controls' — type 'table' — header + 4 "
-            f"rows. Columns: ['Area','How It Is Handled']. Rows: accounts "
-            f"and permissions (client-issued, least access needed); "
-            f"connection (VPN or remote desktop into the client's "
+            f"protected, in terms specific to the data a {industry_str} "
+            f"business holds.\n"
+            f"\nREQUIRED SECTIONS:\n"
+            f"  1. heading 'Access Principle' — type 'bullets' — 2 bullets: "
+            f"the person works inside the client's systems under the "
+            f"client's access rules, and nothing leaves them.\n"
+            f"  2. heading 'Access Controls' — type 'table' — header + 6 "
+            f"rows. Columns: ['Area','How It Is Handled','Who Controls It']. "
+            f"Rows: accounts and permissions (client-issued, least access "
+            f"needed); connection (a secure VPN into the client's "
             f"environment); workstation (a dedicated, isolated workstation "
-            f"for the role); confidentiality (NDA signed before access). "
-            f"Each cell 12 words or fewer. Describe only what appears in "
+            f"for the role); confidentiality (NDA signed before access); "
+            f"dedication (the person works only for this client); "
+            f"offboarding (access removed when the engagement changes). "
+            f"Each cell 14 words or fewer. Describe only what appears in "
             f"the approved services and differentiators text below.\n"
-            f"  3. heading 'Client Controls' — type 'bullets' — 4 bullets: "
+            f"  3. heading 'Role Data Access' — type 'table' — "
+            f"header + 4 rows. Columns: ['Data or System','Access the Role "
+            f"Needs','Suggested Control']. Name the real records and "
+            f"systems a {role_label} in {industry_str} touches. Every "
+            f"'Suggested Control' cell MUST start 'Suggested:' and be a "
+            f"control the client sets in its own system. Each cell 14 words "
+            f"or fewer.\n"
+            f"  4. heading 'Client Controls' — type 'bullets' — 4 bullets: "
             f"which systems the person can reach, when access is granted "
             f"and removed, what can be downloaded or printed, and who "
             f"reviews activity.\n"
-            f"  4. heading 'Operating Practices' — type 'bullets' — 3 "
+            f"  5. heading 'Operating Practices' — type 'bullets' — 4 "
             f"bullets on everyday practice: no shared logins, no local "
-            f"copies of customer data, immediate revocation when the "
-            f"engagement changes.\n"
-            f"  5. heading 'Frequently Asked Questions' — type 'qa' — 3 "
-            f"pairs, 1-2 sentences each, on data and confidentiality from a "
+            f"copies of customer data, work kept inside the client's "
+            f"systems, immediate revocation when the engagement changes.\n"
+            f"  6. heading 'Suggested Access Setup' — type 'bullets' — 4 "
+            f"bullets. Every one MUST start 'Suggested:' and be a step the "
+            f"client takes before day one.\n"
+            f"  7. heading 'Frequently Asked Questions' — type 'qa' — 4 "
+            f"pairs, 2-3 sentences each, on data and confidentiality from a "
             f"first-time buyer.\n"
             f"\nRULES FOR THIS DOCUMENT:\n"
-            f"- Name NO certification, audit or standard (SOC 2, ISO 27001, "
-            f"HIPAA, GDPR, PCI) unless it appears word for word in the "
-            f"approved text below. Where a reader might expect one, say the "
-            f"client's own policies and tools apply.\n"
+            f"- Name NO certification, audit or standard of ours (SOC 2, "
+            f"ISO 27001, HIPAA, GDPR, PCI) unless it appears word for word "
+            f"in the approved text below. Where a reader might expect one, "
+            f"say the client's own policies and tools apply.\n"
             f"- Do not promise that a breach cannot happen. Describe the "
             f"controls and who holds them.\n"
         )
@@ -47503,23 +48015,30 @@ def _rich_pdf_prompt(kind: str, ctx: dict) -> str:
     return out + (_PDF_LENGTH_RULES if _skim else "")
 
 
-# Every ThriveModal PDF: 1.5 pages max, bullets not paragraphs (Mike,
-# 2026-09-21). arena_pdfs.build_custom_pdf enforces it on whatever comes
-# back; this keeps the model from writing text that then gets cut.
+# Every ThriveModal PDF: two pages of detail, bullets not paragraphs (Mike,
+# 2026-11-05: "too simple and not intricate enough... go into detail"; it
+# was 1.5 pages of one-line bullets from 2026-09-21).
+# arena_pdfs.build_custom_pdf enforces the page cap on whatever comes back;
+# this keeps the model from writing text that then gets cut.
 _PDF_LENGTH_RULES = (
     "\nLENGTH AND FORMAT — THESE OVERRIDE EVERY RULE ABOVE:\n"
-    "- The whole document must fit in 1.5 pages at most. Do NOT fill the "
-    "page. Short and skimmable beats complete.\n"
+    "- The whole document runs to two pages and should come close to "
+    "filling them. A box stating our candidate standard is added above your "
+    "content automatically and takes about an inch; do not write it "
+    "yourself.\n"
     "- No paragraphs. Any section described above as type 'paragraph' must be "
-    "returned as type 'bullets' with 2-3 bullets.\n"
-    "- Every bullet is one complete sentence of 24 words or fewer, written "
-    "as a business statement, not a fragment or a slogan. No section has "
-    "more than 5 bullets, whatever a section above asks for.\n"
-    "- Tables: at most 6 data rows under the header; every cell 8 words or "
+    "returned as type 'bullets' with 2-4 bullets.\n"
+    "- Every bullet is one or two complete sentences, 38 words at most, "
+    "written as a business statement, not a fragment or a slogan. Each one "
+    "carries a specific: the named task, document, system, deadline or "
+    "measure. No section has more than 6 bullets, whatever a section above "
+    "asks for.\n"
+    "- Tables: at most 8 data rows under the header; every cell 18 words or "
     "fewer.\n"
-    "- Q&A: at most 3 pairs; each answer 1-2 sentences.\n"
-    "- At most 6 sections. intro: one sentence stating what the document "
-    "covers. cta: one sentence naming the next step.\n"
+    "- Q&A: at most 4 pairs; each answer 2-3 sentences.\n"
+    "- At most 8 sections. intro: one or two sentences stating what the "
+    "document covers and why it matters to this reader. cta: one sentence "
+    "naming the next step.\n"
 )
 
 
@@ -47629,7 +48148,8 @@ def _ai_revise_pdf_data(client, build_data: dict, instruction: str) -> dict:
     )
     msg = _claude_create_with_retry(client,
         model="claude-haiku-4-5-20251001",
-        max_tokens=2400,
+        # Two-page documents (2026-11-05) need the room.
+        max_tokens=6000,
         messages=[{"role": "user", "content": prompt}],
     )
     text = msg.content[0].text
@@ -47898,7 +48418,7 @@ def _render_pdf_editor_body(s, rf, pdf_filename: str, step_idx: int,
                         _s["items"] = [p.strip() for p in (_in.value or "").split("\n\n") if p.strip()]
                     _bind(_para_in, _commit_para)
 
-                elif _stype == "bullets":
+                elif _stype in ("bullets", "callout"):
                     for _bi, _bullet in enumerate(items):
                         with ui.element("div").style(
                                 "display:flex;gap:6px;align-items:start;"):
@@ -48166,7 +48686,7 @@ def _generate_rich_pdf_data(client, kind: str, ctx: dict, research_context: str 
                 client, ctx.get("company", ""), _role, _loc,
                 ctx.get("primary_industry", ""),
                 market_only=bool(ctx.get("market_only")))
-        return _tm_cost_pdf_data(
+        _typed = _tm_cost_pdf_data(
             ctx.get("company", ""),
             ctx.get("tm_cost_inputs") or {},
             seats=ctx.get("tm_seats", 1),
@@ -48176,6 +48696,11 @@ def _generate_rich_pdf_data(client, kind: str, ctx: dict, research_context: str 
             excluded=ctx.get("tm_excluded", ""),
             benchmark_role=ctx.get("tm_benchmark_role", ""),
         )
+        # A finished worksheet goes to a buyer, so it opens with the
+        # candidate standard; an incomplete one is a note to the seller.
+        if (_typed.get("_worksheet") or {}).get("complete") and _is_thrivemodal():
+            _typed["sections"] = _tm_with_standard(_typed.get("sections"))
+        return _typed
 
     prompt = _rich_pdf_prompt(kind, ctx)
     full = prompt + (research_context or "") + (style_guide or "")
@@ -48196,7 +48721,7 @@ def _generate_rich_pdf_data(client, kind: str, ctx: dict, research_context: str 
             model=_TM_PDF_MODEL if _tm_model else "claude-haiku-4-5-20251001",
             # Fable thinks before it writes and the thinking counts toward
             # max_tokens, so it gets more room than Haiku.
-            max_tokens=8000 if _tm_model else 2400,
+            max_tokens=14000 if _tm_model else 2400,
             messages=[{"role": "user", "content": full}],
         )
         # Fable returns a thinking block ahead of the text, so content[0]
@@ -48232,6 +48757,10 @@ def _generate_rich_pdf_data(client, kind: str, ctx: dict, research_context: str 
     _format_pdf_table_salaries(data)
     if kind == "tm_role_blueprint":
         _clamp_tm_blueprint(data)
+    if _is_tm_pdf_kind(kind) and _is_thrivemodal():
+        # Last, so no clamp or scrub above can drop it.
+        data["sections"] = _tm_with_standard(
+            data.get("sections"), _rich_positions_str(ctx.get("positions")))
     return data
 
 
@@ -48241,41 +48770,47 @@ def _generate_rich_pdf_data(client, kind: str, ctx: dict, research_context: str 
 _TM_BLUEPRINT_CAPS = {
     "role scope": 3,
     "what this role covers": 3,       # pre-2026-10-08 heading, for re-renders
-    "responsibilities": 5,
-    "skills and systems": 5,          # header + 4 rows
+    "core responsibilities": 7,       # header + 6 rows
+    "responsibilities": 6,
+    "candidate profile": 6,           # header + 5 rows
+    "skills and systems": 5,          # header + 4 rows (pre-2026-11-05)
     "hours and coverage": 2,
     "working hours and coverage": 2,
     "management and reporting": 3,
     "how you oversee the role": 3,
-    "suggested success measures": 3,
+    "first tasks to hand over": 3,
+    "suggested success measures": 4,
 }
+_TM_BLUEPRINT_SECTIONS = 8
+_TM_BLUEPRINT_SENTENCES = 2
 
 
 def _clamp_tm_blueprint(data: dict) -> dict:
-    """Keep the blueprint short and bulleted: paragraphs become bullets
-    (one per sentence), bullets/rows are capped per section, and each
-    bullet is cut to its first sentence."""
+    """Keep the blueprint bulleted and within two pages: paragraphs become
+    bullets (one per sentence), bullets/rows are capped per section, and
+    each bullet is cut to its first two sentences."""
     _sent = re.compile(r"(?<=[.!?])\s+")
     out = []
-    for sec in (data.get("sections") or [])[:6]:
+    for sec in (data.get("sections") or [])[:_TM_BLUEPRINT_SECTIONS]:
         if not isinstance(sec, dict):
             continue
         items = sec.get("items") or []
         cap = _TM_BLUEPRINT_CAPS.get(
-            str(sec.get("heading", "")).strip().lower(), 4)
+            str(sec.get("heading", "")).strip().lower(), 5)
         if sec.get("type") == "paragraph":
             text = " ".join(str(i) for i in items)
             items = [x.strip() for x in _sent.split(text) if x.strip()]
             sec["type"] = "bullets"
         if sec.get("type") == "bullets":
-            items = [_sent.split(str(i).strip())[0]
+            items = [" ".join(_sent.split(str(i).strip())[:_TM_BLUEPRINT_SENTENCES])
                      for i in items if str(i).strip()]
         sec["items"] = items[:cap]
         out.append(sec)
     data["sections"] = out
     for k in ("intro", "cta"):
         if data.get(k):
-            data[k] = _sent.split(str(data[k]).strip())[0]
+            data[k] = " ".join(
+                _sent.split(str(data[k]).strip())[:_TM_BLUEPRINT_SENTENCES])
     return data
 
 

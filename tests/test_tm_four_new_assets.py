@@ -51,8 +51,9 @@ def test_roles_map_is_seeded_with_the_cost_roles(monkeypatch):
 def test_first_90_is_a_proposal_not_a_promise(monkeypatch):
     _tm(monkeypatch)
     p = fa._rich_pdf_prompt("tm_first_90", CTX)
-    assert "Suggested:" in p and "1-30" in p and "61-90" in p
-    assert "['Window','Our Team','Your Team','Checkpoint']" in p
+    assert "Suggested:" in p and "Weeks 2-4" in p and "61-90" in p
+    assert ("['Window','Our Team','Your "
+            "Team','What the Role Is Doing','Checkpoint']") in p.replace("\n", "")
     assert "'Us'," not in p and ",'You'," not in p
 
 
