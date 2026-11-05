@@ -272,6 +272,22 @@ def request_email(req, link, sender_first="", our_company="ThriveModal"):
     return "Quick favor?", body
 
 
+def shared_email(link, sender_first="", our_company="ThriveModal"):
+    """(subject, body) for the one link that goes to every client at once."""
+    body = ("Hi,\n\n"
+            "I have a favor to ask. We're asking our clients for a short testimonial. "
+            "Owners thinking about hiring offshore trust another business owner more than "
+            "anything we could tell them.\n\n"
+            "I made it quick: about 12 click-through questions, roughly 3 minutes, no "
+            "login. At the end it drafts a short quote from your answers. You can edit "
+            "it, choose whether we use your name, and approve it. Nothing goes anywhere "
+            "without your OK.\n\n"
+            f"{link}\n\n"
+            "Thanks either way. We appreciate you.\n\n"
+            f"{sender_first}\n{our_company}")
+    return "Quick favor?", body
+
+
 # ── Storage ──────────────────────────────────────────────────────────────
 
 def _links_path():
@@ -306,7 +322,44 @@ def load_requests(owner):
 
 
 def save_requests(owner, reqs):
-    _write_json(_state_path(owner), {"requests": reqs})
+    d = _read_json(_state_path(owner), {})
+    d["requests"] = reqs
+    _write_json(_state_path(owner), d)
+
+
+def shared_token(owner, create=True):
+    """The owner's one link for every client. Made on first ask, then fixed."""
+    with _LOCK:
+        d = _read_json(_state_path(owner), {})
+        tok = d.get("shared_token") or ""
+        if tok or not create:
+            return tok
+        tok = new_token()
+        d["shared_token"] = tok
+        d.setdefault("requests", [])
+        _write_json(_state_path(owner), d)
+        links = _read_json(_links_path(), {})
+        links[tok] = owner.lower().strip()
+        _write_json(_links_path(), links)
+        return tok
+
+
+def find_shared(token):
+    """The owner whose shared link this is, or None."""
+    if not _TOKEN_RE.match(str(token or "")):
+        return None
+    owner = _read_json(_links_path(), {}).get(token)
+    if owner and _read_json(_state_path(owner), {}).get("shared_token") == token:
+        return owner
+    return None
+
+
+def clean_about(raw):
+    """Who filled in the shared link. Name and company are required."""
+    raw = raw if isinstance(raw, dict) else {}
+    return {"name": _clip(raw.get("name"), 80), "title": _clip(raw.get("title"), 80),
+            "company": _clip(raw.get("company"), 120), "email": _clip(raw.get("email"), 160),
+            "hire": _clip(raw.get("hire"), 80)}
 
 
 def add_request(owner, req):
@@ -364,8 +417,13 @@ def _our_company(owner):
 
 # ── Public routes (no login) ─────────────────────────────────────────────
 
-def _public_html(req, our_company, logo_url):
-    state = {"token": req["token"], "status": req["status"], "company": req["company"],
+def _open_request():
+    """The blank request the shared link renders before anyone answers."""
+    return {"token": "", "status": "opened", "company": "", "contact": ""}
+
+
+def _public_html(req, our_company, logo_url, open_token=""):
+    state = {"open": bool(open_token), "child": False, "token": open_token or req["token"], "status": req["status"], "company": req["company"],
              "contact": req["contact"], "draft": req.get("draft") or "",
              "quote": req.get("quote") or "", "permission": req.get("permission") or "",
              "sig_name": req.get("sig_name") or req.get("contact") or "",
@@ -403,6 +461,13 @@ def register_routes():
     async def review_page(token: str):
         owner, req = find(token)
         if not req:
+            shared_owner = find_shared(token)
+            if shared_owner:
+                ff = _ff()
+                logo = f"{getattr(ff, '_PUBLIC_ORIGIN', '')}/static/thrivemodal_logo_email.png"
+                return HTMLResponse(
+                    _public_html(_open_request(), _our_company(shared_owner), logo, token),
+                    headers={"Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow"})
             return HTMLResponse(_NOT_FOUND, status_code=404)
         if req["status"] == "sent":
             update(owner, token, lambda r: r.update(status="opened"))
@@ -420,7 +485,30 @@ def register_routes():
                                 status_code=429)
         owner, req = find(token)
         if not req:
-            return JSONResponse({"error": "This link is no longer active."}, status_code=404)
+            shared_owner = find_shared(token)
+            if not shared_owner:
+                return JSONResponse({"error": "This link is no longer active."}, status_code=404)
+            # The shared link: every person who answers becomes their own
+            # entry, with its own token the page uses from here on.
+            try:
+                body = await request.json()
+            except Exception:
+                body = {}
+            body = body if isinstance(body, dict) else {}
+            about = clean_about(body.get("about"))
+            if not about["name"] or not about["company"]:
+                return JSONResponse({"error": "Add your name and company at the top."},
+                                    status_code=400)
+            ans = clean_answers(body.get("answers"))
+            if not ans:
+                return JSONResponse({"error": "Pick at least one answer first."}, status_code=400)
+            new = new_request(about["company"], about["name"], about["email"], about["hire"])
+            new.update(source="shared", answers=ans, status="answered", answered_at=_now(),
+                       sig_name=about["name"], sig_title=about["title"],
+                       sig_company=about["company"],
+                       draft=build_draft(ans, _our_company(shared_owner), about["hire"]))
+            add_request(shared_owner, new)
+            return JSONResponse({"draft": new["draft"], "token": new["token"]})
         if req["status"] == "approved":
             return JSONResponse({"error": "Already approved. Thank you!"}, status_code=409)
         try:
@@ -532,6 +620,15 @@ padding:13px 22px;cursor:pointer}
   <h1 id="hello"></h1>
   <p class="lead">About 3 minutes, all clicks. At the end you'll see a short draft quote built from
   your answers. You edit it and approve it, and nothing is used without your OK.</p>
+  <div class="q" id="about" hidden style="margin-top:8px"><h3>About you</h3>
+    <p class="hint">So we know who it's from. Name and company are required.</p>
+    <div class="fields">
+      <label>Your name<input type="text" id="a-name" autocomplete="name"></label>
+      <label>Title<input type="text" id="a-title" autocomplete="organization-title" placeholder="e.g. Owner, VP Operations"></label>
+      <label>Company<input type="text" id="a-company" autocomplete="organization"></label>
+      <label>Email (optional)<input type="text" id="a-email" autocomplete="email" inputmode="email"></label>
+      <label style="grid-column:1/-1">Who you hired through us (optional)<input type="text" id="a-hire" placeholder="First name is fine"></label>
+    </div></div>
   <div id="qs" style="display:flex;flex-direction:column;gap:14px;margin-top:8px"></div>
   <div class="err" id="err1"></div>
   <div><button class="btn" id="next">See my draft quote</button></div>
@@ -557,7 +654,7 @@ padding:13px 22px;cursor:pointer}
   <p class="lead" id="done-lead"></p>
   <p class="quote" id="done-quote"></p>
 </section>
-<p class="foot">Private link for you. Questions? Just reply to the email it came in.</p>
+<p class="foot" id="foot">Private link for you. Questions? Just reply to the email it came in.</p>
 </main>
 <script>
 const D = __DATA__;
@@ -569,6 +666,8 @@ function show(id){for(const s of ['s-survey','s-draft','s-done']) $(s).hidden = 
 function render(){
   const first = (S.contact||'').split(' ')[0];
   $('hello').textContent = (first ? first + ', a' : 'A') + ' quick favor from ' + D.us;
+  if(S.open){ $('about').hidden=false;
+    $('foot').textContent='Questions? Just reply to the email this came in.'; }
   const box = $('qs'); box.innerHTML='';
   for(const q of D.questions){
     if(q.section) box.appendChild(el('div',{class:'sec'},q.section));
@@ -620,7 +719,15 @@ function draftView(text){
 }
 $('next').onclick = async ()=>{
   $('err1').textContent=''; $('next').disabled=true;
-  try{ const j = await post('/answers',{answers:A}); S.draft=j.draft;
+  const about = {name:$('a-name').value.trim(), title:$('a-title').value.trim(),
+    company:$('a-company').value.trim(), email:$('a-email').value.trim(),
+    hire:$('a-hire').value.trim()};
+  if(S.open && !S.child && (!about.name || !about.company)){
+    $('err1').textContent='Add your name and company at the top.'; $('next').disabled=false;
+    $('about').scrollIntoView({behavior:'smooth'}); return; }
+  try{ const j = await post('/answers',{answers:A, about:about}); S.draft=j.draft;
+    if(S.open && !S.child && j.token){ S.token=j.token; S.child=true;
+      S.sig_name=about.name; S.sig_title=about.title; S.sig_company=about.company; }
     draftView(j.draft || 'Working with ' + D.us + ' has been great.'); }
   catch(e){ $('err1').textContent=e.message; }
   finally{ $('next').disabled=false; }
@@ -777,9 +884,9 @@ def render_page(s, rf):
     with ui.element("div").classes("tmr-wrap"):
         _css()
         ui.label("Testimonials").classes("fd-h1")
-        ui.label("Make a private link for each client. They answer a 3-minute click-through "
-                 "survey with no login, get a draft quote built from their answers, edit it "
-                 "and approve it. Everything lands here.").classes("fd-sub")
+        ui.label("Send your link to every client at once. They answer a 3-minute "
+                 "click-through survey with no login, get a draft quote built from their "
+                 "answers, edit it and approve it. Every response lands here.").classes("fd-sub")
 
         n_ans = sum(1 for r in reqs if r["status"] in ("answered", "approved"))
         n_ok = sum(1 for r in reqs if r["status"] == "approved")
@@ -791,8 +898,30 @@ def render_page(s, rf):
                     ui.label(str(val)).classes("fd-sn").style(f"color:{col};")
                     ui.label(lbl).classes("fd-sl")
 
+        stok = shared_token(owner) if owner else ""
+        if stok:
+            slink = f"{origin}/review/{stok}"
+            with ui.element("div").classes("tmr-new"):
+                ui.label("Your testimonial link").style(
+                    f"font-size:15px;font-weight:800;color:{C['text_l']};")
+                ui.label("One link for every client. They add their name and company at the "
+                         "top, and each response shows up below as its own entry.").classes(
+                    "tmr-meta")
+                ui.label(slink).classes("tmr-link")
+                with ui.element("div").classes("tmr-acts"):
+                    with ui.element("button").classes("fd-pb").props('type="button"').style(
+                            "padding:7px 14px;font-size:12.5px;").on(
+                            "click", lambda: _copy(slink, "Link copied.")):
+                        ui.label("Copy link")
+                    ssubj, sbody = shared_email(slink, sender_first, us)
+                    with ui.element("button").classes("fd-gb").props('type="button"').style(
+                            "padding:7px 14px;font-size:12.5px;").on(
+                            "click", lambda: _copy(f"Subject: {ssubj}\n\n{sbody}",
+                                                   "Email copied. Paste it into a new message.")):
+                        ui.label("Copy email")
+
         with ui.element("div").classes("tmr-new"):
-            ui.label("New testimonial request").style(
+            ui.label("Or make a personal link for one client").style(
                 f"font-size:15px;font-weight:800;color:{C['text_l']};")
             with ui.element("div").classes("tmr-row"):
                 for key, ph in (("company", "Client company"), ("contact", "Contact name"),

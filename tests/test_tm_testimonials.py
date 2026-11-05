@@ -215,3 +215,66 @@ def test_email_quote_skips_first_email_and_profile_emails():
         [{"title": "Dispatcher", "years": 4, "bullets": ["x"]}]))
     assert fa._tm_testimonial_email_index(em) == 2
     assert fa._tm_testimonial_email_index(_emails(1)) is None
+
+
+# ── One shared link for every client ─────────────────────────────────────
+
+def _client(ff):
+    from fastapi import FastAPI
+    from starlette.testclient import TestClient
+    import nicegui
+    fake = FastAPI()
+    real = nicegui.app
+    nicegui.app = fake
+    try:
+        tt.register_routes()
+    finally:
+        nicegui.app = real
+    return TestClient(fake)
+
+
+def test_shared_token_is_made_once_and_kept(ff):
+    assert tt.shared_token("o@x.com", create=False) == ""
+    tok = tt.shared_token("o@x.com")
+    assert tok and tt.shared_token("o@x.com") == tok
+    assert tt.find_shared(tok) == "o@x.com"
+    # Saving requests never drops the shared link.
+    tt.add_request("o@x.com", tt.new_request("Acme"))
+    assert tt.shared_token("o@x.com", create=False) == tok
+
+
+def test_shared_link_makes_one_entry_per_person(ff):
+    c = _client(ff)
+    tok = tt.shared_token("o@x.com")
+    page = c.get(f"/review/{tok}")
+    assert page.status_code == 200 and '"open": true' in page.text
+
+    no_name = c.post(f"/review/{tok}/answers", json={"answers": {"fill": "lt2w"}, "about": {}})
+    assert no_name.status_code == 400 and "name and company" in no_name.json()["error"]
+
+    tokens = []
+    for who, co in (("Jane Doe", "Acme Freight"), ("Bob Ray", "Beta Logistics")):
+        r = c.post(f"/review/{tok}/answers", json={
+            "answers": {"fill": "lt2w"},
+            "about": {"name": who, "company": co, "title": "Owner", "hire": "Maria"}})
+        assert r.status_code == 200
+        j = r.json()
+        assert j["token"] != tok and "under two weeks" in j["draft"]
+        tokens.append(j["token"])
+    reqs = tt.load_requests("o@x.com")
+    assert {r["company"] for r in reqs} == {"Acme Freight", "Beta Logistics"}
+    assert all(r["status"] == "answered" and r["source"] == "shared" for r in reqs)
+
+    # Approving goes to the person's own entry; the shared link stays open.
+    ok = c.post(f"/review/{tokens[0]}/approve", json={
+        "quote": "Great.", "permission": "full", "name": "Jane Doe", "title": "Owner",
+        "company": "Acme Freight"})
+    assert ok.status_code == 200
+    assert tt.find(tokens[0])[1]["status"] == "approved"
+    assert c.get(f"/review/{tok}").status_code == 200
+    assert tt.public_quotes("o@x.com") == [("Great.", "Jane Doe, Owner, Acme Freight")]
+
+
+def test_shared_email_is_generic():
+    subj, body = tt.shared_email("https://x/review/abc", "Sam", "ThriveModal")
+    assert body.startswith("Hi,\n") and "https://x/review/abc" in body
