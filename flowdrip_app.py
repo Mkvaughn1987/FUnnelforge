@@ -13523,7 +13523,7 @@ class AppState:
         # also left in place, unused, for reference.
         self.sb_wiz_step: int = 1      # 1=start, 2=one step per screen, 3=save
         self.sb_cur: int = 0           # the step on screen at sb_wiz_step 2
-        self.sb_ai_open: str = ""      # step id whose "Tell AI what you want" box is open
+        self.sb_ai_open: str = ""      # step id whose "Describe it, AI drafts it" box is open
         self.sb_add_open: bool = False  # "add a step after this one" cards showing
         self.sb_rm_ask: str = ""       # step id waiting on "remove it?"
         self.sb_restart_ask: bool = False
@@ -21378,7 +21378,7 @@ CHOOSER_OPTIONS = [
         "subtitle": "Your steps, your words, a little AI help",
         "desc": ("Build it one step at a time: an email, a call or a "
                  "LinkedIn message, in the order you want. Write each "
-                 "step yourself or tell AI what you want, add candidates "
+                 "step yourself or describe it and AI drafts it, add candidates "
                  "from your Pipeline and a Sales Asset PDF, then choose "
                  "contacts and launch. It saves as a campaign you can "
                  "reuse for any client, here or from ChatGPT or Claude."),
@@ -32139,8 +32139,8 @@ def _render_sb_step_page(s: AppState, rf):
                     "display:grid;grid-template-columns:repeat(auto-fit,"
                     "minmax(240px,1fr));gap:12px;margin-top:10px;"):
                 for _blabel, _babout, _bfn, _bon in (
-                        ("✦ Tell AI what you want",
-                         "Say what it should cover and AI writes it. You "
+                        ("✦ Describe it, AI drafts it",
+                         "Say what it should cover in a sentence or two. You "
                          "can change every word after.",
                          _open_ai, s.sb_ai_open == _sid),
                         ("✦ Polish with AI",
@@ -32695,7 +32695,7 @@ START_CAMPAIGN_OPTIONS = [
         "tag": "",
         "desc": "Your steps, your words, and a little AI help when you ask.",
         "points": ["Build it one step at a time: email, call or LinkedIn",
-                   "Write each step yourself, or tell AI what you want",
+                   "Write each step yourself, or describe it and AI drafts it",
                    "Add candidates from your Pipeline and a PDF",
                    "Save it and reuse it for any client"],
         "cta": "Create my own",

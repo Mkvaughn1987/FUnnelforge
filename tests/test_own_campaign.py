@@ -193,7 +193,7 @@ def test_walkthrough_state_and_entry_points():
     page = inspect.getsource(fa._render_sb_step_page)
     assert "_SB_STEP_ABOUT[" in page and set(fa._SB_STEP_ABOUT) == {
         "email_first", "email", "call", "linkedin"}
-    assert "Tell AI what you want" in page and "Polish with AI" in page
+    assert "Describe it, AI drafts it" in page and "Polish with AI" in page
     assert "Have AI draft it" not in page and "Ask AI" not in page
     assert "What comes next?" in page and "_render_sb_cands(s, rf, step_id=_sid)" in page
     # a fill-in is asked for on the step that uses it
