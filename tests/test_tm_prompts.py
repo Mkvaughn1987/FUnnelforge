@@ -1249,7 +1249,8 @@ def test_linkedin_automation_prompt_makes_a_skill_that_pastes_the_message(tm):
     assert "tm_my_day" in p and "tm_task_done" in p
     assert "Claude in Chrome" in p and "message field" in p
     assert "Add a note" in p and "Pending" in p
-    assert "carries on with the next" in p and "work around it" in p
+    flat = " ".join(p.split())
+    assert "carries on with the next" in flat and "work around it" in flat
     # Its own rules, not the prospecting ones, and no generic repeat block.
     assert "ZoomInfo" not in p and "THEN MAKE IT REPEAT" not in p
     assert "Never write, edit or personalise a LinkedIn message" in p
