@@ -36537,6 +36537,9 @@ def get_evergreen_reminders(days_ahead: int = 7) -> list:
     return reminders
 
 
+_NL_FIRST_GEN_GIVE_UP_S = 180  # banner stops spinning after 3 min
+
+
 def _render_nl_first_gen_status(s, rf) -> None:
     """Render the 'Generating your first issue…' status card after a user
     creates a new newsletter from _create_newsletter_dialog. Shows a
@@ -36583,6 +36586,32 @@ def _render_nl_first_gen_status(s, rf) -> None:
                         _done = True
         except Exception:
             pass
+
+    _started = getattr(s, "_nl_first_gen_started", None)
+    if (not _done and _started and time.time() - _started > _NL_FIRST_GEN_GIVE_UP_S):
+        # Worker is stuck or died: stop the spinner and say so, instead of
+        # spinning forever. The issue fills in later if the worker finishes.
+        with ui.element("div").style(
+                f"background:{C['card']};border:1px solid {_tint(C['warn'],'60')};"
+                f"border-left:5px solid {C['warn']};border-radius:12px;"
+                f"padding:18px 24px;margin:14px 0 18px;"):
+            ui.label(f"'{_camp_name}' is taking longer than usual.").style(
+                f"font-size:15px;font-weight:800;color:{C['warn']};display:block;")
+            ui.label(
+                "The newsletter is saved. Open it from the list below and the "
+                "first issue will be there once it finishes. If it is still empty "
+                "in a few minutes, open it and use Regenerate."
+            ).style(f"font-size:12px;color:{C['muted']};line-height:1.55;display:block;")
+            def _dismiss_slow():
+                s._nl_first_gen_camp_name = None
+                s._nl_first_gen_done = False
+                s._nl_first_gen_started = None
+                rf()
+            with ui.element("button").classes("fd-gb").style(
+                    "padding:6px 14px;font-size:12px;margin-top:10px;"
+                    ).on("click", _dismiss_slow):
+                ui.label("Dismiss")
+        return
 
     if not _done:
         # In-flight: prominent centered card with big spinner.
@@ -37376,6 +37405,7 @@ def _create_newsletter_dialog(s, rf, *, prefill: dict = None, on_created=None):
             # preview shows right where the user spun the newsletter up.
             s._nl_first_gen_camp_name = nl_name
             s._nl_first_gen_done = False
+            s._nl_first_gen_started = time.time()
 
             def _gen_first_issue():
                 # Step 0 first (fast preview), flip the done flag, then sweep
@@ -66669,7 +66699,9 @@ def _generate_newsletter_content_for_step(camp: dict, step_idx: int) -> tuple:
         return (None, None)
     try:
         from anthropic import Anthropic
-        client = Anthropic(api_key=ANTHROPIC_API_KEY)
+        # 120s cap per call (default is 10 min): a stalled web-search call
+        # used to hold the "Generating the first issue" banner for minutes.
+        client = Anthropic(api_key=ANTHROPIC_API_KEY, timeout=120.0, max_retries=0)
     except Exception as e:
         print(f"[NewsletterAutoRefresh] Anthropic init failed: {e}", flush=True)
         return (None, None)
