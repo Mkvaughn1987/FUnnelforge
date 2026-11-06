@@ -33180,7 +33180,9 @@ def _contact_upload_and_name(s, rf, on_done):
             ui.notify("Upload failed.", type="negative"); return
         upload_state["tmp_path"] = tmp_path
         upload_state["filename"] = Path(e.file.name).stem
-        # Show naming dialog
+        # Show naming dialog, pre-filled with the file's own name
+        name_input.set_value(upload_state["filename"])
+        _file_lbl.set_text(f"From {e.file.name}")
         name_dialog.open()
 
     # Absolutely positioned so it never takes a slot in the flex row of
@@ -33192,12 +33194,27 @@ def _contact_upload_and_name(s, rf, on_done):
 
     # Naming dialog
     with ui.dialog() as name_dialog, ui.card().style(
-            f"background:{C['card']};border:1px solid {C['border']};min-width:400px;"):
-        ui.label("Name this contact list").style(f"font-size:15px;font-weight:600;color:{C['text_l']};margin-bottom:4px;")
-        ui.label("Give it a name so you can reuse it later.").style(f"font-size:12px;color:{C['muted']};margin-bottom:12px;")
-        name_input = ui.input(placeholder="e.g. SD Project Managers").style(
-            f"width:100%;background:{C['surface']};border:1px solid {C['border']};"
-            f"border-radius:6px;padding:8px 12px;font-size:13px;color:{C['text_l']};")
+            f"background:{C['card']};border:1px solid {C['border']};"
+            f"border-radius:14px;width:440px;max-width:92vw;padding:24px 26px 20px;"
+            f"box-shadow:0 12px 40px rgba(15,23,42,.18);gap:0;"):
+        with ui.element("div").style(
+                "display:flex;align-items:center;gap:12px;width:100%;margin-bottom:16px;"):
+            with ui.element("div").style(
+                    f"width:40px;height:40px;border-radius:10px;flex-shrink:0;"
+                    f"background:{_tint(C['teal'],'18')};display:flex;"
+                    f"align-items:center;justify-content:center;font-size:19px;"):
+                ui.html("📋")
+            with ui.element("div").style("min-width:0;"):
+                ui.label("Name this contact list").style(
+                    f"font-size:17px;font-weight:700;color:{C['text_l']};"
+                    f"font-family:'Nunito',sans-serif;display:block;line-height:1.3;")
+                ui.label("Give it a name so you can reuse it later.").style(
+                    f"font-size:12.5px;color:{C['muted']};display:block;")
+        name_input = ui.input("List name", placeholder="e.g. SD Project Managers").props(
+            "outlined dense autofocus").style("width:100%;")
+        _file_lbl = ui.label("").style(
+            f"font-size:11.5px;color:{C['muted']};margin-top:6px;"
+            f"overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%;")
 
         def _save_list():
             raw_name = name_input.value or upload_state["filename"] or "contacts"
@@ -33228,10 +33245,16 @@ def _contact_upload_and_name(s, rf, on_done):
             ui.notify(msg, type="positive" if not dropped else "warning", timeout=6000)
             on_done(load_contacts())
 
-        with ui.element("div").style("display:flex;gap:8px;margin-top:12px;justify-content:flex-end;"):
-            ui.button("Cancel", on_click=name_dialog.close).props("flat").style(f"color:{C['muted']};")
-            ui.button("Save & Use", on_click=_save_list).style(
-                f"background:{C['teal']};color:{C['on_teal']};font-weight:600;")
+        name_input.on("keydown.enter", _save_list)
+        with ui.element("div").style(
+                "display:flex;gap:10px;margin-top:20px;justify-content:flex-end;width:100%;"):
+            ui.button("Cancel", on_click=name_dialog.close).props(
+                "flat no-caps").style(
+                f"color:{C['muted']};font-weight:600;border-radius:8px;padding:0 14px;")
+            ui.button("Save & Use", on_click=_save_list).props(
+                "unelevated no-caps").style(
+                f"background:{C['teal']};color:{C['on_teal']};font-weight:700;"
+                f"border-radius:8px;padding:0 18px;")
 
     return _upload_el
 
@@ -36742,6 +36765,9 @@ _TM_NEWSLETTER_SECTORS = {
         "Digital Agencies", "Creative Services", "Paid Media"]},
     "professional_services": {"label": "Professional Services", "niches": [
         "Consulting", "Executive Assistance", "Back-Office Operations"]},
+    "staffing": {"label": "Staffing & Recruiting", "niches": [
+        "Staffing Agencies", "Recruiting Firms", "Executive Search",
+        "RPO", "Recruiting Coordination & Sourcing"]},
 }
 
 
