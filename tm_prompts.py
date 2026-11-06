@@ -1008,6 +1008,68 @@ VERTICALS = [
               "Phoenix firms growing with the metro."),
         ],
     },
+    {
+        "key": "staffing",
+        "label": "Recruitment agencies",
+        "band": "10 to 500 people",
+        "buyers": "the Owner or President first, then the Director of "
+                  "Recruiting and the VP of Operations",
+        "roles": "candidate sourcing, resume screening, interview "
+                 "scheduling, ATS data entry, onboarding and credentialing "
+                 "paperwork, and payroll and billing support",
+        "signals": [
+            S("sourcer",
+              "a sourcer, recruiting coordinator or junior recruiter "
+              "opening",
+              "The desk that feeds the billers, and the first one to hand "
+              "off."),
+            S("reqs",
+              "far more open client jobs on their board than recruiters to "
+              "work them",
+              "Orders going unworked because nobody has time to source "
+              "them."),
+            S("growth",
+              "a new office, a new division or a large client win",
+              "Job orders added before the support to carry them."),
+        ],
+        "also": ["reposted", "stack", "software"],
+        "workload": "sourcing and candidate screening",
+        "question": "How much of a recruiter's day goes to sourcing and "
+                    "scheduling instead of being on the phone with clients "
+                    "and candidates?",
+        "tells": "Bullhorn, Avionte, JobDiva or Crelate in a posting",
+        "season": "year-round",
+        "exploratory": True,
+        "location": "Texas, Florida, California, Illinois, Georgia, New "
+                    "York and Colorado (where the staffing firms are "
+                    "densest)",
+        "seed": "burnettspecialists.com",
+        "terms": [
+            S("sourcer_ph",
+              "sourcer or recruiting coordinator with a Philippines "
+              "location",
+              "The sourcing desk, already offshore."),
+            S("ats_stack",
+              "Bullhorn, Avionte, JobDiva or Crelate",
+              "The applicant tracking systems a remote sourcer works in."),
+        ],
+        "states": [
+            S("tx", "Texas",
+              "Dallas and Houston are dense with staffing firms."),
+            S("fl", "Florida",
+              "High-volume light industrial and healthcare staffing."),
+            S("ca", "California",
+              "The most agencies and the most notices."),
+            S("il", "Illinois",
+              "Chicago's staffing and executive search firms."),
+            S("ga", "Georgia",
+              "Atlanta's regional staffing firms."),
+            S("ny", "New York",
+              "Search firms and specialist agencies."),
+            S("co", "Colorado",
+              "Denver's independent recruiting firms."),
+        ],
+    },
 ]
 def signal_menu(v):
     """Everything on offer for a vertical, in the order it is shown: the
@@ -1232,6 +1294,14 @@ INDUSTRY_JOBS = [
      ["Intake Coordinator", "Legal Assistant", "Paralegal",
       "Executive Assistant", "Billing Specialist", "Scheduling Coordinator",
       "Document Preparation Specialist", "Research Assistant"]),
+    ("staffing", "Staffing and Recruiting",
+     ("recruiting", "recruitment", "recruitment agency",
+      "recruitment agencies", "staffing", "staffing agency",
+      "staffing firm", "staffing and recruiting", "executive search"),
+     ["Sourcer", "Recruiter", "Recruiting Coordinator",
+      "Onboarding Specialist", "Credentialing Specialist",
+      "Payroll Specialist", "Accounts Receivable Specialist",
+      "Data Entry Specialist"]),
 ]
 INDUSTRY_NAMES = [_n for _k, _n, _a, _j in INDUSTRY_JOBS]
 assert [_k for _k, _n, _a, _j in INDUSTRY_JOBS] == [v["key"] for v in VERTICALS]
