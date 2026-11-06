@@ -2530,10 +2530,15 @@ ROUTINES = [
             "before counting it as sent, then call tm_task_done with that "
             "task_id and result \"connected\". Mark only the people you "
             "really sent to.",
-            "Wait a random 30 to 90 seconds between profiles. If LinkedIn "
-            "shows a CAPTCHA, a sign-in page, an invitation limit or any "
-            "other warning, stop the whole run on the spot, do not retry, "
-            "and tell me exactly what it said.",
+            "Wait a random 30 to 90 seconds between profiles. A problem with "
+            "one person (the page will not load, there is no Connect "
+            "button, a pop-up you can simply close) skips that person with "
+            "the reason and carries on with the next. Stop the run only if "
+            "LinkedIn shows a security check or CAPTCHA, asks me to sign in "
+            "again, or says an invitation limit has been reached or the "
+            "account is restricted. Then do not try to solve it or work "
+            "around it: tell me exactly what it said. The people not done "
+            "stay on My Day for the next run.",
             "End every run with a short report: how many were sent, how many "
             "were skipped and why for each, and how many are left for "
             "tomorrow.",
