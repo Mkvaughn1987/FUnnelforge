@@ -8662,9 +8662,36 @@ async def api_tm_tasks(request: Request):
     keep = ("id", "channel", "name", "role", "company", "email", "linkedin",
             "phones", "script", "note", "touch", "overdue")
     out = []
+    _li_msgs = {}
+    _camps_by_path = None
     for t in tasks:
         row = {k: t.get(k) for k in keep}
         row["campaign"] = t.get("sequence", "")
+        if t.get("channel") == "li":
+            # The connection note My Day shows above the LinkedIn stack (and
+            # its Copy button): one per campaign, cached on the campaign and
+            # written on first ask if My Day has not been opened yet.
+            _cp = t.get("camp_path", "") or ""
+            if _cp not in _li_msgs:
+                _msg = ""
+                try:
+                    if _camps_by_path is None:
+                        _camps_by_path = {c.get("_path", ""): c
+                                          for c in load_campaigns()}
+                    _camp = _camps_by_path.get(_cp)
+                    if _camp:
+                        _msg = (_camp.get("linkedin_message") or "")
+                        _msg = _msg.strip() if isinstance(_msg, str) else ""
+                        if not _msg:
+                            import contextvars as _cv
+                            _ctx = _cv.copy_context()
+                            _msg = await asyncio.get_running_loop().run_in_executor(
+                                None, _ctx.run,
+                                _generate_li_message_for_campaign, _camp) or ""
+                except Exception as _ex:
+                    print(f"[tm_tasks] li message failed: {_ex}", flush=True)
+                _li_msgs[_cp] = (_msg or "").strip()
+            row["message"] = _li_msgs[_cp]
         out.append(row)
     return JSONResponse({
         "date": (target or _user_today()).isoformat(),

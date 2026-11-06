@@ -715,8 +715,9 @@ def _link_pdfs(res: dict) -> dict:
 @mcp.tool(description=(
     "My Day: today's calls, LinkedIn touches and manual tasks from active "
     "campaigns (plus up to a week of overdue ones), with the contact's "
-    "phones, LinkedIn and the call script. Pass date=YYYY-MM-DD for another "
-    "day. Use tm_task_done to tick one off."
+    "phones, LinkedIn and the call script. LinkedIn touches also carry "
+    "'message', the connection note to paste when adding them. Pass "
+    "date=YYYY-MM-DD for another day. Use tm_task_done to tick one off."
 ))
 async def tm_my_day(date: str = "") -> dict:
     return await _tm_call("tm_my_day", date)

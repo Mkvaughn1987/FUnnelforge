@@ -2174,6 +2174,19 @@ OWN_JOBS = [
 
 # ── Routines ─────────────────────────────────────────────────────────────
 
+def _no_schedule_fields():
+    """The page's own "run this again" questions, hidden: this routine
+    schedules itself (it makes a skill and a task that runs the skill), so
+    the generic repeat block would only bake the whole brief into a task."""
+    import copy
+    out = []
+    for f in _e.COMMON_FIELDS:
+        f = copy.copy(f)
+        f["show_if"] = lambda r, vals: False
+        out.append(f)
+    return out
+
+
 ROUTINES = [
     {
         "key": "tm_signal_hunt",
@@ -2467,6 +2480,73 @@ ROUTINES = [
         ],
     },
     {
+        "key": "tm_linkedin_auto",
+        "name": "Add My LinkedIn Tasks Every Day",
+        "blurb": "Creates a Claude skill that, every day, takes the LinkedIn "
+                 "touches on My Day, opens each person in Chrome, adds them "
+                 "with the message inboxslide already wrote, and ticks the "
+                 "task off.",
+        "example": "Send my LinkedIn connection requests from My Day each morning",
+        "tools": ["tm_my_day", "tm_task_done"],
+        "fields": [
+            F("daily_cap", "Most requests per day", "details", "text",
+              default="15",
+              hint="LinkedIn restricts accounts that send invitations in "
+                   "bulk, so keep this modest. 15 a day is a safe start."),
+            F("run_when", "When it runs", "details", "text",
+              default="Every day at 9:00am Mountain time",
+              hint="Claude's computer has to be on, with Chrome open and "
+                   "signed in to LinkedIn."),
+        ] + _no_schedule_fields(),
+        "steps": [
+            "Create a skill called linkedin-daily-adds, saved so it is "
+            "available in every chat, that does what steps 2 to 8 describe. "
+            "steps. Write the skill's instructions out in full, not as a "
+            "summary, then read its name and description back to me.",
+            "Each time the skill runs, call tm_my_day for today and keep only "
+            "the tasks whose channel is \"li\" (LinkedIn). Ignore calls and "
+            "manual tasks. Overdue LinkedIn tasks from the past week come "
+            "with it; do those first, oldest first.",
+            "Work through at most {daily_cap} people per run. Whatever is "
+            "left stays on My Day for tomorrow, so tell me how many are "
+            "waiting.",
+            "For each person, use the Claude in Chrome extension in my own "
+            "signed-in Chrome, one profile at a time, never in parallel. "
+            "Open the task's linkedin address in a new tab. The message to "
+            "paste is the task's message field, the same note My Day shows "
+            "above the LinkedIn contacts. If there is no LinkedIn address or "
+            "no message, skip the person, leave the task on My Day and tell "
+            "me why.",
+            "On the profile, click Connect (if it is not on the main row, "
+            "open the More menu and look there), choose Add a note, and "
+            "paste the message exactly as the task has it. Never rewrite, "
+            "shorten or add to it. Then send. If the message is longer than "
+            "LinkedIn's note box takes, or Add a note is not offered (some "
+            "accounts have a monthly limit on notes), do not trim it and do "
+            "not send without it: skip that person and tell me. If the profile already shows "
+            "Message instead of Connect, or Pending, send nothing and mark "
+            "the task with result \"skipped\".",
+            "After a request goes out, check the button now reads Pending "
+            "before counting it as sent, then call tm_task_done with that "
+            "task_id and result \"connected\". Mark only the people you "
+            "really sent to.",
+            "Wait a random 30 to 90 seconds between profiles. If LinkedIn "
+            "shows a CAPTCHA, a sign-in page, an invitation limit or any "
+            "other warning, stop the whole run on the spot, do not retry, "
+            "and tell me exactly what it said.",
+            "End every run with a short report: how many were sent, how many "
+            "were skipped and why for each, and how many are left for "
+            "tomorrow.",
+            "Schedule the skill: {run_when}. Create the recurring task so it "
+            "only runs the linkedin-daily-adds skill and carries nothing "
+            "else. Read its name and schedule back to me, and tell me what "
+            "has to stay true for it to fire: the computer on, Chrome open "
+            "and signed in to LinkedIn, and the Claude in Chrome extension "
+            "connected.",
+            "Then run the skill once now so I can see it work.",
+        ],
+    },
+    {
         "key": "other",
         "name": "Create Your Own",
         "blurb": "Describe it in your own words and the prompt is built "
@@ -2561,24 +2641,15 @@ STARTERS = [
         "vals": {"vertical": "Accounting / CAS firms"},
     },
     {
-        "id": "audience",
-        "icon": "groups",
-        "label": "Turn a Saved Audience into a Campaign",
-        "sub": "Contacts already in inboxslide, checked and put into one "
-               "campaign.",
-        "summary": "Take one of my saved audiences, clean it, and put it "
-                   "into a campaign.",
-        "routine": "tm_audience",
-        "vals": {},
-    },
-    {
-        "id": "account",
-        "icon": "search",
-        "label": "Research an Account",
-        "sub": "Everything worth knowing before a call. Nothing is sent.",
-        "summary": "Research one company before I reach out: what they do, "
-                   "who buys, what they are hiring, and the talk track.",
-        "routine": "tm_account",
+        "id": "linkedin_auto",
+        "icon": "person_add",
+        "label": "Add My LinkedIn Tasks Every Day",
+        "sub": "Claude makes a skill that adds each day's LinkedIn contacts "
+               "from My Day and pastes your message.",
+        "summary": "Make a skill that, every day, adds the LinkedIn contacts "
+                   "from my My Day tasks in Chrome and pastes the message "
+                   "that came with each one.",
+        "routine": "tm_linkedin_auto",
         "vals": {},
     },
     {
@@ -2643,6 +2714,20 @@ STANDING_RULES = [
     "connected sending mailbox is there. If there is none, stop and tell "
     "me: nothing can send without one.",
     _e.EMAIL_CAP_RULE,
+]
+
+# The LinkedIn automation has nothing to do with prospecting or ThriveModal's
+# claims, so it carries its own short rules (the first stays the "wait for me"
+# one, which a run-through catalogue swaps out).
+ROUTINE_BY_KEY["tm_linkedin_auto"]["rules"] = [
+    STANDING_RULES[0],
+    "The only messages that go out are the ones inboxslide wrote and put on "
+    "the task. Never write, edit or personalise a LinkedIn message "
+    "yourself.",
+    "Send to nobody who is not on the My Day list that tm_my_day returns.",
+    "Use only the LinkedIn session already signed in to Chrome. Never ask "
+    "me for a password and never type one.",
+    STANDING_RULES[1],
 ]
 UNATTENDED_RULE = _e.UNATTENDED_RULE
 
@@ -2921,7 +3006,7 @@ TM = Catalogue(
     tile_groups=[
         ("Find new business", ["signal", "lookalike", "displace",
                                "pressure", "season"]),
-        ("Use what you have", ["audience", "account"]),
+        ("Automation Prompts", ["linkedin_auto"]),
         ("Off script", ["other"]),
     ],
     tile_short={

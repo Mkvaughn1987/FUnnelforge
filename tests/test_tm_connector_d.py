@@ -19,6 +19,7 @@ _TOOLS = ("tm_task_done", "tm_replies", "tm_sales_assets", "tm_call_briefing",
 
 _ROUTES = [  # (method, path, handler)
     ("post", "/api/v1/tm/tasks/done", "api_tm_task_done"),
+    ("get", "/api/v1/tm/tasks", "api_tm_tasks"),
     ("post", "/api/v1/tm/replies", "api_tm_reply_update"),
     ("get", "/api/v1/tm/sales_assets", "api_tm_sales_assets"),
     ("post", "/api/v1/tm/sales_assets", "api_tm_sales_asset_build"),
@@ -578,3 +579,28 @@ def test_pdf_edit_tool_links_the_file(monkeypatch):
     monkeypatch.setattr(mcp, "_APP_ORIGIN", "https://app.example.com")
     out = mcp._link_pdfs({"file": "A.pdf", "path": "/pdfs/A.pdf", "data": {}})
     assert out["url"] == "https://app.example.com/pdfs/A.pdf"
+
+
+# ── My Day: the LinkedIn note rides on each LinkedIn task ──────────────────
+
+def test_linkedin_tasks_carry_the_campaign_message(api, outcomes, monkeypatch):
+    camps = [
+        {"_path": "/data/Acme_Outreach.json", "name": "Acme Outreach",
+         "linkedin_message": "Just sent you an email. Open to a chat."},
+        {"_path": "/data/Other_Camp.json", "name": "Other Camp"},
+    ]
+    monkeypatch.setattr(fa, "load_campaigns", lambda: camps)
+    made = []
+
+    def _gen(camp):
+        made.append(camp["name"])
+        return "Fresh note for Other Camp"
+    monkeypatch.setattr(fa, "_generate_li_message_for_campaign", _gen)
+    r = api["call"]("get", "/api/v1/tm/tasks")
+    assert r.status_code == 200, r.text
+    rows = {t["id"]: t for t in r.json()["tasks"]}
+    assert rows["l1"]["message"] == "Just sent you an email. Open to a chat."
+    assert rows["l0"]["message"] == rows["l1"]["message"]
+    assert rows["x1"]["message"] == "Fresh note for Other Camp"
+    assert made == ["Other Camp"]            # once per campaign, only if missing
+    assert "message" not in rows["c1"] and "message" not in rows["k1"]

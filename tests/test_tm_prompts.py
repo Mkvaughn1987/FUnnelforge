@@ -92,14 +92,17 @@ def test_every_routine_has_fields_steps_and_a_starter(tm):
     keys = [r["key"] for r in tm.ROUTINES]
     assert keys == ["tm_signal_hunt", "tm_lookalikes", "tm_displacement",
                     "tm_cost_pressure", "tm_seasonal", "tm_audience",
-                    "tm_account", "other"]
+                    "tm_account", "tm_linkedin_auto", "other"]
     for r in tm.ROUTINES:
         assert r["fields"], r["key"]
         assert r["steps"], r["key"]
         assert "field_by_key" in r
         assert "repeat_on" in r["field_by_key"]
         assert "unattended" in r["field_by_key"]
-    assert {st["routine"] for st in tm.STARTERS} == set(keys)
+    # The audience and account jobs stay as routines (saved setups can still
+    # open them) but no longer have a tile: "Use what you have" was removed.
+    assert ({st["routine"] for st in tm.STARTERS}
+            == set(keys) - {"tm_audience", "tm_account"})
     assert tm.STARTERS[-1]["id"] == "other"
     assert tm.TM.default_routine in tm.ROUTINE_BY_KEY
 
@@ -606,6 +609,7 @@ def test_every_run_that_can_be_recommended_for_declares_its_keys(tm):
         # "other" is them describing a job in their own words.
         "tm_audience": [],
         "tm_account": ["who_to_reach"],
+        "tm_linkedin_auto": [],
         "other": [],
     }
     for r in tm.ROUTINES:
@@ -1088,6 +1092,18 @@ def test_the_new_menus_travel_with_the_recommendation_and_come_back_as_ids(
     assert "    wy: Wyoming" in sent and "wy: Wyoming (usual" not in sent
 
 
+# The audience and account jobs lost their tiles ("Use what you have" was
+# removed); these stand in for the starters so their questions stay tested.
+_HIDDEN = {
+    "audience": {"id": "audience", "icon": "groups", "label": "Audience",
+                 "sub": "", "summary": "", "routine": "tm_audience",
+                 "vals": {}},
+    "account": {"id": "account", "icon": "search", "label": "Account",
+                "sub": "", "summary": "", "routine": "tm_account",
+                "vals": {}},
+}
+
+
 def test_audience_and_company_are_picks_off_the_users_own_data(tm, aip,
                                                                 monkeypatch):
     aud = tm.ROUTINE_BY_KEY["tm_audience"]["field_by_key"]["audience"]
@@ -1102,7 +1118,9 @@ def test_audience_and_company_are_picks_off_the_users_own_data(tm, aip,
         "companies": lambda: ["Acme Freight", "Zed Logistics"]})
     # The audience opens on the first saved one; a company is chosen, not
     # assumed.
-    st = tm.STARTER_BY_ID["audience"]
+    # These two have no tile any more, so build the request from the same
+    # shape a starter has.
+    st = _HIDDEN["audience"]
     req = aip._req_from_starter(st, tm.TM)
     aip.run_prefill(tm.ROUTINE_BY_KEY["tm_audience"], req, tm.TM)
     assert req["vals"]["audience"] == "Denver ops"
@@ -1110,12 +1128,15 @@ def test_audience_and_company_are_picks_off_the_users_own_data(tm, aip,
     req["vals"]["audience"] = "Texas brokers"
     aip.run_prefill(tm.ROUTINE_BY_KEY["tm_audience"], req, tm.TM)
     assert req["vals"]["audience"] == "Texas brokers"
-    st = tm.STARTER_BY_ID["account"]
+    st = _HIDDEN["account"]
     req = aip._req_from_starter(st, tm.TM)
     aip.run_prefill(tm.ROUTINE_BY_KEY["tm_account"], req, tm.TM)
     assert not req["vals"]["company"]
     # The connector sees the list as a suggestion, not a rule.
-    runs = {r["run"]: r for r in aip.describe_runs(tm.TM)}
+    import dataclasses
+    cat = dataclasses.replace(
+        tm.TM, starters=list(tm.TM.starters) + list(_HIDDEN.values()))
+    runs = {r["run"]: r for r in aip.describe_runs(cat)}
     q = next(q for q in runs["account"]["questions"] if q["key"] == "company")
     assert q["type"] == "text" and q["options"] == ["Acme Freight", "Zed Logistics"]
     assert q["any_text"] is True
@@ -1128,7 +1149,7 @@ def test_audience_and_company_are_picks_off_the_users_own_data(tm, aip,
     # No data behind the list: a plain box, the question still there.
     monkeypatch.setattr(aip, "PICK_OPTIONS", None)
     assert aip._pick_names("audiences") == []
-    req = aip._req_from_starter(tm.STARTER_BY_ID["audience"], tm.TM)
+    req = aip._req_from_starter(_HIDDEN["audience"], tm.TM)
     aip.run_prefill(tm.ROUTINE_BY_KEY["tm_audience"], req, tm.TM)
     assert not req["vals"]["audience"]
 
@@ -1209,3 +1230,28 @@ def test_the_work_from_home_signal_starts_ticked_for_two_verticals(tm):
     p = _flat(tm.build_prompt({"routine": r["key"],
                                    "vals": {"vertical": "Logistics / 3PL"}}))
     assert _flat(sig["label"]) not in p
+
+
+def test_automation_prompts_replace_use_what_you_have(tm):
+    heads = [h for h, _ in tm.TM.tile_groups]
+    assert "Use what you have" not in heads
+    assert ("Automation Prompts", ["linkedin_auto"]) in tm.TM.tile_groups
+    ids = {st["id"] for st in tm.STARTERS}
+    assert "audience" not in ids and "account" not in ids
+
+
+def test_linkedin_automation_prompt_makes_a_skill_that_pastes_the_message(tm):
+    r = tm.ROUTINE_BY_KEY["tm_linkedin_auto"]
+    vals = {f["key"]: f["default"] for f in r["fields"]}
+    p = tm.build_prompt({"routine": "tm_linkedin_auto", "vals": vals,
+                         "summary": "x"})
+    assert "skill called linkedin-daily-adds" in p
+    assert "tm_my_day" in p and "tm_task_done" in p
+    assert "Claude in Chrome" in p and "message field" in p
+    assert "Add a note" in p and "Pending" in p
+    # Its own rules, not the prospecting ones, and no generic repeat block.
+    assert "ZoomInfo" not in p and "THEN MAKE IT REPEAT" not in p
+    assert "Never write, edit or personalise a LinkedIn message" in p
+    vals["daily_cap"] = "8"
+    assert "at most 8 people" in tm.build_prompt(
+        {"routine": "tm_linkedin_auto", "vals": vals, "summary": "x"})

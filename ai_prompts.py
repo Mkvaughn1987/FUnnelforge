@@ -1657,7 +1657,9 @@ def build_prompt(req, cat=None):
                    % (cat.connector, ", ".join(tools)))
 
     L += ["", "HOW I WANT YOU TO WORK"]
-    for i, rule in enumerate(cat.standing_rules):
+    # A routine may carry its own rules (the first is still the "wait for
+    # me" one, swapped on a run-through catalogue); most use the catalogue's.
+    for i, rule in enumerate(r.get("rules") or cat.standing_rules):
         L += _bullet(cat.unattended_rule if (i == 0 and solo) else rule)
 
     if _flag(r, vals, "repeat_on"):
