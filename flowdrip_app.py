@@ -9238,6 +9238,41 @@ def _nl_campaign_dict(nl_name, sector_key, sector_label, niche, region,
     )
 
 
+def _seed_starter_newsletters(email: str):
+    """Give a brand-new sales-instance user one generic Organic (text only)
+    monthly newsletter per industry, so they have something ready on day one.
+    Nobody is enrolled, so nothing sends. Only the first issue of each is
+    written (sequentially, in the background); idempotent by name. No-op on
+    Arena (ATS instance)."""
+    if not _SALES_MODE:
+        return
+
+    def _seed():
+        try:
+            have = {c.get("name", "") for c in load_campaigns()}
+            made = []
+            for skey, meta in _TM_NEWSLETTER_SECTORS.items():
+                label = meta.get("label", skey)
+                nm = f"{label} Monthly Note"
+                if nm in have:
+                    continue
+                save_campaign(_nl_campaign_dict(
+                    nm, skey, label, "", _TM_NATIONWIDE, date.today(),
+                    style="j_way", spotlight_count=0))
+                made.append(nm)
+            _cache_campaigns.invalidate()
+            for nm in made:
+                try:
+                    _gen_one_issue_for_campaign(nm, 0)
+                except Exception as ex:
+                    print(f"[StarterNL] issue gen failed for {nm!r}: {ex}",
+                          flush=True)
+                _cache_campaigns.invalidate()
+        except Exception as ex:
+            print(f"[StarterNL] seed failed for {email}: {ex}", flush=True)
+    _run_as_user(email, _seed, name="starter_newsletters")
+
+
 def _tm_nl_summary(c):
     steps = c.get("emails") or []
     nxt = _find_next_evergreen_step(c)
@@ -73909,6 +73944,7 @@ def register_page(next: str = "/setup"):
                     )
             except Exception:
                 pass  # Non-fatal
+            _seed_starter_newsletters(email.lower())
             app.storage.user["authenticated"] = True
             app.storage.user["email"] = email.lower()
             app.storage.user["name"] = name
