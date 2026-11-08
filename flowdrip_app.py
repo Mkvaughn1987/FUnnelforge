@@ -76691,6 +76691,30 @@ try:
 except Exception as _tmr_imp_ex:
     print(f"[Testimonials] public routes disabled: {_tmr_imp_ex}", flush=True)
 
+# ThriveModal public landing pages (static HTML + images in static/ThriveModal).
+# Mounted per folder, not at /ThriveModal, so /ThriveModal/review/<token> above
+# keeps working. html=True serves index.html for folder URLs. The lowercase
+# route redirects /thrivemodal/construction etc. to the real paths.
+try:
+    from starlette.staticfiles import StaticFiles as _TMStaticFiles
+    _TM_PAGES_DIR = _APP_DIR / "static" / "ThriveModal"
+    _TM_PAGE_SECTIONS = {"construction": "Construction", "hr": "HR"}
+    for _tm_section in _TM_PAGE_SECTIONS.values():
+        if (_TM_PAGES_DIR / _tm_section).is_dir():
+            app.mount(f"/ThriveModal/{_tm_section}",
+                      _TMStaticFiles(directory=str(_TM_PAGES_DIR / _tm_section), html=True),
+                      name=f"thrivemodal-pages-{_tm_section.lower()}")
+
+    @app.get("/thrivemodal/{section}", include_in_schema=False)
+    @app.get("/thrivemodal/{section}/{rest:path}", include_in_schema=False)
+    def _tm_pages_lowercase(section: str, rest: str = ""):
+        fixed = _TM_PAGE_SECTIONS.get(section.lower())
+        if not fixed:
+            return Response(status_code=404)
+        return RedirectResponse(f"/ThriveModal/{fixed}/{rest}")
+except Exception as _tm_pages_ex:
+    print(f"[ThriveModal pages] disabled: {_tm_pages_ex}", flush=True)
+
 
 if __name__ in {"__main__", "__mp_main__"}:
     # Silently archive queue entries older than 30 days before the UI starts.

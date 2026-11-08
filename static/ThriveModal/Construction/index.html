@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Thrivemodal Construction</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap">
+<style>
+/* Layout: Thrivemodal header gradient band, white content on a cool-grey ground, blue section bands, green CTAs. Kinetic's section order, Thrivemodal's identity. */
+:root{
+  --tm-blue:#005EB8; --tm-blue-deep:#004585; --tm-navy:#001D38; --tm-green:#84BF55; --tm-green-deep:#6ea744;
+  --bg:#f3f6fa; --surface:#ffffff; --surface-2:#e9eff7; --fg:#1d2733; --fg-muted:#55657a; --line:#d5dee9;
+  --band-fg:#ffffff; --band-muted:#c9dcf0;
+  --font-display:"Manrope","Articulat CF","Helvetica Neue",Arial,sans-serif;
+  --font-body:"Manrope","Articulat CF","Helvetica Neue",Arial,sans-serif;
+  --radius:10px; --maxw:1180px;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0b1624; --surface:#122033; --surface-2:#182a40; --fg:#e8eef6; --fg-muted:#a7b6c8; --line:#27405c;
+  --tm-blue:#2b7fd1; --tm-blue-deep:#0a3f72; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#0b1624; --surface:#122033; --surface-2:#182a40; --fg:#e8eef6; --fg-muted:#a7b6c8; --line:#27405c;
+  --tm-blue:#2b7fd1; --tm-blue-deep:#0a3f72; color-scheme:dark }
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:17px;line-height:1.6;font-weight:500}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:#005EB8}
+h1,h2,h3,h4,h5{font-family:var(--font-display);line-height:1.15;margin:0;text-wrap:balance;font-weight:800}
+h1{font-size:clamp(2rem,4.2vw,3.1rem)}
+h2{font-size:clamp(1.6rem,3vw,2.3rem)}
+h3{font-size:1.25rem;font-weight:700}
+p{margin:0}
+a{color:var(--tm-blue)}
+.wrap{max-width:var(--maxw);margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+section{padding-block:64px}
+@media (max-width:700px){section{padding-block:44px}}
+.eyebrow{font-size:.78rem;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--tm-blue)}
+.band .eyebrow{color:var(--tm-green)}
+.lede{font-size:1.15rem;color:var(--fg-muted);max-width:68ch}
+.stack{display:flex;flex-direction:column;gap:18px}
+.prose{max-width:70ch;display:flex;flex-direction:column;gap:16px}
+.prose p{color:var(--fg)}
+.btn{display:inline-block;padding:14px 26px;border-radius:var(--radius);font-weight:800;text-decoration:none;font-size:.95rem;letter-spacing:.02em;transition:transform .12s ease,background .12s ease}
+.btn:hover{transform:translateY(-1px)}
+.btn:focus-visible{outline:3px solid var(--tm-green);outline-offset:2px}
+.btn-green{background:var(--tm-green);color:#fff}
+.btn-green:hover{background:var(--tm-green-deep)}
+.btn-ghost{border:2px solid currentColor;color:#fff;background:transparent}
+.btn-blue{background:var(--tm-blue);color:#fff}
+.btn-row{display:flex;flex-wrap:wrap;gap:14px}
+
+/* Header */
+header{background:linear-gradient(90deg,#005EB8 0%,#004585 100%);color:#fff;position:sticky;top:env(safe-area-inset-top,0px);z-index:9;box-shadow:0 2px 10px rgba(0,29,56,.25)}
+.nav{display:flex;align-items:center;justify-content:space-between;gap:24px;min-height:84px}
+.logo{display:flex;flex-direction:column;align-items:center;gap:6px;text-decoration:none;color:#fff}
+.logo .word{font-family:var(--font-display);font-weight:700;font-size:.72rem;letter-spacing:.32em}
+.nav ul{list-style:none;margin:0;padding:0;display:flex;gap:28px;flex-wrap:wrap;justify-content:flex-end}
+.nav li a{color:#fff;text-decoration:none;font-weight:800;font-size:.82rem;letter-spacing:.06em;text-transform:uppercase;padding-bottom:6px;border-bottom:3px solid transparent}
+.nav li a.active{border-bottom-color:#fff}
+.nav li a:hover{border-bottom-color:rgba(255,255,255,.6)}
+@media (max-width:860px){.nav ul{display:none}.nav .btn{padding:10px 16px}}
+
+/* Hero */
+.hero{background:linear-gradient(130deg,#005EB8 0%,#004585 100%);color:#fff;padding-block:72px}
+.hero .grid{display:grid;grid-template-columns:1.15fr .85fr;gap:48px;align-items:center}
+@media (max-width:900px){.hero .grid{grid-template-columns:1fr}}
+.hero .lede{color:#dbe8f6}
+.hero .eyebrow{color:var(--tm-green)}
+
+/* Image slot */
+.img-slot{position:relative;background:repeating-linear-gradient(135deg,rgba(255,255,255,.06) 0 14px,rgba(255,255,255,.12) 14px 28px),var(--surface-2);border:2px dashed var(--line);border-radius:14px;max-width:100%;display:flex;align-items:flex-end;overflow:hidden;color:var(--fg-muted)}
+.band .img-slot,.hero .img-slot{border-color:rgba(255,255,255,.45);background:repeating-linear-gradient(135deg,rgba(255,255,255,.06) 0 14px,rgba(255,255,255,.12) 14px 28px),rgba(0,29,56,.35);color:#e3edf8}
+.img-slot .tag{position:absolute;top:12px;left:12px;background:var(--tm-green);color:#fff;font-size:.72rem;font-weight:800;letter-spacing:.1em;padding:5px 10px;border-radius:6px;text-transform:uppercase}
+.img-slot .desc{padding:18px;font-size:.9rem;line-height:1.45;background:linear-gradient(transparent,rgba(0,29,56,.75));color:#fff;width:100%}
+.img-slot img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.img-slot:has(img){border-style:solid;border-color:transparent;background:none}
+
+/* Section bands */
+.band{background:linear-gradient(130deg,var(--tm-blue) 0%,var(--tm-blue-deep) 100%);color:var(--band-fg)}
+.band .lede,.band p{color:var(--band-muted)}
+.band h2,.band h3{color:#fff}
+.band .prose p{color:#e3edf8}
+
+/* Two col */
+.two{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center}
+@media (max-width:900px){.two{grid-template-columns:1fr}}
+
+/* Stat strip */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:36px}
+@media (max-width:760px){.stats{grid-template-columns:1fr}}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px 22px}
+.stat b{display:block;font-family:var(--font-display);font-size:2rem;color:var(--tm-blue);font-variant-numeric:tabular-nums;line-height:1.1}
+.stat span{color:var(--fg-muted);font-size:.95rem}
+
+/* Why PH cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;margin-top:36px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:24px;display:flex;flex-direction:column;gap:10px}
+.card h3{color:var(--tm-blue)}
+.band .card{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.25)}
+.band .card h3{color:#fff}
+.band .card p{color:#dbe8f6}
+
+/* Roles */
+.roles{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:22px;margin-top:36px}
+@media (max-width:420px){.roles{grid-template-columns:1fr}}
+.role{background:var(--surface);border:1px solid var(--line);border-left:6px solid var(--tm-green);border-radius:var(--radius);padding:26px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.role h3{color:var(--fg);font-size:1.3rem}
+.role .cost{font-size:.9rem;color:var(--fg-muted);background:var(--surface-2);padding:10px 12px;border-radius:8px}
+.role .cost b{color:var(--tm-blue)}
+.role .guide{margin-top:auto;padding-top:8px;font-weight:800;text-decoration:none;color:var(--tm-blue)}
+.role .guide:hover{text-decoration:underline}
+.role ul{margin:0;padding-left:18px;color:var(--fg-muted);font-size:.95rem}
+.coststrip{display:flex;flex-wrap:wrap;align-items:flex-end;column-gap:18px;row-gap:6px;background:var(--surface-2);border-radius:8px;padding:12px 14px}
+.coststrip>div{display:flex;flex-direction:column;gap:2px}
+.coststrip .flag{width:22px;height:11px;display:block;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.12);margin-bottom:4px}
+.coststrip .cs-cap{flex:0 0 100%;margin:0;font-size:.78rem;font-weight:800;color:var(--fg);letter-spacing:.02em}
+.coststrip .sv{margin-left:auto;text-align:right}
+.coststrip span{font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;font-weight:800;color:var(--fg-muted)}
+.coststrip b{font-family:var(--font-display);font-size:1.1rem;font-weight:800;color:var(--fg);font-variant-numeric:tabular-nums;white-space:nowrap}
+.coststrip b.ph{color:var(--tm-blue)}
+.coststrip .sv b{color:var(--tm-green-deep)}
+.also{font-size:.9rem;color:var(--fg-muted)} .also b{color:var(--fg)}
+.srcnote{font-size:.8rem;color:var(--fg-muted);margin-top:22px;max-width:90ch;line-height:1.5}
+.callout{margin-top:36px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:28px;display:flex;flex-wrap:wrap;gap:20px;align-items:center;justify-content:space-between}
+.callout h3{color:var(--tm-blue)}
+
+/* Software chips */
+.chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}
+.chip{background:var(--surface);border:1px solid var(--line);color:var(--fg);padding:8px 14px;border-radius:999px;font-weight:700;font-size:.9rem}
+.band .chip{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.3);color:#fff}
+
+/* Process timeline */
+.timeline{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:0;margin-top:40px;position:relative}
+.step{padding:0 22px 0 0;position:relative;min-width:0}
+.step .dot{width:44px;height:44px;border-radius:50%;background:var(--tm-green);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-family:var(--font-display);font-size:1.1rem;margin-bottom:16px;position:relative;z-index:1}
+.step::before{content:"";position:absolute;top:21px;left:44px;right:0;height:2px;background:var(--line)}
+.step:last-child::before{display:none}
+.step .when{font-size:.78rem;letter-spacing:.12em;text-transform:uppercase;font-weight:800;color:var(--tm-blue)}
+.step h3{margin:6px 0 8px;font-size:1.1rem}
+.step p{color:var(--fg-muted);font-size:.95rem}
+@media (max-width:700px){.timeline{grid-template-columns:1fr;gap:26px}.step::before{left:21px;top:44px;right:auto;bottom:-26px;width:2px;height:auto}}
+.guarantee{margin-top:40px;background:var(--surface-2);border-radius:var(--radius);padding:24px 28px;display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}
+.guarantee .mark{width:52px;height:52px;border-radius:50%;background:var(--tm-green);flex:0 0 auto;display:flex;align-items:center;justify-content:center}
+.guarantee p{color:var(--fg-muted)}
+
+/* Pitfalls */
+.pitfalls{counter-reset:p;display:grid;gap:18px;margin-top:36px}
+.pit{display:grid;grid-template-columns:56px 1fr;gap:18px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:22px;min-width:0}
+.pit::before{counter-increment:p;content:counter(p);font-family:var(--font-display);font-weight:800;font-size:1.6rem;color:var(--tm-green);line-height:1}
+.pit p{color:var(--fg-muted);margin-top:6px}
+
+/* Testimonials */
+.quotes{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;margin-top:36px}
+.quote{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);border-radius:var(--radius);padding:26px;display:flex;flex-direction:column;gap:14px}
+.quote blockquote{margin:0;font-size:1.02rem;color:#f0f5fb;font-style:italic}
+.quote cite{font-style:normal;color:#fff;font-weight:800}
+.quote small{color:var(--band-muted)}
+.pending{border-style:dashed;opacity:.85}
+
+/* FAQ */
+.faq{margin-top:32px;display:flex;flex-direction:column;gap:10px;max-width:860px}
+details{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:0}
+summary{cursor:pointer;padding:18px 22px;font-weight:800;font-family:var(--font-display);list-style:none;display:flex;justify-content:space-between;gap:16px;align-items:center}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";color:var(--tm-green);font-size:1.5rem;line-height:1;flex:0 0 auto}
+details[open] summary::after{content:"\2212"}
+details .a{padding:0 22px 20px;color:var(--fg-muted)}
+
+/* Final CTA */
+.cta-final{text-align:left}
+.cta-final .two{align-items:center}
+
+/* Footer */
+footer{background:var(--tm-navy);color:#c9dcf0;padding-block:48px;font-size:.95rem}
+footer .cols{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:36px}
+@media (max-width:800px){footer .cols{grid-template-columns:1fr}}
+footer h4{color:#fff;font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;margin-bottom:14px}
+footer ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+footer a{color:#fff;text-decoration:none;font-weight:700;font-size:.85rem;letter-spacing:.04em}
+footer a:hover{text-decoration:underline}
+.copy{border-top:1px solid rgba(255,255,255,.15);margin-top:36px;padding-top:20px;display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;font-size:.85rem}
+@media (prefers-reduced-motion:reduce){.btn{transition:none}}
+</style>
+</head><body>
+
+<header>
+  <div class="wrap nav">
+    <a class="logo" href="https://thrivemodal.com" aria-label="Thrivemodal home">
+      <img src="data:image/png;base64,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" alt="Thrivemodal" style="height:64px;width:auto;display:block">
+    </a>
+    <ul>
+      <li><a href="https://thrivemodal.com/">Home</a></li>
+      <li><a href="https://thrivemodal.com/why-thrivemodal/">Who We Are</a></li>
+      <li><a class="active" href="https://thrivemodal.com/services/">Services</a></li>
+      <li><a href="https://info.thrivemodal.com/2026-workforce-cost-guide">Resources</a></li>
+      <li><a href="https://thrivemodal.com/blog-grid/">Blogs</a></li>
+      <li><a href="https://thrivemodal.com/faq/">FAQ</a></li>
+      <li><a href="https://info.thrivemodal.com/careers-3">Careers</a></li>
+    </ul>
+    <a class="btn btn-green" href="https://info.thrivemodal.com/zero-risk-consultation">Consultation</a>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap grid">
+    <div class="stack">
+      <span class="eyebrow">Construction Staffing &middot; Philippines</span>
+      <h1>The Construction Roles You Can Move Offshore Without Moving the Work Off Site</h1>
+      <p class="lede">Estimators, CAD and BIM drafters, project coordinators, document controllers. The technical and administrative backbone of a construction business can run just as effectively from the Philippines as from your local office, hand picked for your team and supported for the long term.</p>
+      <div class="btn-row">
+        <a class="btn btn-green" href="https://info.thrivemodal.com/zero-risk-consultation">Start Your Zero Risk Consultation</a>
+        <a class="btn btn-ghost" href="#roles">See the Roles</a>
+      </div>
+    </div>
+    <div class="img-slot" style="aspect-ratio:4/3"><img src="/ThriveModal/Construction/img/hero.jpg" alt="Professional reviewing a floor plan drawing on a desktop monitor"></div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="prose">
+      <h2>Let's be direct about something upfront</h2>
+      <p>Not every construction role is suitable for offshoring. The superintendent, the foreman, the trades. Those roles require physical presence and always will. Anyone telling you otherwise is selling something you shouldn't buy.</p>
+      <p>But here's what often gets missed: a significant portion of what makes a construction business operationally expensive has nothing to do with the jobsite. Estimating, CAD drafting, project administration, document control, scheduling, procurement support, AP and billing. This is the back-of-house work that keeps a contractor competitive and compliant. And most of it can be done just as well by a skilled professional in Manila as by one in Denver, Dallas, or Charlotte.</p>
+      <p>Contractors who have figured this out are running leaner, bidding more jobs, and turning around estimates faster. Not because they cut corners on quality, but because they stopped paying local rates for work that doesn't need to happen locally.</p>
+      <p>This page breaks down which roles make sense to offshore, why the Philippines has become the preferred market for construction support work, and what the Thrivemodal hiring process actually looks like.</p>
+    </div>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap">
+    <div class="two">
+      <div class="stack">
+        <span class="eyebrow">The Margin Problem</span>
+        <h2>Why Labor Costs Are Squeezing Construction Margins, and What Contractors Are Doing About It</h2>
+        <div class="prose">
+          <p>Material costs get most of the attention. But for many firms it's the steady climb in skilled support staff costs, estimators, coordinators, drafters, that's doing the most damage to project margins.</p>
+          <p>Construction has always been a margin-thin business. The pressure of the last several years, skilled labor shortages, wage inflation, benefits costs, and the rising cost of office space, has pushed a lot of firms to look hard at where their overhead actually goes.</p>
+          <p>The site costs are what they are. You can't move a pour or a frame to another country. But when a firm is paying <strong>$120,900 a year fully loaded</strong> for a typical estimator, or <strong>$144,100</strong> for a civil engineer, and those roles require nothing more than a computer, good software, and a reliable internet connection, that's a cost worth questioning.</p>
+          <p>The same roles, filled by degree-qualified, software-proficient professionals in the Philippines, run about <strong>$36,000</strong> and <strong>$48,000</strong> a year all-in. That's <strong>70%</strong> and <strong>67%</strong> less. For a contractor running two or three of these support roles, that is a meaningful reduction in overhead that goes directly to margin or gets reinvested into the business.</p>
+        </div>
+      </div>
+      <div class="img-slot" style="aspect-ratio:4/5"><img src="/ThriveModal/Construction/img/margin.jpg" alt="Hard hat and drafting tools on construction plans in a contractor office"></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <span class="eyebrow">Why the Philippines</span>
+    <h2 style="margin-top:10px">Why Construction Businesses Keep Coming Back to the Philippines for Technical Support Staff</h2>
+    <p class="lede" style="margin-top:14px">It's not just cost. Filipino construction professionals bring a specific combination of technical training, software proficiency, and US project familiarity that other offshore markets don't consistently replicate.</p>
+    <div class="cards">
+      <div class="card"><h3>Engineering and technical education runs deep</h3><p>The Philippines produces a substantial number of civil engineering, architecture, and drafting graduates every year. Many hold formal engineering or architectural degrees and have spent their careers in technical roles for international firms. The training is legitimate and it shows up in output quality.</p></div>
+      <div class="card"><h3>Software proficiency is real, not claimed</h3><p>AutoCAD, Revit, Procore, Bluebeam, PlanSwift, Civil 3D. These aren't tools you learn in a weekend. Candidates who list them have generally used them on real projects for real clients. When Thrivemodal screens candidates, tool proficiency is verified, not assumed.</p></div>
+      <div class="card"><h3>Familiarity with US construction standards</h3><p>Filipino engineers and drafters working for US firms have direct exposure to IBC, state amendments, CSI MasterFormat, and US submittal and RFI conventions. Many have spent years producing drawings and documents specifically for US projects. The learning curve is shorter than most businesses expect.</p></div>
+      <div class="card"><h3>English communication is a strength</h3><p>Construction support roles involve a lot of written communication: RFI responses, transmittals, project reports, procurement correspondence. English is an official working language in the Philippines, and professionals in international roles write at a professional standard consistently.</p></div>
+      <div class="card"><h3>US hours are standard practice</h3><p>Thrivemodal team members work your business hours. Night-shift arrangements aligned to US time zones are well established in the Philippines, and most experienced offshore construction professionals have worked them before.</p></div>
+      <div class="card"><h3>Dedicated, not shared</h3><p>Your hire works for you and only you, as a dedicated member of your team. No shared pool, no rotating faces, no gig-economy churn. They get a real career, you get continuity.</p></div>
+    </div>
+    <div class="two" style="margin-top:40px">
+      <div class="img-slot" style="aspect-ratio:4/5"><img src="/ThriveModal/Construction/img/team.jpg" alt="Three team members working together at a laptop"></div>
+      <div class="stack">
+        <h3 style="font-size:1.5rem">One Partnership. Two Wins.</h3>
+        <p class="lede">We actively recruit experienced construction professionals in the Philippines and place them as dedicated members of your team. You get the talent to grow and stay competitive. They get a real career, not a gig.</p>
+        <a class="btn btn-blue" href="https://thrivemodal.com/why-philippines">Why the Philippines</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="roles" style="background:var(--surface-2)">
+  <div class="wrap">
+    <span class="eyebrow">The Roles</span>
+    <h2 style="margin-top:10px">Which Construction Roles Can You Move Offshore?</h2>
+    <p class="lede" style="margin-top:14px">Six positions where contractors get the strongest results with offshore hiring. Each one is desk based, software driven, and process heavy. That is exactly the profile that transfers cleanly.</p>
+    <div class="roles">
+      <article class="role">
+        <h3>Estimator</h3>
+        <div class="coststrip"><p class="cs-cap">Avg. annual cost</p><div><svg class="flag" viewBox="0 0 30 15" role="img" aria-label="Philippines"><title>Philippines</title><rect width="30" height="7.5" fill="#0038A8"/><rect y="7.5" width="30" height="7.5" fill="#CE1126"/><path d="M0 0L13 7.5L0 15Z" fill="#fff"/><circle cx="4.6" cy="7.5" r="1.6" fill="#FCD116"/><circle cx="1.6" cy="2.4" r=".55" fill="#FCD116"/><circle cx="1.6" cy="12.6" r=".55" fill="#FCD116"/><circle cx="10.2" cy="7.5" r=".55" fill="#FCD116"/></svg><b class="ph">$36k</b></div><div><svg class="flag" viewBox="0 0 30 15" role="img" aria-label="United States"><title>United States</title><rect width="30" height="15" fill="#fff"/><rect y="0.000" width="30" height="1.154" fill="#B22234"/><rect y="2.308" width="30" height="1.154" fill="#B22234"/><rect y="4.615" width="30" height="1.154" fill="#B22234"/><rect y="6.923" width="30" height="1.154" fill="#B22234"/><rect y="9.231" width="30" height="1.154" fill="#B22234"/><rect y="11.538" width="30" height="1.154" fill="#B22234"/><rect y="13.846" width="30" height="1.154" fill="#B22234"/><rect width="12" height="8.08" fill="#3C3B6E"/><circle cx="1.5" cy="1.10" r=".38" fill="#fff"/><circle cx="3.5" cy="1.10" r=".38" fill="#fff"/><circle cx="5.5" cy="1.10" r=".38" fill="#fff"/><circle cx="7.5" cy="1.10" r=".38" fill="#fff"/><circle cx="9.5" cy="1.10" r=".38" fill="#fff"/><circle cx="2.5" cy="2.28" r=".38" fill="#fff"/><circle cx="4.5" cy="2.28" r=".38" fill="#fff"/><circle cx="6.5" cy="2.28" r=".38" fill="#fff"/><circle cx="8.5" cy="2.28" r=".38" fill="#fff"/><circle cx="1.5" cy="3.46" r=".38" fill="#fff"/><circle cx="3.5" cy="3.46" r=".38" fill="#fff"/><circle cx="5.5" cy="3.46" r=".38" fill="#fff"/><circle cx="7.5" cy="3.46" r=".38" fill="#fff"/><circle cx="9.5" cy="3.46" r=".38" fill="#fff"/><circle cx="2.5" cy="4.64" r=".38" fill="#fff"/><circle cx="4.5" cy="4.64" r=".38" fill="#fff"/><circle cx="6.5" cy="4.64" r=".38" fill="#fff"/><circle cx="8.5" cy="4.64" r=".38" fill="#fff"/><circle cx="1.5" cy="5.82" r=".38" fill="#fff"/><circle cx="3.5" cy="5.82" r=".38" fill="#fff"/><circle cx="5.5" cy="5.82" r=".38" fill="#fff"/><circle cx="7.5" cy="5.82" r=".38" fill="#fff"/><circle cx="9.5" cy="5.82" r=".38" fill="#fff"/><circle cx="2.5" cy="7.00" r=".38" fill="#fff"/><circle cx="4.5" cy="7.00" r=".38" fill="#fff"/><circle cx="6.5" cy="7.00" r=".38" fill="#fff"/><circle cx="8.5" cy="7.00" r=".38" fill="#fff"/></svg><b>$120.9k</b></div><div class="sv"><span>You save</span><b>$84.9k &middot; 70%</b></div></div>
+        <p>Probably the highest-impact offshore hire a contractor can make. A skilled estimator working from the Philippines produces quantity take-offs, cost estimates, and bid packages for residential, commercial, or civil work using the same software and methodology a local hire would.</p>
+        <ul><li>Bluebeam Revu, PlanSwift, On-Screen Takeoff, STACK</li><li>Residential, commercial, and civil take-offs</li><li>Bid leveling and subcontractor scope comparison</li></ul>
+        <p style="font-size:.92rem;color:var(--fg-muted)">One thing worth knowing: estimating accuracy depends on good documentation. If drawings are incomplete or scope is loose, that problem exists regardless of where your estimator sits. When inputs are solid, the output is the same standard.</p>
+      <p class="also"><b>Also available:</b> Construction Estimator, Project Estimator, Construction Cost Estimator, Estimator for Engineering Firms, Preconstruction Estimator</p>
+      <a class="guide" href="/ThriveModal/Construction/estimator/">Full guide: Hiring an offshore Estimator &rarr;</a>
+      </article>
+      <article class="role">
+        <h3>Project Coordinator / Assistant PM</h3>
+        <div class="coststrip"><p class="cs-cap">Avg. annual cost</p><div><svg class="flag" viewBox="0 0 30 15" role="img" aria-label="Philippines"><title>Philippines</title><rect width="30" height="7.5" fill="#0038A8"/><rect y="7.5" width="30" height="7.5" fill="#CE1126"/><path d="M0 0L13 7.5L0 15Z" fill="#fff"/><circle cx="4.6" cy="7.5" r="1.6" fill="#FCD116"/><circle cx="1.6" cy="2.4" r=".55" fill="#FCD116"/><circle cx="1.6" cy="12.6" r=".55" fill="#FCD116"/><circle cx="10.2" cy="7.5" r=".55" fill="#FCD116"/></svg><b class="ph">$26.4k</b></div><div><svg class="flag" viewBox="0 0 30 15" role="img" aria-label="United States"><title>United States</title><rect width="30" height="15" fill="#fff"/><rect y="0.000" width="30" height="1.154" fill="#B22234"/><rect y="2.308" width="30" height="1.154" fill="#B22234"/><rect y="4.615" width="30" height="1.154" fill="#B22234"/><rect y="6.923" width="30" height="1.154" fill="#B22234"/><rect y="9.231" width="30" height="1.154" fill="#B22234"/><rect y="11.538" width="30" height="1.154" fill="#B22234"/><rect y="13.846" width="30" height="1.154" fill="#B22234"/><rect width="12" height="8.08" fill="#3C3B6E"/><circle cx="1.5" cy="1.10" r=".38" fill="#fff"/><circle cx="3.5" cy="1.10" r=".38" fill="#fff"/><circle cx="5.5" cy="1.10" r=".38" fill="#fff"/><circle cx="7.5" cy="1.10" r=".38" fill="#fff"/><circle cx="9.5" cy="1.10" r=".38" fill="#fff"/><circle cx="2.5" cy="2.28" r=".38" fill="#fff"/><circle cx="4.5" cy="2.28" r=".38" fill="#fff"/><circle cx="6.5" cy="2.28" r=".38" fill="#fff"/><circle cx="8.5" cy="2.28" r=".38" fill="#fff"/><circle cx="1.5" cy="3.46" r=".38" fill="#fff"/><circle cx="3.5" cy="3.46" r=".38" fill="#fff"/><circle cx="5.5" cy="3.46" r=".38" fill="#fff"/><circle cx="7.5" cy="3.46" r=".38" fill="#fff"/><circle cx="9.5" cy="3.46" r=".38" fill="#fff"/><circle cx="2.5" cy="4.64" r=".38" fill="#fff"/><circle cx="4.5" cy="4.64" r=".38" fill="#fff"/><circle cx="6.5" cy="4.64" r=".38" fill="#fff"/><circle cx="8.5" cy="4.64" r=".38" fill="#fff"/><circle cx="1.5" cy="5.82" r=".38" fill="#fff"/><circle cx="3.5" cy="5.82" r=".38" fill="#fff"/><circle cx="5.5" cy="5.82" r=".38" fill="#fff"/><circle cx="7.5" cy="5.82" r=".38" fill="#fff"/><circle cx="9.5" cy="5.82" r=".38" fill="#fff"/><circle cx="2.5" cy="7.00" r=".38" fill="#fff"/><circle cx="4.5" cy="7.00" r=".38" fill="#fff"/><circle cx="6.5" cy="7.00" r=".38" fill="#fff"/><circle cx="8.5" cy="7.00" r=".38" fill="#fff"/></svg><b>$73.6k</b></div><div class="sv"><span>You save</span><b>$47.2k &middot; 64%</b></div></div>
+        <p>An offshore construction project coordinator handles the administrative, coordination, and documentation side of project management, not site supervision. They track schedules, manage document flow, coordinate subcontractor correspondence, maintain logs, and keep Procore or Buildertrend current.</p>
+        <ul><li>RFI, submittal, and change order logs</li><li>Meeting minutes and schedule updates</li><li>Sub and vendor correspondence</li></ul>
+        <p style="font-size:.92rem;color:var(--fg-muted)">For firms running several projects at once, this is the role that keeps things from falling through the cracks. The super focuses on the site. The coordinator keeps the paper and the systems in order.</p>
+      <p class="also"><b>Also available:</b> Assistant Project Manager, Project Coordinator, Project Engineer (office side), Closeout Specialist, Owner's Rep Support</p>
+      <a class="guide" href="/ThriveModal/Construction/project-coordinator/">Full guide: Hiring an offshore Project Coordinator / Assistant PM &rarr;</a>
+      </article>
+      <article class="role">
+        <h3>Civil and Structural Engineering Support</h3>
+        <div class="coststrip"><p class="cs-cap">Avg. annual cost</p><div><svg class="flag" viewBox="0 0 30 15" role="img" aria-label="Philippines"><title>Philippines</title><rect width="30" height="7.5" fill="#0038A8"/><rect y="7.5" width="30" height="7.5" fill="#CE1126"/><path d="M0 0L13 7.5L0 15Z" fill="#fff"/><circle cx="4.6" cy="7.5" r="1.6" fill="#FCD116"/><circle cx="1.6" cy="2.4" r=".55" fill="#FCD116"/><circle cx="1.6" cy="12.6" r=".55" fill="#FCD116"/><circle cx="10.2" cy="7.5" r=".55" fill="#FCD116"/></svg><b class="ph">$48k</b></div><div><svg class="flag" viewBox="0 0 30 15" role="img" aria-label="United States"><title>United States</title><rect width="30" height="15" fill="#fff"/><rect y="0.000" width="30" height="1.154" fill="#B22234"/><rect y="2.308" width="30" height="1.154" fill="#B22234"/><rect y="4.615" width="30" height="1.154" fill="#B22234"/><rect y="6.923" width="30" height="1.154" fill="#B22234"/><rect y="9.231" width="30" height="1.154" fill="#B22234"/><rect y="11.538" width="30" height="1.154" fill="#B22234"/><rect y="13.846" width="30" height="1.154" fill="#B22234"/><rect width="12" height="8.08" fill="#3C3B6E"/><circle cx="1.5" cy="1.10" r=".38" fill="#fff"/><circle cx="3.5" cy="1.10" r=".38" fill="#fff"/><circle cx="5.5" cy="1.10" r=".38" fill="#fff"/><circle cx="7.5" cy="1.10" r=".38" fill="#fff"/><circle cx="9.5" cy="1.10" r=".38" fill="#fff"/><circle cx="2.5" cy="2.28" r=".38" fill="#fff"/><circle cx="4.5" cy="2.28" r=".38" fill="#fff"/><circle cx="6.5" cy="2.28" r=".38" fill="#fff"/><circle cx="8.5" cy="2.28" r=".38" fill="#fff"/><circle cx="1.5" cy="3.46" r=".38" fill="#fff"/><circle cx="3.5" cy="3.46" r=".38" fill="#fff"/><circle cx="5.5" cy="3.46" r=".38" fill="#fff"/><circle cx="7.5" cy="3.46" r=".38" fill="#fff"/><circle cx="9.5" cy="3.46" r=".38" fill="#fff"/><circle cx="2.5" cy="4.64" r=".38" fill="#fff"/><circle cx="4.5" cy="4.64" r=".38" fill="#fff"/><circle cx="6.5" cy="4.64" r=".38" fill="#fff"/><circle cx="8.5" cy="4.64" r=".38" fill="#fff"/><circle cx="1.5" cy="5.82" r=".38" fill="#fff"/><circle cx="3.5" cy="5.82" r=".38" fill="#fff"/><circle cx="5.5" cy="5.82" r=".38" fill="#fff"/><circle cx="7.5" cy="5.82" r=".38" fill="#fff"/><circle cx="9.5" cy="5.82" r=".38" fill="#fff"/><circle cx="2.5" cy="7.00" r=".38" fill="#fff"/><circle cx="4.5" cy="7.00" r=".38" fill="#fff"/><circle cx="6.5" cy="7.00" r=".38" fill="#fff"/><circle cx="8.5" cy="7.00" r=".38" fill="#fff"/></svg><b>$144.1k</b></div><div class="sv"><span>You save</span><b>$96.1k &middot; 67%</b></div></div>
+        <p>Design assistance, modeling, documentation, calculation review, and drafting support for engineering consultancies and contractors with in-house technical teams. Works best in a structured arrangement with clear review and sign-off by your licensed engineer.</p>
+        <ul><li>STAAD.Pro, RISA, Civil 3D, Revit Structure</li><li>Calc packages and design documentation</li><li>Markups and redline incorporation</li></ul>
+      <p class="also"><b>Also available:</b> Structural Engineer (EIT level), Civil Site Engineer, Hydrology / Stormwater Support, Roadway / Transportation Support, BIM / Structural Modeler</p>
+      <a class="guide" href="/ThriveModal/Construction/civil-structural-engineer/">Full guide: Hiring an offshore Civil and Structural Engineering Support &rarr;</a>
+      </article>
+      <article class="role">
+        <h3>CAD / BIM Drafter</h3>
+        <div class="coststrip"><p class="cs-cap">Avg. annual cost</p><div><svg class="flag" viewBox="0 0 30 15" role="img" aria-label="Philippines"><title>Philippines</title><rect width="30" height="7.5" fill="#0038A8"/><rect y="7.5" width="30" height="7.5" fill="#CE1126"/><path d="M0 0L13 7.5L0 15Z" fill="#fff"/><circle cx="4.6" cy="7.5" r="1.6" fill="#FCD116"/><circle cx="1.6" cy="2.4" r=".55" fill="#FCD116"/><circle cx="1.6" cy="12.6" r=".55" fill="#FCD116"/><circle cx="10.2" cy="7.5" r=".55" fill="#FCD116"/></svg><b class="ph">$33.6k</b></div><div><svg class="flag" viewBox="0 0 30 15" role="img" aria-label="United States"><title>United States</title><rect width="30" height="15" fill="#fff"/><rect y="0.000" width="30" height="1.154" fill="#B22234"/><rect y="2.308" width="30" height="1.154" fill="#B22234"/><rect y="4.615" width="30" height="1.154" fill="#B22234"/><rect y="6.923" width="30" height="1.154" fill="#B22234"/><rect y="9.231" width="30" height="1.154" fill="#B22234"/><rect y="11.538" width="30" height="1.154" fill="#B22234"/><rect y="13.846" width="30" height="1.154" fill="#B22234"/><rect width="12" height="8.08" fill="#3C3B6E"/><circle cx="1.5" cy="1.10" r=".38" fill="#fff"/><circle cx="3.5" cy="1.10" r=".38" fill="#fff"/><circle cx="5.5" cy="1.10" r=".38" fill="#fff"/><circle cx="7.5" cy="1.10" r=".38" fill="#fff"/><circle cx="9.5" cy="1.10" r=".38" fill="#fff"/><circle cx="2.5" cy="2.28" r=".38" fill="#fff"/><circle cx="4.5" cy="2.28" r=".38" fill="#fff"/><circle cx="6.5" cy="2.28" r=".38" fill="#fff"/><circle cx="8.5" cy="2.28" r=".38" fill="#fff"/><circle cx="1.5" cy="3.46" r=".38" fill="#fff"/><circle cx="3.5" cy="3.46" r=".38" fill="#fff"/><circle cx="5.5" cy="3.46" r=".38" fill="#fff"/><circle cx="7.5" cy="3.46" r=".38" fill="#fff"/><circle cx="9.5" cy="3.46" r=".38" fill="#fff"/><circle cx="2.5" cy="4.64" r=".38" fill="#fff"/><circle cx="4.5" cy="4.64" r=".38" fill="#fff"/><circle cx="6.5" cy="4.64" r=".38" fill="#fff"/><circle cx="8.5" cy="4.64" r=".38" fill="#fff"/><circle cx="1.5" cy="5.82" r=".38" fill="#fff"/><circle cx="3.5" cy="5.82" r=".38" fill="#fff"/><circle cx="5.5" cy="5.82" r=".38" fill="#fff"/><circle cx="7.5" cy="5.82" r=".38" fill="#fff"/><circle cx="9.5" cy="5.82" r=".38" fill="#fff"/><circle cx="2.5" cy="7.00" r=".38" fill="#fff"/><circle cx="4.5" cy="7.00" r=".38" fill="#fff"/><circle cx="6.5" cy="7.00" r=".38" fill="#fff"/><circle cx="8.5" cy="7.00" r=".38" fill="#fff"/></svg><b>$94.5k</b></div><div class="sv"><span>You save</span><b>$60.9k &middot; 64%</b></div></div>
+        <p>One of the most established and proven offshore roles in construction. Working drawings, shop drawings, as-builts, and design documentation in AutoCAD, Revit, Civil 3D, or SketchUp transfer cleanly to a remote arrangement.</p>
+        <ul><li>Shop drawings and coordination drawings</li><li>As-builts and record drawings</li><li>Revit modeling and Navisworks clash support</li></ul>
+        <p style="font-size:.92rem;color:var(--fg-muted)">Filipino drafters supporting US construction firms is not new. It has been happening for over 15 years across architecture, civil, and construction. The talent pool is deep and the savings are immediate.</p>
+      <p class="also"><b>Also available:</b> Architectural Drafter, Structural Drafter, Civil Drafter, MEP Drafter, BIM Modeler</p>
+      <a class="guide" href="/ThriveModal/Construction/cad-bim-drafter/">Full guide: Hiring an offshore CAD / BIM Drafter &rarr;</a>
+      </article>
+      <article class="role">
+        <h3>Surveyor Assistant</h3>
+        <div class="coststrip"><p class="cs-cap">Avg. annual cost</p><div><svg class="flag" viewBox="0 0 30 15" role="img" aria-label="Philippines"><title>Philippines</title><rect width="30" height="7.5" fill="#0038A8"/><rect y="7.5" width="30" height="7.5" fill="#CE1126"/><path d="M0 0L13 7.5L0 15Z" fill="#fff"/><circle cx="4.6" cy="7.5" r="1.6" fill="#FCD116"/><circle cx="1.6" cy="2.4" r=".55" fill="#FCD116"/><circle cx="1.6" cy="12.6" r=".55" fill="#FCD116"/><circle cx="10.2" cy="7.5" r=".55" fill="#FCD116"/></svg><b class="ph">$26.4k</b></div><div><svg class="flag" viewBox="0 0 30 15" role="img" aria-label="United States"><title>United States</title><rect width="30" height="15" fill="#fff"/><rect y="0.000" width="30" height="1.154" fill="#B22234"/><rect y="2.308" width="30" height="1.154" fill="#B22234"/><rect y="4.615" width="30" height="1.154" fill="#B22234"/><rect y="6.923" width="30" height="1.154" fill="#B22234"/><rect y="9.231" width="30" height="1.154" fill="#B22234"/><rect y="11.538" width="30" height="1.154" fill="#B22234"/><rect y="13.846" width="30" height="1.154" fill="#B22234"/><rect width="12" height="8.08" fill="#3C3B6E"/><circle cx="1.5" cy="1.10" r=".38" fill="#fff"/><circle cx="3.5" cy="1.10" r=".38" fill="#fff"/><circle cx="5.5" cy="1.10" r=".38" fill="#fff"/><circle cx="7.5" cy="1.10" r=".38" fill="#fff"/><circle cx="9.5" cy="1.10" r=".38" fill="#fff"/><circle cx="2.5" cy="2.28" r=".38" fill="#fff"/><circle cx="4.5" cy="2.28" r=".38" fill="#fff"/><circle cx="6.5" cy="2.28" r=".38" fill="#fff"/><circle cx="8.5" cy="2.28" r=".38" fill="#fff"/><circle cx="1.5" cy="3.46" r=".38" fill="#fff"/><circle cx="3.5" cy="3.46" r=".38" fill="#fff"/><circle cx="5.5" cy="3.46" r=".38" fill="#fff"/><circle cx="7.5" cy="3.46" r=".38" fill="#fff"/><circle cx="9.5" cy="3.46" r=".38" fill="#fff"/><circle cx="2.5" cy="4.64" r=".38" fill="#fff"/><circle cx="4.5" cy="4.64" r=".38" fill="#fff"/><circle cx="6.5" cy="4.64" r=".38" fill="#fff"/><circle cx="8.5" cy="4.64" r=".38" fill="#fff"/><circle cx="1.5" cy="5.82" r=".38" fill="#fff"/><circle cx="3.5" cy="5.82" r=".38" fill="#fff"/><circle cx="5.5" cy="5.82" r=".38" fill="#fff"/><circle cx="7.5" cy="5.82" r=".38" fill="#fff"/><circle cx="9.5" cy="5.82" r=".38" fill="#fff"/><circle cx="2.5" cy="7.00" r=".38" fill="#fff"/><circle cx="4.5" cy="7.00" r=".38" fill="#fff"/><circle cx="6.5" cy="7.00" r=".38" fill="#fff"/><circle cx="8.5" cy="7.00" r=".38" fill="#fff"/></svg><b>$77.5k</b></div><div class="sv"><span>You save</span><b>$51.1k &middot; 66%</b></div></div>
+        <p>Supports the survey function with data processing, plat preparation, deed research, and coordination. The offshore assistant handles the desk-based work so your licensed surveyor can focus on field work and clients rather than document processing.</p>
+        <ul><li>Civil 3D, Carlson, Trimble Business Center</li><li>Plat and topo drafting for PLS review</li><li>Point cloud processing and legal description research</li></ul>
+        <p style="font-size:.92rem;color:var(--fg-muted)">For small to mid-size survey firms where one or two principals do both field and office work, this role changes the capacity of the business.</p>
+      <p class="also"><b>Also available:</b> Survey CAD Technician, Survey Research Assistant, Point Cloud Technician, Survey Coordinator, Proposal Support</p>
+      <a class="guide" href="/ThriveModal/Construction/surveyor-assistant/">Full guide: Hiring an offshore Surveyor Assistant &rarr;</a>
+      </article>
+      <article class="role">
+        <h3>Construction Administration Support</h3>
+        <div class="coststrip"><p class="cs-cap">Avg. annual cost</p><div><svg class="flag" viewBox="0 0 30 15" role="img" aria-label="Philippines"><title>Philippines</title><rect width="30" height="7.5" fill="#0038A8"/><rect y="7.5" width="30" height="7.5" fill="#CE1126"/><path d="M0 0L13 7.5L0 15Z" fill="#fff"/><circle cx="4.6" cy="7.5" r="1.6" fill="#FCD116"/><circle cx="1.6" cy="2.4" r=".55" fill="#FCD116"/><circle cx="1.6" cy="12.6" r=".55" fill="#FCD116"/><circle cx="10.2" cy="7.5" r=".55" fill="#FCD116"/></svg><b class="ph">$20.4k</b></div><div><svg class="flag" viewBox="0 0 30 15" role="img" aria-label="United States"><title>United States</title><rect width="30" height="15" fill="#fff"/><rect y="0.000" width="30" height="1.154" fill="#B22234"/><rect y="2.308" width="30" height="1.154" fill="#B22234"/><rect y="4.615" width="30" height="1.154" fill="#B22234"/><rect y="6.923" width="30" height="1.154" fill="#B22234"/><rect y="9.231" width="30" height="1.154" fill="#B22234"/><rect y="11.538" width="30" height="1.154" fill="#B22234"/><rect y="13.846" width="30" height="1.154" fill="#B22234"/><rect width="12" height="8.08" fill="#3C3B6E"/><circle cx="1.5" cy="1.10" r=".38" fill="#fff"/><circle cx="3.5" cy="1.10" r=".38" fill="#fff"/><circle cx="5.5" cy="1.10" r=".38" fill="#fff"/><circle cx="7.5" cy="1.10" r=".38" fill="#fff"/><circle cx="9.5" cy="1.10" r=".38" fill="#fff"/><circle cx="2.5" cy="2.28" r=".38" fill="#fff"/><circle cx="4.5" cy="2.28" r=".38" fill="#fff"/><circle cx="6.5" cy="2.28" r=".38" fill="#fff"/><circle cx="8.5" cy="2.28" r=".38" fill="#fff"/><circle cx="1.5" cy="3.46" r=".38" fill="#fff"/><circle cx="3.5" cy="3.46" r=".38" fill="#fff"/><circle cx="5.5" cy="3.46" r=".38" fill="#fff"/><circle cx="7.5" cy="3.46" r=".38" fill="#fff"/><circle cx="9.5" cy="3.46" r=".38" fill="#fff"/><circle cx="2.5" cy="4.64" r=".38" fill="#fff"/><circle cx="4.5" cy="4.64" r=".38" fill="#fff"/><circle cx="6.5" cy="4.64" r=".38" fill="#fff"/><circle cx="8.5" cy="4.64" r=".38" fill="#fff"/><circle cx="1.5" cy="5.82" r=".38" fill="#fff"/><circle cx="3.5" cy="5.82" r=".38" fill="#fff"/><circle cx="5.5" cy="5.82" r=".38" fill="#fff"/><circle cx="7.5" cy="5.82" r=".38" fill="#fff"/><circle cx="9.5" cy="5.82" r=".38" fill="#fff"/><circle cx="2.5" cy="7.00" r=".38" fill="#fff"/><circle cx="4.5" cy="7.00" r=".38" fill="#fff"/><circle cx="6.5" cy="7.00" r=".38" fill="#fff"/><circle cx="8.5" cy="7.00" r=".38" fill="#fff"/></svg><b>$67.9k</b></div><div class="sv"><span>You save</span><b>$47.5k &middot; 70%</b></div></div>
+        <p>The operational glue of a construction business. Document control, subcontractor coordination, purchase order management, RFI and change tracking, compliance documentation, lien waivers, AP coding, and pay app support. Structured, process driven, and entirely possible to run offshore.</p>
+        <ul><li>Document control and drawing logs</li><li>Pay applications, lien waivers, COIs</li><li>Certified payroll and compliance paperwork</li></ul>
+        <p style="font-size:.92rem;color:var(--fg-muted)">Admin is often the last thing to get resourced in a growing firm. Work piles up, the owner handles admin between site visits, and compliance issues appear. An offshore admin hire addresses that before it becomes a problem.</p>
+      <p class="also"><b>Also available:</b> Document Controller, Project Administrator, Contracts / Compliance Admin, Construction AP / Billing Assistant, Office Coordinator</p>
+      <a class="guide" href="/ThriveModal/Construction/construction-admin-support/">Full guide: Hiring an offshore Construction Administration Support &rarr;</a>
+      </article>
+    </div>
+    <p class="srcnote"><b>How these numbers are built.</b> All figures are annual. Filipino cost is the all-in monthly rate a US company typically pays for a dedicated offshore professional in that role tier (salary, Philippine statutory benefits, 13th-month pay, and staffing partner fee), using 2026 published market rates; the annual figure is the midpoint of the range. US cost is the median base wage from the U.S. Bureau of Labor Statistics (May 2025; PayScale 2026 for project coordinator) divided by 0.70, because wages are 70% of total employer compensation per BLS (June 2026). Your exact Thrivemodal rate depends on role, seniority, and hours.</p>
+    <div class="callout">
+      <div class="stack" style="gap:8px;max-width:60ch">
+        <h3>Not sure where to start?</h3>
+        <p style="color:var(--fg-muted)">If you're looking at this list and thinking "we probably need two or three of these but I'm not sure how to structure it," that's a common starting point. It's worth a conversation before you commit to a specific role.</p>
+      </div>
+      <a class="btn btn-green" href="https://info.thrivemodal.com/zero-risk-consultation">Start Your Zero Risk Consultation</a>
+    </div>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap">
+    <div class="two">
+      <div class="stack">
+        <span class="eyebrow">Software</span>
+        <h2>They'll Know the Software Your Projects Run On</h2>
+        <div class="prose">
+          <p>Construction support roles live inside your systems. Thrivemodal candidates are screened for hands-on proficiency in the platforms most contractors already run, so you're not starting from a software tutorial on day one.</p>
+          <p>Tools matter more here than in almost any other category. An estimator who has never opened Bluebeam or a coordinator unfamiliar with Procore creates more friction than a local hire would, at least in the short term. It's why tool proficiency is one of the first things we assess.</p>
+        </div>
+        <div class="chips">
+          <span class="chip">Procore</span><span class="chip">Buildertrend</span><span class="chip">AutoCAD</span><span class="chip">Revit</span><span class="chip">Civil 3D</span><span class="chip">Bluebeam Revu</span><span class="chip">PlanSwift</span><span class="chip">On-Screen Takeoff</span><span class="chip">STAAD.Pro</span><span class="chip">SketchUp</span><span class="chip">Primavera P6</span><span class="chip">MS Project</span><span class="chip">Navisworks</span><span class="chip">Sage 300 CRE</span><span class="chip">Viewpoint Vista</span><span class="chip">Foundation</span>
+        </div>
+      </div>
+      <div class="img-slot" style="aspect-ratio:4/3"><img src="/ThriveModal/Construction/img/software.jpg" alt="Hands on keyboard with CAD drawings on two monitors"></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <span class="eyebrow">How It Works</span>
+    <h2 style="margin-top:10px">From First Brief to Your First Construction Hire</h2>
+    <p class="lede" style="margin-top:14px">Construction roles take a little more care to brief than general admin, but the timeline is similar. Most firms have a shortlist within two weeks and a hire onboarded within four to five.</p>
+    <div class="timeline">
+      <div class="step">
+        <div class="dot">1</div>
+        <span class="when">Week 1</span>
+        <h3>We Learn Your Business First</h3>
+        <p>We sit down with your team to map the role: which projects, which software, what codes and standards you work to, what the deliverable cadence looks like, and how the hire connects with your local team. For technical roles like estimating or CAD, we also ask about your documentation and review process. That context shapes who we look for, and what a 10/10 hire looks like for you.</p>
+      </div>
+      <div class="step">
+        <div class="dot">2</div>
+        <span class="when">Weeks 1 to 2</span>
+        <h3>We Don't Stop Until It's a 10/10</h3>
+        <p>Our construction-focused recruiters in Manila source, screen, and interview. Shortlists include portfolio samples or work examples alongside experience summaries and tool proficiency assessments, so you're evaluating actual output, not just a resume. Anything less than a 10/10 fit doesn't move forward.</p>
+      </div>
+      <div class="step">
+        <div class="dot">3</div>
+        <span class="when">Weeks 2 to 3</span>
+        <h3>You Interview, You Decide</h3>
+        <p>We hand you at least three vetted candidates, complete with video interviews and notes. For technical roles we recommend a brief practical component: a sample take-off, a short drafting task, a documentation exercise. It adds a day and saves weeks of remediation later.</p>
+      </div>
+      <div class="step">
+        <div class="dot">4</div>
+        <span class="when">Weeks 3 to 5</span>
+        <h3>From Day One and Every Day After</h3>
+        <p>ThriveCore gets your new hire set up, from IT to compliance to introductions. We handle employment, payroll, HR, and Philippines compliance. A structured two-week onboarding alongside an existing team member makes a significant difference to how quickly they become productive.</p>
+      </div>
+      <div class="step">
+        <div class="dot">5</div>
+        <span class="when">Ongoing</span>
+        <h3>Built To Last, Not Just Placed</h3>
+        <p>Monthly check-ins and quarterly reviews for as long as they're on your team. We manage the employer-of-record side throughout: payroll, leave, benefits, and any personnel matters. You manage the work. We keep everything else running.</p>
+      </div>
+    </div>
+    <div class="guarantee">
+      <div class="mark"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+      <div class="stack" style="gap:6px;flex:1;min-width:240px">
+        <h3>Zero Risk Guarantee</h3>
+        <p>No upfront investment. Month to month. If a placement isn't a good fit, we replace them at no cost. You stay in control the whole way through.</p>
+      </div>
+      <a class="btn btn-green" href="https://info.thrivemodal.com/zero-risk-consultation">Start Your Zero Risk Consultation</a>
+    </div>
+    <div class="two" style="margin-top:44px">
+      <div class="img-slot" style="aspect-ratio:16/9"><img src="/ThriveModal/Construction/img/process.jpg" alt="Interviewer taking notes during a video interview with a candidate" loading="lazy"></div>
+      <div class="stack">
+        <h3 style="font-size:1.5rem">Most recruiters place someone and disappear.</h3>
+        <p class="lede">Thrivemodal finds the right talent for your business and builds a dedicated offshore team to support your growth. One partnership. Two wins. Every single time.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section style="background:var(--surface-2)">
+  <div class="wrap">
+    <span class="eyebrow">Avoid the Mistakes</span>
+    <h2 style="margin-top:10px">Five Things That Go Wrong With Offshore Construction Hiring, and How to Avoid Them</h2>
+    <p class="lede" style="margin-top:14px">Offshore construction hiring has a strong track record when it's set up well. These are the mistakes that show up most often when it isn't.</p>
+    <div class="pitfalls">
+      <div class="pit"><div><h3>Hiring for the wrong role type</h3><p>Offshore works for desk-based technical and administrative functions: estimating, drafting, document control, project coordination, engineering support. It does not work for superintendents, trades, or any role that needs to be on site. Be clear about which category each role falls into before you start the search.</p></div></div>
+      <div class="pit"><div><h3>Not providing enough context on standards and specifications</h3><p>A drafter or estimator working remotely needs to know which codes you work to, your file naming conventions, how your drawing log is structured, and what "done" looks like. Firms that brief offshore hires the way they'd brief a new local employee, with project context, templates, and examples, get up to speed much faster.</p></div></div>
+      <div class="pit"><div><h3>Expecting independent operation from day one</h3><p>Reasonable for a local hire with ten years in your market. Not reasonable for someone starting a new role in a new business in a different country. Build a structured onboarding period in deliberately and the performance curve is short. Skip it and the first few months are frustrating for everyone.</p></div></div>
+      <div class="pit"><div><h3>Inadequate software access and license provisioning</h3><p>An estimator without the same version of Bluebeam your team runs, or a drafter whose machine struggles with large Revit models, has a productivity problem that has nothing to do with skill. Confirm hardware, licenses, VPN access, and internet before day one. ThriveCore checks this as part of setup.</p></div></div>
+      <div class="pit"><div><h3>No local review layer for technical outputs</h3><p>For structural support or complex estimating, an offshore hire should not be the last checkpoint. Build in a local review step before deliverables go to clients, owners, or AHJs. This isn't distrust; it's standard quality practice for any technical role, and it works better when it's explicit rather than ad hoc.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="band">
+  <div class="wrap">
+    <span class="eyebrow">Results</span>
+    <h2 style="margin-top:10px">What Construction Business Owners Say About Their Offshore Teams</h2>
+    <p class="lede" style="margin-top:14px">From general contractors to engineering consultancies, how construction businesses have found offshore support staffing to work in practice.</p>
+    <div class="quotes">
+      <div class="quote pending">
+        <blockquote>Construction Testimonial goes here.</blockquote>
+        <cite>Name, Title</cite><small>Company, City, State. Company type and size.</small>
+      </div>
+      <div class="quote pending">
+        <blockquote>Construction Testimonial goes here.</blockquote>
+        <cite>Name, Title</cite><small>Company, City, State. Company type and size.</small>
+      </div>
+      <div class="quote">
+        <blockquote>The team Thrivemodal placed with us has been a strong fit. We've seen good attendance, strong performance, and people who take ownership of their work. That consistency allows our leadership team to focus on strategy, customers, and relationships instead of constantly having to fill staffing gaps.</blockquote>
+        <cite>Kristy Knichel</cite><small>CEO and President, Knichel Logistics</small>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <span class="eyebrow">FAQ</span>
+    <h2 style="margin-top:10px">Common Questions Before Getting Started</h2>
+    <p class="lede" style="margin-top:14px">Straight answers to what contractors usually want to know, including the harder questions about quality, codes, and what happens when things don't go perfectly.</p>
+    <div class="faq">
+      <details><summary>Can an offshore estimator really understand US construction standards and codes?</summary><div class="a">Generally yes, if they've been working on US projects. Ask directly in the interview: which codes have you worked to, on what project types, for which clients? Filipino estimators and engineers who've spent years supporting US commercial or residential work have direct exposure to IBC, state amendments, and the way US bid documents are structured. They're not learning it from a textbook. Thrivemodal flags US project exposure on every candidate profile.</div></details>
+      <details><summary>How do we manage quality control for technical deliverables produced offshore?</summary><div class="a">Build in a review step. For estimating, a local person checks the take-off before the number goes into a bid. For CAD, someone reviews drawings before they're issued for construction or permit. This isn't unique to offshore; it's good practice for any technical output. The difference is the review needs to be explicit rather than something that happens by walking over to someone's desk.</div></details>
+      <details><summary>What about time-sensitive work and urgent turnaround?</summary><div class="a">Your Thrivemodal team member works your business hours, so urgent requests get actioned in real time, same as a local hire. It's still worth agreeing on expected response times and an escalation path before the hire starts, as a shared understanding of how urgent work gets handled.</div></details>
+      <details><summary>Does the hire work for us exclusively?</summary><div class="a">Yes. Every placement is a dedicated, full-time member of your team. No shared pools, no rotating staff. Thrivemodal is the employer of record and handles payroll, benefits, HR, and Philippines compliance; you direct the work day to day.</div></details>
+      <details><summary>What if the offshore hire's work needs significant revision?</summary><div class="a">It happens, and it's handled the same way it would be with any hire. Most early revision issues come from gaps in the brief or onboarding, not capability. When that's the cause, the fix is documentation and feedback. When a skill or quality issue persists past onboarding, the Zero Risk Guarantee applies: we replace the hire at no cost.</div></details>
+      <details><summary>What does this actually cost?</summary><div class="a">It depends on the role, experience level, and hours. Technical roles like estimators and engineers sit at a different price point than construction admin support, which is worth understanding upfront. There's no upfront investment and the arrangement is month to month. The consultation gives you a concrete number for your specific roles.</div></details>
+    </div>
+  </div>
+</section>
+
+<section class="band cta-final">
+  <div class="wrap two">
+    <div class="stack">
+      <span class="eyebrow">Next Step</span>
+      <h2>Start Your Zero Risk Consultation</h2>
+      <p class="lede">If you're still working out which role makes sense to offshore first, book a conversation. Most of them run 20 to 30 minutes and end with a clear answer and a concrete number. No upfront investment. Month to month. You stay in control the whole way through.</p>
+      <div class="btn-row">
+        <a class="btn btn-green" href="https://info.thrivemodal.com/zero-risk-consultation">Book Your Consultation</a>
+        <a class="btn btn-ghost" href="https://claude.ai/artifact/MC6zAUKMPuVsMhv4YXBmPX" target="_blank" rel="noopener">Calculate Your Real Cost</a>
+      </div>
+    </div>
+    <div class="img-slot" style="aspect-ratio:4/3"><img src="/ThriveModal/Construction/img/cta.jpg" alt="Smiling team member wearing a headset at her desk" loading="lazy"></div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <div class="stack" style="gap:14px">
+        <a class="logo" href="https://thrivemodal.com" style="align-items:flex-start" aria-label="Thrivemodal home">
+          <img src="data:image/png;base64,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" alt="Thrivemodal" style="height:54px;width:auto;display:block">
+        </a>
+        <p>Your offshore team, hand picked. Built to last. Dedicated professionals from the Philippines for growing U.S. companies.</p>
+        <p style="font-size:.85rem">Inc. 5000 honoree, No. 171 in 2026.</p>
+      </div>
+      <div>
+        <h4>Navigate</h4>
+        <ul>
+          <li><a href="https://thrivemodal.com/">Home</a></li>
+          <li><a href="https://thrivemodal.com/why-thrivemodal">Why Thrivemodal</a></li>
+          <li><a href="https://thrivemodal.com/why-philippines">Why the Philippines</a></li>
+          <li><a href="https://thrivemodal.com/services/">Services</a></li>
+          <li><a href="https://thrivemodal.com/contact/">Contact</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>More</h4>
+        <ul>
+          <li><a href="https://thrivemodal.com/blog-post/">Blogs</a></li>
+          <li><a href="https://thrivemodal.com/faq/">FAQ</a></li>
+          <li><a href="https://info.thrivemodal.com/careers">Careers</a></li>
+          <li><a href="https://www.linkedin.com/company/govirtualstaffing/">LinkedIn</a></li>
+          <li><a href="https://www.facebook.com/people/Thrivemodal-Careers/61554816051319/">Facebook</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="copy">
+      <span>&copy; 2026 Thrivemodal. All Rights Reserved.</span>
+      <a href="https://thrivemodal.com/privacy-policy/">Privacy Policy</a>
+    </div>
+  </div>
+</footer>
+</body></html>

@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Offshore Surveyor Assistants | Thrivemodal</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap">
+<style>
+/* Layout: Thrivemodal header gradient band, white content on a cool-grey ground, blue section bands, green CTAs. Kinetic's section order, Thrivemodal's identity. */
+:root{
+  --tm-blue:#005EB8; --tm-blue-deep:#004585; --tm-navy:#001D38; --tm-green:#84BF55; --tm-green-deep:#6ea744;
+  --bg:#f3f6fa; --surface:#ffffff; --surface-2:#e9eff7; --fg:#1d2733; --fg-muted:#55657a; --line:#d5dee9;
+  --band-fg:#ffffff; --band-muted:#c9dcf0;
+  --font-display:"Manrope","Articulat CF","Helvetica Neue",Arial,sans-serif;
+  --font-body:"Manrope","Articulat CF","Helvetica Neue",Arial,sans-serif;
+  --radius:10px; --maxw:1180px;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#0b1624; --surface:#122033; --surface-2:#182a40; --fg:#e8eef6; --fg-muted:#a7b6c8; --line:#27405c;
+  --tm-blue:#2b7fd1; --tm-blue-deep:#0a3f72; color-scheme:dark } }
+:root[data-theme="dark"]{
+  --bg:#0b1624; --surface:#122033; --surface-2:#182a40; --fg:#e8eef6; --fg-muted:#a7b6c8; --line:#27405c;
+  --tm-blue:#2b7fd1; --tm-blue-deep:#0a3f72; color-scheme:dark }
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--font-body);font-size:17px;line-height:1.6;font-weight:500}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:#005EB8}
+h1,h2,h3,h4,h5{font-family:var(--font-display);line-height:1.15;margin:0;text-wrap:balance;font-weight:800}
+h1{font-size:clamp(2rem,4.2vw,3.1rem)}
+h2{font-size:clamp(1.6rem,3vw,2.3rem)}
+h3{font-size:1.25rem;font-weight:700}
+p{margin:0}
+a{color:var(--tm-blue)}
+.wrap{max-width:var(--maxw);margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+section{padding-block:64px}
+@media (max-width:700px){section{padding-block:44px}}
+.eyebrow{font-size:.78rem;letter-spacing:.14em;text-transform:uppercase;font-weight:700;color:var(--tm-blue)}
+.band .eyebrow{color:var(--tm-green)}
+.lede{font-size:1.15rem;color:var(--fg-muted);max-width:68ch}
+.stack{display:flex;flex-direction:column;gap:18px}
+.prose{max-width:70ch;display:flex;flex-direction:column;gap:16px}
+.prose p{color:var(--fg)}
+.btn{display:inline-block;padding:14px 26px;border-radius:var(--radius);font-weight:800;text-decoration:none;font-size:.95rem;letter-spacing:.02em;transition:transform .12s ease,background .12s ease}
+.btn:hover{transform:translateY(-1px)}
+.btn:focus-visible{outline:3px solid var(--tm-green);outline-offset:2px}
+.btn-green{background:var(--tm-green);color:#fff}
+.btn-green:hover{background:var(--tm-green-deep)}
+.btn-ghost{border:2px solid currentColor;color:#fff;background:transparent}
+.btn-blue{background:var(--tm-blue);color:#fff}
+.btn-row{display:flex;flex-wrap:wrap;gap:14px}
+
+/* Header */
+header{background:linear-gradient(90deg,#005EB8 0%,#004585 100%);color:#fff;position:sticky;top:env(safe-area-inset-top,0px);z-index:9;box-shadow:0 2px 10px rgba(0,29,56,.25)}
+.nav{display:flex;align-items:center;justify-content:space-between;gap:24px;min-height:84px}
+.logo{display:flex;flex-direction:column;align-items:center;gap:6px;text-decoration:none;color:#fff}
+.logo .word{font-family:var(--font-display);font-weight:700;font-size:.72rem;letter-spacing:.32em}
+.nav ul{list-style:none;margin:0;padding:0;display:flex;gap:28px;flex-wrap:wrap;justify-content:flex-end}
+.nav li a{color:#fff;text-decoration:none;font-weight:800;font-size:.82rem;letter-spacing:.06em;text-transform:uppercase;padding-bottom:6px;border-bottom:3px solid transparent}
+.nav li a.active{border-bottom-color:#fff}
+.nav li a:hover{border-bottom-color:rgba(255,255,255,.6)}
+@media (max-width:860px){.nav ul{display:none}.nav .btn{padding:10px 16px}}
+
+/* Hero */
+.hero{background:linear-gradient(130deg,#005EB8 0%,#004585 100%);color:#fff;padding-block:72px}
+.hero .grid{display:grid;grid-template-columns:1.15fr .85fr;gap:48px;align-items:center}
+@media (max-width:900px){.hero .grid{grid-template-columns:1fr}}
+.hero .lede{color:#dbe8f6}
+.hero .eyebrow{color:var(--tm-green)}
+
+/* Image slot */
+.img-slot{position:relative;background:repeating-linear-gradient(135deg,rgba(255,255,255,.06) 0 14px,rgba(255,255,255,.12) 14px 28px),var(--surface-2);border:2px dashed var(--line);border-radius:14px;max-width:100%;display:flex;align-items:flex-end;overflow:hidden;color:var(--fg-muted)}
+.band .img-slot,.hero .img-slot{border-color:rgba(255,255,255,.45);background:repeating-linear-gradient(135deg,rgba(255,255,255,.06) 0 14px,rgba(255,255,255,.12) 14px 28px),rgba(0,29,56,.35);color:#e3edf8}
+.img-slot .tag{position:absolute;top:12px;left:12px;background:var(--tm-green);color:#fff;font-size:.72rem;font-weight:800;letter-spacing:.1em;padding:5px 10px;border-radius:6px;text-transform:uppercase}
+.img-slot .desc{padding:18px;font-size:.9rem;line-height:1.45;background:linear-gradient(transparent,rgba(0,29,56,.75));color:#fff;width:100%}
+.img-slot img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.img-slot:has(img){border-style:solid;border-color:transparent;background:none}
+
+/* Section bands */
+.band{background:linear-gradient(130deg,var(--tm-blue) 0%,var(--tm-blue-deep) 100%);color:var(--band-fg)}
+.band .lede,.band p{color:var(--band-muted)}
+.band h2,.band h3{color:#fff}
+.band .prose p{color:#e3edf8}
+
+/* Two col */
+.two{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:center}
+@media (max-width:900px){.two{grid-template-columns:1fr}}
+
+/* Stat strip */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:36px}
+@media (max-width:760px){.stats{grid-template-columns:1fr}}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:20px 22px}
+.stat b{display:block;font-family:var(--font-display);font-size:2rem;color:var(--tm-blue);font-variant-numeric:tabular-nums;line-height:1.1}
+.stat span{color:var(--fg-muted);font-size:.95rem}
+
+/* Why PH cards */
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;margin-top:36px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:24px;display:flex;flex-direction:column;gap:10px}
+.card h3{color:var(--tm-blue)}
+.band .card{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.25)}
+.band .card h3{color:#fff}
+.band .card p{color:#dbe8f6}
+
+/* Roles */
+.roles{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:22px;margin-top:36px}
+@media (max-width:420px){.roles{grid-template-columns:1fr}}
+.role{background:var(--surface);border:1px solid var(--line);border-left:6px solid var(--tm-green);border-radius:var(--radius);padding:26px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.role h3{color:var(--fg);font-size:1.3rem}
+.role .cost{font-size:.9rem;color:var(--fg-muted);background:var(--surface-2);padding:10px 12px;border-radius:8px}
+.role .cost b{color:var(--tm-blue)}
+.role .guide{margin-top:auto;padding-top:8px;font-weight:800;text-decoration:none;color:var(--tm-blue)}
+.role .guide:hover{text-decoration:underline}
+.role ul{margin:0;padding-left:18px;color:var(--fg-muted);font-size:.95rem}
+.coststrip{display:flex;flex-wrap:wrap;align-items:flex-end;column-gap:18px;row-gap:6px;background:var(--surface-2);border-radius:8px;padding:12px 14px}
+.coststrip>div{display:flex;flex-direction:column;gap:2px}
+.coststrip .flag{width:22px;height:11px;display:block;border-radius:2px;box-shadow:0 0 0 1px rgba(0,0,0,.12);margin-bottom:4px}
+.coststrip .cs-cap{flex:0 0 100%;margin:0;font-size:.78rem;font-weight:800;color:var(--fg);letter-spacing:.02em}
+.coststrip .sv{margin-left:auto;text-align:right}
+.coststrip span{font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;font-weight:800;color:var(--fg-muted)}
+.coststrip b{font-family:var(--font-display);font-size:1.1rem;font-weight:800;color:var(--fg);font-variant-numeric:tabular-nums;white-space:nowrap}
+.coststrip b.ph{color:var(--tm-blue)}
+.coststrip .sv b{color:var(--tm-green-deep)}
+.also{font-size:.9rem;color:var(--fg-muted)} .also b{color:var(--fg)}
+.srcnote{font-size:.8rem;color:var(--fg-muted);margin-top:22px;max-width:90ch;line-height:1.5}
+.callout{margin-top:36px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:28px;display:flex;flex-wrap:wrap;gap:20px;align-items:center;justify-content:space-between}
+.callout h3{color:var(--tm-blue)}
+
+/* Software chips */
+.chips{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px}
+.chip{background:var(--surface);border:1px solid var(--line);color:var(--fg);padding:8px 14px;border-radius:999px;font-weight:700;font-size:.9rem}
+.band .chip{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.3);color:#fff}
+
+/* Process timeline */
+.timeline{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:0;margin-top:40px;position:relative}
+.step{padding:0 22px 0 0;position:relative;min-width:0}
+.step .dot{width:44px;height:44px;border-radius:50%;background:var(--tm-green);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-family:var(--font-display);font-size:1.1rem;margin-bottom:16px;position:relative;z-index:1}
+.step::before{content:"";position:absolute;top:21px;left:44px;right:0;height:2px;background:var(--line)}
+.step:last-child::before{display:none}
+.step .when{font-size:.78rem;letter-spacing:.12em;text-transform:uppercase;font-weight:800;color:var(--tm-blue)}
+.step h3{margin:6px 0 8px;font-size:1.1rem}
+.step p{color:var(--fg-muted);font-size:.95rem}
+@media (max-width:700px){.timeline{grid-template-columns:1fr;gap:26px}.step::before{left:21px;top:44px;right:auto;bottom:-26px;width:2px;height:auto}}
+.guarantee{margin-top:40px;background:var(--surface-2);border-radius:var(--radius);padding:24px 28px;display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}
+.guarantee .mark{width:52px;height:52px;border-radius:50%;background:var(--tm-green);flex:0 0 auto;display:flex;align-items:center;justify-content:center}
+.guarantee p{color:var(--fg-muted)}
+
+/* Pitfalls */
+.pitfalls{counter-reset:p;display:grid;gap:18px;margin-top:36px}
+.pit{display:grid;grid-template-columns:56px 1fr;gap:18px;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:22px;min-width:0}
+.pit::before{counter-increment:p;content:counter(p);font-family:var(--font-display);font-weight:800;font-size:1.6rem;color:var(--tm-green);line-height:1}
+.pit p{color:var(--fg-muted);margin-top:6px}
+
+/* Testimonials */
+.quotes{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:20px;margin-top:36px}
+.quote{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.25);border-radius:var(--radius);padding:26px;display:flex;flex-direction:column;gap:14px}
+.quote blockquote{margin:0;font-size:1.02rem;color:#f0f5fb;font-style:italic}
+.quote cite{font-style:normal;color:#fff;font-weight:800}
+.quote small{color:var(--band-muted)}
+.pending{border-style:dashed;opacity:.85}
+
+/* FAQ */
+.faq{margin-top:32px;display:flex;flex-direction:column;gap:10px;max-width:860px}
+details{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:0}
+summary{cursor:pointer;padding:18px 22px;font-weight:800;font-family:var(--font-display);list-style:none;display:flex;justify-content:space-between;gap:16px;align-items:center}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";color:var(--tm-green);font-size:1.5rem;line-height:1;flex:0 0 auto}
+details[open] summary::after{content:"\2212"}
+details .a{padding:0 22px 20px;color:var(--fg-muted)}
+
+/* Final CTA */
+.cta-final{text-align:left}
+.cta-final .two{align-items:center}
+
+/* Footer */
+footer{background:var(--tm-navy);color:#c9dcf0;padding-block:48px;font-size:.95rem}
+footer .cols{display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:36px}
+@media (max-width:800px){footer .cols{grid-template-columns:1fr}}
+footer h4{color:#fff;font-size:.8rem;letter-spacing:.14em;text-transform:uppercase;margin-bottom:14px}
+footer ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+footer a{color:#fff;text-decoration:none;font-weight:700;font-size:.85rem;letter-spacing:.04em}
+footer a:hover{text-decoration:underline}
+.copy{border-top:1px solid rgba(255,255,255,.15);margin-top:36px;padding-top:20px;display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;font-size:.85rem}
+@media (prefers-reduced-motion:reduce){.btn{transition:none}}
+
+.crumbs{font-size:.85rem;color:#c9dcf0;margin-bottom:14px} .crumbs a{color:#fff;text-decoration:none;font-weight:700}
+.list2{columns:2;column-gap:36px;margin:22px 0 0;padding-left:20px;color:var(--fg-muted)} .list2 li{break-inside:avoid;margin-bottom:8px}
+@media (max-width:700px){.list2{columns:1}}
+.types{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;margin-top:28px}
+.type{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:18px} .type h3{font-size:1rem;color:var(--tm-blue);margin-bottom:6px} .type p{font-size:.92rem;color:var(--fg-muted)}
+a.chip{text-decoration:none}
+.costbig{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px;margin-top:24px}
+.costbig>div{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:22px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.costbig span{font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;font-weight:800;color:var(--fg-muted)}
+.costbig b{font-family:var(--font-display);font-size:clamp(1.6rem,3vw,2.2rem);color:var(--tm-blue);font-variant-numeric:tabular-nums;line-height:1.1}
+.costbig b i{font-style:normal;font-size:.9rem;color:var(--fg-muted)}
+.costbig small{color:var(--fg-muted);font-size:.88rem;line-height:1.4}
+.costbig .save{background:var(--tm-green);border-color:var(--tm-green)} .costbig .save span,.costbig .save b,.costbig .save b i,.costbig .save small{color:#fff}
+@media (max-width:760px){.costbig{grid-template-columns:1fr}}
+.srcnote{font-size:.8rem;color:var(--fg-muted);margin-top:16px;max-width:90ch;line-height:1.5}
+
+</style></head><body>
+<header><div class="wrap nav">
+<a class="logo" href="https://thrivemodal.com" aria-label="Thrivemodal home"><img src="data:image/png;base64,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" alt="Thrivemodal" style="height:64px;width:auto;display:block"></a>
+<ul><li><a href="https://thrivemodal.com/">Home</a></li><li><a href="https://thrivemodal.com/why-thrivemodal/">Who We Are</a></li><li><a class="active" href="/ThriveModal/Construction/">Construction</a></li><li><a href="https://info.thrivemodal.com/2026-workforce-cost-guide">Resources</a></li><li><a href="https://thrivemodal.com/blog-grid/">Blogs</a></li><li><a href="https://thrivemodal.com/faq/">FAQ</a></li><li><a href="https://info.thrivemodal.com/careers-3">Careers</a></li></ul>
+<a class="btn btn-green" href="https://info.thrivemodal.com/zero-risk-consultation">Consultation</a></div></header>
+<section class="hero"><div class="wrap grid">
+<div class="stack"><div class="crumbs"><a href="/ThriveModal/Construction/">Construction Staffing</a> &rsaquo; Surveyor Assistant</div>
+<span class="eyebrow">Construction Role Guide</span><h1>Support Your Surveying Projects with a Skilled Remote Surveyor Assistant</h1><p class="lede">Surveying needs boots on the ground. The office work behind it doesn&#x27;t. A remote surveyor assistant handles data processing, plat drafting, research, and coordination so your licensed surveyors can stay in the field.</p>
+<div class="btn-row"><a class="btn btn-green" href="https://info.thrivemodal.com/zero-risk-consultation">Start Your Zero Risk Consultation</a><a class="btn btn-ghost" href="/ThriveModal/Construction/">All Construction Roles</a></div></div>
+<div class="img-slot" style="aspect-ratio:4/3"><img src="/ThriveModal/Construction/img/role-surveyor.jpg" alt="Surveyor at a total station on an active jobsite"></div>
+</div></section>
+
+
+<section style="padding-block:40px"><div class="wrap"><span class="eyebrow">What It Costs</span><h2 style="margin-top:10px">Filipino vs. US Cost for a Surveyor Assistant</h2>
+<div class="costbig">
+<div><span>Average Filipino cost</span><b>$26,400<i>/yr</i></b><small>$1,800 to $2,600 per month, all-in</small></div>
+<div><span>Average US cost</span><b>$77,500<i>/yr</i></b><small>Fully loaded. $54,240 base salary (BLS median, surveying and mapping technicians (May 2025)) plus taxes and benefits</small></div>
+<div class="save"><span>Estimated savings</span><b>$51,100<i>/yr</i></b><small>66% less per hire, every year</small></div>
+</div>
+<p class="srcnote">Filipino cost is the 2026 market all-in monthly rate for a dedicated offshore professional in this role tier (salary, Philippine statutory benefits, 13th-month pay, and staffing partner fee); annual is the range midpoint. US fully loaded cost is the base salary divided by 0.70, since wages are 70% of total employer compensation (BLS, June 2026). Your exact Thrivemodal rate depends on role, seniority, and hours.</p>
+</div></section>
+<section><div class="wrap"><div class="prose"><h2>Why Hire a Remote Surveyor Assistant?</h2><p>Field crews need reliable back-office support for documentation, CAD updates, project coordination, and data entry so they can focus on fieldwork and site analysis. For small to mid-size survey firms where one or two principals do both field and office work, this role changes the capacity of the business.</p><p>Support covers land development, construction staking, ALTA surveys, and subdivision work: drafting and updating survey plats and maps, organizing project files, reviewing measurements, updating CAD from field data, preparing proposals, and coordinating schedules and permits.</p></div></div></section>
+
+<section class="band"><div class="wrap"><h2>Key Responsibilities of a Remote Surveyor Assistant</h2>
+<ul class="list2" style="color:#e3edf8"><li>Convert field data into organized digital records and survey documentation</li><li>Process GPS/GNSS and total station data and perform COGO calculations</li><li>Draft topographic maps, plats, and exhibits in CAD for PLS review and stamp</li><li>Maintain and update project databases and GIS information</li><li>Research deeds, easements, and legal descriptions in public records</li><li>Coordinate with field crews to deliver updated maps and documents on time</li><li>Prepare proposals, cost estimates, and bid documents</li><li>Administrative support: email, scheduling, and task tracking</li></ul></div></section>
+
+<section><div class="wrap"><h2>Also Available</h2>
+<p class="lede" style="margin-top:12px">Related titles we place under this role. Tell us which one fits and we will hire to that profile.</p><div class="types"><div class="type"><h3>Survey CAD Technician</h3><p>Drafts plats, topos, and exhibits from field data.</p></div><div class="type"><h3>Survey Research Assistant</h3><p>Deed and title research, legal descriptions, record plats.</p></div><div class="type"><h3>Point Cloud Technician</h3><p>Cleans and classifies LiDAR and drone data into DTM/DSM models.</p></div><div class="type"><h3>Survey Coordinator</h3><p>Schedules crews, manages site access, tracks deliverables.</p></div><div class="type"><h3>Proposal Support</h3><p>Scopes, fee estimates, and bid packages for survey work.</p></div></div></div></section>
+
+<section style="background:var(--surface-2)"><div class="wrap"><span class="eyebrow">Software</span><h2 style="margin-top:10px">Tools Our Offshore Surveyor Assistant Candidates Use</h2>
+<p class="lede" style="margin-top:12px">Proficiency is verified in screening, not taken from a resume. Candidates work within your existing systems and workflows.</p>
+<div class="chips"><span class="chip">AutoCAD Civil 3D</span><span class="chip">Carlson Survey</span><span class="chip">Trimble Business Center</span><span class="chip">Leica Infinity</span><span class="chip">ArcGIS / QGIS</span><span class="chip">Bluebeam Revu</span><span class="chip">ReCap / Cyclone</span><span class="chip">Pix4D / DroneDeploy</span><span class="chip">Microsoft Excel</span><span class="chip">Google Earth Pro</span></div></div></section>
+
+<section><div class="wrap"><span class="eyebrow">Why Thrivemodal</span><h2 style="margin-top:10px">How Thrivemodal Helps You Hire the Right Surveyor Assistant</h2>
+<div class="cards"><div class="card"><h3>We don&#x27;t stop until it&#x27;s a 10/10</h3><p>Our construction-focused recruiters in Manila source, screen, and interview. Anything less than a 10/10 fit for your role doesn&#x27;t move forward.</p></div><div class="card"><h3>Dedicated, full-time, yours</h3><p>Your hire works for you and only you as a dedicated member of your team. Not a freelancer, not a shared resource.</p></div><div class="card"><h3>ThriveCore handles the rest</h3><p>IT, compliance, payroll, HR, and Philippines employment law, from day one and every day after. You manage the work.</p></div><div class="card"><h3>Zero Risk Guarantee</h3><p>No upfront investment. Month to month. If a placement isn&#x27;t a good fit, we replace them at no cost.</p></div></div></div></section>
+
+<section style="background:var(--surface-2)"><div class="wrap"><span class="eyebrow">FAQ</span><h2 style="margin-top:10px">Frequently Asked Questions</h2>
+<div class="faq"><details><summary>How can an offshore assistant support our field survey crews?</summary><div class="a">They handle the office side: processing raw GPS/GNSS data, performing calculations, and drafting topographic maps and plats from field observations.</div></details><details><summary>Can they perform legal description research and title searches?</summary><div class="a">Yes. They search public records to identify easements, boundaries, adjoiners, and historical monuments to support boundary resolution by your PLS.</div></details><details><summary>How do they assist with LiDAR or point cloud processing?</summary><div class="a">They clean and classify large datasets from scanners or drones, producing digital terrain and surface models.</div></details><details><summary>Do they prepare final plats and survey certificates?</summary><div class="a">They draft record-ready plats and certificates in CAD including boundaries, easements, and legal descriptions, for review and sealing by your licensed Professional Land Surveyor.</div></details><details><summary>How do they coordinate scheduling of field crews?</summary><div class="a">They manage survey logistics including site access, utility locates, client notifications, and weather windows.</div></details><details><summary>How is geospatial data accuracy verified?</summary><div class="a">Raw field notes and coordinate geometry calculations are double-checked against control and record data to confirm lines and benchmarks.</div></details><details><summary>How do they assist with boundary mapping?</summary><div class="a">They research historical deeds and plots legal descriptions in CAD to help your licensed surveyor establish and reconcile boundaries.</div></details><details><summary>Do they manage survey equipment logs?</summary><div class="a">Yes. They track calibration and maintenance schedules so total stations, GPS units, and scanners stay within tolerance.</div></details><details><summary>How are field-to-office handoffs optimized?</summary><div class="a">Cloud uploads and standardized file naming let the office process same-day field data without back-and-forth.</div></details><details><summary>Who signs the survey?</summary><div class="a">Your PLS. The assistant produces drafts and research; professional responsibility and sealing stay with your licensed surveyor.</div></details></div></div></section>
+
+<section class="band"><div class="wrap two"><div class="stack"><span class="eyebrow">Next Step</span><h2>Looking to Hire a Remote Surveyor Assistant?</h2><p class="lede">Get your principals back in the field and your deliverables out the door faster with dedicated office-side survey support. No upfront investment. Month to month. Zero Risk Guarantee.</p>
+<div class="btn-row"><a class="btn btn-green" href="https://info.thrivemodal.com/zero-risk-consultation">Book Your Free Consultation</a><a class="btn btn-ghost" href="https://claude.ai/artifact/MC6zAUKMPuVsMhv4YXBmPX" target="_blank" rel="noopener">Calculate Your Real Cost</a></div></div>
+<div class="stack"><h3>Other construction roles</h3><div class="chips" style="margin-top:4px"><a class="chip" href="/ThriveModal/Construction/estimator/">Estimator</a><a class="chip" href="/ThriveModal/Construction/project-coordinator/">Project Coordinator / Assistant PM</a><a class="chip" href="/ThriveModal/Construction/civil-structural-engineer/">Civil and Structural Engineering Support</a><a class="chip" href="/ThriveModal/Construction/cad-bim-drafter/">CAD / BIM Drafter</a><a class="chip" href="/ThriveModal/Construction/construction-admin-support/">Construction Administration Support</a></div></div></div></section>
+<footer><div class="wrap"><div class="cols">
+<div class="stack" style="gap:14px"><a class="logo" href="https://thrivemodal.com" style="align-items:flex-start" aria-label="Thrivemodal home"><img src="data:image/png;base64,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" alt="Thrivemodal" style="height:54px;width:auto;display:block"></a>
+<p>Your offshore team, hand picked. Built to last. Dedicated professionals from the Philippines for growing U.S. companies.</p><p style="font-size:.85rem">Inc. 5000 honoree, No. 171 in 2026.</p></div>
+<div><h4>Navigate</h4><ul><li><a href="https://thrivemodal.com/">Home</a></li><li><a href="https://thrivemodal.com/why-thrivemodal">Why Thrivemodal</a></li><li><a href="https://thrivemodal.com/why-philippines">Why the Philippines</a></li><li><a href="/ThriveModal/Construction/">Construction Staffing</a></li><li><a href="https://thrivemodal.com/contact/">Contact</a></li></ul></div>
+<div><h4>Construction Roles</h4><ul><li><a href="/ThriveModal/Construction/estimator/">Estimator</a></li><li><a href="/ThriveModal/Construction/project-coordinator/">Project Coordinator / Assistant PM</a></li><li><a href="/ThriveModal/Construction/civil-structural-engineer/">Civil and Structural Engineering Support</a></li><li><a href="/ThriveModal/Construction/cad-bim-drafter/">CAD / BIM Drafter</a></li><li><a href="/ThriveModal/Construction/surveyor-assistant/">Surveyor Assistant</a></li><li><a href="/ThriveModal/Construction/construction-admin-support/">Construction Administration Support</a></li></ul></div>
+</div><div class="copy"><span>&copy; 2026 Thrivemodal. All Rights Reserved.</span><a href="https://thrivemodal.com/privacy-policy/">Privacy Policy</a></div></div></footer>
+</body></html>
