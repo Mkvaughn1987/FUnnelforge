@@ -413,6 +413,32 @@ def find_shared(token):
     return None
 
 
+def manual_request(quote, name, title="", company="", email=""):
+    """A testimonial a client sent another way (email, call, LinkedIn).
+    They wrote it themselves, so it is saved approved, credited by name,
+    and flows into PDFs and campaigns like a survey quote. None when the
+    quote, name or company is missing."""
+    quote = " ".join(str(quote or "").split()).strip().strip('"“”').strip()
+    name, company = _clip(name, 80), _clip(company, 120)
+    if not quote or not name or not company:
+        return None
+    r = new_request(company, contact=name, email=email)
+    now = _now()
+    r.update({"status": "approved", "source": "manual", "quote": _clip(quote, 1500),
+              "permission": "full", "sig_name": name, "sig_title": _clip(title, 80),
+              "sig_company": company, "answered_at": now, "approved_at": now})
+    return r
+
+
+def add_manual(owner, req):
+    """Saved like any response, but never indexed as a public link: nobody
+    was sent one, so /review/<token> must not open it."""
+    with _LOCK:
+        reqs = load_requests(owner)
+        reqs.insert(0, req)
+        save_requests(owner, reqs)
+
+
 def clean_about(raw):
     """Who filled in the shared link. Name and company are required."""
     raw = raw if isinstance(raw, dict) else {}
@@ -839,7 +865,8 @@ else show('s-survey');
 # ── Owner page ───────────────────────────────────────────────────────────
 
 def _state_attrs(s):
-    for attr, default in (("_tmr_form", {}), ("_tmr_open", ""), ("_tmr_del", "")):
+    for attr, default in (("_tmr_form", {}), ("_tmr_open", ""), ("_tmr_del", ""),
+                          ("_tmr_add", False)):
         if not hasattr(s, attr):
             setattr(s, attr, default)
 
@@ -872,6 +899,8 @@ def _css():
         ".tmr-subj{font-weight:700;margin-bottom:10px;}"
         ".tmr-q{font-size:15px;line-height:1.5;color:var(--dd-text_l);border-left:3px solid var(--dd-good);"
         "padding:2px 0 2px 12px;font-style:italic;}"
+        ".tmr-add{display:flex;flex-direction:column;gap:10px;}"
+        ".tmr-add .q-field{width:100%;}"
         ".tmr-ans{display:grid;grid-template-columns:minmax(180px,1fr) 2fr;gap:4px 14px;font-size:12.5px;}"
         ".tmr-ans .k{color:var(--dd-muted);} .tmr-ans .v{color:var(--dd-text_l);}"
         "@media (max-width:700px){.tmr-ans{grid-template-columns:1fr;}}"
@@ -1007,6 +1036,60 @@ def render_page(s, rf):
                 ui.html(f'<div class="tmr-mail"><div class="tmr-subj">Subject: '
                         f'{html.escape(subj)}</div>{body_html}</div>', sanitize=False)
 
+        def _open_add(on):
+            s._tmr_add = on
+            if on:
+                s._tmr_form = {}
+            rf()
+
+        def _save_manual():
+            f = s._tmr_form or {}
+            r = manual_request(f.get("quote"), f.get("name"), f.get("title"),
+                               f.get("company"), f.get("email"))
+            if not r:
+                ui.notify("Add the quote, their name and their company.", type="warning")
+                return
+            add_manual(owner, r)
+            s._tmr_add, s._tmr_form = False, {}
+            ui.notify("Testimonial added. It goes into your PDFs and campaigns next time "
+                      "they are built.", type="positive")
+            rf()
+
+        if not s._tmr_add:
+            with ui.element("div").style("margin-bottom:12px;"):
+                with ui.element("button").classes("fd-gb").props('type="button"').style(
+                        "padding:7px 14px;font-size:12.5px;").on("click", lambda: _open_add(True)):
+                    ui.label("+ Add custom testimonial")
+        else:
+            with ui.element("div").classes("tmr-new tmr-add"):
+                ui.label("Add a custom testimonial").style(
+                    f"font-size:15px;font-weight:800;color:{C['text_l']};")
+                ui.label("Got a quote by email or on a call? Paste it here. It is saved as "
+                         "approved and credited by name, so only add it with the client's OK."
+                         ).classes("tmr-meta")
+
+                def _field(key):
+                    def _on(e):
+                        s._tmr_form[key] = e.value or ""
+                    return _on
+                ui.textarea(label="Their testimonial", value=s._tmr_form.get("quote", ""),
+                            on_change=_field("quote")).classes("fd-input").props(
+                    "outlined autogrow")
+                with ui.element("div").classes("tmr-row"):
+                    for key, lbl in (("name", "Name"), ("title", "Title (optional)"),
+                                     ("company", "Company"), ("email", "Email (optional)")):
+                        ui.input(label=lbl, value=s._tmr_form.get(key, ""),
+                                 on_change=_field(key)).classes("fd-input").props(
+                            "outlined dense")
+                with ui.element("div").classes("tmr-acts"):
+                    with ui.element("button").classes("fd-pb").props('type="button"').style(
+                            "padding:7px 14px;font-size:12.5px;").on("click", _save_manual):
+                        ui.label("Save testimonial")
+                    with ui.element("button").classes("fd-gb").props('type="button"').style(
+                            "padding:7px 14px;font-size:12.5px;").on(
+                            "click", lambda: _open_add(False)):
+                        ui.label("Cancel")
+
         if not reqs:
             ui.label("No responses yet. Each client who fills in the survey shows up here."
                      ).style(f"color:{C['muted']};font-size:13px;")
@@ -1020,6 +1103,7 @@ def render_page(s, rf):
                             ui.label(r["company"]).classes("tmr-name")
                             meta = " · ".join(x for x in (r.get("contact"), r.get("email"),
                                                           ("hired " + r["hire"]) if r.get("hire") else "",
+                                                          "added by hand" if r.get("source") == "manual" else "",
                                                           r["created"][:10]) if x)
                             ui.label(meta).classes("tmr-meta")
                         ui.label(STATUS_LABEL.get(r["status"], r["status"])).classes(

@@ -344,3 +344,19 @@ def test_page_asks_for_the_other_role_and_requires_it():
     page = tt._PUBLIC_TEMPLATE
     assert "What role did we fill for you?" in page
     assert "You picked Other: type the role we filled for you." in page
+
+
+def test_custom_testimonial_is_approved_credited_and_not_a_public_link(ff):
+    assert tt.manual_request("", "Tom", company="CarryOn") is None
+    assert tt.manual_request("Great.", "", company="CarryOn") is None
+    assert tt.manual_request("Great.", "Tom", company="") is None
+    r = tt.manual_request('  "They found us a  great dispatcher."  ', "Tom Bennett",
+                          "Owner", "CarryOn Logistics")
+    assert r["quote"] == "They found us a great dispatcher."
+    assert r["status"] == "approved" and r["permission"] == "full" and r["source"] == "manual"
+    tt.add_manual("me@x.com", r)
+    assert tt.public_quotes("me@x.com") == [
+        ("They found us a great dispatcher.", "Tom Bennett, Owner, CarryOn Logistics")]
+    assert tt.find(r["token"]) == (None, None)
+    tt.delete_request("me@x.com", r["token"])
+    assert tt.load_requests("me@x.com") == []

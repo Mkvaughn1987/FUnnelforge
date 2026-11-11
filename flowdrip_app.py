@@ -23805,7 +23805,7 @@ _PAGE_LANDING = {
     "tm_targets":      (("_tmt_market", ""), ("_tmt_q", ""), ("_tmt_strong", False),
                         ("_tmt_hidden", False), ("_tmt_limit", 60),
                         ("_tmt_scan", None), ("_tmt_role_in", "")),
-    "tm_testimonials": (("_tmr_open", ""), ("_tmr_del", "")),
+    "tm_testimonials": (("_tmr_open", ""), ("_tmr_del", ""), ("_tmr_add", False)),
     "pdf_gen":         (("_pdf_stage", "pick"), ("_pdf_selected", []),
                         ("_pdf_custom_intent", False), ("_pdf_custom_stage", "closed"),
                         ("_pdf_custom_outline", None), ("_pdf_custom_previewing", False),
