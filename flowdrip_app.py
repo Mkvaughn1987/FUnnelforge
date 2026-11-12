@@ -6762,6 +6762,81 @@ def _sales_run_owner(request):
     return owner, None
 
 
+# ---------------------------------------------------------------------------
+#  DD connector: every page reachable from Claude (2026-11-12)
+# ---------------------------------------------------------------------------
+#
+#  Mike: "users should be able to tell Claude whatever they want to do in
+#  DripDrop and Claude can do it all". Each route below is one page's buttons,
+#  calling the same helper the page calls, so the app and the connector never
+#  disagree. Every door does the same two things first: resolve the owner from
+#  the API KEY (never from a body field), then bind that owner's file paths.
+#  Routes live under /api/v1/dd/ so they cannot collide with the older
+#  /api/v1/campaigns/{campaign_id} GET.
+
+
+def _dd_api_owner(request):
+    """(owner, error_response) from the request's API key, paths bound.
+    Exactly one of the two is set."""
+    owner, err = _sales_run_owner(request)
+    if err:
+        return None, err
+    _dd_api_bind(owner)
+    return owner, None
+
+
+def _dd_api_bind(owner):
+    """Point this thread's file paths at the key's owner. Call it again
+    inside any run_in_executor worker: the contextvar does not follow."""
+    _CURRENT_USER_EMAIL.set(owner)
+    try:
+        _switch_to_user_paths(owner)
+    except Exception:
+        pass
+
+
+async def _dd_api_body(request):
+    """The JSON object body, or None when it is missing or not an object."""
+    try:
+        body = await request.json()
+    except Exception:
+        return None
+    return body if isinstance(body, dict) else None
+
+
+def _dd_api_camp(cid):
+    """The caller's campaign by campaign_id (file stem) or name, else None."""
+    cid = str(cid or "").strip()
+    if not cid:
+        return None
+    return next((c for c in load_campaigns()
+                 if Path(c.get("_path", "")).stem == cid or c.get("name") == cid),
+                None)
+
+
+def _dd_api_err(msg, status=400):
+    from starlette.responses import JSONResponse
+    return JSONResponse({"error": msg}, status_code=status)
+
+
+async def _dd_api_run(owner, fn, *args):
+    """Run blocking page code off the event loop with the owner's paths bound."""
+    def _w():
+        _dd_api_bind(owner)
+        return fn(*args)
+    return await asyncio.get_event_loop().run_in_executor(None, _w)
+
+
+# === DD connector A: shared pages (ported from inboxslide's /api/v1/tm/*) ===
+# (Today's Tasks, Replies, Contacts, campaign actions/edit, send preview,
+#  Newsletters, Outreach Analytics, mailboxes, Settings, Do Not Contact.)
+
+
+# === DD connector B: DripDrop-only pages ===
+# (Pipeline, My Top 10, AI Prompts, Arena Sales Contacts + ZoomInfo Drop,
+#  Current Clients, Arena Running Campaigns, Sales Assets, Home.)
+
+
 @app.get("/api/v1/sales_runs/pending")
 async def api_sales_runs_pending(request: Request):
     """Sales Campaign runs this account has queued for Claude.
