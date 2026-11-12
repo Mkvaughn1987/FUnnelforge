@@ -76698,12 +76698,25 @@ except Exception as _tmr_imp_ex:
 try:
     from starlette.staticfiles import StaticFiles as _TMStaticFiles
     _TM_PAGES_DIR = _APP_DIR / "static" / "ThriveModal"
-    _TM_PAGE_SECTIONS = {"construction": "Construction", "hr": "HR"}
+    _TM_PAGE_SECTIONS = {"construction": "Construction", "hr": "HR",
+                         "why": "Why", "guides": "Guides"}
     for _tm_section in _TM_PAGE_SECTIONS.values():
         if (_TM_PAGES_DIR / _tm_section).is_dir():
             app.mount(f"/ThriveModal/{_tm_section}",
                       _TMStaticFiles(directory=str(_TM_PAGES_DIR / _tm_section), html=True),
                       name=f"thrivemodal-pages-{_tm_section.lower()}")
+
+    # Site home (static/ThriveModal/index.html). A route, not a mount at
+    # /ThriveModal, for the same /review/<token> reason as above.
+    @app.get("/ThriveModal/", include_in_schema=False)
+    def _tm_pages_home():
+        return FileResponse(str(_TM_PAGES_DIR / "index.html"), media_type="text/html")
+
+    @app.get("/ThriveModal", include_in_schema=False)
+    @app.get("/thrivemodal", include_in_schema=False)
+    @app.get("/thrivemodal/", include_in_schema=False)
+    def _tm_pages_home_redirect():
+        return RedirectResponse("/ThriveModal/")
 
     @app.get("/thrivemodal/{section}", include_in_schema=False)
     @app.get("/thrivemodal/{section}/{rest:path}", include_in_schema=False)

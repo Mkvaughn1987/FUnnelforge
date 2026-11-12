@@ -25,9 +25,10 @@ def _all_pages():
 
 def test_every_page_serves(client):
     pages = _all_pages()
-    assert len(pages) == 12
+    assert len(pages) == 15
     for p in pages:
-        url = "/ThriveModal/" + p.parent.relative_to(PAGES).as_posix() + "/"
+        rel = p.parent.relative_to(PAGES).as_posix()
+        url = "/ThriveModal/" if rel == "." else "/ThriveModal/" + rel + "/"
         r = client.get(url)
         assert r.status_code == 200, url
         assert "text/html" in r.headers["content-type"]
@@ -58,3 +59,20 @@ def test_review_route_not_swallowed(client):
     r = client.get("/ThriveModal/review/nottherealtoken")
     assert r.status_code == 404
     assert "text/html" in r.headers["content-type"]
+
+
+def test_home_and_lowercase_home(client):
+    r = client.get("/ThriveModal/")
+    assert r.status_code == 200 and "text/html" in r.headers["content-type"]
+    for u in ("/ThriveModal", "/thrivemodal", "/thrivemodal/"):
+        r = client.get(u, follow_redirects=False)
+        assert r.headers["location"] == "/ThriveModal/", u
+    assert client.get("/thrivemodal/why", follow_redirects=False).headers["location"] == "/ThriveModal/Why/"
+
+
+def test_guide_pdfs_serve(client):
+    pdfs = sorted((PAGES / "Guides").glob("*.pdf"))
+    assert len(pdfs) == 6
+    for f in pdfs:
+        r = client.get(f"/ThriveModal/Guides/{f.name}")
+        assert r.status_code == 200 and r.headers["content-type"] == "application/pdf", f.name
