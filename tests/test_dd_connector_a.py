@@ -777,3 +777,35 @@ def test_create_campaign_draft_saves_and_queues_nothing(tmp_path, monkeypatch):
     assert body["status"] == "draft" and body["contacts_queued"] == 0
     assert body["campaign_id"] == "Acme_4x4" and body["contacts"] == 1
     assert saved[-1]["status"] == "draft" and saved[-1]["_owner_email"] == _OWNER
+
+
+def test_launch_drops_and_reports_companies_a_teammate_is_working(api, monkeypatch):
+    """queue_campaign_emails drops them anyway; launch says who and why so
+    Claude can tell the user, and refuses when nobody is left."""
+    api["camps"][0].update(status="draft", aicb_camp_type="fivebyfive",
+                           contacts=[{"email": "a@worked.com"}, {"email": "b@fresh.com"}])
+    queued = []
+    monkeypatch.setattr(fa, "queue_campaign_emails",
+                        lambda camp, start_step=0: queued.append(camp) or 2)
+    monkeypatch.setattr(fa, "load_client_blocklist", lambda *a, **k: [])
+    rec = {"path": "/t/x.json", "domain": "worked.com"}
+    monkeypatch.setattr(fa, "_team_worked_hits", lambda *a, **k: {"worked.com": rec})
+    monkeypatch.setattr(fa, "_team_worked_reason", lambda sk: "worked.com is in Sam's campaign.")
+    body = {"campaign_id": "Acme_Outreach", "action": "launch", "confirm": True}
+    r = api["call"]("post", "/api/v1/dd/campaigns/action", body)
+    assert r.status_code == 200, r.text
+    assert r.json()["already_worked"] == "worked.com is in Sam's campaign."
+    assert r.json()["contacts"] == 1
+    assert [c["email"] for c in queued[-1]["contacts"]] == ["b@fresh.com"]
+
+    api["camps"][0].update(contacts=[{"email": "a@worked.com"}])
+    monkeypatch.setattr(fa, "_load_queue", lambda: [])
+    r = api["call"]("post", "/api/v1/dd/campaigns/action", body)
+    assert r.status_code == 409 and "already in a campaign" in r.json()["error"]
+
+
+def test_newsletters_are_exempt_from_the_teammate_skip(monkeypatch):
+    monkeypatch.setattr(fa, "_team_worked_hits", lambda *a, **k: {"worked.com": {}})
+    cs = [{"email": "a@worked.com"}]
+    kept, why = fa._dda_team_skip({"name": "N", "evergreen_only": True}, cs, "o@x.com")
+    assert kept == cs and why == ""

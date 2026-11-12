@@ -7703,6 +7703,10 @@ async def api_dd_campaign_contacts(request: Request):
         else:
             contacts.append(c)
     on_dnc = sum(1 for c in contacts if is_on_dnc(c["email"]))
+    contacts, team_reason = _dda_team_skip(camp, contacts, owner)
+    if team_reason and not contacts:
+        return _dd_api_err("every contact is at a company already in a campaign: "
+                           + team_reason, 409)
 
     def _add():
         if _is_evergreen(camp):
@@ -7728,6 +7732,8 @@ async def api_dd_campaign_contacts(request: Request):
     _invalidate_queue_cache()
     res.update({"campaign": camp.get("name", ""), "invalid_email": invalid,
                 "on_do_not_contact_not_queued": on_dnc})
+    if team_reason:
+        res["already_worked"] = team_reason
     return JSONResponse(res)
 
 
@@ -7766,6 +7772,20 @@ def _dda_launch_contacts(body):
     return out, invalid, None
 
 
+def _dda_team_skip(camp, contacts, owner):
+    """(kept, reason) for an outbound campaign: contacts at companies a
+    teammate (or this user) already has in a campaign from the last 30 days
+    come out, as queue_campaign_emails would drop them anyway, but here the
+    caller hears who and why. Newsletters and Find Candidates are exempt."""
+    import team_campaigns as _tc
+    if _is_evergreen(camp) or not _tc.is_outbound(camp):
+        return contacts, ""
+    kept, skipped = _split_team_worked(contacts, _team_worked_hits(
+        owner, exclude_path=camp.get("_path") or "",
+        exclude_name=camp.get("name") or ""))
+    return kept, (_team_worked_reason(skipped) if skipped else "")
+
+
 async def _dda_action_launch(camp, body, owner):
     """Launch a saved draft or duplicate, as the campaign page's Launch
     dialog does: name, start date (today or later), the Active Clients gate,
@@ -7786,6 +7806,10 @@ async def _dda_action_launch(camp, body, owner):
     contacts = new_contacts if new_contacts is not None else list(camp.get("contacts") or [])
     if not contacts:
         return _dd_api_err("this campaign has no contacts; pass contacts or list")
+    contacts, team_reason = _dda_team_skip(camp, contacts, owner)
+    if not contacts:
+        return _dd_api_err("every contact is at a company already in a campaign: "
+                           + team_reason, 409)
     raw_sd = str(body.get("start_date") or "").strip()
     try:
         start = date.fromisoformat(raw_sd) if raw_sd else date.today()
@@ -7856,6 +7880,8 @@ async def _dda_action_launch(camp, body, owner):
                 "contacts": len(contacts), "invalid_email": invalid,
                 "schedule": _schedule_from_steps(camp.get("emails") or [],
                                                  start.isoformat())})
+    if team_reason:
+        res["already_worked"] = team_reason
     if flagged:
         res["active_client_contacts"] = len(flagged)
         res["active_clients"] = camp.get("_ac_decision") or "skip"
