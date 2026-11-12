@@ -97,7 +97,7 @@ def test_types_route_returns_all_thirteen_known_keys(_keys):
         "findcandidates",
     }
     for t in body:
-        assert set(t.keys()) == {"key", "display_name", "description", "best_for"}
+        assert set(t.keys()) == {"key", "display_name", "length", "description", "best_for"}
         assert t["display_name"]
         assert t["description"]
         assert t["best_for"]

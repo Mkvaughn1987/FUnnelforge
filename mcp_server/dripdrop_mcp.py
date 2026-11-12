@@ -49,10 +49,55 @@ PUBLIC_URL = os.environ.get("DRIPDROP_MCP_PUBLIC_URL", "http://127.0.0.1:8090").
 
 auth_provider = DripDropAuthProvider(data_dir=DATA_DIR, public_url=PUBLIC_URL)
 
+# Read by Claude when the connector connects. Mike, 2026-11-12: users say
+# what they want and Claude builds it; campaign types are offered as a
+# multiple-choice menu rather than picked silently.
+DD_INSTRUCTIONS = """You are operating DripDrop for the signed-in user. They tell you what they
+want; you do it with these tools. Every page of the app has a tool.
+
+BUILDING A CAMPAIGN - follow this order:
+1. Offer the campaign types as a numbered multiple-choice menu. Call
+   campaign_types and my_campaign_styles first, then show one line per
+   option: number, name, length, and who it is best for. Put the user's own
+   saved styles at the top of the menu, labeled "(your saved style)", and
+   always end with "Custom - your own wording and steps" (template byos).
+   Let the user answer with just a number. If what they asked for clearly
+   fits one option, say which one you recommend and why, but still show the
+   menu so they can choose.
+2. Ask only for what is still missing: who it goes to (a saved contact
+   list, contacts they name, or a company/niche to target), the role(s),
+   location, and any candidates to feature.
+3. Candidates: users may name Pipeline candidates ("use Vlad Shcheglov").
+   Find each one with pipeline action='search' or 'get' (a name, Ref # or
+   alias like "Trent K." works) and pass them to create_campaign as
+   candidates [{"_pool_id": <id>}]. Every campaign type accepts them. If a
+   name matches more than one person, ask which one. Emails show a client
+   alias plus Ref #, never the candidate's real name.
+4. Wording: if the user gives exact language, use it word for word with
+   campaign_edit action='update_step' (subject/body). If they describe a
+   tone, write it in that tone and offer to save it as a campaign style.
+5. Always create with spec.draft=true first. Show the user every step
+   (campaign_get), offer send_preview so they see the real email in their
+   own inbox, and revise with campaign_edit until they approve.
+6. Launch only after the user clearly says yes: campaign_action
+   action='launch' with confirm=true. Launching SENDS REAL EMAIL.
+
+GENERAL RULES:
+- Anything that sends email, deletes, cancels, or changes many records at
+  once needs the user's explicit yes in this conversation before you pass
+  confirm=true. Never assume approval.
+- Use the user's own words for subjects and bodies when they give them.
+  Never invent statistics, client names, or placements.
+- When a tool returns an error, tell the user plainly what it says and what
+  you can do instead.
+"""
+
+
 mcp = MCPServer(
     name="dripdrop",
     title="DripDrop",
-    description="Launch DripDrop outbound campaigns and search the shared candidate Pipeline.",
+    description="Run DripDrop from Claude: build and launch campaigns, work the Pipeline, tasks, replies, newsletters and every other page.",
+    instructions=DD_INSTRUCTIONS,
     auth_server_provider=auth_provider,
     auth=AuthSettings(
         issuer_url=AnyHttpUrl(PUBLIC_URL),
@@ -166,8 +211,9 @@ async def create_campaign(spec: dict) -> dict:
         phone_mobile, phone_office} - for ZoomInfo contacts always include
         both numbers when present, so they stay on file), contacts_csv (raw
         CSV text),
-        candidates (list of candidate cards, used by the fivebythree
-        and fivebyfive templates - each real person needs "_pool_id" (the
+        candidates (list of candidate cards; every template accepts them,
+        and fivebythree/fivebyseven pick from the Pipeline when none are
+        given - each real person needs "_pool_id" (the
         id from candidates_search) or "name" plus "email" or "phone"
         (optionally "resume_text", "external_id"); people not yet in the
         Pipeline are added. Emails cite them by a stable client alias and
@@ -336,9 +382,11 @@ async def candidates_search(q: str = "", status: str = "", limit: int = 20) -> d
         "fivebyfive, fivebythree, fivebyseven, clientlookalike, talentdrop, "
         "flood, sidequest, fullstream, victorycard, byos, findcandidates) "
         "with a description and best-for "
-        "guidance for each. Read-only - use this to see what `template` "
-        "values create_campaign accepts and pick the right one before "
-        "launching."
+        "guidance and length for each. Read-only. When a user wants a "
+        "campaign, show these to them as a numbered multiple-choice menu "
+        "(name, length, best for), with their saved styles from "
+        "my_campaign_styles at the top and 'Custom - your own wording' last, "
+        "and let them pick by number before calling create_campaign."
     )
 )
 async def campaign_types() -> dict:

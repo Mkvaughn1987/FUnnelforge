@@ -6183,7 +6183,8 @@ async def api_campaign_types(request: Request):
         return JSONResponse({"error": "invalid or missing API key"}, status_code=401)
 
     types = [
-        {"key": t[0], "display_name": t[1], "description": t[4], "best_for": t[5]}
+        {"key": t[0], "display_name": t[1], "length": t[2],
+         "description": t[4], "best_for": t[5]}
         for t in AICB_CAMPAIGN_TYPES
     ]
     return JSONResponse(types)
