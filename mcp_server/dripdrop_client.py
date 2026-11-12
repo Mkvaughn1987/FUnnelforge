@@ -292,3 +292,105 @@ class DripDropClient:
             )
         await self._raise_for_error(resp)
         return resp.json()
+
+    # -- DD connector A: shared pages (2026-11-12) --------------------------
+    # One method per /api/v1/dd/* page route; the structure tests pair each
+    # MCP tool with one of these and each of these with a route.
+
+    async def _conn_a_get(self, path: str, params: dict | None = None,
+                          timeout: float = 60.0) -> dict:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(
+                f"{self.base_url}/api/v1/dd/{path}",
+                params={k: v for k, v in (params or {}).items() if v not in ("", None)},
+                headers=self._headers(),
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def _conn_a_post(self, path: str, body: dict, timeout: float = 60.0) -> dict:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(
+                f"{self.base_url}/api/v1/dd/{path}",
+                json=body,
+                headers={**self._headers(), "Content-Type": "application/json"},
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def my_day(self, day: str = "") -> dict:
+        return await self._conn_a_get("tasks", {"date": day})
+
+    async def task_done(self, body: dict) -> dict:
+        return await self._conn_a_post("tasks/done", body)
+
+    async def call_briefing(self, body: dict) -> dict:
+        # Writing a briefing runs a web search.
+        return await self._conn_a_post("tasks/briefing", body, timeout=180.0)
+
+    async def replies(self, action: str = "list", email: str = "") -> dict:
+        if action == "list":
+            return await self._conn_a_get("replies")
+        # scan reads the inbox and draft calls the AI; both take a while.
+        return await self._conn_a_post("replies", {"action": action, "email": email},
+                                       timeout=180.0 if action in ("scan", "draft") else 60.0)
+
+    async def contacts(self, list_name: str = "", q: str = "", limit: int = 50) -> dict:
+        return await self._conn_a_get("contacts/search",
+                                      {"list": list_name, "q": q, "limit": limit})
+
+    async def import_contacts(self, contacts: list, list_name: str) -> dict:
+        return await self._conn_a_post("contacts", {"contacts": contacts, "list": list_name},
+                                       timeout=120.0)
+
+    async def contact_lists(self, body: dict) -> dict:
+        return await self._conn_a_post("contact_lists", body)
+
+    async def campaign_contacts(self, body: dict) -> dict:
+        # Adding queues every new contact's emails server-side.
+        return await self._conn_a_post("campaigns/contacts", body, timeout=180.0)
+
+    async def campaign_action(self, body: dict) -> dict:
+        # launch queues every email; resume re-queues them.
+        return await self._conn_a_post("campaigns/action", body, timeout=300.0)
+
+    async def campaign_edit(self, body: dict) -> dict:
+        # ai_rewrite / remember_style call the AI; a running campaign is
+        # re-queued after the save.
+        return await self._conn_a_post("campaigns/edit", body, timeout=180.0)
+
+    async def send_preview(self, body: dict) -> dict:
+        return await self._conn_a_post("send_preview", body, timeout=90.0)
+
+    async def newsletters(self) -> dict:
+        return await self._conn_a_get("newsletters")
+
+    async def newsletter_create(self, body: dict) -> dict:
+        return await self._conn_a_post("newsletters", body)
+
+    async def newsletter_issue(self, body: dict) -> dict:
+        # One AI-written issue, with web research.
+        return await self._conn_a_post("newsletters/issue", body, timeout=300.0)
+
+    async def newsletter_edit(self, body: dict) -> dict:
+        return await self._conn_a_post("newsletters/edit", body)
+
+    async def analytics(self, days: int = 0, campaign: str = "") -> dict:
+        return await self._conn_a_get("analytics", {"days": days or "", "campaign": campaign},
+                                      timeout=120.0)
+
+    async def settings(self, update: dict | None = None) -> dict:
+        if not update:
+            return await self._conn_a_get("settings")
+        return await self._conn_a_post("settings", update)
+
+    async def mailboxes(self) -> dict:
+        return await self._conn_a_get("mailboxes")
+
+    async def dnc(self, body: dict | None = None, q: str = "") -> dict:
+        if not body:
+            return await self._conn_a_get("dnc", {"q": q})
+        return await self._conn_a_post("dnc", body, timeout=120.0)
+
+    async def campaign_styles(self, body: dict) -> dict:
+        return await self._conn_a_post("campaign_styles", body)

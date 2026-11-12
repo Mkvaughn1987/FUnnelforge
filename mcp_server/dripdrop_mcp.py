@@ -149,7 +149,12 @@ async def login_submit(request: Request):
         "`findcandidates` template - the only template that emails "
         "candidates directly instead of companies - describe the opening "
         "(role, client, confidential, location, pay, selling_points, "
-        "job_description) instead of company/niche/roles."
+        "job_description) instead of company/niche/roles. With "
+        "spec.draft=true nothing is queued: the campaign is written and "
+        "saved as a draft so you can show the user the emails "
+        "(campaign_get), change them (campaign_edit) and launch it with "
+        "campaign_action action='launch' once they agree - use this "
+        "whenever the user has not already approved the copy."
     )
 )
 async def create_campaign(spec: dict) -> dict:
@@ -190,7 +195,9 @@ async def create_campaign(spec: dict) -> dict:
         my_campaign_styles: what changes per client, e.g. {"Industry":
         "commercial HVAC", "Competitors": "Trane and Carrier"}. Ask the
         user for each one every time; never reuse the "last" value or
-        make one up).
+        make one up),
+        draft (bool, default false - true saves the campaign as a draft
+        and queues nothing; launch it later with campaign_action).
 
         For template "findcandidates": contacts are the candidates to
         reach (their business emails, with company, title and both phone
@@ -829,6 +836,436 @@ async def sales_run_update(run_id: str, update: dict) -> dict:
         return {"error": str(e)}
     except DripDropApiError as e:
         return {"error": str(e.body), "status_code": e.status_code}
+
+
+# -- DD connector A: shared pages (2026-11-12) ------------------------------
+# Today's Tasks, Replies, Contacts, campaign contacts / lifecycle / editing,
+# send preview, Newsletters, Outreach Analytics, Settings, the sending inbox,
+# Do Not Contact and My Campaign Styles. Each tool is one page's buttons.
+
+
+async def _conn_a_call(method: str, *args) -> dict:
+    try:
+        client = DripDropClient(DATA_DIR, _current_email())
+        return await getattr(client, method)(*args)
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
+@mcp.tool(description=(
+    "Today's Tasks page: the calls, LinkedIn touches and manual tasks due "
+    "today from active campaigns (plus up to a week of overdue ones, "
+    "flagged overdue), with the contact's phones, LinkedIn, the call "
+    "script, the campaign and its campaign_id. Pass date=YYYY-MM-DD for "
+    "another day. Tick one off with task_done; get the cold-call briefing "
+    "for a call with call_briefing. Read-only."
+))
+async def my_day(date: str = "") -> dict:
+    return await _conn_a_call("my_day", date)
+
+
+@mcp.tool(description=(
+    "Mark Today's Tasks done, exactly like the buttons on the page. One "
+    "task: task_id; several: task_ids (ids from my_day). result: 'done' "
+    "(a task), 'connected' (spoke to them / LinkedIn sent), 'vm' (left a "
+    "voicemail) or 'skipped' (default 'done'). undo=true puts them back. "
+    "The page's bulk buttons: all_overdue=true ('Mark all overdue as "
+    "done'), or campaign='<name or campaign_id>' and/or channel='call'|"
+    "'li'|'task' ('Mark all N done'), for today unless date=YYYY-MM-DD. "
+    "Bulk marks give calls 'vm', LinkedIn 'connected' and tasks 'done' "
+    "unless result is set, and need confirm=true: say how many tasks it "
+    "will clear and ask the user first."
+))
+async def task_done(task_id: str = "", result: str = "", undo: bool = False,
+                    task_ids: list | None = None, all_overdue: bool = False,
+                    campaign: str = "", channel: str = "", date: str = "",
+                    confirm: bool = False) -> dict:
+    body: dict = {"task_id": task_id, "result": result, "undo": undo,
+                  "all_overdue": all_overdue, "campaign": campaign,
+                  "channel": channel, "date": date, "confirm": confirm}
+    if task_ids:
+        body["task_ids"] = task_ids
+    return await _conn_a_call("task_done", body)
+
+
+@mcp.tool(description=(
+    "The cold-call briefing Today's Tasks shows above a campaign's calls: "
+    "company overview, HQ and offices, open jobs, recent news and talking "
+    "points, from a web search. Pass task_id (a call from my_day) or "
+    "campaign_id (from campaigns_list). Returns the saved one when there is "
+    "one; refresh=true writes a fresh one (the card's Refresh, 15-60 "
+    "seconds). Sends nothing."
+))
+async def call_briefing(task_id: str = "", campaign_id: str = "",
+                        refresh: bool = False) -> dict:
+    return await _conn_a_call("call_briefing", {
+        "task_id": task_id, "campaign_id": campaign_id, "refresh": refresh})
+
+
+@mcp.tool(description=(
+    "Replies page: everyone who wrote back to a campaign, with their "
+    "message. action='list' (default) lists them; 'scan' is Scan Now (re-"
+    "reads the user's inbox for new replies; the app also scans every few "
+    "minutes); 'draft' with email is Draft Reply (an AI-suggested answer to "
+    "that reply); 'followed_up' with email is 'I Responded' (marks it "
+    "handled); 'dismiss' with email removes a false positive from the list. "
+    "Nothing here sends email: the user answers from their own mailbox, "
+    "then mark it followed_up."
+))
+async def replies(action: str = "list", email: str = "") -> dict:
+    return await _conn_a_call("replies", action, email)
+
+
+@mcp.tool(description=(
+    "Contacts page: search the contacts in one saved list by name (blank = "
+    "the list the Contacts page has open), filtered by q against name, "
+    "email, company and title. Also returns every saved list's name, for "
+    "campaign_contacts, campaign_action launch or create_campaign. Edit "
+    "lists with contact_lists; save new ones with import_contacts. Read-only."
+))
+async def contacts(list_name: str = "", q: str = "", limit: int = 50) -> dict:
+    return await _conn_a_call("contacts", list_name, q, limit)
+
+
+@mcp.tool(description=(
+    "Save contacts as a named list on the Contacts page (what Import New "
+    "Contact List does with a CSV). contacts=[{email, first_name, "
+    "last_name, company, title, phone_mobile, phone_office, linkedin, city, "
+    "state}] (ZoomInfo-style camelCase keys are understood too); list_name "
+    "is the list to save into. If the list exists the contacts are merged "
+    "in: a known email is enriched (a blank field never erases a stored "
+    "one), a new one is added. Nobody is emailed; enrol the list with "
+    "campaign_contacts or create_campaign."
+))
+async def import_contacts(contacts: list, list_name: str) -> dict:
+    return await _conn_a_call("import_contacts", contacts, list_name)
+
+
+@mcp.tool(description=(
+    "Edit the contact lists on the Contacts page (contacts reads them). "
+    "list_name is a saved list's name; blank means the list the Contacts "
+    "page has open. action='add_contact' with contact={email, first_name, "
+    "last_name, company, title, phone_mobile, phone_office, linkedin, city, "
+    "state}; action='update_contact' with email (who) and changes={field: "
+    "new value} using those same fields; action='delete_contact' with "
+    "email; action='delete_list' deletes a saved list permanently and needs "
+    "confirm=true (ask the user first). Campaigns already running keep the "
+    "contacts they were given."
+))
+async def contact_lists(action: str, list_name: str = "", email: str = "",
+                        contact: dict | None = None,
+                        changes: dict | None = None,
+                        confirm: bool = False) -> dict:
+    body: dict = {"action": action, "list": list_name, "email": email,
+                  "confirm": confirm}
+    if contact is not None:
+        body["contact"] = contact
+    if changes is not None:
+        body["changes"] = changes
+    return await _conn_a_call("contact_lists", body)
+
+
+@mcp.tool(description=(
+    "Add contacts to an EXISTING running campaign or newsletter (the "
+    "campaign card's '+ Add Contacts'), or take one out. action='add' with "
+    "contacts=[{email, first_name, last_name, company, title, ...}] or "
+    "list_name='<saved list from contacts>' queues their emails starting "
+    "today: this SENDS REAL EMAIL, so tell the user who and how many, ask, "
+    "then pass confirm=true. Do Not Contact, past repliers and Current "
+    "Clients are skipped exactly as in the app. action='remove' with email "
+    "stops that person's pending emails in this campaign (no confirm "
+    "needed). campaign_id from campaigns_list or newsletters."
+))
+async def campaign_contacts(campaign_id: str, action: str = "add",
+                            contacts: list | None = None,
+                            list_name: str = "", email: str = "",
+                            confirm: bool = False) -> dict:
+    body: dict = {"campaign_id": campaign_id, "action": action, "confirm": confirm}
+    if contacts is not None:
+        body["contacts"] = contacts
+    if list_name:
+        body["list"] = list_name
+    if email:
+        body["email"] = email
+    return await _conn_a_call("campaign_contacts", body)
+
+
+@mcp.tool(description=(
+    "Run a campaign-level action, as the campaign page's buttons do "
+    "(campaign_id from campaigns_list). action: 'cancel' (stops every "
+    "pending email; needs confirm=true, ask first); 'resume' (re-queues "
+    "everything not yet sent; nothing already sent goes twice, but it does "
+    "restart sending, so check with the user); 'retry_failed' (reschedules "
+    "failed sends); 'delete' (permanent; needs confirm=true, ask the user "
+    "first); 'duplicate' (a copy with no contacts that has not launched; "
+    "returns its campaign_id); 'launch' (queues a draft from "
+    "create_campaign draft=true, or a duplicate, and SENDS REAL EMAIL: show "
+    "the user the steps (campaign_get) and who it goes to, ask, then pass "
+    "confirm=true; start_date YYYY-MM-DD, today or later, default today; "
+    "optional name, contacts=[{email, first_name, ...}] or list_name to set "
+    "who it goes to, enroll_newsletter to also enrol them in a newsletter. "
+    "If some contacts work at the team's Current Clients the launch is "
+    "refused with the list; ask the user and pass active_clients='skip' or "
+    "'send_all'); 'graduate_responders' (the Contacts tab's 'Graduate to "
+    "Slow Drip': enrols everyone who replied or was removed into the "
+    "newsletter newsletter_id from newsletters, or only the contact given "
+    "as email; their newsletter emails start going out)."
+))
+async def campaign_action(campaign_id: str, action: str, confirm: bool = False,
+                          start_date: str = "", name: str = "",
+                          contacts: list | None = None, list_name: str = "",
+                          active_clients: str = "",
+                          enroll_newsletter: str = "",
+                          newsletter_id: str = "", email: str = "") -> dict:
+    body: dict = {"campaign_id": campaign_id, "action": action,
+                  "confirm": confirm}
+    for k, v in (("start_date", start_date), ("name", name),
+                 ("list", list_name), ("active_clients", active_clients),
+                 ("enroll_newsletter", enroll_newsletter),
+                 ("newsletter_id", newsletter_id), ("email", email)):
+        if v:
+            body[k] = v
+    if contacts is not None:
+        body["contacts"] = contacts
+    return await _conn_a_call("campaign_action", body)
+
+
+@mcp.tool(description=(
+    "Edit a campaign's steps, as the campaign editor does. Steps are "
+    "1-based, as campaign_get numbers them. action: 'update_step' (step + "
+    "any of subject, body (HTML, email steps), note (the script of a call, "
+    "LinkedIn or task step), delay_days (days after the previous step), "
+    "send_time ('9:00 AM', quarter hours), send_date (YYYY-MM-DD, '' to "
+    "clear; later dated steps move with it)); 'add_step' (step_type email|"
+    "call|linkedin|task|sms, position = where it lands, default last, plus "
+    "optional subject/body/note/delay_days/send_time); 'delete_step' (step); "
+    "'move_step' (step, to_position); 'rename' (name; only before launch); "
+    "'ai_rewrite' (Rewrite with AI: step + instruction such as 'make it "
+    "shorter'; returns the rewritten body, apply=true saves it, "
+    "remember=true also adds the instruction to the user's AI style "
+    "guide); 'remember_style' (step + edited_body, and original_body if the "
+    "step already holds the edit: the AI learns writing rules from the "
+    "user's edit for every future email; apply=true also saves "
+    "edited_body); 'remove_attachment' (step + attachment file name). If "
+    "the campaign is running, its pending emails are re-queued to match "
+    "(nothing already sent goes twice) and the result says how many "
+    "changed, so confirm edits to a running campaign with the user first. "
+    "Steps cannot be added, removed or reordered after a campaign has sent "
+    "email: duplicate it with campaign_action instead."
+))
+async def campaign_edit(campaign_id: str, action: str, step: int = 0,
+                        subject: str | None = None, body: str | None = None,
+                        note: str | None = None,
+                        delay_days: int | None = None, send_time: str = "",
+                        send_date: str | None = None,
+                        step_type: str = "email", position: int = 0,
+                        to_position: int = 0, name: str = "",
+                        instruction: str = "", apply: bool = False,
+                        remember: bool = False,
+                        original_body: str | None = None,
+                        edited_body: str | None = None,
+                        attachment: str = "") -> dict:
+    req: dict = {"campaign_id": campaign_id, "action": action,
+                 "apply": apply, "remember": remember}
+    for k, v in (("step", step), ("position", position),
+                 ("to_position", to_position), ("send_time", send_time),
+                 ("name", name), ("instruction", instruction),
+                 ("attachment", attachment)):
+        if v:
+            req[k] = v
+    for k, v in (("subject", subject), ("body", body), ("note", note),
+                 ("delay_days", delay_days), ("send_date", send_date),
+                 ("original_body", original_body),
+                 ("edited_body", edited_body)):
+        if v is not None:
+            req[k] = v
+    if action == "add_step":
+        req["type"] = step_type
+    return await _conn_a_call("campaign_edit", req)
+
+
+@mcp.tool(description=(
+    "Send one email step of a campaign to the user's OWN inbox as a test "
+    "(the editor's Send Test), merged with their own name and carrying its "
+    "attachments; the subject is marked [PREVIEW]. Only the user receives "
+    "it. step is 1-based, as campaign_get numbers the steps."
+))
+async def send_preview(campaign_id: str, step: int = 1) -> dict:
+    return await _conn_a_call("send_preview", {"campaign_id": campaign_id, "step": step})
+
+
+@mcp.tool(description=(
+    "Newsletters page: the monthly newsletters (Slow Drips) with contacts, "
+    "next issue and whether it is written yet, plus the sectors (industry "
+    "keys with their niches) and styles a new one can use. campaign_id here "
+    "feeds newsletter_issue, newsletter_edit, campaign_contacts (to enrol "
+    "people) and campaign_action graduate_responders. Read-only."
+))
+async def newsletters() -> dict:
+    return await _conn_a_call("newsletters")
+
+
+@mcp.tool(description=(
+    "Create a monthly newsletter, as the Newsletters page's Create dialog "
+    "does. sector is a key from newsletters (e.g. 'construction'); niche "
+    "optional (one of that sector's niches or free text); region is "
+    "required (e.g. 'Denver, CO'); start_date YYYY-MM-DD (default the next "
+    "first Thursday), then the same day each month; count = months "
+    "(default 12); time ('9:00 AM'); style 'j_way' (organic, text only; "
+    "the default) or 'full_send' (with pictures); spotlights_per_issue 3 or "
+    "6 candidate spotlights, spotlight_guidance (who to feature); "
+    "city_life (full_send only). The first issue is written in the "
+    "background; nobody is enrolled, so nothing sends until people are "
+    "added with campaign_contacts."
+))
+async def newsletter_create(name: str, sector: str, region: str, niche: str = "",
+                            start_date: str = "", count: int = 12,
+                            time: str = "9:00 AM", style: str = "j_way",
+                            spotlights_per_issue: int = 3,
+                            spotlight_guidance: str = "",
+                            city_life: bool = True) -> dict:
+    return await _conn_a_call("newsletter_create", {
+        "name": name, "sector": sector, "region": region, "niche": niche,
+        "start_date": start_date, "count": count, "time": time,
+        "style": style, "spotlights_per_issue": spotlights_per_issue,
+        "spotlight_guidance": spotlight_guidance, "city_life": city_life})
+
+
+@mcp.tool(description=(
+    "Write a newsletter's next issue now and return its subject and text; "
+    "refresh=true rewrites one already written (the card's Refresh Next "
+    "Email). Emails already queued for that issue get the new copy, and it "
+    "goes out on its scheduled date to everyone enrolled. Takes a minute "
+    "or two."
+))
+async def newsletter_issue(campaign_id: str, refresh: bool = False) -> dict:
+    return await _conn_a_call("newsletter_issue",
+                              {"campaign_id": campaign_id, "refresh": refresh})
+
+
+@mcp.tool(description=(
+    "View and hand-edit a newsletter's issues, and change its settings "
+    "(the card's View / Edit and Settings). campaign_id from newsletters. "
+    "action='issues' (default) lists every issue (sent or not) and the "
+    "settings; 'get_issue' returns one issue (issue=n, default the next) "
+    "with its full HTML body; 'edit_issue' with issue and subject and/or "
+    "body (the full HTML, edited from get_issue) saves it, stops "
+    "auto-refresh overwriting it and updates emails already queued for it; "
+    "issues already sent cannot be edited. 'settings' with no settings "
+    "returns them; with settings={spotlights_per_issue: 3|6, "
+    "spotlight_guidance: '<who to feature>', city_life: bool (Full style "
+    "only)} saves them and rewrites the next issue in the background. To "
+    "have the AI rewrite an issue instead, use newsletter_issue refresh=true."
+))
+async def newsletter_edit(campaign_id: str, action: str = "issues",
+                          issue: int = 0, subject: str | None = None,
+                          body: str | None = None,
+                          settings: dict | None = None) -> dict:
+    req: dict = {"campaign_id": campaign_id, "action": action}
+    if issue:
+        req["issue"] = issue
+    if subject is not None:
+        req["subject"] = subject
+    if body is not None:
+        req["body"] = body
+    if isinstance(settings, dict):
+        req.update({k: v for k, v in settings.items()
+                    if k not in ("campaign_id", "action")})
+    return await _conn_a_call("newsletter_edit", req)
+
+
+@mcp.tool(description=(
+    "Outreach Analytics page: emails sent, pending, failed, people reached, "
+    "replies and reply rate (replies / people reached), opt-outs and "
+    "bounces - totals, then one row per campaign type (Arena 4x4, 5x5, "
+    "Newsletters...) with each email in the sequence and the campaigns run "
+    "as that type. days=N limits to the last N days (default all time); "
+    "campaign='<name or campaign_id>' adds that campaign's per-email table "
+    "with who was sent each email. There is NO open or click tracking: do "
+    "not report or infer opens or clicks. Read-only."
+))
+async def analytics(days: int = 0, campaign: str = "") -> dict:
+    return await _conn_a_call("analytics", days, campaign)
+
+
+@mcp.tool(description=(
+    "Settings: My Profile, Signature, Timezone and Email & AI Setup. With "
+    "no update, returns the company profile, email signature, timezone, the "
+    "user's own name and phone, the newsletter personal note, the AI "
+    "writing style guide, the daily send limit, whether the company profile "
+    "is set by the team owner, and whether the user is a team admin. update "
+    "may hold any of {'profile': {<field>: value}, 'signature': '<text>', "
+    "'timezone': 'America/Denver', 'user': {'name', 'phone'}, "
+    "'newsletter_note': '<text>', 'ai_style_guide': '<one rule per line>', "
+    "'daily_send_limit': 5-500, 'restore_page_guides': true}. The allowed "
+    "profile fields come back from the read; a teammate cannot change a "
+    "profile the team owner sets, and the owner's change updates the "
+    "team's. Emails already queued keep their old signature and send "
+    "times. Credentials (mailbox sign-ins, SMTP, API keys) cannot be read "
+    "or changed here: the user sets those in the app."
+))
+async def settings(update: dict | None = None) -> dict:
+    return await _conn_a_call("settings", update)
+
+
+@mcp.tool(description=(
+    "The sending inbox (Email & AI Setup): which inbox is connected "
+    "(provider microsoft / google / smtp / sendgrid / brevo, and its "
+    "address), the daily send limit, how many emails went out today and "
+    "how many may still go today. Check remaining_today before promising a "
+    "send volume. If sender.connected is false nothing can send; the user "
+    "connects an inbox in the app (it is a sign-in, not something this "
+    "connector can do). Change the daily limit with settings. Read-only."
+))
+async def mailboxes() -> dict:
+    return await _conn_a_call("mailboxes")
+
+
+@mcp.tool(description=(
+    "Do Not Contact page. action='list' (default, optional q filter on "
+    "email, domain, name or company); action='add' with email (plus "
+    "optional name, company, reason) cancels that person's pending sends "
+    "and takes them out of every campaign; action='add' with domain (Block "
+    "Domain, plus optional company) blocks everyone at that domain and "
+    "cancels their pending sends; action='remove' with email or domain "
+    "takes it off the list (it does not re-queue anything)."
+))
+async def dnc(action: str = "list", email: str = "", domain: str = "",
+              name: str = "", company: str = "", reason: str = "",
+              q: str = "") -> dict:
+    if action == "list":
+        return await _conn_a_call("dnc", None, q)
+    return await _conn_a_call("dnc", {"action": action, "email": email,
+                                      "domain": domain, "name": name,
+                                      "company": company, "reason": reason})
+
+
+@mcp.tool(description=(
+    "Create or delete one of the user's campaign styles (list them with "
+    "my_campaign_styles). action='create' with name + steps, what the "
+    "Create a Campaign Style builder captures: steps=[{type: 'email'|"
+    "'call'|'linkedin', delay_days: business days after the previous step "
+    "(1-30; ignored on step 1), content: what that step says or should "
+    "do}], at most 15, every step needs content; tone 'consultative' "
+    "(default), 'direct', 'casual' or 'formal'. Or pass description "
+    "instead of steps for a free-form style (Save as Campaign Style). At "
+    "launch (create_campaign template 'byos' with style_id) the AI writes "
+    "a fresh campaign from the style; it does not replay the text word for "
+    "word. action='delete' with style_id removes one permanently: ask the "
+    "user, then pass confirm=true."
+))
+async def campaign_styles(action: str, name: str = "", steps: list | None = None,
+                          tone: str = "consultative", description: str = "",
+                          style_id: str = "", confirm: bool = False) -> dict:
+    body: dict = {"action": action, "name": name, "id": style_id, "tone": tone,
+                  "confirm": confirm}
+    if steps is not None:
+        body["steps"] = steps
+    if description:
+        body["description"] = description
+    return await _conn_a_call("campaign_styles", body)
 
 
 def main() -> None:
