@@ -70,7 +70,9 @@ BUILDING A CAMPAIGN - follow this order:
      2) People you give me - names + emails typed or pasted, or CSV text
         (save them as a list with import_contacts so they are reusable)
      3) Your team's Arena Sales Contacts - search by company or title with
-        sales_contacts action='search'
+        sales_contacts action='search', or, when candidates are involved,
+        let me recommend the best companies and people for them
+        (sales_contacts action='recommend')
      4) Find new people with ZoomInfo - only if a ZoomInfo connector is
         available in this chat; bring them in with sales_contacts
         action='zoominfo_drop' or import_contacts
@@ -100,6 +102,15 @@ BUILDING A CAMPAIGN - follow this order:
    action='launch' with confirm=true. Launching SENDS REAL EMAIL. Report
    back the schedule and anything the result lists as skipped
    (already_worked, active_client_contacts, invalid_email).
+
+RECOMMENDING CONTACTS FOR CANDIDATES:
+When the user gives you candidates (Pipeline names / Ref #s, or a pasted
+profile or resume) and asks who to send them to, call sales_contacts
+action='recommend' with those candidates. Show the ranked companies as a
+numbered list with the people and the reasons, let the user pick (by
+number, "top 5", or "all in Texas"), then build the campaign with those
+people as contacts and the candidates' pool_ids - through the campaign
+menu above. The whole team bank is searchable; nothing is hidden by rep.
 
 GENERAL RULES:
 - Anything that sends email, deletes, cancels, or changes many records at
@@ -699,18 +710,31 @@ async def ai_prompts(action: str = "runs", run: str = "", answers: dict | None =
     "Name, Email, Job Title, Company, Direct Phone, Mobile Phone, LinkedIn, City, "
     "State, ...) or csv_text (a ZoomInfo CSV export) - and returns the receipt "
     "(added, merged, new to the team); 'zoominfo_progress' (the user's archive and "
-    "who on the team has dropped files). For one company's people plus its skip "
-    "verdict use team_contacts."
+    "who on the team has dropped files); 'recommend' - the user gives you "
+    "candidates and asks who to pitch them to: pass candidates = a list of "
+    "Pipeline Ref #s or names ('4004', 'Ref #4004', 'Vlad Shcheglov', 'Vlad S.') "
+    "and/or free-text profiles ({title, skills, summary, industry, city, state, "
+    "employer}) for people not in the Pipeline; optional state, industry, limit "
+    "(companies, default 15), per_company (people each, default 3), "
+    "include_worked=true to also list companies a teammate has in a campaign "
+    "now (left out by default). Returns ranked companies with the best people "
+    "to email there, the reasons (industry, location, hiring authority, same "
+    "field, replied before) and flags (Current Client), plus pool_ids for "
+    "create_campaign's candidates. A candidate's own current employer is never "
+    "recommended. For one company's people plus its skip verdict use "
+    "team_contacts."
 ))
 async def sales_contacts(action: str = "search", q: str = "", rep: str = "",
                          state: str = "", industry: str = "", replied_only: bool = False,
                          sort: str = "", limit: int = 25, offset: int = 0,
                          records: list | None = None, csv_text: str = "",
-                         filename: str = "") -> dict:
+                         filename: str = "", candidates: list | None = None,
+                         per_company: int = 0, include_worked: bool = False) -> dict:
     return await _ddb_call("sales_contacts", _ddb_body(
         action, q=q, rep=rep, state=state, industry=industry,
         replied_only=replied_only or None, sort=sort, limit=limit, offset=offset or None,
-        records=records, csv_text=csv_text, filename=filename))
+        records=records, csv_text=csv_text, filename=filename, candidates=candidates,
+        per_company=per_company or None, include_worked=include_worked or None))
 
 
 @mcp.tool(description=(

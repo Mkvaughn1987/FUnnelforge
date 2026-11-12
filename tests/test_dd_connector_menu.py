@@ -57,3 +57,9 @@ def test_launch_and_add_report_teammate_skips():
     assert "_dda_team_skip(camp, contacts, owner)" in src[i:i + 4000]
     j = src.index('@app.post("/api/v1/dd/campaigns/contacts")')
     assert "_dda_team_skip(camp, contacts, owner)" in src[j:j + 6000]
+
+
+def test_instructions_cover_recommending_contacts_for_candidates():
+    t = _instructions()
+    assert "sales_contacts action='recommend'" in t
+    assert "RECOMMENDING CONTACTS FOR CANDIDATES" in t and "pool_ids" in t

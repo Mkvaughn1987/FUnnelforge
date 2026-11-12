@@ -13,7 +13,7 @@ SERVER="root@134.199.237.206"
 SSH="ssh -o BatchMode=yes -o ConnectTimeout=90 -o ServerAliveInterval=15 $SERVER"
 APP="/opt/dripdrop/app"
 BASE="${BASE:-912f706}"
-FILES=(flowdrip_app.py mcp_server/dripdrop_mcp.py mcp_server/dripdrop_client.py)
+FILES=(flowdrip_app.py mcp_server/dripdrop_mcp.py mcp_server/dripdrop_client.py contact_recommend.py)
 
 for f in "${FILES[@]}"; do
     [ -f "$f" ] || { echo "ERROR: $f not found -- run from the worktree root"; exit 1; }
@@ -22,6 +22,13 @@ STAMP=dd-connector-$(date +%Y%m%d-%H%M%S)
 
 echo "== 0/6 Hash-guard: prod must equal base $BASE on every file =="
 for f in "${FILES[@]}"; do
+    if ! git cat-file -e "$BASE:$f" 2>/dev/null; then
+        # New in this release: it must not already exist on prod.
+        if $SSH "test -e $APP/$f"; then
+            echo "   ABORT: $f is new since $BASE but already exists on prod"; exit 1
+        fi
+        echo "   $f new (absent on prod, as expected)"; continue
+    fi
     want=$(git rev-parse "$BASE:$f")
     have=$($SSH "tr -d '\r' < $APP/$f | git hash-object --stdin")
     if [ "$want" != "$have" ]; then
@@ -44,7 +51,7 @@ for f in "${FILES[@]}"; do
 done
 
 echo "== 2/6 Back up live files -> /opt/dripdrop/backups/$STAMP =="
-$SSH "mkdir -p /opt/dripdrop/backups/$STAMP && cd $APP && cp -p --parents ${FILES[*]} /opt/dripdrop/backups/$STAMP/ && ls -lR /opt/dripdrop/backups/$STAMP/"
+$SSH "mkdir -p /opt/dripdrop/backups/$STAMP && cd $APP && for f in ${FILES[*]}; do [ -e \$f ] && cp -p --parents \$f /opt/dripdrop/backups/$STAMP/; done; ls -lR /opt/dripdrop/backups/$STAMP/"
 
 echo "== 3/6 Detect active colour =="
 BLUE_ACTIVE=$($SSH "systemctl is-active dripdrop 2>/dev/null || echo inactive")
@@ -94,6 +101,7 @@ done
 echo "   restarting dripdrop-mcp"
 $SSH "systemctl restart dripdrop-mcp; sleep 4; systemctl is-active dripdrop-mcp"
 $SSH "journalctl -u dripdrop-mcp --since '1 minute ago' --no-pager | tail -8"
+$SSH "cd $APP && /opt/dripdrop/venv/bin/python -c 'import contact_recommend as c; print(\"   contact_recommend imports:\", c.industry_of_text(\"HVAC PM\"))'"
 # New routes answer 401 without a key (route exists), never 404.
 for r in pipeline top10 ai_prompts sales_contacts clients running_campaigns sales_assets home profile          tasks/done tasks/briefing replies contacts contact_lists campaigns/contacts campaigns/action          campaigns/edit send_preview newsletters newsletters/issue newsletters/edit settings dnc campaign_styles; do
     $SSH "curl -s -o /dev/null -w '   POST /api/v1/dd/$r -> %{http_code}\n' -X POST http://localhost:$UP_PORT/api/v1/dd/$r"

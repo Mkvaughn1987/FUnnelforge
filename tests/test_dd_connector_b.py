@@ -520,3 +520,68 @@ def test_mcp_body_and_pdf_links():
     res = m._ddb_link_pdfs({"assets": [{"path": "/pdfs/A.pdf"}, {"path": "x"}]})
     assert res["assets"][0]["url"].endswith("/pdfs/A.pdf")
     assert "url" not in res["assets"][1]
+
+
+# ── Sales Contacts: recommend for candidates (2026-11-12) ────────────────
+
+def _drop_bank(fa, key):
+    recs = [
+        {"First Name": "Dana", "Last Name": "Lee", "Email": "dana@peakbuild.com",
+         "Job Title": "VP Operations", "Company": "Peak Builders", "City": "Denver",
+         "State": "CO"},
+        {"First Name": "Sam", "Last Name": "Ray", "Email": "sam@peakbuild.com",
+         "Job Title": "Receptionist", "Company": "Peak Builders", "State": "CO"},
+        {"First Name": "Lou", "Last Name": "Kim", "Email": "lou@acmeconstruction.com",
+         "Job Title": "Director of Project Management", "Company": "Acme Construction",
+         "State": "CO"},
+        {"First Name": "Ann", "Last Name": "Fox", "Email": "ann@bankco.com",
+         "Job Title": "Controller", "Company": "Bank Co", "State": "NY"},
+    ]
+    r = _call(fa, "sales_contacts", {"action": "zoominfo_drop", "records": recs}, key=key)
+    assert r.status_code == 200, r.text
+
+
+def test_recommend_ranks_the_bank_for_a_pipeline_candidate_by_full_name(api):
+    key = api._mint_api_key(_OWNER)
+    tid = _load_jane(api)
+    _drop_bank(api, key)
+    r = _call(api, "sales_contacts", {"action": "recommend",
+                                      "candidates": ["Jane Doe"]}, key=key)
+    assert r.status_code == 200, r.text
+    out = r.json()
+    assert out["pool_ids"] == [tid]
+    cos = [x["company"] for x in out["recommendations"]]
+    # Never her own employer; the Colorado builder first.
+    assert "Acme Construction" not in cos
+    assert cos[0] == "Peak Builders"
+    top = out["recommendations"][0]
+    assert any("same state" in w for w in top["why"])
+    assert top["people"][0]["email"] == "dana@peakbuild.com"
+    assert "hiring authority" in top["people"][0]["why"]
+    assert "pool_ids" in out["next"]
+
+
+def test_recommend_takes_a_free_text_profile_without_pipeline_access(api):
+    key = api._mint_api_key(_OUTSIDER)
+    r = _call(api, "sales_contacts", {"action": "recommend", "candidates": [
+        {"title": "Staff Accountant", "skills": "accounting, GL", "state": "NY"}]},
+        key=key, owner=_OUTSIDER)
+    assert r.status_code == 200, r.text
+    # A Pipeline name needs Pipeline access.
+    r = _call(api, "sales_contacts", {"action": "recommend", "candidates": ["Jane Doe"]},
+              key=key, owner=_OUTSIDER)
+    assert r.status_code == 403
+
+
+def test_recommend_needs_candidates(api):
+    key = api._mint_api_key(_OWNER)
+    r = _call(api, "sales_contacts", {"action": "recommend"}, key=key)
+    assert r.status_code == 400
+
+
+def test_pipeline_get_accepts_a_full_name(api):
+    key = api._mint_api_key(_OWNER)
+    tid = _load_jane(api)
+    r = _call(api, "pipeline", {"action": "get", "candidate_id": "jane doe"}, key=key)
+    assert r.status_code == 200, r.text
+    assert r.json()["candidate"]["id"] == tid

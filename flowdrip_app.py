@@ -9472,7 +9472,7 @@ def _ddb_cand_id(body, key="candidate_id"):
         raise _DDBErr(f"{key} is required (a Ref # like 1042)")
     if s.isdigit():
         return int(s)
-    hits = ats.find_by_ref_or_alias(s)
+    hits = ats.find_by_ref_or_alias(s) or _ddb_full_name_hits(s)
     if not hits:
         raise _DDBErr(f"no candidate matches {s!r}; use action find to look them up", 404)
     if len(hits) > 1:
@@ -9481,6 +9481,28 @@ def _ddb_cand_id(body, key="candidate_id"):
                                   f"{h.get('last_name','')}".strip() for h in hits[:8])
                       + ". Pass the Ref #.")
     return int(hits[0]["id"])
+
+
+def _ddb_full_name_hits(s):
+    """Pipeline rows whose first + last name is exactly s ("Vlad Shcheglov",
+    any case). find_by_ref_or_alias only knows Ref #s and "Vlad S." labels,
+    and users name candidates in full."""
+    import ats
+    parts = s.replace(",", " ").split()
+    if len(parts) < 2:
+        return []
+    first, last = parts[0], " ".join(parts[1:])
+    try:
+        con = ats._con()
+        try:
+            rows = con.execute(
+                "SELECT * FROM talents WHERE lower(trim(first_name))=lower(?) "
+                "AND lower(trim(last_name))=lower(?) ORDER BY id", (first, last)).fetchall()
+        finally:
+            con.close()
+        return [dict(r) for r in rows]
+    except Exception:
+        return []
 
 
 def _ddb_cand_ids(body):
@@ -9997,12 +10019,97 @@ def _ddb_rep_dir(rep):
     return rep.replace("@", "_at_").replace(".", "_") if "@" in rep else rep
 
 
+def _ddb_recommend_candidates(owner, body):
+    """Candidate profiles for recommend: Pipeline people by Ref #, alias or
+    full name (Pipeline accounts only), and/or free-text profiles."""
+    import ats
+    raw = body.get("candidates")
+    if raw is None and body.get("candidate_ids") is not None:
+        raw = body.get("candidate_ids")
+    if not isinstance(raw, list) or not raw:
+        raise _DDBErr("pass candidates: a list of Pipeline Ref #s / names, or "
+                      "profiles like {\"title\", \"skills\", \"city\", \"state\"}")
+    out = []
+    for v in raw[:20]:
+        if isinstance(v, dict) and not any(v.get(k) for k in ("ref", "id", "name")):
+            if not (v.get("title") or v.get("skills") or v.get("summary")):
+                raise _DDBErr("a free-text candidate needs at least a title or skills")
+            out.append(dict(v, label=v.get("label") or v.get("title")))
+            continue
+        if not _ats_allowed(owner):
+            raise _DDBErr("Pipeline access is not enabled for this account; describe "
+                          "the candidate instead (title, skills, city, state)", 403)
+        key = v.get("ref") or v.get("id") or v.get("name") if isinstance(v, dict) else v
+        tid = _ddb_cand_id({"candidate_id": key})
+        row = ats.get_one(tid)
+        if not row:
+            raise _DDBErr(f"no Pipeline candidate {key!r}", 404)
+        label = "%s (%s)" % (ats.real_name_label(row.get("first_name"), row.get("last_name")),
+                             ats.ref_label(tid))
+        out.append({"label": label, "id": tid, "title": row.get("current_title"),
+                    "employer": row.get("current_employer"), "skills": row.get("skills"),
+                    "summary": row.get("summary"), "work_history": row.get("work_history"),
+                    "city": row.get("city"), "state": row.get("state")})
+    return out
+
+
+def _ddb_sales_recommend(owner, body):
+    """Rank the Arena Sales Contacts for candidates: which companies to pitch
+    them to and who to email there. Companies a teammate has in a campaign
+    from the last 30 days are left out (include_worked=true lists them,
+    flagged); Current Clients stay in, flagged, since campaigns skip them."""
+    import contact_recommend as _cr
+    import team_campaigns as _tc
+    import team_contacts as _tcx
+    cands = _ddb_recommend_candidates(owner, body)
+    bank = _shared_bank(owner)
+    rows = bank["rows"]
+    flags, skip = {}, set()
+    try:
+        hits = _team_worked_hits(owner)
+    except Exception:
+        hits = {}
+    try:
+        clients = {_normalize_domain(e.get("domain", "")): e
+                   for e in (load_client_blocklist(owner) or []) if e.get("domain")}
+    except Exception:
+        clients = {}
+    include_worked = _ddb_bool(body, "include_worked")
+    for r in rows:
+        for d in r["domains"]:
+            rec = _tc.match(d, hits) if hits else None
+            if rec:
+                if include_worked:
+                    flags.setdefault(r["key"], []).append(
+                        "a teammate has it in a campaign now: " + _tc.describe(rec))
+                else:
+                    skip.add(r["key"])
+            if _tc.match(d, clients) if clients else None:
+                flags.setdefault(r["key"], []).append(
+                    "Current Client - campaigns skip them; reach out personally")
+    res = _cr.recommend(rows, cands, limit=_ddb_int(body, "limit", 15, 1, 50),
+                        per_company=_ddb_int(body, "per_company", 3, 1, 10),
+                        state=_ddb_str(body, "state"), industry=_ddb_str(body, "industry"),
+                        flags=flags, skip=skip)
+    for rec in res["recommendations"]:
+        rec["people"] = [dict(_tcx.contact_public(p["contact"]), why=p["why"])
+                         for p in rec["people"]]
+    res["pool_ids"] = [c["id"] for c in cands if c.get("id")]
+    res["next"] = ("Show the user these companies and people with the reasons. "
+                   "To pitch them, offer the campaign-type menu, then "
+                   "create_campaign with contacts = the people they pick and "
+                   "candidates = [{\"_pool_id\": id} for each id in pool_ids].")
+    return res
+
+
 def _ddb_sales_contacts(owner, body):
     import team_campaigns as _tc
     import team_contacts as _tcx
     import zoominfo_drop as _zd
     action = _ddb_str(body, "action", "search").lower() or "search"
-    _ddb_actions(action, ("search", "zoominfo_drop", "zoominfo_progress"))
+    _ddb_actions(action, ("search", "recommend", "zoominfo_drop", "zoominfo_progress"))
+    if action == "recommend":
+        return _ddb_sales_recommend(owner, body)
     if action == "zoominfo_drop":
         csv_text = body.get("csv_text")
         records = body.get("records")
