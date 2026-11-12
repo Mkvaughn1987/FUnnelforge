@@ -95,8 +95,11 @@ echo "   restarting dripdrop-mcp"
 $SSH "systemctl restart dripdrop-mcp; sleep 4; systemctl is-active dripdrop-mcp"
 $SSH "journalctl -u dripdrop-mcp --since '1 minute ago' --no-pager | tail -8"
 # New routes answer 401 without a key (route exists), never 404.
-for r in pipeline top10 ai_prompts sales_contacts clients running_campaigns sales_assets home profile; do
-    $SSH "curl -s -o /dev/null -w '   /api/v1/dd/$r -> %{http_code}\n' -X POST http://localhost:$UP_PORT/api/v1/dd/$r"
+for r in pipeline top10 ai_prompts sales_contacts clients running_campaigns sales_assets home profile          tasks/done tasks/briefing replies contacts contact_lists campaigns/contacts campaigns/action          campaigns/edit send_preview newsletters newsletters/issue newsletters/edit settings dnc campaign_styles; do
+    $SSH "curl -s -o /dev/null -w '   POST /api/v1/dd/$r -> %{http_code}\n' -X POST http://localhost:$UP_PORT/api/v1/dd/$r"
+done
+for r in tasks replies contacts/search newsletters analytics settings mailboxes dnc; do
+    $SSH "curl -s -o /dev/null -w '   GET  /api/v1/dd/$r -> %{http_code}\n' http://localhost:$UP_PORT/api/v1/dd/$r"
 done
 $SSH "journalctl -u $UP_SVC --since '3 minutes ago' --no-pager | grep -iE 'traceback|error' | tail -5 || echo '   no errors in the log'"
 $SSH "curl -s https://dripdripdrop.ai/healthz -o /dev/null -w '   https: HTTP %{http_code} in %{time_total}s\n'" || true
