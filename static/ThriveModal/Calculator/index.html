@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8"><meta name="robots" content="noindex, nofollow"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Offshore Hire Savings Calculator | Thrivemodal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* Layout: three questions on the left, one answer panel on the right. Same system as the other Thrivemodal calculators. */
+*{box-sizing:border-box}
+:root{--navy:#001D38;--blue:#005EB8;--green:#84BF55;--ink:#14212E;--mute:#55657A;--line:#C9D3DD;--tint:#F1F6FB;color-scheme:light}
+html,body{margin:0}
+body{font-family:Manrope,Arial,sans-serif;color:var(--ink);background:#fff;line-height:1.5;-webkit-font-smoothing:antialiased}
+a{color:var(--blue)}
+.top{background:var(--navy);color:#fff}
+.top .in{max-width:1120px;margin:0 auto;padding:14px 24px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.brand{display:flex;align-items:center;gap:10px;color:#fff;text-decoration:none;font-weight:800;letter-spacing:3px;font-size:13px}
+.brand img{width:35px;height:26px}
+.top .cta{background:var(--green);color:var(--navy);font-weight:800;font-size:13px;text-decoration:none;padding:10px 14px;white-space:nowrap}
+.hero{background:var(--navy);color:#fff;padding:36px 0 44px}
+.wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+.eyebrow{font-size:12px;font-weight:800;letter-spacing:2.5px;color:var(--green);text-transform:uppercase}
+h1{margin:10px 0 12px;font-size:clamp(30px,4.6vw,46px);line-height:1.08;font-weight:800;letter-spacing:-0.8px;max-width:820px;text-wrap:balance}
+.hero p{margin:0;font-size:17px;color:#D6E2EE;max-width:720px}
+.grid{display:grid;grid-template-columns:minmax(0,0.9fr) minmax(0,1.1fr);gap:28px;margin-top:-22px;padding-bottom:40px;align-items:start}
+.card{background:#fff;border:1px solid var(--line);padding:26px}
+.card h2{margin:0 0 4px;font-size:20px;font-weight:800;color:var(--navy)}
+.card .sub{margin:0 0 18px;font-size:14px;color:var(--mute)}
+.q{display:grid;gap:6px;padding:14px 0;border-top:1px solid #E4EAF0}
+.q:first-of-type{border-top:0;padding-top:0}
+.q label{font-weight:800;font-size:15px;color:var(--navy)}
+.q label i{font-style:normal;display:inline-block;width:22px;height:22px;line-height:22px;text-align:center;background:var(--blue);color:#fff;font-size:12px;margin-right:8px}
+.q small{color:var(--mute);font-size:13px}
+.inp{display:flex;align-items:center;border:1px solid var(--line);background:#fff}
+.inp:focus-within{border-color:var(--blue);box-shadow:0 0 0 2px rgba(0,94,184,.18)}
+.inp span{padding:0 4px 0 12px;color:var(--mute);font-weight:700;font-size:16px}
+.inp input,.inp select{border:0;outline:0;width:100%;padding:13px 12px;font:inherit;font-weight:700;font-size:16px;color:var(--ink);background:transparent;min-width:0}
+.go{display:block;width:100%;border:0;cursor:pointer;background:var(--green);color:var(--navy);font:inherit;font-weight:800;font-size:17px;padding:16px;margin-top:18px}
+.go:hover{background:#93cc64}
+.go:focus-visible,.btn:focus-visible,.top .cta:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+.err{color:#B3261E;font-size:13.5px;font-weight:700;margin:8px 0 0;min-height:1em}
+.res{background:var(--navy);color:#fff;padding:30px}
+.res .lab{font-size:12px;font-weight:800;letter-spacing:2px;color:var(--green);text-transform:uppercase}
+.res .big{font-size:clamp(38px,5vw,54px);font-weight:800;letter-spacing:-1px;line-height:1.05;margin:6px 0 4px}
+.res .note{font-size:14.5px;color:#D6E2EE;margin:0 0 16px}
+.row{display:flex;justify-content:space-between;gap:12px;padding:10px 0;border-top:1px solid rgba(255,255,255,.16);font-size:14.5px}
+.row b{font-weight:800;white-space:nowrap}
+.price{background:#fff;color:var(--ink);padding:22px;margin-top:22px}
+.price .k{font-size:12px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--blue)}
+.price .v{font-size:30px;font-weight:800;letter-spacing:-0.5px;line-height:1.1;color:var(--navy);margin-top:2px}
+.price .v small{font-size:15px;font-weight:700;color:var(--mute);letter-spacing:0}
+.price .d{font-size:13.5px;color:var(--mute);font-weight:600;margin-top:2px}
+.lvl{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;padding-top:12px;border-top:1px solid #E4EAF0}.lvl label{font-size:13.5px;font-weight:800;color:var(--navy)}.lvl select{font:inherit;font-weight:700;font-size:14px;padding:8px 10px;border:1px solid var(--line);background:#fff;color:var(--ink);max-width:60%}.lvl select:focus-visible{outline:3px solid var(--blue);outline-offset:1px}.why{font-size:13px;color:var(--mute);margin:6px 0 0}
+.inc{list-style:none;margin:14px 0 0;padding:14px 0 0;border-top:1px solid #E4EAF0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 16px}
+.inc li{font-size:14px;font-weight:700;padding-left:22px;position:relative;line-height:1.35}
+.inc li::before{content:"";position:absolute;left:0;top:3px;width:13px;height:13px;background:var(--green)}
+.inc li::after{content:"";position:absolute;left:4px;top:5px;width:4px;height:7px;border:solid var(--navy);border-width:0 2px 2px 0;transform:rotate(45deg)}
+.hl{background:transparent;color:#fff;padding:4px 0 4px 18px;margin-top:26px;border-left:4px solid var(--green)}
+.hlr{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:6px}.stp{display:inline-flex;align-items:center;background:#fff}.stp button{border:0;background:var(--navy);color:#fff;width:34px;height:34px;font:inherit;font-weight:800;font-size:18px;cursor:pointer}.stp button:focus-visible{outline:3px solid var(--blue);outline-offset:2px}.stp b{min-width:40px;text-align:center;font-size:17px;font-weight:800}
+.hl .k{font-size:12px;font-weight:800;letter-spacing:2px;text-transform:uppercase;color:var(--green)}
+.hl .v{font-size:34px;font-weight:800;letter-spacing:-0.6px;line-height:1.1;margin:6px 0 4px;color:#fff}
+.hl .d{font-size:14px;font-weight:500;color:#D6E2EE}
+.btn{display:block;text-align:center;background:var(--green);color:var(--navy);font-weight:800;text-decoration:none;padding:16px;margin-top:28px;font-size:15px}
+.wait h2{margin:6px 0 8px;font-size:26px;font-weight:800;letter-spacing:-0.4px;line-height:1.15}
+.wait p{margin:0;color:#D6E2EE;font-size:15px}
+.wait .inc{border-top:1px solid rgba(255,255,255,.16)}
+.wait .inc li{color:#fff}
+[hidden]{display:none!important}
+.how{background:var(--tint);border-top:4px solid var(--green);padding:26px 0;margin-top:8px}
+.how h3{margin:0 0 8px;font-size:18px;color:var(--navy)}
+.how li{font-size:14.5px;color:#40505F;margin:0 0 8px}
+.how ul{margin:0;padding-left:20px}
+.foot{padding:22px 0;font-size:13px;color:var(--mute)}
+@media(max-width:860px){.grid{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:520px){.top .in{padding:12px 16px}.brand{letter-spacing:1.5px;font-size:12px}.top .cta{font-size:12px;padding:9px 10px;white-space:normal;text-align:center;max-width:150px;line-height:1.2}.wrap{padding:0 16px}.card,.res{padding:20px}.inc{grid-template-columns:minmax(0,1fr)}}
+@media(prefers-reduced-motion:no-preference){.res.flash{animation:f .5s ease-out}@keyframes f{from{box-shadow:0 0 0 4px var(--green)}to{box-shadow:0 0 0 0 transparent}}}
+</style></head><body>
+<!-- Developer note: this page is self-contained (one file, no dependencies besides the Google font). To capture leads, add your form embed inside the element with id="lead-slot" and pass the values in window.calcResult. -->
+<div style="background:#84BF55;color:#001D38;font-size:13px;font-weight:700;text-align:center;padding:8px 16px">PROPOSED SITE PREVIEW for the Thrivemodal team. Not the live site. Figures pending confirmation.</div>
+<div class="top"><div class="in"><a class="brand" href="/ThriveModal/"><img src="data:image/png;base64,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" alt="Thrivemodal" style="width:90px;height:51px;display:block"></a><a class="cta" href="https://info.thrivemodal.com/zero-risk-consultation">Book a zero risk consultation</a></div></div>
+<div class="hero"><div class="wrap"><div class="eyebrow">Savings calculator</div><h1>Three questions. See what one offshore hire saves you.</h1><p>Tell us the role and what you pay for it today. We show our all-in price, everything it covers and what you keep.</p></div></div>
+<div class="wrap"><div class="grid">
+<form class="card" id="f" novalidate><h2>Your hire</h2><p class="sub">Takes about ten seconds.</p>
+<div class="q"><label for="ind"><i>1</i>What industry are you in?</label><div class="inp"><select id="ind"></select></div></div>
+<div class="q"><label for="role"><i>2</i>What role are you hiring for?</label><div class="inp"><select id="role"></select></div></div>
+<div class="q"><label for="sal"><i>3</i>What is your average base salary for it?</label><div class="inp"><span>$</span><input id="sal" type="text" inputmode="numeric" autocomplete="off" aria-describedby="salh"></div><small id="salh">Per year, before taxes and benefits. We filled in the US market average. Change it to yours.</small></div>
+<button class="go" type="submit" id="go">Calculate savings</button><p class="err" id="err" role="alert"></p></form>
+<div class="res" id="res" aria-live="polite">
+<div class="wait" id="wait"><div class="lab">Your answer shows here</div><h2>One monthly price. Everything below is already in it.</h2><p>No recruiting fee, no equipment purchase, no benefits to administer.</p><ul class="inc" id="inc0"></ul></div>
+<div id="out" hidden><div class="lab">You save</div><div class="big" id="save">$0</div><p class="note" id="pct"></p>
+<div class="row"><span>Your base salary</span><b id="rBase">$0</b></div>
+<div class="row"><span>Payroll taxes, insurance, benefits and paid leave (30%)</span><b id="rBurden">$0</b></div>
+<div class="row"><span>What this hire costs you in the US</span><b id="rUs">$0</b></div>
+<div class="price"><div class="k">Your Thrivemodal price, all in</div><div class="v"><span id="pMo">$0</span> <small>a month</small></div><div class="d" id="pSub"></div><div class="lvl"><label for="lvl">Experience level priced</label><select id="lvl"></select></div><p class="why" id="why"></p><ul class="inc" id="inc1"></ul></div>
+<div class="hl"><div class="k">After 3 hires</div><div class="v" id="y3">$0</div><div class="d" id="y3d"></div></div>
+<a class="btn" href="https://info.thrivemodal.com/zero-risk-consultation">Book a zero risk consultation</a><div id="lead-slot"></div></div>
+</div></div></div>
+<div class="how"><div class="wrap"><h3>How this is calculated</h3><ul>
+<li><b>US cost</b> is the base salary you enter plus 30% for payroll taxes, insurance, benefits and paid leave. The salary we suggest is the US market average for the role (US Bureau of Labor Statistics, May 2025).</li>
+<li><b>Thrivemodal price</b> starts at $1,800 a month and rises with the role and the experience level. We read the level from the salary you enter compared with the US market average for that role: junior, mid-level, senior or lead. Rates by role and level are benchmarked against what Philippine staffing providers published in 2026. The hourly figure assumes a 40 hour week. Your exact rate is confirmed on a call.</li>
+<li>US cost leaves out office space, recruiting fees and turnover, so real savings usually run higher.</li></ul></div></div>
+<div class="wrap foot">Estimates only. Your numbers will vary with role, location and benefits. thrivemodal.com</div>
+<script>
+const $=id=>document.getElementById(id);
+const usd=n=>'$'+Math.round(n).toLocaleString('en-US');
+const set=(id,t)=>{$(id).textContent=t};
+const esc=s=>s.replace(/&/g,'&amp;');
+const BURDEN=0.30;
+const FLOOR=1800; // lowest monthly rate Thrivemodal quotes. Change here if the rate card changes.
+const LV=[{k:'Junior',y:'0 to 2 years',m:0.85,max:0.85},{k:'Mid-level',y:'3 to 5 years',m:1,max:1.25},{k:'Senior',y:'5+ years',m:1.3,max:2},{k:'Lead',y:'8+ years, can run the function',m:1.6,max:Infinity}];
+const levelFor=(base,r)=>{const x=base/marketBase(r);return LV.findIndex(l=>x<=l.max)};
+const priceFor=(r,i)=>Math.max(FLOOR,Math.round(r.mo*LV[i].m/50)*50);
+const INCLUDED=['Recruiting and vetting','Salary and benefits','Company laptop and equipment','PTO and paid holidays','Payroll, HR and compliance','Monthly team outings and events','Dedicated full-time hire','Ongoing account support'];
+const DATA={"Logistics":[{"t":"Logistics Coordinator","us":63700,"mo":1500},{"t":"Dispatcher","us":60500,"mo":1500},{"t":"Track & Trace Specialist","us":51600,"mo":1300},{"t":"Customer Service Representative","us":53100,"mo":1350},{"t":"Carrier Operations Specialist","us":63700,"mo":1500},{"t":"POD / Document Retrieval Specialist","us":52900,"mo":1350},{"t":"Compliance & Driver Safety Coordinator","us":56500,"mo":1600},{"t":"Freight Billing Specialist","us":59400,"mo":1550},{"t":"AR / Collections Specialist","us":55900,"mo":1550},{"t":"AP / Carrier Payables Specialist","us":61200,"mo":1550}],"Home Healthcare":[{"t":"Intake & Referral Coordinator","us":54900,"mo":1600},{"t":"Scheduling Coordinator","us":54900,"mo":1600},{"t":"Insurance Verification & Authorization Specialist","us":60800,"mo":1500},{"t":"Home Health Biller","us":59400,"mo":1800},{"t":"Medical Coder","us":61500,"mo":2100},{"t":"EVV & Visit Compliance Specialist","us":52900,"mo":1600},{"t":"Caregiver Recruiting Coordinator","us":61500,"mo":1500},{"t":"Credentialing & Onboarding Coordinator","us":61500,"mo":2120},{"t":"Payroll Specialist","us":69100,"mo":1600},{"t":"After-Hours Client Care Representative","us":53100,"mo":1400}],"Construction":[{"t":"Estimator","us":90900,"mo":2200},{"t":"CAD Drafter","us":79200,"mo":2000},{"t":"BIM Modeler","us":79200,"mo":2000},{"t":"Project Coordinator","us":82400,"mo":1500},{"t":"Submittals & RFI Coordinator","us":75700,"mo":1600},{"t":"Project Scheduler","us":69900,"mo":1950},{"t":"Document Controller","us":52900,"mo":1350},{"t":"Procurement & Purchasing Coordinator","us":61100,"mo":1500},{"t":"Construction Accounting Specialist","us":61200,"mo":1550},{"t":"Service Dispatcher","us":60500,"mo":1500}],"Recruiting":[{"t":"Recruiter","us":87500,"mo":2375},{"t":"Sourcer","us":61500,"mo":1950},{"t":"Recruiting Coordinator","us":61500,"mo":2000},{"t":"Business Development Representative","us":67000,"mo":1950},{"t":"Onboarding & Compliance Specialist","us":61500,"mo":1500},{"t":"Payroll & Timekeeping Specialist","us":69100,"mo":2250},{"t":"ATS & CRM Data Administrator","us":50100,"mo":1350},{"t":"Candidate Marketing & Job Posting Specialist","us":52900,"mo":1500},{"t":"Billing & Collections Specialist","us":59400,"mo":1550},{"t":"Recruiter Assistant","us":56100,"mo":1500}],"Accounting":[{"t":"Bookkeeper","us":61200,"mo":1550},{"t":"Accounts Payable Specialist","us":61200,"mo":1750},{"t":"Accounts Receivable Specialist","us":59400,"mo":1750},{"t":"Collections Specialist","us":55900,"mo":1550},{"t":"Payroll Specialist","us":69100,"mo":1600},{"t":"Staff Accountant","us":98000,"mo":2000},{"t":"Tax Preparer","us":61000,"mo":2000},{"t":"Audit Associate","us":98000,"mo":2000},{"t":"Financial Analyst","us":118300,"mo":2300},{"t":"Client Services Administrator","us":56100,"mo":1350}],"Property Management":[{"t":"Leasing Coordinator","us":53100,"mo":1600},{"t":"Application Screening Specialist","us":52900,"mo":1500},{"t":"Lease Administrator","us":56100,"mo":1600},{"t":"Resident Services Representative","us":53100,"mo":1400},{"t":"Maintenance Coordinator","us":60500,"mo":1600},{"t":"Assistant Property Manager","us":65900,"mo":2100},{"t":"Accounts Payable Specialist","us":61200,"mo":1750},{"t":"Rent Collections Specialist","us":55900,"mo":1550},{"t":"Property Accountant","us":98000,"mo":1800},{"t":"Marketing & Listing Coordinator","us":52900,"mo":1500}]};
+const incHtml=INCLUDED.map(t=>'<li>'+t+'</li>').join('');
+$('inc0').innerHTML=incHtml; $('inc1').innerHTML=incHtml;
+$('lvl').innerHTML=LV.map((l,i)=>'<option value="'+i+'">'+l.k+' ('+l.y+')</option>').join('');
+$('ind').innerHTML=Object.keys(DATA).map(k=>'<option>'+k+'</option>').join('');
+const role=()=>DATA[$('ind').value][+$('role').value];
+const marketBase=r=>Math.round(r.us/(1+BURDEN)/100)*100;
+function fillRoles(){ $('role').innerHTML=DATA[$('ind').value].map((r,i)=>'<option value="'+i+'">'+esc(r.t)+'</option>').join(''); fillSalary(); }
+function fillSalary(){ $('sal').value=marketBase(role()).toLocaleString('en-US'); reset(); }
+function reset(){ $('out').hidden=true; $('wait').hidden=false; set('err',''); }
+let lastBase=0,lastS=0,hires=3;
+function team(){ set('y3',usd(lastS*hires)); set('y3d','saved every year with three hires like this one'); }
+function show(base,lv,auto){
+ const r=role(), mo=priceFor(r,lv), burden=base*BURDEN, us=base+burden, off=mo*12, s=us-off;
+ $('lvl').value=lv;
+ set('rBase',usd(base)); set('rBurden',usd(burden)); set('rUs',usd(us));
+ set('pMo',usd(mo)); set('pSub',usd(off)+' a year, or about $'+(off/2080).toFixed(2)+' an hour, for a full-time '+LV[lv].k.toLowerCase()+' '+r.t);
+ set('why',auto?'A '+usd(base)+' salary for this role points to a '+LV[lv].k.toLowerCase()+' hire, so that is the level we priced. Change it if we guessed wrong.':'Priced at the level you chose.');
+ if(s>0){ set('save',usd(s)); set('pct','a year on this one seat. That is '+Math.round(s/us*100)+'% less than the same hire in the US.'); lastS=s; team(); $('res').querySelector('.hl').hidden=false; }
+ else { set('save','$0'); set('pct','At that salary this seat costs about the same offshore. The savings show up on higher-paid roles, so try another one.'); $('res').querySelector('.hl').hidden=true; }
+ window.calcResult={industry:$('ind').value,role:r.t,level:LV[lv].k,baseSalary:base,us:us,offshoreMonthly:mo,offshore:off,savings:Math.max(0,s)};
+}
+function calc(e){
+ e.preventDefault();
+ const base=parseFloat(String($('sal').value).replace(/[^0-9.]/g,''));
+ if(!isFinite(base)||base<15000||base>500000){ reset(); set('err','Enter a yearly base salary between $15,000 and $500,000.'); $('sal').focus(); return; }
+ lastBase=base; show(base,levelFor(base,role()),true);
+ $('sal').value=Math.round(base).toLocaleString('en-US');
+ $('wait').hidden=true; $('out').hidden=false; set('err','');
+ $('res').classList.remove('flash'); void $('res').offsetWidth; $('res').classList.add('flash');
+ if(window.matchMedia('(max-width:860px)').matches) $('res').scrollIntoView({behavior:'smooth',block:'start'});
+}
+$('lvl').addEventListener('change',()=>{ if(lastBase) show(lastBase,+$('lvl').value,false); });
+$('ind').addEventListener('change',fillRoles);
+$('role').addEventListener('change',fillSalary);
+$('sal').addEventListener('input',reset);
+$('f').addEventListener('submit',calc);
+fillRoles();
+</script></body></html>

@@ -76699,7 +76699,8 @@ try:
     from starlette.staticfiles import StaticFiles as _TMStaticFiles
     _TM_PAGES_DIR = _APP_DIR / "static" / "ThriveModal"
     _TM_PAGE_SECTIONS = {"construction": "Construction", "hr": "HR",
-                         "why": "Why", "guides": "Guides"}
+                         "why": "Why", "guides": "Guides",
+                         "calculator": "Calculator", "careers": "Careers"}
     for _tm_section in _TM_PAGE_SECTIONS.values():
         if (_TM_PAGES_DIR / _tm_section).is_dir():
             app.mount(f"/ThriveModal/{_tm_section}",

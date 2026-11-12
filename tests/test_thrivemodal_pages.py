@@ -25,7 +25,7 @@ def _all_pages():
 
 def test_every_page_serves(client):
     pages = _all_pages()
-    assert len(pages) == 15
+    assert len(pages) == 17
     for p in pages:
         rel = p.parent.relative_to(PAGES).as_posix()
         url = "/ThriveModal/" if rel == "." else "/ThriveModal/" + rel + "/"
