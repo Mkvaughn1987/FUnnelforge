@@ -470,6 +470,281 @@ async def campaign_get(campaign_id: str) -> dict:
         return {"error": str(e.body), "status_code": e.status_code}
 
 
+# ── DD connector B: the DripDrop-only pages ──────────────────────────────
+# One tool per page, each mirroring that page's buttons through
+# /api/v1/dd/<page>. Anything destructive refuses without confirm=true.
+
+_DDB_APP_ORIGIN = os.environ.get("DRIPDROP_APP_ORIGIN", "https://dripdripdrop.ai").rstrip("/")
+
+
+async def _ddb_call(method: str, body: dict) -> dict:
+    try:
+        client = DripDropClient(DATA_DIR, _current_email())
+        return await getattr(client, method)(body)
+    except NoApiKeyError as e:
+        return {"error": str(e)}
+    except DripDropApiError as e:
+        return {"error": str(e.body), "status_code": e.status_code}
+
+
+def _ddb_body(action: str, **fields) -> dict:
+    """The request body: the action plus every field the caller set."""
+    body = {"action": action}
+    for k, v in fields.items():
+        if v is None or v == "" or v == [] or v == {}:
+            continue
+        body[k] = v
+    return body
+
+
+def _ddb_link_pdfs(res: dict) -> dict:
+    """Turn the app's /pdfs/ paths into links the user can open (in a
+    browser where they are signed in to DripDrop)."""
+    for r in res.get("assets") or [] if isinstance(res, dict) else []:
+        if isinstance(r, dict) and str(r.get("path", "")).startswith("/pdfs/"):
+            r["url"] = _DDB_APP_ORIGIN + r["path"]
+    return res
+
+
+@mcp.tool(description=(
+    "Pipeline (the /ats candidate database, Arena accounts only). Mirrors the "
+    "Pipeline page. action: "
+    "'search' (default; q = keywords, a Ref # or a name; optional location "
+    "'City, ST' + radius_mi (default 50), added_within_days, mine=true for only "
+    "the user's own uploads, strict=true for every-word matching); "
+    "'jd_match' (jd_text = a job description, AI picks the search terms; "
+    "location/radius_mi optional); 'find' (q = part of a name or email, like the "
+    "top-bar Quick Find); 'get' (candidate_id = Ref #: the full record with "
+    "contact details, summary, recruiter notes and resume text); 'save_notes' "
+    "(candidate_id + notes: REPLACES the Recruiter Notes, so get first and send "
+    "the whole text); 'dashboard' (the user's pool by industry, state and role, "
+    "recently added); 'pools' (the team's top 20 role x state pools) and 'pool' "
+    "(role + state from pools); 'tearsheets', 'tearsheet' (tearsheet_id: its "
+    "candidates), 'tearsheet_create' (name; with query it is a smart saved "
+    "search, otherwise a hand-picked list, optionally seeded with candidate_ids), "
+    "'tearsheet_add' / 'tearsheet_remove' (tearsheet_id + candidate_ids), "
+    "'tearsheet_delete' (tearsheet_id, confirm=true); 'jobs', 'job_add' (title, "
+    "company, location, jd_text), 'job_matches' (job_id), 'job_delete' (job_id, "
+    "confirm=true); 'companies' (companies reached in the user's campaigns, with "
+    "contacts; q filters) and 'company_insight' (company: a short web-researched "
+    "summary, cached). The page has no status or tag editor, so neither does this. "
+    "To pitch candidates use create_campaign with their Ref #s; to load resumes use "
+    "import_candidates / import_candidate_records."
+))
+async def pipeline(action: str = "search", q: str = "", candidate_id: str = "",
+                   candidate_ids: list | None = None, notes: str | None = None,
+                   location: str = "", radius_mi: int = 0, added_within_days: int = 0,
+                   mine: bool = False, strict: bool = False, jd_text: str = "",
+                   role: str = "", state: str = "", tearsheet_id: int = 0,
+                   name: str = "", query: str = "", job_id: int = 0, title: str = "",
+                   company: str = "", refresh: bool = False, limit: int = 25,
+                   confirm: bool = False) -> dict:
+    body = _ddb_body(action, q=q, candidate_id=candidate_id, candidate_ids=candidate_ids,
+                     location=location, radius_mi=radius_mi or None,
+                     added_within_days=added_within_days or None, mine=mine or None,
+                     strict=strict or None, jd_text=jd_text, role=role, state=state,
+                     tearsheet_id=tearsheet_id or None, name=name, query=query,
+                     job_id=job_id or None, title=title, company=company,
+                     refresh=refresh or None, limit=limit, confirm=confirm or None)
+    if notes is not None:
+        body["notes"] = notes
+    return await _ddb_call("pipeline", body)
+
+
+@mcp.tool(description=(
+    "My Top 10: the user's private list of ten target companies plus ten backups, "
+    "each with new job postings, hiring signals, status and any teammate campaign "
+    "there. Mirrors the My Top 10 page. action: 'view' (default; fills an empty "
+    "list from the user's own outreach the first time and starts a background "
+    "re-check of stale postings/signals); 'add' (company = name or website; it is "
+    "looked up on the web first and saved under its real name - if the check "
+    "cannot confirm it you get the check back and can retry or pass "
+    "add_as_typed=true; to='backup' adds to the backups, default is the top 10, "
+    "which bumps the last one to backups; optional roles, notes); 'update' "
+    "(company_id + any of name, website, city, state, industry, roles, status, "
+    "notes); 'remove' (company_id, confirm=true); 'move' (company_id, direction "
+    "up/down); 'promote' (backup -> top 10) / 'demote' (company_id); 'set_focus' "
+    "(market e.g. 'Denver, CO', industry) then 'fill' to top the list up from "
+    "the user's outreach in that focus; 'recheck' (company_ids, default all ten: "
+    "postings + signals refresh in the background, view again in a minute or "
+    "two); 'check_pipeline' (company_ids, default all ten: how many Pipeline "
+    "candidates fit each company's newest posting, Arena accounts only). "
+    "company_id also accepts the company's name."
+))
+async def top10(action: str = "view", company: str = "", company_id: str = "",
+                company_ids: list | None = None, to: str = "", add_as_typed: bool = False,
+                verify: bool = True, name: str = "", website: str = "", city: str = "",
+                state: str = "", industry: str = "", roles: str = "", status: str = "",
+                notes: str | None = None, direction: str = "", market: str = "",
+                confirm: bool = False) -> dict:
+    body = _ddb_body(action, company=company, company_id=company_id,
+                     company_ids=company_ids, to=to, add_as_typed=add_as_typed or None,
+                     name=name, website=website, city=city, state=state,
+                     industry=industry, roles=roles, status=status, direction=direction,
+                     market=market, confirm=confirm or None)
+    if not verify:
+        body["verify"] = False
+    if notes is not None:
+        body["notes"] = notes
+    return await _ddb_call("top10", body)
+
+
+@mcp.tool(description=(
+    "AI Prompts page: the job cards (find new business by hiring signals, client "
+    "look-alikes, MPC, slate, find candidates, LinkedIn adds, resume sweep, Indeed "
+    "Interested, ZoomInfo help, anything else) and the questions each asks. "
+    "action: 'runs' (default: every card with its questions, options and "
+    "defaults); 'build' (run = a card id from runs, answers = {question key: "
+    "answer}, optional instructions = extra lines; or prompt_id to reuse a saved "
+    "one) returns the finished brief, exactly the text the page would hand you; "
+    "'save' (same as build plus name: keeps it under Saved Prompts); 'saved' "
+    "(list them); 'delete' (prompt_id, confirm=true). Building does not send "
+    "anything. The brief is your instructions: carry it out with the other "
+    "DripDrop tools. Whatever it launches through create_campaign SENDS REAL "
+    "EMAIL, so confirm the campaigns with the user before launching them."
+))
+async def ai_prompts(action: str = "runs", run: str = "", answers: dict | None = None,
+                     instructions: list | None = None, prompt_id: str = "",
+                     name: str = "", confirm: bool = False) -> dict:
+    return await _ddb_call("ai_prompts", _ddb_body(
+        action, run=run, answers=answers, instructions=instructions,
+        prompt_id=prompt_id, name=name, confirm=confirm or None))
+
+
+@mcp.tool(description=(
+    "Arena Sales Contacts: the team's contact bank - everyone any teammate has "
+    "reached in a campaign or uploaded list, grouped by company (people who said "
+    "no or are on a Do Not Contact list are left out). Mirrors that page and its "
+    "ZoomInfo Drop panel. action: 'search' (default; filters q (company, person, "
+    "title, email or city), rep (teammate email), state, industry, "
+    "replied_only=true; sort newest/oldest/name/name_desc/person/person_desc/most; "
+    "limit, offset) returns companies with their people plus the filter counts; "
+    "'zoominfo_drop' saves ZoomInfo people into the user's 'ZoomInfo Archive' "
+    "contact list so they join the bank and nobody pays for them again - pass "
+    "records (a list of people, ZoomInfo field names are fine: First Name, Last "
+    "Name, Email, Job Title, Company, Direct Phone, Mobile Phone, LinkedIn, City, "
+    "State, ...) or csv_text (a ZoomInfo CSV export) - and returns the receipt "
+    "(added, merged, new to the team); 'zoominfo_progress' (the user's archive and "
+    "who on the team has dropped files). For one company's people plus its skip "
+    "verdict use team_contacts."
+))
+async def sales_contacts(action: str = "search", q: str = "", rep: str = "",
+                         state: str = "", industry: str = "", replied_only: bool = False,
+                         sort: str = "", limit: int = 25, offset: int = 0,
+                         records: list | None = None, csv_text: str = "",
+                         filename: str = "") -> dict:
+    return await _ddb_call("sales_contacts", _ddb_body(
+        action, q=q, rep=rep, state=state, industry=industry,
+        replied_only=replied_only or None, sort=sort, limit=limit, offset=offset or None,
+        records=records, csv_text=csv_text, filename=filename))
+
+
+@mcp.tool(description=(
+    "Current Clients: the team's list of client companies, by email domain. "
+    "Nobody at these domains is ever put in a new campaign (skip_check and "
+    "create_campaign both honour it). Mirrors the Current Clients page. action: "
+    "'list' (default; q filters); 'add' (client_name + domain, optional website, "
+    "location, notes - or clients = a list of those to add several); 'update' "
+    "(client_id or domain, then client_name, website, location or notes); "
+    "'remove' (client_id or domain, confirm=true: campaigns can reach that "
+    "company again, so check with the user first)."
+))
+async def clients(action: str = "list", client_name: str = "", domain: str = "",
+                  website: str | None = None, location: str | None = None,
+                  notes: str | None = None, client_id: str = "",
+                  clients: list | None = None, q: str = "",
+                  confirm: bool = False) -> dict:
+    body = _ddb_body(action, client_name=client_name, domain=domain, client_id=client_id,
+                     clients=clients, q=q, confirm=confirm or None)
+    for k, v in (("website", website), ("location", location), ("notes", notes)):
+        if v is not None:
+            body[k] = v
+    return await _ddb_call("clients", body)
+
+
+@mcp.tool(description=(
+    "Arena Running Campaigns: every company anyone on the team has put in an "
+    "outbound campaign in the last 30 days (cancelled included), with each "
+    "campaign's rep, type, start date and the date the company opens up again. "
+    "New campaigns skip these companies. Mirrors that page and its filters: rep "
+    "(teammate email), state, industry, campaign_type (a template key such as "
+    "fourbyfour), status running/cancelled, q (company, rep, campaign, geography "
+    "or roles), sort newest/opens/name, limit. action 'list' (default) or "
+    "'sort_industries' (the page's 'Sort them with AI' button: files companies "
+    "with no industry into one). For a yes/no on specific companies use skip_check."
+))
+async def running_campaigns(action: str = "list", rep: str = "", state: str = "",
+                            industry: str = "", campaign_type: str = "", status: str = "",
+                            q: str = "", sort: str = "", limit: int = 50) -> dict:
+    return await _ddb_call("running_campaigns", _ddb_body(
+        action, rep=rep, state=state, industry=industry, campaign_type=campaign_type,
+        status=status, q=q, sort=sort, limit=limit))
+
+
+@mcp.tool(description=(
+    "Sales Assets: branded PDFs to attach to outreach. action 'list' (default) "
+    "returns the user's PDF library newest first, each with a link, and the kinds "
+    "available. action 'generate' builds up to 3 at once, like the page: kinds "
+    "(any of market_pulse, interview_guide, salary_guide, scorecard, "
+    "why_staffing), company (or the market), role, location - all required - "
+    "plus optional industry, website, experience_level. Each PDF researches the "
+    "web, so a batch takes a few minutes. Returns each PDF with its link (opens "
+    "where the user is signed in to DripDrop). The page's Create Your Own custom "
+    "PDF is not available here."
+))
+async def sales_assets(action: str = "list", kinds: list | None = None,
+                       company: str = "", role: str = "", location: str = "",
+                       industry: str = "", website: str = "",
+                       experience_level: str = "") -> dict:
+    return _ddb_link_pdfs(await _ddb_call("sales_assets", _ddb_body(
+        action, kinds=kinds, company=company, role=role, location=location,
+        industry=industry, website=website, experience_level=experience_level)))
+
+
+@mcp.tool(description=(
+    "Home page summary: overdue tasks, tasks today and tomorrow, active "
+    "campaigns (sent, pending, next send), reply count and the latest replies, "
+    "emails queued, setup status and (Arena accounts) Pipeline size. Read-only. "
+    "Use it to answer 'how am I doing' or 'what's on today'; the task, reply "
+    "and campaign tools have the detail."
+))
+async def home() -> dict:
+    return await _ddb_call("home", {"action": "get"})
+
+
+@mcp.tool(description=(
+    "The user's My Profile, Team, Signature and Timezone settings. action 'get' "
+    "(default) returns all of them: name, phone, company profile (read-only when "
+    "it comes from the team's profile), email signature, timezone, newsletter "
+    "note, team members and team branding. action 'update' changes any of: name, "
+    "phone, company (an object of company_name, company_website, "
+    "company_industry, company_description, company_phone, company_linkedin, "
+    "company_address, company_tagline, company_color), signature (the full "
+    "email signature text, replaces it), timezone (IANA, e.g. America/Chicago - "
+    "every send time is in it), newsletter_note. Team admins only: "
+    "'team_branding' (company_name, company_color, company_website, "
+    "company_tagline for the whole team) and 'set_admin' (email, admin "
+    "true/false, confirm=true). Mailboxes, AI setup and Do Not Contact are "
+    "separate settings tools."
+))
+async def profile(action: str = "get", name: str | None = None, phone: str | None = None,
+                  company: dict | None = None, signature: str | None = None,
+                  timezone: str | None = None, newsletter_note: str | None = None,
+                  company_name: str | None = None, company_color: str | None = None,
+                  company_website: str | None = None, company_tagline: str | None = None,
+                  email: str = "", admin: bool | None = None,
+                  confirm: bool = False) -> dict:
+    body = _ddb_body(action, email=email, confirm=confirm or None)
+    for k, v in (("name", name), ("phone", phone), ("company", company),
+                 ("signature", signature), ("timezone", timezone),
+                 ("newsletter_note", newsletter_note), ("company_name", company_name),
+                 ("company_color", company_color), ("company_website", company_website),
+                 ("company_tagline", company_tagline), ("admin", admin)):
+        if v is not None:
+            body[k] = v
+    return await _ddb_call("profile", body)
+
+
 @mcp.tool(
     description=(
         "List the Sales Campaign runs the DripDrop user has queued for you "

@@ -228,6 +228,50 @@ class DripDropClient:
         await self._raise_for_error(resp)
         return resp.json()
 
+    # ── DD connector B: DripDrop-only pages (/api/v1/dd/<page>) ──────────
+    # One POST per page; the body carries {"action": ...} plus its fields.
+
+    async def _ddb_post(self, page: str, body: dict, timeout: float = 120.0) -> dict:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.post(
+                f"{self.base_url}/api/v1/dd/{page}",
+                json=body,
+                headers={**self._headers(), "Content-Type": "application/json"},
+            )
+        await self._raise_for_error(resp)
+        return resp.json()
+
+    async def pipeline(self, body: dict) -> dict:
+        # jd_match / company_insight call the AI.
+        return await self._ddb_post("pipeline", body, timeout=180.0)
+
+    async def top10(self, body: dict) -> dict:
+        # add runs a web lookup on the company first.
+        return await self._ddb_post("top10", body, timeout=180.0)
+
+    async def ai_prompts(self, body: dict) -> dict:
+        return await self._ddb_post("ai_prompts", body)
+
+    async def sales_contacts(self, body: dict) -> dict:
+        return await self._ddb_post("sales_contacts", body, timeout=180.0)
+
+    async def clients(self, body: dict) -> dict:
+        return await self._ddb_post("clients", body)
+
+    async def running_campaigns(self, body: dict) -> dict:
+        # sort_industries asks the AI in batches.
+        return await self._ddb_post("running_campaigns", body, timeout=300.0)
+
+    async def sales_assets(self, body: dict) -> dict:
+        # Each PDF researches on the web: a batch of 3 takes minutes.
+        return await self._ddb_post("sales_assets", body, timeout=900.0)
+
+    async def home(self, body: dict) -> dict:
+        return await self._ddb_post("home", body)
+
+    async def profile(self, body: dict) -> dict:
+        return await self._ddb_post("profile", body)
+
     async def sales_runs_pending(self) -> dict:
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.get(
