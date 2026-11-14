@@ -8,10 +8,6 @@ Updated 2026-11-14. The code in this repo matches the live server as of
 that date, apart from the files listed under "Server vs repo". The server
 figures in Part 4 were taken on 2026-10-08. Re-check them on the day.
 
-DripDrop and inboxslide started as one codebase. They are now fully
-separate: different servers, data, Google sign-in clients and Anthropic
-accounts. This repo contains DripDrop only. Mike keeps inboxslide.
-
 ---
 
 ## Part 1 - What IT will own
@@ -48,11 +44,9 @@ replacement is live.
    **public** half (`~/.ssh/id_ed25519.pub`). Never send the private half.
 
 **Mike:**
-4. Copy Arena's do-not-contact list into inboxslide one last time:
-   `deploy/dnc_transfer.py` in the inboxslide repo, `export` here, `import`
-   there.
-5. Get it in writing: inboxslide and its code stay Mike's, and whatever
-   DripDrop access (if any) Mike keeps afterwards.
+4. Agree in writing what DripDrop access (if any) Mike keeps afterwards.
+5. Send IT a list of his own Claude routines that use DripDrop (step 13),
+   so IT knows what stops when Mike turns them off.
 
 ### B. Code (Mike, 10 minutes)
 6. From this repo's root, with a clean working tree:

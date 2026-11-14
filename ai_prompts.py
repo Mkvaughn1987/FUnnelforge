@@ -42,8 +42,8 @@ Claude's — instead of two that can disagree.
 
 THE CATALOGUE IS SWAPPABLE. Everything product-specific — the routines,
 the starters, the standing rules, the connector's name, the page copy —
-lives in a Catalogue. ARENA is DripDrop's and is what p_ai_prompts binds.
-tm_prompts.py builds inboxslide's and binds it through render_page().
+lives in a Catalogue. ARENA is DripDrop's and is what p_ai_prompts binds
+(STAFFING in staffing_prompts.py extends it) through render_page().
 The engine below reads the active one through _CAT and nothing else.
 """
 import asyncio
@@ -101,7 +101,7 @@ def F(key, label, section="details", type="text", default="", ask=False,
 
     refresh=True re-renders the screen when the answer changes. Only worth
     it for a question other questions are computed from — the vertical on
-    the ThriveModal page decides which signals are on offer below it, and a
+    a page can decide which signals are on offer below it, and a
     stale menu under a changed vertical is worse than a flicker.
 
     type="pick" is a dropdown of the host's own data (source names which:
@@ -152,8 +152,7 @@ def finalize_routines(routines):
 @dataclass
 class Catalogue:
     """Everything about this page that belongs to one product rather than
-    to the engine. ARENA (further down) is DripDrop's; tm_prompts.py builds
-    inboxslide's. The engine reads the active one through _CAT and never
+    to the engine. ARENA (further down) is DripDrop's. The engine reads the active one through _CAT and never
     names a product itself."""
     routines: list
     routine_by_key: dict
@@ -205,12 +204,11 @@ class Catalogue:
     # The ZoomInfo pull rule every prompt must carry. A routine whose steps
     # already quote it is left alone; any other gets it as its own section,
     # so a job that turns out to need a person never guesses at one. Empty
-    # (inboxslide's) adds nothing: its runs must never fall back onto an
-    # Arena ZoomInfo seat.
+    # adds nothing.
     zi_rule: str = ""
     # Follows the "take these out" sentence when the team or client
     # exclusions are on: how to look them up instead of guessing. Empty
-    # (inboxslide's) adds nothing; its connector has no skip_check tool.
+    # adds nothing.
     skip_rule: str = ""
     # True writes every prompt to run start to finish: no "say go" review
     # points, no questions before it starts, and the "stop and check with
@@ -230,7 +228,7 @@ class Catalogue:
     review_label: str = ""
     # Optional hook: own_campaign(s, rf) opens the app's own step-by-step
     # "Create my own campaign" walkthrough. Set, the landing page shows a
-    # card for it above the jobs; None (inboxslide's) shows nothing.
+    # card for it above the jobs; None shows nothing.
     own_campaign: object = None
 
 
@@ -625,7 +623,7 @@ def _nl_picker(r):
 
 
 def newsletter_field():
-    """One box for the newsletter, the way inboxslide asks it: the AI picks,
+    """One box for the newsletter: the AI picks,
     one of yours by name, or none, plus "+ New newsletter" beside it. It
     writes the newsletter_mode / newsletter pair the prompt reads."""
     return F("newsletter", "Add them to a newsletter", "details", "newsletter",
@@ -3307,7 +3305,7 @@ def p_ai_prompts(s, rf):
 def render_page(s, rf, cat):
     """The whole page for one catalogue. Binds it as the active catalogue
     first, so every helper below reads that product's routines, starters
-    and copy. tm_prompts.p_tm_prompts is the other caller."""
+    and copy."""
     global _CAT
     _CAT = cat
     C = _ff().C
@@ -3696,7 +3694,7 @@ def render_saved_page(s, rf, cat):
     def _go(row, built):
         _open_setup(s, row, built)
         if NAVIGATE:
-            NAVIGATE("tm_prompts")
+            NAVIGATE("ai_prompts")
         else:
             rf()
 
@@ -3726,7 +3724,7 @@ def render_saved_page(s, rf, cat):
                           C, 12, colour=C["muted"], mb=10)
                     if NAVIGATE:
                         _btn("Build a prompt",
-                             lambda: NAVIGATE("tm_prompts"), primary=True,
+                             lambda: NAVIGATE("ai_prompts"), primary=True,
                              icon="arrow_forward")
             return
         with ui.element("div").classes("aip-tiles"):

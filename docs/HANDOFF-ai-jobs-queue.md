@@ -36,7 +36,7 @@ Paused 2026-10-02 mid-build. Worktree `C:\Users\mkvau\ff-wt\zi-fallback`, branch
 
 ## Still to do
 1. **`ai_prompts.py` edits** (the scripted edit failed on a bash heredoc quote; write the script with the Write tool instead):
-   - `Catalogue` gets two fields: `zi_rule: str = ""` and `queue_jobs: bool = False`. `ARENA` sets `zi_rule=ZI_PULL_RULE, queue_jobs=True`. STAFFING inherits them through `dataclasses.replace`; tm_prompts stays off.
+   - `Catalogue` gets two fields: `zi_rule: str = ""` and `queue_jobs: bool = False`. `ARENA` sets `zi_rule=ZI_PULL_RULE, queue_jobs=True`. STAFFING inherits them through `dataclasses.replace`.
    - **`build_prompt`, queued mode** (`queued = bool(req.get("queued"))`):
      - Forces `solo`.
      - Open questions become "make the most reasonable call and say what you chose".

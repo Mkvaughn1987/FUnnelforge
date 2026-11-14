@@ -1,10 +1,10 @@
 """Outreach Analytics, grouped by campaign type.
 
-Shared by inboxslide (ThriveModal) and DripDrop (Arena). Every number is
+Used by DripDrop's Outreach Analytics page. Every number is
 counted from records the send path already writes - the send queue (plus its
 archive for "All time"), the replies log and the do-not-contact list - and
 joined to the saved campaigns only to learn which type each campaign was
-built as (Standard Outreach, Quick Intro, Arena 4x4...). Nothing here writes.
+built as (Arena 4x4, Arena 5x7...). Nothing here writes.
 
 The top level is one row per campaign TYPE. Clicking a type opens it: its
 totals, one row per email in the sequence (sent, replies, reply rate, and the

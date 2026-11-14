@@ -4473,8 +4473,7 @@ AICB_CAMPAIGN_TYPES = [
      "you don't want to crowd their inbox; you'll add them to your monthly "
      "newsletter so useful market news still reaches them; the door's "
      "always open. No hard sell."),
-    # Arena 5×7 (Mike, 2026-10-02): the Arena copy of inboxslide's Standard
-    # Outreach (tm_fivebyseven). Same 10-step shape and the same three
+    # Arena 5×7 (Mike, 2026-10-02): a 10-step shape with three
     # candidate rounds: introduced on email 3, sent again on email 5, two of
     # them on the close. Candidates come from the pipeline like the 5×3.
     ("fivebyseven", "Arena 5×7", "10 steps - 4 weeks", "#7C3AED",
@@ -6828,13 +6827,11 @@ async def _dd_api_run(owner, fn, *args):
     return await asyncio.get_event_loop().run_in_executor(None, _w)
 
 
-# === DD connector A: shared pages (ported from inboxslide's /api/v1/tm/*) ===
+# === DD connector A: shared pages ===
 # (Today's Tasks, Replies, Contacts, campaign actions/edit, send preview,
 #  Newsletters, Outreach Analytics, mailboxes, Settings, Do Not Contact.)
 
-#  Ported from inboxslide's /api/v1/tm/* (2026-11-12) with the ThriveModal
-#  gate dropped and every TM-only piece (PDF kinds, rates, Clients/Targets,
-#  saved audiences, the mailbox registry, Stay on Their Radar) left out. Each
+#  Added 2026-11-12. Each
 #  route calls what the DripDrop page's own button calls; where the page keeps
 #  that code inside a UI closure, the _dda_ helper below is a copy of it with
 #  the UI calls taken out, and says which page it mirrors.
@@ -13610,7 +13607,7 @@ _FIVEBYTHREE_DELAYS = {1: 0, 2: 3, 3: 3, 4: 2, 5: 3}
 
 # ── Arena 5×3 / 5×7 PDFs (Mike, 2026-10-08) ─────────────────────────────
 # No résumés on either sequence (the 5×3 ones were made-up "representative"
-# profiles). Instead each runs like inboxslide's Standard Outreach: three
+# profiles). Instead each carries three
 # different PDFs on three different emails, and the line that names the
 # PDF closes that email. Steps are the "Step N -" markers (the 5×7's calls
 # and LinkedIn sit between its emails, so email 4 is Step 6).
@@ -13701,8 +13698,7 @@ def _apply_fivebythree_overrides(camp_type, campaign_data):
     return _stamp_sequence_pdf_lines(camp_type, campaign_data)
 
 
-# Arena 5×7: canonical relative delays by Step-N marker (the shape of
-# inboxslide's Standard Outreach). Calls and LinkedIn share their email's day.
+# Arena 5×7: canonical relative delays by Step-N marker. Calls and LinkedIn share their email's day.
 _FIVEBYSEVEN_DELAYS = {1: 0, 2: 3, 3: 0, 4: 0, 5: 3, 6: 3, 7: 4, 8: 0, 9: 4,
                        10: 5}
 
@@ -32745,7 +32741,7 @@ _NL_INDUSTRY_OTHER = "General"
 def _nl_industry(camp: dict) -> str:
     """Headline a newsletter sits under. The niche is checked first: it is
     the industry the user picked, while names are often topical ("AI vs
-    Offshore", niche Freight Brokerages). The name decides when the niche
+    Automation", niche Freight Brokerages). The name decides when the niche
     is blank or says nothing ("Kansas Manufacturing")."""
     for _text in (camp.get("market_niche"), camp.get("name")):
         _t = str(_text or "").lower()
@@ -39608,7 +39604,7 @@ def p_outreach_analytics(s, rf):
     """Outreach Analytics: one row per campaign type (Arena 4x4, Quick
     Sprint...), click in for each email's sends, replies and reply rate.
     Read-only; counted from the queue (plus archive for "All time"), the
-    replies log and the DNC list. Shared with inboxslide via
+    replies log and the DNC list. Counted in
     outreach_analytics.py."""
     import outreach_analytics as _oa
 

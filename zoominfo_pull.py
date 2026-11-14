@@ -3,8 +3,7 @@
 One place, so the AI Prompts page (ai_prompts.py, staffing_prompts.py) and
 the Sales Campaign hand-off brief (sales_campaign.py) cannot drift apart.
 Plain text only: no app imports, so any of the three can import it at the
-top. Inboxslide's tm_prompts.py deliberately does not use it - its runs must
-never fall back onto an Arena ZoomInfo seat.
+top.
 
 Strings here are dropped into str.format_map templates by ai_prompts, so
 they must not contain braces.

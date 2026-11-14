@@ -60,14 +60,14 @@ def test_industry_reads_the_niche_first_then_the_name():
     assert ind({"name": "The Med Tech Monthly Newsletter"}) == "Healthcare"
     assert ind({"name": "Okta, Inc. - Programmer & AI Specialist Campaign"}) == "Technology"
     assert ind({"name": "Nutrien Ag Solutions - Monthly Newsletter"}) == "Agriculture & Food"
-    assert ind({"name": "Offshore Accounting Talent"}) == "Accounting & Finance"
+    assert ind({"name": "CPA Talent Brief"}) == "Accounting & Finance"
     assert ind({"name": "Freight Brokerage Brief"}) == "Logistics & Freight"
     assert ind({"name": "Arena Direct Hire Market Note"}) == "General"
-    assert ind({"name": "AI vs Offshore - I've got the answer",
+    assert ind({"name": "AI vs Automation - I've got the answer",
                 "market_niche": "Freigh Brokerages"}) == "Logistics & Freight"
     assert ind({"name": "AI Didn't Replace Human Interaction.",
                 "market_niche": "CPA Firms"}) == "Accounting & Finance"
-    assert ind({"name": "Doors, Tenants, and a Team in the Philippines",
+    assert ind({"name": "Doors, Tenants, and a Team That Stays",
                 "market_niche": "Property Management"}) == "Property & Real Estate"
     assert ind({"name": "Healthcare Project Delivery 2026",
                 "market_niche": "Healthcare Construction"}) == "Construction"

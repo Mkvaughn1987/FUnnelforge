@@ -1,4 +1,4 @@
-"""DD AI Prompts asks the newsletter as one box, the way inboxslide does:
+"""DD AI Prompts asks the newsletter as one box:
 the AI picks, one of yours by name, or none, plus "+ New newsletter"
 (Mike, 2026-10-08)."""
 import ai_prompts as aip

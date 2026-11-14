@@ -1,4 +1,4 @@
-"""Arena 5x3/5x7 run like inboxslide's Standard Outreach (three PDFs on three
+"""Arena 5x3/5x7 carry three PDFs (three PDFs on three
 emails, no résumés), and every campaign's candidate write-ups go in depth
 off the real résumé (Mike, 2026-10-08).
 Imports flowdrip_app lazily inside each test (per tests/conftest.py)."""

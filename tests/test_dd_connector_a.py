@@ -1,5 +1,5 @@
-"""DD connector A (2026-11-12): the shared pages, ported from inboxslide's
-/api/v1/tm/* to /api/v1/dd/*. Today's Tasks, Replies, Contacts, campaign
+"""DD connector A (2026-11-12): the shared pages under
+/api/v1/dd/*. Today's Tasks, Replies, Contacts, campaign
 contacts / lifecycle / editing, send preview, Newsletters, Outreach
 Analytics, Settings, the sending inbox, Do Not Contact, campaign styles,
 plus create_campaign's draft mode. Each route is behind the API key and
@@ -109,9 +109,6 @@ def test_every_route_is_registered_and_keyed(method, path, handler):
               for t in a.targets if isinstance(t, ast.Tuple)
               and [getattr(e, "id", "") for e in t.elts] == ["owner", "err"]]
     assert len(owners) == 1 and ast.unparse(owners[0]) == "_dd_api_owner(request)"
-    # No ThriveModal gate on the DripDrop side.
-    names = {n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
-    assert "_is_thrivemodal" not in names
 
 
 def test_routes_sit_in_section_a():

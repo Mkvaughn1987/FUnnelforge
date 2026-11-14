@@ -8,7 +8,7 @@
 #    a change the repo lacks, or the reverse: stop and reconcile first,
 #    or pass --force to export anyway.
 # 2. Exports the committed tree (git archive HEAD) into a new repo with ONE
-#    commit and no history, so nothing from before the split (inboxslide
+#    commit and no history, so nothing from before the split (old
 #    included) goes along. Pushes it as main.
 #
 # Read-only on the server. Run from the repo root with a clean tree.

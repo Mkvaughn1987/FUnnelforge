@@ -1,7 +1,6 @@
 # ZoomInfo Bulk → seat fallback, board order, and the Sales Campaign worker
 
-Date: 2026-10-02. Approved in conversation with Mike. DripDrop (Arena) only;
-inboxslide is untouched.
+Date: 2026-10-02. Approved in conversation with Mike. DripDrop (Arena).
 
 ## Problem
 
@@ -44,7 +43,7 @@ Pure text, no imports from the app. Used by `ai_prompts.py` (Arena runs),
 Placement: appended to every contact-pulling step (Arena `slate_campaign`,
 `sales_campaign`, `market_candidates`; staffing `_CONTACTS_STEP`). The
 `boards` field default and the bot-check sentence change in every sourcing
-step. Inboxslide's `tm_prompts.py` is not touched.
+step.
 
 ### 2. Parked companies on the server (`sales_campaign.py`)
 
@@ -101,8 +100,7 @@ in config (`sales_campaign.zi_setup_ack`).
 
 ## Testing
 
-Unit tests: rule block present in every Arena/staffing contact step and
-absent from inboxslide; board order; parked → follow-up spawn, attempt cap,
+Unit tests: rule block present in every Arena/staffing contact step; board order; parked → follow-up spawn, attempt cap,
 retry-now, `parked` terminal status, `latest_run` preference; golden
 fixtures regenerated. Full suite green (baseline 0). Then one supervised
 live run with Mike.

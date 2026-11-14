@@ -1,6 +1,5 @@
 """Shared test stand-ins for the AI Prompts pages: a do-nothing nicegui,
-a fake flowdrip_app and a helper that renders every view of a page.
-(Moved out of inboxslide's test_tm_prompts.py when DD was made standalone.)"""
+a fake flowdrip_app and a helper that renders every view of a page."""
 import pathlib
 import re
 import sys

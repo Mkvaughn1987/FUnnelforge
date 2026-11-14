@@ -1,4 +1,4 @@
-"""Arena 5×7: the Arena copy of inboxslide's Standard Outreach."""
+"""Arena 5×7: Arena's 10-step warm sequence."""
 import re
 
 import flowdrip_app as fa
@@ -42,7 +42,7 @@ def test_candidates_on_emails_three_five_and_two_on_close():
     assert "SAME candidates" in prompt
     assert "ONLY the first two candidates" in prompt
     assert fa._CAND_NAME_RULE in prompt
-    # Same honest wording as Thrive: never claims a candidate was placed.
+    # Honest wording: never claims a candidate was placed.
     assert "Good candidates get placed, so who is available changes." in prompt
 
 

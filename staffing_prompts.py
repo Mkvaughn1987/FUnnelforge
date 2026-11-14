@@ -2,13 +2,13 @@
 
 ai_prompts.py is the engine and ARENA its original catalogue: the recruiting
 runs (slates, marketing candidates, the bench, LinkedIn tasks). This file
-adds the targeting runs inboxslide grew - a hiring-signal hunt, lookalikes,
+adds targeting runs - a hiring-signal hunt, lookalikes,
 winning business from other agencies, researching one account - rewritten
 for direct-hire staffing in the markets DripDrop recruits for (the Arena
 Running Campaigns industries), and binds the lot as STAFFING, the
 catalogue the page actually renders.
 
-Same machinery as tm_prompts.py: a verticals table, a tick list of hiring
+The machinery: a verticals table, a tick list of hiring
 signals per vertical with the reason each one matters, every targeting box
 opening filled in for the vertical picked, and "Recommend these for me".
 None of it touches ARENA itself, so every prompt the old runs write is

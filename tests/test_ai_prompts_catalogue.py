@@ -1,7 +1,7 @@
 """The AI Prompts engine after its catalogue became swappable.
 
 ai_prompts.py once held DripDrop's routines, starters and copy as module
-globals. Lifting them into a Catalogue (so inboxslide can supply its own)
+globals. Lifting them into a Catalogue (so another product can supply its own)
 must not change one byte of what the Arena page writes. The golden fixture
 was generated from the pre-refactor module and is the oracle for that.
 """
@@ -133,20 +133,20 @@ def test_a_second_catalogue_changes_only_product_facing_text(aip):
     r = {"key": "other", "name": "Other", "blurb": "Do the thing",
          "example": "",
          "fields": [aip.F("what", "What?", default="Do the thing")],
-         "steps": ["{what}"], "tools": ["tm_audiences"]}
+         "steps": ["{what}"], "tools": ["other_audiences"]}
     by = aip.finalize_routines([r])
     cat = aip.Catalogue(
         routines=[r], routine_by_key=by, default_routine="other",
         standing_rules=["Only rule."], unattended_rule="Go alone.",
         starters=[], starter_by_id={}, sequences=["Sig"],
-        template_key={"Sig": "tm_sig"}, default_sequence="Sig",
-        default_template="tm_sig", setups_file="x.json",
-        product="inboxslide", connector="inboxslide connector",
+        template_key={"Sig": "other_sig"}, default_sequence="Sig",
+        default_template="other_sig", setups_file="x.json",
+        product="OtherApp", connector="OtherApp connector",
         assistant="Claude", page_title="AI Prompt", page_sub="sub",
         result_copy="copy", result_extra=None)
     p = aip.build_prompt({"routine": "other", "vals": {}}, cat)
-    assert "using my inboxslide connector." in p
-    assert "Use my inboxslide connector: tm_audiences." in p
+    assert "using my OtherApp connector." in p
+    assert "Use my OtherApp connector: other_audiences." in p
     assert "Only rule." in p
     assert "DripDrop" not in p
     # And the default binding is untouched.
@@ -178,8 +178,8 @@ def _checks_cat(aip, **kw):
         standing_rules=["Only rule."], unattended_rule="Go alone.",
         starters=[{"id": "run", "label": "Run", "sub": "s", "summary": "s",
                    "routine": "other", "vals": {}}],
-        starter_by_id={}, sequences=["Sig"], template_key={"Sig": "tm_sig"},
-        default_sequence="Sig", default_template="tm_sig",
+        starter_by_id={}, sequences=["Sig"], template_key={"Sig": "other_sig"},
+        default_sequence="Sig", default_template="other_sig",
         setups_file="x.json", product="p", connector="p connector",
         assistant="Claude", page_title="t", page_sub="sub",
         result_copy="copy", checklist=lambda _r, _v, key:

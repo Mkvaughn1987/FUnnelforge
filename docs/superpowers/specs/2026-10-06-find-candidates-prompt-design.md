@@ -142,6 +142,6 @@ Tools: `campaigns_list`, `campaign_get`, `import_candidate_records`,
 
 `flowdrip_app.py`, `staffing_prompts.py`, `ai_prompts.py` (only if
 touched), `mcp_server/dripdrop_mcp.py` to the DripDrop box, hash-guarded
-against the current prod blobs, via the inboxslide jump host. Restart blue
+against the current prod blobs. Restart blue
 and green; verify `campaign_types` over MCP shows `findcandidates` and
 `campaigns_list` no longer 405s.
