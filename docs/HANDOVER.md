@@ -36,6 +36,7 @@ replacement is live.
 ### A. Before the day
 
 **IT:**
+
 1. Create the accounts, all under one shared Arena IT email:
    GitHub (or GitHub organisation), DigitalOcean, Cloudflare, Anthropic
    Console (with credits loaded), and Google Cloud.
@@ -44,6 +45,7 @@ replacement is live.
    **public** half (`~/.ssh/id_ed25519.pub`). Never send the private half.
 
 **Mike:**
+
 4. Agree in writing what DripDrop access (if any) Mike keeps afterwards.
 5. Send IT a list of his own Claude routines that use DripDrop (step 13),
    so IT knows what stops when Mike turns them off.
