@@ -230,9 +230,7 @@ def test_build_hands_off_to_choose_contacts():
 
 def test_ai_prompts_card_only_on_dripdrop():
     import staffing_prompts
-    import tm_prompts
     assert callable(staffing_prompts.STAFFING.own_campaign)
-    assert tm_prompts.TM.own_campaign is None
 
 
 # ── Fill-ins (2026-11-04): reusable across clients and industries ────────

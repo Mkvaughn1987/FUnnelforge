@@ -28,7 +28,7 @@
 set -e
 
 SERVER="root@134.199.237.206"
-SSH_KEY="$HOME/.ssh/dripdrop"
+SSH_KEY="$HOME/.ssh/id_ed25519"
 SSH="ssh -o ConnectTimeout=90 -o ServerAliveInterval=15 -i $SSH_KEY $SERVER"
 
 LOCAL_FILE="flowdrip_app.py"
@@ -43,7 +43,10 @@ fi
 # pairs of "local_path:remote_path". Uncomment and edit as needed.
 EXTRA_FILES=(
     "funnel_forge/arena_pdfs.py:/opt/dripdrop/app/funnel_forge/arena_pdfs.py"
-    "ats.py:/opt/dripdrop/app/ats.py"
+    # ats.py is NOT uploaded: the live server's ats.py has changes this repo
+    # lacks (see docs/HANDOVER.md, "Server vs repo"). Copy the server's file
+    # into the repo first, then put this line back.
+    # "ats.py:/opt/dripdrop/app/ats.py"
     # The J Way newsletter banner — served via /static/jway_banner.png. Must
     # live in the app root next to dripdrop_logo.png. (Skipped if absent.)
     "jway_banner.png:/opt/dripdrop/app/jway_banner.png"

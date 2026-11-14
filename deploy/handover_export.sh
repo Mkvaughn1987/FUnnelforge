@@ -16,7 +16,7 @@ set -e
 
 REMOTE="$1"; FORCE="$2"
 SERVER="root@134.199.237.206"
-SSH="ssh -o ConnectTimeout=90 -i $HOME/.ssh/dripdrop $SERVER"
+SSH="ssh -o ConnectTimeout=90 $SERVER"
 APP="/opt/dripdrop/app"
 
 [ -n "$REMOTE" ] || { echo "usage: $0 <new-repo-url> [--force]"; exit 1; }
