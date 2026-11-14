@@ -87,6 +87,7 @@ COMPANY_INDUSTRIES = (
     ("Logistics & Freight", r"logistic|freight|truck|transport|supply chain|warehous"
                             r"|\b3pl\b|shipping|cargo|drayage|intermodal|multimodal"),
     ("Agriculture & Food", r"agricultur|\bfood\b|\bfarm"),
+    ("Heavy Equipment & Rental", r"heavy equipment|equipment rental"),
     ("Manufacturing", r"manufactur|machin|\bcnc\b|aerospace|packag|fabricat"),
     ("Construction", r"construct|contractor|contracting|\bbuilders?\b|homebuild"
                      r"|roofing|plumbing|\bhvac\b|mechanical"),
@@ -94,12 +95,33 @@ COMPANY_INDUSTRIES = (
     ("Architecture & Design", r"architect"),
     ("Healthcare", r"health|medical|hospital|pharma|clinic|dental"),
     ("Technology", r"software|technology|\btech\b|\bsaas\b|internet"),
-    ("Accounting & Finance", r"accounting|financ|\bcpa\b|bookkeep|\bbank|insurance|wealth"),
+    ("Accounting & Finance", r"accounting|accountant|financ|\bcpa\b|bookkeep|\bbank|insurance|wealth"),
     ("Property & Real Estate", r"property management|real estate|realty|\breit\b"),
     ("Energy", r"energy|\boil\b|\bgas\b|solar|renewable"),
     ("Staffing & Recruiting", r"staffing|recruit"),
+    ("Professional Services & HR", r"human resource|\bhr\b|professional services"
+                                   r"|consult|\blaw\b|legal|attorney"),
 )
 INDUSTRY_OTHER = "Other"
+
+# The industries a company can be filed under when it is added (Upload CSV
+# and Add One Contact on a sales instance). The markets worked first lead;
+# the rest follow in table order, and Other is always last.
+INDUSTRY_PRIORITY = (
+    "Logistics & Freight", "Accounting & Finance", "Healthcare",
+    "Construction", "Manufacturing", "Professional Services & HR",
+)
+
+
+def industry_choices() -> list:
+    rest = [lbl for lbl, _ in COMPANY_INDUSTRIES if lbl not in INDUSTRY_PRIORITY]
+    return list(INDUSTRY_PRIORITY) + rest + [INDUSTRY_OTHER]
+
+
+def industry_list_name(industry) -> str:
+    """The saved contact list a company filed under `industry` goes into."""
+    ind = " ".join(str(industry or "").split()) or INDUSTRY_OTHER
+    return "TM - " + ind
 
 
 def industry_label(text) -> str:

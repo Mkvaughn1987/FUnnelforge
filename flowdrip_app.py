@@ -33245,6 +33245,16 @@ def _contact_upload_and_name(s, rf, on_done):
                     f"font-family:'Nunito',sans-serif;display:block;line-height:1.3;")
                 ui.label("Give it a name so you can reuse it later.").style(
                     f"font-size:12.5px;color:{C['muted']};display:block;")
+        # Sales instances: pick the industry first and the list name follows
+        # it ("TM - Logistics & Freight"), so every upload lands in its
+        # industry's list. Arena's dialog is unchanged.
+        ind_select = None
+        if _SALES_MODE:
+            import sales_pages as _sp_ind
+            ind_select = _industry_select("Industry for these companies")
+            ind_select.style("margin-bottom:10px;")
+            ind_select.on_value_change(lambda e: name_input.set_value(
+                _sp_ind.industry_list_name(e.value)) if e.value else None)
         name_input = ui.input("List name", placeholder="e.g. SD Project Managers").props(
             "outlined dense autofocus").style("width:100%;")
         _file_lbl = ui.label("").style(
@@ -33253,6 +33263,9 @@ def _contact_upload_and_name(s, rf, on_done):
 
         def _save_list():
             raw_name = name_input.value or upload_state["filename"] or "contacts"
+            if ind_select is not None:
+                _save_into_industry_list(raw_name, ind_select.value or "")
+                return
             safe_name = re.sub(r"[^\w\-]", "_", raw_name.strip())[:60]
             dest = _user_contacts_dir() / f"{safe_name}.csv"
             tmp = upload_state.get("tmp_path")
@@ -33279,6 +33292,49 @@ def _contact_upload_and_name(s, rf, on_done):
                 msg += f"  ⚠ {'; '.join(warnings)}"
             ui.notify(msg, type="positive" if not dropped else "warning", timeout=6000)
             on_done(load_contacts())
+
+        def _save_into_industry_list(raw_name, industry):
+            """Sales path: normalise the upload, then ADD it to the named list
+            (tagging the industry) instead of replacing that list."""
+            tmp = upload_state.get("tmp_path")
+            if not tmp or not Path(tmp).exists():
+                ui.notify("Upload failed  -  try again.", type="negative")
+                name_dialog.close()
+                return
+            import tempfile, os as _os
+            fd, norm = tempfile.mkstemp(suffix=".csv", prefix="dripdrop_norm_")
+            _os.close(fd)
+            try:
+                count, warnings = normalize_csv(tmp, norm)
+                try:
+                    raw_count = len(safe_read_csv_rows(tmp)[0])
+                except Exception:
+                    raw_count = count
+                batch = load_contacts(norm)
+                if industry:
+                    for c in batch:
+                        if not (c.get("industry") or "").strip():
+                            c["industry"] = industry
+                path, added, skipped = _file_into_industry_list(
+                    batch, industry, list_name=raw_name)
+            finally:
+                Path(tmp).unlink(missing_ok=True)
+                Path(norm).unlink(missing_ok=True)
+            import shutil
+            shutil.copy2(str(path), str(_user_contacts_csv_path()))
+            name_dialog.close()
+            dropped = max(0, raw_count - count)
+            msg = f"✓ {added} added to '{path.stem}'"
+            if skipped:
+                msg += f" ({skipped} already on it)"
+            if dropped:
+                msg += f" ({dropped} skipped  -  invalid or missing email)"
+            if warnings:
+                msg += f"  ⚠ {'; '.join(warnings)}"
+            ui.notify(msg, type="positive" if not dropped else "warning", timeout=6000)
+            # The Contacts page shows the whole industry list (copied above);
+            # a campaign being built gets just the people in this upload.
+            on_done(batch)
 
         name_input.on("keydown.enter", _save_list)
         with ui.element("div").style(
@@ -33323,6 +33379,50 @@ def _append_single_contact(existing, rec):
     return list(existing or []) + [rec], ""
 
 
+def _industry_list_path(list_name):
+    """Where a saved list named `list_name` lives. Spaces and & are kept so
+    "TM - Logistics & Freight" reads the same on the Contacts page."""
+    safe = re.sub(r"[^\w &\-]", "", str(list_name or "")).strip()[:80]
+    return _user_contacts_dir() / f"{safe or 'Contacts'}.csv"
+
+
+def _file_into_industry_list(new_contacts, industry, list_name=None):
+    """Add contacts to an industry's saved list (sales instances).
+
+    Every incoming contact with no Industry of its own is tagged `industry`,
+    so the Companies page groups it there. The list is ADDED TO, never
+    replaced: people already on it are kept, and an incoming email that is
+    already there is skipped. Returns (path, added, skipped)."""
+    import sales_pages as _sp
+    path = _industry_list_path(list_name or _sp.industry_list_name(industry))
+    existing = load_contacts(str(path)) if path.exists() else []
+    seen = {(c.get("email") or "").strip().lower() for c in existing}
+    seen.discard("")
+    added = skipped = 0
+    for c in new_contacts or []:
+        rec = dict(c)
+        if industry and not (rec.get("industry") or rec.get("Industry") or "").strip():
+            rec["industry"] = industry
+        em = (rec.get("email") or "").strip().lower()
+        if em and em in seen:
+            skipped += 1
+            continue
+        if em:
+            seen.add(em)
+        existing.append(rec)
+        added += 1
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _atomic_write_csv_text(path, _contacts_csv_text(existing, _CONTACT_COLMAP_SNAKE))
+    return path, added, skipped
+
+
+def _industry_select(label="Industry"):
+    """The Industry drop-down shown when adding contacts on a sales instance."""
+    import sales_pages as _sp
+    return ui.select(_sp.industry_choices(), label=label).props(
+        "outlined dense").style("width:100%;")
+
+
 def _single_contact_dialog(get_contacts, on_done):
     """Dialog to add one contact by hand. Returns a function that opens it.
 
@@ -33347,6 +33447,9 @@ def _single_contact_dialog(get_contacts, on_done):
             f_company = ui.input("Company")
             f_title = ui.input("Title")
         f_phone = ui.input("Phone (optional)").style("width:100%;")
+        # Sales instances file every company under an industry as it is
+        # added; Arena's dialog is unchanged.
+        f_industry = _industry_select() if _SALES_MODE else None
         fields = (f_first, f_last, f_email, f_company, f_title, f_phone)
 
         def _add():
@@ -33355,14 +33458,24 @@ def _single_contact_dialog(get_contacts, on_done):
                 f_company.value, f_title.value, f_phone.value)
             if err:
                 ui.notify(err, type="warning"); return
+            industry = (f_industry.value or "") if f_industry is not None else ""
+            if industry:
+                rec["industry"] = industry
             new_list, err = _append_single_contact(get_contacts(), rec)
             if err:
                 ui.notify(err, type="warning"); return
+            filed = ""
+            if industry:
+                try:
+                    path, _a, _s = _file_into_industry_list([rec], industry)
+                    filed = f" · saved to {path.stem}"
+                except Exception as exc:
+                    print(f"[Contacts] industry list write failed: {exc}", flush=True)
             for f in fields:
                 f.set_value("")
             dlg.close()
             name = " ".join(x for x in (rec["first_name"], rec["last_name"]) if x)
-            ui.notify(f"✓ Added {name or rec['email']}", type="positive")
+            ui.notify(f"✓ Added {name or rec['email']}{filed}", type="positive")
             on_done(new_list)
 
         f_email.on("keydown.enter", _add)
@@ -35146,11 +35259,20 @@ def p_contacts(s, rf):
                                 ci_inp = ui.input(value=c.get("city", ""), placeholder="City").classes("fd-input")
                                 st_inp = ui.input(value=c.get("state", ""), placeholder="State").classes("fd-input")
                             li_inp = ui.input(value=c.get("linkedin", ""), placeholder="LinkedIn URL").classes("fd-input").style("margin-top:8px;")
-                            def _save_contact(x=idx, f=fn, l=ln, e=em_inp, c2=co, t=ti, p=ph, li=li_inp, ci2=ci_inp, st2=st_inp):
+                            ind_inp = None
+                            if _SALES_MODE:
+                                ind_inp = _industry_select()
+                                _cur_ind = (c.get("industry") or "").strip()
+                                if _cur_ind in (ind_inp.options or []):
+                                    ind_inp.set_value(_cur_ind)
+                                ind_inp.style("margin-top:8px;")
+                            def _save_contact(x=idx, f=fn, l=ln, e=em_inp, c2=co, t=ti, p=ph, li=li_inp, ci2=ci_inp, st2=st_inp, ind=ind_inp):
                                 contacts[x].update(dict(
                                     first_name=f.value, last_name=l.value, email=e.value,
                                     company=c2.value, title=t.value, phone_mobile=p.value,
                                     linkedin=li.value, city=ci2.value, state=st2.value))
+                                if ind is not None and ind.value:
+                                    contacts[x]["industry"] = ind.value
                                 _save_contacts_to_csv(contacts)
                                 s.expanded.discard(f"contact_{x}")
                                 ui.notify("Contact saved", type="positive", timeout=1500); rf()
