@@ -47,6 +47,7 @@ DigitalOcean team, Cloudflare zone, Anthropic key and Google/Microsoft apps
 are all IT's.
 
 How Mike makes changes from then on:
+
 - He works in a clone of IT's repo, pushes his changes there, and deploys
   with `_deploy_zero_downtime.sh` like anyone else (Part 3). GitHub then
   always shows what changed and who changed it.
