@@ -9,6 +9,7 @@ they don't depend on `us_geo.csv` (a prod data file that lives in
 DRIPDROP_DATA_DIR and is not in the repo). The one test that exercises real
 city-level geocoding skips itself when that dataset isn't present.
 """
+import os
 import sqlite3
 import sys
 import time
@@ -282,7 +283,7 @@ def test_real_city_geocoding_discriminates_25_from_50_miles(ats_mod):
     """Guards the assumption the whole radius feature rests on: that city-level
     coordinates are available. Without us_geo.csv every lookup collapses to a
     state centroid and 25mi/50mi become the same filter."""
-    if not ats_mod._load_geo():
+    if not os.path.exists(ats_mod._geo_path()) or not ats_mod._load_geo():
         pytest.skip("us_geo.csv not present (prod data file, not in the repo)")
     origin = ats_mod.geocode_text("Irvine, CA")
     d_near = ats_mod.candidate_distance({"city": "Santa Ana", "state": "CA"}, origin)

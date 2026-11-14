@@ -59,8 +59,8 @@ replacement is live.
    `bash deploy/handover_export.sh https://github.com/<it-owner>/<repo>.git`
    It first compares every Python file on the live server with this repo,
    then pushes a clean one-commit copy as `main`. The server does not pull
-   from GitHub, so this changes nothing on the live site. If it reports
-   `differs: ats.py`, see "Server vs repo" in Part 4 and fix that first.
+   from GitHub, so this changes nothing on the live site. If it reports a
+   file that differs, see "Server vs repo" in Part 4 and fix that first.
 
 ### C. Server access (Mike adds, IT checks)
 7. Mike adds IT's public key to `/root/.ssh/authorized_keys` on the server.
@@ -121,9 +121,6 @@ Some accounts are hardcoded. Edit these, then deploy:
 | `flowdrip_app.py` | `_ROUNDUP_ALLOWED_EMAILS` (about line 85) | Who sees The Roundup newsletter | Remove Mike's two addresses, add whoever replaces him |
 | `ats.py` | `ALLOWED_EMAILS`, `_OWNER_BACKFILL_EMAIL` (about line 30) | Pipeline fallback list; owner of old pre-team candidates | Remove Mike's gmail; point the backfill owner at whoever takes his candidates |
 
-`ats.py` is in that table, but read "Server vs repo" before editing or
-deploying it.
-
 ### Making a change with Claude Code (or by hand)
 1. Change the code in your repo and run the tests (below).
 2. Check the server has not drifted from the repo (below).
@@ -177,7 +174,7 @@ Copy them back into `/opt/dripdrop/app/` and
 `DRIPDROP_SECRET=x python -m pytest -q` from the repo root. On a machine
 without an Anthropic key, tests in `test_campaign_api.py` that call the AI
 fail with 503 ("AI not configured"); everything else should pass, apart
-from one skip for a data file that only lives on the server.
+from skips for data files that only live on the server (`us_geo.csv`).
 
 ### Things that bite
 - `flowdrip_app.py` is very large (~66k lines) and sometimes defines the
@@ -218,12 +215,8 @@ Figures from 2026-10-08; re-check on the day.
 
 ### Server vs repo
 Checked file by file against the live server on 2026-11-14. Every Python
-file the app runs matches this repo except:
-- **`ats.py` (the Pipeline page): the server's copy has changes that were
-  never committed.** Before editing or deploying `ats.py`, copy the server's
-  file into the repo
-  (`scp root@<server>:/opt/dripdrop/app/ats.py .`) and commit it. Until
-  then, `_deploy_zero_downtime.sh` deliberately does not upload `ats.py`.
+file the app runs matches this repo (including `ats.py`, copied in from
+the server that day) except:
 - `funnelforge_core.py`: the repo holds a newer version (per-user queue
   paths) that was never deployed. The server's older copy is what runs and
   works. Test it before ever deploying the repo's version.

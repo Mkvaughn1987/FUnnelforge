@@ -372,11 +372,13 @@ def search_count(query: str, owner: str = None) -> int:
     Scoped to one owner's candidates when owner is given (pipelines are
     per-user)."""
     terms = _terms(query)
-    if not terms:
+    boolean = boolean_query(query)
+    if (boolean and not boolean[0]) or (not terms and not boolean):
         return 0
     con = _con()
     try:
-        expr = " AND ".join('"%s"' % t.replace('"', '') for t in terms)
+        expr = (boolean[0] if boolean else
+                " AND ".join('"%s"' % t.replace('"', '') for t in terms))
         if owner:
             return con.execute(
                 "SELECT COUNT(*) FROM talents_fts "
@@ -527,6 +529,7 @@ def _api_key() -> str:
 
 # ── Geo / radius search ───────────────────────────────────────────────────
 import math
+import unicodedata
 
 _GEO = None  # {(citykey, ST): (lat, lng)} loaded from us_geo.csv
 
@@ -566,6 +569,47 @@ _STATE_CENTROID = {
 }
 
 
+# Real cities us_geo.csv leaves out. That file follows postal city names, so a
+# suburb the post office files under its neighbour ("Thornton" -> Denver,
+# "Eastvale" -> Corona) has no row, and a candidate living there could not be
+# measured. Approximate centres, good to a couple of miles.
+_GEO_EXTRA = {
+    ("Eastvale", "CA"): (33.9525, -117.5848), ("Jurupa Valley", "CA"): (33.9972, -117.4855),
+    ("East Whittier", "CA"): (33.9244, -117.9887), ("Cherry Valley", "CA"): (33.9725, -116.9772),
+    ("Rancho Mission Viejo", "CA"): (33.5270, -117.6140), ("Arleta", "CA"): (34.2413, -118.4322),
+    ("La Habra Heights", "CA"): (33.9608, -117.9506), ("Alta Loma", "CA"): (34.1222, -117.5978),
+    ("Mountain House", "CA"): (37.7740, -121.5433), ("Commerce", "CA"): (34.0006, -118.1598),
+    ("Cudahy", "CA"): (33.9606, -118.1853), ("Hollywood", "CA"): (34.0928, -118.3287),
+    ("Industry", "CA"): (34.0197, -117.9587), ("Rancho Dominguez", "CA"): (33.8710, -118.2160),
+    ("Lakewood", "CO"): (39.7047, -105.0814), ("Lone Tree", "CO"): (39.5361, -104.8964),
+    ("Thornton", "CO"): (39.8680, -104.9719), ("Centennial", "CO"): (39.5807, -104.8772),
+    ("Highlands Ranch", "CO"): (39.5539, -104.9689),
+    ("Greenwood Village", "CO"): (39.6172, -104.9508),
+    ("Castle Pines", "CO"): (39.4580, -104.8961),
+    ("San Tan Valley", "AZ"): (33.1911, -111.5280), ("Sun Lakes", "AZ"): (33.2112, -111.8754),
+    ("Gold Canyon", "AZ"): (33.3714, -111.4369),
+    ("West Valley City", "UT"): (40.6916, -112.0011), ("Vineyard", "UT"): (40.2969, -111.7466),
+    ("Murray", "UT"): (40.6669, -111.8880), ("Cedar Hills", "UT"): (40.4141, -111.7585),
+    ("West Haven", "UT"): (41.2030, -112.0513),
+    ("Blue Ash", "OH"): (39.2320, -84.3783), ("Grandview Heights", "OH"): (39.9798, -83.0407),
+    ("Mililani Town", "HI"): (21.4513, -158.0153), ("Waikapu", "HI"): (20.8572, -156.5067),
+    ("Cheektowaga", "NY"): (42.9034, -78.7548), ("West Seneca", "NY"): (42.8501, -78.7997),
+    ("Forty Fort", "PA"): (41.2790, -75.8780),
+    ("Farmers Branch", "TX"): (32.9265, -96.8961), ("The Woodlands", "TX"): (30.1658, -95.4613),
+    ("Corinth", "TX"): (33.1540, -97.0647), ("Lago Vista", "TX"): (30.4602, -97.9884),
+    ("Plantation", "FL"): (26.1276, -80.2331), ("Sunrise", "FL"): (26.1670, -80.2562),
+    ("Cooper City", "FL"): (26.0573, -80.2717), ("West Park", "FL"): (25.9845, -80.1989),
+    ("Plymouth", "MN"): (45.0105, -93.4555), ("Ramsey", "MN"): (45.2611, -93.4500),
+    ("Parkville", "MO"): (39.1950, -94.6822), ("Wildwood", "MO"): (38.5828, -90.6629),
+    ("Sauk Village", "IL"): (41.4884, -87.5676), ("University Park", "IL"): (41.4400, -87.6834),
+    ("Lynwood", "IL"): (41.5264, -87.5387), ("Johnsburg", "IL"): (42.3800, -88.2420),
+    ("Brookhaven", "GA"): (33.8651, -84.3366), ("Mint Hill", "NC"): (35.1796, -80.6473),
+    ("North Potomac", "MD"): (39.0829, -77.2650), ("Tukwila", "WA"): (47.4740, -122.2610),
+    ("Winfield", "IN"): (41.4056, -87.2753), ("Cold Spring", "KY"): (39.0217, -84.4399),
+    ("Moore", "OK"): (35.3395, -97.4867), ("Summerset", "SD"): (44.1900, -103.3438),
+}
+
+
 def _geo_path():
     base = os.environ.get("DRIPDROP_DATA_DIR") or str(Path(__file__).resolve().parent)
     return os.path.join(base, "us_geo.csv")
@@ -584,11 +628,15 @@ def _load_geo():
                     _GEO[(p[0], p[1])] = (float(p[2]), float(p[3]))
     except Exception:
         pass
+    for (city, st), coord in _GEO_EXTRA.items():
+        _GEO.setdefault((_norm_city(city), st), coord)
     return _GEO
 
 
 def _norm_city(s):
-    return re.sub(r"[^a-z]", "", (s or "").lower())
+    # Fold accents first so "Wahiawā" keys the same as "Wahiawa".
+    s = unicodedata.normalize("NFKD", s or "")
+    return re.sub(r"[^a-z]", "", s.lower())
 
 
 def _state_abbr(s):
@@ -608,15 +656,32 @@ _QUAL_SUFFIX = re.compile(r"\s+(?:county|parish|borough|metropolitan\s+area|"
                           r"metro\s+area|metro|area|region)$", re.I)
 
 
+# "St. Louis" and "Saint Louis" are one place, but the table holds only one
+# spelling of each, so try the other.
+_ABBR_PAIRS = (("st", "saint"), ("ft", "fort"), ("mt", "mount"))
+
+
+def _abbr_swaps(city):
+    out = []
+    for short, full in _ABBR_PAIRS:
+        for a, b in ((short + r"\.?", full), (full, short)):
+            alt = re.sub(r"^%s\s+" % a, b.capitalize() + " ", city, flags=re.I)
+            if alt != city:
+                out.append(alt)
+    return out
+
+
 def _city_variants(city):
     """The names to try for a typed place, best guess first."""
     c = (city or "").strip()
     if not c:
         return []
-    out = [c]
+    out = [c] + _abbr_swaps(c)
     s = _QUAL_SUFFIX.sub("", _QUAL_PREFIX.sub("", c)).strip()
     if s and _norm_city(s) != _norm_city(c):
         out += [s, s + " City"]
+    if re.search(r"\s+city$", c, re.I):          # "New York City" -> "New York"
+        out.append(re.sub(r"\s+city$", "", c, flags=re.I))
     return out
 
 
@@ -664,14 +729,25 @@ def geocode_place(s):
     if not s:
         return None, ""
     parts = [p.strip() for p in s.split(",") if p.strip()]
-    # A bare state is not a point — no radius can be measured from it.
-    if len(parts) < 2:
-        return None, ""
-    coord, matched = _geocode_named(parts[0], parts[-1])
+    coord, matched = (None, "")
+    if len(parts) >= 2:
+        coord, matched = _geocode_named(parts[0], parts[-1])
+    elif parts:
+        # No comma ("irvine ca", "salt lake city utah"): the state is the last
+        # word or two. A bare city or a bare state is still not a point.
+        words = parts[0].split()
+        for k in (2, 1):
+            if len(words) > k and _state_abbr(" ".join(words[-k:])):
+                parts = [" ".join(words[:-k]), " ".join(words[-k:])]
+                coord, matched = _geocode_named(parts[0], parts[1])
+                if coord:
+                    break
     if not coord:
         return None, ""
+    # "St. Louis" found as "Saint Louis" is the same place, not a guess.
+    typed = {_norm_city(v) for v in [parts[0]] + _abbr_swaps(parts[0])}
     label = ("%s, %s" % (matched, _state_abbr(parts[-1]))
-             if _norm_city(matched) != _norm_city(parts[0]) else "")
+             if _norm_city(matched) not in typed else "")
     return coord, label
 
 
@@ -691,19 +767,33 @@ def _haversine(a, b):
     return 2 * R * math.asin(math.sqrt(h))
 
 
+_CENTROID_PTS = {(round(a, 1), round(b, 1)) for a, b in _STATE_CENTROID.values()}
+
+
 def candidate_distance(row, origin):
-    """Miles from origin to a candidate row (uses stored lat/lng, falling back
-    to on-the-fly geocode). None when the candidate can't be located."""
+    """Miles from origin to a candidate row. None when the candidate can't be
+    located.
+
+    The city/state on the record is looked up first, so a corrected location
+    counts straight away. Stored lat/lng is only the fallback, and never when
+    it is a state centroid: an old backfill wrote the middle of the state for
+    every city it could not place, which put those people hundreds of miles
+    from home."""
     if not origin:
         return None
-    lat, lng = row.get("lat"), row.get("lng")
-    if not lat and not lng:
-        c = geocode(row.get("city"), row.get("state"))
-        if not c:
+    c = geocode(row.get("city"), row.get("state"))
+    if not c:
+        lat, lng = row.get("lat"), row.get("lng")
+        if not lat and not lng:
             return None
-        lat, lng = c
+        try:
+            c = (float(lat), float(lng))
+        except Exception:
+            return None
+        if (round(c[0], 1), round(c[1], 1)) in _CENTROID_PTS:
+            return None
     try:
-        return _haversine(origin, (float(lat), float(lng)))
+        return _haversine(origin, c)
     except Exception:
         return None
 
@@ -730,6 +820,37 @@ def _geo_filter(rows, origin, radius_mi):
         elif r["_distance_mi"] <= radius_mi:
             kept.append(r)
     return kept, hidden
+
+
+def _match_rows(con, expr, where, params, limit, origin, radius_mi):
+    """The best `limit` FTS matches -> (rows, hidden, total).
+
+    `hidden` counts matches dropped because they have no usable location and
+    `total` is how many matched before any distance cut. With a radius, every
+    match is measured (a light id + location pass) before the page is cut, so
+    a nearby candidate ranked 900th for a common word still shows."""
+    sql = ("SELECT %s, bm25(talents_fts) AS rank FROM talents_fts f "
+           "JOIN talents t ON t.id=f.rowid WHERE talents_fts MATCH ?" + where
+           + " ORDER BY rank")
+    if not (origin and radius_mi):
+        rows = [dict(r) for r in con.execute(sql % "t.*" + " LIMIT ?",
+                                             [expr] + params + [limit])]
+        return _geo_filter(rows, origin, radius_mi)[0], 0, len(rows)
+    light = [dict(r) for r in con.execute(
+        sql % "t.id, t.city, t.state, t.lat, t.lng", [expr] + params)]
+    near, hidden = _geo_filter(light, origin, radius_mi)
+    near = near[:limit]
+    full = {}
+    if near:
+        full = {r["id"]: dict(r) for r in con.execute(
+            "SELECT * FROM talents WHERE id IN (%s)" % ",".join("?" * len(near)),
+            [r["id"] for r in near])}
+    rows = []
+    for r in near:
+        if r["id"] in full:
+            rows.append(dict(full[r["id"]], rank=r["rank"],
+                             _distance_mi=r["_distance_mi"]))
+    return rows, hidden, len(light)
 
 
 def _added_since(days):
@@ -789,6 +910,189 @@ def _terms(text: str) -> list:
         seen.add(wl)
         out.append(w)
     return out
+
+
+# ── Boolean search ────────────────────────────────────────────────────────
+# The keyword box takes the Boolean strings recruiters already write for
+# LinkedIn Recruiter and Indeed: AND / OR / NOT in capitals, "exact phrases",
+# ( ) to group, a trailing * for word endings (manag* = manager, managing)
+# and -word as a short NOT. A space between words still means AND, and NOT
+# binds before AND, AND before OR. A query with none of those is a plain
+# keyword search and keeps its old behaviour (AND, then a looser OR pass).
+_BOOL_OPS = ("AND", "OR", "NOT")
+_BOOL_TOKEN_RE = re.compile(r'-?"[^"]*"\*?|[()]|[^\s()"]+')
+_BOOL_WORD_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9\-\.]*\*?")
+
+
+def _bool_tokens(q: str) -> list:
+    """(kind, text, prefix) tokens: kind is 'op', '(', ')', 'phrase' or 'word'."""
+    q = re.sub("[“”„‟]", '"', q or "")   # quotes pasted from Word
+    out = []
+    for m in _BOOL_TOKEN_RE.finditer(q):
+        tok = m.group()
+        if tok in "()":
+            out.append((tok, tok, False))
+        elif tok in _BOOL_OPS:
+            out.append(("op", tok, False))
+        elif tok.lstrip("-").startswith('"'):
+            words = re.findall(r"[A-Za-z0-9][A-Za-z0-9\-\.]*", tok)
+            if not words:
+                continue
+            if tok.startswith("-"):
+                out.append(("op", "NOT", False))
+            out.append(("phrase", " ".join(words), tok.endswith("*")))
+        elif tok == "-":
+            # "-(a OR b)" is a NOT; a dash standing alone is just punctuation.
+            if q[m.end():m.end() + 1] == "(":
+                out.append(("op", "NOT", False))
+        else:
+            words = []
+            for w in _BOOL_WORD_RE.findall(tok):
+                pre = w.endswith("*")
+                w = w.rstrip("*")
+                if len(w) < 2 or (w.lower() in _STOP and not pre):
+                    continue
+                words.append(("word", w, pre))
+            if not words:
+                continue
+            if tok.startswith("-"):
+                out.append(("op", "NOT", False))
+            if len(words) > 1:      # "node/react" is one unit: both words
+                words = [("(", "(", False)] + words + [(")", ")", False)]
+            out.extend(words)
+    return out
+
+
+def _bool_and(kids: list):
+    kids = [k for k in kids if k]
+    if not kids:
+        return None
+    if len(kids) == 1:
+        return kids[0]
+    if all(k[0] == "not" for k in kids):     # NOT a NOT b  ==  NOT (a OR b)
+        return ("not", _bool_or([k[1] for k in kids]))
+    return ("and", kids)
+
+
+def _bool_or(kids: list):
+    kids = [k for k in kids if k]
+    if not kids:
+        return None
+    if len(kids) == 1:
+        return kids[0]
+    if all(k[0] == "not" for k in kids):     # NOT a OR NOT b  ==  NOT (a AND b)
+        return ("not", _bool_and([k[1] for k in kids]))
+    return ("or", kids)
+
+
+def _bool_parse(toks: list):
+    """Tokens -> tree of ('word'|'phrase', text, prefix), ('and', [..]),
+    ('or', [..]) and ('not', node). Forgiving: a dangling operator or an
+    unclosed bracket is dropped rather than failing the search."""
+    depth, kept = 0, []
+    for t in toks:                  # a closing bracket nothing opened
+        if t[0] == ")" and not depth:
+            continue
+        depth += {"(": 1, ")": -1}.get(t[0], 0)
+        kept.append(t)
+    toks, pos = kept, [0]
+
+    def peek():
+        return toks[pos[0]] if pos[0] < len(toks) else None
+
+    def p_or():
+        kids = [p_and()]
+        while peek() and peek()[:2] == ("op", "OR"):
+            pos[0] += 1
+            kids.append(p_and())
+        return _bool_or(kids)
+
+    def p_and():
+        kids = []
+        while peek() and peek()[0] != ")" and peek()[:2] != ("op", "OR"):
+            if peek()[:2] == ("op", "AND"):
+                pos[0] += 1
+                continue
+            kids.append(p_not())
+        return _bool_and(kids)
+
+    def p_not():
+        t = peek()
+        if t is None or t[0] == ")" or t[:2] in (("op", "OR"), ("op", "AND")):
+            return None
+        pos[0] += 1
+        if t[:2] == ("op", "NOT"):
+            node = p_not()
+            if not node:
+                return None
+            return node[1] if node[0] == "not" else ("not", node)
+        if t[0] == "(":
+            node = p_or()
+            if peek() and peek()[0] == ")":
+                pos[0] += 1
+            return node
+        return t
+
+    return p_or()
+
+
+def _bool_fts(node):
+    """FTS5 MATCH text for a parsed tree. None when there is nothing to look
+    for: FTS5's NOT subtracts from a match, so "NOT travel" alone finds no one."""
+    if not node:
+        return None
+    kind = node[0]
+    if kind in ("word", "phrase"):
+        return '"%s"%s' % (node[1], " *" if node[2] else "")
+    if kind == "or":
+        parts = [p for p in (_bool_fts(k) for k in node[1] if k[0] != "not") if p]
+        if not parts:
+            return None
+        return "(%s)" % " OR ".join(parts) if len(parts) > 1 else parts[0]
+    if kind == "and":
+        want = [p for p in (_bool_fts(k) for k in node[1] if k[0] != "not") if p]
+        drop = [p for p in (_bool_fts(k[1]) for k in node[1] if k[0] == "not") if p]
+        if not want:
+            return None
+        expr = "(%s)" % " AND ".join(want) if len(want) > 1 else want[0]
+        if drop:
+            expr = "(%s NOT %s)" % (
+                expr, "(%s)" % " OR ".join(drop) if len(drop) > 1 else drop[0])
+        return expr
+    return None
+
+
+def _bool_wanted(node, out: list) -> list:
+    """The words and phrases a tree asks for; nothing under a NOT."""
+    if node and node[0] in ("word", "phrase"):
+        if node[1].lower() not in [o.lower() for o in out]:
+            out.append(node[1])
+    elif node and node[0] in ("and", "or"):
+        for k in node[1]:
+            _bool_wanted(k, out)
+    return out
+
+
+def boolean_query(q: str):
+    """(fts_expr, wanted_terms) when `q` is a Boolean search, else None.
+
+    Boolean means it uses an operator, a quoted phrase or a wildcard; brackets
+    alone do not count, so a pasted title like "Project Manager (Construction)"
+    stays a plain keyword search. fts_expr is None when the query asks for
+    nothing findable (only NOTs)."""
+    toks = _bool_tokens(q)
+    if not any(k in ("op", "phrase") or pre for k, _t, pre in toks):
+        return None
+    tree = _bool_parse(toks)
+    return _bool_fts(tree), _bool_wanted(tree, [])
+
+
+def search_terms(q: str) -> list:
+    """The words a search is looking for, for the "matched:" line on a card.
+    A Boolean query gives its wanted words and phrases, never the operators
+    or anything it excludes."""
+    b = boolean_query(q)
+    return b[1] if b else _terms(q)
 
 
 # ── Client alias + Ref # ──────────────────────────────────────────────────
@@ -936,7 +1240,9 @@ def _keyword_search_fts(q, limit, strict, owner, location, radius_mi,
     meta = {"origin": None, "origin_label": "", "bad_location": "",
             "hidden_no_location": 0}
     terms = _terms(q)
-    if not terms:
+    # A Boolean search runs exactly as written: no looser OR pass behind it.
+    boolean = boolean_query(q)
+    if (boolean and not boolean[0]) or (not terms and not boolean):
         return [], meta
     origin, origin_label = geocode_place(location) if location else (None, "")
     if location and not origin:
@@ -951,28 +1257,19 @@ def _keyword_search_fts(q, limit, strict, owner, location, radius_mi,
     try:
         _own = " AND t.owner_email=?" if owner else ""
         _since = " AND t.created_at>=?" if since else ""
-        # With a radius we have to pull a wider net first, because the distance
-        # filter runs in Python and would otherwise trim an already-cut page.
-        fetch = (max(limit, min(500, limit * 6)) if (origin and radius_mi) else limit)
+        params = ([owner] if owner else []) + ([since] if since else [])
 
         def run(joiner):
-            expr = joiner.join('"%s"' % t.replace('"', '') for t in terms)
-            params = ([expr] + ([owner] if owner else []) + ([since] if since else [])
-                      + [fetch])
-            return con.execute(
-                """SELECT t.*, bm25(talents_fts) AS rank
-                   FROM talents_fts f JOIN talents t ON t.id=f.rowid
-                   WHERE talents_fts MATCH ?%s%s ORDER BY rank LIMIT ?"""
-                % (_own, _since),
-                params).fetchall()
-        rows = run(" AND ")
+            expr = (boolean[0] if boolean else
+                    joiner.join('"%s"' % t.replace('"', '') for t in terms))
+            return _match_rows(con, expr, _own + _since, params, limit,
+                               origin, radius_mi)
+        rows, hidden, total = run(" AND ")
         # General search broadens to OR for recall; strict (pipelines) does not.
-        if not rows and not strict:
-            rows = run(" OR ")
-        rows = [dict(r) for r in rows]
-        rows, hidden = _geo_filter(rows, origin, radius_mi)
+        if not total and not strict and not boolean:
+            rows, hidden, total = run(" OR ")
         meta["hidden_no_location"] = hidden
-        return rows[:limit], meta
+        return rows, meta
     except Exception:
         return [], meta
     finally:
@@ -1038,19 +1335,11 @@ def jd_search(jd_text: str, limit: int = 80, owner: str = None,
         _own = " AND t.owner_email=?" if owner else ""
         _since = " AND t.created_at>=?" if since else ""
         expr = " OR ".join('"%s"' % t.replace('"', '') for t in uterms)
-        # When filtering by radius, pull a broader set first (distance filter
-        # then trims it back down to `limit`).
-        fetch = (max(limit, min(500, limit * 6)) if (origin and radius_mi) else limit)
-        params = ([expr] + ([owner] if owner else []) + ([since] if since else [])
-                  + [fetch])
-        rows = [dict(r) for r in con.execute(
-            """SELECT t.*, bm25(talents_fts) AS rank
-               FROM talents_fts f JOIN talents t ON t.id=f.rowid
-               WHERE talents_fts MATCH ?%s%s ORDER BY rank LIMIT ?""" % (_own, _since),
-            params).fetchall()]
-        rows, hidden = _geo_filter(rows, origin, radius_mi)
+        params = ([owner] if owner else []) + ([since] if since else [])
+        rows, hidden, _total = _match_rows(con, expr, _own + _since, params,
+                                           limit, origin, radius_mi)
         crit["_hidden_no_location"] = hidden
-        return crit, rows[:limit], uterms
+        return crit, rows, uterms
     except Exception:
         return crit, [], uterms
     finally:
@@ -2541,7 +2830,7 @@ def _drill(st, refresh, query, strict=False):
     st["mode"] = "keywords"
     st["query"] = query
     st["results"] = keyword_search(query, strict=strict)
-    st["terms"] = _terms(query)
+    st["terms"] = search_terms(query)
     st["crit"] = {}
     st["view"] = "candidates"
     refresh()
@@ -2697,7 +2986,7 @@ def _bars(C, items, st, refresh):
             st["mode"] = "keywords"
             st["query"] = q
             st["results"] = keyword_search(q)
-            st["terms"] = _terms(q)
+            st["terms"] = search_terms(q)
             st["crit"] = {}
             st["view"] = "candidates"
             refresh()
@@ -3301,11 +3590,24 @@ def _view_candidates(ff, st, refresh):
 
         _scope_owner = lambda: (st.get("email") if st.get("scope") == "mine" else None)
 
+        def _default_radius():
+            """A typed city means "near here": the first search on it narrows
+            to LINK_RADIUS_MI miles instead of listing the whole country with
+            a distance on each card. Picking Any afterwards widens it again."""
+            _city = (st.get("location") or "").strip().lower()
+            if not _city:
+                st.pop("radius_city", None)
+            elif st.get("radius_city") != _city:
+                st["radius_city"] = _city
+                if not st.get("radius"):
+                    st["radius"] = LINK_RADIUS_MI
+
         async def _rerun():
             """Re-run whatever search is already on screen with the current
             filters. Filter controls never *start* a search — in JD mode that
             would fire an AI parse on half-typed text."""
             from nicegui import run as _run
+            _default_radius()
             owner = _scope_owner()
             loc = (st.get("location") or "").strip()
             if st.get("mode") == "keywords" and st.get("query"):
@@ -3333,6 +3635,7 @@ def _view_candidates(ff, st, refresh):
                 ui.notify("Paste a job description first.", type="warning"); return
             st.pop("tearsheet_id", None)
             st.pop("job_title", None); st.pop("job_id", None)
+            _default_radius()
             st["searching"] = True; st["search_open"] = False; refresh()
             from nicegui import run as _run
             owner = _scope_owner()
@@ -3349,6 +3652,8 @@ def _view_candidates(ff, st, refresh):
 
         async def _set_filter(key, val):
             st[key] = val
+            if key == "radius":     # their pick for this city stands, Any included
+                st["radius_city"] = (st.get("location") or "").strip().lower()
             await _rerun()
 
         def _segmented(opts, cur, on_pick):
@@ -3457,7 +3762,7 @@ def _view_candidates(ff, st, refresh):
                 st.pop("job_title", None); st.pop("job_id", None)
                 st["query"] = (st.get("query_draft") or "").strip()
                 st["crit"] = {}
-                st["terms"] = _terms(st["query"])
+                st["terms"] = search_terms(st["query"])
                 if not st["query"]:
                     st["results"] = []; st["meta"] = {}; refresh(); return
                 await _rerun()
@@ -3468,10 +3773,10 @@ def _view_candidates(ff, st, refresh):
                 # under the keyword bar, both the same width, rather than the
                 # two inputs splitting the row between them.
                 with ui.element("div").style(
-                        "flex:1;min-width:220px;max-width:420px;display:flex;"
+                        "flex:1;min-width:220px;max-width:520px;display:flex;"
                         "flex-direction:column;gap:8px;"):
                     _inp = ui.input(value=st.get("query_draft", ""),
-                                    placeholder="e.g.  superintendent data center").props(
+                                    placeholder="e.g.  superintendent data center  ·  Boolean search accepted").props(
                         "outlined dense rounded clearable").classes(
                         "fd-search-field").style("width:100%;")
                     _inp.on_value_change(
@@ -4787,7 +5092,7 @@ def _apply_search_link(st: dict, q: str, loc: str = "") -> None:
     LINK_RADIUS_MI miles, the same filter the page's own City box applies."""
     q = (q or "").strip()[:120]
     loc = (loc or "").strip()[:80]
-    st.update({"mode": "keywords", "query": q, "query_draft": q, "terms": _terms(q),
+    st.update({"mode": "keywords", "query": q, "query_draft": q, "terms": search_terms(q),
                "crit": {}, "view": "candidates", "location": loc, "meta": {}})
     st.pop("tearsheet_id", None); st.pop("job_title", None); st.pop("job_id", None)
     if loc:
