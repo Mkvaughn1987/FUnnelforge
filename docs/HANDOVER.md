@@ -42,22 +42,14 @@ He keeps three things, each of which IT grants and can take back:
 | Server | Leaves Mike's SSH public key in `/root/.ssh/authorized_keys` so he can deploy | Deletes that line from the file |
 | In-app admin | Keeps Mike's email in `DRIPDROP_SUPER_ADMINS` and the code's admin lists (Part 3) | Follows "Remove Mike from the code" in Part 3 |
 
-Mike does not keep any account, key or billing: the GitHub repo,
-DigitalOcean team, Cloudflare zone, Anthropic key and Google/Microsoft apps
-are all IT's.
+Every account, key and bill (GitHub repo, DigitalOcean team, Cloudflare
+zone, Anthropic key, Google/Microsoft apps) is IT's. How Mike works:
 
-How Mike makes changes from then on:
-
-- He works in a clone of IT's repo, pushes his changes there, and deploys
-  with `_deploy_zero_downtime.sh` like anyone else (Part 3). GitHub then
-  always shows what changed and who changed it.
-- He follows the drift check in Part 3 before every deploy, so he never
-  overwrites a change IT made directly on the server (or the other way round).
-- IT and Mike agree who to tell before a deploy (a short email or chat
-  message is enough), so two people never deploy at the same moment.
-- AI use from his changes runs on IT's Anthropic key, and so does
-  everyone else's. Mike's own Claude Code subscription, which he uses to
-  write the code, stays his.
+- Changes go into IT's repo and out with `_deploy_zero_downtime.sh`
+  (Part 3), so GitHub shows what changed and who changed it.
+- He runs the drift check (Part 3) before every deploy and tells IT first,
+  so nobody overwrites anyone else's change.
+- AI use runs on IT's Anthropic key; Mike's Claude Code subscription stays his.
 
 ---
 
@@ -238,14 +230,14 @@ Figures from 2026-10-08; re-check on the day.
 - `/opt/dripdrop/.env` - every key and setting (Part 2, step E).
 - `/opt/dripdrop/venv` - Python environment (`requirements.txt`).
 - Services:
-  - `dripdrop` (port 8080) and `dripdrop-green` (port 8081): the same app
-    twice. Caddy sends traffic to whichever is healthy, so one can restart
-    while the other serves. Only one of them sends email at a time (leader
-    election inside the app).
-  - `dripdrop-mcp` (port 8090): the Claude connector at
-    `mcp.dripdripdrop.ai` (42 tools covering every page). It reaches the
-    app through `127.0.0.1:8082`.
-  - `caddy`: HTTPS and routing, config in `deploy/Caddyfile`.
+    - `dripdrop` (port 8080) and `dripdrop-green` (port 8081): the same app
+      twice. Caddy sends traffic to whichever is healthy, so one can restart
+      while the other serves. Only one of them sends email at a time (leader
+      election inside the app).
+    - `dripdrop-mcp` (port 8090): the Claude connector at
+      `mcp.dripdripdrop.ai` (42 tools covering every page). It reaches the
+      app through `127.0.0.1:8082`.
+    - `caddy`: HTTPS and routing, config in `deploy/Caddyfile`.
 - Cron, daily 04:15: `/opt/dripdrop/scripts/queue_maintenance.py` (copy in
   this repo's `scripts/`) trims the send queue. Without it the queue file
   grows past 100 MB and the app slows down.
@@ -254,6 +246,7 @@ Figures from 2026-10-08; re-check on the day.
 Checked file by file against the live server on 2026-11-14. Every Python
 file the app runs matches this repo (including `ats.py`, copied in from
 the server that day) except:
+
 - `funnelforge_core.py`: the repo holds a newer version (per-user queue
   paths) that was never deployed. The server's older copy is what runs and
   works. Test it before ever deploying the repo's version.
@@ -289,6 +282,7 @@ log.
 
 ### Moving each bill
 **DigitalOcean.** A droplet cannot be moved straight to another account.
+
 1. *Hand over the team (simplest, no downtime).* Every DigitalOcean account
    is a "team". If the team holding this droplet holds nothing else of
    Mike's, invite IT, make IT the owner, IT adds its card, Mike removes his
@@ -313,4 +307,4 @@ it shows in IT's account with auto-renew on before Mike removes his card.
   shows nothing for the droplet.
 - Anthropic: old DripDrop key deleted, auto-reload off, no new usage.
 - Cloudflare: `dripdripdrop.ai` gone from his account.
-- His own Claude routines that run against DripDrop turned off.
+- Any of his Claude routines that IT did not want kept (step 14) turned off.
