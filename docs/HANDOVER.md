@@ -2,7 +2,9 @@
 
 DripDrop (dripdripdrop.ai) is moving from Mike Vaughn to Arena IT. This
 document is how IT takes full control (code, server, domain, keys and
-in-app admin) and how to run and change it afterwards.
+in-app admin) and how to run and change it afterwards. Mike keeps access
+to make changes to DripDrop (Part 1b). IT owns everything and can remove
+that access at any time.
 
 Updated 2026-11-14. The code in this repo matches the live server as of
 that date, apart from the files listed under "Server vs repo". The server
@@ -12,8 +14,9 @@ figures in Part 4 were taken on 2026-10-08. Re-check them on the day.
 
 ## Part 1 - What IT will own
 
-When the handover is finished, IT holds every one of these and Mike holds
-none of them:
+When the handover is finished, IT owns every one of these. Mike owns none
+of them and pays for none of them. He keeps only the change access in
+Part 1b:
 
 | Area | What IT gets | Lets IT |
 |---|---|---|
@@ -25,6 +28,35 @@ none of them:
 | Outlook sending | Owner of the Azure app registration in Arena's tenant | Users connecting Outlook |
 | In-app admin | IT's email in `DRIPDROP_SUPER_ADMINS` and marked admin on the Admin page | Manage users, teams, tenants, the admin pages |
 | Claude connector | `mcp.dripdripdrop.ai` runs on the same server | Nothing extra to own; any user adds it in their own Claude |
+
+---
+
+## Part 1b - Mike's ongoing access
+
+Arena wants Mike to keep making changes to DripDrop after the handover.
+He keeps three things, each of which IT grants and can take back:
+
+| Access | How IT grants it | How IT removes it |
+|---|---|---|
+| Code | Adds Mike to IT's GitHub repo as a collaborator with **Write** access (not Admin or Owner) | Removes him from the repo's collaborators |
+| Server | Leaves Mike's SSH public key in `/root/.ssh/authorized_keys` so he can deploy | Deletes that line from the file |
+| In-app admin | Keeps Mike's email in `DRIPDROP_SUPER_ADMINS` and the code's admin lists (Part 3) | Follows "Remove Mike from the code" in Part 3 |
+
+Mike does not keep any account, key or billing: the GitHub repo,
+DigitalOcean team, Cloudflare zone, Anthropic key and Google/Microsoft apps
+are all IT's.
+
+How Mike makes changes from then on:
+- He works in a clone of IT's repo, pushes his changes there, and deploys
+  with `_deploy_zero_downtime.sh` like anyone else (Part 3). GitHub then
+  always shows what changed and who changed it.
+- He follows the drift check in Part 3 before every deploy, so he never
+  overwrites a change IT made directly on the server (or the other way round).
+- IT and Mike agree who to tell before a deploy (a short email or chat
+  message is enough), so two people never deploy at the same moment.
+- AI use from his changes runs on IT's Anthropic key, and so does
+  everyone else's. Mike's own Claude Code subscription, which he uses to
+  write the code, stays his.
 
 ---
 
@@ -46,8 +78,9 @@ replacement is live.
 
 **Mike:**
 
-4. Agree in writing what DripDrop access (if any) Mike keeps afterwards.
-5. Send IT a list of his own Claude routines that use DripDrop (step 13),
+4. Agree in writing the access Mike keeps (Part 1b) and that IT can end
+   it at any time.
+5. Send IT a list of his own Claude routines that use DripDrop (step 14),
    so IT knows what stops when Mike turns them off.
 
 ### B. Code (Mike, 10 minutes)
@@ -57,16 +90,18 @@ replacement is live.
    then pushes a clean one-commit copy as `main`. The server does not pull
    from GitHub, so this changes nothing on the live site. If it reports a
    file that differs, see "Server vs repo" in Part 4 and fix that first.
+7. IT adds Mike to the repo as a collaborator with Write access (Part 1b).
+   From then on Mike makes changes in IT's repo, not his own copy.
 
 ### C. Server access (Mike adds, IT checks)
-7. Mike adds IT's public key to `/root/.ssh/authorized_keys` on the server.
-8. IT checks it can log in: `ssh root@134.199.237.206`.
-9. Mike moves the droplet into IT's hands (see "Moving each bill",
+8. Mike adds IT's public key to `/root/.ssh/authorized_keys` on the server.
+9. IT checks it can log in: `ssh root@134.199.237.206`.
+10. Mike moves the droplet into IT's hands (see "Moving each bill",
    DigitalOcean). The simplest way: invite IT to the DigitalOcean team that
    holds the droplet, make IT the owner, IT adds its card.
 
 ### D. Domain (Mike starts, IT accepts)
-10. Mike moves the `dripdripdrop.ai` zone (only the zone, not his whole
+11. Mike moves the `dripdripdrop.ai` zone (only the zone, not his whole
     Cloudflare account) to IT's Cloudflare account. IT checks the zone shows
     with its DNS records and auto-renew on.
 
@@ -80,38 +115,43 @@ check (Part 3, "Checking it is healthy").
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google Cloud OAuth client | If the Google project is Mike's: make IT's own client with redirect URI `https://dripdripdrop.ai/auth/google/callback`. Users then reconnect Gmail once in Settings |
 | `MS_CLIENT_ID`, `MS_CLIENT_SECRET`, `MS_TENANT_ID`, `MS_REDIRECT_URI` | Azure app registration in Arena's Microsoft tenant | Confirm it is Arena's. If Mike registered it under his admin login, add IT as an owner of the app |
 | `UNSPLASH_ACCESS_KEY` | Unsplash developer key (newsletter images) | IT's own free key |
-| `DRIPDROP_SUPER_ADMINS` | Comma-separated emails with full admin | Add IT's email; remove Mike's when done |
+| `DRIPDROP_SUPER_ADMINS` | Comma-separated emails with full admin | Add IT's email. Keep Mike's while he has change access (Part 1b) |
 | `DRIPDROP_SECRET` | Signs login cookies | Optional: replace with a new random value. Everyone gets signed out once |
 | `DRIPDROP_INVITE_CODES` | Sign-up invite codes | Optional: replace |
 
-11. Restart both colors after editing `.env`:
+12. Restart both colors after editing `.env`:
     `systemctl restart dripdrop-green && sleep 20 && systemctl restart dripdrop`
     (and `systemctl restart dripdrop-mcp` if a connector setting changed).
 
 ### F. In-app admin
-12. Mike signs in, opens the **Admin** page and makes IT's DripDrop account
+13. Mike signs in, opens the **Admin** page and makes IT's DripDrop account
     an admin (the toggle in the user list).
 
-### G. Mike steps off
-13. Mike turns off his own Claude routines and skills that create campaigns
+### G. Mike steps back to change access only
+14. Mike and IT agree which of Mike's Claude routines that create campaigns
     on DripDrop (PipelineBlast, CandidateBlast, Sales Campaign, scheduled BD
-    runs). They live in Mike's Claude account and use his DripDrop API key.
-14. Let it run a full day on IT's keys. Then Mike: deletes his old Anthropic
-    key, removes his card and leaves the DigitalOcean team, and IT removes
-    Mike's SSH key from `/root/.ssh/authorized_keys`.
-15. IT removes Mike as a permanent admin in the code (Part 3, "Remove Mike
-    from the code") and deploys.
+    runs) keep running. They live in Mike's Claude account and use his
+    DripDrop API key; Mike turns off any IT does not want.
+15. Let it run a full day on IT's keys. Then Mike deletes his old Anthropic
+    key, removes his card and leaves the DigitalOcean team. Mike's SSH key
+    **stays** in `/root/.ssh/authorized_keys` so he can keep deploying
+    (Part 1b).
+16. Mike's email stays in the code's admin lists for now. When IT wants to
+    end Mike's access, follow "Remove Mike from the code" (Part 3) and the
+    "How IT removes it" column in Part 1b.
 
 ---
 
 ## Part 3 - Changing DripDrop
 
-### Remove Mike from the code (after the handover)
-Some accounts are hardcoded. Edit these, then deploy:
+### Remove Mike from the code (only when IT ends his access)
+Mike keeps his admin access while he makes changes (Part 1b). These
+accounts are hardcoded. To remove him, edit them, take his email out of
+`DRIPDROP_SUPER_ADMINS`, and deploy. Do the same for anyone else later:
 
 | File | Name | What it does | Change |
 |---|---|---|---|
-| `flowdrip_app.py` | `_ADMIN_EMAILS` (about line 2741) | Permanent admins, cannot be demoted in the UI | Put IT's email in, take Mike's two out |
+| `flowdrip_app.py` | `_ADMIN_EMAILS` (about line 2741) | Permanent admins, cannot be demoted in the UI | Put IT's email in; take Mike's two out when his access ends |
 | `flowdrip_app.py` | `_super_admin_emails()` default (about line 1728) | Used only when `DRIPDROP_SUPER_ADMINS` is not set | Change the fallback to IT's email |
 | `flowdrip_app.py` | `_ATS_ALLOWED_EMAILS` (about line 60) | Who outside `@arenastaffing.net` sees Pipeline | Remove Mike's personal gmail |
 | `flowdrip_app.py` | `_ROUNDUP_ALLOWED_EMAILS` (about line 85) | Who sees The Roundup newsletter | Remove Mike's two addresses, add whoever replaces him |
