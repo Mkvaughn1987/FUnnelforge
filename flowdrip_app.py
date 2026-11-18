@@ -35478,7 +35478,8 @@ def p_contacts(s, rf):
                 if _grouped and (_inds[name] or "No industry") != _cur_group:
                     _cur_group = _inds[name] or "No industry"
                     from html import escape as _gesc
-                    ui.html(f"{_gesc(_cur_group)}<span>{_group_sizes[_cur_group]:,} contacts</span>"
+                    _gn = _group_sizes[_cur_group]
+                    ui.html(f"{_gesc(_cur_group)}<span>{_gn:,} contact{'' if _gn == 1 else 's'}</span>"
                             ).classes("fd-ct-group")
                 cnt = _get_csv_row_count(path)
                 label = name.replace("_", " ")
