@@ -981,6 +981,9 @@ def _co_back_link(s, rf, C):
             ui.label(label)
 
 
+VIEWS = (("table", "Table"), ("board", "Board"), ("clients", "Clients"))
+
+
 def p_companies(s, rf):
     ff = _ff()
     C = ff.C
@@ -990,7 +993,9 @@ def p_companies(s, rf):
     stage = getattr(s, "_co_stage", "") or ""
     industry = getattr(s, "_co_ind", "") or ""
     open_key = getattr(s, "_co_open", "") or ""
-    view = "board" if getattr(s, "_co_view", "") == "board" else "table"
+    view = getattr(s, "_co_view", "")
+    if view not in ("board", "clients"):
+        view = "table"
     if view == "board" and getattr(s, "_came_from", "") == "companies_board":
         s._came_from = ""   # already back on the board
 
@@ -999,9 +1004,32 @@ def p_companies(s, rf):
                "Every company you have a contact at, grouped by industry, with "
                "what your campaigns have done there. Tick companies to add "
                "their people to a newsletter or start a campaign for them. "
-               "Board lays the ones a campaign has touched out by stage.")
+               "Board lays the ones a campaign has touched out by stage. "
+               "Clients lists the companies you already work with, so "
+               "campaigns skip them.")
+
+    def _view_switch(style=""):
+        # Table | Board | Clients. Clients was its own sidebar page until
+        # 2026-11-17; it is a view of the same companies now.
+        with ui.element("div").classes("fd-seg").style(style):
+            for _v, _vl in VIEWS:
+                def _pick_view(v=_v):
+                    s._co_view = v
+                    rf()
+                with ui.element("button").classes(
+                        "fd-seg-btn" + (" on" if _v == view else "")).props(
+                        'type="button"').on("click", _pick_view):
+                    ui.label(_vl)
+
+    if view == "clients":
+        with ui.element("div").classes("fd-filters").style("margin:4px 0 12px;"):
+            _view_switch("margin-left:auto;")
+        ff.p_active_clients(s, rf, embedded=True)
+        return
 
     if not rollup:
+        with ui.element("div").classes("fd-filters").style("margin:4px 0 12px;"):
+            _view_switch("margin-left:auto;")
         _empty_card(C, "No companies yet",
                     "Companies appear here as soon as your contacts have a "
                     "company name. Upload a list to get started.",
@@ -1051,18 +1079,10 @@ def p_companies(s, rf):
             rf()
         ui.select(options=ind_opts, value=industry, on_change=_on_ind).classes(
             "fd-input").props("dense").style("min-width:190px;font-size:12px;")
-        # Table | Board toggle. The board used to be its own Pipeline page;
-        # every CRM the market uses (Apollo, Close, Pipedrive) makes it a
-        # view of the one list instead, so it lives here now.
-        with ui.element("div").classes("fd-seg").style("margin-left:auto;"):
-            for _v, _vl in (("table", "Table"), ("board", "Board")):
-                def _pick_view(v=_v):
-                    s._co_view = v
-                    rf()
-                with ui.element("button").classes(
-                        "fd-seg-btn" + (" on" if _v == view else "")).props(
-                        'type="button"').on("click", _pick_view):
-                    ui.label(_vl)
+        # Table | Board | Clients toggle. The board used to be its own
+        # Pipeline page; every CRM the market uses (Apollo, Close, Pipedrive)
+        # makes it a view of the one list instead, so it lives here now.
+        _view_switch("margin-left:auto;")
 
     if view == "board":
         _board(s, rf, C, filter_rollup(rollup, q, "", industry), actor)

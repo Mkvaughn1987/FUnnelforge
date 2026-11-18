@@ -28,7 +28,7 @@ def test_unbuilt_destinations_have_no_page_and_are_skipped():
         assert lbl in by_label, f"{lbl} missing from SIDEBAR_NAV"
         assert by_label[lbl] is None, f"{lbl} must not be wired directly"
     for lbl in ("Overview", "My Day", "Replies", "Companies", "Contacts",
-                "Clients", "Campaigns", "Newsletters", "Sales Assets", "Sales Dashboard"):
+                "Campaigns", "Newsletters", "Sales Assets", "Sales Dashboard"):
         assert by_label.get(lbl), f"{lbl} must map to an existing page key"
     assert "Pipeline" not in by_label, "the board is a view on Companies, not a row"
     assert "Content Library" not in by_label, "Content Library is no longer a row"
@@ -45,7 +45,11 @@ def test_sections_are_home_campaigns_content_crm_performance():
     assert [sec for sec, _rows in fa.SIDEBAR_NAV] == [
         "HOME", "CAMPAIGNS", "CONTENT", "CRM", "PERFORMANCE"]
     rows = dict(fa.SIDEBAR_NAV)
-    assert [r[1] for r in rows["CRM"]] == ["Companies", "Contacts", "Clients"]
+    # Clients is a view on Companies since 2026-11-17, not a row.
+    assert [r[1] for r in rows["CRM"]] == ["Companies", "Contacts"]
+    assert fa.SIDEBAR_PAGE_ROW["active_clients"] == "companies"
+    import sales_pages as sp
+    assert ("clients", "Clients") in sp.VIEWS
     assert [r[1] for r in rows["CAMPAIGNS"]] == ["Campaigns", "Newsletters"]
     assert [r[1] for r in rows["CONTENT"]] == ["Sales Assets", "AI Prompt", "Saved Prompts",
                                                "Buying Signals", "Target List", "Testimonials"]

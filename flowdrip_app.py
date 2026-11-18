@@ -22033,7 +22033,8 @@ SIDEBAR_NAV = [
     ("CRM", [
         ("companies",  "Companies",          "companies"),   # sales_pages.p_companies (Table | Board)
         ("contacts",   "Contacts",           "contacts"),
-        ("clients",    "Clients",            "active_clients"),
+        # Clients is a view on Companies (Table | Board | Clients) since
+        # 2026-11-17; the "active_clients" page key still opens it.
     ]),
     ("PERFORMANCE", [
         ("sales_dash", "Sales Dashboard",    "sales_dashboard"),  # sales_pages.p_sales_dashboard
@@ -22073,7 +22074,7 @@ SIDEBAR_PAGE_ROW = {
     "drip": "myday", "tasks": "myday",
     "responses": "replies", "e_responses": "replies",
     "contacts": "contacts", "e_contacts": "contacts",
-    "active_clients": "clients",
+    "active_clients": "companies",
     "companies": "companies", "sales_dashboard": "sales_dash",
     "seq_mgr": "campaigns", "active_camps": "campaigns", "queue": "campaigns",
     "evergreen": "campaigns", "evergreen_create": "campaigns", "e_evergreen": "campaigns",
@@ -22089,7 +22090,7 @@ SIDEBAR_PAGE_ROW = {
 SIDEBAR_TITLES = {
     "dashboard": "Overview", "market_intel": "Market Intel",
     "drip": "My Day", "tasks": "Tasks", "responses": "Replies", "e_responses": "Replies",
-    "contacts": "Contacts", "e_contacts": "Contacts", "active_clients": "Clients",
+    "contacts": "Contacts", "e_contacts": "Contacts", "active_clients": "Companies",
     "companies": "Companies", "sales_dashboard": "Sales Dashboard",
     "seq_mgr": "Campaigns", "active_camps": "Campaigns", "queue": "Email Queue",
     "evergreen": "Nurture Campaigns", "evergreen_create": "New Nurture Campaign",
@@ -44562,11 +44563,14 @@ def p_tm_analytics(s, rf):
                help_fn=lambda: _show_page_help(s, rf, "analytics"))
 
 
-def p_active_clients(s, rf):
+def p_active_clients(s, rf, embedded=False):
     """Team-shared list of active client domains. Contacts at these
     domains are flagged red in the contact preview and the user is
     asked at the Step 3 → 4 transition whether to skip or send anyway.
-    Storage scope is the team (= email domain), not the individual user."""
+    Storage scope is the team (= email domain), not the individual user.
+
+    `embedded`: drawn as the Clients view of Companies, under that page's
+    own title, so the big title gives way to a section heading."""
 
     _user_email = (getattr(s, "_user_email", "") or "").strip().lower()
     if _user_email:
@@ -44585,7 +44589,7 @@ def p_active_clients(s, rf):
             "display:flex;align-items:flex-start;justify-content:space-between;"
             "gap:16px;margin-bottom:6px;"):
         with ui.element("div").style("flex:1;min-width:0;"):
-            ui.label("Current Clients").classes("fd-h1")
+            ui.label("Current Clients").classes("fd-sec" if embedded else "fd-h1")
             ui.label(
                 "Contacts at these domains get flagged before sending — so we don't "
                 + ("accidentally pitch our own clients. " if BRAND_COPY == "sales"
@@ -73750,7 +73754,21 @@ def render_page(s: AppState, rf):
                     print(f"[CustomCampaign] page failed: {_tmc_ex}", flush=True)
                     ui.label(f"Build a Custom Campaign is unavailable: {_tmc_ex}").style(
                         f"font-size:14px;color:{C['warn']};padding:20px 0;")
-            elif page == "active_clients": p_active_clients(s, rf)
+            elif page == "active_clients":
+                # Clients is the Clients view of Companies now (2026-11-17);
+                # old links to this page land there.
+                try:
+                    import sales_pages as _spg
+                    s._co_view = "clients"
+                    # From here on it is Companies, so its view switch works.
+                    if s.hub == "sales":
+                        s.sp = "companies"
+                    else:
+                        s.ep = "companies"
+                    _spg.p_companies(s, rf)
+                except Exception as _ac_ex:
+                    print(f"[SalesPages] clients view failed: {_ac_ex}", flush=True)
+                    p_active_clients(s, rf)
             elif page == "company_profile": p_company_profile(s, rf)
             elif page == "team_settings": p_team_settings(s, rf)
             elif page == "signature":    p_signature(s, rf)
