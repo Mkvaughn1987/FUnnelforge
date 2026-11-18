@@ -189,7 +189,9 @@ def test_email_has_sections_badges_links_and_no_style_block(tms):
     assert "Acme Freight" in html and "Watch Co" in html
     assert "Private equity acquisition" in html
     assert 'href="https://www.prnewswire.com/x"' in html
-    assert "https://app.inboxslide.ai/?open=tm_prompts" in html
+    # Each card's Build a campaign opens that one company (tm_signal_campaign).
+    assert "https://app.inboxslide.ai/?open=tm_signal_campaign&amp;issue=" in html
+    assert "company=Acme+Freight" in html
     assert "https://app.inboxslide.ai/?open=tm_signals" in html
     assert "Thursday 15 October 2026" in html
     assert "<style" not in html          # inline styles only (merge tokens + clients)

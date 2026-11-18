@@ -2467,6 +2467,59 @@ ROUTINES = [
         ],
     },
     {
+        # One named company with a reason to write now - the Buying
+        # Signals email's "Find people" path lands here with every box
+        # filled in (tm_signal_campaign.ai_prompt_request). Mike 2026-11-18.
+        "key": "tm_one_company",
+        "name": "Build a Campaign for One Company",
+        "recommend": ["who_to_reach"],
+        "blurb": "One company you already know is worth a note right now - "
+                 "a funding round, an acquisition, a new office, an "
+                 "offshore team. This finds the buyers there and builds one "
+                 "campaign whose first email opens on that news.",
+        "example": "Aline Accounting Partners just raised $206M to buy "
+                   "more firms; reach the Managing Partner and the COO",
+        "tools": _CAMPAIGN_TOOLS + ["tm_campaign_edit", "tm_dnc"],
+        "fields": [
+            F("company", "Which company", "details", "pick", ask=True,
+              source="companies",
+              placeholder="Name, and the website if you have it",
+              hint="The companies from your contacts are in the list. Any "
+                   "other company: type its name, and the website if you "
+                   "have it."),
+            _vertical_field(),
+            F("why_now", "Why write to them now", "details", "textarea",
+              ask=True,
+              placeholder="e.g. They raised $206M on 12 Nov to buy more "
+                          "firms",
+              hint="What happened at the company. The first email opens "
+                   "on it, so give the real fact and where you read it."),
+            F("who_to_reach", "Who to reach there", "details", "textarea",
+              hint=_REC, placeholder="Recommended buyers for the vertical"),
+            F("contacts_each", "How many people there", "size", "number",
+              default="3",
+              hint="Two is the fewest worth doing, five the most."),
+        ] + _newsletter_fields() + _email_fields(DEFAULT_SEQUENCE),
+        "steps": [
+            "{vertical_guide}",
+            "This run is for ONE company only: {company}. The reason to "
+            "write now: {why_now}. Check that on the company's website or "
+            "in the news before going on, and read their careers page for "
+            "the roles ThriveModal places. If the news does not hold up, or "
+            "the company is a staffing firm, already one of our clients or "
+            "on my do-not-contact list (tm_dnc), stop and tell me.",
+            _CONTACTS_STEP,
+            _SHOW_STEP,
+            _BUILD_STEP,
+            "Then rewrite the first email with tm_campaign_edit "
+            "action='update_step' so it opens on that news in one plain "
+            "sentence, the way someone who read it would, and ties it to "
+            "the extra work the news creates for their team. Keep the rest "
+            "of that email, its merge fields and the standing rules. Show "
+            "me the new first email.",
+        ],
+    },
+    {
         "key": "other",
         "name": "Create Your Own",
         "blurb": "Describe it in your own words and the prompt is built "
@@ -2579,6 +2632,17 @@ STARTERS = [
         "summary": "Research one company before I reach out: what they do, "
                    "who buys, what they are hiring, and the talk track.",
         "routine": "tm_account",
+        "vals": {},
+    },
+    {
+        "id": "one_company",
+        "icon": "business",
+        "label": "Build a Campaign for One Company",
+        "sub": "One company with news worth writing about. The first email "
+               "opens on it.",
+        "summary": "Find the buyers at one company and build a campaign "
+                   "that opens on why I'm writing now.",
+        "routine": "tm_one_company",
         "vals": {},
     },
     {
@@ -2921,7 +2985,7 @@ TM = Catalogue(
     tile_groups=[
         ("Find new business", ["signal", "lookalike", "displace",
                                "pressure", "season"]),
-        ("Use what you have", ["audience", "account"]),
+        ("Use what you have", ["audience", "account", "one_company"]),
         ("Off script", ["other"]),
     ],
     tile_short={

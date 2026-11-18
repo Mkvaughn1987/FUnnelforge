@@ -22103,6 +22103,7 @@ SIDEBAR_TITLES = {
     "timezone": "Timezone", "dnc": "Do Not Contact", "admin": "Admin",
     "start_seq": "New Campaign", "ai_campaign": "New Campaign", "seq_builder": "New Campaign",
     "tm_custom_campaign": "Build a Custom Campaign",
+    "tm_signal_campaign": "Build a Campaign for One Company",
     "camp_gen": "New Campaign", "preview": "Preview", "launch": "Launch",
     "create_camp": "New Campaign", "emails_build": "New Campaign", "sequence": "Sequence",
     "prev_launch": "Preview & Launch",
@@ -73645,6 +73646,8 @@ def render_page(s: AppState, rf):
                 back_label = ""
             if page in ("seq_builder", "tm_custom_campaign"):   # draw their own step-aware Back
                 back_label = ""
+            if page == "tm_signal_campaign":   # draws its own Back too
+                back_label = ""
             _show_back = (_in_aicb_wizard or _in_loaded_camp_step or back_label) and page != "dashboard"
             if _show_back:
                 def _do_back():
@@ -73743,6 +73746,15 @@ def render_page(s: AppState, rf):
                 except Exception as _tmr_ex:
                     print(f"[Testimonials] page failed: {_tmr_ex}", flush=True)
                     ui.label(f"Testimonials is unavailable: {_tmr_ex}").style(
+                        f"font-size:14px;color:{C['warn']};padding:20px 0;")
+            elif page == "tm_signal_campaign" and _is_thrivemodal():
+                # One company off a Buying Signals card. Lazy companion.
+                try:
+                    import tm_signal_campaign as _tsc
+                    _tsc.render_page(s, rf)
+                except Exception as _tsc_ex:
+                    print(f"[SignalCampaign] page failed: {_tsc_ex}", flush=True)
+                    ui.label(f"Build a Campaign for One Company is unavailable: {_tsc_ex}").style(
                         f"font-size:14px;color:{C['warn']};padding:20px 0;")
             elif page == "tm_custom_campaign" and _is_thrivemodal():
                 # Build a Custom Campaign: the user's own steps, one per
@@ -75467,6 +75479,18 @@ def index():
     if _open in ("tm_signals", "tm_prompts") and _is_thrivemodal():
         s.sp = _open
         s.hub = "sales"
+    elif _open == "tm_signal_campaign" and _is_thrivemodal():
+        # A Buying Signals card's "Build a campaign": one company. Only the
+        # issue id and company name ride in the link; the page reads the
+        # signal from this user's own saved issues.
+        try:
+            import tm_signal_campaign as _tsc
+            _tsc.open_from_link(s, str(_qs_initial.get("issue") or "")[:40],
+                                str(_qs_initial.get("company") or "")[:160])
+        except Exception as _tsc_ex:
+            print(f"[SignalCampaign] deep link failed: {_tsc_ex}", flush=True)
+            s.sp = "tm_signals"
+            s.hub = "sales"
 
     # SortableJS: loaded once here at top-level page render (NOT inside
     # p_seq_builder, which re-renders on every rf() — re-injecting a

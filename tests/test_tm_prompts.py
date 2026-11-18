@@ -92,7 +92,7 @@ def test_every_routine_has_fields_steps_and_a_starter(tm):
     keys = [r["key"] for r in tm.ROUTINES]
     assert keys == ["tm_signal_hunt", "tm_lookalikes", "tm_displacement",
                     "tm_cost_pressure", "tm_seasonal", "tm_audience",
-                    "tm_account", "other"]
+                    "tm_account", "tm_one_company", "other"]
     for r in tm.ROUTINES:
         assert r["fields"], r["key"]
         assert r["steps"], r["key"]
@@ -606,6 +606,7 @@ def test_every_run_that_can_be_recommended_for_declares_its_keys(tm):
         # "other" is them describing a job in their own words.
         "tm_audience": [],
         "tm_account": ["who_to_reach"],
+        "tm_one_company": ["who_to_reach"],
         "other": [],
     }
     for r in tm.ROUTINES:

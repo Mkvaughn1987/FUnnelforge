@@ -611,7 +611,7 @@ def _pretty_date(iso):
     return d.strftime("%d %b").lstrip("0") if d else ""
 
 
-def _company_card(row, app_url):
+def _company_card(row, app_url, issue_id=""):
     sig = SIGNAL_BY_ID[row["signal"]]
     badge_bg = RED if sig["urgent"] else GREEN
     history = (f'<p style="margin:8px 0 0;color:{NAVY};font-size:13px;line-height:1.5;">'
@@ -620,7 +620,12 @@ def _company_card(row, app_url):
     links = [f'<a href="{_e(row["source_url"])}" style="color:{GREEN};'
              f'text-decoration:none;font-weight:600;">Source</a>']
     if app_url:
-        links.append(f'<a href="{_e(app_url)}/?open=tm_prompts" style="color:{GREEN};'
+        # One company, one campaign: the link names the issue and the
+        # company, and the app reads the signal back from the user's own
+        # saved issues (tm_signal_campaign). Mike 2026-11-18.
+        import tm_signal_campaign
+        href = tm_signal_campaign.link_for(app_url, issue_id, row["company"])
+        links.append(f'<a href="{_e(href)}" style="color:{GREEN};'
                      'text-decoration:none;font-weight:600;">Build a campaign</a>')
     loc = f' <span style="color:{MUTED};font-weight:400;">· {_e(row["location"])}</span>' \
         if row.get("location") else ""
@@ -681,7 +686,8 @@ def render_email(issue, brand="inboxslide", app_url="", days=SEND_WEEKDAYS):
             sub = [r for r in rows if group_of(r) == key]
             if sub:
                 parts.append(_h2(title, colours[key]))
-                parts.extend(_company_card(r, app_url) for r in sub)
+                parts.extend(_company_card(r, app_url, issue.get("id") or "")
+                             for r in sub)
         if news:
             parts.append(_h2("Industry news"))
             parts.extend(_news_line(r) for r in news)
@@ -1053,7 +1059,11 @@ def _issue_rows(C, issue):
                             f"font-size:12px;color:{C['text_l']};font-style:italic;"
                             f"border-left:3px solid {C['border']};padding:4px 10px;"
                             "display:block;margin:0 0 6px;")
-                    ui.html(f'<a href="{_e(r["source_url"])}" target="_blank" rel="noopener">Source</a>',
+                    import tm_signal_campaign
+                    build = tm_signal_campaign.link_for(
+                        "", issue.get("id") or "", r["company"])
+                    ui.html(f'<a href="{_e(r["source_url"])}" target="_blank" rel="noopener">Source</a>'
+                            f' &nbsp;·&nbsp; <a href="{_e(build)}">Build a campaign</a>',
                             sanitize=False)
         if news:
             ui.label("Industry news").classes("tms-sec").style(f"color:{C['text_l']};")
