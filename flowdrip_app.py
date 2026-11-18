@@ -35078,6 +35078,80 @@ def _humanize_iso_age(iso: str) -> str:
 #  PAGE: CONTACT LIST
 # ═══════════════════════════════════════════════════════════════════════════
 
+# Contact filters on an open list: (key, chip label, suffix for a saved list).
+_CT_FILTERS = (
+    ("all",        "Everyone",          ""),
+    ("email",      "Has email",         "with email"),
+    ("mobile",     "Has mobile",        "with mobile"),
+    ("phone",      "Has any phone",     "with phone"),
+    ("both",       "Email + phone",     "email and phone"),
+    ("phone_only", "Phone, no email",   "phone only"),
+    ("linkedin",   "On LinkedIn",       "on LinkedIn"),
+)
+
+
+def _ct_filter_match(c, key):
+    """True when contact `c` belongs under filter `key` (see _CT_FILTERS)."""
+    em = bool((c.get("email") or "").strip())
+    mob = bool((c.get("phone_mobile") or "").strip())
+    ph = mob or bool((c.get("phone_office") or "").strip())
+    if key == "email":
+        return em
+    if key == "mobile":
+        return mob
+    if key == "phone":
+        return ph
+    if key == "both":
+        return em and ph
+    if key == "phone_only":
+        return ph and not em
+    if key == "linkedin":
+        return bool((c.get("linkedin") or "").strip())
+    return True
+
+
+_LIST_INDUSTRY_CACHE: dict = {}
+
+
+def _list_industry(path) -> str:
+    """The industry most of a saved list's contacts are in ("" if none).
+    Read from the Industry column; cached per file until it changes."""
+    p = Path(path)
+    try:
+        st = p.stat()
+    except Exception:
+        return ""
+    key = (str(p), st.st_mtime, st.st_size)
+    if key in _LIST_INDUSTRY_CACHE:
+        return _LIST_INDUSTRY_CACHE[key]
+    counts: dict = {}
+    try:
+        with open(p, newline="", encoding="utf-8-sig") as f:
+            rd = csv.DictReader(f)
+            col = next((h for h in (rd.fieldnames or [])
+                        if str(h).strip().lower() == "industry"), None)
+            if col:
+                for r in rd:
+                    v = (r.get(col) or "").strip()
+                    if v:
+                        counts[v] = counts.get(v, 0) + 1
+    except Exception:
+        counts = {}
+    ind = max(counts, key=counts.get) if counts else ""
+    _LIST_INDUSTRY_CACHE[key] = ind
+    return ind
+
+
+def _unique_list_name(base: str, existing) -> str:
+    """`base`, or `base (2)`, `base (3)`... - whichever is not in `existing`."""
+    taken = {str(n).replace("_", " ").lower() for n in existing}
+    name, i = base, 2
+    while name.lower() in taken:
+        name = f"{base} ({i})"
+        i += 1
+    return name
+
+
 def p_contacts(s, rf):
     _render_page_intro_strip(s, rf, "contacts")
     contacts = load_contacts()
@@ -35170,12 +35244,14 @@ def p_contacts(s, rf):
             except Exception:
                 pass
             s.expanded = {k for k in s.expanded if not str(k).startswith("contact_")}
+            s._ct_filter = "all"
             rf()
 
         def _add_new():
             contacts.insert(0, dict(first_name="", last_name="", email="", company="", title="",
                                     phone_mobile="", phone_office="", linkedin="", city="", state=""))
             _save_contacts_to_csv(contacts)
+            s._ct_filter = "all"
             s.expanded.add("contact_0"); rf()
 
         with ui.element("div").classes("fd-ct-head"):
@@ -35196,16 +35272,57 @@ def p_contacts(s, rf):
             _meta.append(f"{_n_mob} mobile")
         ui.label(" · ".join(_meta)).classes("fd-ct-meta")
 
+        # Filter chips: who in this list has an email, a phone, both...
+        _fkey = getattr(s, "_ct_filter", "all")
+        if _fkey not in {k for k, _l, _x in _CT_FILTERS}:
+            _fkey = "all"
+        _fcounts = {k: sum(1 for c in contacts if _ct_filter_match(c, k))
+                    for k, _l, _x in _CT_FILTERS}
+        _filtered = [(i, c) for i, c in enumerate(contacts) if _ct_filter_match(c, _fkey)]
+
+        def _set_filter(k):
+            s._ct_filter = k
+            s.expanded = {x for x in s.expanded if not str(x).startswith("contact_")}
+            rf()
+
+        def _save_filtered():
+            _lbl, _suffix = next((l, x) for k, l, x in _CT_FILTERS if k == _fkey)
+            _rows = [c for _i, c in _filtered]
+            if not _rows:
+                return
+            _base = f"{_active_list_name or 'Contacts'} - {_suffix}"
+            _name = _unique_list_name(_base, list_saved_contact_lists().keys())
+            _safe = re.sub(r'[\\/:*?"<>|]+', "-", _name).strip()
+            _dest = _user_contacts_dir() / f"{_safe}.csv"
+            _atomic_write_csv_text(_dest, _contacts_csv_text(_rows, _CONTACT_COLMAP_SNAKE))
+            ui.notify(f"Saved {len(_rows)} contacts as '{_safe}'", type="positive")
+            rf()
+
+        with ui.element("div").classes("fd-ct-filters"):
+            with ui.element("div").classes("fd-seg"):
+                for _k, _l, _x in _CT_FILTERS:
+                    if _k != "all" and not _fcounts[_k]:
+                        continue
+                    with ui.element("button").classes(
+                            "fd-seg-btn" + (" on" if _k == _fkey else "")).props(
+                            'type="button"').on("click", lambda k=_k: _set_filter(k)):
+                        ui.label(f"{_l} ({_fcounts[_k]})")
+            if _fkey != "all" and _filtered:
+                with ui.element("button").classes("fd-gb").props('type="button"').style(
+                        "padding:6px 14px;font-size:12px;").on("click", _save_filtered):
+                    ui.label(f"Save these {len(_filtered)} as a new list").style(
+                        "pointer-events:none;")
+
         _ct_search = None
-        if len(contacts) > 5:
+        if len(_filtered) > 5:
             with ui.element("div").classes("fd-filters").style("margin-bottom:12px;"):
                 _ct_search = ui.input(placeholder="Search name, title, company, email…").props(
                     "dense outlined clearable").classes("fd-input")
 
         _ct_rows = []
-        _shown = contacts[:500]
+        _shown = _filtered[:500]
         with ui.element("div").classes("fd-ct-people"):
-            for idx, c in enumerate(_shown):
+            for idx, c in _shown:
                 name = f"{c.get('first_name', '')} {c.get('last_name', '')}".strip()
                 ini = initials(name) if name else "??"
                 cid = f"contact_{idx}"
@@ -35226,6 +35343,9 @@ def p_contacts(s, rf):
                             _li_href = _li_url if _li_url.startswith("http") else f"https://{_li_url}"
                             with ui.link(target=_li_href, new_tab=True).classes("fd-ct-li"):
                                 ui.label("in")
+                        _ph_str = (c.get("phone_mobile") or c.get("phone_office") or "").strip()
+                        if _ph_str:
+                            ui.label(_ph_str).classes("fd-ct-phone")
                         ui.label(c.get("email", "")).classes("fd-ct-email")
 
                         def _edit(x=cid):
@@ -35280,9 +35400,9 @@ def p_contacts(s, rf):
                                 with ui.element("button").classes("fd-pb").style("padding:5px 14px;font-size:11px;").on("click", _save_contact):
                                     ui.label("Save contact")
                 _ct_rows.append((_row, " ".join(
-                    [name, c.get("email", "")] + _meta_parts).lower()))
-        if len(contacts) > len(_shown):
-            ui.label(f"Showing the first {len(_shown)} of {len(contacts)}. Search to find anyone else.").classes(
+                    [name, c.get("email", ""), _ph_str] + _meta_parts).lower()))
+        if len(_filtered) > len(_shown):
+            ui.label(f"Showing the first {len(_shown)} of {len(_filtered)}. Search to find anyone else.").classes(
                 "fd-ct-meta").style("margin-top:10px;")
         if _ct_search is not None:
             _bind_search(_ct_search, _ct_rows)
@@ -35313,14 +35433,53 @@ def p_contacts(s, rf):
                 return Path(p).stat().st_mtime
             except Exception:
                 return 0
+        # Lists grouped by industry (the Industry column most of a list is in).
+        _inds = {name: _list_industry(path) for name, path in saved.items()}
+        _ind_names = sorted({v for v in _inds.values() if v})
+        _grouped = len(set(_inds.values())) > 1
+        _ind_sel = getattr(s, "_ct_ind", "")
+        if _ind_sel and _ind_sel not in _ind_names:
+            _ind_sel = ""
+        if _grouped:
+            def _set_ind(v):
+                s._ct_ind = v; rf()
+            _ind_tot = {}
+            for _n, _p in saved.items():
+                _k = _inds[_n] or "No industry"
+                _ind_tot[_k] = _ind_tot.get(_k, 0) + 1
+            with ui.element("div").classes("fd-ct-filters"):
+                with ui.element("div").classes("fd-seg"):
+                    for _v, _l in [("", f"All industries ({len(saved)})")] + [
+                            (v, f"{v} ({_ind_tot.get(v, 0)})") for v in _ind_names]:
+                        with ui.element("button").classes(
+                                "fd-seg-btn" + (" on" if _v == _ind_sel else "")).props(
+                                'type="button"').on("click", lambda v=_v: _set_ind(v)):
+                            ui.label(_l)
+
+        def _order(kv):
+            ind = _inds[kv[0]]
+            return (0 if ind else 1, ind.lower(), -_mtime(kv[1]))
+        _items = [kv for kv in sorted(saved.items(), key=_order)
+                  if not _ind_sel or _inds[kv[0]] == _ind_sel]
+        _group_sizes = {}
+        for _n, _p in _items:
+            _g = _inds[_n] or "No industry"
+            _group_sizes[_g] = _group_sizes.get(_g, 0) + (_get_csv_row_count(_p) or 0)
+
         _ls_rows = []
+        _cur_group = None
         with ui.element("div").classes("fd-nl-list"):
             with ui.element("div").classes("fd-nl-row fd-nl-head"):
                 ui.label("List").classes("fd-nl-cell")
                 ui.label("Contacts").classes("fd-nl-cell")
                 ui.label("Updated").classes("fd-nl-cell")
                 ui.element("div").classes("fd-nl-cell")
-            for name, path in sorted(saved.items(), key=lambda kv: -_mtime(kv[1])):
+            for name, path in _items:
+                if _grouped and (_inds[name] or "No industry") != _cur_group:
+                    _cur_group = _inds[name] or "No industry"
+                    from html import escape as _gesc
+                    ui.html(f"{_gesc(_cur_group)}<span>{_group_sizes[_cur_group]:,} contacts</span>"
+                            ).classes("fd-ct-group")
                 cnt = _get_csv_row_count(path)
                 label = name.replace("_", " ")
                 _mt = _mtime(path)
@@ -35329,6 +35488,7 @@ def p_contacts(s, rf):
                 def _load_list(p=path, n=label):
                     import shutil
                     shutil.copy2(p, str(_user_contacts_csv_path()))
+                    s._ct_filter = "all"
                     rf()
 
                 with ui.dialog() as confirm_dialog, ui.card().style(
@@ -39620,7 +39780,12 @@ def _ct_css() -> str:
 .fd-ct-li{{text-decoration:none;flex-shrink:0;font-size:10px;font-weight:800;color:{C['indigo']};
   background:{C['indigo_dim']};padding:2px 6px;border-radius:4px}}
 .fd-ct-email{{font-size:12.5px;color:{C['text']};flex-shrink:0;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
-@media (max-width:700px){{.fd-ct-email{{display:none}}}}
+.fd-ct-phone{{font-size:12.5px;color:{C['muted']};flex-shrink:0;white-space:nowrap}}
+.fd-ct-filters{{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px}}
+.fd-ct-group{{cursor:default;padding:8px 16px;background:{C['surface']};font-size:12px;font-weight:700;
+  letter-spacing:.04em;color:{C['text']};border-top:1px solid {C['border']}}}
+.fd-ct-group span{{color:{C['muted']};font-weight:600;margin-left:6px}}
+@media (max-width:700px){{.fd-ct-email,.fd-ct-phone{{display:none}}}}
 """
 
 def _co_css() -> str:
